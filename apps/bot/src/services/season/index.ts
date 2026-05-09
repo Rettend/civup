@@ -113,7 +113,8 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
       wins: 0,
       importedGames: 0,
       effectiveGames: 0,
-      uniqueOpponents: 0,
+      winsVsElite: 0,
+      winsVsLegionPlus: 0,
     })
   }
   if (input.kv) {

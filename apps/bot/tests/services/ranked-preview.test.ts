@@ -364,7 +364,6 @@ async function seedPlayers(
       gamesPlayed: options.gamesPlayed,
       lastPlayedAt: NOW,
       effectiveGames: options.gamesPlayed,
-      uniqueOpponents: options.gamesPlayed,
     }).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: {
@@ -373,7 +372,6 @@ async function seedPlayers(
         gamesPlayed: options.gamesPlayed,
         lastPlayedAt: NOW,
         effectiveGames: options.gamesPlayed,
-        uniqueOpponents: options.gamesPlayed,
       },
     })
     await db.insert(playerRatings).values({
@@ -384,7 +382,6 @@ async function seedPlayers(
       gamesPlayed: options.gamesPlayed,
       lastPlayedAt: NOW,
       effectiveGames: options.gamesPlayed,
-      uniqueOpponents: options.gamesPlayed,
     }).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: {
@@ -393,7 +390,6 @@ async function seedPlayers(
         gamesPlayed: options.gamesPlayed,
         lastPlayedAt: NOW,
         effectiveGames: options.gamesPlayed,
-        uniqueOpponents: options.gamesPlayed,
       },
     })
   }

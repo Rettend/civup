@@ -21,8 +21,10 @@ export const playerRatings = sqliteTable('player_ratings', {
   importedGames: integer('imported_games').notNull().default(0),
   /** Qualification evidence after source weighting */
   effectiveGames: real('effective_games').notNull().default(0),
-  /** Approximate unique opponent evidence for qualification */
-  uniqueOpponents: integer('unique_opponents').notNull().default(0),
+  /** Wins over managed Elite-ranked opponents */
+  winsVsElite: integer('wins_vs_elite').notNull().default(0),
+  /** Wins over managed Legion-or-better opponents */
+  winsVsLegionPlus: integer('wins_vs_legion_plus').notNull().default(0),
   /** Unix timestamp ms of last game */
   lastPlayedAt: integer('last_played_at', { mode: 'number' }),
   /** Unix timestamp ms of last summary update */

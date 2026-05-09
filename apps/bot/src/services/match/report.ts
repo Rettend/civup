@@ -10,6 +10,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
 import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
@@ -17,6 +18,7 @@ import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
   allowDirectTerminalWriteForTests?: boolean
+  rankedRoleGuildId?: string | null
 }
 
 interface RatedReportMatchContext {
@@ -39,14 +41,16 @@ interface StoredRatingSummaryRow {
   lastPlayedAt: number | null
   importedGames: number
   effectiveGames: number
-  uniqueOpponents: number
+  winsVsElite: number
+  winsVsLegionPlus: number
   updatedAt: number | null
 }
 
 interface MatchEvidenceDelta {
   importedGames: number
   effectiveGames: number
-  uniqueOpponents: number
+  winsVsElite: number
+  winsVsLegionPlus: number
 }
 
 interface RatingScopeUpdateInput {
@@ -351,6 +355,8 @@ async function finalizeReportedMatch(
 
   const applied = await applyIncrementalRatedReport(
     db,
+    kv,
+    options.rankedRoleGuildId,
     match,
     gameContext.mode,
     leaderboardMode,
@@ -445,7 +451,8 @@ async function listPlayerRatingsForPlayers(
       wins: playerRatings.wins,
       importedGames: playerRatings.importedGames,
       effectiveGames: playerRatings.effectiveGames,
-      uniqueOpponents: playerRatings.uniqueOpponents,
+      winsVsElite: playerRatings.winsVsElite,
+      winsVsLegionPlus: playerRatings.winsVsLegionPlus,
       lastPlayedAt: playerRatings.lastPlayedAt,
       updatedAt: playerRatings.updatedAt,
     })
@@ -468,7 +475,8 @@ async function listPlayerRatingsForPlayers(
       wins: row.wins,
       importedGames: row.importedGames,
       effectiveGames: row.effectiveGames,
-      uniqueOpponents: row.uniqueOpponents,
+      winsVsElite: row.winsVsElite,
+      winsVsLegionPlus: row.winsVsLegionPlus,
       lastPlayedAt: row.lastPlayedAt ?? null,
       updatedAt: row.updatedAt ?? null,
     })
@@ -479,6 +487,8 @@ async function listPlayerRatingsForPlayers(
 
 async function applyIncrementalRatedReport(
   db: Database,
+  kv: KVNamespace,
+  rankedRoleGuildId: string | null | undefined,
   match: RatedReportMatchContext,
   gameMode: string,
   leaderboardMode: LeaderboardMode,
@@ -486,7 +496,8 @@ async function applyIncrementalRatedReport(
   existingRatingsByScope: Map<RatingScope, Map<string, StoredRatingSummaryRow>>,
   now: number,
 ): Promise<string | null> {
-  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld)
+  const opponentTierByPlayerId = await loadCurrentRankedRoleTierByPlayerId(kv, rankedRoleGuildId)
+  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld, opponentTierByPlayerId)
   const modeResult = await applyRatingScopeUpdate(db, {
     scope: leaderboardMode,
     match,
@@ -587,7 +598,10 @@ async function applyRatingScopeUpdate(
 
     const existing = input.existingRatingsByPlayerId.get(update.playerId)
     const isWin = placementByPlayerId.get(update.playerId) === 1
-    const evidence = input.evidenceByPlayerId.get(update.playerId) ?? { importedGames: 0, effectiveGames: 0, uniqueOpponents: 0 }
+    const evidence = input.evidenceByPlayerId.get(update.playerId) ?? createEmptyMatchEvidenceDelta()
+    const qualityWins = input.scope === GLOBAL_RATING_SCOPE
+      ? evidence
+      : createEmptyMatchEvidenceDelta()
     const row = {
       playerId: update.playerId,
       mode: input.scope,
@@ -597,7 +611,8 @@ async function applyRatingScopeUpdate(
       wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
       importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
       effectiveGames: (existing?.effectiveGames ?? 0) + evidence.effectiveGames,
-      uniqueOpponents: (existing?.uniqueOpponents ?? 0) + evidence.uniqueOpponents,
+      winsVsElite: (existing?.winsVsElite ?? 0) + qualityWins.winsVsElite,
+      winsVsLegionPlus: (existing?.winsVsLegionPlus ?? 0) + qualityWins.winsVsLegionPlus,
       lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.now,
       updatedAt: input.now,
     }
@@ -611,18 +626,73 @@ async function applyRatingScopeUpdate(
   return null
 }
 
-function buildMatchEvidenceByPlayerId(participantRows: ParticipantRow[], isOld: boolean): Map<string, MatchEvidenceDelta> {
+function buildMatchEvidenceByPlayerId(
+  participantRows: ParticipantRow[],
+  isOld: boolean,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+): Map<string, MatchEvidenceDelta> {
   const sourceWeight = isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
-  return new Map(participantRows.map(participant => [participant.playerId, {
-    importedGames: isOld ? 1 : 0,
-    effectiveGames: sourceWeight,
-    uniqueOpponents: countOpponentsForParticipant(participant, participantRows),
-  }]))
+  return new Map(participantRows.map((participant) => {
+    const qualityWins = countQualityWinsForParticipant(participant, participantRows, opponentTierByPlayerId)
+    return [participant.playerId, {
+      importedGames: isOld ? 1 : 0,
+      effectiveGames: sourceWeight,
+      winsVsElite: qualityWins.winsVsElite,
+      winsVsLegionPlus: qualityWins.winsVsLegionPlus,
+    }]
+  }))
 }
 
-function countOpponentsForParticipant(participant: ParticipantRow, participantRows: ParticipantRow[]): number {
-  if (participant.team == null) return participantRows.filter(row => row.playerId !== participant.playerId).length
-  return participantRows.filter(row => row.playerId !== participant.playerId && row.team !== participant.team).length
+function createEmptyMatchEvidenceDelta(): MatchEvidenceDelta {
+  return {
+    importedGames: 0,
+    effectiveGames: 0,
+    winsVsElite: 0,
+    winsVsLegionPlus: 0,
+  }
+}
+
+function countQualityWinsForParticipant(
+  participant: Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>,
+  participantRows: Array<Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>>,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+): { winsVsElite: number, winsVsLegionPlus: number } {
+  let winsVsElite = 0
+  let winsVsLegionPlus = 0
+
+  for (const opponent of participantRows) {
+    if (!didDefeatOpponent(participant, opponent)) continue
+    const opponentTierNumber = rankedRoleTierNumber(opponentTierByPlayerId.get(opponent.playerId) ?? null)
+    if (opponentTierNumber == null) continue
+    if (opponentTierNumber <= 1) winsVsElite += 1
+    if (opponentTierNumber <= 2) winsVsLegionPlus += 1
+  }
+
+  return { winsVsElite, winsVsLegionPlus }
+}
+
+function didDefeatOpponent(
+  participant: Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>,
+  opponent: Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>,
+): boolean {
+  if (participant.playerId === opponent.playerId) return false
+  if (participant.team != null && opponent.team != null && participant.team === opponent.team) return false
+  if (participant.placement == null || opponent.placement == null) return false
+  return participant.placement < opponent.placement
+}
+
+async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+  if (!guildId) return new Map()
+  const assignments = await getCurrentRankAssignments(kv, guildId)
+  return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
+}
+
+function rankedRoleTierNumber(tier: string | null): number | null {
+  if (!tier) return null
+  const match = /^tier(\d+)$/i.exec(tier.trim())
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? Math.round(value) : null
 }
 
 async function repairCompletedReportedMatch(
@@ -645,7 +715,11 @@ async function repairCompletedReportedMatch(
     includeFromMatch: true,
   })
   if ('error' in recalculated) return recalculated
-  const recalculatedGlobal = await recalculateGlobalRatings(db)
+  const recalculatedGlobal = await recalculateGlobalRatings(db, {
+    fromMatchId: match.id,
+    includeFromMatch: true,
+    opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+  })
   if ('error' in recalculatedGlobal) return recalculatedGlobal
 
   await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
@@ -757,6 +831,7 @@ async function rollbackReportedRatedMatch(
     match: { id: string, draftData: string | null }
     leaderboardMode: LeaderboardMode
     participantRows?: ParticipantRow[]
+    rankedRoleGuildId?: string | null
   },
 ): Promise<string | null> {
   try {
@@ -805,7 +880,11 @@ async function rollbackReportedRatedMatch(
       includeFromMatch: false,
     })
     if ('error' in recalculated) return recalculated.error
-    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      fromMatchId: options.match.id,
+      includeFromMatch: false,
+      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+    })
     if ('error' in recalculatedGlobal) return recalculatedGlobal.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
@@ -825,7 +904,7 @@ async function rollbackPreparedReportAfterLifecycleFailure(
   participantRows?: ParticipantRow[],
 ): Promise<string | null> {
   if (!await shouldRollbackPreparedReportedMatch(options, match.id)) return null
-  return rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows })
+  return rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows, rankedRoleGuildId: options.rankedRoleGuildId })
 }
 
 async function rollbackParticipantRowsAfterLifecycleFailure(

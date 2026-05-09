@@ -305,6 +305,7 @@ export const command_match = factory.command<MatchVar>(
               cancelledAt: Date.now(),
             }, {
               sessionNamespace: c.env.SessionDO,
+              rankedRoleGuildId: lobby.guildId,
             })
 
             if ('error' in result) {
@@ -735,6 +736,7 @@ export const command_match = factory.command<MatchVar>(
             placements,
           }, {
             sessionNamespace: c.env.SessionDO,
+            rankedRoleGuildId: c.interaction.guild_id ?? null,
           })
 
           if ('error' in result) {

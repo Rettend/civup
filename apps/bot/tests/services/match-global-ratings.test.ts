@@ -69,17 +69,22 @@ describe('match global ratings', () => {
 
   test('reportMatch writes mode and global summary rows', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
+      const kv = createTestKv()
 
-    try {
-      await seedDuelPlayers(db)
-      await seedActiveDuel(db, 'active-1', NOW)
+      try {
+        await seedDuelPlayers(db)
+        await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+          byPlayerId: {
+            [VILLAIN_ID]: { tier: 'tier1', sourceMode: null },
+          },
+        }))
+        await seedActiveDuel(db, 'active-1', NOW)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'active-1',
-        reporterId: HERO_ID,
-        placements: `<@${HERO_ID}>`,
-      }, directTerminalOptions)
+        const result = await reportMatch(db, kv, {
+          matchId: 'active-1',
+          reporterId: HERO_ID,
+          placements: `<@${HERO_ID}>`,
+        }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' })
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -89,7 +94,8 @@ describe('match global ratings', () => {
       expect(modeRating?.gamesPlayed).toBe(1)
       expect(globalRating?.gamesPlayed).toBe(1)
       expect(globalRating?.effectiveGames).toBe(1)
-      expect(globalRating?.uniqueOpponents).toBe(1)
+      expect(globalRating?.winsVsElite).toBe(1)
+      expect(globalRating?.winsVsLegionPlus).toBe(1)
       expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
     }
     finally {
@@ -105,7 +111,9 @@ describe('match global ratings', () => {
       await seedCompletedDuel(db, { matchId: 'm1', completedAt: NOW - 1_000, isOld: false })
       await seedCompletedDuel(db, { matchId: 'old-1', completedAt: NOW, isOld: true })
 
-      const result = await recalculateGlobalRatings(db)
+      const result = await recalculateGlobalRatings(db, {
+        opponentTierByPlayerId: new Map([[VILLAIN_ID, 'tier2']]),
+      })
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
@@ -113,7 +121,8 @@ describe('match global ratings', () => {
       expect(rating?.gamesPlayed).toBe(2)
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(1.5)
-      expect(rating?.uniqueOpponents).toBe(2)
+      expect(rating?.winsVsElite).toBe(0)
+      expect(rating?.winsVsLegionPlus).toBe(2)
     }
     finally {
       sqlite.close()

@@ -17,7 +17,8 @@ export interface PlayerRatingSummary {
   wins: number
   importedGames: number
   effectiveGames: number
-  uniqueOpponents: number
+  winsVsElite: number
+  winsVsLegionPlus: number
   lastPlayedAt: number | null
 }
 

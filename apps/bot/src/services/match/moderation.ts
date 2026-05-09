@@ -8,6 +8,7 @@ import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../sess
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
@@ -15,6 +16,7 @@ import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.
 interface MatchSessionLifecycleOptions {
   sessionNamespace?: DurableObjectNamespace | null
   allowDirectTerminalWriteForTests?: boolean
+  rankedRoleGuildId?: string | null
 }
 
 const LIVE_LEADER_IDS = new Set<string>(allLeaderIds)
@@ -115,11 +117,17 @@ export async function resolveMatchByModerator(
           participants,
           bans: originalBans,
           leaderboardMode,
+          rankedRoleGuildId: options.rankedRoleGuildId,
         })
         if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculated
       }
-      const recalculatedGlobal = await recalculateGlobalRatings(db)
+      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+        fromMatchId: input.matchId,
+        includeFromMatch: true,
+        includeActiveBoundary: previousStatus !== 'completed',
+        opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+      })
       if ('error' in recalculatedGlobal) {
         const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
           input,
@@ -127,6 +135,7 @@ export async function resolveMatchByModerator(
           participants,
           bans: originalBans,
           leaderboardMode,
+          rankedRoleGuildId: options.rankedRoleGuildId,
         })
         if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculatedGlobal
@@ -142,6 +151,7 @@ export async function resolveMatchByModerator(
           participants,
           bans: originalBans,
           leaderboardMode,
+          rankedRoleGuildId: options.rankedRoleGuildId,
         })
         if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
         return { error: lifecycleError }
@@ -154,6 +164,7 @@ export async function resolveMatchByModerator(
         participants,
         bans: originalBans,
         leaderboardMode,
+        rankedRoleGuildId: options.rankedRoleGuildId,
       })
       if (rollbackError) {
         console.error(`Failed to roll back resolved match ${input.matchId}:`, rollbackError)
@@ -286,6 +297,7 @@ async function rollbackResolvedMatchModeration(
     participants: ParticipantRow[]
     bans: MatchBanRow[]
     leaderboardMode: LeaderboardMode
+    rankedRoleGuildId?: string | null
   },
 ): Promise<string | null> {
   try {
@@ -326,7 +338,11 @@ async function rollbackResolvedMatchModeration(
       includeFromMatch: options.match.status === 'completed',
     })
     if ('error' in recalculated) return recalculated.error
-    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      fromMatchId: options.input.matchId,
+      includeFromMatch: options.match.status === 'completed',
+      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+    })
     if ('error' in recalculatedGlobal) return recalculatedGlobal.error
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
@@ -562,7 +578,11 @@ export async function cancelMatchByModerator(
       includeFromMatch: false,
     })
     if ('error' in recalculated) return recalculated
-    const recalculatedGlobal = await recalculateGlobalRatings(db)
+    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      fromMatchId: input.matchId,
+      includeFromMatch: false,
+      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+    })
     if ('error' in recalculatedGlobal) return recalculatedGlobal
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
@@ -624,6 +644,12 @@ async function isManualReportedMatch(db: Database, matchId: string): Promise<boo
     .where(eq(matches.id, matchId))
     .limit(1)
   return isManualReportDraftData(match?.draftData ?? null)
+}
+
+async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+  if (!guildId) return new Map()
+  const assignments = await getCurrentRankAssignments(kv, guildId)
+  return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
 }
 
 async function applyDirectTerminalCommand(

@@ -48,6 +48,7 @@ interface HistoricalParticipantRow {
   completedAt: number | null
   isOld: boolean
   playerId: string
+  team: number | null
   placement: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
@@ -60,7 +61,8 @@ interface RatingState {
   wins: number
   importedGames: number
   effectiveGames: number
-  uniqueOpponents: number
+  winsVsElite: number
+  winsVsLegionPlus: number
   lastPlayedAt: number | null
 }
 
@@ -72,6 +74,10 @@ interface RecalculateLeaderboardModeOptions {
   fromMatchId?: string
   includeFromMatch?: boolean
   includeActiveBoundary?: boolean
+}
+
+interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOptions {
+  opponentTierByPlayerId?: ReadonlyMap<string, string>
 }
 
 const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
@@ -123,6 +129,7 @@ export async function recalculateLeaderboardMode(
 
 export async function recalculateGlobalRatings(
   db: Database,
+  options: RecalculateGlobalRatingsOptions = {},
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const seasonRows = await db
     .select({
@@ -132,6 +139,26 @@ export async function recalculateGlobalRatings(
     })
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
+
+  if (options.fromMatchId) {
+    return recalculateGlobalRatingsFromBoundary(
+      db,
+      seasonRows,
+      options.fromMatchId,
+      options.includeFromMatch ?? true,
+      options.includeActiveBoundary ?? false,
+      options.opponentTierByPlayerId ?? new Map(),
+    )
+  }
+
+  return recalculateGlobalRatingsFromScratch(db, seasonRows, options.opponentTierByPlayerId ?? new Map())
+}
+
+async function recalculateGlobalRatingsFromScratch(
+  db: Database,
+  seasonRows: StoredSeasonRow[],
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+): Promise<{ matchIds: string[] } | { error: string }> {
 
   const completedMatches = await db
     .select({
@@ -178,7 +205,10 @@ export async function recalculateGlobalRatings(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, { writeParticipantSnapshots: false })
+    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+      writeParticipantSnapshots: false,
+      opponentTierByPlayerId,
+    })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
@@ -186,6 +216,172 @@ export async function recalculateGlobalRatings(
   await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
 
   return { matchIds: completedMatches.map(match => match.id) }
+}
+
+async function recalculateGlobalRatingsFromBoundary(
+  db: Database,
+  seasonRows: StoredSeasonRow[],
+  fromMatchId: string,
+  includeFromMatch: boolean,
+  includeActiveBoundary: boolean,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+  extraReplayMatches: StoredMatchRow[] = [],
+): Promise<{ matchIds: string[] } | { error: string }> {
+  const [boundaryMatch] = await db
+    .select({
+      id: matches.id,
+      gameMode: matches.gameMode,
+      draftData: matches.draftData,
+      isOld: matches.isOld,
+      createdAt: matches.createdAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .where(eq(matches.id, fromMatchId))
+    .limit(1)
+
+  if (!boundaryMatch) return { error: `Match **${fromMatchId}** not found.` }
+
+  const boundaryContext = getStoredGameModeContext(boundaryMatch.gameMode, boundaryMatch.draftData)
+  if (!boundaryContext) return { error: `Match **${boundaryMatch.id}** has unsupported game mode: ${boundaryMatch.gameMode}.` }
+  if (boundaryContext.leaderboardMode == null) return { matchIds: [] }
+
+  const extraReplayMatchIds = extraReplayMatches.map(match => match.id)
+  const boundaryReplayCondition = includeActiveBoundary
+    ? or(
+        and(
+          eq(matches.status, 'completed'),
+          buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+        ),
+        eq(matches.id, fromMatchId),
+      )
+    : and(
+        eq(matches.status, 'completed'),
+        buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+      )
+  const replayCondition = extraReplayMatchIds.length > 0
+    ? or(boundaryReplayCondition, inArray(matches.id, extraReplayMatchIds))
+    : boundaryReplayCondition
+
+  const [boundaryParticipants, replayMatches] = await Promise.all([
+    db
+      .select({ playerId: matchParticipants.playerId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, fromMatchId)),
+    db
+      .select({
+        id: matches.id,
+        gameMode: matches.gameMode,
+        draftData: matches.draftData,
+        isOld: matches.isOld,
+        createdAt: matches.createdAt,
+        completedAt: matches.completedAt,
+      })
+      .from(matches)
+      .where(and(
+        inArray(matches.gameMode, [...GAME_MODES]),
+        replayCondition,
+      ))
+      .orderBy(asc(matches.createdAt), asc(matches.id)),
+  ])
+
+  const replayParticipantRows = replayMatches.length > 0
+    ? await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          civId: matchParticipants.civId,
+          placement: matchParticipants.placement,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
+        .from(matchParticipants)
+        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
+    : []
+
+  const affectedPlayerIds = [...new Set([
+    ...boundaryParticipants.map(participant => participant.playerId),
+    ...replayParticipantRows.map(participant => participant.playerId),
+  ])].sort((a, b) => a.localeCompare(b))
+  const affectedPlayerIdSet = new Set(affectedPlayerIds)
+
+  const earlierAffectedMatchIds = affectedPlayerIds.length > 0
+    ? await db
+        .select({ matchId: matchParticipants.matchId })
+        .from(matchParticipants)
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(and(
+          eq(matches.status, 'completed'),
+          inArray(matches.gameMode, [...GAME_MODES]),
+          inArray(matchParticipants.playerId, affectedPlayerIds),
+          buildBoundaryCondition(boundaryMatch, false, 'before'),
+        ))
+    : []
+  const earlierMatchIds = [...new Set(earlierAffectedMatchIds.map(row => row.matchId))]
+
+  const earlierParticipantRows = earlierMatchIds.length > 0
+    ? await db
+        .select({
+          matchId: matchParticipants.matchId,
+          createdAt: matches.createdAt,
+          completedAt: matches.completedAt,
+          isOld: matches.isOld,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          placement: matchParticipants.placement,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
+        .from(matchParticipants)
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(inArray(matchParticipants.matchId, earlierMatchIds))
+        .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
+    : []
+
+  const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
+  const seasonProgress: SeasonProgress = { value: 0 }
+  const hydrateResult = hydrateRatingStateUntilBoundary(
+    ratingStateByPlayer,
+    seasonRows,
+    seasonProgress,
+    earlierParticipantRows,
+    boundaryMatch.createdAt,
+    { trackedPlayerIds: affectedPlayerIdSet, opponentTierByPlayerId },
+  )
+  if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
+    const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
+    if (!missingSnapshotMatchId) return { error: hydrateResult }
+    return recalculateGlobalRatingsFromBoundary(
+      db,
+      seasonRows,
+      missingSnapshotMatchId,
+      true,
+      false,
+      opponentTierByPlayerId,
+      includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
+    )
+  }
+  if (typeof hydrateResult === 'string') return { error: hydrateResult }
+
+  const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
+  for (const match of replayMatches) {
+    applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
+
+    const participantRows = participantsByMatchId.get(match.id) ?? []
+    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+      writeParticipantSnapshots: false,
+      opponentTierByPlayerId,
+    })
+    if (typeof replayResult === 'string') return { error: replayResult }
+  }
+
+  applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
+
+  return { matchIds: replayMatches.map(match => match.id) }
 }
 
 async function recalculateLeaderboardModeFromScratch(
@@ -349,6 +545,7 @@ async function recalculateLeaderboardModeFromBoundary(
           completedAt: matches.completedAt,
           isOld: matches.isOld,
           playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
           placement: matchParticipants.placement,
           ratingAfterMu: matchParticipants.ratingAfterMu,
           ratingAfterSigma: matchParticipants.ratingAfterSigma,
@@ -441,7 +638,8 @@ function applySeasonResetsUntil(
           wins: 0,
           importedGames: 0,
           effectiveGames: 0,
-          uniqueOpponents: 0,
+          winsVsElite: 0,
+          winsVsLegionPlus: 0,
         })
       }
     }
@@ -456,6 +654,10 @@ function hydrateRatingStateUntilBoundary(
   seasonProgress: SeasonProgress,
   rows: HistoricalParticipantRow[],
   boundaryCreatedAt: number,
+  options: {
+    trackedPlayerIds?: ReadonlySet<string>
+    opponentTierByPlayerId?: ReadonlyMap<string, string>
+  } = {},
 ): string | null {
   let currentMatchId: string | null = null
   let currentMatchCreatedAt = 0
@@ -468,6 +670,7 @@ function hydrateRatingStateUntilBoundary(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, currentMatchCreatedAt)
 
     for (const row of currentMatchRows) {
+      if (options.trackedPlayerIds && !options.trackedPlayerIds.has(row.playerId)) continue
       if (row.placement == null) return `Completed match **${row.matchId}** has missing placements.`
       if (row.ratingAfterMu == null || row.ratingAfterSigma == null) {
         return `Completed match **${row.matchId}** has missing rating snapshots.`
@@ -475,6 +678,7 @@ function hydrateRatingStateUntilBoundary(
 
       const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
       const isImportedGame = row.isOld
+      const qualityWins = countQualityWinsForParticipant(row, currentMatchRows, options.opponentTierByPlayerId ?? new Map())
       ratingStateByPlayer.set(row.playerId, {
         mu: row.ratingAfterMu,
         sigma: row.ratingAfterSigma,
@@ -482,7 +686,8 @@ function hydrateRatingStateUntilBoundary(
         wins: currentState.wins + (row.placement === 1 ? 1 : 0),
         importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
         effectiveGames: currentState.effectiveGames + (isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1),
-        uniqueOpponents: currentState.uniqueOpponents,
+        winsVsElite: currentState.winsVsElite + qualityWins.winsVsElite,
+        winsVsLegionPlus: currentState.winsVsLegionPlus + qualityWins.winsVsLegionPlus,
         lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (currentMatchCompletedAt ?? currentMatchCreatedAt),
       })
     }
@@ -517,7 +722,7 @@ async function replayCompletedMatch(
   match: StoredMatchRow,
   participantRows: StoredParticipantRow[],
   ratingStateByPlayer: Map<string, RatingState>,
-  options: { writeParticipantSnapshots?: boolean } = {},
+  options: { writeParticipantSnapshots?: boolean, opponentTierByPlayerId?: ReadonlyMap<string, string> } = {},
 ): Promise<string | null> {
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.`
@@ -547,6 +752,7 @@ async function replayCompletedMatch(
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const qualityWins = countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map())
     let ratingBeforeMu = update.before.mu
     let ratingAfterMu = update.after.mu
 
@@ -576,7 +782,8 @@ async function replayCompletedMatch(
       wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
       importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
       effectiveGames: currentState.effectiveGames + (isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1),
-      uniqueOpponents: currentState.uniqueOpponents + countOpponentsForParticipant(participant, participantRows),
+      winsVsElite: currentState.winsVsElite + qualityWins.winsVsElite,
+      winsVsLegionPlus: currentState.winsVsLegionPlus + qualityWins.winsVsLegionPlus,
       lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (match.completedAt ?? match.createdAt),
     })
   }
@@ -585,9 +792,41 @@ async function replayCompletedMatch(
   return null
 }
 
-function countOpponentsForParticipant(participant: StoredParticipantRow, participantRows: StoredParticipantRow[]): number {
-  if (participant.team == null) return participantRows.filter(row => row.playerId !== participant.playerId).length
-  return participantRows.filter(row => row.playerId !== participant.playerId && row.team !== participant.team).length
+function countQualityWinsForParticipant(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+  participantRows: Array<Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>>,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+): { winsVsElite: number, winsVsLegionPlus: number } {
+  let winsVsElite = 0
+  let winsVsLegionPlus = 0
+
+  for (const opponent of participantRows) {
+    if (!didDefeatOpponent(participant, opponent)) continue
+    const opponentTierNumber = rankedRoleTierNumber(opponentTierByPlayerId.get(opponent.playerId) ?? null)
+    if (opponentTierNumber == null) continue
+    if (opponentTierNumber <= 1) winsVsElite += 1
+    if (opponentTierNumber <= 2) winsVsLegionPlus += 1
+  }
+
+  return { winsVsElite, winsVsLegionPlus }
+}
+
+function didDefeatOpponent(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+  opponent: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+): boolean {
+  if (participant.playerId === opponent.playerId) return false
+  if (participant.team != null && opponent.team != null && participant.team === opponent.team) return false
+  if (participant.placement == null || opponent.placement == null) return false
+  return participant.placement < opponent.placement
+}
+
+function rankedRoleTierNumber(tier: string | null): number | null {
+  if (!tier) return null
+  const match = /^tier(\d+)$/i.exec(tier.trim())
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? Math.round(value) : null
 }
 
 function calculateRatingUpdatesForMatch(
@@ -669,7 +908,8 @@ async function replacePlayerRatings(
         wins: state.wins,
         importedGames: state.importedGames,
         effectiveGames: state.effectiveGames,
-        uniqueOpponents: state.uniqueOpponents,
+        winsVsElite: state.winsVsElite,
+        winsVsLegionPlus: state.winsVsLegionPlus,
         lastPlayedAt: state.lastPlayedAt,
         updatedAt: Date.now(),
       }),
@@ -688,7 +928,8 @@ function createDefaultRatingState(playerId: string): RatingState {
     wins: 0,
     importedGames: 0,
     effectiveGames: 0,
-    uniqueOpponents: 0,
+    winsVsElite: 0,
+    winsVsLegionPlus: 0,
     lastPlayedAt: null,
   }
 }

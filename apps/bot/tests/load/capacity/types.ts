@@ -41,7 +41,7 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 6
+  version: 7
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
@@ -74,6 +74,14 @@ export interface CapacitySnapshot {
     directoryWritesPerParticipantReportCleanup: number
     averageAcceptedSwapsPerTeamDraft: number
     rankedFinishModel: string
+    rankedQualificationMinRawGames: number
+    rankedQualificationMinEffectiveGames: number
+    rankedGladiatorMinRawGames: number
+    rankedGladiatorMinEffectiveGames: number
+    rankedLegionMinRawGames: number
+    rankedLegionMinEffectiveGames: number
+    rankedEliteMinRawGames: number
+    rankedEliteMinEffectiveGames: number
     rankedFinishExtraRatingReadsPerPlayer: number
     rankedFinishExtraRatingWritesPerPlayer: number
     rankedFinishEventWritesPerPlayer: number

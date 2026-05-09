@@ -81,6 +81,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       leaderAssignments,
     }, {
       sessionNamespace: c.env.SessionDO,
+      rankedRoleGuildId: liveLobbyBeforeReport?.guildId ?? null,
     })
 
     if ('error' in result) {
@@ -222,6 +223,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       cancelledAt: Date.now(),
     }, {
       sessionNamespace: c.env.SessionDO,
+      rankedRoleGuildId: lobby?.guildId ?? null,
     })
 
     if ('error' in result) {

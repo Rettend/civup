@@ -86,9 +86,6 @@ export const RANKED_ROLE_MIN_GAMES = 10
 /** Minimum weighted evidence required before ranked roles are managed. */
 export const RANKED_ROLE_MIN_EFFECTIVE_GAMES = 8
 
-/** Minimum opponent variety required before ranked roles are managed. */
-export const RANKED_ROLE_MIN_UNIQUE_OPPONENTS = 8
-
 /** Imported games count as partial qualification evidence. */
 export const IMPORTED_GAME_EFFECTIVE_WEIGHT = 0.5
 
