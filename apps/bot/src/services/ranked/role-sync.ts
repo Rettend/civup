@@ -3,7 +3,7 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
 import { playerRatings, players } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, RANKED_ROLE_MIN_GAMES, roleRating } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
 import { eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
@@ -218,9 +218,10 @@ const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
 const DEMOTION_DELAY_SYNCS = 7
 const MAX_DISCORD_ROLE_CHANGES_PER_SYNC = 12
 const GLOBAL_RATING_SCOPE = 'global'
-const ELITE_EVIDENCE_GATE = { rawGames: 20, effectiveGames: 18 }
-const LEGION_EVIDENCE_GATE = { rawGames: 16, effectiveGames: 14 }
-const GLADIATOR_EVIDENCE_GATE = { rawGames: 10, effectiveGames: 8 }
+const MODE_LADDER_MIN_GAMES = 10
+const ELITE_EVIDENCE_GATE = { effectiveGames: 18 }
+const LEGION_EVIDENCE_GATE = { effectiveGames: 14 }
+const GLADIATOR_EVIDENCE_GATE = { effectiveGames: 8 }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
 
 function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshold[] {
@@ -611,7 +612,7 @@ async function buildRankedRolePreviewState({
   advanceDemotionWindow = false,
   playerIds,
   includePlayerIdentities = true,
-  rankedMinGames = RANKED_ROLE_MIN_GAMES,
+  rankedMinGames = MODE_LADDER_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
   const [leaderboardSnapshots, previousAssignments, previousCandidates, config, globalRatingRows] = await Promise.all([
     getLeaderboardModeSnapshotsForPreview(db, kv),
@@ -740,7 +741,7 @@ async function buildRankedRolePreviewState({
           config,
         })
       : liveAssignment
-    const finalAssignment = qualified && globalRating
+    const evidenceCappedAssignment = qualified && globalRating
       ? capAssignmentResultByEvidence(applyMigrationFloor({
           liveAssignment: qualityAdjustedAssignment.assignment,
           previousAssignment,
@@ -748,6 +749,9 @@ async function buildRankedRolePreviewState({
           pendingDemotion: qualityAdjustedAssignment.pendingDemotion,
         }), globalRating, config)
       : liveAssignment
+    const finalAssignment = qualified && globalRating
+      ? applyThinEliteProtection(evidenceCappedAssignment, previousAssignment, globalRating)
+      : evidenceCappedAssignment
 
     if (!qualified && previousAssignment == null) {
       unrankedCount += 1
@@ -909,8 +913,7 @@ function buildGlobalLadderSnapshots(
 }
 
 function isGlobalRatingQualified(row: GlobalRatingSnapshotRow): boolean {
-  return row.gamesPlayed >= RANKED_ROLE_MIN_GAMES
-    && row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES
+  return row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES
 }
 
 function applyGlobalEvidenceGates(
@@ -948,9 +951,8 @@ function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, 
     : getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
 }
 
-function meetsEvidenceGate(row: GlobalRatingSnapshotRow, gate: { rawGames: number, effectiveGames: number }): boolean {
-  return row.gamesPlayed >= gate.rawGames
-    && row.effectiveGames >= gate.effectiveGames
+function meetsEvidenceGate(row: GlobalRatingSnapshotRow, gate: { effectiveGames: number }): boolean {
+  return row.effectiveGames >= gate.effectiveGames
 }
 
 function capAssignmentResultByEvidence(
@@ -962,6 +964,20 @@ function capAssignmentResultByEvidence(
   if (cappedTier === result.assignment.tier) return result
   return {
     assignment: { tier: cappedTier, sourceMode: null },
+    pendingDemotion: null,
+  }
+}
+
+function applyThinEliteProtection(
+  result: { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null },
+  previousAssignment: CurrentRankAssignment | null,
+  row: GlobalRatingSnapshotRow,
+): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
+  if (!previousAssignment || rankedRoleTierNumber(previousAssignment.tier) !== 1) return result
+  if (row.effectiveGames >= ELITE_EVIDENCE_GATE.effectiveGames) return result
+  if (competitiveTierRank(result.assignment.tier) >= competitiveTierRank(previousAssignment.tier)) return result
+  return {
+    assignment: { tier: previousAssignment.tier, sourceMode: null },
     pendingDemotion: null,
   }
 }

@@ -1,5 +1,5 @@
-import { matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
-import { DEFAULT_MU, DEFAULT_SIGMA } from '@civup/rating'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, playerRatingSeeds, players } from '@civup/db'
+import { calculateRatings, createRating, DEFAULT_MU, DEFAULT_SIGMA, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
@@ -57,9 +57,19 @@ describe('match global ratings', () => {
       if ('error' in result) return
 
       const rating = await loadPlayerRating(db, HERO_ID, 'duel')
+      const hero = await loadParticipant(db, 'old-1', HERO_ID)
+      const [fullHeroUpdate] = calculateRatings({
+        type: 'team',
+        teams: [
+          { players: [createRating(HERO_ID)] },
+          { players: [createRating(VILLAIN_ID)] },
+        ],
+      })
+      const expectedImportedMu = DEFAULT_MU + (((fullHeroUpdate?.after.mu ?? DEFAULT_MU) - DEFAULT_MU) * IMPORTED_GAME_EFFECTIVE_WEIGHT)
       expect(rating?.gamesPlayed).toBe(1)
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(0.5)
+      expect(hero?.ratingAfterMu).toBeCloseTo(expectedImportedMu, 6)
       expect(rating?.lastPlayedAt).toBeNull()
     }
     finally {
@@ -91,11 +101,16 @@ describe('match global ratings', () => {
 
       const modeRating = await loadPlayerRating(db, HERO_ID, 'duel')
       const globalRating = await loadPlayerRating(db, HERO_ID, 'global')
+      const modeEvent = await loadPlayerRatingEvent(db, 'active-1', HERO_ID, 'duel')
+      const globalEvent = await loadPlayerRatingEvent(db, 'active-1', HERO_ID, 'global')
       expect(modeRating?.gamesPlayed).toBe(1)
       expect(globalRating?.gamesPlayed).toBe(1)
       expect(globalRating?.effectiveGames).toBe(1)
       expect(globalRating?.winsVsElite).toBe(1)
       expect(globalRating?.winsVsLegionPlus).toBe(1)
+      expect(modeEvent?.winsVsEliteDelta).toBe(0)
+      expect(globalEvent?.winsVsEliteDelta).toBe(1)
+      expect(globalEvent?.effectiveGamesDelta).toBe(1)
       expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
     }
     finally {
@@ -118,11 +133,14 @@ describe('match global ratings', () => {
       if ('error' in result) return
 
       const rating = await loadPlayerRating(db, HERO_ID, 'global')
+      const oldEvent = await loadPlayerRatingEvent(db, 'old-1', HERO_ID, 'global')
       expect(rating?.gamesPlayed).toBe(2)
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(1.5)
       expect(rating?.winsVsElite).toBe(0)
       expect(rating?.winsVsLegionPlus).toBe(2)
+      expect(oldEvent?.importedGamesDelta).toBe(1)
+      expect(oldEvent?.effectiveGamesDelta).toBe(0.5)
     }
     finally {
       sqlite.close()
@@ -213,4 +231,22 @@ async function loadPlayerRating(
     ))
     .limit(1)
   return rating ?? null
+}
+
+async function loadPlayerRatingEvent(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  matchId: string,
+  playerId: string,
+  mode: string,
+) {
+  const [event] = await db
+    .select()
+    .from(playerRatingEvents)
+    .where(and(
+      eq(playerRatingEvents.matchId, matchId),
+      eq(playerRatingEvents.playerId, playerId),
+      eq(playerRatingEvents.mode, mode),
+    ))
+    .limit(1)
+  return event ?? null
 }

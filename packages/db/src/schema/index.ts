@@ -2,6 +2,6 @@ export { civStats, civStatTotals, matchCivStatContributions } from './leaderboar
 export { matchBans, matches, matchParticipants } from './matches.ts'
 export { players } from './players.ts'
 export { playerRatingSeeds } from './rating-seeds.ts'
-export { playerRatings } from './ratings.ts'
+export { playerRatingEvents, playerRatings } from './ratings.ts'
 export { leaderboardDirtyStates, leaderboardMessageStates, matchMessageMappings, sessionDirectory, sessionDirectoryMembers } from './runtime.ts'
 export { seasonPeakModeRanks, seasonPeakRanks, seasons } from './seasons.ts'

@@ -1,5 +1,5 @@
 import type { GameMode } from '@civup/game'
-import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
@@ -293,6 +293,49 @@ describe('player rank views', () => {
     expect(recentMatchesField?.value).not.toContain('[empty]')
     expect(recentMatchesField?.value).toContain('2v2')
     expect(recentMatchesField?.value).toContain('2v2 [old]')
+
+    sqlite.close()
+  })
+
+  test('renders recent rating changes from rating events', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedPlayerIdentity(db, '100010000000000098')
+    await seedCompletedMatch(db, {
+      matchId: 'event-duel-1',
+      gameMode: '1v1',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await db.insert(playerRatingEvents).values({
+      matchId: 'event-duel-1',
+      playerId: HERO_ID,
+      mode: 'duel',
+      gameMode: '1v1',
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 26,
+      ratingAfterSigma: 8,
+      gamesDelta: 1,
+      winsDelta: 1,
+      importedGamesDelta: 0,
+      effectiveGamesDelta: 1,
+      winsVsEliteDelta: 0,
+      winsVsLegionPlusDelta: 0,
+      matchCreatedAt: NOW - 11_000,
+      matchCompletedAt: NOW - 1_000,
+      updatedAt: NOW,
+    })
+
+    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(recentMatchesField?.value).toContain('📈')
+    expect(recentMatchesField?.value).not.toContain('❔')
 
     sqlite.close()
   })

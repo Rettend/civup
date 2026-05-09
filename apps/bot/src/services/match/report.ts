@@ -3,7 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, TeamInput } from '@civup/rating'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -13,6 +13,7 @@ import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
 interface ReportMatchOptions {
@@ -111,7 +112,7 @@ export async function reportMatch(
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-    return { match, participants: participantRows, idempotent: true }
+    return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participantRows), idempotent: true }
   }
 
   if (match.status !== 'active') {
@@ -133,7 +134,7 @@ export async function reportMatch(
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-    return { match: updatedMatch ?? match, participants: updatedParticipants, idempotent: true }
+    return { match: updatedMatch ?? match, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants), idempotent: true }
   }
 
   const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
@@ -398,7 +399,26 @@ async function finalizeReportedMatch(
     leaderboardEligibleCount: afterRankContext?.eligibleCount ?? null,
   }))
 
-  return { match: updatedMatch!, participants: participantsWithLeaderboardRanks }
+  return { match: updatedMatch!, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, participantsWithLeaderboardRanks) }
+}
+
+async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
+  db: Database,
+  match: { gameMode: string, draftData: string | null },
+  participants: readonly T[],
+): Promise<T[]> {
+  const hydrated = await hydrateModeRatingSnapshotsFromEvents(db, participants.map(participant => ({
+    ...participant,
+    gameMode: match.gameMode,
+    draftData: match.draftData,
+  })))
+  return hydrated.map((row, index) => ({
+    ...participants[index]!,
+    ratingBeforeMu: row.ratingBeforeMu,
+    ratingBeforeSigma: row.ratingBeforeSigma,
+    ratingAfterMu: row.ratingAfterMu,
+    ratingAfterSigma: row.ratingAfterSigma,
+  }))
 }
 
 function buildCachedRankByPlayer(
@@ -579,7 +599,9 @@ async function applyRatingScopeUpdate(
 
   for (const update of ratingUpdates) {
     const ratingBeforeMu = update.before.mu
-    const ratingAfterMu = update.after.mu
+    const ratingAfter = scaleRatingAfterForSource(update, input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1)
+    const ratingAfterMu = ratingAfter.mu
+    const ratingAfterSigma = ratingAfter.sigma
 
     if (input.writeParticipantSnapshots) {
       await db
@@ -588,7 +610,7 @@ async function applyRatingScopeUpdate(
           ratingBeforeMu,
           ratingBeforeSigma: update.before.sigma,
           ratingAfterMu,
-          ratingAfterSigma: update.after.sigma,
+          ratingAfterSigma,
         })
         .where(and(
           eq(matchParticipants.matchId, input.match.id),
@@ -606,7 +628,7 @@ async function applyRatingScopeUpdate(
       playerId: update.playerId,
       mode: input.scope,
       mu: ratingAfterMu,
-      sigma: update.after.sigma,
+      sigma: ratingAfterSigma,
       gamesPlayed: (existing?.gamesPlayed ?? 0) + 1,
       wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
       importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
@@ -616,14 +638,45 @@ async function applyRatingScopeUpdate(
       lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.now,
       updatedAt: input.now,
     }
+    const eventRow = {
+      matchId: input.match.id,
+      playerId: update.playerId,
+      mode: input.scope,
+      gameMode: input.match.gameMode,
+      ratingBeforeMu,
+      ratingBeforeSigma: update.before.sigma,
+      ratingAfterMu,
+      ratingAfterSigma,
+      gamesDelta: 1,
+      winsDelta: isWin ? 1 : 0,
+      importedGamesDelta: evidence.importedGames,
+      effectiveGamesDelta: evidence.effectiveGames,
+      winsVsEliteDelta: qualityWins.winsVsElite,
+      winsVsLegionPlusDelta: qualityWins.winsVsLegionPlus,
+      matchCreatedAt: input.match.createdAt,
+      matchCompletedAt: input.match.isOld ? input.match.createdAt : input.now,
+      updatedAt: input.now,
+    }
 
     await db.insert(playerRatings).values(row).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: row,
     })
+    await db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
+      target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
+      set: eventRow,
+    })
   }
 
   return null
+}
+
+function scaleRatingAfterForSource(update: ReturnType<typeof calculateRatings>[number], sourceWeight: number): { mu: number, sigma: number } {
+  if (sourceWeight >= 1) return update.after
+  return {
+    mu: update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight),
+    sigma: update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight),
+  }
 }
 
 function buildMatchEvidenceByPlayerId(
@@ -739,7 +792,7 @@ async function repairCompletedReportedMatch(
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
   await reconcileCivLeaderboardMatchContribution(db, match.id)
-  return { match: updatedMatch, participants: updatedParticipants, idempotent: true }
+  return { match: updatedMatch, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants), idempotent: true }
 }
 
 function hasMissingRatingSnapshots(participantRows: ParticipantRow[]): boolean {

@@ -165,7 +165,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('quality wins can floor a qualified player to Gladiator', async () => {
+  test('quality wins can floor an effective-qualified player to Gladiator', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -176,7 +176,7 @@ describe('ranked role sync service', () => {
       mode: 'global',
       mu: 20,
       sigma: 6,
-      gamesPlayed: 10,
+      gamesPlayed: 9,
       lastPlayedAt: NOW,
       winsVsLegionPlus: 3,
     })
@@ -238,7 +238,7 @@ describe('ranked role sync service', () => {
       mode: 'global',
       mu: 37,
       sigma: 6,
-      gamesPlayed: 16,
+      gamesPlayed: 12,
       effectiveGames: 14,
       lastPlayedAt: NOW,
       winsVsElite: 3,
@@ -255,6 +255,29 @@ describe('ranked role sync service', () => {
     })
 
     expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_2)
+
+    sqlite.close()
+  })
+
+  test('thin current Elite stays protected until Elite evidence gate', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
+    const targetId = playerIdFor('ffa', 20)
+
+    await seedPreviousAssignment(kv, 'guild-1', targetId, { tier: TIER_1, sourceMode: null })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [targetId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_1)
+    expect(preview.playerPreviews[0]?.pendingDemotion).toBeNull()
 
     sqlite.close()
   })
