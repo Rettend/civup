@@ -315,8 +315,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
 
       if (record?.phase === 'draft') {
-        await this.recoverTerminalDraftRuntime(record)
-        record = await this.getRecord()
+        record = await this.recoverDraftRuntimeBeforeSelectedAccess(connection, record)
+        if (!record) return
       }
 
       if (record?.phase === 'active' && !await this.getRoomRecord()) {
@@ -337,8 +337,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
       if (record?.phase === 'draft') {
-        await this.recoverTerminalDraftRuntime(record)
-        record = await this.getRecord()
+        record = await this.recoverDraftRuntimeBeforeSelectedAccess(connection, record)
+        if (!record) return
       }
       if (record && isTerminalSessionPhase(record.phase)) {
         if (connection.readyState < 2) connection.close(1000, 'Session closed')
@@ -740,6 +740,22 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         error: result.error,
       })
     }
+  }
+
+  private async recoverDraftRuntimeBeforeSelectedAccess(connection: Connection, record: DraftSessionRecord): Promise<SessionRecord | null> {
+    await this.recoverTerminalDraftRuntime(record)
+    const current = await this.getRecord()
+    if (current?.phase !== 'draft') return current
+
+    const room = await this.getRoomRecord()
+    if (!current.draftStartSync && room) return current
+
+    const result = await this.finishDraftStartSync(current)
+    if (result.ok) return result.record
+
+    this.sendSessionMessage(connection, { type: 'error', message: 'Draft room is still being prepared. Please reconnect shortly.' })
+    connection.close(1013, 'Draft room is still initializing')
+    return null
   }
 
   private async finishDraftStartSync(record: DraftSessionRecord): Promise<{ ok: true, record: DraftSessionRecord, seats: DraftSeat[] } | { ok: false, status: number, error: string }> {
