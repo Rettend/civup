@@ -43,6 +43,23 @@ test('keeps supported map vote config for team lobbies', async () => {
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
 
+test('keeps supported map vote config for duel lobbies', async () => {
+  const { kv } = createTrackedKv()
+  const lobby = await createLobby(kv, {
+    mode: '1v1',
+    hostId: 'host-1',
+    channelId: 'channel-1',
+    messageId: 'message-1',
+  })
+
+  const updated = await setLobbyDraftConfig(kv, lobby.id, {
+    ...lobby.draftConfig,
+    mapVoteEnabled: true,
+  }, lobby)
+
+  expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
+})
+
 describe('lobby service D1-backed projection behavior', () => {
   test('setLobbySlots skips KV writes when slots are unchanged', async () => {
     const { kv, operations, resetOperations } = createTrackedKv()

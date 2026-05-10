@@ -8,6 +8,7 @@ import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { formatDisplayRatingChange } from './rating-change.ts'
 
@@ -19,6 +20,7 @@ const MATCH_ID_BATCH_SIZE = 90
 
 interface CompletedPlayerMatchRow {
   matchId: string
+  playerId: string
   team: number | null
   placement: number | null
   civId: string | null
@@ -110,9 +112,10 @@ export async function playerCardEmbed(
 
   const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter, displaySeason?.id ?? null)
 
-  const completedParticipations = await db
+  const completedParticipationRows = await db
     .select({
       matchId: matchParticipants.matchId,
+      playerId: matchParticipants.playerId,
       team: matchParticipants.team,
       placement: matchParticipants.placement,
       civId: matchParticipants.civId,
@@ -128,6 +131,7 @@ export async function playerCardEmbed(
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
     .where(completedMatchesWhere)
     .orderBy(desc(matches.completedAt), desc(matches.id))
+  const completedParticipations = await hydrateModeRatingSnapshotsFromEvents(db, completedParticipationRows)
 
   const topLeaders = summarizeLeaderStats(completedParticipations)
     .slice(0, TOP_LEADERS_LIMIT)
