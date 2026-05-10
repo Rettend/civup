@@ -225,7 +225,10 @@ const MODE_LADDER_MIN_GAMES = 10
 const TIER_1_EVIDENCE_GATE = { effectiveGames: 18 }
 const TIER_2_EVIDENCE_GATE = { effectiveGames: 16 }
 const TIER_3_EVIDENCE_GATE = { effectiveGames: 8 }
+const TIER_1_QUALITY_GATE = { winsVsTier1: 1, winsVsTier2Plus: 4 }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
+const TIER_4_PARTICIPATION_FLOOR = { effectiveGames: 30, wins: 5 }
+const TIER_4_PARTICIPATION_FLOOR_TIER_NUMBER = 4
 const TIER_3_EFFECTIVE_TIER_1_WIN_FLOOR = 0.5
 const TIER_3_EFFECTIVE_TIER_2_PLUS_WIN_FLOOR = 1 / 3
 const TIER_3_RAW_TIER_2_PLUS_WIN_FLOOR = 2
@@ -765,9 +768,12 @@ async function buildRankedRolePreviewState({
           pendingDemotion: qualityAdjustedAssignment.pendingDemotion,
         }), globalRating, config)
       : liveAssignment
-    const finalAssignment = qualified && globalRating
+    const tier1ProtectedAssignment = qualified && globalRating
       ? applyThinTier1Protection(evidenceCappedAssignment, previousAssignment, globalRating)
       : evidenceCappedAssignment
+    const finalAssignment = qualified && globalRating
+      ? applyTier4ParticipationFloor(tier1ProtectedAssignment, globalRating, config)
+      : tier1ProtectedAssignment
 
     if (!qualified && previousAssignment == null) {
       unrankedCount += 1
@@ -952,7 +958,7 @@ function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, 
   const tierNumber = rankedRoleTierNumber(tier)
   if (tierNumber == null) return tier
 
-  if (tierNumber <= 1 && !meetsEvidenceGate(row, TIER_1_EVIDENCE_GATE)) {
+  if (tierNumber <= 1 && (!meetsEvidenceGate(row, TIER_1_EVIDENCE_GATE) || !meetsTier1QualityGate(row))) {
     return capTierByEvidence(createRankedRoleTierId(2), row, config)
   }
   if (tierNumber <= 2 && !meetsEvidenceGate(row, TIER_2_EVIDENCE_GATE)) {
@@ -969,6 +975,11 @@ function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, 
 
 function meetsEvidenceGate(row: GlobalRatingSnapshotRow, gate: { effectiveGames: number }): boolean {
   return row.effectiveGames >= gate.effectiveGames
+}
+
+function meetsTier1QualityGate(row: GlobalRatingSnapshotRow): boolean {
+  return row.winsVsTier1 >= TIER_1_QUALITY_GATE.winsVsTier1
+    && row.winsVsTier2Plus >= TIER_1_QUALITY_GATE.winsVsTier2Plus
 }
 
 function capAssignmentResultByEvidence(
@@ -1015,6 +1026,25 @@ function applyQualityFloor(input: {
     assignment: { tier: floorTier, sourceMode: null },
     pendingDemotion: null,
   }
+}
+
+function applyTier4ParticipationFloor(
+  result: { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null },
+  row: GlobalRatingSnapshotRow,
+  config: RankedRoleConfig,
+): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
+  const floorTier = qualityFloorTier(TIER_4_PARTICIPATION_FLOOR_TIER_NUMBER, config)
+  if (!floorTier || !meetsTier4ParticipationFloor(row)) return result
+  if (competitiveTierRank(result.assignment.tier) >= competitiveTierRank(floorTier)) return result
+  return {
+    assignment: { tier: floorTier, sourceMode: null },
+    pendingDemotion: null,
+  }
+}
+
+function meetsTier4ParticipationFloor(row: GlobalRatingSnapshotRow): boolean {
+  return row.effectiveGames >= TIER_4_PARTICIPATION_FLOOR.effectiveGames
+    && row.wins >= TIER_4_PARTICIPATION_FLOOR.wins
 }
 
 function resolveQualityFloorTier(input: {
