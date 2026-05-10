@@ -1000,7 +1000,7 @@ function applyQualityFloor(input: {
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
   config: RankedRoleConfig
 }): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
-  const floorTier = resolveQualityFloorTier({ ...input, currentTier: input.liveAssignment.assignment.tier })
+  const floorTier = resolveQualityFloorTier(input)
   if (!floorTier || competitiveTierRank(input.liveAssignment.assignment.tier) >= competitiveTierRank(floorTier)) {
     return input.liveAssignment
   }
@@ -1032,7 +1032,6 @@ function meetsTier4ParticipationFloor(row: GlobalRatingSnapshotRow): boolean {
 
 function resolveQualityFloorTier(input: {
   globalRating: GlobalRatingSnapshotRow
-  currentTier: CompetitiveTier
   globalEarnTier: CompetitiveTier
   modeRatings: Map<LeaderboardMode, RatingSnapshotRow>
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>
@@ -1053,7 +1052,7 @@ function resolveQualityFloorTier(input: {
   let floorTier: CompetitiveTier | null = null
 
   if (tier3 && hasTier2BestModeEvidence) floorTier = morePrestigiousFloor(floorTier, tier3)
-  if (tier3 && rankedRoleTierNumber(input.currentTier) === 4 && hasTier3QualityWinFloor(input.globalRating)) {
+  if (tier3 && rankedRoleTierNumber(input.globalEarnTier) === 4 && hasTier3QualityWinFloor(input.globalRating)) {
     floorTier = morePrestigiousFloor(floorTier, tier3)
   }
 
