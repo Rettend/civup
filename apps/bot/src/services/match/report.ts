@@ -10,7 +10,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { getRankedMigrationLockError } from '../ranked/migration-lock.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
@@ -111,9 +110,6 @@ export async function reportMatch(
     const sessionValidationError = await validateReportableSession(options, input.matchId)
     if (sessionValidationError) return { error: sessionValidationError }
 
-    const lockError = await getRankedRepairLockError(kv, match, participantRows)
-    if (lockError) return { error: lockError }
-
     const repaired = await repairCompletedReportedMatch(db, kv, match, participantRows, options)
     if (repaired) return repaired
 
@@ -135,10 +131,6 @@ export async function reportMatch(
   const gameMode = gameContext.mode
   const sessionValidationError = await validateReportableSession(options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
-  if (gameContext.leaderboardMode != null) {
-    const lockError = await getRankedMigrationLockError(kv)
-    if (lockError) return { error: lockError }
-  }
   if (await isSessionAlreadyReported(options, input.matchId)) {
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
@@ -261,18 +253,6 @@ export async function reportMatch(
   }
 
   return finalized
-}
-
-async function getRankedRepairLockError(
-  kv: KVNamespace,
-  match: { id: string, gameMode: string, draftData: string | null },
-  participantRows: ParticipantRow[],
-): Promise<string | null> {
-  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
-  if (gameContext?.leaderboardMode == null) return null
-  if (!hasMissingRatingSnapshots(participantRows)) return null
-
-  return getRankedMigrationLockError(kv)
 }
 
 function validateHiddenDraftLeaderAssignments(

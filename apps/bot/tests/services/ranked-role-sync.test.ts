@@ -68,39 +68,6 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('protected unlock counts only apply within the protected source mode', async () => {
-    const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
-    const duoHeroId = playerIdFor('duo-hero', 1)
-    await seedPlayerIdentity(db, duoHeroId)
-    await seedRating(db, { playerId: duoHeroId, mode: 'duo', mu: 40, sigma: 6, gamesPlayed: 12, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: duoHeroId, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
-
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-      byPlayerId: Object.fromEntries(Array.from({ length: 80 }, (_value, index) => [playerIdFor('protected-squad', index + 1), {
-        tier: TIER_4,
-        sourceMode: 'squad',
-        protectedUntilTotalGames: 10,
-      }])),
-    }))
-
-    const preview = await previewRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      playerIds: [duoHeroId],
-      includePlayerIdentities: false,
-    })
-
-    expect(preview.playerPreviews).toHaveLength(1)
-    expect(preview.playerPreviews[0]?.ladderTiers.duo).toBe(TIER_1)
-    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_1)
-    expect(preview.playerPreviews[0]?.assignment.sourceMode).toBeNull()
-
-    sqlite.close()
-  })
-
   test('players below the minimum games still affect ranked placement', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -139,14 +106,6 @@ describe('ranked role sync service', () => {
         lastPlayedAt: NOW,
       })
     }
-
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-      byPlayerId: Object.fromEntries(Array.from({ length: 40 }, (_value, index) => [playerIdFor('protected-duo', index + 1), {
-        tier: TIER_4,
-        sourceMode: 'duo',
-        protectedUntilTotalGames: 10,
-      }])),
-    }))
 
     const preview = await previewRankedRoles({
       db,
@@ -523,53 +482,6 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('migration protection suppresses demotion until the player reaches 10 total games', async () => {
-    const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
-    await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
-    const heroId = playerIdFor('migrated-tier-4', 1)
-    await seedPlayerIdentity(db, heroId)
-    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 20, sigma: 8.333, gamesPlayed: 9, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: heroId, mode: 'global', mu: 20, sigma: 8.333, gamesPlayed: 9, lastPlayedAt: NOW, effectiveGames: 9 })
-
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier5: '11111111111111111',
-      tier4: '22222222222222222',
-      tier3: '33333333333333333',
-      tier2: '44444444444444444',
-      tier1: '55555555555555555',
-    })
-    await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: TIER_4, sourceMode: null, protectedUntilTotalGames: 10 })
-
-    const beforeThreshold = await syncRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      advanceDemotionWindow: true,
-    })
-    const protectedPlayer = beforeThreshold.playerPreviews.find(player => player.playerId === heroId)
-    expect(protectedPlayer?.assignment.tier).toBe(TIER_4)
-    expect(protectedPlayer?.pendingDemotion).toBeNull()
-
-    await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 20, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW + DAY_MS })
-    await seedRating(db, { playerId: heroId, mode: 'global', mu: 20, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW + DAY_MS, effectiveGames: 10 })
-    await kv.delete('leaderboard:snapshot:ffa')
-
-    const afterThreshold = await syncRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW + DAY_MS,
-      advanceDemotionWindow: true,
-    })
-    const pendingPlayer = afterThreshold.playerPreviews.find(player => player.playerId === heroId)
-    expect(pendingPlayer?.assignment.tier).toBe(TIER_5)
-    expect(pendingPlayer?.pendingDemotion).toBeNull()
-
-    sqlite.close()
-  })
-
   test('sync stores assignments and applies Discord member role changes', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -918,7 +830,7 @@ async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null, protectedUntilTotalGames?: number },
+  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null },
 ): Promise<void> {
   await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
     byPlayerId: {

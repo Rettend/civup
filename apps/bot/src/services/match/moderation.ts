@@ -8,7 +8,6 @@ import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../sess
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { getRankedMigrationLockError } from '../ranked/migration-lock.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
@@ -65,10 +64,6 @@ export async function resolveMatchByModerator(
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode
-  if (leaderboardMode != null) {
-    const lockError = await getRankedMigrationLockError(kv)
-    if (lockError) return { error: lockError }
-  }
   const originalBans = await db
     .select()
     .from(matchBans)
@@ -557,10 +552,6 @@ export async function cancelMatchByModerator(
     const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
     if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
     completedLeaderboardMode = gameContext.leaderboardMode
-    if (completedLeaderboardMode != null) {
-      const lockError = await getRankedMigrationLockError(kv)
-      if (lockError) return { error: lockError }
-    }
   }
 
   const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'cancel-session', at: input.cancelledAt })

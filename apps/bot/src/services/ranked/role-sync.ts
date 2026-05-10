@@ -8,7 +8,6 @@ import { eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
-import { getRankedMigrationLockError } from './migration-lock.ts'
 import {
   createRankedRoleTierId,
   formatRankedRoleSlotLabel,
@@ -27,8 +26,6 @@ import {
 export interface CurrentRankAssignment {
   tier: CompetitiveTier
   sourceMode: LeaderboardMode | null
-  protectedFloorTier?: CompetitiveTier
-  protectedUntilMaxModeGames?: number
 }
 
 export interface RankedRoleAssignments {
@@ -407,9 +404,6 @@ export async function projectRankedTierForScore(options: RankedRoleSyncOptions &
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
-  const lockError = await getRankedMigrationLockError(options.kv)
-  if (lockError) throw new Error(lockError)
-
   const state = await buildRankedRolePreviewState({
     ...options,
     includePlayerIdentities: false,
@@ -488,9 +482,6 @@ export async function resetCurrentRankedRoleState(options: {
   guildId: string
   token?: string
 }): Promise<{ clearedAssignments: number, appliedDiscordChanges: number }> {
-  const lockError = await getRankedMigrationLockError(options.kv)
-  if (lockError) throw new Error(lockError)
-
   const previousAssignments = await getCurrentRankAssignments(options.kv, options.guildId)
   const trackedAssignments = Object.entries(previousAssignments.byPlayerId)
     .filter(([playerId]) => isDiscordSnowflake(playerId))
@@ -741,12 +732,8 @@ async function buildRankedRolePreviewState({
           earnAssignment,
           keepAssignment,
           fallbackTier,
-          previousAssignment: hasActiveOrExpiredMigrationFloor(previousAssignment)
-            ? null
-            : previousAssignment,
-          previousCandidate: hasActiveOrExpiredMigrationFloor(previousAssignment)
-            ? null
-            : previousCandidate,
+          previousAssignment,
+          previousCandidate,
           now,
           advanceDemotionWindow,
         })
@@ -762,12 +749,7 @@ async function buildRankedRolePreviewState({
         })
       : liveAssignment
     const evidenceCappedAssignment = qualified && globalRating
-      ? capAssignmentResultByEvidence(applyMigrationFloor({
-          liveAssignment: qualityAdjustedAssignment.assignment,
-          previousAssignment,
-          totalGames: globalRating.gamesPlayed,
-          pendingDemotion: qualityAdjustedAssignment.pendingDemotion,
-        }), globalRating, config)
+      ? capAssignmentResultByEvidence(qualityAdjustedAssignment, globalRating, config)
       : liveAssignment
     const tier1ProtectedAssignment = qualified && globalRating
       ? applyThinTier1Protection(evidenceCappedAssignment, previousAssignment, globalRating)
@@ -1338,65 +1320,6 @@ function resolveLiveAssignment({
   return { assignment: previousAssignment, pendingDemotion }
 }
 
-function applyMigrationFloor(input: {
-  liveAssignment: CurrentRankAssignment
-  previousAssignment: CurrentRankAssignment | null
-  totalGames: number
-  pendingDemotion: RankedRoleDemotionCandidate | null
-}): {
-  assignment: CurrentRankAssignment
-  pendingDemotion: RankedRoleDemotionCandidate | null
-} {
-  const floor = getActiveMigrationFloor(input.previousAssignment, input.totalGames)
-  if (!floor) return { assignment: stripMigrationFloor(input.liveAssignment), pendingDemotion: input.pendingDemotion }
-
-  if (competitiveTierRank(input.liveAssignment.tier) >= competitiveTierRank(floor.tier)) {
-    return {
-      assignment: {
-        tier: input.liveAssignment.tier,
-        sourceMode: input.liveAssignment.sourceMode,
-        protectedFloorTier: floor.tier,
-        protectedUntilMaxModeGames: floor.untilMaxModeGames,
-      },
-      pendingDemotion: null,
-    }
-  }
-
-  return {
-    assignment: {
-      tier: floor.tier,
-      sourceMode: null,
-      protectedFloorTier: floor.tier,
-      protectedUntilMaxModeGames: floor.untilMaxModeGames,
-    },
-    pendingDemotion: null,
-  }
-}
-
-function getActiveMigrationFloor(
-  assignment: CurrentRankAssignment | null,
-  totalGames: number,
-): { tier: CompetitiveTier, untilMaxModeGames: number } | null {
-  if (!assignment?.protectedFloorTier) return null
-  const untilMaxModeGames = assignment.protectedUntilMaxModeGames ?? 0
-  if (untilMaxModeGames <= 0 || totalGames >= untilMaxModeGames) return null
-  return {
-    tier: assignment.protectedFloorTier,
-    untilMaxModeGames,
-  }
-}
-
-function hasActiveOrExpiredMigrationFloor(assignment: CurrentRankAssignment | null): boolean {
-  return Boolean(assignment?.protectedFloorTier)
-}
-
-function stripMigrationFloor(assignment: CurrentRankAssignment): CurrentRankAssignment {
-  return {
-    tier: assignment.tier,
-    sourceMode: assignment.sourceMode,
-  }
-}
-
 async function persistRankedRoleSyncState(options: {
   kv: KVNamespace
   guildId: string
@@ -1640,17 +1563,9 @@ function normalizeCurrentRankAssignment(value: unknown): CurrentRankAssignment |
   const tier = normalizeRankedRoleTierId((value as { tier?: unknown }).tier)
   if (!tier) return null
 
-  const sourceMode = (value as { sourceMode?: unknown }).sourceMode
-  const protectedFloorTier = normalizeRankedRoleTierId((value as { protectedFloorTier?: unknown }).protectedFloorTier)
-    ?? normalizeRankedRoleTierId((value as { protectedUntilTotalGames?: unknown }).protectedUntilTotalGames != null ? tier : null)
   return {
     tier,
-    sourceMode: LEADERBOARD_MODES.includes(sourceMode as LeaderboardMode) ? sourceMode as LeaderboardMode : null,
-    protectedFloorTier: protectedFloorTier ?? undefined,
-    protectedUntilMaxModeGames: normalizePositiveInteger(
-      (value as { protectedUntilMaxModeGames?: unknown }).protectedUntilMaxModeGames
-      ?? (value as { protectedUntilTotalGames?: unknown }).protectedUntilTotalGames,
-    ),
+    sourceMode: null,
   }
 }
 

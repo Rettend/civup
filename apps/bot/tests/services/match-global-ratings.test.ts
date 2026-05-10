@@ -1,5 +1,5 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, playerRatingSeeds, players } from '@civup/db'
-import { calculateRatings, createRating, DEFAULT_MU, DEFAULT_SIGMA, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { calculateRatings, createRating, DEFAULT_MU, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
@@ -13,39 +13,6 @@ const OTHER_ID = 'p4'
 
 describe('match global ratings', () => {
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
-
-  test('recalculation ignores manual seed rows in production runtime', async () => {
-    const { db, sqlite } = await createTestDatabase()
-
-    try {
-      await seedDuelPlayers(db)
-      await db.insert(playerRatingSeeds).values({
-        playerId: HERO_ID,
-        mode: 'duel',
-        mu: DEFAULT_MU + 10,
-        sigma: DEFAULT_SIGMA,
-        eligibleForRanked: true,
-        fadeGamesRemaining: 10,
-        source: 'manual-role',
-        note: 'legacy seed ignored by runtime',
-        createdAt: NOW,
-        updatedAt: NOW,
-      })
-      await seedCompletedDuel(db, { matchId: 'm1', completedAt: NOW, isOld: false })
-
-      const result = await recalculateLeaderboardMode(db, 'duel')
-      expect('error' in result).toBe(false)
-      if ('error' in result) return
-
-      const hero = await loadParticipant(db, 'm1', HERO_ID)
-      const rating = await loadPlayerRating(db, HERO_ID, 'duel')
-      expect(hero?.ratingBeforeMu).toBeCloseTo(DEFAULT_MU, 6)
-      expect(rating?.gamesPlayed).toBe(1)
-    }
-    finally {
-      sqlite.close()
-    }
-  })
 
   test('imported matches count as visible partial evidence', async () => {
     const { db, sqlite } = await createTestDatabase()

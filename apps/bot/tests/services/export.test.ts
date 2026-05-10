@@ -1,4 +1,4 @@
-import { matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { buildPlayerDataExport, buildPlayerDataExportSheets } from '../../src/services/export/player-data.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -20,18 +20,6 @@ describe('player data export', () => {
         gamesPlayed: 12,
         wins: 4,
         lastPlayedAt: Date.UTC(2026, 0, 3),
-      })
-      await db.insert(playerRatingSeeds).values({
-        playerId: 'p1',
-        mode: 'ffa',
-        mu: 28,
-        sigma: 6,
-        eligibleForRanked: true,
-        fadeGamesRemaining: 3,
-        source: 'legacy',
-        note: 'seed note',
-        createdAt: Date.UTC(2026, 0, 4),
-        updatedAt: Date.UTC(2026, 0, 5),
       })
       await db.insert(matches).values([
         {
@@ -85,7 +73,6 @@ describe('player data export', () => {
         'overview',
         'players',
         'ratings',
-        'rating_seeds',
         'matches',
         'match_participants',
         'match_bans',
@@ -102,7 +89,6 @@ describe('player data export', () => {
       expect(sheetByName.get('players')?.columns).toEqual(['player_id', 'display_name', 'created_at_utc', 'last_match_at_utc'])
       expect(sheetByName.get('players')?.rows[0]).toEqual(['p1', 'Alice & Bob', excelDate(46023), excelDate(46029)])
       expect(sheetByName.get('players')?.rows[1]).toEqual(['p2', 'Charlie', excelDate(46024), null])
-      expect(sheetByName.get('rating_seeds')?.rows[0]).toContain('legacy')
       expect(sheetByName.get('matches')?.columns).toContain('old_bot')
       expect(sheetByName.get('matches')?.columns).not.toContain('draft_data')
       expect(sheetByName.get('matches')?.rows[0]).toEqual(['m1', 'ffa', 'completed', false, null, excelDate(46028), excelDate(46029)])
@@ -131,12 +117,11 @@ describe('player data export', () => {
       expect(files.has('xl/styles.xml')).toBe(true)
       expect(files.has('xl/worksheets/sheet1.xml')).toBe(true)
       expect(files.has('xl/worksheets/sheet2.xml')).toBe(true)
-      expect(decode(files.get('xl/workbook.xml')!)).toContain('rating_seeds')
       expect(decode(files.get('xl/worksheets/sheet1.xml')!)).toContain('Summary')
       const playersXml = decode(files.get('xl/worksheets/sheet2.xml')!)
       expect(playersXml).toContain('Alice &amp; Bob')
       expect(playersXml).toContain('s="1"><v>25569</v>')
-      expect(exportFile.counts).toMatchObject({ players: 1, ratings: 0, rating_seeds: 0, matches: 0 })
+      expect(exportFile.counts).toMatchObject({ players: 1, ratings: 0, matches: 0 })
       expect(exportFile.counts.overview).toBeGreaterThan(0)
     }
     finally {
