@@ -29,6 +29,7 @@ const baseLobby: LobbySnapshot = {
     blindBans: true,
     simultaneousPick: false,
     redDeath: false,
+    permanentAlly: false,
     dealOptionsSize: 2,
     randomDraft: false,
     hiddenDraft: false,

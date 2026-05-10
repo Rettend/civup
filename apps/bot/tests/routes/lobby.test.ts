@@ -842,6 +842,7 @@ describe('lobby routes', () => {
       mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
+      permanentAlly: false,
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,

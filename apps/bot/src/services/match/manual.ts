@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
 import { matches, matchParticipants, players } from '@civup/db'
-import { getLeaders, playerCountOptions, slotToTeamIndex, toLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, getLeaders, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
@@ -113,7 +113,9 @@ export async function createManualReportedMatch(
 }
 
 function validateManualReportedMatchInput(input: CreateManualReportedMatchInput): string | null {
-  const allowedCounts = playerCountOptions(input.mode)
+  const allowedCounts = input.mode === 'ffa'
+    ? startPlayerCountOptions(input.mode, defaultPlayerCount(input.mode))
+    : playerCountOptions(input.mode)
   if (!allowedCounts.includes(input.players.length)) {
     return `${input.mode} manual reports require ${formatAllowedCounts(allowedCounts)} players.`
   }
@@ -182,6 +184,7 @@ function buildManualReportedDraftData(
     reportedById: reporterId,
     mapVoteResult: null,
     redDeath: false,
+    permanentAlly: false,
     hiddenDraft: false,
     state,
   })

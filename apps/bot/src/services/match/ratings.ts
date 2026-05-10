@@ -7,6 +7,7 @@ import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, 
 import { and, asc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
+import { buildPermanentAllyFfaEffectiveRows, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 
 interface LeaderboardSnapshotRow {
   playerId: string
@@ -787,14 +788,20 @@ async function replayCompletedMatch(
   }
 
   const gameMode = gameContext.mode
-  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, (playerId) => {
+  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, gameContext.permanentAlly, (playerId) => {
     const existingRating = ratingStateByPlayer.get(playerId)
     if (existingRating) return { mu: existingRating.mu, sigma: existingRating.sigma }
     const rating = createRating(playerId)
     return { mu: rating.mu, sigma: rating.sigma }
   })
+  if ('error' in ratingUpdates) return ratingUpdates.error
 
   const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
+  const effectiveRows = gameContext.permanentAlly && gameMode === 'ffa'
+    ? buildPermanentAllyFfaEffectiveRows(participantRows)
+    : participantRows
+  if ('error' in effectiveRows) return effectiveRows.error
+  const effectiveRowByPlayerId = new Map(effectiveRows.map(row => [row.playerId, row]))
   const participantUpdateQueries: DbBatchItem[] = []
   const isImportedGame = match.isOld
   const writeParticipantSnapshots = options.writeParticipantSnapshots ?? true
@@ -805,9 +812,10 @@ async function replayCompletedMatch(
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const effectiveParticipant = effectiveRowByPlayerId.get(participant.playerId) ?? participant
     const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
     const qualityWins = leaderboardMode == null
-      ? countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
+      ? countQualityWinsForParticipant(effectiveParticipant, effectiveRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
       : { winsVsTier1: 0, winsVsTier2Plus: 0, effectiveWinsVsTier1: 0, effectiveWinsVsTier2Plus: 0 }
     const ratingBeforeMu = update.before.mu
     const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
@@ -837,7 +845,7 @@ async function replayCompletedMatch(
       mu: ratingAfterMu,
       sigma: ratingAfterSigma,
       gamesPlayed: currentState.gamesPlayed + 1,
-      wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
+      wins: currentState.wins + (effectiveParticipant.placement === 1 ? 1 : 0),
       importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
       effectiveGames: currentState.effectiveGames + sourceWeight,
       winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
@@ -857,7 +865,7 @@ async function replayCompletedMatch(
       ratingAfterMu,
       ratingAfterSigma,
       gamesDelta: 1,
-      winsDelta: participant.placement === 1 ? 1 : 0,
+      winsDelta: effectiveParticipant.placement === 1 ? 1 : 0,
       importedGamesDelta: isImportedGame ? 1 : 0,
       effectiveGamesDelta: sourceWeight,
       winsVsTier1Delta: qualityWins.winsVsTier1,
@@ -946,8 +954,13 @@ function rankedRoleTierNumber(tier: string | null): number | null {
 function calculateRatingUpdatesForMatch(
   gameMode: string,
   participantRows: StoredParticipantRow[],
+  permanentAlly: boolean,
   resolveRating: (playerId: string) => { mu: number, sigma: number },
-) {
+): ReturnType<typeof calculateRatings> | { error: string } {
+  if (permanentAlly && gameMode === 'ffa') {
+    return calculatePermanentAllyFfaRatingUpdates(participantRows, resolveRating)
+  }
+
   if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
     const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
 

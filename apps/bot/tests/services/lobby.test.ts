@@ -315,7 +315,7 @@ describe('lobby service D1-backed projection behavior', () => {
     expect(snapshot?.targetSize).toBe(8)
   })
 
-  test('stores six players as the regular FFA minimum start size for 8 seats', async () => {
+  test('stores six players as the regular FFA minimum start size for 12 seats', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, 'ffa', {
@@ -335,7 +335,7 @@ describe('lobby service D1-backed projection behavior', () => {
     const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
     expect(snapshot?.minPlayers).toBe(6)
-    expect(snapshot?.targetSize).toBe(8)
+    expect(snapshot?.targetSize).toBe(12)
   })
 
   test('stores live snapshots with attached balance ratings', async () => {

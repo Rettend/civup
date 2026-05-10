@@ -64,6 +64,7 @@ export interface LobbySnapshot {
     mapVoteEnabled: boolean
     blindBans: boolean
     simultaneousPick: boolean
+    permanentAlly: boolean
     redDeath: boolean
     dealOptionsSize: number | null
     randomDraft: boolean
@@ -647,6 +648,7 @@ export async function updateLobbyConfig(
     mapVoteEnabled?: boolean
     blindBans?: boolean
     simultaneousPick?: boolean
+    permanentAlly?: boolean
     redDeath?: boolean
     dealOptionsSize?: number | null
     randomDraft?: boolean
@@ -669,6 +671,7 @@ export async function updateLobbyConfig(
       mapVoteEnabled: draftConfig.mapVoteEnabled,
       blindBans: draftConfig.blindBans,
       simultaneousPick: draftConfig.simultaneousPick,
+      permanentAlly: draftConfig.permanentAlly,
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
       randomDraft: draftConfig.randomDraft,
