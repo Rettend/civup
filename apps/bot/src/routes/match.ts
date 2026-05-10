@@ -9,8 +9,7 @@ import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
-import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
-import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
+import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
@@ -82,6 +81,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       leaderAssignments,
     }, {
       sessionNamespace: c.env.SessionDO,
+      rankedRoleGuildId: liveLobbyBeforeReport?.guildId ?? null,
     })
 
     if ('error' in result) {
@@ -118,34 +118,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
     }
 
-    const guildId = lobby?.guildId ?? null
-    let rankedRoleLines: string[] = []
-    if (isRankedResult && guildId) {
-      try {
-        const participantIds = result.participants.map(participant => participant.playerId)
-        const rankedPreview = await previewRankedRoles({
-          db,
-          kv,
-          guildId,
-          playerIds: participantIds,
-          includePlayerIdentities: false,
-        })
-        rankedRoleLines = await listRankedRoleMatchUpdateLines({
-          kv,
-          guildId,
-          preview: rankedPreview,
-          playerIds: participantIds,
-        })
-        await syncSeasonPeaksForPlayers(db, {
-          playerIds: participantIds,
-          playerPreviews: rankedPreview.playerPreviews,
-        })
-      }
-      catch (error) {
-        console.error(`Failed to preview ranked role changes after match ${result.match.id}:`, error)
-      }
-    }
-
     const discordSync = await syncReportedMatchDiscordMessages({
       db,
       kv,
@@ -156,7 +128,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
       participants: result.participants,
       matchDraftData: result.match.draftData,
       lobby,
-      rankedRoleLines,
       sessionNamespace: c.env.SessionDO,
       reporter: {
         userId: auth.identity.userId,
@@ -252,6 +223,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       cancelledAt: Date.now(),
     }, {
       sessionNamespace: c.env.SessionDO,
+      rankedRoleGuildId: lobby?.guildId ?? null,
     })
 
     if ('error' in result) {

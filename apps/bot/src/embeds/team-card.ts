@@ -9,6 +9,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { formatDisplayRatingChange } from './rating-change.ts'
@@ -101,7 +102,7 @@ export async function teamCardEmbed(
   if (modeContext.gameModes.length > 0) conditions.push(inArray(matches.gameMode, [...modeContext.gameModes]))
   if (displaySeason?.id) conditions.push(eq(matches.seasonId, displaySeason.id))
 
-  const participantRows = modeContext.gameModes.length === 0
+  const participantRowsWithoutEventRatings = modeContext.gameModes.length === 0
     ? []
     : await db
         .select({
@@ -123,6 +124,7 @@ export async function teamCardEmbed(
         .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
         .where(and(...conditions))
         .orderBy(desc(matches.completedAt), desc(matches.id))
+  const participantRows = await hydrateModeRatingSnapshotsFromEvents(db, participantRowsWithoutEventRatings)
 
   const commonMatches = buildCommonMatches(participantRows, uniquePlayerIds)
   const gamesPlayed = commonMatches.length

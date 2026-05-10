@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { teamCardEmbed } from '../../src/embeds/team-card.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -191,6 +191,81 @@ describe('team stats embed', () => {
     expect(duoField?.value).toContain('Wins: 1 (100%)')
     expect(recentMatchesField?.value).toContain('2v2')
     expect(recentMatchesField?.value).not.toContain('3v3')
+
+    sqlite.close()
+  })
+
+  test('renders recent team rating changes from rating events', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedConfiguredRoles(kv)
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedCompletedMatch(db, {
+      matchId: 'event-duo-1',
+      gameMode: '2v2',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: 'babylon-hammurabi', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+    await db.insert(playerRatingEvents).values([
+      {
+        matchId: 'event-duo-1',
+        playerId: HERO_ID,
+        mode: 'duo',
+        gameMode: '2v2',
+        ratingBeforeMu: 25,
+        ratingBeforeSigma: 8.333,
+        ratingAfterMu: 26,
+        ratingAfterSigma: 8,
+        gamesDelta: 1,
+        winsDelta: 1,
+        importedGamesDelta: 0,
+        effectiveGamesDelta: 1,
+        winsVsTier1Delta: 0,
+        winsVsTier2PlusDelta: 0,
+        matchCreatedAt: NOW - 11_000,
+        matchCompletedAt: NOW - 1_000,
+        updatedAt: NOW,
+      },
+      {
+        matchId: 'event-duo-1',
+        playerId: MATE_ID,
+        mode: 'duo',
+        gameMode: '2v2',
+        ratingBeforeMu: 25,
+        ratingBeforeSigma: 8.333,
+        ratingAfterMu: 26.5,
+        ratingAfterSigma: 8,
+        gamesDelta: 1,
+        winsDelta: 1,
+        importedGamesDelta: 0,
+        effectiveGamesDelta: 1,
+        winsVsTier1Delta: 0,
+        winsVsTier2PlusDelta: 0,
+        matchCreatedAt: NOW - 11_000,
+        matchCompletedAt: NOW - 1_000,
+        updatedAt: NOW,
+      },
+    ])
+
+    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(recentMatchesField?.value).toContain('📈')
+    expect(recentMatchesField?.value).not.toContain('❔')
 
     sqlite.close()
   })

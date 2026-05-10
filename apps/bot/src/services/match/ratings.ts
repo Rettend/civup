@@ -1,9 +1,9 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import type { FfaEntry, TeamInput } from '@civup/rating'
-import { matches, matchParticipants, playerRatings, playerRatingSeeds, seasons } from '@civup/db'
-import { isTeamMode, leaderboardModesToGameModes } from '@civup/game'
-import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, seasonReset } from '@civup/rating'
+import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons } from '@civup/db'
+import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
+import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
@@ -19,13 +19,6 @@ interface StoredSeasonRow {
   id: string
   startsAt: number
   softReset: boolean
-}
-
-interface StoredSeedRow {
-  playerId: string
-  mu: number
-  sigma: number
-  fadeGamesRemaining: number | null
 }
 
 interface StoredMatchRow {
@@ -55,9 +48,27 @@ interface HistoricalParticipantRow {
   completedAt: number | null
   isOld: boolean
   playerId: string
+  team: number | null
   placement: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+}
+
+interface HistoricalRatingEventRow {
+  matchId: string
+  matchCreatedAt: number
+  matchCompletedAt: number | null
+  playerId: string
+  ratingAfterMu: number
+  ratingAfterSigma: number
+  gamesDelta: number
+  winsDelta: number
+  importedGamesDelta: number
+  effectiveGamesDelta: number
+  winsVsTier1Delta: number
+  winsVsTier2PlusDelta: number
+  effectiveWinsVsTier1Delta: number
+  effectiveWinsVsTier2PlusDelta: number
 }
 
 interface RatingState {
@@ -65,13 +76,13 @@ interface RatingState {
   sigma: number
   gamesPlayed: number
   wins: number
+  importedGames: number
+  effectiveGames: number
+  winsVsTier1: number
+  winsVsTier2Plus: number
+  effectiveWinsVsTier1: number
+  effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
-}
-
-interface SeedFadeState {
-  initialBonusMu: number
-  fadeGamesRemaining: number
-  newBotGamesPlayed: number
 }
 
 interface SeasonProgress {
@@ -84,7 +95,14 @@ interface RecalculateLeaderboardModeOptions {
   includeActiveBoundary?: boolean
 }
 
+interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOptions {
+  opponentTierByPlayerId?: ReadonlyMap<string, string>
+}
+
 const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
+const GLOBAL_RATING_SCOPE = 'global'
+
+type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
 export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: LeaderboardMode): Map<string, number> {
   const ranked = rows
@@ -104,25 +122,14 @@ export async function recalculateLeaderboardMode(
   options: RecalculateLeaderboardModeOptions = {},
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const gameModes = leaderboardModesToGameModes(leaderboardMode)
-  const [seasonRows, seedRows] = await Promise.all([
-    db
-      .select({
-        id: seasons.id,
-        startsAt: seasons.startsAt,
-        softReset: seasons.softReset,
-      })
-      .from(seasons)
-      .orderBy(asc(seasons.startsAt), asc(seasons.id)),
-    db
-      .select({
-        playerId: playerRatingSeeds.playerId,
-        mu: playerRatingSeeds.mu,
-        sigma: playerRatingSeeds.sigma,
-        fadeGamesRemaining: playerRatingSeeds.fadeGamesRemaining,
-      })
-      .from(playerRatingSeeds)
-      .where(eq(playerRatingSeeds.mode, leaderboardMode)),
-  ])
+  const seasonRows = await db
+    .select({
+      id: seasons.id,
+      startsAt: seasons.startsAt,
+      softReset: seasons.softReset,
+    })
+    .from(seasons)
+    .orderBy(asc(seasons.startsAt), asc(seasons.id))
 
   if (options.fromMatchId) {
     return recalculateLeaderboardModeFromBoundary(
@@ -130,14 +137,265 @@ export async function recalculateLeaderboardMode(
       leaderboardMode,
       gameModes,
       seasonRows,
-      seedRows,
       options.fromMatchId,
       options.includeFromMatch ?? true,
       options.includeActiveBoundary ?? false,
     )
   }
 
-  return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows, seedRows)
+  return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows)
+}
+
+export async function recalculateGlobalRatings(
+  db: Database,
+  options: RecalculateGlobalRatingsOptions = {},
+): Promise<{ matchIds: string[] } | { error: string }> {
+  const seasonRows = await db
+    .select({
+      id: seasons.id,
+      startsAt: seasons.startsAt,
+      softReset: seasons.softReset,
+    })
+    .from(seasons)
+    .orderBy(asc(seasons.startsAt), asc(seasons.id))
+
+  if (options.fromMatchId) {
+    return recalculateGlobalRatingsFromBoundary(
+      db,
+      seasonRows,
+      options.fromMatchId,
+      options.includeFromMatch ?? true,
+      options.includeActiveBoundary ?? false,
+      options.opponentTierByPlayerId ?? new Map(),
+    )
+  }
+
+  return recalculateGlobalRatingsFromScratch(db, seasonRows, options.opponentTierByPlayerId ?? new Map())
+}
+
+async function recalculateGlobalRatingsFromScratch(
+  db: Database,
+  seasonRows: StoredSeasonRow[],
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+): Promise<{ matchIds: string[] } | { error: string }> {
+
+  const completedMatches = await db
+    .select({
+      id: matches.id,
+      gameMode: matches.gameMode,
+      draftData: matches.draftData,
+      isOld: matches.isOld,
+      createdAt: matches.createdAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .where(and(
+      eq(matches.status, 'completed'),
+      inArray(matches.gameMode, [...GAME_MODES]),
+    ))
+    .orderBy(asc(matches.createdAt), asc(matches.id))
+
+  const allParticipantRows = completedMatches.length > 0
+    ? await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          civId: matchParticipants.civId,
+          placement: matchParticipants.placement,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
+        .from(matchParticipants)
+        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+        .where(and(
+          eq(matches.status, 'completed'),
+          inArray(matches.gameMode, [...GAME_MODES]),
+        ))
+    : []
+
+  const { ratingStateByPlayer } = createReplayStates()
+  const seasonProgress: SeasonProgress = { value: 0 }
+  const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
+  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE))
+
+  for (const match of completedMatches) {
+    applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
+
+    const participantRows = participantsByMatchId.get(match.id) ?? []
+    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+      writeParticipantSnapshots: false,
+      opponentTierByPlayerId,
+    })
+    if (typeof replayResult === 'string') return { error: replayResult }
+  }
+
+  applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
+
+  return { matchIds: completedMatches.map(match => match.id) }
+}
+
+async function recalculateGlobalRatingsFromBoundary(
+  db: Database,
+  seasonRows: StoredSeasonRow[],
+  fromMatchId: string,
+  includeFromMatch: boolean,
+  includeActiveBoundary: boolean,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+  extraReplayMatches: StoredMatchRow[] = [],
+): Promise<{ matchIds: string[] } | { error: string }> {
+  const [boundaryMatch] = await db
+    .select({
+      id: matches.id,
+      gameMode: matches.gameMode,
+      draftData: matches.draftData,
+      isOld: matches.isOld,
+      createdAt: matches.createdAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .where(eq(matches.id, fromMatchId))
+    .limit(1)
+
+  if (!boundaryMatch) return { error: `Match **${fromMatchId}** not found.` }
+
+  const boundaryContext = getStoredGameModeContext(boundaryMatch.gameMode, boundaryMatch.draftData)
+  if (!boundaryContext) return { error: `Match **${boundaryMatch.id}** has unsupported game mode: ${boundaryMatch.gameMode}.` }
+  if (boundaryContext.leaderboardMode == null) return { matchIds: [] }
+
+  const extraReplayMatchIds = extraReplayMatches.map(match => match.id)
+  const boundaryReplayCondition = includeActiveBoundary
+    ? or(
+        and(
+          eq(matches.status, 'completed'),
+          buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+        ),
+        eq(matches.id, fromMatchId),
+      )
+    : and(
+        eq(matches.status, 'completed'),
+        buildBoundaryCondition(boundaryMatch, includeFromMatch, 'after'),
+      )
+  const replayCondition = extraReplayMatchIds.length > 0
+    ? or(boundaryReplayCondition, inArray(matches.id, extraReplayMatchIds))
+    : boundaryReplayCondition
+
+  const [boundaryParticipants, replayMatches] = await Promise.all([
+    db
+      .select({ playerId: matchParticipants.playerId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, fromMatchId)),
+    db
+      .select({
+        id: matches.id,
+        gameMode: matches.gameMode,
+        draftData: matches.draftData,
+        isOld: matches.isOld,
+        createdAt: matches.createdAt,
+        completedAt: matches.completedAt,
+      })
+      .from(matches)
+      .where(and(
+        inArray(matches.gameMode, [...GAME_MODES]),
+        replayCondition,
+      ))
+      .orderBy(asc(matches.createdAt), asc(matches.id)),
+  ])
+
+  const replayParticipantRows = replayMatches.length > 0
+    ? await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          civId: matchParticipants.civId,
+          placement: matchParticipants.placement,
+          ratingBeforeMu: matchParticipants.ratingBeforeMu,
+          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+          ratingAfterMu: matchParticipants.ratingAfterMu,
+          ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        })
+        .from(matchParticipants)
+        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
+    : []
+
+  const affectedPlayerIds = [...new Set([
+    ...boundaryParticipants.map(participant => participant.playerId),
+    ...replayParticipantRows.map(participant => participant.playerId),
+  ])].sort((a, b) => a.localeCompare(b))
+
+  const earlierEventRows = affectedPlayerIds.length > 0
+    ? await db
+        .select({
+          matchId: playerRatingEvents.matchId,
+          matchCreatedAt: playerRatingEvents.matchCreatedAt,
+          matchCompletedAt: playerRatingEvents.matchCompletedAt,
+          playerId: playerRatingEvents.playerId,
+          ratingAfterMu: playerRatingEvents.ratingAfterMu,
+          ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+          gamesDelta: playerRatingEvents.gamesDelta,
+          winsDelta: playerRatingEvents.winsDelta,
+          importedGamesDelta: playerRatingEvents.importedGamesDelta,
+          effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
+          winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
+          winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
+          effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
+          effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
+        })
+        .from(playerRatingEvents)
+        .where(and(
+          eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
+          inArray(playerRatingEvents.playerId, affectedPlayerIds),
+          buildEventBoundaryCondition(boundaryMatch, false, 'before'),
+        ))
+        .orderBy(asc(playerRatingEvents.matchCreatedAt), asc(playerRatingEvents.matchId), asc(playerRatingEvents.playerId))
+    : []
+
+  const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
+  const seasonProgress: SeasonProgress = { value: 0 }
+  const hydrateResult = hydrateRatingStateFromEventsUntilBoundary(
+    ratingStateByPlayer,
+    seasonRows,
+    seasonProgress,
+    earlierEventRows,
+    boundaryMatch.createdAt,
+  )
+  if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
+    const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
+    if (!missingSnapshotMatchId) return { error: hydrateResult }
+    return recalculateGlobalRatingsFromBoundary(
+      db,
+      seasonRows,
+      missingSnapshotMatchId,
+      true,
+      false,
+      opponentTierByPlayerId,
+      includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
+    )
+  }
+  if (typeof hydrateResult === 'string') return { error: hydrateResult }
+
+  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
+
+  const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
+  for (const match of replayMatches) {
+    applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
+
+    const participantRows = participantsByMatchId.get(match.id) ?? []
+    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+      writeParticipantSnapshots: false,
+      opponentTierByPlayerId,
+    })
+    if (typeof replayResult === 'string') return { error: replayResult }
+  }
+
+  applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
+
+  return { matchIds: replayMatches.map(match => match.id) }
 }
 
 async function recalculateLeaderboardModeFromScratch(
@@ -145,7 +403,6 @@ async function recalculateLeaderboardModeFromScratch(
   leaderboardMode: LeaderboardMode,
   gameModes: readonly string[],
   seasonRows: StoredSeasonRow[],
-  seedRows: StoredSeedRow[],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const completedMatches = await db
     .select({
@@ -184,15 +441,16 @@ async function recalculateLeaderboardModeFromScratch(
         ))
     : []
 
-  const { ratingStateByPlayer, seedFadeStateByPlayer } = createReplayStates(seedRows)
+  const { ratingStateByPlayer } = createReplayStates()
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
+  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, leaderboardMode))
 
   for (const match of completedMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, seedFadeStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
@@ -207,7 +465,6 @@ async function recalculateLeaderboardModeFromBoundary(
   leaderboardMode: LeaderboardMode,
   gameModes: readonly string[],
   seasonRows: StoredSeasonRow[],
-  seedRows: StoredSeedRow[],
   fromMatchId: string,
   includeFromMatch: boolean,
   includeActiveBoundary: boolean,
@@ -303,6 +560,7 @@ async function recalculateLeaderboardModeFromBoundary(
           completedAt: matches.completedAt,
           isOld: matches.isOld,
           playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
           placement: matchParticipants.placement,
           ratingAfterMu: matchParticipants.ratingAfterMu,
           ratingAfterSigma: matchParticipants.ratingAfterSigma,
@@ -318,11 +576,10 @@ async function recalculateLeaderboardModeFromBoundary(
         .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
     : []
 
-  const { ratingStateByPlayer, seedFadeStateByPlayer } = createReplayStates(seedRows, affectedPlayerIds)
+  const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
   const hydrateResult = hydrateRatingStateUntilBoundary(
     ratingStateByPlayer,
-    seedFadeStateByPlayer,
     seasonRows,
     seasonProgress,
     earlierParticipantRows,
@@ -336,7 +593,6 @@ async function recalculateLeaderboardModeFromBoundary(
       leaderboardMode,
       gameModes,
       seasonRows,
-      seedRows,
       missingSnapshotMatchId,
       true,
       false,
@@ -345,12 +601,14 @@ async function recalculateLeaderboardModeFromBoundary(
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
+  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
+
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
   for (const match of replayMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, seedFadeStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
@@ -360,41 +618,11 @@ async function recalculateLeaderboardModeFromBoundary(
   return { matchIds: replayMatches.map(match => match.id) }
 }
 
-function createReplayStates(
-  seedRows: StoredSeedRow[],
-  playerIds?: string[],
-): {
+function createReplayStates(_playerIds?: string[]): {
   ratingStateByPlayer: Map<string, RatingState>
-  seedFadeStateByPlayer: Map<string, SeedFadeState>
 } {
-  const playerIdSet = playerIds ? new Set(playerIds) : null
   const ratingStateByPlayer = new Map<string, RatingState>()
-  const seedFadeStateByPlayer = new Map<string, SeedFadeState>()
-
-  for (const seed of seedRows) {
-    if (playerIdSet && !playerIdSet.has(seed.playerId)) continue
-
-    if (seed.fadeGamesRemaining != null && seed.fadeGamesRemaining <= 0) continue
-
-    ratingStateByPlayer.set(seed.playerId, {
-      mu: seed.mu,
-      sigma: seed.sigma,
-      gamesPlayed: 0,
-      wins: 0,
-      lastPlayedAt: null,
-    })
-
-    if (seed.fadeGamesRemaining != null && seed.fadeGamesRemaining > 0) {
-      const defaultRating = createRating(seed.playerId)
-      seedFadeStateByPlayer.set(seed.playerId, {
-        initialBonusMu: seed.mu - defaultRating.mu,
-        fadeGamesRemaining: seed.fadeGamesRemaining,
-        newBotGamesPlayed: 0,
-      })
-    }
-  }
-
-  return { ratingStateByPlayer, seedFadeStateByPlayer }
+  return { ratingStateByPlayer }
 }
 
 function buildParticipantsByMatchId(rows: StoredParticipantRow[]): Map<string, StoredParticipantRow[]> {
@@ -425,6 +653,12 @@ function applySeasonResetsUntil(
           sigma: reset.sigma,
           gamesPlayed: 0,
           wins: 0,
+          importedGames: 0,
+          effectiveGames: 0,
+          winsVsTier1: 0,
+          winsVsTier2Plus: 0,
+          effectiveWinsVsTier1: 0,
+          effectiveWinsVsTier2Plus: 0,
         })
       }
     }
@@ -435,11 +669,14 @@ function applySeasonResetsUntil(
 
 function hydrateRatingStateUntilBoundary(
   ratingStateByPlayer: Map<string, RatingState>,
-  seedFadeStateByPlayer: Map<string, SeedFadeState>,
   seasonRows: StoredSeasonRow[],
   seasonProgress: SeasonProgress,
   rows: HistoricalParticipantRow[],
   boundaryCreatedAt: number,
+  options: {
+    trackedPlayerIds?: ReadonlySet<string>
+    opponentTierByPlayerId?: ReadonlyMap<string, string>
+  } = {},
 ): string | null {
   let currentMatchId: string | null = null
   let currentMatchCreatedAt = 0
@@ -452,24 +689,28 @@ function hydrateRatingStateUntilBoundary(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, currentMatchCreatedAt)
 
     for (const row of currentMatchRows) {
+      if (options.trackedPlayerIds && !options.trackedPlayerIds.has(row.playerId)) continue
       if (row.placement == null) return `Completed match **${row.matchId}** has missing placements.`
       if (row.ratingAfterMu == null || row.ratingAfterSigma == null) {
         return `Completed match **${row.matchId}** has missing rating snapshots.`
       }
 
       const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
-      const shouldCountAsNewBotGame = !row.isOld
-      const seedFadeState = seedFadeStateByPlayer.get(row.playerId)
-      if (seedFadeState && shouldCountAsNewBotGame) {
-        seedFadeState.newBotGamesPlayed += 1
-        seedFadeStateByPlayer.set(row.playerId, seedFadeState)
-      }
+      const isImportedGame = row.isOld
+      const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
+      const qualityWins = countQualityWinsForParticipant(row, currentMatchRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
       ratingStateByPlayer.set(row.playerId, {
         mu: row.ratingAfterMu,
         sigma: row.ratingAfterSigma,
-        gamesPlayed: currentState.gamesPlayed + (shouldCountAsNewBotGame ? 1 : 0),
-        wins: currentState.wins + (shouldCountAsNewBotGame && row.placement === 1 ? 1 : 0),
-        lastPlayedAt: shouldCountAsNewBotGame ? (currentMatchCompletedAt ?? currentMatchCreatedAt) : currentState.lastPlayedAt,
+        gamesPlayed: currentState.gamesPlayed + 1,
+        wins: currentState.wins + (row.placement === 1 ? 1 : 0),
+        importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
+        effectiveGames: currentState.effectiveGames + sourceWeight,
+        winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
+        winsVsTier2Plus: currentState.winsVsTier2Plus + qualityWins.winsVsTier2Plus,
+        effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + qualityWins.effectiveWinsVsTier1,
+        effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + qualityWins.effectiveWinsVsTier2Plus,
+        lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (currentMatchCompletedAt ?? currentMatchCreatedAt),
       })
     }
 
@@ -497,17 +738,48 @@ function hydrateRatingStateUntilBoundary(
   return null
 }
 
+function hydrateRatingStateFromEventsUntilBoundary(
+  ratingStateByPlayer: Map<string, RatingState>,
+  seasonRows: StoredSeasonRow[],
+  seasonProgress: SeasonProgress,
+  rows: HistoricalRatingEventRow[],
+  boundaryCreatedAt: number,
+): string | null {
+  for (const row of rows) {
+    applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, row.matchCreatedAt)
+
+    const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
+    ratingStateByPlayer.set(row.playerId, {
+      mu: row.ratingAfterMu,
+      sigma: row.ratingAfterSigma,
+      gamesPlayed: currentState.gamesPlayed + row.gamesDelta,
+      wins: currentState.wins + row.winsDelta,
+      importedGames: currentState.importedGames + row.importedGamesDelta,
+      effectiveGames: currentState.effectiveGames + row.effectiveGamesDelta,
+      winsVsTier1: currentState.winsVsTier1 + row.winsVsTier1Delta,
+      winsVsTier2Plus: currentState.winsVsTier2Plus + row.winsVsTier2PlusDelta,
+      effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + row.effectiveWinsVsTier1Delta,
+      effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + row.effectiveWinsVsTier2PlusDelta,
+      lastPlayedAt: row.importedGamesDelta > 0 ? currentState.lastPlayedAt : (row.matchCompletedAt ?? row.matchCreatedAt),
+    })
+  }
+
+  applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, boundaryCreatedAt)
+  return null
+}
+
 async function replayCompletedMatch(
   db: Database,
-  leaderboardMode: LeaderboardMode,
+  leaderboardMode: LeaderboardMode | null,
   match: StoredMatchRow,
   participantRows: StoredParticipantRow[],
   ratingStateByPlayer: Map<string, RatingState>,
-  seedFadeStateByPlayer: Map<string, SeedFadeState>,
+  options: { writeParticipantSnapshots?: boolean, opponentTierByPlayerId?: ReadonlyMap<string, string> } = {},
 ): Promise<string | null> {
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.`
-  if (gameContext.leaderboardMode !== leaderboardMode) return null
+  if (leaderboardMode != null && gameContext.leaderboardMode !== leaderboardMode) return null
+  if (leaderboardMode == null && gameContext.leaderboardMode == null) return null
 
   if (participantRows.length === 0) return `Completed match **${match.id}** has no participants.`
   if (participantRows.some(participant => participant.placement == null)) {
@@ -524,57 +796,151 @@ async function replayCompletedMatch(
 
   const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
   const participantUpdateQueries: DbBatchItem[] = []
-  const shouldCountAsNewBotGame = !match.isOld
+  const isImportedGame = match.isOld
+  const writeParticipantSnapshots = options.writeParticipantSnapshots ?? true
+  const ratingScope = leaderboardMode ?? GLOBAL_RATING_SCOPE
 
   for (const participant of participantRows) {
     const update = updateByPlayer.get(participant.playerId)
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
-    const seedFadeState = seedFadeStateByPlayer.get(participant.playerId)
-    let ratingBeforeMu = update.before.mu
-    let ratingAfterMu = update.after.mu
+    const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
+    const qualityWins = leaderboardMode == null
+      ? countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
+      : { winsVsTier1: 0, winsVsTier2Plus: 0, effectiveWinsVsTier1: 0, effectiveWinsVsTier2Plus: 0 }
+    const ratingBeforeMu = update.before.mu
+    const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
+    const ratingAfterMu = ratingAfter.mu
+    const ratingAfterSigma = ratingAfter.sigma
 
-    if (seedFadeState && shouldCountAsNewBotGame) {
-      const seedFadeDeltaMu = calculateSeedFadeStepMu(
-        seedFadeState.initialBonusMu,
-        seedFadeState.fadeGamesRemaining,
-        seedFadeState.newBotGamesPlayed,
-      )
-      seedFadeState.newBotGamesPlayed += 1
-      ratingBeforeMu -= seedFadeDeltaMu
-      ratingAfterMu -= seedFadeDeltaMu
-      seedFadeStateByPlayer.set(participant.playerId, seedFadeState)
-    }
-
-    participantUpdateQueries.push(
-      db
-        .update(matchParticipants)
-        .set({
-          ratingBeforeMu,
-          ratingBeforeSigma: update.before.sigma,
-          ratingAfterMu,
-          ratingAfterSigma: update.after.sigma,
-        })
-        .where(
-          and(
-            eq(matchParticipants.matchId, match.id),
-            eq(matchParticipants.playerId, participant.playerId),
+    if (writeParticipantSnapshots) {
+      participantUpdateQueries.push(
+        db
+          .update(matchParticipants)
+          .set({
+            ratingBeforeMu,
+            ratingBeforeSigma: update.before.sigma,
+            ratingAfterMu,
+            ratingAfterSigma,
+          })
+          .where(
+            and(
+              eq(matchParticipants.matchId, match.id),
+              eq(matchParticipants.playerId, participant.playerId),
+            ),
           ),
-        ),
-    )
+      )
+    }
 
     ratingStateByPlayer.set(participant.playerId, {
       mu: ratingAfterMu,
-      sigma: update.after.sigma,
-      gamesPlayed: currentState.gamesPlayed + (shouldCountAsNewBotGame ? 1 : 0),
-      wins: currentState.wins + (shouldCountAsNewBotGame && participant.placement === 1 ? 1 : 0),
-      lastPlayedAt: shouldCountAsNewBotGame ? (match.completedAt ?? match.createdAt) : currentState.lastPlayedAt,
+      sigma: ratingAfterSigma,
+      gamesPlayed: currentState.gamesPlayed + 1,
+      wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
+      importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
+      effectiveGames: currentState.effectiveGames + sourceWeight,
+      winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
+      winsVsTier2Plus: currentState.winsVsTier2Plus + qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + qualityWins.effectiveWinsVsTier2Plus,
+      lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (match.completedAt ?? match.createdAt),
     })
+
+    const eventRow = {
+      matchId: match.id,
+      playerId: participant.playerId,
+      mode: ratingScope,
+      gameMode: match.gameMode,
+      ratingBeforeMu,
+      ratingBeforeSigma: update.before.sigma,
+      ratingAfterMu,
+      ratingAfterSigma,
+      gamesDelta: 1,
+      winsDelta: participant.placement === 1 ? 1 : 0,
+      importedGamesDelta: isImportedGame ? 1 : 0,
+      effectiveGamesDelta: sourceWeight,
+      winsVsTier1Delta: qualityWins.winsVsTier1,
+      winsVsTier2PlusDelta: qualityWins.winsVsTier2Plus,
+      effectiveWinsVsTier1Delta: qualityWins.effectiveWinsVsTier1,
+      effectiveWinsVsTier2PlusDelta: qualityWins.effectiveWinsVsTier2Plus,
+      matchCreatedAt: match.createdAt,
+      matchCompletedAt: match.completedAt,
+      updatedAt: Date.now(),
+    }
+    participantUpdateQueries.push(
+      db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
+        target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
+        set: eventRow,
+      }),
+    )
   }
 
-  await runDbBatch(db, participantUpdateQueries)
+  if (participantUpdateQueries.length > 0) await runDbBatch(db, participantUpdateQueries)
   return null
+}
+
+function scaleRatingAfterForSource(update: RatingUpdate, sourceWeight: number): { mu: number, sigma: number } {
+  if (sourceWeight >= 1) return update.after
+  return {
+    mu: update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight),
+    sigma: update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight),
+  }
+}
+
+function countQualityWinsForParticipant(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+  participantRows: Array<Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>>,
+  opponentTierByPlayerId: ReadonlyMap<string, string>,
+  sourceWeight = 1,
+): { winsVsTier1: number, winsVsTier2Plus: number, effectiveWinsVsTier1: number, effectiveWinsVsTier2Plus: number } {
+  let winsVsTier1 = 0
+  let winsVsTier2Plus = 0
+  let effectiveWinsVsTier1 = 0
+  let effectiveWinsVsTier2Plus = 0
+  const effectiveWinCredit = sourceWeight / participantTeamSize(participant, participantRows)
+
+  for (const opponent of participantRows) {
+    if (!didDefeatOpponent(participant, opponent)) continue
+    const opponentTierNumber = rankedRoleTierNumber(opponentTierByPlayerId.get(opponent.playerId) ?? null)
+    if (opponentTierNumber == null) continue
+    if (opponentTierNumber <= 1) {
+      winsVsTier1 += 1
+      effectiveWinsVsTier1 += effectiveWinCredit
+    }
+    if (opponentTierNumber <= 2) {
+      winsVsTier2Plus += 1
+      effectiveWinsVsTier2Plus += effectiveWinCredit
+    }
+  }
+
+  return { winsVsTier1, winsVsTier2Plus, effectiveWinsVsTier1, effectiveWinsVsTier2Plus }
+}
+
+function participantTeamSize(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team'>,
+  participantRows: Array<Pick<StoredParticipantRow, 'playerId' | 'team'>>,
+): number {
+  if (participant.team == null) return 1
+  return Math.max(1, participantRows.filter(row => row.team === participant.team).length)
+}
+
+function didDefeatOpponent(
+  participant: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+  opponent: Pick<StoredParticipantRow, 'playerId' | 'team' | 'placement'>,
+): boolean {
+  if (participant.playerId === opponent.playerId) return false
+  if (participant.team != null && opponent.team != null && participant.team === opponent.team) return false
+  if (participant.placement == null || opponent.placement == null) return false
+  return participant.placement < opponent.placement
+}
+
+function rankedRoleTierNumber(tier: string | null): number | null {
+  if (!tier) return null
+  const match = /^tier(\d+)$/i.exec(tier.trim())
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isFinite(value) ? Math.round(value) : null
 }
 
 function calculateRatingUpdatesForMatch(
@@ -623,7 +989,7 @@ function calculateRatingUpdatesForMatch(
 
 async function replacePlayerRatings(
   db: Database,
-  leaderboardMode: LeaderboardMode,
+  leaderboardMode: RatingScope,
   ratingStateByPlayer: Map<string, RatingState>,
   playerIds?: string[],
 ): Promise<void> {
@@ -654,12 +1020,41 @@ async function replacePlayerRatings(
         sigma: state.sigma,
         gamesPlayed: state.gamesPlayed,
         wins: state.wins,
+        importedGames: state.importedGames,
+        effectiveGames: state.effectiveGames,
+        winsVsTier1: state.winsVsTier1,
+        winsVsTier2Plus: state.winsVsTier2Plus,
+        effectiveWinsVsTier1: state.effectiveWinsVsTier1,
+        effectiveWinsVsTier2Plus: state.effectiveWinsVsTier2Plus,
         lastPlayedAt: state.lastPlayedAt,
+        updatedAt: Date.now(),
       }),
     )
   }
 
   await runDbBatch(db, ratingQueries)
+}
+
+async function deleteRatingEventsFromBoundary(
+  db: Database,
+  ratingScope: RatingScope,
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+  playerIds: string[],
+  includeBoundary: boolean,
+): Promise<void> {
+  if (playerIds.length === 0) return
+  const boundaryCondition = buildEventBoundaryCondition(boundaryMatch, includeBoundary, 'after')
+  const replayRangeCondition = includeBoundary
+    ? boundaryCondition
+    : or(eq(playerRatingEvents.matchId, boundaryMatch.id), boundaryCondition)
+
+  await db
+    .delete(playerRatingEvents)
+    .where(and(
+      eq(playerRatingEvents.mode, ratingScope),
+      inArray(playerRatingEvents.playerId, playerIds),
+      replayRangeCondition,
+    ))
 }
 
 function createDefaultRatingState(playerId: string): RatingState {
@@ -669,28 +1064,14 @@ function createDefaultRatingState(playerId: string): RatingState {
     sigma: rating.sigma,
     gamesPlayed: 0,
     wins: 0,
+    importedGames: 0,
+    effectiveGames: 0,
+    winsVsTier1: 0,
+    winsVsTier2Plus: 0,
+    effectiveWinsVsTier1: 0,
+    effectiveWinsVsTier2Plus: 0,
     lastPlayedAt: null,
   }
-}
-
-function hasLiveSeedFade(seedRows: StoredSeedRow[]): boolean {
-  return seedRows.some(row => (row.fadeGamesRemaining ?? 0) > 0)
-}
-
-export function calculateSeedFadeStepMu(
-  initialBonusMu: number,
-  fadeGamesRemaining: number,
-  newBotGamesPlayed: number,
-): number {
-  const previousBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed })
-  const nextBonusMu = currentSeedBonusMu({ initialBonusMu, fadeGamesRemaining, newBotGamesPlayed: newBotGamesPlayed + 1 })
-  return previousBonusMu - nextBonusMu
-}
-
-function currentSeedBonusMu(state: SeedFadeState): number {
-  if (state.fadeGamesRemaining <= 0) return 0
-  const remainingGames = Math.max(0, state.fadeGamesRemaining - state.newBotGamesPlayed)
-  return state.initialBonusMu * (remainingGames / state.fadeGamesRemaining)
 }
 
 function isMissingRatingSnapshotsError(error: string): boolean {
@@ -718,6 +1099,27 @@ function buildBoundaryCondition(
     and(
       eq(matches.createdAt, boundaryMatch.createdAt),
       includeBoundary ? gte(matches.id, boundaryMatch.id) : gt(matches.id, boundaryMatch.id),
+    ),
+  )
+}
+
+function buildEventBoundaryCondition(
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+  includeBoundary: boolean,
+  direction: 'before' | 'after',
+) {
+  if (direction === 'before') {
+    return or(
+      lt(playerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+      and(eq(playerRatingEvents.matchCreatedAt, boundaryMatch.createdAt), lt(playerRatingEvents.matchId, boundaryMatch.id)),
+    )
+  }
+
+  return or(
+    gt(playerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+    and(
+      eq(playerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+      includeBoundary ? gte(playerRatingEvents.matchId, boundaryMatch.id) : gt(playerRatingEvents.matchId, boundaryMatch.id),
     ),
   )
 }

@@ -1,8 +1,7 @@
-import { playerRatings, playerRatingSeeds, players } from '@civup/db'
+import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { rankedPreviewEmbeds } from '../../src/embeds/ranked-preview.ts'
-import { markLeaderboardsDirty } from '../../src/services/leaderboard/message.ts'
-import { markRankedRolesDirty, previewRankedRoles, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
+import { markRankedRolesDirty, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -29,16 +28,16 @@ describe('ranked preview summary', () => {
       roleId: '55555555555555555',
       isFallback: false,
     })
-    expect(summary.bands[0]?.earnPercent).toBeCloseTo(0.015, 6)
-    expect(summary.bands[0]?.cumulativeEarnPercent).toBeCloseTo(0.015, 6)
-    expect(summary.bands[0]?.keepPercent).toBeCloseTo(0.02, 6)
-    expect(summary.bands[0]?.cumulativeKeepPercent).toBeCloseTo(0.02, 6)
-    expect(summary.bands[1]?.keepPercent).toBeCloseTo(0.045, 6)
-    expect(summary.bands[1]?.cumulativeKeepPercent).toBeCloseTo(0.065, 6)
-    expect(summary.bands[2]?.keepPercent).toBeCloseTo(0.105, 6)
-    expect(summary.bands[2]?.cumulativeKeepPercent).toBeCloseTo(0.17, 6)
-    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.305, 6)
-    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.475, 6)
+    expect(summary.bands[0]?.earnPercent).toBeCloseTo(0.05, 6)
+    expect(summary.bands[0]?.cumulativeEarnPercent).toBeCloseTo(0.05, 6)
+    expect(summary.bands[0]?.keepPercent).toBeCloseTo(0.055, 6)
+    expect(summary.bands[0]?.cumulativeKeepPercent).toBeCloseTo(0.055, 6)
+    expect(summary.bands[1]?.keepPercent).toBeCloseTo(0.155, 6)
+    expect(summary.bands[1]?.cumulativeKeepPercent).toBeCloseTo(0.21, 6)
+    expect(summary.bands[2]?.keepPercent).toBeCloseTo(0.205, 6)
+    expect(summary.bands[2]?.cumulativeKeepPercent).toBeCloseTo(0.415, 6)
+    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.505, 6)
+    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.92, 6)
     expect(summary.bands[4]).toMatchObject({
       tier: 'tier5',
       roleId: '11111111111111111',
@@ -49,7 +48,7 @@ describe('ranked preview summary', () => {
 
     const ffa = summary.modes.find(mode => mode.mode === 'ffa')
     expect(ffa?.rankedCount).toBe(100)
-    expect(ffa?.tiers.map(tier => tier.cutoffRank)).toEqual([1, 5, 15, 45, null])
+    expect(ffa?.tiers.map(tier => tier.cutoffRank)).toEqual([5, 20, 40, 90, null])
 
     sqlite.close()
   })
@@ -80,153 +79,8 @@ describe('ranked preview summary', () => {
     expect(summary.modes[0]?.tiers[3]).toMatchObject({
       tier: 'tier4',
       locked: false,
-      cutoffRank: 6,
+      cutoffRank: 10,
     })
-
-    sqlite.close()
-  })
-
-  test('only grants seeded ranked eligibility after a player has real games in that mode', async () => {
-    const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
-    await seedConfiguredRoles(kv)
-    await seedPlayers(db, 'duel', 8, { prefix: 'duel', gamesPlayed: 12 })
-
-    const playerId = playerIdFor('seeded', 1)
-    await db.insert(players).values({
-      id: playerId,
-      displayName: playerId,
-      avatarUrl: null,
-      createdAt: NOW,
-    }).onConflictDoNothing()
-    await db.insert(playerRatings).values({
-      playerId,
-      mode: 'duel',
-      mu: 50,
-      sigma: 6,
-      gamesPlayed: 0,
-      wins: 0,
-      lastPlayedAt: NOW,
-    }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: {
-        mu: 50,
-        sigma: 6,
-        gamesPlayed: 0,
-        wins: 0,
-        lastPlayedAt: NOW,
-      },
-    })
-    await db.insert(playerRatingSeeds).values({
-      playerId,
-      mode: 'duel',
-      mu: 50,
-      sigma: 6,
-      eligibleForRanked: true,
-      source: 'test',
-      note: 'seeded duel player',
-      createdAt: NOW,
-      updatedAt: NOW,
-    }).onConflictDoUpdate({
-      target: [playerRatingSeeds.playerId, playerRatingSeeds.mode],
-      set: {
-        mu: 50,
-        sigma: 6,
-        eligibleForRanked: true,
-        source: 'test',
-        note: 'seeded duel player',
-        updatedAt: NOW,
-      },
-    })
-
-    const before = await summarizeRankedPreview({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      mode: 'duel',
-    })
-
-    expect(before.modes[0]?.rankedCount).toBe(8)
-
-    await db.insert(playerRatings).values({
-      playerId,
-      mode: 'duel',
-      mu: 50,
-      sigma: 6,
-      gamesPlayed: 1,
-      wins: 1,
-      lastPlayedAt: NOW,
-    }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: {
-        mu: 50,
-        sigma: 6,
-        gamesPlayed: 1,
-        wins: 1,
-        lastPlayedAt: NOW,
-      },
-    })
-    await markLeaderboardsDirty(db, 'seed eligibility test update')
-
-    const after = await previewRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      playerIds: [playerId],
-      includePlayerIdentities: false,
-    })
-    const afterSummary = await summarizeRankedPreview({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      mode: 'duel',
-    })
-
-    expect(afterSummary.modes[0]?.rankedCount).toBe(9)
-    expect(after.playerPreviews[0]?.ladderTiers.duel).toBe('tier1')
-
-    await db.insert(playerRatings).values({
-      playerId,
-      mode: 'duel',
-      mu: 50,
-      sigma: 6,
-      gamesPlayed: 10,
-      wins: 10,
-      lastPlayedAt: NOW,
-    }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: {
-        mu: 50,
-        sigma: 6,
-        gamesPlayed: 10,
-        wins: 10,
-        lastPlayedAt: NOW,
-      },
-    })
-    await markLeaderboardsDirty(db, 'seed eligibility test reaches total threshold')
-    await kv.delete('leaderboard:snapshot:duel')
-
-    const qualified = await previewRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      playerIds: [playerId],
-      includePlayerIdentities: false,
-    })
-    const qualifiedSummary = await summarizeRankedPreview({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      mode: 'duel',
-    })
-
-    expect(qualifiedSummary.modes[0]?.rankedCount).toBe(9)
-    expect(qualified.playerPreviews[0]?.ladderTiers.duel).toBe('tier1')
 
     sqlite.close()
   })
@@ -281,11 +135,11 @@ describe('ranked preview summary', () => {
     expect(summaryFields).toContain('Earn')
     expect(summaryFields).toContain('Keep')
     expect(summaryFields).toContain('<@&55555555555555555>')
-    expect(summaryFields).toContain('1.5% (Top 1.5%)')
-    expect(summaryFields).toContain('2.0% (Top 2.0%)')
-    expect(summaryFields).toContain('4.5% (Top 6.5%)')
-    expect(summaryFields).toContain('10.5% (Top 17.0%)')
-    expect(summaryFields).toContain('30.5% (Top 47.5%)')
+    expect(summaryFields).toContain('5.0% (Top 5.0%)')
+    expect(summaryFields).toContain('5.5% (Top 5.5%)')
+    expect(summaryFields).toContain('15.5% (Top 21.0%)')
+    expect(summaryFields).toContain('20.5% (Top 41.5%)')
+    expect(summaryFields).toContain('50.5% (Top 92.0%)')
     expect(summaryFields).toContain('Unranked')
 
     expect(modeEmbed?.title).toBe('Duel - 10 ranked')
@@ -363,6 +217,7 @@ async function seedPlayers(
       sigma: 6,
       gamesPlayed: options.gamesPlayed,
       lastPlayedAt: NOW,
+      effectiveGames: options.gamesPlayed,
     }).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: {
@@ -370,6 +225,25 @@ async function seedPlayers(
         sigma: 6,
         gamesPlayed: options.gamesPlayed,
         lastPlayedAt: NOW,
+        effectiveGames: options.gamesPlayed,
+      },
+    })
+    await db.insert(playerRatings).values({
+      playerId,
+      mode: 'global',
+      mu: 40 - index,
+      sigma: 6,
+      gamesPlayed: options.gamesPlayed,
+      lastPlayedAt: NOW,
+      effectiveGames: options.gamesPlayed,
+    }).onConflictDoUpdate({
+      target: [playerRatings.playerId, playerRatings.mode],
+      set: {
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: options.gamesPlayed,
+        lastPlayedAt: NOW,
+        effectiveGames: options.gamesPlayed,
       },
     })
   }

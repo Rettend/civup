@@ -22,6 +22,9 @@ export const DISPLAY_RATING_SCALE = 36
 /** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
 export const Z_MULTIPLIER = 0
 
+/** Conservative uncertainty penalty used for official ranked role placement. */
+export const RANKED_ROLE_Z_MULTIPLIER = 0.75
+
 /** Two-team favorites keep full value until this win probability. */
 const EXPECTED_WIN_DISCOUNT_START = 0.70
 
@@ -77,8 +80,11 @@ function scaleRatingUpdates(updates: RatingUpdate[], weight: number): RatingUpda
 /** Minimum games required to appear on player leaderboards. */
 export const LEADERBOARD_MIN_GAMES = 5
 
-/** Minimum total ranked games required before non-fallback ranked roles apply. */
-export const RANKED_ROLE_MIN_GAMES = 10
+/** Minimum weighted evidence required before ranked roles are managed. */
+export const RANKED_ROLE_MIN_EFFECTIVE_GAMES = 8
+
+/** Imported games count as partial qualification evidence. */
+export const IMPORTED_GAME_EFFECTIVE_WEIGHT = 0.5
 
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
@@ -109,6 +115,12 @@ export function createRating(playerId: string): PlayerRating {
 export function displayRating(mu: number, sigma: number): number {
   const anchoredSkill = (mu - (Z_MULTIPLIER * sigma)) - (DEFAULT_MU - (Z_MULTIPLIER * DEFAULT_SIGMA))
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
+}
+
+/** Conservative Elo-like score used for global ranked role bands. */
+export function roleRating(mu: number, sigma: number): number {
+  const conservativeSkill = mu - (RANKED_ROLE_Z_MULTIPLIER * sigma)
+  return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (conservativeSkill - DEFAULT_MU)
 }
 
 // ── Rating Calculation ──────────────────────────────────────

@@ -20,9 +20,8 @@ import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
-import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../../services/ranked/role-sync.ts'
+import { markRankedRolesDirty } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
-import { syncSeasonPeaksForPlayers } from '../../services/season/index.ts'
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
@@ -306,6 +305,7 @@ export const command_match = factory.command<MatchVar>(
               cancelledAt: Date.now(),
             }, {
               sessionNamespace: c.env.SessionDO,
+              rankedRoleGuildId: lobby.guildId,
             })
 
             if ('error' in result) {
@@ -736,6 +736,7 @@ export const command_match = factory.command<MatchVar>(
             placements,
           }, {
             sessionNamespace: c.env.SessionDO,
+            rankedRoleGuildId: c.interaction.guild_id ?? null,
           })
 
           if ('error' in result) {
@@ -775,34 +776,6 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const guildId = lobby?.guildId ?? c.interaction.guild_id ?? null
-          let rankedRoleLines: string[] = []
-          if (isRankedResult && guildId) {
-            try {
-              const participantIds = result.participants.map(participant => participant.playerId)
-              const rankedPreview = await previewRankedRoles({
-                db,
-                kv,
-                guildId,
-                playerIds: participantIds,
-                includePlayerIdentities: false,
-              })
-              rankedRoleLines = await listRankedRoleMatchUpdateLines({
-                kv,
-                guildId,
-                preview: rankedPreview,
-                playerIds: participantIds,
-              })
-              await syncSeasonPeaksForPlayers(db, {
-                playerIds: participantIds,
-                playerPreviews: rankedPreview.playerPreviews,
-              })
-            }
-            catch (error) {
-              console.error(`Failed to preview ranked role changes after match ${result.match.id}:`, error)
-            }
-          }
-
           const discordSync = await syncReportedMatchDiscordMessages({
             db,
             kv,
@@ -814,7 +787,6 @@ export const command_match = factory.command<MatchVar>(
             matchDraftData: result.match.draftData,
             lobby,
             sessionNamespace: c.env.SessionDO,
-            rankedRoleLines,
             reporter: {
               userId: identity.userId,
               displayName: identity.displayName,

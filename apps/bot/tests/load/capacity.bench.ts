@@ -114,6 +114,15 @@ const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
 const CURRENT_ARCHITECTURE_MODEL = 'current-non-hibernating-selected-session-sockets'
 const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v4-hibernating-selected-sockets'
+const RANKED_FINISH_MODEL = 'ranked-replacement-global-mode-summary-batched-context-async-role-sync-effective-quality-gates'
+const RANKED_QUALIFICATION_MIN_RAW_GAMES = 0
+const RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES = 8
+const RANKED_TIER_3_MIN_RAW_GAMES = 0
+const RANKED_TIER_3_MIN_EFFECTIVE_GAMES = 8
+const RANKED_TIER_2_MIN_RAW_GAMES = 0
+const RANKED_TIER_2_MIN_EFFECTIVE_GAMES = 16
+const RANKED_TIER_1_MIN_RAW_GAMES = 0
+const RANKED_TIER_1_MIN_EFFECTIVE_GAMES = 18
 const MODELED_PRODUCTION_RATED_PLAYERS = 1_000
 const MODELED_PRODUCTION_COMPLETED_MATCHES = 10_000
 const MODELED_PRODUCTION_MATCH_PARTICIPANTS = 60_000
@@ -139,6 +148,15 @@ const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 30
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
+const RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER = 0
+const RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER = 0
+const RANKED_FINISH_EVENT_WRITES_PER_PLAYER = 0
+const RANKED_FINISH_EVIDENCE_READS_PER_PLAYER = 0
+const RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER = 0
+const RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER = 0
+const RANKED_FINISH_SEASON_READS_PER_PLAYER = 0
+const RANKED_FINISH_CONTEXT_READS_PER_MATCH = 0
+const RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER = 3
 
 const FREE_DAILY_LIMITS: UsageLimits = {
   workersRequests: 100_000,
@@ -533,15 +551,28 @@ async function seedRankedRoleCronState(
     createdAt: NOW + index,
   })))
 
-  await db.insert(playerRatings).values(playerIds.map((playerId, index) => ({
-    playerId,
-    mode: 'ffa',
-    mu: 40 - index,
-    sigma: 6,
-    gamesPlayed: 10,
-    wins: Math.max(0, 6 - (index % 4)),
-    lastPlayedAt: NOW + 10_000 + index,
-  })))
+  await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
+    {
+      playerId,
+      mode: 'ffa',
+      mu: 40 - index,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: Math.max(0, 6 - (index % 4)),
+      effectiveGames: 10,
+      lastPlayedAt: NOW + 10_000 + index,
+    },
+    {
+      playerId,
+      mode: 'global',
+      mu: 40 - index,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: Math.max(0, 6 - (index % 4)),
+      effectiveGames: 10,
+      lastPlayedAt: NOW + 10_000 + index,
+    },
+  ]))
 }
 
 async function simulateScenarioLifecycle(input: {
@@ -973,7 +1004,7 @@ async function handleMatchReport(
     matchId,
     reporterId: HOST_ID,
     placements: buildPlacements(mode),
-  }, { sessionNamespace: runtime.sessionNamespace })
+  }, { sessionNamespace: runtime.sessionNamespace, rankedRoleGuildId: GUILD_ID })
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
@@ -1141,9 +1172,14 @@ function blendMetric(base: number, withAcceptedSwap: number, acceptedSwapRate: n
 }
 
 function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyUsage {
+  const rankedRoleSyncReads = MODELED_PRODUCTION_RATED_PLAYERS
+    * RANKED_ROLE_CRON_RUNS_PER_DAY
+    * RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER
+
   return {
     ...current,
     workersRequests: current.botWorkerRequests + current.activityWorkerRequests,
+    d1RowsRead: current.d1RowsRead + rankedRoleSyncReads,
     doSqliteRowsRead: 0,
     doSqliteRowsWritten: 0,
     kvDeletes: 0,
@@ -1168,6 +1204,7 @@ function projectSimulationResultToTargetArchitecture(
   const removedBotRequests = lifecycleSyncBotRequests + playerCount + spectatorCount
   const removedActivityRequests = viewerCount + viewerCount + playerCount + spectatorCount
   const removedPostDraftSnapshotRowsRead = playerCount * (1 + playerCount)
+  const rankedFinishExtraUsage = estimateRankedFinishExtraUsage(mode)
 
   const botWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.botWorkerRequests - removedBotRequests))
   const activityWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests))
@@ -1190,7 +1227,7 @@ function projectSimulationResultToTargetArchitecture(
         - removedPostDraftSnapshotRowsRead
         + viewerCount * TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH
         + mode.joinGroups.length * TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
-      )),
+      )) + rankedFinishExtraUsage.d1RowsRead,
       d1RowsWritten: roundSnapshotNumber(
         current.usage.d1RowsWritten
         + TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE
@@ -1199,7 +1236,7 @@ function projectSimulationResultToTargetArchitecture(
         + TARGET_DIRECTORY_WRITES_PER_DRAFT_START
         + TARGET_DIRECTORY_WRITES_PER_REPORT
         + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
-      ),
+      ) + rankedFinishExtraUsage.d1RowsWritten,
       doSqliteRowsRead: roundSnapshotNumber(
         sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND
         + sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT
@@ -1221,6 +1258,28 @@ function projectSimulationResultToTargetArchitecture(
       doRequestsRaw,
       doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),
     },
+  }
+}
+
+function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSample, 'd1RowsRead' | 'd1RowsWritten'> {
+  const playerCount = scenarioPlayersPerDraft(mode)
+
+  return {
+    d1RowsRead: roundSnapshotNumber(
+      RANKED_FINISH_CONTEXT_READS_PER_MATCH + playerCount * (
+        RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_READS_PER_PLAYER
+        + RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER
+        + RANKED_FINISH_SEASON_READS_PER_PLAYER
+      ),
+    ),
+    d1RowsWritten: roundSnapshotNumber(
+      playerCount * (
+        RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVENT_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER
+      ),
+    ),
   }
 }
 
@@ -1287,15 +1346,30 @@ async function seedRatedPlayers(
     createdAt: NOW + index,
   })))
 
-  await db.insert(playerRatings).values(playerIds.map((playerId, index) => ({
-    playerId,
-    mode: leaderboardMode,
-    mu: 40 - index,
-    sigma: 6,
-    gamesPlayed: 10,
-    wins: Math.max(0, 6 - (index % 4)),
-    lastPlayedAt: NOW + 10_000 + index,
-  })))
+  if (leaderboardMode == null) return
+
+  await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
+    {
+      playerId,
+      mode: leaderboardMode,
+      mu: 40 - index,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: Math.max(0, 6 - (index % 4)),
+      effectiveGames: 10,
+      lastPlayedAt: NOW + 10_000 + index,
+    },
+    {
+      playerId,
+      mode: 'global',
+      mu: 40 - index,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: Math.max(0, 6 - (index % 4)),
+      effectiveGames: 10,
+      lastPlayedAt: NOW + 10_000 + index,
+    },
+  ]))
 }
 
 function buildJoinEntries(group: string[]): QueueEntry[] {
@@ -1432,7 +1506,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 5,
+    version: 7,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
@@ -1464,6 +1538,24 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
       directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
       directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
       averageAcceptedSwapsPerTeamDraft: AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT,
+      rankedFinishModel: RANKED_FINISH_MODEL,
+      rankedQualificationMinRawGames: RANKED_QUALIFICATION_MIN_RAW_GAMES,
+      rankedQualificationMinEffectiveGames: RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES,
+      rankedTier3MinRawGames: RANKED_TIER_3_MIN_RAW_GAMES,
+      rankedTier3MinEffectiveGames: RANKED_TIER_3_MIN_EFFECTIVE_GAMES,
+      rankedTier2MinRawGames: RANKED_TIER_2_MIN_RAW_GAMES,
+      rankedTier2MinEffectiveGames: RANKED_TIER_2_MIN_EFFECTIVE_GAMES,
+      rankedTier1MinRawGames: RANKED_TIER_1_MIN_RAW_GAMES,
+      rankedTier1MinEffectiveGames: RANKED_TIER_1_MIN_EFFECTIVE_GAMES,
+      rankedFinishExtraRatingReadsPerPlayer: RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER,
+      rankedFinishExtraRatingWritesPerPlayer: RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER,
+      rankedFinishEventWritesPerPlayer: RANKED_FINISH_EVENT_WRITES_PER_PLAYER,
+      rankedFinishEvidenceReadsPerPlayer: RANKED_FINISH_EVIDENCE_READS_PER_PLAYER,
+      rankedFinishEvidenceWritesPerPlayer: RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER,
+      rankedFinishOpponentQualityReadsPerPlayer: RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER,
+      rankedFinishSeasonReadsPerPlayer: RANKED_FINISH_SEASON_READS_PER_PLAYER,
+      rankedFinishContextReadsPerMatch: RANKED_FINISH_CONTEXT_READS_PER_MATCH,
+      rankedRoleSyncReadsPerRatedPlayer: RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER,
     },
     backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
     scenarios: reports.map((report) => {
@@ -1479,6 +1571,8 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
         draftMessages: report.draftRoomIncomingMessages,
         previewMessages: report.draftRoomIncomingMessagesWithSelectionPreviews,
         teamPreviewMessages: report.draftRoomIncomingMessagesWithTeamPickPreviews,
+        rankedFinishExtraD1RowsRead: estimateRankedFinishExtraUsage(report.mode).d1RowsRead,
+        rankedFinishExtraD1RowsWritten: estimateRankedFinishExtraUsage(report.mode).d1RowsWritten,
         selectedSessionObjectSeconds: estimateSelectedSessionObjectSeconds(report.mode),
         selectedSessionObjectHours: roundSnapshotNumber(estimateSelectedSessionObjectSeconds(report.mode) / 3600),
         sessionDoDurationGbSeconds: roundSnapshotNumber(report.model.perDraft.doDurationGbSeconds),
@@ -1557,6 +1651,8 @@ function printReports(reports: ScenarioReport[]): void {
     viewers: scenarioViewerIds(report.mode).length,
     lobbyMutations: report.openLobbyMutationRequests,
     selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
+    rankedFinishExtraD1Reads: estimateRankedFinishExtraUsage(report.mode).d1RowsRead,
+    rankedFinishExtraD1Writes: estimateRankedFinishExtraUsage(report.mode).d1RowsWritten,
     draftMsgs: report.draftRoomIncomingMessages,
     previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
     teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
@@ -1591,6 +1687,24 @@ function printReports(reports: ScenarioReport[]): void {
     directoryWritesPerDraftStart: TARGET_DIRECTORY_WRITES_PER_DRAFT_START,
     directoryWritesPerReport: TARGET_DIRECTORY_WRITES_PER_REPORT,
     directoryWritesPerParticipantReportCleanup: TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
+    rankedFinishModel: RANKED_FINISH_MODEL,
+    rankedQualificationMinRawGames: RANKED_QUALIFICATION_MIN_RAW_GAMES,
+    rankedQualificationMinEffectiveGames: RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES,
+    rankedTier3MinRawGames: RANKED_TIER_3_MIN_RAW_GAMES,
+    rankedTier3MinEffectiveGames: RANKED_TIER_3_MIN_EFFECTIVE_GAMES,
+    rankedTier2MinRawGames: RANKED_TIER_2_MIN_RAW_GAMES,
+    rankedTier2MinEffectiveGames: RANKED_TIER_2_MIN_EFFECTIVE_GAMES,
+    rankedTier1MinRawGames: RANKED_TIER_1_MIN_RAW_GAMES,
+    rankedTier1MinEffectiveGames: RANKED_TIER_1_MIN_EFFECTIVE_GAMES,
+    rankedFinishExtraRatingReadsPerPlayer: RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER,
+    rankedFinishExtraRatingWritesPerPlayer: RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER,
+    rankedFinishEventWritesPerPlayer: RANKED_FINISH_EVENT_WRITES_PER_PLAYER,
+    rankedFinishEvidenceReadsPerPlayer: RANKED_FINISH_EVIDENCE_READS_PER_PLAYER,
+    rankedFinishEvidenceWritesPerPlayer: RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER,
+    rankedFinishOpponentQualityReadsPerPlayer: RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER,
+    rankedFinishSeasonReadsPerPlayer: RANKED_FINISH_SEASON_READS_PER_PLAYER,
+    rankedFinishContextReadsPerMatch: RANKED_FINISH_CONTEXT_READS_PER_MATCH,
+    rankedRoleSyncReadsPerRatedPlayer: RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER,
   })
 
   if (backgroundDailyUsage) {

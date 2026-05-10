@@ -41,7 +41,7 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 5
+  version: 7
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
@@ -73,6 +73,24 @@ export interface CapacitySnapshot {
     directoryWritesPerReport: number
     directoryWritesPerParticipantReportCleanup: number
     averageAcceptedSwapsPerTeamDraft: number
+    rankedFinishModel: string
+    rankedQualificationMinRawGames: number
+    rankedQualificationMinEffectiveGames: number
+    rankedTier3MinRawGames: number
+    rankedTier3MinEffectiveGames: number
+    rankedTier2MinRawGames: number
+    rankedTier2MinEffectiveGames: number
+    rankedTier1MinRawGames: number
+    rankedTier1MinEffectiveGames: number
+    rankedFinishExtraRatingReadsPerPlayer: number
+    rankedFinishExtraRatingWritesPerPlayer: number
+    rankedFinishEventWritesPerPlayer: number
+    rankedFinishEvidenceReadsPerPlayer: number
+    rankedFinishEvidenceWritesPerPlayer: number
+    rankedFinishOpponentQualityReadsPerPlayer: number
+    rankedFinishSeasonReadsPerPlayer: number
+    rankedFinishContextReadsPerMatch: number
+    rankedRoleSyncReadsPerRatedPlayer: number
   }
   backgroundDailyUsage: DailyUsage | null
   scenarios: CapacitySnapshotScenario[]
@@ -88,6 +106,8 @@ export interface CapacitySnapshotScenario {
   draftMessages: number
   previewMessages: number
   teamPreviewMessages: number
+  rankedFinishExtraD1RowsRead: number
+  rankedFinishExtraD1RowsWritten: number
   selectedSessionObjectSeconds: number
   selectedSessionObjectHours: number
   sessionDoDurationGbSeconds: number
