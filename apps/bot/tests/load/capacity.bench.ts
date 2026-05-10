@@ -1293,6 +1293,28 @@ function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSampl
   }
 }
 
+function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSample, 'd1RowsRead' | 'd1RowsWritten'> {
+  const playerCount = scenarioPlayersPerDraft(mode)
+
+  return {
+    d1RowsRead: roundSnapshotNumber(
+      RANKED_FINISH_CONTEXT_READS_PER_MATCH + playerCount * (
+        RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_READS_PER_PLAYER
+        + RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER
+        + RANKED_FINISH_SEASON_READS_PER_PLAYER
+      ),
+    ),
+    d1RowsWritten: roundSnapshotNumber(
+      playerCount * (
+        RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVENT_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER
+      ),
+    ),
+  }
+}
+
 function estimateTargetSessionCommandRequests(mode: CapacityScenario, openLobbyMutationRequests: number): number {
   return 1
     + mode.joinGroups.length
