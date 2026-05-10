@@ -1,5 +1,5 @@
 import type { GameMode } from '@civup/game'
-import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
@@ -33,14 +33,15 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID)
     await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, lastPlayedAt: NOW })
 
     const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
 
     expect(profile.overallTier).toBe(TIER_1)
     expect(profile.overallRoleId).toBe('55555555555555555')
-    expect(profile.modes.ffa.tier).toBe(TIER_5)
-    expect(profile.modes.ffa.tierLabel).toBe('Role 5')
-    expect(profile.modes.ffa.tierRoleId).toBe('11111111111111111')
+    expect(profile.modes.ffa.tier).toBe(TIER_4)
+    expect(profile.modes.ffa.tierLabel).toBe('Role 4')
+    expect(profile.modes.ffa.tierRoleId).toBe('22222222222222222')
     expect(profile.modes.duel.tier).toBe(TIER_1)
     expect(profile.modes.duel.tierLabel).toBe('Role 1')
     expect(profile.modes.duel.tierRoleId).toBe('55555555555555555')
@@ -67,6 +68,7 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID)
     await seedRating(db, { playerId: HERO_ID, mode: 'ffa', mu: 24, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, lastPlayedAt: NOW })
     await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 2 * 86_400_000, endsAt: null, active: true })
     await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20 * 86_400_000, endsAt: NOW - 10 * 86_400_000, active: false })
     await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 15_000 })
@@ -123,7 +125,7 @@ describe('player rank views', () => {
     })).toJSON()
 
     expect(stats.description).toContain('<@100010000000000099> - <@&55555555555555555>')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&11111111111111111> (964)')
+    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (964)')
     expect(JSON.stringify(stats.fields)).toContain('Rating: <@&55555555555555555> (1540)')
 
     expect(rank.description).toContain('<@100010000000000099> - <@&55555555555555555>')
@@ -131,7 +133,7 @@ describe('player rank views', () => {
     expect(JSON.stringify(rank.fields)).toContain('S2')
     expect(JSON.stringify(rank.fields)).toContain('FFA')
     expect(JSON.stringify(rank.fields)).toContain('Duel')
-    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (964)')
+    expect(JSON.stringify(rank.fields)).toContain('Rating: <@&22222222222222222> (964)')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&55555555555555555> (1540)')
     expect(JSON.stringify(rank.fields)).toContain('S1')
     expect(JSON.stringify(rank.fields)).toContain('Rating: <@&11111111111111111> (631)')
@@ -198,7 +200,7 @@ describe('player rank views', () => {
       seasonHistory: history,
     })).toJSON()
 
-    expect(stats.description).toContain('<@100010000000000099> - <@&11111111111111111>')
+    expect(stats.description).toContain('<@100010000000000099> - Unranked')
     expect(JSON.stringify(stats.fields)).toContain('No games played yet.')
     expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
     expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
@@ -291,6 +293,49 @@ describe('player rank views', () => {
     expect(recentMatchesField?.value).not.toContain('[empty]')
     expect(recentMatchesField?.value).toContain('2v2')
     expect(recentMatchesField?.value).toContain('2v2 [old]')
+
+    sqlite.close()
+  })
+
+  test('renders recent rating changes from rating events', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedPlayerIdentity(db, '100010000000000098')
+    await seedCompletedMatch(db, {
+      matchId: 'event-duel-1',
+      gameMode: '1v1',
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await db.insert(playerRatingEvents).values({
+      matchId: 'event-duel-1',
+      playerId: HERO_ID,
+      mode: 'duel',
+      gameMode: '1v1',
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 26,
+      ratingAfterSigma: 8,
+      gamesDelta: 1,
+      winsDelta: 1,
+      importedGamesDelta: 0,
+      effectiveGamesDelta: 1,
+      winsVsTier1Delta: 0,
+      winsVsTier2PlusDelta: 0,
+      matchCreatedAt: NOW - 11_000,
+      matchCompletedAt: NOW - 1_000,
+      updatedAt: NOW,
+    })
+
+    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
+
+    expect(recentMatchesField?.value).toContain('📈')
+    expect(recentMatchesField?.value).not.toContain('❔')
 
     sqlite.close()
   })
@@ -546,21 +591,30 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | 'global'
     mu: number
     sigma: number
     gamesPlayed: number
     lastPlayedAt: number
+    effectiveGames?: number
+    winsVsTier1?: number
+    winsVsTier2Plus?: number
   },
 ): Promise<void> {
   await db.insert(playerRatings).values({
     ...row,
     wins: Math.max(0, row.gamesPlayed - 2),
+    effectiveGames: row.effectiveGames ?? row.gamesPlayed,
+    winsVsTier1: row.winsVsTier1 ?? 0,
+    winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
   }).onConflictDoUpdate({
     target: [playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       wins: Math.max(0, row.gamesPlayed - 2),
+      effectiveGames: row.effectiveGames ?? row.gamesPlayed,
+      winsVsTier1: row.winsVsTier1 ?? 0,
+      winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
     },
   })
 }

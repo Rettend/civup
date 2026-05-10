@@ -140,6 +140,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             cancelledAt: Date.now(),
           }, {
             sessionNamespace: c.env.SessionDO,
+            rankedRoleGuildId: existingLobby?.guildId ?? c.interaction.guild_id ?? null,
           })
 
           if ('error' in result) {
@@ -255,6 +256,7 @@ export const command_mod = factory.autocomplete<ModVar>(
               resolvedAt: Date.now(),
             }, {
               sessionNamespace: c.env.SessionDO,
+              rankedRoleGuildId: c.interaction.guild_id ?? null,
             })
 
             if ('error' in result) {

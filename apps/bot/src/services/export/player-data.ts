@@ -1,6 +1,6 @@
-import type { Database, matchBans, matches, matchParticipants, playerRatings, playerRatingSeeds, players } from '@civup/db'
+import type { Database, matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import type { XlsxCellValue, XlsxWorksheet } from './xlsx.ts'
-import { matchBans as matchBansTable, matches as matchesTable, matchParticipants as matchParticipantsTable, playerRatingSeeds as playerRatingSeedsTable, playerRatings as playerRatingsTable, players as playersTable } from '@civup/db'
+import { matchBans as matchBansTable, matches as matchesTable, matchParticipants as matchParticipantsTable, playerRatings as playerRatingsTable, players as playersTable } from '@civup/db'
 import { getLeader } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { asc } from 'drizzle-orm'
@@ -17,7 +17,6 @@ export interface PlayerDataExportFile {
 
 type PlayerRow = typeof players.$inferSelect
 type PlayerRatingRow = typeof playerRatings.$inferSelect
-type PlayerRatingSeedRow = typeof playerRatingSeeds.$inferSelect
 type MatchRow = typeof matches.$inferSelect
 type MatchParticipantRow = typeof matchParticipants.$inferSelect
 type MatchBanRow = typeof matchBans.$inferSelect
@@ -83,10 +82,9 @@ export async function buildPlayerDataExport(db: Database, options: { now?: Date 
 
 export async function buildPlayerDataExportSheets(db: Database, options: { now?: Date } = {}): Promise<XlsxWorksheet[]> {
   const now = options.now ?? new Date()
-  const [playerRows, ratingRows, seedRows, matchRows, participantRows, banRows] = await Promise.all([
+  const [playerRows, ratingRows, matchRows, participantRows, banRows] = await Promise.all([
     db.select().from(playersTable).orderBy(asc(playersTable.id)),
     db.select().from(playerRatingsTable).orderBy(asc(playerRatingsTable.playerId), asc(playerRatingsTable.mode)),
-    db.select().from(playerRatingSeedsTable).orderBy(asc(playerRatingSeedsTable.playerId), asc(playerRatingSeedsTable.mode)),
     db.select().from(matchesTable).orderBy(asc(matchesTable.createdAt), asc(matchesTable.id)),
     db.select().from(matchParticipantsTable).orderBy(asc(matchParticipantsTable.matchId), asc(matchParticipantsTable.team), asc(matchParticipantsTable.playerId)),
     db.select().from(matchBansTable).orderBy(asc(matchBansTable.matchId), asc(matchBansTable.phase), asc(matchBansTable.civId)),
@@ -100,14 +98,12 @@ export async function buildPlayerDataExportSheets(db: Database, options: { now?:
       now,
       playerRows,
       ratingRows,
-      seedRows,
       matchRows,
       participantRows,
       banRows: exportBanRows,
     }),
     playersWorksheet(playerRows, lastMatchAtByPlayerId),
     ratingsWorksheet(ratingRows, displayNameByPlayerId),
-    ratingSeedsWorksheet(seedRows, displayNameByPlayerId),
     matchesWorksheet(matchRows),
     matchParticipantsWorksheet(participantRows, displayNameByPlayerId),
     matchBansWorksheet(exportBanRows, displayNameByPlayerId),
@@ -118,7 +114,6 @@ function overviewWorksheet(input: {
   now: Date
   playerRows: PlayerRow[]
   ratingRows: PlayerRatingRow[]
-  seedRows: PlayerRatingSeedRow[]
   matchRows: MatchRow[]
   participantRows: MatchParticipantRow[]
   banRows: ExportMatchBanRow[]
@@ -143,7 +138,6 @@ function overviewWorksheet(input: {
     ['Stored players', input.playerRows.length],
     ['Players with matches', new Set(input.participantRows.map(participant => participant.playerId)).size],
     ['Ratings', input.ratingRows.length],
-    ['Rating seeds', input.seedRows.length],
     ['Matches', input.matchRows.length],
     ['Completed matches', completedMatchRows.length],
     ['Old bot matches', input.matchRows.filter(match => match.isOld).length],
@@ -207,27 +201,6 @@ function ratingsWorksheet(rows: PlayerRatingRow[], displayNameByPlayerId: Map<st
       rating.gamesPlayed,
       rating.wins,
       formatTimestampMs(rating.lastPlayedAt),
-    ]),
-  }
-}
-
-function ratingSeedsWorksheet(rows: PlayerRatingSeedRow[], displayNameByPlayerId: Map<string, string>): XlsxWorksheet {
-  return {
-    name: 'rating_seeds',
-    columns: ['player_id', 'display_name', 'mode', 'seed_rating', 'seed_mu', 'seed_sigma', 'eligible_for_ranked', 'fade_games_remaining', 'source', 'note', 'created_at_utc', 'updated_at_utc'],
-    rows: rows.map(seed => [
-      seed.playerId,
-      displayNameByPlayerId.get(seed.playerId) ?? null,
-      seed.mode,
-      formatDisplayRating(seed.mu, seed.sigma),
-      seed.mu,
-      seed.sigma,
-      seed.eligibleForRanked,
-      seed.fadeGamesRemaining,
-      seed.source,
-      seed.note,
-      formatTimestampMs(seed.createdAt),
-      formatTimestampMs(seed.updatedAt),
     ]),
   }
 }
