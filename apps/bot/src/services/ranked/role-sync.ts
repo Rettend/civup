@@ -227,6 +227,7 @@ const TIER_2_EVIDENCE_GATE = { effectiveGames: 16 }
 const TIER_3_EVIDENCE_GATE = { effectiveGames: 8 }
 const TIER_1_QUALITY_GATE = { winsVsTier1: 1, winsVsTier2Plus: 4 }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
+const TIER_2_MODE_QUALITY_FLOOR = { modeTier: 3, minModeGames: 18, minRoleScore: 900, winsVsTier1: 2 }
 const TIER_4_PARTICIPATION_FLOOR = { effectiveGames: 30, wins: 5 }
 const TIER_4_PARTICIPATION_FLOOR_TIER_NUMBER = 4
 const TIER_3_EFFECTIVE_TIER_1_WIN_FLOOR = 0.5
@@ -1060,6 +1061,13 @@ function resolveQualityFloorTier(input: {
   const tier3 = qualityFloorTier(3, input.config)
   const tier2 = qualityFloorTier(2, input.config)
   const hasTier2BestModeEvidence = playerHasTier2BestModeEvidence(input.globalRating.playerId, input.modeRatings, input.laddersByMode)
+  const hasTier2ModeQualityFloorEvidence = playerHasModeEvidence(
+    input.globalRating.playerId,
+    input.modeRatings,
+    input.laddersByMode,
+    TIER_2_MODE_QUALITY_FLOOR.modeTier,
+    TIER_2_MODE_QUALITY_FLOOR.minModeGames,
+  )
   let floorTier: CompetitiveTier | null = null
 
   if (tier3 && hasTier2BestModeEvidence) floorTier = morePrestigiousFloor(floorTier, tier3)
@@ -1072,6 +1080,13 @@ function resolveQualityFloorTier(input: {
       floorTier = morePrestigiousFloor(floorTier, tier2)
     }
     if (hasTier2BestModeEvidence && input.globalRating.winsVsTier1 >= 3) {
+      floorTier = morePrestigiousFloor(floorTier, tier2)
+    }
+    if (
+      hasTier2ModeQualityFloorEvidence
+      && roleRating(input.globalRating.mu, input.globalRating.sigma) >= TIER_2_MODE_QUALITY_FLOOR.minRoleScore
+      && input.globalRating.winsVsTier1 >= TIER_2_MODE_QUALITY_FLOOR.winsVsTier1
+    ) {
       floorTier = morePrestigiousFloor(floorTier, tier2)
     }
   }
@@ -1092,11 +1107,21 @@ function playerHasTier2BestModeEvidence(
   modeRatings: Map<LeaderboardMode, RatingSnapshotRow>,
   laddersByMode: Map<LeaderboardMode, LadderSnapshots>,
 ): boolean {
+  return playerHasModeEvidence(playerId, modeRatings, laddersByMode, 2, BEST_MODE_QUALITY_FLOOR_MIN_GAMES)
+}
+
+function playerHasModeEvidence(
+  playerId: string,
+  modeRatings: Map<LeaderboardMode, RatingSnapshotRow>,
+  laddersByMode: Map<LeaderboardMode, LadderSnapshots>,
+  tierNumber: number,
+  minGames: number,
+): boolean {
   for (const mode of LEADERBOARD_MODES) {
     const rating = modeRatings.get(mode)
-    if (!rating || rating.gamesPlayed < BEST_MODE_QUALITY_FLOOR_MIN_GAMES) continue
+    if (!rating || rating.gamesPlayed < minGames) continue
     const tier = laddersByMode.get(mode)?.earn.get(playerId)?.tier ?? null
-    if (isAtLeastTier(tier, 2)) return true
+    if (isAtLeastTier(tier, tierNumber)) return true
   }
   return false
 }

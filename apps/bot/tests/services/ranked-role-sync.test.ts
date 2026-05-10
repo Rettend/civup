@@ -361,6 +361,72 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('tier-3 mode evidence with role score support can floor a player to tier 2', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
+    const targetId = playerIdFor('ffa', 8)
+
+    await seedRating(db, { playerId: targetId, mode: 'ffa', mu: 32, sigma: 6, gamesPlayed: 18, lastPlayedAt: NOW })
+    await seedRating(db, {
+      playerId: targetId,
+      mode: 'global',
+      mu: 27,
+      sigma: 6,
+      gamesPlayed: 16,
+      effectiveGames: 16,
+      winsVsTier1: 2,
+      lastPlayedAt: NOW,
+    })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [targetId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews[0]?.ladderTiers.ffa).toBe(TIER_3)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_2)
+
+    sqlite.close()
+  })
+
+  test('tier-3 mode evidence tier-2 floor requires role score support', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
+    const targetId = playerIdFor('ffa', 8)
+
+    await seedRating(db, { playerId: targetId, mode: 'ffa', mu: 32, sigma: 6, gamesPlayed: 18, lastPlayedAt: NOW })
+    await seedRating(db, {
+      playerId: targetId,
+      mode: 'global',
+      mu: 26,
+      sigma: 6,
+      gamesPlayed: 16,
+      effectiveGames: 16,
+      winsVsTier1: 2,
+      lastPlayedAt: NOW,
+    })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [targetId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews[0]?.ladderTiers.ffa).toBe(TIER_3)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
+
+    sqlite.close()
+  })
+
   test('thin current tier 1 stays protected until tier-1 evidence gate', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
