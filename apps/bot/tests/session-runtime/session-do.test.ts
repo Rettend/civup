@@ -1205,6 +1205,62 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('selected draft socket connect repairs pending draft start sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createFailingQueryD1(createSqliteD1Database(sqlite), query => query.toLowerCase().includes('insert into') && query.toLowerCase().includes('matches'))
+    const originalConsoleWarn = console.warn
+    console.warn = (() => {}) as typeof console.warn
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      DB: d1.database,
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const accessToken = await createSessionAccessToken('secret', {
+      userId: 'p1',
+      sessionId: openLobby.id,
+      channelId: openLobby.channelId,
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+
+      d1.failNextMatchingQuery()
+      const failedStart = await room.fetch(sessionRequest('/commands/start-draft', {
+        method: 'POST',
+        body: JSON.stringify({ hostId: 'p1', now: 20 }),
+      }))
+      expect(failedStart.status).toBe(503)
+      expect((await getSessionRecordBody(room)).draftStartSync).toMatchObject({ attempts: 1 })
+      expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(0)
+
+      const connection = createFakeConnection()
+      await room.onConnect(connection.connection, { request: draftStatusRequest(accessToken) } as any)
+
+      expect(connection.closed).toBeNull()
+      expect(connection.messages[0]).toMatchObject({
+        type: 'init',
+        state: {
+          matchId: openLobby.id,
+          status: 'waiting',
+        },
+      })
+      expect((await getSessionRecordBody(room)).draftStartSync).toBeNull()
+      expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(1)
+    }
+    finally {
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
   test('older lifecycle events cannot overwrite newer pending lifecycle sync', async () => {
     const { sqlite } = await createTestDatabase()
     const kv = createTestKv()

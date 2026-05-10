@@ -222,6 +222,43 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('stored participation-floor tier 4 does not chain into tier 3 quality floor', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
+    const targetId = playerIdFor('participation-chain', 1)
+    await seedPlayerIdentity(db, targetId)
+
+    await seedRating(db, {
+      playerId: targetId,
+      mode: 'global',
+      mu: 15,
+      sigma: 5,
+      gamesPlayed: 36,
+      wins: 13,
+      effectiveGames: 36,
+      lastPlayedAt: NOW,
+      winsVsTier1: 3,
+      winsVsTier2Plus: 8,
+      effectiveWinsVsTier1: 0.92,
+      effectiveWinsVsTier2Plus: 2.33,
+    })
+    await seedPreviousAssignment(kv, 'guild-1', targetId, { tier: TIER_4, sourceMode: null })
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [targetId],
+      includePlayerIdentities: false,
+    })
+
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
+
+    sqlite.close()
+  })
+
   test('participation floor requires enough wins', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
