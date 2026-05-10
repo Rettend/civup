@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import type { FfaEntry, TeamInput } from '@civup/rating'
+import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
@@ -13,6 +13,7 @@ import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
+import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -62,6 +63,7 @@ interface RatingScopeUpdateInput {
   scope: RatingScope
   match: RatedReportMatchContext
   gameMode: string
+  permanentAlly: boolean
   participantRows: ParticipantRow[]
   existingRatingsByPlayerId: Map<string, StoredRatingSummaryRow>
   evidenceByPlayerId: Map<string, MatchEvidenceDelta>
@@ -146,8 +148,11 @@ export async function reportMatch(
     : null
   if (hiddenLeaderAssignments && 'error' in hiddenLeaderAssignments) return hiddenLeaderAssignments
 
-  if (isTeamMode(gameMode) || gameMode === '1v1') {
+  if (isTeamMode(gameMode) || gameMode === '1v1' || gameContext.permanentAlly) {
     const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
+    if (gameContext.permanentAlly && uniqueTeams.size * 2 !== participantRows.length) {
+      return { error: 'Permanent Ally FFA team data is missing or invalid for this match.' }
+    }
     if (uniqueTeams.size > 2) {
       const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
       if ('error' in parsedTeams) return parsedTeams
@@ -364,6 +369,7 @@ async function finalizeReportedMatch(
     options.rankedRoleGuildId,
     match,
     gameContext.mode,
+    gameContext.permanentAlly,
     leaderboardMode,
     participantRows,
     existingRatingsByScope,
@@ -519,17 +525,19 @@ async function applyIncrementalRatedReport(
   rankedRoleGuildId: string | null | undefined,
   match: RatedReportMatchContext,
   gameMode: string,
+  permanentAlly: boolean,
   leaderboardMode: LeaderboardMode,
   participantRows: ParticipantRow[],
   existingRatingsByScope: Map<RatingScope, Map<string, StoredRatingSummaryRow>>,
   now: number,
 ): Promise<string | null> {
   const opponentTierByPlayerId = await loadCurrentRankedRoleTierByPlayerId(kv, rankedRoleGuildId)
-  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld, opponentTierByPlayerId)
+  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld, opponentTierByPlayerId, permanentAlly)
   const modeResult = await applyRatingScopeUpdate(db, {
     scope: leaderboardMode,
     match,
     gameMode,
+    permanentAlly,
     participantRows,
     existingRatingsByPlayerId: existingRatingsByScope.get(leaderboardMode) ?? new Map(),
     evidenceByPlayerId,
@@ -542,6 +550,7 @@ async function applyIncrementalRatedReport(
     scope: GLOBAL_RATING_SCOPE,
     match,
     gameMode,
+    permanentAlly,
     participantRows,
     existingRatingsByPlayerId: existingRatingsByScope.get(GLOBAL_RATING_SCOPE) ?? new Map(),
     evidenceByPlayerId,
@@ -554,7 +563,10 @@ async function applyRatingScopeUpdate(
   db: Database,
   input: RatingScopeUpdateInput,
 ): Promise<string | null> {
-  const placementByPlayerId = new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
+  const placementByPlayerId = input.permanentAlly && input.gameMode === 'ffa'
+    ? buildPermanentAllyFfaPlacementByPlayerId(input.participantRows)
+    : new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
+  if ('error' in placementByPlayerId) return placementByPlayerId.error
   const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
 
   for (const participant of input.participantRows) {
@@ -568,9 +580,18 @@ async function applyRatingScopeUpdate(
     }
   }
 
-  let ratingUpdates
+  let ratingUpdates: RatingUpdate[]
 
-  if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
+  if (input.permanentAlly && input.gameMode === 'ffa') {
+    const updates = calculatePermanentAllyFfaRatingUpdates(input.participantRows, (playerId) => {
+      const rating = playerRatingMap.get(playerId)
+      if (!rating) throw new Error(`Missing rating state for ${playerId}`)
+      return rating
+    })
+    if ('error' in updates) return updates.error
+    ratingUpdates = updates
+  }
+  else if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
     const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
     for (const participant of input.participantRows) {
       const team = participant.team ?? 0
@@ -695,10 +716,13 @@ function buildMatchEvidenceByPlayerId(
   participantRows: ParticipantRow[],
   isOld: boolean,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
+  permanentAlly = false,
 ): Map<string, MatchEvidenceDelta> {
   const sourceWeight = isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
-  return new Map(participantRows.map((participant) => {
-    const qualityWins = countQualityWinsForParticipant(participant, participantRows, opponentTierByPlayerId, sourceWeight)
+  const effectiveRows = permanentAlly ? buildPermanentAllyFfaEffectiveRows(participantRows) : participantRows
+  const evidenceRows = 'error' in effectiveRows ? participantRows : effectiveRows
+  return new Map(evidenceRows.map((participant) => {
+    const qualityWins = countQualityWinsForParticipant(participant, evidenceRows, opponentTierByPlayerId, sourceWeight)
     return [participant.playerId, {
       importedGames: isOld ? 1 : 0,
       effectiveGames: sourceWeight,

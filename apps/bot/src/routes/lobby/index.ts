@@ -186,7 +186,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -195,6 +195,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       mapVoteEnabled?: unknown
       blindBans?: unknown
       simultaneousPick?: unknown
+      permanentAlly?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
       randomDraft?: unknown
@@ -229,6 +230,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasMapVoteEnabled = Object.prototype.hasOwnProperty.call(body, 'mapVoteEnabled')
     const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
+    const hasPermanentAlly = Object.prototype.hasOwnProperty.call(body, 'permanentAlly')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
@@ -255,6 +257,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
+      : undefined
+    const parsedPermanentAlly = hasPermanentAlly
+      ? parseLobbyPermanentAlly(permanentAllyRaw)
       : undefined
     const parsedRedDeath = hasRedDeath
       ? parseLobbyRedDeath(redDeathRaw)
@@ -285,6 +290,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasSimultaneousPick && parsedSimultaneousPick === undefined) {
       return c.json({ error: 'simultaneousPick must be true or false' }, 400)
+    }
+    if (hasPermanentAlly && parsedPermanentAlly === undefined) {
+      return c.json({ error: 'permanentAlly must be true or false' }, 400)
     }
     if (hasRedDeath && parsedRedDeath === undefined) {
       return c.json({ error: 'redDeath must be true or false' }, 400)
@@ -358,6 +366,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
+    const normalizedPermanentAlly = hasPermanentAlly
+      ? parsedPermanentAlly ?? true
+      : lobby.draftConfig.permanentAlly
     const normalizedRedDeath = hasRedDeath
       ? parsedRedDeath ?? false
       : lobby.draftConfig.redDeath
@@ -393,7 +404,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
-    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
     const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
     const currentUserIsHost = lobby.hostId === auth.identity.userId
     const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
@@ -495,6 +506,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       mapVoteEnabled: normalizedMapVoteEnabled,
       blindBans: normalizedBlindBans,
       simultaneousPick: normalizedSimultaneousPick,
+      permanentAlly: normalizedPermanentAlly,
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
       randomDraft: normalizedRandomDraft,
@@ -637,9 +649,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const movedLobbyQueueEntries = buildLobbyQueueEntries({ ...sourceLobby, mode: nextMode }, lobbyQueueEntries)
     const normalizedNextSlots = normalizeLobbySlots(nextMode, nextSlots, movedLobbyQueueEntries)
+    const nextDraftConfigInput = nextMode === 'ffa' && !sourceLobby.draftConfig.redDeath
+      ? { ...sourceLobby.draftConfig, permanentAlly: true }
+      : sourceLobby.draftConfig
     const finalizedLobby = await setLobbyModeAndLayout(kv, sourceLobby.id, {
       mode: nextMode,
-      draftConfig: normalizeDraftConfigForMode(nextMode, sourceLobby.draftConfig, normalizedNextSlots.length),
+      draftConfig: normalizeDraftConfigForMode(nextMode, nextDraftConfigInput, normalizedNextSlots.length),
       minRole: isUnrankedMode(nextMode) ? null : sourceLobby.minRole,
       maxRole: isUnrankedMode(nextMode) ? null : sourceLobby.maxRole,
       slots: normalizedNextSlots,
@@ -1453,6 +1468,10 @@ function parseLobbyLeaderDataVersion(value: unknown): 'live' | 'beta' | undefine
 }
 
 function parseLobbySimultaneousPick(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyPermanentAlly(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

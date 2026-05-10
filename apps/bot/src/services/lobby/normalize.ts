@@ -13,6 +13,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   mapVoteEnabled: false,
   blindBans: true,
   simultaneousPick: false,
+  permanentAlly: true,
   redDeath: false,
   dealOptionsSize: null,
   randomDraft: false,
@@ -86,6 +87,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     mapVoteEnabled: normalizeMapVoteFlag(config?.mapVoteEnabled),
     blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
+    permanentAlly: normalizePermanentAlly(config?.permanentAlly),
     redDeath: normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
     randomDraft: hiddenDraft ? false : randomDraft,
@@ -108,6 +110,7 @@ export function normalizeDraftConfigForMode(
     mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
     blindBans: supportsBlindBans(mode, redDeath, targetSize) ? normalized.blindBans : true,
     simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
+    permanentAlly: mode === 'ffa' && !redDeath ? normalized.permanentAlly : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
     randomDraft: normalized.hiddenDraft ? false : normalized.randomDraft,
@@ -173,6 +176,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.mapVoteEnabled === b.mapVoteEnabled
     && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
+    && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
@@ -221,6 +225,10 @@ function normalizeLeaderDataVersion(value: unknown): LeaderDataVersion {
 
 function normalizeSimultaneousPick(value: unknown): boolean {
   return value === true
+}
+
+function normalizePermanentAlly(value: unknown): boolean {
+  return value !== false
 }
 
 function normalizeBlindBans(value: unknown): boolean {

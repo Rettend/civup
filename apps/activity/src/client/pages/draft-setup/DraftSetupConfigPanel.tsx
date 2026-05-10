@@ -92,6 +92,21 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
+    key: 'permanentAlly',
+    when: state => state.isLobbyMode() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Permanent Ally"
+        active={state.derived.optimisticDraftConfig().permanentAlly}
+        disabled={state.lobbyActionPending() || state.pending.permanentAlly()}
+        onChange={checked => void state.actions.changePermanentAlly(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Permanent Ally" value={state.derived.formattedPermanentAlly()} valueClass={state.derived.draftConfig().permanentAlly ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'gameMode',
     when: state => state.isLobbyMode(),
     renderEditable: state => (

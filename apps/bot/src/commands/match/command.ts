@@ -663,7 +663,7 @@ export const command_match = factory.command<MatchVar>(
               .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
               .from(matchParticipants)
               .where(eq(matchParticipants.matchId, match.id))
-            const uniqueTeams = new Set(isTeamMode(mode)
+            const uniqueTeams = new Set((isTeamMode(mode) || matchContext.permanentAlly)
               ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
               : [])
 
@@ -672,7 +672,9 @@ export const command_match = factory.command<MatchVar>(
                 await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
                 return
               }
-              const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
+              const requiredPlacements = matchContext.permanentAlly
+                ? uniqueTeams.size
+                : matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
               const placementLabelByCount: Record<number, string> = {
                 2: 'second',
                 3: 'third',
@@ -683,10 +685,16 @@ export const command_match = factory.command<MatchVar>(
                 8: 'eighth',
                 9: 'ninth',
                 10: 'tenth',
+                11: 'eleventh',
+                12: 'twelfth',
               }
               const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
-              if (orderedFfaIds.length < requiredPlacements) {
-                await sendTransientEphemeralResponse(c, `FFA reporting needs at least ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
+              const hasEnoughPlacements = matchContext.permanentAlly
+                ? orderedFfaIds.length === requiredPlacements
+                : orderedFfaIds.length >= requiredPlacements
+              if (!hasEnoughPlacements) {
+                const countText = matchContext.permanentAlly ? 'exactly' : 'at least'
+                await sendTransientEphemeralResponse(c, `FFA reporting needs ${countText} ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
                 return
               }
               placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
@@ -1108,11 +1116,16 @@ function buildDraftSeatsFromLobby(
       playerId,
       displayName: entry?.displayName ?? 'Unknown',
       avatarUrl: entry?.avatarUrl ?? null,
-      team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length) ?? undefined,
+      team: getLobbyDraftSeatTeam(lobby, slot) ?? undefined,
     })
   }
 
   return seats
+}
+
+function getLobbyDraftSeatTeam(lobby: LobbyState, slot: number): number | null {
+  if (lobby.mode === 'ffa' && lobby.draftConfig.permanentAlly && !lobby.draftConfig.redDeath) return Math.floor(slot / 2)
+  return slotToTeamIndex(lobby.mode, slot, lobby.slots.length)
 }
 
 function orderLobbyParticipantsBySlots<T extends { playerId: string }>(

@@ -5,7 +5,7 @@ import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
+import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
@@ -16,7 +16,7 @@ const CORE_MODE_CASES = [
   { mode: '1v1', playerCount: 2 },
   { mode: '2v2', playerCount: 4 },
   { mode: '3v3', playerCount: 6 },
-  { mode: 'ffa', playerCount: 8 },
+  { mode: 'ffa', playerCount: 12 },
 ] as const satisfies readonly { mode: GameMode, playerCount: number }[]
 
 const MAP_VOTE_RESULT: ResolvedMapVoteResult = {
@@ -46,7 +46,7 @@ describe('system scenarios', () => {
       })
 
       if (mode === 'ffa') {
-        expectOrderedPlacements(result.reportedParticipants, result.activeParticipants.map(participant => participant.playerId))
+        expectTeamPlacements(result.reportedParticipants, expectedPlacementsByTeam(result.activeParticipants))
       }
       else {
         expectTeamPlacements(result.reportedParticipants, new Map([[0, 1], [1, 2]]))
@@ -64,11 +64,11 @@ describe('system scenarios', () => {
       mode: 'ffa',
       players: createPlayers(8, 'sim'),
       config: { simultaneousPick: true },
-      placements: participants => buildOrderedMentions([...participants].reverse()),
+      placements: participants => buildOrderedTeamMentions([...participants].reverse()),
     })
     expect(findDraftRuntimeConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
     expect(parseDraftData(simultaneous.reportedMatch)?.state).toMatchObject({ formatId: 'default-ffa-simultaneous' })
-    expectOrderedPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
+    expectTeamPlacements(simultaneous.reportedParticipants, expectedPlacementsByTeam([...simultaneous.activeParticipants].reverse()))
 
     const redDeathWorld = await createTrackedWorld()
     const redDeath = await runReportedLifecycle(redDeathWorld, {
@@ -257,13 +257,26 @@ describe('system scenarios', () => {
       mode: 'ffa',
       players: createPlayers(8, 'ffa-order'),
     })
+    const configured = await world.lobby.config('ffa', {
+      hostId: 'ffa-order1',
+      lobbyId: lobby.id,
+      permanentAlly: false,
+    })
+    expect(configured.status).toBe(200)
+    await world.flushBackgroundTasks()
+    expect((await world.lobby.getById(lobby.id))?.draftConfig.permanentAlly).toBe(false)
+    expect((await getSessionRecord(world.env.SessionDO, lobby.id))?.config.permanentAlly).toBe(false)
 
     const started = await world.lobby.start('ffa', { hostId: 'ffa-order1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
+    expect((await getSessionRecord(world.env.SessionDO, lobby.id))?.config.permanentAlly).toBe(false)
+    expect(findDraftRuntimeConfig(world, started.matchId)?.seats.some(seat => seat.team != null)).toBe(false)
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
+    expect(parseDraftData(await world.match.get(started.matchId))?.permanentAlly).toBe(false)
     const participants = await world.match.getParticipants(started.matchId)
+    expect(participants.every(participant => participant.team == null)).toBe(true)
     const orderedIds = [
       participants[3]!.playerId,
       participants[0]!.playerId,
@@ -1979,7 +1992,7 @@ describe('system scenarios', () => {
     await ffaWorld.flushBackgroundTasks()
 
     expect((await ffaWorld.lobby.getById(ffaLobby.id))?.memberPlayerIds).toEqual(['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
-    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual(['ffa-host', 'ffa-3', null, null, 'ffa-2', null, null, 'ffa-4'])
+    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual(['ffa-host', 'ffa-3', null, null, 'ffa-2', null, null, 'ffa-4', null, null, null, null])
     await expectQueuePlayers(ffaWorld, 'ffa', ['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
     expect((await ffaWorld.activity.launch({ channelId: ffaLobby.channelId, userId: 'ffa-4' })).body).toMatchObject({
       selection: {
@@ -2777,14 +2790,38 @@ async function runReportedLifecycle(
   }
 }
 
-function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string }>) {
-  return mode === 'ffa'
-    ? buildOrderedMentions(participants)
-    : 'A'
+function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string, team?: number | null }>) {
+  if (mode !== 'ffa') return 'A'
+
+  const orderedTeamRepresentatives = new Map<number, { playerId: string }>()
+  for (const participant of participants) {
+    if (participant.team == null || orderedTeamRepresentatives.has(participant.team)) continue
+    orderedTeamRepresentatives.set(participant.team, participant)
+  }
+
+  return buildOrderedMentions(orderedTeamRepresentatives.size > 0 ? [...orderedTeamRepresentatives.values()] : participants)
 }
 
 function buildOrderedMentions(participants: Array<{ playerId: string }>) {
   return participants.map(participant => `<@${participant.playerId}>`).join('\n')
+}
+
+function buildOrderedTeamMentions(participants: Array<{ playerId: string, team: number | null }>) {
+  const orderedTeamRepresentatives = new Map<number, { playerId: string }>()
+  for (const participant of participants) {
+    if (participant.team == null || orderedTeamRepresentatives.has(participant.team)) continue
+    orderedTeamRepresentatives.set(participant.team, participant)
+  }
+  return buildOrderedMentions([...orderedTeamRepresentatives.values()])
+}
+
+function expectedPlacementsByTeam(participants: Array<{ team: number | null }>) {
+  const placements = new Map<number, number>()
+  for (const participant of participants) {
+    if (participant.team == null || placements.has(participant.team)) continue
+    placements.set(participant.team, placements.size + 1)
+  }
+  return placements
 }
 
 function expectOrderedPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {
