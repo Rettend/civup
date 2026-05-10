@@ -776,6 +776,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         leaderDataVersion: record.config.leaderDataVersion,
         blindBans: record.config.blindBans,
         simultaneousPick: record.config.simultaneousPick,
+        permanentAlly: record.config.permanentAlly,
         redDeath: record.config.redDeath,
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,

@@ -60,7 +60,7 @@ export async function resolveMatchByModerator(
   const sessionValidationError = await validateReportableSession(db, options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
 
-  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
+  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants, { permanentAlly: gameContext.permanentAlly })
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode

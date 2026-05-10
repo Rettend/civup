@@ -278,7 +278,7 @@ function lobbyReportedEmbed(
   targetSize?: number,
 ): Embed {
   const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath, targetSize)
-  const usesTeamRows = isTeamMode(mode)
+  const usesTeamRows = isTeamMode(mode) || participants.some(participant => participant.team != null)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)

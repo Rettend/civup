@@ -17,7 +17,7 @@ import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 
-const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const
+const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'] as const
 const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
   second: '2nd place',
   third: '3rd place',
@@ -28,6 +28,8 @@ const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], stri
   eighth: '8th place',
   ninth: '9th place',
   tenth: '10th place',
+  eleventh: '11th place',
+  twelfth: '12th place',
 }
 
 export const FFA_PLACEMENT_KEYS = ALL_FFA_PLACEMENT_KEYS
@@ -57,6 +59,8 @@ export interface MatchVar {
   eighth?: string
   ninth?: string
   tenth?: string
+  eleventh?: string
+  twelfth?: string
 }
 
 export interface MatchJoinEntry {

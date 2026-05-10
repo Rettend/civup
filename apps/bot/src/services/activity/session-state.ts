@@ -307,7 +307,7 @@ export async function attachLobbyBalanceRatingsToSnapshot(
 function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): ActivitySessionDirectoryEntry[] {
   if (!isActivitySessionPhase(row.phase) || !isGameMode(row.mode)) return []
   const roster = parseSessionRoster(row.rosterJson)
-  const config = parseSessionConfig(row.configJson)
+  const config = parseSessionConfig(row.configJson, row.mode)
   if (!roster || !config) return []
 
   return [{
@@ -383,6 +383,7 @@ async function buildLobbySnapshotFromSessionParts(
       mapVoteEnabled: session.config.mapVoteEnabled,
       blindBans: session.config.blindBans,
       simultaneousPick: session.config.simultaneousPick,
+      permanentAlly: session.config.permanentAlly,
       redDeath: session.config.redDeath,
       dealOptionsSize: session.config.dealOptionsSize,
       randomDraft: session.config.randomDraft,
@@ -420,7 +421,7 @@ function parseSessionRoster(raw: string): SessionRoster | null {
   }
 }
 
-function parseSessionConfig(raw: string): SessionConfig | null {
+function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
   try {
     const parsed = JSON.parse(raw) as Partial<SessionConfig>
     if (!parsed || typeof parsed !== 'object') return null
@@ -432,6 +433,7 @@ function parseSessionConfig(raw: string): SessionConfig | null {
       mapVoteEnabled: parsed.mapVoteEnabled === true,
       blindBans: parsed.blindBans === true,
       simultaneousPick: parsed.simultaneousPick === true,
+      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
       randomDraft: parsed.randomDraft === true,

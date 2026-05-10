@@ -142,11 +142,13 @@ export async function activateDraftMatch(
   }
 
   const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const permanentAlly = isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state)
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
     mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
+    permanentAlly,
     hiddenDraft: input.hiddenDraft === true,
     state: input.state,
   })
@@ -298,6 +300,7 @@ export async function cancelDraftMatch(
         hostId: input.hostId,
         mapVoteResult: input.mapVoteResult ?? null,
         redDeath: isRedDeathFormatId(input.state.formatId),
+        permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state),
         hiddenDraft: input.hiddenDraft === true,
         state: input.state,
       }),
@@ -316,6 +319,10 @@ export async function cancelDraftMatch(
     .where(eq(matchParticipants.matchId, matchId))
 
   return { match: updatedMatch!, participants: updatedParticipants }
+}
+
+function isPermanentAllyFfaDraft(gameMode: GameMode, state: DraftState): boolean {
+  return gameMode === 'ffa' && !isRedDeathFormatId(state.formatId) && state.seats.some(seat => seat.team != null)
 }
 
 function mapCivsFromDraftState(

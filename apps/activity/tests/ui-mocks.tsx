@@ -159,6 +159,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,
+      permanentAlly: true,
       dealOptionsSize: null,
       randomDraft: false,
       hiddenDraft: false,

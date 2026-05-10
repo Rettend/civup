@@ -98,10 +98,10 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     joinGroups: [['p2', 'p3', 'p4'], ['p5', 'p6', 'p7', 'p8']],
   },
   {
-    id: 'ffa-eight-player',
-    label: 'ffa8',
+    id: 'ffa-twelve-player',
+    label: 'ffa12',
     mode: 'ffa',
-    joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8']],
+    joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8'], ['p9'], ['p10'], ['p11'], ['p12']],
   },
 ]
 
@@ -864,7 +864,7 @@ async function assertDraftingCapacityState(
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('drafting')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(lobby?.status).toBe('drafting')
 
   for (const playerId of expectedPlayerIds) {
@@ -884,7 +884,7 @@ async function assertActiveCapacityState(
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('active')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null)).toBe(true)
   expect(lobby?.status).toBe('active')
 
@@ -904,7 +904,7 @@ async function assertCompletedCapacityState(
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   expect(match?.status).toBe('completed')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
   expect((await getLobbyById(kv, matchId))?.status).toBe('completed')
 
@@ -953,6 +953,16 @@ async function startDraftFromOpenLobby(
     draftRoomIncomingMessagesWithSelectionPreviews: completedDraft.inputCountWithSelectionPreviews,
     draftRoomIncomingMessagesWithTeamPickPreviews: completedDraft.inputCountWithTeamPickPreviews,
   }
+}
+
+function sortParticipantIdsByExpectedOrder(
+  participants: Array<{ playerId: string }>,
+  expectedPlayerIds: string[],
+): string[] {
+  const expectedOrder = new Map(expectedPlayerIds.map((playerId, index) => [playerId, index]))
+  return [...participants]
+    .sort((left, right) => (expectedOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (expectedOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER))
+    .map(participant => participant.playerId)
 }
 
 async function handleDraftCompleteLifecycleSync(

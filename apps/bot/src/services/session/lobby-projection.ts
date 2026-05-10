@@ -190,7 +190,7 @@ function compareLobbyProjectionByUpdatedAtDesc(left: LobbyState, right: LobbySta
 export function parseSessionLobbyProjection(row: SessionDirectoryRow): LobbyState | null {
   if (!isSessionPhase(row.phase) || !isGameMode(row.mode)) return null
   const roster = parseSessionRoster(row.rosterJson)
-  const config = parseSessionConfig(row.configJson)
+  const config = parseSessionConfig(row.configJson, row.mode)
   if (!roster || !config) return null
 
   return {
@@ -245,7 +245,7 @@ function parseSessionRoster(raw: string): SessionRoster | null {
   }
 }
 
-function parseSessionConfig(raw: string): SessionConfig | null {
+function parseSessionConfig(raw: string, mode: SessionDirectoryRow['mode']): SessionConfig | null {
   try {
     const parsed = JSON.parse(raw) as Partial<SessionConfig>
     if (!parsed || typeof parsed !== 'object') return null
@@ -258,6 +258,7 @@ function parseSessionConfig(raw: string): SessionConfig | null {
       mapVoteEnabled: parsed.mapVoteEnabled === true,
       blindBans: parsed.blindBans === true,
       simultaneousPick: parsed.simultaneousPick === true,
+      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
       randomDraft: parsed.randomDraft === true,

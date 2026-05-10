@@ -118,11 +118,15 @@ export function parseModerationPlacements(
   gameMode: GameMode,
   placements: string,
   participants: ParticipantRow[],
+  options: { permanentAlly?: boolean } = {},
 ):
   | { placementsByPlayer: Map<string, number> }
   | { error: string } {
-  if (isTeamMode(gameMode) || gameMode === '1v1') {
+  if (isTeamMode(gameMode) || gameMode === '1v1' || options.permanentAlly) {
     const uniqueTeams = new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))
+    if (options.permanentAlly && uniqueTeams.size * 2 !== participants.length) {
+      return { error: 'Permanent Ally FFA team data is missing or invalid for this match.' }
+    }
     if (uniqueTeams.size > 2) {
       const parsedTeams = parseOrderedTeamIndexes(placements, participants)
       if ('error' in parsedTeams) return parsedTeams

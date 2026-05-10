@@ -8,7 +8,7 @@ const MODE_CASES = [
   { mode: '1v1', playerCount: 2 },
   { mode: '2v2', playerCount: 4 },
   { mode: '3v3', playerCount: 6 },
-  { mode: 'ffa', playerCount: 8 },
+  { mode: 'ffa', playerCount: 12 },
 ] as const satisfies readonly { mode: GameMode, playerCount: number }[]
 
 type SeededOutcome = 'reported' | 'timed-out' | 'cancelled' | 'finalized'
@@ -82,7 +82,7 @@ export async function runSeededSystemSequence(
     await expectMatchState(world, {
       matchId: started.matchId,
       status: 'drafting',
-      participantPlayerIds: players.map(player => player.id),
+      participantPlayerIds: [...players.map(player => player.id)].sort(),
       civsAssigned: false,
       placementsAssigned: false,
     })
@@ -190,7 +190,7 @@ export async function runSeededSystemSequence(
         const activeParticipants = await world.match.getParticipants(started.matchId)
         const report = await world.match.report(started.matchId, {
           reporterId: hostId,
-          placements: buildPlacements(modeCase.mode, activeParticipants.map(participant => participant.playerId)),
+          placements: buildPlacements(modeCase.mode, activeParticipants),
         })
         expect(report.ok).toBe(true)
         await world.flushBackgroundTasks()
@@ -322,10 +322,17 @@ function swapFirstTeammatePicks(state: Parameters<typeof swapSeatPicks>[0]) {
   throw new Error(`Expected teammate picks to be swappable for ${state.matchId}`)
 }
 
-function buildPlacements(mode: GameMode, playerIds: string[]): string {
-  return mode === 'ffa'
-    ? playerIds.map(playerId => `<@${playerId}>`).join('\n')
-    : 'A'
+function buildPlacements(mode: GameMode, participants: Array<{ playerId: string, team: number | null }>): string {
+  if (mode !== 'ffa') return 'A'
+
+  const orderedTeamRepresentatives = new Map<number, string>()
+  for (const participant of participants) {
+    if (participant.team == null || orderedTeamRepresentatives.has(participant.team)) continue
+    orderedTeamRepresentatives.set(participant.team, participant.playerId)
+  }
+
+  const playerIds = orderedTeamRepresentatives.size > 0 ? [...orderedTeamRepresentatives.values()] : participants.map(participant => participant.playerId)
+  return playerIds.map(playerId => `<@${playerId}>`).join('\n')
 }
 
 function createPlayers(count: number, prefix: string) {

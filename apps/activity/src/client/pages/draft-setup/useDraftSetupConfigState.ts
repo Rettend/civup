@@ -43,6 +43,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.mapVoteEnabled === b.mapVoteEnabled
     && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
+    && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
     && a.randomDraft === b.randomDraft
@@ -75,6 +76,7 @@ export function useDraftSetupConfigState(input: {
   const [mapVoteEnabledPending, setMapVoteEnabledPending] = createSignal(false)
   const [blindBansPending, setBlindBansPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
+  const [permanentAllyPending, setPermanentAllyPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
   const [hiddenDraftPending, setHiddenDraftPending] = createSignal(false)
@@ -174,6 +176,7 @@ export function useDraftSetupConfigState(input: {
       mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
+      permanentAlly: true,
       redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
       randomDraft: false,
@@ -229,6 +232,7 @@ export function useDraftSetupConfigState(input: {
   const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
   const formattedBlindBans = () => draftConfig().blindBans ? 'On' : 'Off'
   const formattedSimultaneousPick = () => draftConfig().simultaneousPick ? 'On' : 'Off'
+  const formattedPermanentAlly = () => draftConfig().permanentAlly ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
   const formattedHiddenDraft = () => draftConfig().hiddenDraft ? 'On' : 'Off'
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(input.lobbyMode())
@@ -257,7 +261,7 @@ export function useDraftSetupConfigState(input: {
   }))
   const redDeathExtraFfaSeatsOccupied = () => {
     const lobby = input.currentLobby()
-    return Boolean(lobby && lobby.mode === 'ffa' && optimisticDraftConfig().redDeath && (lobby.entries.slice(8) ?? []).some(entry => entry != null))
+    return Boolean(lobby && lobby.mode === 'ffa' && !optimisticDraftConfig().redDeath && (lobby.entries.slice(10) ?? []).some(entry => entry != null))
   }
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
   const supportsMapVoteToggle = () => input.isLobbyMode() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
@@ -292,6 +296,7 @@ export function useDraftSetupConfigState(input: {
           mapVoteEnabled: nextConfig.mapVoteEnabled,
           blindBans: nextConfig.blindBans,
           simultaneousPick: nextConfig.simultaneousPick,
+          permanentAlly: nextConfig.permanentAlly,
           redDeath: nextConfig.redDeath,
           dealOptionsSize: nextConfig.dealOptionsSize,
           randomDraft: nextConfig.randomDraft,
@@ -350,6 +355,7 @@ export function useDraftSetupConfigState(input: {
         mapVoteEnabled: current.mapVoteEnabled,
         blindBans: current.blindBans,
         simultaneousPick: current.simultaneousPick,
+        permanentAlly: current.permanentAlly,
         redDeath: current.redDeath,
         dealOptionsSize,
         randomDraft: current.randomDraft,
@@ -388,11 +394,15 @@ export function useDraftSetupConfigState(input: {
     if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || simultaneousPickPending() || input.lobbyMode() !== 'ffa') return
     await commitToggleConfigChange(checked, optimisticDraftConfig().simultaneousPick, setSimultaneousPickPending, current => ({ ...current, simultaneousPick: checked }))
   }
+  const handlePermanentAllyChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || permanentAllyPending() || input.lobbyMode() !== 'ffa' || optimisticDraftConfig().redDeath) return
+    await commitToggleConfigChange(checked, optimisticDraftConfig().permanentAlly, setPermanentAllyPending, current => ({ ...current, permanentAlly: checked }))
+  }
   const handleRedDeathChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || redDeathPending()) return
     const lobby = input.currentLobby()
     const current = optimisticDraftConfig()
-    if (checked === current.redDeath || (!checked && redDeathExtraFfaSeatsOccupied())) return
+    if (checked === current.redDeath || (checked && redDeathExtraFfaSeatsOccupied())) return
     setRedDeathPending(true)
     try {
       await commitDraftConfig({
@@ -403,12 +413,13 @@ export function useDraftSetupConfigState(input: {
         mapVoteEnabled: checked ? false : current.mapVoteEnabled,
         blindBans: checked ? true : current.blindBans,
         simultaneousPick: checked ? false : current.simultaneousPick,
+        permanentAlly: checked ? false : current.permanentAlly,
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: checked && requiresRedDeathDuplicateFactions(input.lobbyMode()) ? true : current.duplicateFactions,
-      }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 8) : undefined })
+      }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 12) : undefined })
       input.showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
     }
     finally {
@@ -562,6 +573,7 @@ export function useDraftSetupConfigState(input: {
     mapVoteEnabled: mapVoteEnabledPending,
     blindBans: blindBansPending,
     simultaneousPick: simultaneousPickPending,
+    permanentAlly: permanentAllyPending,
     redDeath: redDeathPending,
     randomDraft: randomDraftPending,
     hiddenDraft: hiddenDraftPending,
@@ -594,6 +606,7 @@ export function useDraftSetupConfigState(input: {
     formattedBanTimer,
     formattedBbgVersion,
     formattedBlindBans,
+    formattedPermanentAlly,
     formattedDuplicateFactions,
     formattedHiddenDraft,
     formattedLeaderPool,
@@ -621,6 +634,7 @@ export function useDraftSetupConfigState(input: {
     changeMapVoteEnabled: handleMapVoteEnabledChange,
     changeBlindBans: handleBlindBansChange,
     changeSimultaneousPick: handleSimultaneousPickChange,
+    changePermanentAlly: handlePermanentAllyChange,
     changeRedDeath: handleRedDeathChange,
     changeRandomDraft: handleRandomDraftChange,
     changeHiddenDraft: handleHiddenDraftChange,
@@ -649,6 +663,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
     blindBans: lobby.draftConfig.blindBans,
     simultaneousPick: lobby.draftConfig.simultaneousPick,
+    permanentAlly: inferGameMode(lobby.mode) === 'ffa' && !lobby.draftConfig.redDeath ? lobby.draftConfig.permanentAlly !== false : false,
     redDeath: lobby.draftConfig.redDeath,
     dealOptionsSize: lobby.draftConfig.dealOptionsSize,
     randomDraft: lobby.draftConfig.randomDraft,
