@@ -7,6 +7,7 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
+import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
@@ -53,6 +54,10 @@ interface CreateMatchLobbyInput {
 interface DeferredMatchCreateContext {
   executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   followup: (data?: any) => Promise<unknown>
+}
+
+interface ImmediateEphemeralContext {
+  flags: (...flag: any[]) => { res: (data?: any) => Response }
 }
 
 function buildMatchCreateSubCommand() {
@@ -132,37 +137,63 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
+        const autoOpenActivity = interactionChannelId === draftChannelId
         const createInput = {
           env: c.env,
           kv,
           mode,
           steamLobbyLink,
-          autoOpenActivity: false,
+          autoOpenActivity,
           interactionChannelId,
           draftChannelId,
           guildId: c.interaction.guild_id ?? null,
           identity,
         }
 
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          try {
-            const outcome = await createMatchLobby(createInput)
-            await sendDeferredMatchCreateOutcome(c, outcome)
-          }
-          catch (error) {
-            console.error('[match:create] unexpected failure', {
-              mode,
-              interactionChannelId,
-              userId: identity.userId,
-            }, error)
+        if (!autoOpenActivity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
             try {
-              await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+              const outcome = await createMatchLobby(createInput)
+              await sendDeferredMatchCreateOutcome(c, outcome)
             }
-            catch (followupError) {
-              console.error('[match:create] failed to send error followup', followupError)
+            catch (error) {
+              console.error('[match:create] unexpected failure', {
+                mode,
+                interactionChannelId,
+                userId: identity.userId,
+              }, error)
+              try {
+                await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+              }
+              catch (followupError) {
+                console.error('[match:create] failed to send error followup', followupError)
+              }
             }
+          })
+        }
+
+        try {
+          const outcome = await createMatchLobby(createInput)
+          if (outcome.kind === 'activity') return c.resActivity()
+          if (outcome.kind === 'clear') {
+            return sendImmediateEphemeralResponse(
+              c,
+              steamLobbyLink !== null
+                ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
+                : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
+              'success',
+            )
           }
-        })
+          return sendImmediateEphemeralResponse(c, outcome.message, outcome.tone)
+        }
+        catch (error) {
+          console.error('[match:create] unexpected failure', {
+            mode,
+            interactionChannelId,
+            userId: identity.userId,
+          }, error)
+          return sendImmediateEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+        }
       }
 
       // ── join ────────────────────────────────────────────
@@ -663,7 +694,7 @@ export const command_match = factory.command<MatchVar>(
               .select({ playerId: matchParticipants.playerId, team: matchParticipants.team })
               .from(matchParticipants)
               .where(eq(matchParticipants.matchId, match.id))
-            const uniqueTeams = new Set((isTeamMode(mode) || matchContext.permanentAlly)
+            const uniqueTeams = new Set(isTeamMode(mode)
               ? participantRows.flatMap(participant => participant.team == null ? [] : [participant.team])
               : [])
 
@@ -673,7 +704,7 @@ export const command_match = factory.command<MatchVar>(
                 return
               }
               const requiredPlacements = matchContext.permanentAlly
-                ? uniqueTeams.size
+                ? participantRows.length
                 : matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
               const placementLabelByCount: Record<number, string> = {
                 2: 'second',
@@ -694,7 +725,7 @@ export const command_match = factory.command<MatchVar>(
                 : orderedFfaIds.length >= requiredPlacements
               if (!hasEnoughPlacements) {
                 const countText = matchContext.permanentAlly ? 'exactly' : 'at least'
-                await sendTransientEphemeralResponse(c, `FFA reporting needs ${countText} ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
+                await sendTransientEphemeralResponse(c, `FFA reporting needs ${countText} ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`). Permanent Ally reports should click teammates adjacent to each other: 1/1, 2/2, 3/3, etc.`, 'error')
                 return
               }
               placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
@@ -1030,6 +1061,10 @@ async function sendDeferredMatchCreateOutcome(c: DeferredMatchCreateContext, out
   await sendTransientEphemeralResponse(c, outcome.message, outcome.tone)
 }
 
+function sendImmediateEphemeralResponse(c: ImmediateEphemeralContext, message: string, tone: EphemeralResponseTone): Response {
+  return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(message, tone)] })
+}
+
 async function getLobbyRosterEntriesForRender(
   namespace: DurableObjectNamespace | null | undefined,
   lobby: LobbyState,
@@ -1124,7 +1159,6 @@ function buildDraftSeatsFromLobby(
 }
 
 function getLobbyDraftSeatTeam(lobby: LobbyState, slot: number): number | null {
-  if (lobby.mode === 'ffa' && lobby.draftConfig.permanentAlly && !lobby.draftConfig.redDeath) return Math.floor(slot / 2)
   return slotToTeamIndex(lobby.mode, slot, lobby.slots.length)
 }
 

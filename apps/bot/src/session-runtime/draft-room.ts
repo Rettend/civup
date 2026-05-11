@@ -231,6 +231,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
       steamLobbyLink: room.config.steamLobbyLink ?? null,
+      permanentAlly: room.config.permanentAlly === true,
     })
   }
 
@@ -340,6 +341,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       swapState,
       room.mapVote,
       room.config.steamLobbyLink ?? null,
+      room.config.permanentAlly === true,
     )
   }
 
@@ -1232,6 +1234,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     swapState: LeaderSwapState | null,
     mapVoteState: StoredMapVoteState,
     steamLobbyLink: string | null,
+    permanentAlly: boolean,
   ) {
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
@@ -1253,6 +1256,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         previews: censorDraftPreviews(state, previews, seatIndex),
         swapState,
         steamLobbyLink,
+        permanentAlly,
       })
     }
   }

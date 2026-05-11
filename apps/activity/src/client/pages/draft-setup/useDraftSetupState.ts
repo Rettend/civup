@@ -236,12 +236,47 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const arrangeTargetTitle = () => isTeamGameMode(lobbyMode()) ? 'Teams' : 'Seat order'
   const randomizeButtonLabel = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
   const randomizeButtonTitle = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
-  const show2v2TeamCountToggle = () => isLobbyMode() && lobbyMode() === '2v2'
-  const hasExpanded2v2Teams = () => currentLobby()?.targetSize === 8
-  const extra2v2SeatsOccupied = () => (currentLobby()?.entries.slice(4) ?? []).some(entry => entry != null)
-  const canToggle2v2Teams = () => amHost() && !lobbyActionPending() && (!hasExpanded2v2Teams() || !extra2v2SeatsOccupied())
-  const twoVTwoTeamCountToggleLabel = () => hasExpanded2v2Teams() ? 'Remove extra teams' : 'Add two extra teams'
-  const twoVTwoTeamCountToggleTitle = () => hasExpanded2v2Teams() && extra2v2SeatsOccupied() ? 'Clear Teams C and D before removing them.' : twoVTwoTeamCountToggleLabel()
+  const seatCountToggleConfig = () => {
+    const lobby = currentLobby()
+    if (!lobby) return null
+    if (lobbyMode() === '2v2') {
+      return {
+        collapsedSize: 4,
+        expandedSize: 8,
+        addLabel: 'Add two extra teams',
+        removeLabel: 'Remove extra teams',
+        addMessage: 'Added two extra teams.',
+        removeMessage: 'Removed the extra teams.',
+        blockedTitle: 'Clear Teams C and D before removing them.',
+      }
+    }
+    if (lobbyMode() === 'ffa' && !configState.derived.optimisticDraftConfig().redDeath && (lobby.targetSize === 8 || lobby.targetSize === 12)) {
+      return {
+        collapsedSize: 8,
+        expandedSize: 12,
+        addLabel: 'Add more seats',
+        removeLabel: 'Remove extra seats',
+        addMessage: 'Added four extra seats.',
+        removeMessage: 'Removed the extra seats.',
+        blockedTitle: 'Clear the extra FFA seats before removing them.',
+      }
+    }
+    return null
+  }
+  const showSeatCountToggle = () => seatCountToggleConfig() != null
+  const hasExpandedSeats = () => currentLobby()?.targetSize === seatCountToggleConfig()?.expandedSize
+  const extraSeatsOccupied = () => {
+    const config = seatCountToggleConfig()
+    if (!config) return false
+    return (currentLobby()?.entries.slice(config.collapsedSize) ?? []).some(entry => entry != null)
+  }
+  const canToggleSeatCount = () => amHost() && !lobbyActionPending() && (!hasExpandedSeats() || !extraSeatsOccupied())
+  const seatCountToggleLabel = () => {
+    const config = seatCountToggleConfig()
+    if (!config) return ''
+    return hasExpandedSeats() ? config.removeLabel : config.addLabel
+  }
+  const seatCountToggleTitle = () => hasExpandedSeats() && extraSeatsOccupied() ? seatCountToggleConfig()?.blockedTitle ?? '' : seatCountToggleLabel()
   const isLargeTeamLobbyMode = () => isLobbyMode() && (lobbyMode() === '5v5' || lobbyMode() === '6v6')
   const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode() || !userId()) return false
@@ -316,17 +351,18 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return dragged === id && row.empty
   }
 
-  const handle2v2TeamCountToggle = async () => {
+  const handleSeatCountToggle = async () => {
     const lobby = currentLobby()
     const currentUserId = userId()
-    if (!lobby || !currentUserId || !amHost() || lobby.mode !== '2v2' || lobbyActionPending()) return
-    const nextTargetSize = lobby.targetSize > 4 ? 4 : 8
+    const config = seatCountToggleConfig()
+    if (!lobby || !currentUserId || !amHost() || !config || lobbyActionPending()) return
+    const nextTargetSize = lobby.targetSize > config.collapsedSize ? config.collapsedSize : config.expandedSize
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
       const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { targetSize: nextTargetSize })
       if (!result.ok) return showErrorMessage(result.error)
-      showInfoMessage(nextTargetSize === 8 ? 'Added two extra teams.' : 'Removed the extra teams.')
+      showInfoMessage(nextTargetSize === config.expandedSize ? config.addMessage : config.removeMessage)
     }
     finally {
       setLobbyActionPending(false)
@@ -572,12 +608,12 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       drop: handleDropOnSlot,
     },
     teamCountToggle: {
-      show: show2v2TeamCountToggle,
-      expanded: hasExpanded2v2Teams,
-      canToggle: canToggle2v2Teams,
-      label: twoVTwoTeamCountToggleLabel,
-      title: twoVTwoTeamCountToggleTitle,
-      toggle: handle2v2TeamCountToggle,
+      show: showSeatCountToggle,
+      expanded: hasExpandedSeats,
+      canToggle: canToggleSeatCount,
+      label: seatCountToggleLabel,
+      title: seatCountToggleTitle,
+      toggle: handleSeatCountToggle,
     },
   }
 

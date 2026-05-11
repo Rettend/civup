@@ -241,7 +241,11 @@ export function PlayerSlot(props: PlayerSlotProps) {
     ].join(';')
   }
 
-  const placementNumber = () => placementRank() + 1
+  const placementNumber = () => {
+    const rank = placementRank()
+    if (rank < 0) return 0
+    return draftStore.permanentAlly ? Math.floor(rank / 2) + 1 : rank + 1
+  }
   const seatTeam = () => seat()?.team ?? null
 
   const showCornerSwapButton = () => !resultSelectionsLocked() && canSwapLeadersWith(props.seatIndex)

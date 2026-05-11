@@ -12,7 +12,7 @@ import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-sna
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
-import { parseOrderedParticipantIds, parseOrderedTeamIndexes, resolveWinningTeamIndex } from './placements.ts'
+import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
@@ -148,11 +148,26 @@ export async function reportMatch(
     : null
   if (hiddenLeaderAssignments && 'error' in hiddenLeaderAssignments) return hiddenLeaderAssignments
 
-  if (isTeamMode(gameMode) || gameMode === '1v1' || gameContext.permanentAlly) {
-    const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
-    if (gameContext.permanentAlly && uniqueTeams.size * 2 !== participantRows.length) {
-      return { error: 'Permanent Ally FFA team data is missing or invalid for this match.' }
+  if (gameContext.permanentAlly && gameMode === 'ffa') {
+    const parsedPlacements = parsePermanentAllyFfaPlacements(input.placements, participantRows)
+    if ('error' in parsedPlacements) return parsedPlacements
+
+    for (const participant of participantRows) {
+      const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
+      if (placement == null) return { error: `Permanent Ally FFA placement missing for <@${participant.playerId}>.` }
+      await db
+        .update(matchParticipants)
+        .set({ placement })
+        .where(
+          and(
+            eq(matchParticipants.matchId, input.matchId),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        )
     }
+  }
+  else if (isTeamMode(gameMode) || gameMode === '1v1') {
+    const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
     if (uniqueTeams.size > 2) {
       const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
       if ('error' in parsedTeams) return parsedTeams

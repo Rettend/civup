@@ -462,11 +462,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }
 
       if (normalizedRedDeath) {
-        if (hasTargetSize) return parsedRedDeathFfaTargetSize ?? 10
-        return 10
+        if (hasTargetSize) return parsedRedDeathFfaTargetSize ?? slots.length
+        return lobby.draftConfig.redDeath ? slots.length : 10
       }
 
-      return defaultPlayerCount(mode)
+      if (hasTargetSize) return parsedTargetSize ?? slots.length
+      return lobby.draftConfig.redDeath ? defaultPlayerCount(mode) : parseLobbyTargetSize(mode, slots.length) ?? defaultPlayerCount(mode)
     })()
 
     if (requestedTargetSize !== slots.length) {

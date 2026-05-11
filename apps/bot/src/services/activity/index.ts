@@ -46,8 +46,7 @@ export function buildDraftRuntimeConfig(
 ): DraftRuntimeConfigResult {
   const matchId = options.matchId
   const redDeathMode = options.redDeath === true
-  const permanentAlly = mode === 'ffa' && !redDeathMode && options.permanentAlly !== false
-  const seats: DraftSeat[] = buildSeats(mode, entries, { permanentAlly })
+  const seats: DraftSeat[] = buildSeats(mode, entries)
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const hiddenDraft = options.hiddenDraft === true
   const randomDraft = !hiddenDraft && options.randomDraft === true
@@ -71,6 +70,7 @@ export function buildDraftRuntimeConfig(
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     randomDraft,
     hiddenDraft,
+    permanentAlly: mode === 'ffa' && !redDeathMode && options.permanentAlly !== false,
     duplicateFactions,
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
@@ -83,7 +83,7 @@ export function buildDraftRuntimeConfig(
 
 // ── Build seats with team assignment ────────────────────────
 
-function buildSeats(mode: GameMode, entries: QueueEntry[], options: { permanentAlly?: boolean } = {}): DraftSeat[] {
+function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
     const teams = teamCount(mode, entries.length)
     const playersPerTeam = teamSize(mode, entries.length) ?? 1
@@ -114,11 +114,10 @@ function buildSeats(mode: GameMode, entries: QueueEntry[], options: { permanentA
     }))
   }
 
-  return entries.map((e, index) => ({
+  return entries.map(e => ({
     playerId: e.playerId,
     displayName: e.displayName,
     avatarUrl: e.avatarUrl ?? null,
-    ...(options.permanentAlly ? { team: Math.floor(index / 2) } : {}),
   }))
 }
 

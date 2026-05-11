@@ -315,7 +315,7 @@ describe('lobby service D1-backed projection behavior', () => {
     expect(snapshot?.targetSize).toBe(8)
   })
 
-  test('stores six players as the regular FFA minimum start size for 12 seats', async () => {
+  test('stores six players as the regular FFA minimum start size for 8 seats', async () => {
     const { kv } = createTrackedKv()
 
     await addToQueue(kv, 'ffa', {
@@ -332,7 +332,31 @@ describe('lobby service D1-backed projection behavior', () => {
       messageId: 'message-1',
     })
 
-    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, 'ffa') })
+
+    expect(snapshot?.minPlayers).toBe(6)
+    expect(snapshot?.targetSize).toBe(8)
+  })
+
+  test('stores six players as the expanded FFA minimum start size for 12 seats', async () => {
+    const { kv } = createTrackedKv()
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const updated = await setLobbySlots(kv, lobby.id, ['host-1', null, null, null, null, null, null, null, null, null, null, null], lobby)
+    const snapshot = await syncLobbyDerivedState(kv, updated ?? lobby, { queueEntries: getSeededRosterEntries(kv, 'ffa') })
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(12)
