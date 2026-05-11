@@ -867,7 +867,7 @@ describe('match moderation recalculation', () => {
     }
   })
 
-  test('report resolves Permanent Ally FFA placements and shared visible deltas by pair', async () => {
+  test('report resolves Permanent Ally FFA placements from adjacent player clicks', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -877,7 +877,7 @@ describe('match moderation recalculation', () => {
       const result = await reportMatch(db, kv, {
         matchId: 'ffa-pa',
         reporterId: 'p2',
-        placements: '<@p3>\n<@p1>\n<@p5>',
+        placements: '<@p3>\n<@p4>\n<@p1>\n<@p2>\n<@p5>\n<@p6>',
       }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
@@ -890,10 +890,33 @@ describe('match moderation recalculation', () => {
       expect(placementByPlayer.get('p2')).toBe(2)
       expect(placementByPlayer.get('p5')).toBe(3)
       expect(placementByPlayer.get('p6')).toBe(3)
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
 
       expect(displayDelta(result.participants, 'p1')).toBeCloseTo(displayDelta(result.participants, 'p2'), 10)
       expect(displayDelta(result.participants, 'p3')).toBeCloseTo(displayDelta(result.participants, 'p4'), 10)
       expect(displayDelta(result.participants, 'p5')).toBeCloseTo(displayDelta(result.participants, 'p6'), 10)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('report rejects one-click-per-team Permanent Ally FFA placements', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActivePermanentAllyFfaMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'ffa-pa',
+        reporterId: 'p2',
+        placements: '<@p3>\n<@p1>\n<@p5>',
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('include every player exactly once')
     }
     finally {
       sqlite.close()
@@ -1117,12 +1140,12 @@ async function seedActivePermanentAllyFfaMatch(db: any): Promise<void> {
   })
 
   await db.insert(matchParticipants).values([
-    { matchId: 'ffa-pa', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p2', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p3', team: 1, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p4', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p5', team: 2, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p6', team: 2, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p1', team: null, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p2', team: null, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p3', team: null, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
   ])
 
   await db.insert(playerRatings).values([

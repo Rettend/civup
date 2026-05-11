@@ -8,7 +8,7 @@ const MODE_CASES = [
   { mode: '1v1', playerCount: 2 },
   { mode: '2v2', playerCount: 4 },
   { mode: '3v3', playerCount: 6 },
-  { mode: 'ffa', playerCount: 12 },
+  { mode: 'ffa', playerCount: 8 },
 ] as const satisfies readonly { mode: GameMode, playerCount: number }[]
 
 type SeededOutcome = 'reported' | 'timed-out' | 'cancelled' | 'finalized'

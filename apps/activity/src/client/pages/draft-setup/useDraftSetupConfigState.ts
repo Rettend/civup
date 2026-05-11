@@ -263,6 +263,10 @@ export function useDraftSetupConfigState(input: {
     const lobby = input.currentLobby()
     return Boolean(lobby && lobby.mode === 'ffa' && !optimisticDraftConfig().redDeath && (lobby.entries.slice(10) ?? []).some(entry => entry != null))
   }
+  const regularFfaExtraSeatsOccupied = () => {
+    const lobby = input.currentLobby()
+    return Boolean(lobby && lobby.mode === 'ffa' && (lobby.entries.slice(8) ?? []).some(entry => entry != null))
+  }
   const canToggleRedDeath = () => !redDeathExtraFfaSeatsOccupied()
   const supportsMapVoteToggle = () => input.isLobbyMode() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
   const supportsBlindBansToggle = () => input.isLobbyMode() && supportsBlindBansControl(input.lobbyMode(), { redDeath: isRedDeathLobbyMode(), targetSize: input.currentLobby()?.targetSize })
@@ -419,7 +423,7 @@ export function useDraftSetupConfigState(input: {
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: checked && requiresRedDeathDuplicateFactions(input.lobbyMode()) ? true : current.duplicateFactions,
-      }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : 12) : undefined })
+      }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : (regularFfaExtraSeatsOccupied() ? 12 : 8)) : undefined })
       input.showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
     }
     finally {

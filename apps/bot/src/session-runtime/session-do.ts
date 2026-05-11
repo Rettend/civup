@@ -1139,6 +1139,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
+      permanentAlly: record.config.permanentAlly === true,
     })
 
     if ('error' in result) {
@@ -1183,6 +1184,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
+      permanentAlly: record.config.permanentAlly === true,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 
@@ -1954,6 +1956,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       previews: { bans: {}, picks: {} },
       swapState: null,
       steamLobbyLink: record.projectionState.steamLobbyLink,
+      permanentAlly: record.config.permanentAlly === true,
     })
     connection.close(1000, 'Draft closed')
   }

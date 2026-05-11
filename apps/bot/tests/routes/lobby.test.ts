@@ -945,6 +945,59 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
   })
 
+  test('config route expands and preserves regular FFA target size', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const expandResponse = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        targetSize: 12,
+      }),
+    }, buildEnv(kv))
+
+    expect(expandResponse.status).toBe(200)
+    await expect(expandResponse.json()).resolves.toMatchObject({ targetSize: 12 })
+    expect((await getLobbyById(kv, lobby.id))?.slots).toHaveLength(12)
+
+    const configResponse = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        mapVoteEnabled: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(configResponse.status).toBe(200)
+    await expect(configResponse.json()).resolves.toMatchObject({ targetSize: 12 })
+    expect((await getLobbyById(kv, lobby.id))?.slots).toHaveLength(12)
+  })
+
   test('config route updates the base-game random draft toggle', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()

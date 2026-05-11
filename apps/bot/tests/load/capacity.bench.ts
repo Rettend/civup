@@ -101,6 +101,7 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     id: 'ffa-twelve-player',
     label: 'ffa12',
     mode: 'ffa',
+    targetSize: 12,
     joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8'], ['p9'], ['p10'], ['p11'], ['p12']],
   },
 ]
@@ -661,7 +662,7 @@ async function simulateScenarioLifecycle(input: {
     let draftRoomIncomingMessagesWithTeamPickPreviews = started.draftRoomIncomingMessagesWithTeamPickPreviews
 
     botRequests += 1
-    await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
+    await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState)
     await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
 
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
@@ -674,7 +675,7 @@ async function simulateScenarioLifecycle(input: {
 
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
-      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState, { finalized: true })
       await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
@@ -759,6 +760,10 @@ async function simulateMatchCreate(
     queueEntries: [hostEntry],
     db,
   })
+  if (mode.targetSize != null && mode.targetSize !== lobby.slots.length) {
+    const slots = Array.from({ length: mode.targetSize }, (_value, index) => index === 0 ? HOST_ID : null)
+    await setLobbySlots(kv, lobby.id, slots, lobby, { db })
+  }
 }
 
 async function simulateMatchJoin(
@@ -968,6 +973,7 @@ function sortParticipantIdsByExpectedOrder(
 async function handleDraftCompleteLifecycleSync(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
+  mode: CapacityScenario,
   matchId: string,
   state: DraftState,
   options: {
@@ -976,9 +982,10 @@ async function handleDraftCompleteLifecycleSync(
 ): Promise<void> {
   const activated = await activateDraftMatch(db, {
     state,
-    completedAt: NOW + 5_000,
-    hostId: state.seats[0]?.playerId ?? HOST_ID,
-  })
+      completedAt: NOW + 5_000,
+      hostId: state.seats[0]?.playerId ?? HOST_ID,
+      permanentAlly: mode.mode === 'ffa',
+    })
   if ('error' in activated) throw new Error(activated.error)
   if (activated.alreadyActive && options.finalized !== true) return
 

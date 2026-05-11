@@ -10,6 +10,8 @@ const PLACEMENT_ICON_CLASSES = [
   'i-ph:number-eight-bold',
   'i-ph:number-nine-bold',
   'i-custom:number-ten-bold',
+  'i-custom:number-eleven-bold',
+  'i-custom:number-twelve-bold',
 ] as const
 
 /** Icon class for a 1-based placement badge. */

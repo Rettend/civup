@@ -264,6 +264,30 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 8)).toBe(true))
   })
 
+  test('covers the host FFA extra-seat toggle flow', async () => {
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: 'ffa',
+        targetSize: 8,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+        ],
+      })}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add more seats' }))
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 12)).toBe(true))
+  })
+
   test('covers ranked host dropdown flows with fetched matchmaking roles', async () => {
     uiMockState.fetchLobbyRankedRolesResult = {
       options: [
