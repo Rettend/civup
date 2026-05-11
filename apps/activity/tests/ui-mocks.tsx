@@ -110,6 +110,7 @@ interface MockState {
   draftPreviewBans: Record<number, string[]>
   draftPreviewPicks: Record<number, string[]>
   steamLobbyLink: string | null
+  permanentAlly: boolean
   canSwapLeaderSeatIndices: number[]
   swapFlashSeatIndices: number[]
   swapWindowOpen: boolean
@@ -226,6 +227,7 @@ function defaults(): MockState {
     draftPreviewBans: {},
     draftPreviewPicks: {},
     steamLobbyLink: null,
+    permanentAlly: false,
     canSwapLeaderSeatIndices: [],
     swapFlashSeatIndices: [],
     swapWindowOpen: false,
@@ -561,6 +563,9 @@ mock.module('~/client/stores', () => ({
     },
     get steamLobbyLink() {
       return uiMockState.steamLobbyLink ?? mockLobbySnapshot().steamLobbyLink
+    },
+    get permanentAlly() {
+      return uiMockState.permanentAlly
     },
     swapState: null,
     initVersion: 1,

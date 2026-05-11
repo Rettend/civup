@@ -110,6 +110,7 @@ export interface ActivateDraftInput {
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
+  permanentAlly?: boolean
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -121,6 +122,7 @@ export interface CancelDraftInput {
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
+  permanentAlly?: boolean
   allowActive?: boolean
 }
 

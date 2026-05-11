@@ -114,6 +114,28 @@ export function parseOrderedTeamIndexes(
   return { orderedTeams }
 }
 
+export function parsePermanentAllyFfaPlacements(
+  placements: string,
+  participants: ParticipantRow[],
+): { placementsByPlayer: Map<string, number> } | { error: string } {
+  if (participants.length % 2 !== 0) {
+    return { error: 'Permanent Ally FFA requires an even number of players.' }
+  }
+
+  const parsedOrder = parseOrderedParticipantIds(placements, participants)
+  if ('error' in parsedOrder) return parsedOrder
+  if (parsedOrder.orderedIds.length !== participants.length) {
+    return { error: `Permanent Ally FFA reports must include every player exactly once, with teammates adjacent in order (1/1, 2/2, 3/3, etc.). Expected ${participants.length} players.` }
+  }
+
+  const placementsByPlayer = new Map<string, number>()
+  parsedOrder.orderedIds.forEach((playerId, index) => {
+    placementsByPlayer.set(playerId, Math.floor(index / 2) + 1)
+  })
+
+  return { placementsByPlayer }
+}
+
 export function parseModerationPlacements(
   gameMode: GameMode,
   placements: string,
@@ -122,11 +144,12 @@ export function parseModerationPlacements(
 ):
   | { placementsByPlayer: Map<string, number> }
   | { error: string } {
-  if (isTeamMode(gameMode) || gameMode === '1v1' || options.permanentAlly) {
+  if (options.permanentAlly && gameMode === 'ffa') {
+    return parsePermanentAllyFfaPlacements(placements, participants)
+  }
+
+  if (isTeamMode(gameMode) || gameMode === '1v1') {
     const uniqueTeams = new Set(participants.flatMap(participant => participant.team == null ? [] : [participant.team]))
-    if (options.permanentAlly && uniqueTeams.size * 2 !== participants.length) {
-      return { error: 'Permanent Ally FFA team data is missing or invalid for this match.' }
-    }
     if (uniqueTeams.size > 2) {
       const parsedTeams = parseOrderedTeamIndexes(placements, participants)
       if ('error' in parsedTeams) return parsedTeams

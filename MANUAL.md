@@ -53,7 +53,7 @@ Run these in the channels you want the bot to use:
 Use `/admin ranked set` to map Discord roles to tiers:
 
 - `tier1` is the highest role
-- the last configured tier is the base role that players get after playing 10 games, before that they are Unranked
+- the last configured tier is the base role for qualified ranked players
 - bot supports 3 to 10 tiers
 
 Commands:
@@ -132,7 +132,7 @@ The `/match` command group manages the lobby:
 > [!NOTE]
 >
 > - team modes must be full to start
-> - regular `FFA` uses 8 seats and can start with 6 or 8 players
+> - regular `FFA` uses 8 seats by default and can expand to 12 seats; 8-seat FFA can start with 6 or 8 players, and 12-seat FFA can start with 6, 8, 10, or 12 players
 > - expanded `2v2` lobbies can start with 6 players as `2v2v2`, or 8 players as `2v2v2v2`
 > - Red Death FFA can start with 4, 6, 8, or 10 players
 
@@ -235,7 +235,7 @@ Default leader pool sizes (and min allowed override):
 - `4v4`: 56 (min 14)
 - `5v5`: 64 (min 16)
 - `6v6`: 72 (min 18)
-- `FFA`: `6 x player count`: 36-48 for 6 or 8 players (min `3 x player count` 18-24 for 6 or 8 players)
+- `FFA`: `6 x player count`: 36-72 for 6, 8, 10, or 12 players (min `3 x player count` 18-36)
 
 Max allowed override is all leaders (85).
 
@@ -264,10 +264,10 @@ The bot will send reminder DMs to the host roughly 3 and 6 hours after a draft i
 
 Two ways:
 
-- inside the **Activity**: any player can click on the team that won and then the `Confirm Result` button in the header, for FFA they need to select the players in the placement order
-- using **Commands**: `/match report winner:...` for duel and two-team team games
-- using **Commands**: `/match report winner:... second:... [third/fourth...]` for multi-team team games, using one player from each team in placement order
-- using **Commands**: `/match report [...placements]` for FFA
+- inside the **Activity**: any player can click on the team that won and then the `Confirm Result` button in the header; for FFA they select every player in placement order
+- using **Commands**:
+  - **Duel** and **Teamers**: `/match report winner:...`
+  - **FFA**: `/match report winner:... second:... [third/fourth...]`
 
 ### What a successful report does
 
@@ -278,9 +278,19 @@ Two ways:
 
 ## Ranked
 
-### Rating
+Every reported game updates ratings and adds hidden evidence.
+Once a player has enough evidence, the bot assigns a ranked role.
 
-5 separate leaderboards and separate elo scores:
+### Commands
+
+- `/leaderboard`: sends leaderboard embeds
+- `/stats`: shows player stats, ratings, top leaders, and recent games
+- `/rank`: shows player rank history, including past seasons
+- `/tiers`: shows current role cutoffs and player distribution
+
+### Rating modes
+
+The bot keeps separate ratings for each game mode:
 
 - **Duel** = `1v1`
 - **Duo** = `2v2`
@@ -288,73 +298,79 @@ Two ways:
 - **FFA** = `ffa`
 - **Red Death** = any Red Death mode
 
-Commands to view rating:
-
-- `/leaderboard`: sends non-updating Leaderboard embeds
-- `/stats`: the player's stats per game mode, top leaders, and recent games
-- `/rank`: the player's stats per game mode, and the same for past seasons
-- `/tiers`: live cutoffs and player distribution
-
-### Elo system
-
-- uses **OpenSkill** with parameters tuned for Civ 6: games are less frequent so it uses more uncertainty
-- in **duel and team modes**, very lopsided two-team wins are **tapered hard** once the winner was already a big favorite, so stacked teams cannot farm much elo from obviously weaker opponents
-- in **all 3+ side placement modes** including **FFA**, all placements matter
-- the **first ~10-20 games** are pretty volatile, but after that it gets very accurate for the player's skill level
-- new player **display elo** starts at `1000` and they are Unranked
-- a player needs **3 games** in a game mode to get the first Ranked role and appear on the leaderboard
-- in **team modes**, players are **rated individually**, the better player on the team gets less elo for winning and loses more for losing, vice versa for
-
-#### Elo gain examples
-
-New player first game: ±100
-Veteran player (20+ games): ±55
-
-#### Example ratings after 100 games
-
-| Win rate | Duel                | Duo                 | Squad               |
-| -------- | ------------------- | ------------------- | ------------------- |
-| `45-55%` | `~993 (895-1095)`   | `~994 (851-1140)`   | `~992 (856-1126)`   |
-| `55-65%` | `~1059 (940-1163)`  | `~1092 (967-1235)`  | `~1126 (983-1287)`  |
-| `65-75%` | `~1135 (1021-1238)` | `~1218 (1053-1354)` | `~1294 (1146-1443)` |
-| `75-85%` | `~1211 (1093-1306)` | `~1336 (1190-1500)` | `~1399 (1222-1560)` |
+Every ranked game also updates the player's overall ranked rating which Discord ranked roles use.
 
 ### Ranked roles
 
-A player's overall role comes from their **best current role** in one of the modes, so not an average of all modes
+Example with 5 configured roles:
 
-Example with 5 configured Ranked roles:
+| Role | Overall pool |
+| ---- | ------------ |
+| `tier1` | top 5% |
+| `tier2` | next 15% |
+| `tier3` | next 20% |
+| `tier4` | next 50% |
+| `tier5` | bottom 10% |
 
-| Role    | Earn                       | Keep              |
-| ------- | -------------------------- | ----------------- |
-| `tier1` | 1.5% (top 1.5%)            | 2.0% (Top 2.0%)   |
-| `tier2` | 4.0% (top 5.5%)            | 4.5% (Top 6.5%)   |
-| `tier3` | 10.0% (top 15.5%)          | 10.5% (Top 17.0%) |
-| `tier4` | 20.0% (top 35.5%)          | 20.5% (Top 37.5%) |
-| `tier5` | everyone else (top 100.0%) | -                 |
+Players with less than **8 games** are `Unranked`, which means the bot won't touch their roles.
 
-There is a compounding 0.5% buffer for each tier, players earn the role when they reach the Earn threshold, and keep it until they drop below the Keep threshold.
+### How ratings work
 
-> [!IMPORTANT]
->
-> Demotion protection: players need to stay below the Keep threshold for **7 days** before they lose the role.
+- Ratings use **OpenSkill**, tuned for Civ 6.
+- New players start around `1000` display rating.
+- The first 10 games move the rating more due to uncertainty.
+- In team game modes, players are rated individually. A stronger teammate gains less for a win and loses more for a loss than a weaker teammate.
+- There is an anti-farming system, which reduces elo gains/losses when expected winrate is above 70%
 
-### Tier unlocking
+### Extra requirements for high ranks
 
-Higher tiers stay locked until enough players are ranked. This is to prevent the first 3 ranked players from getting the top tier role instantly.
+- Tier 1 needs at least 18 games.
+- Tier 1 also needs at least 1 win against a tier-1 opponent and at least 4 wins against tier-2-or-better opponents.
+- Tier 2 needs at least 16 games.
+- Tier 3 needs at least 8 games.
 
-Example with 5 configured Ranked roles:
+### Ranked floors
 
-- `tier1`: 80 ranked players
-- `tier2`: 40 ranked players
-- `tier3`: 20 ranked players
-- `tier4`: 8 ranked players
+Ranked floors allow a player to get a higher ranked role, even if their current rating is not high enough, based on their performance in games.
 
-Until a tier unlocks, nobody earns it in that game mode.
+Quality wins are wins against opponents who already have qualified high ranked roles:
+
+- `tier1` win: defeated a `tier1` opponent
+- `tier2+` win: defeated a `tier1` or `tier2` opponent
+- **effective wins** are wins scaled down based on team size, so a 1v1 win counts more than a 4v4 win.
+
+Floors can raise a player to `tier4`, `tier3`, or `tier2`.
+
+`tier4` floor can apply when:
+
+- at least **30 games**
+- at least **5 wins**
+
+`tier3` floor requires at least **8 games**, and one of these:
+
+- the player has `tier2` or better in any game mode and at least 20 games in that mode
+- the player's overall role is `tier4`, and they have at least 1/2 effective `tier1` wins
+- the player's overall role is `tier4`, and they have at least 2 `tier2+` wins worth at least 1/3 effective `tier2+` wins
+
+`tier2` floor requires at least **16 games**, and one of these:
+
+- overall role is `tier3` or better, with at least 3 `tier1` wins and at least 15 `tier2+` wins
+- `tier2` or better in any game mode with at least 20 games in that mode, and at least 3 `tier1` wins
+- `tier3` or better in any game mode with at least 18 games in that mode, overall ranked-role rating at least `900`, and at least 2 `tier1` wins
+
+These rules do not chain.
+
+### Demotion protection
+
+The bot uses a small keep-role buffer so players do not promote and demote constantly.
+
+If a qualified player falls below the keep line, the demotion is delayed. They need to remain below the keep line for 7 days before the bot demotes them.
+
+Promotions can happen immediately with the daily sync.
 
 ### Sync
 
-Ranked roles and leaderboards are not updated after every single report. Instead the bot periodically checks if it needs to make updates.
+Ranked roles and leaderboards are not updated after every single report. The bot periodically checks if it needs to make updates.
 
 - **Leaderboard embeds**: every 2 minutes
 - **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
@@ -368,9 +384,9 @@ Ending a season will rotate the Leaderboard embeds, and give past season roles t
 
 **Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
 
-Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. They also must play 10 games before they reappear on leaderboards and re-earn roles. Starting a season without soft reset only begins assigning new matches to that season and preserves the current ladder state.
+Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. Starting a season without soft reset only begins assigning new matches to that season and preserves past games.
 
-## Correction tools for Mods
+## Mod Tools
 
 ### `/mod`
 

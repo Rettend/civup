@@ -15,16 +15,13 @@ export function buildPermanentAllyFfaEffectiveRows<T extends PermanentAllyPartic
   if (participantRows.length === 0) return []
   if (participantRows.length % 2 !== 0) return { error: 'Permanent Ally FFA requires an even number of players.' }
 
-  const hasStoredTeams = participantRows.every(participant => participant.team != null)
-  const pairedRows = hasStoredTeams
-    ? buildStoredTeamPairs(participantRows)
-    : buildAdjacentPlacementPairs(participantRows)
+  const pairedRows = buildPlacementPairs(participantRows)
   if ('error' in pairedRows) return pairedRows
 
-  return pairedRows.flatMap((teamRows, teamPlacement) => teamRows.map(row => ({
+  return pairedRows.flatMap((teamRows, teamIndex) => teamRows.map(row => ({
     ...row,
-    team: teamPlacement,
-    placement: teamPlacement + 1,
+    team: teamIndex,
+    placement: row.placement!,
   })))
 }
 
@@ -50,7 +47,7 @@ export function calculatePermanentAllyFfaRatingUpdates(
       const ratings = teamRows.map(row => resolveRating(row.playerId))
       return {
         players: [{
-          playerId: `permanent-ally-team:${teamIndex}`,
+          playerId: `permanent-ally-pair:${teamIndex}`,
           mu: average(ratings.map(rating => rating.mu)),
           sigma: average(ratings.map(rating => rating.sigma)),
         }],
@@ -62,7 +59,7 @@ export function calculatePermanentAllyFfaRatingUpdates(
   for (let teamIndex = 0; teamIndex < teams.length; teamIndex++) {
     const teamRows = teams[teamIndex] ?? []
     const synthetic = syntheticUpdates[teamIndex]
-    if (!synthetic) return { error: 'Failed to calculate Permanent Ally FFA team ratings.' }
+    if (!synthetic) return { error: 'Failed to calculate Permanent Ally FFA pair ratings.' }
 
     const muDelta = synthetic.after.mu - synthetic.before.mu
     const sigmaDelta = synthetic.after.sigma - synthetic.before.sigma
@@ -88,43 +85,20 @@ export function calculatePermanentAllyFfaRatingUpdates(
   return updates
 }
 
-function buildStoredTeamPairs<T extends PermanentAllyParticipantRow>(participantRows: readonly T[]): T[][] | { error: string } {
-  const byTeam = new Map<number, T[]>()
+function buildPlacementPairs<T extends PermanentAllyParticipantRow>(participantRows: readonly T[]): T[][] | { error: string } {
+  const byPlacement = new Map<number, T[]>()
   for (const participant of participantRows) {
-    const team = participant.team
-    if (team == null) return { error: 'Permanent Ally FFA participant team data is missing.' }
-    const rows = byTeam.get(team) ?? []
+    const placement = participant.placement
+    if (placement == null) return { error: 'Permanent Ally FFA participant placement data is missing.' }
+    const rows = byPlacement.get(placement) ?? []
     rows.push(participant)
-    byTeam.set(team, rows)
+    byPlacement.set(placement, rows)
   }
 
-  const pairs = [...byTeam.entries()].sort((left, right) => {
-    const leftPlacement = minPlacement(left[1])
-    const rightPlacement = minPlacement(right[1])
-    if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement
-    return left[0] - right[0]
-  })
+  const pairs = [...byPlacement.entries()].sort((left, right) => left[0] - right[0])
 
-  if (pairs.some(([, rows]) => rows.length !== 2)) return { error: 'Permanent Ally FFA teams must have exactly two players.' }
+  if (pairs.some(([, rows]) => rows.length !== 2)) return { error: 'Permanent Ally FFA placements must have exactly two players each.' }
   return pairs.map(([, rows]) => [...rows].sort((left, right) => left.playerId.localeCompare(right.playerId)))
-}
-
-function buildAdjacentPlacementPairs<T extends PermanentAllyParticipantRow>(participantRows: readonly T[]): T[][] | { error: string } {
-  const ordered = [...participantRows].sort((left, right) => {
-    const leftPlacement = left.placement ?? Number.MAX_SAFE_INTEGER
-    const rightPlacement = right.placement ?? Number.MAX_SAFE_INTEGER
-    if (leftPlacement !== rightPlacement) return leftPlacement - rightPlacement
-    return left.playerId.localeCompare(right.playerId)
-  })
-
-  const pairs: T[][] = []
-  for (let index = 0; index < ordered.length; index += 2) {
-    const left = ordered[index]
-    const right = ordered[index + 1]
-    if (!left || !right) return { error: 'Permanent Ally FFA requires complete teammate pairs.' }
-    pairs.push([left, right])
-  }
-  return pairs
 }
 
 function groupEffectiveRowsByTeam<T extends PermanentAllyParticipantRow>(rows: EffectivePermanentAllyRow<T>[]): EffectivePermanentAllyRow<T>[][] {
