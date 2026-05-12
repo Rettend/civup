@@ -11,7 +11,7 @@ import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handle
 import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
 import { handleSetup } from './setup.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
-import { handleTournamentCreate, handleTournamentCut, handleTournamentImport, handleTournamentStatus, modal_admin_tournament_create } from './tournament.ts'
+import { handleTournamentCreate, handleTournamentCut, handleTournamentEdit, handleTournamentImport, handleTournamentStatus, modal_admin_tournament_create, modal_admin_tournament_edit } from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
   new Command('admin', 'Admin commands for CivUp')
@@ -71,7 +71,8 @@ export const command_admin = factory.command<AdminVar>(
         new SubCommand('import', 'Import tournament players from CSV').options(
           new Option('csv', 'CSV file with seed, display_name, confirmed, discord_user_id', 'Attachment').required(),
         ),
-        new SubCommand('cut', 'Lock qualifiers and create top cut pairings'),
+        new SubCommand('cut', 'Lock qualifiers and create playoff pairings'),
+        new SubCommand('edit', 'Edit the active tournament settings'),
         new SubCommand('status', 'Show active tournament status'),
       ),
       new SubCommand('setup', 'View or toggle system channels').options(
@@ -118,6 +119,7 @@ export const command_admin = factory.command<AdminVar>(
     if (c.sub.string === 'tournament create') return handleTournamentCreate(c)
     if (c.sub.string === 'tournament import') return handleTournamentImport(c)
     if (c.sub.string === 'tournament cut') return handleTournamentCut(c)
+    if (c.sub.string === 'tournament edit') return handleTournamentEdit(c)
     if (c.sub.string === 'tournament status') return handleTournamentStatus(c)
     if (c.sub.string === 'setup') return handleSetup(c)
     if (c.sub.string === 'config') return handleConfig(c)
@@ -130,4 +132,4 @@ export const command_admin = factory.command<AdminVar>(
   },
 )
 
-export { component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response, modal_admin_tournament_create }
+export { component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response, modal_admin_tournament_create, modal_admin_tournament_edit }

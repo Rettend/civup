@@ -14,7 +14,7 @@ import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../servic
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
-import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
+import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
 import { factory } from '../setup.ts'
@@ -32,6 +32,7 @@ export const command_tournament = factory.command<TournamentVar>(
     ),
     new SubCommand('standings', 'Show active tournament standings'),
     new SubCommand('stats', 'Show your tournament stats and recommended opponents'),
+    new SubCommand('leave', 'Leave the active tournament'),
     new SubCommand('demo-result', 'Preview a demo tournament leaderboard image'),
   ),
   async (c) => {
@@ -99,7 +100,7 @@ export const command_tournament = factory.command<TournamentVar>(
             return
           }
           const standings = await buildTournamentStandings(db, tournament.id)
-          const data = await buildTournamentLeaderboardImageData(db, tournament.id, standings)
+          const data = await buildTournamentLeaderboardImageData(db, tournament.id, standings, [])
           if (!data) {
             await sendTransientEphemeralResponse(c, 'Could not build tournament standings.', 'error')
             return
@@ -155,6 +156,34 @@ export const command_tournament = factory.command<TournamentVar>(
         })
       }
 
+      case 'leave': {
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const identity = getIdentity(c)
+          if (!identity) {
+            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+            return
+          }
+
+          const db = createDb(c.env.DB)
+          const tournament = await getActiveTournament(db)
+          if (!tournament) {
+            await sendTransientEphemeralResponse(c, 'No active tournament.', 'info')
+            return
+          }
+
+          const result = await leaveTournament(db, tournament.id, identity)
+          if ('error' in result) {
+            await sendTransientEphemeralResponse(c, result.error, 'error')
+            return
+          }
+
+          await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+            console.error('[tournament:leave] failed to refresh tournament leaderboard', error)
+          })
+          await sendEphemeralResponse(c, `You have left **${tournament.name}**.`, 'success')
+        })
+      }
+
       default:
         return c.res('Unknown subcommand.')
     }
@@ -195,12 +224,24 @@ function buildDemoTournamentLeaderboardImageData(identity: { userId: string, dis
       eligible: games >= minGames,
     }
   })
+  const getName = (index: number) => standings[index]?.displayName ?? `Player ${index + 1}`
+
+  const pairings = [
+    { round: 'quarterfinal', seedOne: 3, seedTwo: 6, playerOneDisplayName: getName(2), playerTwoDisplayName: getName(5), winnerDisplayName: getName(2) },
+    { round: 'quarterfinal', seedOne: 1, seedTwo: 5, playerOneDisplayName: getName(0), playerTwoDisplayName: getName(4), winnerDisplayName: getName(0) },
+    { round: 'quarterfinal', seedOne: 7, seedTwo: 2, playerOneDisplayName: getName(6), playerTwoDisplayName: getName(1), winnerDisplayName: getName(1) },
+    { round: 'quarterfinal', seedOne: 4, seedTwo: 8, playerOneDisplayName: getName(3), playerTwoDisplayName: getName(7), winnerDisplayName: getName(3) },
+    { round: 'semifinal', seedOne: 3, seedTwo: 1, playerOneDisplayName: getName(2), playerTwoDisplayName: getName(0), winnerDisplayName: getName(0) },
+    { round: 'semifinal', seedOne: 2, seedTwo: 4, playerOneDisplayName: getName(1), playerTwoDisplayName: getName(3), winnerDisplayName: null },
+    { round: 'final', seedOne: 1, seedTwo: 0, playerOneDisplayName: getName(0), playerTwoDisplayName: 'TBD', winnerDisplayName: null },
+  ]
+
   return {
     tournamentName: 'Leaderboard Preview Cup',
-    status: 'qualifier',
+    status: 'top_cut',
     minGames,
     standings,
-    pairings: [],
+    pairings,
     champion: null,
   }
 }
@@ -222,7 +263,7 @@ async function createTournamentLobbyForCommand(input: {
     if (existingLobby && (existingLobby.status === 'open' || existingLobby.status === 'drafting' || existingLobby.status === 'active')) {
       return { ok: true, lobbyId: existingLobby.id }
     }
-    return { error: 'Your top-cut pairing already has a closed lobby. Ask an admin to reset it.', tone: 'error' }
+    return { error: 'Your playoff pairing already has a closed lobby. Ask an admin to reset it.', tone: 'error' }
   }
 
   const createPreflight = await preflightMatchCreateSessionState(db, input.identity.userId)
