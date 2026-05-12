@@ -11,7 +11,7 @@ import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
-import { syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
+import { isMatchTournamentLinked } from '../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
@@ -96,9 +96,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
     const isRankedResult = reportedContext.ranked
-    await syncTournamentMatchAfterReport(db, result.match.id).catch((error) => {
-      console.error(`Failed to sync tournament match after activity report ${result.match.id}:`, error)
-    })
+    const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+    const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
 
     if (result.idempotent) {
       console.log('[idempotency] activity report request deduplicated', {
@@ -117,6 +116,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         lobby,
         sessionNamespace: c.env.SessionDO,
         archivePolicy: 'if-missing',
+        archiveChannelType,
       })
       queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
       return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
@@ -139,10 +139,11 @@ export function registerMatchRoutes(app: Hono<Env>) {
         avatarUrl: auth.identity.avatarUrl,
       },
       archivePolicy: 'always',
+      archiveChannelType,
     })
     queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
     try {
-      if (!reportedContext.redDeath) {
+      if (!isTournamentMatch && !reportedContext.redDeath) {
         await markLeaderboardsDirty(db, `activity-report:${result.match.id}`, {
           civ: true,
           modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
@@ -153,7 +154,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
     }
 
-    if (isRankedResult) {
+    if (!isTournamentMatch && isRankedResult) {
       try {
         await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
       }
@@ -254,7 +255,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     if (result.previousStatus === 'completed') {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-      if (scrubContext && !scrubContext.redDeath) {
+      const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+      if (!isTournamentMatch && scrubContext && !scrubContext.redDeath) {
         try {
           await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {
             civ: true,
@@ -266,7 +268,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         }
       }
 
-      if (scrubContext?.ranked) {
+      if (!isTournamentMatch && scrubContext?.ranked) {
         try {
           await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
         }
