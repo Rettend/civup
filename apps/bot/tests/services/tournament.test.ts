@@ -62,6 +62,59 @@ describe('tournament service', () => {
     }
   })
 
+  test('rejects duplicate tournament CSV seeds and Discord IDs before replacing players', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Duplicate Cup', createdById: 'admin' })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+      ]))
+
+      await expect(importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['1', 'Carol', PLAYER_3],
+      ]))).resolves.toEqual({ error: 'Duplicate seeds: #1 (Alice, Carol)' })
+
+      await expect(importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Alias Alice', PLAYER_1],
+      ]))).resolves.toEqual({ error: `Duplicate Discord user IDs: ${PLAYER_1} (Alice, Alias Alice)` })
+
+      const standings = await buildTournamentStandings(db, tournament.id)
+      expect(standings.map(row => ({ name: row.displayName, playerId: row.playerId, seed: row.seed }))).toEqual([
+        { name: 'Alice', playerId: PLAYER_1, seed: 1 },
+        { name: 'Bob', playerId: PLAYER_2, seed: 2 },
+      ])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('imports large tournament player CSVs in D1-safe batches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Large Cup', createdById: 'admin' })
+      const rows = Array.from({ length: 60 }, (_value, index) => [
+        String(index + 1),
+        `Player ${index + 1}`,
+        `100000000000${String(index + 1).padStart(4, '0')}`,
+      ])
+
+      const result = await importTournamentPlayersCsv(db, tournament.id, playersCsv(rows))
+
+      expect(result).toEqual({ imported: 60, linked: 60, pending: 0, duplicateDisplayNames: [] })
+      const standings = await buildTournamentStandings(db, tournament.id)
+      expect(standings).toHaveLength(60)
+      expect(standings[0]?.displayName).toBe('Player 1')
+      expect(standings[59]?.displayName).toBe('Player 60')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('left players cannot create or join tournament lobbies', async () => {
     const { db, sqlite } = await createTestDatabase()
     try {
