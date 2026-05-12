@@ -155,6 +155,7 @@ export const DEFAULT_TOURNAMENT_TOP_CUT = 8
 export const DEFAULT_TOURNAMENT_REMATCH_POLICY: TournamentRematchPolicy = 'warn'
 export const TOURNAMENT_SCORING_OPEN_WIN_RATE = 'open_win_rate'
 export const SUPPORTED_TOURNAMENT_TOP_CUTS = [2, 4, 8] as const
+const TOURNAMENT_PLAYER_IMPORT_BATCH_SIZE = 10
 
 const CURRENT_TOURNAMENT_STATUSES: TournamentStatus[] = ['setup', 'qualifier', 'qualifier_locked', 'top_cut']
 const ACTIVE_TOURNAMENT_STATUSES: TournamentStatus[] = ['qualifier', 'qualifier_locked', 'top_cut']
@@ -336,6 +337,31 @@ export async function importTournamentPlayersCsv(db: Database, tournamentId: str
     return { error: `Duplicate display names: ${duplicateDisplayNames.join(', ')}` }
   }
 
+  const seeds = new Map<number, string[]>()
+  const playerIds = new Map<string, string[]>()
+  for (const row of parsed) {
+    if (row.seed != null) {
+      seeds.set(row.seed, [...(seeds.get(row.seed) ?? []), row.displayName])
+    }
+    if (row.playerId) {
+      playerIds.set(row.playerId, [...(playerIds.get(row.playerId) ?? []), row.displayName])
+    }
+  }
+
+  const duplicateSeeds = [...seeds.entries()]
+    .filter(([, names]) => names.length > 1)
+    .map(([seed, names]) => `#${seed} (${names.join(', ')})`)
+  if (duplicateSeeds.length > 0) {
+    return { error: `Duplicate seeds: ${duplicateSeeds.join('; ')}` }
+  }
+
+  const duplicatePlayerIds = [...playerIds.entries()]
+    .filter(([, names]) => names.length > 1)
+    .map(([playerId, names]) => `${playerId} (${names.join(', ')})`)
+  if (duplicatePlayerIds.length > 0) {
+    return { error: `Duplicate Discord user IDs: ${duplicatePlayerIds.join('; ')}` }
+  }
+
   const now = Date.now()
   const linkedRows = parsed.filter(row => row.playerId)
   for (const row of linkedRows) {
@@ -351,8 +377,8 @@ export async function importTournamentPlayersCsv(db: Database, tournamentId: str
   }
 
   await db.delete(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, tournamentId))
-  if (parsed.length > 0) {
-    await db.insert(tournamentPlayers).values(parsed.map(row => ({
+  for (const batch of chunkArray(parsed, TOURNAMENT_PLAYER_IMPORT_BATCH_SIZE)) {
+    await db.insert(tournamentPlayers).values(batch.map(row => ({
       tournamentId,
       seed: row.seed,
       playerId: row.playerId,
@@ -1600,6 +1626,14 @@ function normalizeDiscordUserId(value: string | undefined): string | null {
   const mention = /^<@!?(\d+)>$/.exec(trimmed)
   const candidate = mention?.[1] ?? trimmed
   return /^\d{16,22}$/.test(candidate) ? candidate : null
+}
+
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size))
+  }
+  return chunks
 }
 
 function normalizeIdentityName(value: string): string {

@@ -61,7 +61,10 @@ export function handleTournamentImport(c: AdminCommandContext) {
     }
 
     const csv = await response.text()
-    const result = await importTournamentPlayersCsv(db, tournament.id, csv)
+    const result = await importTournamentPlayersCsv(db, tournament.id, csv).catch((error) => {
+      console.error('[admin:tournament:import] failed to import tournament players', error)
+      return { error: 'Failed to import players. Check the CSV for duplicate seeds, duplicate display names, or duplicate Discord user IDs.' }
+    })
     if ('error' in result) {
       await sendTransientEphemeralResponse(c, result.error, 'error')
       return
