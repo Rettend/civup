@@ -36,7 +36,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const state = () => draftStore.state
   const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(null)
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
-  const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | null>(null)
+  const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | 'warning' | null>(null)
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
@@ -149,6 +149,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   })
 
   const currentLobby = () => applyOptimisticLobbyAction(lobbyState(), optimisticLobbyAction(), userId(), currentDisplayName(), currentAvatarUrl())
+  const persistentConfigMessage = () => currentLobby()?.tournament?.rematchWarning ?? null
+  const effectiveConfigMessage = () => configMessage() ?? persistentConfigMessage()
+  const effectiveConfigMessageTone = () => configMessageTone() ?? (persistentConfigMessage() ? 'warning' : null)
   const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby()))
   const teamBalance = (team: number) => lobbyBalance()?.teams.find(summary => summary.team === team) ?? null
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(currentLobby(), userId(), (props.showJoinPending === true) || pendingPlaceSelfSlot() != null, props.joinEligibility, pendingPlaceSelfSlot())
@@ -236,6 +239,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const arrangeTargetTitle = () => isTeamGameMode(lobbyMode()) ? 'Teams' : 'Seat order'
   const randomizeButtonLabel = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
   const randomizeButtonTitle = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
+  const showRandomizeLobbyAction = () => lobbyMode() !== '1v1'
+  const showShuffleTeamsLobbyAction = () => lobbyMode() === '1v1' || isTeamGameMode(lobbyMode())
+  const showBalanceLobbyAction = () => lobbyMode() !== '1v1'
   const seatCountToggleConfig = () => {
     const lobby = currentLobby()
     if (!lobby) return null
@@ -635,6 +641,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     arrangeTargetLabel,
     randomizeButtonLabel,
     randomizeButtonTitle,
+    showRandomizeLobbyAction,
+    showShuffleTeamsLobbyAction,
+    showBalanceLobbyAction,
     fillTestPlayersAvailable: configState.derived.fillTestPlayersAvailable,
     sendStart: sendStartAction,
     cancel: handleCancelAction,
@@ -653,9 +662,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     lobbyMode,
     lobbyActionPending,
     message: {
-      text: configMessage,
-      tone: configMessageTone,
-      rankRoleSetDetail,
+      text: effectiveConfigMessage,
+      tone: effectiveConfigMessageTone,
+      rankRoleSetDetail: () => configMessage() ? rankRoleSetDetail() : null,
     },
     ...configState,
   }

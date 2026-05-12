@@ -9,12 +9,15 @@ export function handleSetup(c: AdminCommandContext) {
   const rawTarget = c.var.target
   if (!rawTarget) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
+      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId, civLeaderboardChannelId, tournamentDraftChannelId, tournamentArchiveChannelId, tournamentLeaderboardChannelId] = await Promise.all([
         getSystemChannel(c.env.KV, 'draft'),
         getSystemChannel(c.env.KV, 'archive'),
         getSystemChannel(c.env.KV, 'commands'),
         getSystemChannel(c.env.KV, 'leaderboard'),
         getSystemChannel(c.env.KV, 'civ-leaderboard'),
+        getSystemChannel(c.env.KV, 'tournament-draft'),
+        getSystemChannel(c.env.KV, 'tournament-archive'),
+        getSystemChannel(c.env.KV, 'tournament-leaderboard'),
       ])
 
       await sendEphemeralResponse(
@@ -24,7 +27,10 @@ export function handleSetup(c: AdminCommandContext) {
         + `Archive — ${formatChannelMention(archiveChannelId)}\n`
         + `Bot Commands — ${formatChannelMention(commandsChannelId)}\n`
         + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n`
-        + `Civ Leaderboard — ${formatChannelMention(civLeaderboardChannelId)}`,
+        + `Civ Leaderboard — ${formatChannelMention(civLeaderboardChannelId)}\n`
+        + `Tournament Draft — ${formatChannelMention(tournamentDraftChannelId)}\n`
+        + `Tournament Archive — ${formatChannelMention(tournamentArchiveChannelId)}\n`
+        + `Tournament Leaderboard — ${formatChannelMention(tournamentLeaderboardChannelId)}`,
         'info',
       )
     })
@@ -33,7 +39,7 @@ export function handleSetup(c: AdminCommandContext) {
   const target = parseSetupTarget(rawTarget)
   if (!target) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, 'Invalid setup target. Use Draft, Archive, Bot Commands, Leaderboard, or Civ Leaderboard.', 'error')
+      await sendTransientEphemeralResponse(c, 'Invalid setup target. Use Draft, Archive, Bot Commands, Leaderboard, Civ Leaderboard, Tournament Draft, Tournament Archive, or Tournament Leaderboard.', 'error')
     })
   }
 
@@ -82,7 +88,7 @@ export function handleSetup(c: AdminCommandContext) {
         await clearLeaderboardDirtyState(kv)
         const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
         if (!initialized) {
-          await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet. Run the PPL civ leaderboard backfill script first.`, 'info')
+          await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet.`, 'info')
           return
         }
         await sendTransientEphemeralResponse(c, `Civ Leaderboard channel set to <#${channelId}>${movedFrom}.`, 'success')

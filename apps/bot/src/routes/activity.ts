@@ -12,7 +12,7 @@ import { formatModeLabel, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
+import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
@@ -149,13 +149,15 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const channelId = c.req.param('channelId')
     const kv = getKvStore(c.env)
-    const sessions = (await getActivitySessionsByChannel(createDb(c.env.DB), channelId))
+    const db = createDb(c.env.DB)
+    const sessions = (await getActivitySessionsByChannel(db, channelId))
       .filter(session => session.phase === 'open')
 
     if (sessions.length === 1) {
       const session = sessions[0]!
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
-      return c.json(record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session))
+      const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
+      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
     }
 
     return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -170,11 +172,13 @@ export function registerActivityRoutes(app: Hono<Env>) {
 
     const userId = auth.identity.userId
     const kv = getKvStore(c.env)
-    const session = (await getOpenActivitySessionsForUser(createDb(c.env.DB), userId))
+    const db = createDb(c.env.DB)
+    const session = (await getOpenActivitySessionsForUser(db, userId))
       .find(candidate => candidate.phase === 'open') ?? null
     if (session) {
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
-      return c.json(record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session))
+      const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
+      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
     }
 
     return c.json({ error: 'No open lobby for this user' }, 404)
@@ -370,9 +374,10 @@ async function serializeActivityLaunchSelection(
 ): Promise<ActivityLaunchSelection> {
   if (selection.target.option.kind === 'lobby') {
     const record = await resolveAuthoritativeSessionRecord(sessionNamespace, selection.target.session)
-    const lobby = record
+    const lobbySnapshot = record
       ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot)
       : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot)
+    const lobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
     return {
       kind: 'lobby',
       option: selection.target.option,

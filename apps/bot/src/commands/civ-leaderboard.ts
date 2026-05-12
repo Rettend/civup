@@ -7,7 +7,7 @@ import { getStoredCivLeaderboardSnapshot } from '../services/leaderboard/civ-sna
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
-const CIV_LEADERBOARD_UNAVAILABLE_MESSAGE = 'Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.'
+const CIV_LEADERBOARD_UNAVAILABLE_MESSAGE = 'Civ leaderboard snapshot is not available yet.'
 
 export const command_civleaderboard = factory.command(
   new Command('civleaderboard', 'Show the top leaders'),

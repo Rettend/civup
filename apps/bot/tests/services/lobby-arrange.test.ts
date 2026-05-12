@@ -50,6 +50,20 @@ describe('lobby arrange helpers', () => {
     expect(result.slots.slice(2, 4)).toEqual(['host', 'p2'])
   })
 
+  test('shuffle-teams swaps 1v1 sides', () => {
+    const result = arrangeLobbySlots({
+      mode: '1v1',
+      strategy: 'shuffle-teams',
+      slots: ['host', 'opponent'],
+      queueEntries: [entry('host'), entry('opponent')],
+      random: () => 0,
+    })
+
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+    expect(result.slots).toEqual(['opponent', 'host'])
+  })
+
   test('auto-balance keeps teams even for partial lobbies without party constraints', () => {
     const result = arrangeLobbySlots({
       mode: '3v3',
