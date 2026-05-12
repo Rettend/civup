@@ -42,6 +42,15 @@ export async function renderTournamentLeaderboardPng(data: TournamentLeaderboard
   return renderSvgToPng(await renderTournamentLeaderboardSvg(data))
 }
 
+export async function renderTournamentLeaderboardPngPages(data: TournamentLeaderboardImageData, pageCount = 3): Promise<Uint8Array[]> {
+  const pages = splitLeaderboardPages(data, pageCount)
+  const images: Uint8Array[] = []
+  for (const page of pages) {
+    images.push(await renderSvgToPng(await renderTournamentLeaderboardSvgPage(page.data, page.rankOffset, page.title)))
+  }
+  return images
+}
+
 export async function renderTournamentResultPng(data: TournamentResultImageData): Promise<Uint8Array> {
   return renderSvgToPng(await renderTournamentResultSvg(data))
 }
@@ -59,19 +68,13 @@ export async function renderTournamentOpponentsSvg(data: TournamentOpponentCardD
 }
 
 export async function renderTournamentLeaderboardSvg(data: TournamentLeaderboardImageData): Promise<string> {
+  return renderTournamentLeaderboardSvgPage(data, 0, 'STANDINGS')
+}
+
+async function renderTournamentLeaderboardSvgPage(data: TournamentLeaderboardImageData, rankOffset: number, title: string): Promise<string> {
   const players = data.standings.flatMap(row => row.playerId ? [{ playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }] : [])
   const avatarData = await loadAvatarData(players)
-  return svgShell(
-    data.tournamentName,
-    data.status.replace(/_/g, ' ').toUpperCase(),
-    `${renderHeaderRule()}
-    <text x="76" y="166" fill="${COLORS.fg}" font-size="34" font-weight="900">Standings</text>
-    <text x="76" y="194" fill="${COLORS.muted}" font-size="16" font-weight="700">Minimum games: ${data.minGames}. Players may play more.</text>
-    ${data.champion ? renderChampion(data.champion, avatarData.get(avatarKey(data.champion))) : ''}
-    ${renderStandingRows(data, avatarData)}
-    ${renderPairingSummary(data)}`,
-    players,
-  )
+  return leaderboardSvgShell(getLeaderboardImageHeight(data.standings.length), title, renderStandingRows(data, avatarData, rankOffset), players)
 }
 
 export async function renderTournamentResultSvg(data: TournamentResultImageData): Promise<string> {
@@ -180,46 +183,77 @@ function renderMetric(x: number, y: number, label: string, value: string): strin
   `
 }
 
-function renderChampion(champion: NonNullable<TournamentLeaderboardImageData['champion']>, avatarDataUri?: string): string {
-  return `
-    <rect x="760" y="156" width="364" height="64" rx="22" fill="${COLORS.accentDim}" stroke="${COLORS.accent}" />
-    ${renderAvatar(champion, 782, 168, 40, avatarClipId(champion), avatarDataUri)}
-    <text x="838" y="184" fill="${COLORS.accent}" font-size="13" font-weight="900" letter-spacing="1.5">CHAMPION</text>
-    <text x="838" y="207" fill="${COLORS.fg}" font-size="21" font-weight="900">${escapeXml(truncate(champion.displayName, 20))}</text>
-  `
+const LEADERBOARD_START_Y = 154
+const LEADERBOARD_ROW_HEIGHT = 54
+const LEADERBOARD_ROW_STEP = 62
+const LEADERBOARD_COLUMN_GAP = 34
+const LEADERBOARD_COLUMN_WIDTH = (IMAGE_WIDTH - 128 - LEADERBOARD_COLUMN_GAP) / 2
+
+function splitLeaderboardPages(data: TournamentLeaderboardImageData, pageCount: number): Array<{ data: TournamentLeaderboardImageData, rankOffset: number, title: string }> {
+  if (data.standings.length === 0) return [{ data, rankOffset: 0, title: 'STANDINGS' }]
+
+  const normalizedPageCount = Math.max(1, Math.floor(pageCount))
+  const pageSize = Math.ceil(data.standings.length / normalizedPageCount)
+  const pages: Array<{ data: TournamentLeaderboardImageData, rankOffset: number, title: string }> = []
+  for (let offset = 0; offset < data.standings.length; offset += pageSize) {
+    const pageStandings = data.standings.slice(offset, offset + pageSize)
+    pages.push({
+      data: { ...data, standings: pageStandings },
+      rankOffset: offset,
+      title: `STANDINGS ${offset + 1}-${offset + pageStandings.length}`,
+    })
+  }
+  return pages
 }
 
-function renderStandingRows(data: TournamentLeaderboardImageData, avatarData: Map<string, string>): string {
-  const startY = 244
-  const rows = data.standings.slice(0, 8)
-  return rows.map((row, index) => {
-    const y = startY + (index * 42)
+function leaderboardSvgShell(height: number, title: string, body: string, players: AvatarPlayer[]): string {
+  return `
+<svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${height}" viewBox="0 0 ${IMAGE_WIDTH} ${height}" font-family="Inter, Arial, sans-serif">
+  <defs>
+    <linearGradient id="leaderboardBg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="${COLORS.panel}" />
+      <stop offset="1" stop-color="${COLORS.elevated}" />
+    </linearGradient>
+    ${buildAvatarClipDefs(players)}
+  </defs>
+  <rect width="${IMAGE_WIDTH}" height="${height}" fill="url(#leaderboardBg)" />
+  <text x="64" y="88" fill="${COLORS.fg}" font-size="52" font-weight="900" letter-spacing="1">${escapeXml(title)}</text>
+  <line x1="64" y1="124" x2="1136" y2="124" stroke="${COLORS.border}" stroke-width="2" />
+  ${body}
+</svg>`
+}
+
+function getLeaderboardImageHeight(playerCount: number): number {
+  const rowCount = Math.ceil(Math.max(1, playerCount) / 2)
+  return Math.max(IMAGE_HEIGHT, LEADERBOARD_START_Y + ((rowCount - 1) * LEADERBOARD_ROW_STEP) + LEADERBOARD_ROW_HEIGHT + 64)
+}
+
+function renderStandingRows(data: TournamentLeaderboardImageData, avatarData: Map<string, string>, rankOffset: number): string {
+  if (data.standings.length === 0) {
+    return `<text x="64" y="220" fill="${COLORS.muted}" font-size="34" font-weight="900">No standings yet</text>`
+  }
+
+  return data.standings.map((row, index) => {
+    const rank = rankOffset + index + 1
+    const column = index % 2
+    const rowIndex = Math.floor(index / 2)
+    const x = 64 + (column * (LEADERBOARD_COLUMN_WIDTH + LEADERBOARD_COLUMN_GAP))
+    const y = LEADERBOARD_START_Y + (rowIndex * LEADERBOARD_ROW_STEP)
     const player = { playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }
-    const eligible = row.eligible ? `${row.games} games` : `${row.games}/${data.minGames} games`
+    const topCutEligible = rank <= 8 && row.eligible
+    const rankColor = topCutEligible ? COLORS.accent : COLORS.muted
+    const fill = topCutEligible
+      ? 'rgba(200,170,110,0.13)'
+      : rowIndex % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)'
     return `
-      <rect x="76" y="${y - 28}" width="680" height="36" rx="14" fill="${index % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)'}" />
-      <text x="104" y="${y - 4}" text-anchor="middle" fill="${COLORS.accent}" font-size="18" font-weight="900">${index + 1}</text>
-      ${renderAvatar(player, 136, y - 24, 28, avatarClipId(player), avatarData.get(avatarKey(player)))}
-      <text x="178" y="${y - 5}" fill="${COLORS.fg}" font-size="18" font-weight="900">${escapeXml(truncate(row.displayName, 24))}</text>
-      <text x="480" y="${y - 5}" text-anchor="end" fill="${COLORS.fg}" font-size="18" font-weight="900">${row.wins}-${row.losses}</text>
-      <text x="572" y="${y - 5}" text-anchor="end" fill="${COLORS.muted}" font-size="15" font-weight="800">${eligible}</text>
-      <text x="724" y="${y - 5}" text-anchor="end" fill="${COLORS.subtle}" font-size="14" font-weight="800">${row.seed ? `seed ${row.seed}` : ''}</text>
+      <rect x="${x}" y="${y}" width="${LEADERBOARD_COLUMN_WIDTH}" height="${LEADERBOARD_ROW_HEIGHT}" rx="16" fill="${fill}" />
+      <text x="${x + 44}" y="${y + 36}" text-anchor="middle" fill="${rankColor}" font-size="28" font-weight="900">#${rank}</text>
+      ${renderAvatar(player, x + 80, y + 8, 38, avatarClipId(player), avatarData.get(avatarKey(player)), rankColor, false)}
+      <text x="${x + 134}" y="${y + 35}" fill="${COLORS.fg}" font-size="26" font-weight="900">${escapeXml(truncate(row.displayName, 15))}</text>
+      <text x="${x + LEADERBOARD_COLUMN_WIDTH - 112}" y="${y + 35}" text-anchor="end" fill="${COLORS.fg}" font-size="24" font-weight="900">${row.wins}-${row.losses}</text>
+      <text x="${x + LEADERBOARD_COLUMN_WIDTH - 24}" y="${y + 35}" text-anchor="end" fill="${topCutEligible ? COLORS.accent : COLORS.muted}" font-size="24" font-weight="900">${Math.round(row.winRate * 100)}%</text>
     `
   }).join('')
-}
-
-function renderPairingSummary(data: TournamentLeaderboardImageData): string {
-  if (data.pairings.length === 0) return ''
-  const rows = data.pairings.slice(-5)
-  return `
-    <rect x="792" y="244" width="332" height="218" rx="22" fill="${COLORS.elevated}" stroke="${COLORS.borderSubtle}" />
-    <text x="824" y="286" fill="${COLORS.fg}" font-size="24" font-weight="900">Top cut</text>
-    ${rows.map((pairing, index) => {
-      const y = 328 + (index * 32)
-      const winner = pairing.winnerDisplayName ? ` - ${pairing.winnerDisplayName}` : ''
-      return `<text x="824" y="${y}" fill="${COLORS.muted}" font-size="14" font-weight="800">${escapeXml(truncate(`${formatRound(pairing.round)}: ${pairing.playerOneDisplayName} vs ${pairing.playerTwoDisplayName}${winner}`, 40))}</text>`
-    }).join('')}
-  `
 }
 
 function resultSvgShell(data: TournamentResultImageData, body: string, players: AvatarPlayer[]): string {
@@ -281,7 +315,7 @@ function chevronRect(x: number, y: number, w: number, h: number, d: number): str
   return `M${x},${y} H${x + w - d} L${x + w},${y + h / 2} L${x + w - d},${y + h} H${x} Z`
 }
 
-function renderAvatar(player: AvatarPlayer, x: number, y: number, size: number, clipId: string, avatarDataUri?: string, strokeColor?: string): string {
+function renderAvatar(player: AvatarPlayer, x: number, y: number, size: number, clipId: string, avatarDataUri?: string, strokeColor?: string, showStroke = true): string {
   const center = size / 2
   const stroke = strokeColor ?? COLORS.accent
   const initials = getInitials(player.displayName)
@@ -289,7 +323,7 @@ function renderAvatar(player: AvatarPlayer, x: number, y: number, size: number, 
     <circle cx="${x + center}" cy="${y + center}" r="${center}" fill="${COLORS.bg}" />
     ${avatarDataUri ? `<image href="${avatarDataUri}" x="${x}" y="${y}" width="${size}" height="${size}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />` : ''}
     ${avatarDataUri ? '' : `<text x="${x + center}" y="${y + center + (size * 0.13)}" text-anchor="middle" fill="${stroke}" font-size="${Math.round(size * 0.34)}" font-weight="900">${escapeXml(initials)}</text>`}
-    <circle cx="${x + center}" cy="${y + center}" r="${center + 1}" fill="none" stroke="${stroke}" stroke-width="3" />
+    ${showStroke ? `<circle cx="${x + center}" cy="${y + center}" r="${center + 1}" fill="none" stroke="${stroke}" stroke-width="3" />` : ''}
   `
 }
 
@@ -430,10 +464,6 @@ function getLeaderInitials(civId: string | null): string {
 function formatStageTitle(stage: string): string {
   const normalized = stage.replace(/_/g, ' ')
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
-}
-
-function formatRound(round: string): string {
-  return round.replace(/_/g, ' ')
 }
 
 function getInitials(name: string): string {
