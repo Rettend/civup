@@ -3,7 +3,7 @@ import { createDb } from '@civup/db'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getActiveTournament, importTournamentPlayersCsv, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayersCsv, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -37,9 +37,9 @@ export function handleTournamentCreate(c: AdminCommandContext) {
 export function handleTournamentImport(c: AdminCommandContext) {
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
-    const tournament = await getActiveTournament(db)
+    const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      await sendTransientEphemeralResponse(c, 'No active tournament. Create one first with `/admin tournament create`.', 'error')
+      await sendTransientEphemeralResponse(c, 'No current tournament. Create one first with `/admin tournament create`.', 'error')
       return
     }
 
@@ -67,13 +67,15 @@ export function handleTournamentImport(c: AdminCommandContext) {
       return
     }
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
-      console.error('[admin:tournament:import] failed to refresh tournament leaderboard', error)
-    })
+    if (tournament.status !== 'setup') {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+        console.error('[admin:tournament:import] failed to refresh tournament leaderboard', error)
+      })
+    }
 
     await sendEphemeralResponse(
       c,
-      `Imported **${result.imported}** players into **${tournament.name}**. Linked: **${result.linked}**. Pending: **${result.pending}**.`,
+      `Imported **${result.imported}** players into **${tournament.name}**. Linked: **${result.linked}**. Pending: **${result.pending}**.${tournament.status === 'setup' ? ' Start it later with `/admin tournament start`.' : ''}`,
       'success',
     )
   })
@@ -82,9 +84,9 @@ export function handleTournamentImport(c: AdminCommandContext) {
 export function handleTournamentStatus(c: AdminCommandContext) {
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
-    const tournament = await getActiveTournament(db)
+    const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      await sendTransientEphemeralResponse(c, 'No active tournament.', 'info')
+      await sendTransientEphemeralResponse(c, 'No current tournament.', 'info')
       return
     }
 
@@ -101,9 +103,9 @@ export function handleTournamentStatus(c: AdminCommandContext) {
 
 export async function handleTournamentEdit(c: AdminCommandContext) {
   const db = createDb(c.env.DB)
-  const tournament = await getActiveTournament(db)
+  const tournament = await getCurrentTournament(db)
   if (!tournament) {
-    return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('No active tournament.', 'info')] })
+    return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('No current tournament.', 'info')] })
   }
 
   return c.resModal(
@@ -118,9 +120,9 @@ export async function handleTournamentEdit(c: AdminCommandContext) {
 export function handleTournamentCut(c: AdminCommandContext) {
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
-    const tournament = await getActiveTournament(db)
+    const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      await sendTransientEphemeralResponse(c, 'No active tournament.', 'info')
+      await sendTransientEphemeralResponse(c, 'No current tournament.', 'info')
       return
     }
 
@@ -146,6 +148,29 @@ export function handleTournamentCut(c: AdminCommandContext) {
   })
 }
 
+export function handleTournamentStart(c: AdminCommandContext) {
+  return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
+    const db = createDb(c.env.DB)
+    const tournament = await getCurrentTournament(db)
+    if (!tournament) {
+      await sendTransientEphemeralResponse(c, 'No current tournament. Create one first with `/admin tournament create`.', 'error')
+      return
+    }
+
+    const result = await startTournament(db, tournament.id)
+    if ('error' in result) {
+      await sendTransientEphemeralResponse(c, result.error, 'error')
+      return
+    }
+
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      console.error('[admin:tournament:start] failed to refresh tournament leaderboard', error)
+    })
+
+    await sendEphemeralResponse(c, `Started tournament **${tournament.name}**. Players can now use \`/tournament create\`.`, 'success')
+  })
+}
+
 export const modal_admin_tournament_create = factory.modal(
   new Modal(ADMIN_TOURNAMENT_CREATE_MODAL_ID, 'Create Tournament'),
   async (c) => {
@@ -167,9 +192,9 @@ export const modal_admin_tournament_create = factory.modal(
       return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
     }
     const db = createDb(c.env.DB)
-    const existing = await getActiveTournament(db)
+    const existing = await getCurrentTournament(db)
     if (existing) {
-      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Tournament **${existing.name}** is already active.`, 'error')] })
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Tournament **${existing.name}** already exists with status **${existing.status}**.`, 'error')] })
     }
 
     const tournament = await createTournament(db, {
@@ -181,7 +206,7 @@ export const modal_admin_tournament_create = factory.modal(
     })
 
     return c.flags('EPHEMERAL').res({
-      embeds: [ephemeralResponseEmbed(`Created tournament **${tournament.name}**. Import players with \`/admin tournament import\`.`, 'success')],
+      embeds: [ephemeralResponseEmbed(`Created tournament **${tournament.name}** in setup. Import players with \`/admin tournament import\`, then start it with \`/admin tournament start\`.`, 'success')],
     })
   },
 )
@@ -207,9 +232,9 @@ export const modal_admin_tournament_edit = factory.modal(
       return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
     }
     const db = createDb(c.env.DB)
-    const tournament = await getActiveTournament(db)
+    const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('No active tournament to edit.', 'error')] })
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('No current tournament to edit.', 'error')] })
     }
 
     await updateTournament(db, tournament.id, {
@@ -219,9 +244,11 @@ export const modal_admin_tournament_edit = factory.modal(
       rematchPolicy,
     })
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
-      console.error('[admin:tournament:edit] failed to refresh tournament leaderboard', error)
-    })
+    if (tournament.status !== 'setup') {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+        console.error('[admin:tournament:edit] failed to refresh tournament leaderboard', error)
+      })
+    }
 
     return c.flags('EPHEMERAL').res({
       embeds: [ephemeralResponseEmbed(`Updated tournament **${name}**.`, 'success')],
