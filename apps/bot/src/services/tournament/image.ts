@@ -1,14 +1,16 @@
 import type { TournamentLeaderboardImageData, TournamentOpponentCardData, TournamentOpponentCardPlayer, TournamentResultImageData } from './index.ts'
 import { getLeader } from '@civup/game'
-import interRegular from '@fontsource/inter/files/inter-latin-400-normal.woff2'
-import interBold from '@fontsource/inter/files/inter-latin-700-normal.woff2'
-import interBlack from '@fontsource/inter/files/inter-latin-900-normal.woff2'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { LEADER_EMOJI_IDS } from '../../constants/leader-emojis.ts'
 
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
+const FONT_ASSET_SPECIFIERS = [
+  '@fontsource/inter/files/inter-latin-400-normal.woff2',
+  '@fontsource/inter/files/inter-latin-700-normal.woff2',
+  '@fontsource/inter/files/inter-latin-900-normal.woff2',
+] as const
 const COLORS = {
   bg: '#09090b',
   panel: '#161619',
@@ -517,9 +519,40 @@ async function ensureResvgReady(): Promise<unknown> {
 }
 
 async function ensureFontBuffersReady(): Promise<Uint8Array[]> {
-  fontBuffersReady ??= Promise.all([interRegular, interBold, interBlack].map(resolveAssetBytes))
+  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes))
     .then(values => values.filter((value): value is Uint8Array => value != null && value.length > 0))
   return fontBuffersReady
+}
+
+async function resolveFontAssetBytes(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<Uint8Array | null> {
+  if (getBunFileApi()) return resolveAssetBytes(resolveImportAsset(specifier))
+
+  const bundled = await resolveBundledFontAsset(specifier).catch(() => null)
+  return resolveAssetBytes(bundled ?? resolveImportAsset(specifier))
+}
+
+async function resolveBundledFontAsset(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<string | URL | ArrayBuffer | Uint8Array> {
+  switch (specifier) {
+    case '@fontsource/inter/files/inter-latin-400-normal.woff2':
+      return (await import('@fontsource/inter/files/inter-latin-400-normal.woff2')).default
+    case '@fontsource/inter/files/inter-latin-700-normal.woff2':
+      return (await import('@fontsource/inter/files/inter-latin-700-normal.woff2')).default
+    case '@fontsource/inter/files/inter-latin-900-normal.woff2':
+      return (await import('@fontsource/inter/files/inter-latin-900-normal.woff2')).default
+  }
+}
+
+function resolveImportAsset(specifier: string): string | URL {
+  const resolver = (import.meta as ImportMeta & { resolve?: (specifier: string) => string }).resolve
+  if (typeof resolver !== 'function') return specifier
+
+  try {
+    const resolved = resolver(specifier)
+    return /^(https?:|file:)/.test(resolved) ? new URL(resolved) : resolved
+  }
+  catch {
+    return specifier
+  }
 }
 
 async function resolveWasmInput(input: string | URL | WebAssembly.Module | ArrayBuffer): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
