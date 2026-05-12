@@ -982,10 +982,10 @@ async function handleDraftCompleteLifecycleSync(
 ): Promise<void> {
   const activated = await activateDraftMatch(db, {
     state,
-      completedAt: NOW + 5_000,
-      hostId: state.seats[0]?.playerId ?? HOST_ID,
-      permanentAlly: mode.mode === 'ffa',
-    })
+    completedAt: NOW + 5_000,
+    hostId: state.seats[0]?.playerId ?? HOST_ID,
+    permanentAlly: mode.mode === 'ffa',
+  })
   if ('error' in activated) throw new Error(activated.error)
   if (activated.alreadyActive && options.finalized !== true) return
 

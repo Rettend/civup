@@ -13,8 +13,8 @@ import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
-import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
+import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
