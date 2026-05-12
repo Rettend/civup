@@ -25,7 +25,7 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between relative">
                   <span>Players</span>
                   <Show when={state.players.arrangeEvent()}>
-                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
+                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} mode={state.config.lobbyMode()} />}
                   </Show>
                 </div>
 
@@ -71,8 +71,8 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
   )
 }
 
-function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean }) {
-  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode)
+function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean, mode: string }) {
+  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode, props.mode)
 
   return (
     <span
@@ -86,12 +86,12 @@ function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMod
   )
 }
 
-function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean) {
+function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean, mode: string) {
   switch (strategy) {
     case 'balance':
       return isTeamMode ? 'Teams balanced' : 'Seat order balanced'
     case 'shuffle-teams':
-      return 'Teams shuffled'
+      return mode === '1v1' ? 'First pick randomized' : 'Teams shuffled'
     default:
       return isTeamMode ? 'Players shuffled' : 'Seat order randomized'
   }
