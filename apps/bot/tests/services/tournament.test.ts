@@ -21,6 +21,7 @@ import {
   leaveTournament,
   markTournamentMatchDrafting,
   resolveTournamentOpenLobbyTarget,
+  startTournament,
   syncTournamentMatchAfterCancel,
   syncTournamentMatchAfterReport,
   validateTournamentLobbyJoin,
@@ -54,6 +55,7 @@ describe('tournament service', () => {
         { name: 'Alice', playerId: PLAYER_1, seed: 1 },
         { name: 'Bob', playerId: null, seed: 2 },
       ])
+      expect(tournament.status).toBe('setup')
     }
     finally {
       sqlite.close()
@@ -68,6 +70,8 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
+      await expect(resolveTournamentOpenLobbyTarget(db, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })).resolves.toEqual({ error: 'No active tournament is accepting lobbies.' })
+      await expect(startTournament(db, tournament.id)).resolves.toEqual({ ok: true })
 
       const leaveResult = await leaveTournament(db, tournament.id, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
       expect(leaveResult).toEqual({ ok: true })
@@ -221,6 +225,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
+      await startTournament(db, blockedTournament.id)
       await createTournamentMatchLink(db, { tournamentId: blockedTournament.id, sessionId: 'old-block-session', hostId: PLAYER_1 })
       await markTournamentMatchDrafting(db, 'old-block-session', 'old-block-match')
       await insertReportedMatch(db, 'old-block-match', [
@@ -243,6 +248,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
+      await startTournament(db, warnTournament.id)
       await createTournamentMatchLink(db, { tournamentId: warnTournament.id, sessionId: 'old-warn-session', hostId: PLAYER_1 })
       await markTournamentMatchDrafting(db, 'old-warn-session', 'old-warn-match')
       await insertReportedMatch(db, 'old-warn-match', [
@@ -278,6 +284,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'session-1', 'match-1', [
         [PLAYER_1, 1],
         [PLAYER_4, 2],
@@ -317,6 +324,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'unsupported-session-1', 'unsupported-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
       await reportTournamentMatch(db, tournament.id, 'unsupported-session-2', 'unsupported-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
 
@@ -337,6 +345,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'target-session-1', 'target-match-1', [
         [PLAYER_1, 1],
         [PLAYER_4, 2],
@@ -412,6 +421,7 @@ describe('tournament service', () => {
         ['7', 'Grace', PLAYER_7],
         ['8', 'Heidi', PLAYER_8],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'quarter-qualifier-1', 'quarter-qualifier-match-1', [[PLAYER_1, 1], [PLAYER_8, 2]])
       await reportTournamentMatch(db, tournament.id, 'quarter-qualifier-2', 'quarter-qualifier-match-2', [[PLAYER_2, 1], [PLAYER_7, 2]])
       await reportTournamentMatch(db, tournament.id, 'quarter-qualifier-3', 'quarter-qualifier-match-3', [[PLAYER_3, 1], [PLAYER_6, 2]])
@@ -447,6 +457,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'advance-qualifier-1', 'advance-qualifier-match-1', [
         [PLAYER_1, 1],
         [PLAYER_4, 2],
@@ -508,6 +519,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'correct-qualifier-1', 'correct-qualifier-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
       await reportTournamentMatch(db, tournament.id, 'correct-qualifier-2', 'correct-qualifier-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
       await createTournamentCut(db, tournament.id)
@@ -555,6 +567,7 @@ describe('tournament service', () => {
         ['3', 'Carol', PLAYER_3],
         ['4', 'Dave', PLAYER_4],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'reset-qualifier-1', 'reset-qualifier-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
       await reportTournamentMatch(db, tournament.id, 'reset-qualifier-2', 'reset-qualifier-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
       await createTournamentCut(db, tournament.id)
@@ -597,6 +610,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
+      await startTournament(db, tournament.id)
       await reportTournamentMatch(db, tournament.id, 'card-session-1', 'card-match-1', [
         [PLAYER_1, 1],
         [PLAYER_2, 2],
