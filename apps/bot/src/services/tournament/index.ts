@@ -10,7 +10,7 @@ import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentLeaderboardPng } from './image.ts'
 
 export type TournamentRematchPolicy = 'allow' | 'warn' | 'block'
-export type TournamentStatus = 'qualifier' | 'qualifier_locked' | 'top_cut' | 'completed' | 'cancelled'
+export type TournamentStatus = 'setup' | 'qualifier' | 'qualifier_locked' | 'top_cut' | 'completed' | 'cancelled'
 export type TournamentStage = 'qualifier' | 'quarterfinal' | 'semifinal' | 'final' | 'third_place' | 'tiebreaker' | 'top_cut'
 export type TournamentMatchStatus = 'open' | 'drafting' | 'active' | 'reported' | 'cancelled'
 export type TournamentCutPairingStatus = 'scheduled' | 'open' | 'drafting' | 'reported' | 'cancelled'
@@ -156,6 +156,7 @@ export const DEFAULT_TOURNAMENT_REMATCH_POLICY: TournamentRematchPolicy = 'warn'
 export const TOURNAMENT_SCORING_OPEN_WIN_RATE = 'open_win_rate'
 export const SUPPORTED_TOURNAMENT_TOP_CUTS = [2, 4, 8] as const
 
+const CURRENT_TOURNAMENT_STATUSES: TournamentStatus[] = ['setup', 'qualifier', 'qualifier_locked', 'top_cut']
 const ACTIVE_TOURNAMENT_STATUSES: TournamentStatus[] = ['qualifier', 'qualifier_locked', 'top_cut']
 const ADVANCING_TOP_CUT_ROUNDS = ['quarterfinal', 'semifinal', 'final'] as const
 
@@ -192,7 +193,7 @@ export async function createTournament(db: Database, input: CreateTournamentInpu
     id: nanoid(10),
     name: input.name.trim(),
     mode: '1v1',
-    status: 'qualifier' as const,
+    status: 'setup' as const,
     scoring: TOURNAMENT_SCORING_OPEN_WIN_RATE,
     rematchPolicy: input.rematchPolicy ?? DEFAULT_TOURNAMENT_REMATCH_POLICY,
     minGames: input.minGames ?? DEFAULT_TOURNAMENT_MIN_GAMES,
@@ -218,6 +219,20 @@ export async function updateTournament(db: Database, tournamentId: string, input
   if (input.topCut != null && isSupportedTournamentTopCut(input.topCut)) set.topCut = input.topCut
   if (input.rematchPolicy != null) set.rematchPolicy = input.rematchPolicy
   await db.update(tournaments).set(set).where(eq(tournaments.id, tournamentId))
+}
+
+export async function startTournament(db: Database, tournamentId: string): Promise<{ ok: true } | { error: string }> {
+  const tournament = await getTournamentById(db, tournamentId)
+  if (!tournament) return { error: 'Tournament not found.' }
+  if (tournament.status !== 'setup') {
+    return { error: tournament.status === 'qualifier' ? 'Tournament has already started.' : `Tournament is already ${tournament.status}.` }
+  }
+
+  await db
+    .update(tournaments)
+    .set({ status: 'qualifier', updatedAt: Date.now() })
+    .where(eq(tournaments.id, tournamentId))
+  return { ok: true }
 }
 
 export async function leaveTournament(
@@ -249,6 +264,16 @@ export async function getActiveTournament(db: Database) {
     .select()
     .from(tournaments)
     .where(inArray(tournaments.status, ACTIVE_TOURNAMENT_STATUSES))
+    .orderBy(desc(tournaments.updatedAt))
+    .limit(1)
+  return tournament ?? null
+}
+
+export async function getCurrentTournament(db: Database) {
+  const [tournament] = await db
+    .select()
+    .from(tournaments)
+    .where(inArray(tournaments.status, CURRENT_TOURNAMENT_STATUSES))
     .orderBy(desc(tournaments.updatedAt))
     .limit(1)
   return tournament ?? null
@@ -784,6 +809,9 @@ export async function buildTournamentStandings(db: Database, tournamentId: strin
 export async function createTournamentCut(db: Database, tournamentId: string): Promise<TournamentCutResult | { error: string }> {
   const tournament = await getTournamentById(db, tournamentId)
   if (!tournament) return { error: 'Tournament not found.' }
+  if (tournament.status === 'setup') {
+    return { error: 'Start the tournament before creating playoff pairings.' }
+  }
   if (tournament.status !== 'qualifier' && tournament.status !== 'qualifier_locked') {
     return { error: `Tournament is already ${tournament.status}.` }
   }
