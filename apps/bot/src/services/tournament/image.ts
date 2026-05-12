@@ -53,6 +53,7 @@ export async function renderTournamentOpponentsSvg(data: TournamentOpponentCardD
 }
 
 export async function renderTournamentLeaderboardSvg(data: TournamentLeaderboardImageData): Promise<string> {
+  if (data.pairings.length > 0) return renderBracketLeaderboardSvg(data)
   const topRows = data.standings.slice(0, 20)
   const players = topRows.flatMap(row => row.playerId ? [{ playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }] : [])
   const avatarData = await loadAvatarData(players)
@@ -85,6 +86,17 @@ const LEADERBOARD_COLUMN_WIDTH = (IMAGE_WIDTH - 128 - LEADERBOARD_COLUMN_GAP) / 
 const STATS_ROW_HEIGHT = 42
 const STATS_ROW_STEP = 47
 
+const BRACKET_MATCH_W = 300
+const BRACKET_MATCH_H = 96
+const BRACKET_SLOT_H = BRACKET_MATCH_H / 2
+const BRACKET_MATCH_R = 12
+const BRACKET_ROUND_GAP = 40
+const BRACKET_MATCH_VERTICAL_GAP = 20
+const BRACKET_START_Y = 186
+const BRACKET_LEFT_PAD = 120
+const BRACKET_BOTTOM_PAD = 64
+const BRACKET_ROUND_ORDER = ['quarterfinal', 'semifinal', 'final'] as const
+
 function leaderboardSvgShell(height: number, title: string, body: string, players: AvatarPlayer[]): string {
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${height}" viewBox="0 0 ${IMAGE_WIDTH} ${height}" font-family="Inter, Arial, sans-serif">
@@ -105,6 +117,179 @@ function leaderboardSvgShell(height: number, title: string, body: string, player
 function getLeaderboardImageHeight(playerCount: number): number {
   const rowCount = Math.ceil(Math.max(1, playerCount) / 2)
   return Math.max(IMAGE_HEIGHT, LEADERBOARD_START_Y + ((rowCount - 1) * LEADERBOARD_ROW_STEP) + LEADERBOARD_ROW_HEIGHT + 64)
+}
+
+function getBracketImageHeight(firstRoundCount: number): number {
+  const totalMatchH = BRACKET_MATCH_H + BRACKET_MATCH_VERTICAL_GAP
+  return Math.max(IMAGE_HEIGHT, BRACKET_START_Y + (firstRoundCount * totalMatchH) - BRACKET_MATCH_VERTICAL_GAP + BRACKET_BOTTOM_PAD)
+}
+
+async function renderBracketLeaderboardSvg(data: TournamentLeaderboardImageData): Promise<string> {
+  const roundGroups = groupPairingsByRound(data.pairings)
+  const firstRoundCount = roundGroups[0]?.pairings.length ?? 0
+  const height = getBracketImageHeight(firstRoundCount)
+  const players: AvatarPlayer[] = []
+  const body = renderBracket(roundGroups, height, data.champion)
+  return leaderboardSvgShell(height, 'PLAYOFFS', body, players)
+}
+
+interface BracketRoundGroup {
+  round: string
+  pairings: TournamentLeaderboardImageData['pairings']
+}
+
+function groupPairingsByRound(pairings: TournamentLeaderboardImageData['pairings']): BracketRoundGroup[] {
+  const byRound = new Map<string, TournamentLeaderboardImageData['pairings']>()
+  for (const pairing of pairings) {
+    const existing = byRound.get(pairing.round) ?? []
+    existing.push(pairing)
+    byRound.set(pairing.round, existing)
+  }
+  const groups: BracketRoundGroup[] = []
+  for (const round of BRACKET_ROUND_ORDER) {
+    const roundPairings = byRound.get(round)
+    if (roundPairings) groups.push({ round, pairings: roundPairings })
+  }
+  for (const [round, roundPairings] of byRound) {
+    if (!BRACKET_ROUND_ORDER.includes(round as typeof BRACKET_ROUND_ORDER[number])) {
+      groups.push({ round, pairings: roundPairings })
+    }
+  }
+  return groups
+}
+
+function renderBracket(
+  roundGroups: BracketRoundGroup[],
+  imageHeight: number,
+  champion: TournamentOpponentCardPlayer | null,
+): string {
+  if (roundGroups.length === 0) return ''
+
+  const totalRounds = roundGroups.length
+  const availableW = IMAGE_WIDTH - BRACKET_LEFT_PAD - 64
+  const roundW = Math.min(BRACKET_MATCH_W + BRACKET_ROUND_GAP, availableW / totalRounds)
+  const matchW = roundW - BRACKET_ROUND_GAP
+  const bracketH = imageHeight - BRACKET_START_Y - BRACKET_BOTTOM_PAD
+  let svg = ''
+
+  const matchCenters: number[][] = []
+
+  for (let roundIndex = 0; roundIndex < roundGroups.length; roundIndex++) {
+    const group = roundGroups[roundIndex]!
+    const roundX = BRACKET_LEFT_PAD + (roundIndex * roundW)
+    const roundLabel = formatBracketRoundLabel(group.round)
+    svg += `<text x="${roundX + matchW / 2}" y="${BRACKET_START_Y - 18}" text-anchor="middle" fill="${COLORS.muted}" font-size="24" font-weight="900" letter-spacing="2">${escapeXml(roundLabel)}</text>`
+
+    const matchCount = group.pairings.length
+    const totalMatchBlockH = matchCount * BRACKET_MATCH_H + (matchCount - 1) * BRACKET_MATCH_VERTICAL_GAP
+    const startY = BRACKET_START_Y + (bracketH - totalMatchBlockH) / 2
+    const centers: number[] = []
+
+    for (let matchIndex = 0; matchIndex < matchCount; matchIndex++) {
+      const pairing = group.pairings[matchIndex]!
+      const matchY = startY + matchIndex * (BRACKET_MATCH_H + BRACKET_MATCH_VERTICAL_GAP)
+      centers.push(matchY + BRACKET_MATCH_H / 2)
+      svg += renderBracketMatch(pairing, roundX, matchY, matchW, BRACKET_MATCH_R)
+    }
+    matchCenters.push(centers)
+  }
+
+  for (let roundIndex = 0; roundIndex < matchCenters.length - 1; roundIndex++) {
+    const fromCenters = matchCenters[roundIndex]!
+    const toCenters = matchCenters[roundIndex + 1]!
+    const fromX = BRACKET_LEFT_PAD + (roundIndex * roundW) + matchW
+    const toX = BRACKET_LEFT_PAD + ((roundIndex + 1) * roundW)
+    const midX = (fromX + toX) / 2
+
+    for (let i = 0; i < fromCenters.length; i += 2) {
+      const topY = fromCenters[i]!
+      const bottomY = fromCenters[i + 1]
+      const targetIndex = Math.floor(i / 2)
+      const targetY = toCenters[targetIndex]
+      if (targetY == null) continue
+
+      if (bottomY != null) {
+        svg += `<path d="M${fromX + 4},${topY} H${midX} V${targetY} H${toX - 4}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
+        svg += `<path d="M${fromX + 4},${bottomY} H${midX} V${targetY}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
+      } else {
+        svg += `<line x1="${fromX + 4}" y1="${topY}" x2="${toX - 4}" y2="${targetY}" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
+      }
+    }
+  }
+
+  if (champion) {
+    const lastRoundIndex = roundGroups.length - 1
+    const lastX = BRACKET_LEFT_PAD + (lastRoundIndex * roundW) + matchW + 16
+    const lastCenters = matchCenters[lastRoundIndex]
+    const lastY = lastCenters?.[0] ?? BRACKET_START_Y + bracketH / 2
+    svg += `<text x="${lastX + 4}" y="${lastY - 14}" fill="${COLORS.accent}" font-size="20" font-weight="900" letter-spacing="1">CHAMPION</text>`
+    svg += `<text x="${lastX + 4}" y="${lastY + 12}" fill="${COLORS.fg}" font-size="28" font-weight="900">${escapeXml(truncateToWidth(champion.displayName, 180, 28, 900))}</text>`
+  }
+
+  return svg
+}
+
+function renderBracketMatch(
+  pairing: TournamentLeaderboardImageData['pairings'][number],
+  x: number,
+  y: number,
+  width: number,
+  r: number,
+): string {
+  const isDecided = pairing.winnerDisplayName != null
+  const p1IsWinner = isDecided && pairing.winnerDisplayName === pairing.playerOneDisplayName
+  const p2IsWinner = isDecided && pairing.winnerDisplayName === pairing.playerTwoDisplayName
+
+  let svg = `<rect x="${x}" y="${y}" width="${width}" height="${BRACKET_MATCH_H}" rx="${r}" fill="${COLORS.elevated}" />`
+  svg += `<rect x="${x}" y="${y}" width="${width}" height="${BRACKET_MATCH_H}" rx="${r}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="1.5" />`
+  svg += `<line x1="${x}" y1="${y + BRACKET_SLOT_H}" x2="${x + width}" y2="${y + BRACKET_SLOT_H}" stroke="${COLORS.borderSubtle}" stroke-width="1" />`
+
+  svg += renderBracketSlot(pairing.seedOne, pairing.playerOneDisplayName, p1IsWinner, isDecided && !p1IsWinner, x, y, width, r, 'top')
+  svg += renderBracketSlot(pairing.seedTwo, pairing.playerTwoDisplayName, p2IsWinner, isDecided && !p2IsWinner, x, y + BRACKET_SLOT_H, width, r, 'bottom')
+
+  return svg
+}
+
+function renderBracketSlot(
+  seed: number,
+  displayName: string,
+  isWinner: boolean,
+  isLoser: boolean,
+  x: number,
+  y: number,
+  width: number,
+  r: number,
+  position: 'top' | 'bottom',
+): string {
+  const isTbd = displayName === 'TBD'
+  const textY = y + BRACKET_SLOT_H / 2 + 6
+  const nameColor = isTbd ? COLORS.subtle : isLoser ? COLORS.subtle : COLORS.fg
+  const seedColor = isWinner ? COLORS.accent : COLORS.subtle
+  let svg = ''
+
+  if (isWinner) {
+    const hlPath = position === 'top'
+      ? `M${x + r},${y} H${x + width - r} A${r},${r} 0 0 1 ${x + width},${y + r} V${y + BRACKET_SLOT_H} H${x} V${y + r} A${r},${r} 0 0 1 ${x + r},${y}`
+      : `M${x},${y} H${x + width} V${y + BRACKET_SLOT_H - r} A${r},${r} 0 0 1 ${x + width - r},${y + BRACKET_SLOT_H} H${x + r} A${r},${r} 0 0 1 ${x},${y + BRACKET_SLOT_H - r} Z`
+    svg += `<path d="${hlPath}" fill="${COLORS.accentDim}" />`
+  }
+
+  if (isTbd) {
+    svg += `<text x="${x + 16}" y="${textY}" fill="${COLORS.subtle}" font-size="18" font-weight="700">—</text>`
+    svg += `<text x="${x + 44}" y="${textY}" fill="${COLORS.subtle}" font-size="20" font-weight="700" letter-spacing="2">TBD</text>`
+  } else {
+    svg += `<text x="${x + 16}" y="${textY}" fill="${seedColor}" font-size="18" font-weight="900">${seed}</text>`
+    svg += `<text x="${x + 44}" y="${textY}" fill="${nameColor}" font-size="22" font-weight="${isWinner ? 900 : 700}">${escapeXml(truncateToWidth(displayName, width - 60, 22, isWinner ? 900 : 700))}</text>`
+  }
+
+  return svg
+}
+
+function formatBracketRoundLabel(round: string): string {
+  if (round === 'quarterfinal') return 'QUARTERFINALS'
+  if (round === 'semifinal') return 'SEMIFINALS'
+  if (round === 'final') return 'FINALS'
+  return round.replace(/_/g, ' ').toUpperCase()
 }
 
 function renderStandingRows(rows: Array<TournamentOpponentCardPlayer & { eligible?: boolean }>, avatarData: Map<string, string>, rankOffset: number): string {
@@ -130,7 +315,7 @@ function renderTournamentStatsBody(data: TournamentOpponentCardData, avatarData:
   const rightRows = getStatsRightColumnRows(data)
   return `
     ${renderPlayerStatsPanel(data.player, avatarData.get(avatarKey(data.player)))}
-    <text x="584" y="168" fill="${COLORS.fg}" font-size="30" font-weight="900">${data.pairing ? 'Top cut match' : 'Recommended opponents'}</text>
+    <text x="584" y="168" fill="${COLORS.fg}" font-size="30" font-weight="900">${data.pairing ? 'Playoff match' : 'Recommended opponents'}</text>
     ${rightRows.length > 0
       ? rightRows.slice(0, 8).map((player, index) => renderStandingStyleRow(player, player.rank ?? index + 1, 584, 196 + (index * STATS_ROW_STEP), 552, false, avatarData, index, 'compact')).join('')
       : `<text x="584" y="248" fill="${COLORS.muted}" font-size="28" font-weight="900">No linked opponents available</text>`}
