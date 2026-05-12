@@ -7,7 +7,7 @@ import { nanoid } from 'nanoid'
 import { Embed } from 'discord-hono'
 import { createChannelMessageWithFile, deleteChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
-import { renderTournamentLeaderboardPngPages } from './image.ts'
+import { renderTournamentLeaderboardPng } from './image.ts'
 
 export type TournamentRematchPolicy = 'allow' | 'warn' | 'block'
 export type TournamentStatus = 'qualifier' | 'qualifier_locked' | 'top_cut' | 'completed' | 'cancelled'
@@ -89,6 +89,7 @@ export interface TournamentOpponentCardPlayer {
   playerId: string | null
   displayName: string
   avatarUrl: string | null
+  rank?: number | null
   seed: number | null
   games: number
   wins: number
@@ -318,6 +319,13 @@ export async function resolveTournamentPlayerForIdentity(
     .limit(1)
   if (linked) {
     await upsertTournamentPlayerIdentity(db, identity)
+    await db
+      .update(tournamentPlayers)
+      .set({ displayName: identity.displayName, avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
+      .where(and(
+        eq(tournamentPlayers.tournamentId, tournamentId),
+        eq(tournamentPlayers.playerId, identity.userId),
+      ))
     return { ok: true }
   }
 
@@ -804,13 +812,14 @@ export async function buildTournamentOpponentCardData(
   const playerStanding = standings.find(row => row.playerId === identity.userId)
   if (!playerStanding) return { error: 'You are not linked as a player in the active tournament.' }
 
-  const player = await toOpponentCardPlayer(db, tournament.id, playerStanding)
+  const rankByPlayerId = buildTournamentRankByPlayerId(standings)
+  const player = await toOpponentCardPlayer(db, tournament.id, playerStanding, rankByPlayerId.get(identity.userId) ?? null)
   const pairing = tournament.status === 'top_cut'
     ? await buildTopCutOpponentCardPairing(db, tournament.id, identity.userId, standings)
     : null
   const opponents = pairing
     ? []
-    : await buildQualifierOpponentRows(db, tournament.id, identity.userId, playerStanding, standings, tournament.minGames)
+    : await buildQualifierOpponentRows(db, tournament.id, identity.userId, playerStanding, standings, tournament.minGames, rankByPlayerId)
 
   return {
     tournamentName: tournament.name,
@@ -897,21 +906,42 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
     : []
   const imageData = await buildTournamentLeaderboardImageData(db, tournament.id, standings, pairings)
   if (!imageData) return false
-  const images = await renderTournamentLeaderboardPngPages(imageData)
-  const scopes = getTournamentLeaderboardPageScopes()
-  for (let index = 0; index < images.length; index++) {
-    await upsertTournamentLeaderboardPageMessage(db, {
-      token,
-      channelId,
-      scope: scopes[index]!,
-      filename: `tournament-leaderboard-${index + 1}.png`,
-      data: images[index]!,
-    })
+  const png = await renderTournamentLeaderboardPng(imageData)
+  const scope = 'tournament:active'
+  const [existing] = await db
+    .select()
+    .from(leaderboardMessageStates)
+    .where(eq(leaderboardMessageStates.scope, scope))
+    .limit(1)
+
+  if (existing?.channelId === channelId) {
+    try {
+      await editChannelMessageWithFile({
+        token,
+        channelId,
+        messageId: existing.messageId,
+        filename: 'tournament-leaderboard.png',
+        contentType: 'image/png',
+        data: png,
+      })
+      await upsertTournamentLeaderboardMessageState(db, scope, channelId, existing.messageId)
+      await deleteStaleTournamentLeaderboardPageMessages(db, token, channelId)
+      return true
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
   }
 
-  for (let index = images.length; index < scopes.length; index++) {
-    await deleteTournamentLeaderboardPageMessage(db, token, channelId, scopes[index]!)
-  }
+  const created = await createChannelMessageWithFile({
+    token,
+    channelId,
+    filename: 'tournament-leaderboard.png',
+    contentType: 'image/png',
+    data: png,
+  })
+  await upsertTournamentLeaderboardMessageState(db, scope, channelId, created.id)
+  await deleteStaleTournamentLeaderboardPageMessages(db, token, channelId)
 
   return true
 }
@@ -940,71 +970,25 @@ async function getTournamentForLeaderboard(db: Database) {
   return completed ?? null
 }
 
-function getTournamentLeaderboardPageScopes(): string[] {
-  return ['tournament:active', 'tournament:active:2', 'tournament:active:3']
-}
+async function deleteStaleTournamentLeaderboardPageMessages(db: Database, token: string, channelId: string): Promise<void> {
+  for (const scope of ['tournament:active:2', 'tournament:active:3']) {
+    const [existing] = await db
+      .select()
+      .from(leaderboardMessageStates)
+      .where(eq(leaderboardMessageStates.scope, scope))
+      .limit(1)
+    if (!existing) continue
 
-async function upsertTournamentLeaderboardPageMessage(
-  db: Database,
-  input: {
-    token: string
-    channelId: string
-    scope: string
-    filename: string
-    data: Uint8Array
-  },
-): Promise<void> {
-  const [existing] = await db
-    .select()
-    .from(leaderboardMessageStates)
-    .where(eq(leaderboardMessageStates.scope, input.scope))
-    .limit(1)
-
-  if (existing?.channelId === input.channelId) {
-    try {
-      await editChannelMessageWithFile({
-        token: input.token,
-        channelId: input.channelId,
-        messageId: existing.messageId,
-        filename: input.filename,
-        contentType: 'image/png',
-        data: input.data,
-      })
-      await upsertTournamentLeaderboardMessageState(db, input.scope, input.channelId, existing.messageId)
-      return
+    if (existing.channelId === channelId) {
+      try {
+        await deleteChannelMessage(token, channelId, existing.messageId)
+      }
+      catch (error) {
+        if (!isDiscordApiError(error, 404)) throw error
+      }
     }
-    catch (error) {
-      if (!isDiscordApiError(error, 404)) throw error
-    }
+    await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
   }
-
-  const created = await createChannelMessageWithFile({
-    token: input.token,
-    channelId: input.channelId,
-    filename: input.filename,
-    contentType: 'image/png',
-    data: input.data,
-  })
-  await upsertTournamentLeaderboardMessageState(db, input.scope, input.channelId, created.id)
-}
-
-async function deleteTournamentLeaderboardPageMessage(db: Database, token: string, channelId: string, scope: string): Promise<void> {
-  const [existing] = await db
-    .select()
-    .from(leaderboardMessageStates)
-    .where(eq(leaderboardMessageStates.scope, scope))
-    .limit(1)
-  if (!existing) return
-
-  if (existing.channelId === channelId) {
-    try {
-      await deleteChannelMessage(token, channelId, existing.messageId)
-    }
-    catch (error) {
-      if (!isDiscordApiError(error, 404)) throw error
-    }
-  }
-  await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
 }
 
 async function getTournamentPlayerByUserId(db: Database, tournamentId: string, playerId: string) {
@@ -1216,15 +1200,16 @@ async function buildQualifierOpponentRows(
   playerStanding: TournamentStandingRow,
   standings: TournamentStandingRow[],
   minGames: number,
+  rankByPlayerId: Map<string, number>,
 ): Promise<TournamentOpponentCardPlayer[]> {
   const rows = standings.filter(row => row.playerId && row.playerId !== playerId)
   const meetings = await Promise.all(rows.map(row => countReportedMeetings(db, tournamentId, playerId, row.playerId!)))
   const ranked = rows.map((row, index) => ({ row, meetings: meetings[index] ?? 0 }))
     .sort((left, right) => left.meetings - right.meetings || compareTournamentStandingRows(left.row, right.row))
-    .slice(0, 4)
+    .slice(0, 8)
 
   return Promise.all(ranked.map(async (entry) => ({
-    ...await toOpponentCardPlayer(db, tournamentId, entry.row),
+    ...await toOpponentCardPlayer(db, tournamentId, entry.row, entry.row.playerId ? rankByPlayerId.get(entry.row.playerId) ?? null : null),
     note: buildOpponentRecommendationNote(playerStanding, entry.row, entry.meetings, minGames),
   })))
 }
@@ -1251,13 +1236,14 @@ async function buildTopCutOpponentCardPairing(
   const playerOneStanding = standings.find(row => row.playerId === pairing.playerOneId)
   const playerTwoStanding = standings.find(row => row.playerId === pairing.playerTwoId)
   if (!playerOneStanding || !playerTwoStanding) return null
+  const rankByPlayerId = buildTournamentRankByPlayerId(standings)
 
   return {
     round: pairing.round,
     seedOne: pairing.seedOne,
     seedTwo: pairing.seedTwo,
-    playerOne: await toOpponentCardPlayer(db, tournamentId, playerOneStanding),
-    playerTwo: await toOpponentCardPlayer(db, tournamentId, playerTwoStanding),
+    playerOne: await toOpponentCardPlayer(db, tournamentId, playerOneStanding, getTournamentRank(rankByPlayerId, playerOneStanding.playerId)),
+    playerTwo: await toOpponentCardPlayer(db, tournamentId, playerTwoStanding, getTournamentRank(rankByPlayerId, playerTwoStanding.playerId)),
   }
 }
 
@@ -1265,18 +1251,32 @@ async function toOpponentCardPlayer(
   db: Database,
   tournamentId: string,
   row: TournamentStandingRow,
+  rank?: number | null,
 ): Promise<TournamentOpponentCardPlayer> {
   const player = row.playerId ? await getTournamentPlayerByUserId(db, tournamentId, row.playerId) : null
+  const [globalPlayer] = row.playerId
+    && !player?.avatarUrl
+    ? await db.select({ avatarUrl: players.avatarUrl }).from(players).where(eq(players.id, row.playerId)).limit(1)
+    : []
   return {
     playerId: row.playerId,
     displayName: row.displayName,
-    avatarUrl: player?.avatarUrl ?? null,
+    avatarUrl: player?.avatarUrl ?? globalPlayer?.avatarUrl ?? null,
+    rank: rank ?? null,
     seed: row.seed,
     games: row.games,
     wins: row.wins,
     losses: row.losses,
     winRate: row.winRate,
   }
+}
+
+function buildTournamentRankByPlayerId(standings: TournamentStandingRow[]): Map<string, number> {
+  return new Map(standings.flatMap((row, index) => row.playerId ? [[row.playerId, index + 1] as const] : []))
+}
+
+function getTournamentRank(rankByPlayerId: Map<string, number>, playerId: string | null): number | null {
+  return playerId ? rankByPlayerId.get(playerId) ?? null : null
 }
 
 function buildTournamentLeaderboardEmbed(
