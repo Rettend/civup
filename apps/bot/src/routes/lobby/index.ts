@@ -143,6 +143,36 @@ function parseSessionDraftStartError(error: unknown): { status: 400 | 403 | 409,
   }
 }
 
+async function randomizeTournamentFirstPickBeforeStart(
+  c: Context<Env>,
+  db: ReturnType<typeof createDb>,
+  kv: KVNamespace,
+  mode: GameMode,
+  lobby: LobbyState,
+): Promise<LobbyState | { error: string, status: 400 | 409 }> {
+  if (mode !== '1v1') return lobby
+
+  const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
+  if (!tournamentMatch) return lobby
+
+  const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
+  const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+  const arranged = arrangeLobbySlots({
+    mode,
+    slots,
+    queueEntries: lobbyQueueEntries,
+    strategy: 'shuffle-teams',
+  })
+  if ('error' in arranged) return { error: arranged.error, status: 400 }
+
+  const nextLobby = await setLobbyArranged(kv, lobby.id, {
+    slots: arranged.slots,
+    strategy: 'shuffle-teams',
+  }, lobby, lobbySessionMutationOptions(c, lobbyQueueEntries))
+
+  return nextLobby ?? { error: 'Session changed before draft start.', status: 409 }
+}
+
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {
     const auth = requireAuthenticatedActivity(c)
@@ -1370,14 +1400,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     try {
-      const started = await startSessionDraft(c.env.SessionDO, lobby.id, {
-        expectedVersion: lobby.revision,
+      const lobbyToStart = await randomizeTournamentFirstPickBeforeStart(c, db, kv, mode, lobby)
+      if ('error' in lobbyToStart) return c.json({ error: lobbyToStart.error }, lobbyToStart.status)
+
+      const started = await startSessionDraft(c.env.SessionDO, lobbyToStart.id, {
+        expectedVersion: lobbyToStart.revision,
         hostId: auth.identity.userId,
       })
       if (started.record.mode !== mode) return c.json({ error: 'Session mode does not match lobby route.' }, 409)
 
       const { matchId, seats } = started
-      const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobby)
+      const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobbyToStart)
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
       await markTournamentMatchDrafting(db, lobby.id, matchId)
