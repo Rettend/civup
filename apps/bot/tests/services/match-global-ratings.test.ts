@@ -48,22 +48,22 @@ describe('match global ratings', () => {
 
   test('reportMatch writes mode and global summary rows', async () => {
     const { db, sqlite } = await createTestDatabase()
-      const kv = createTestKv()
+    const kv = createTestKv()
 
-      try {
-        await seedDuelPlayers(db)
-        await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-          byPlayerId: {
-            [VILLAIN_ID]: { tier: 'tier1', sourceMode: null },
-          },
-        }))
-        await seedActiveDuel(db, 'active-1', NOW)
+    try {
+      await seedDuelPlayers(db)
+      await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+        byPlayerId: {
+          [VILLAIN_ID]: { tier: 'tier1', sourceMode: null },
+        },
+      }))
+      await seedActiveDuel(db, 'active-1', NOW)
 
-        const result = await reportMatch(db, kv, {
-          matchId: 'active-1',
-          reporterId: HERO_ID,
-          placements: `<@${HERO_ID}>`,
-        }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' })
+      const result = await reportMatch(db, kv, {
+        matchId: 'active-1',
+        reporterId: HERO_ID,
+        placements: `<@${HERO_ID}>`,
+      }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' })
 
       expect('error' in result).toBe(false)
       if ('error' in result) return

@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
-import type { ParticipantRow } from '../match/types.ts'
 import type { LobbyState } from '../lobby/types.ts'
+import type { ParticipantRow } from '../match/types.ts'
 import { leaderboardMessageStates, matchParticipants, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
-import { Embed } from 'discord-hono'
 import { createChannelMessageWithFile, deleteChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentLeaderboardPng } from './image.ts'
@@ -976,7 +976,8 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
   if (hasPairings) {
     const bracketPng = await renderTournamentLeaderboardPng(imageData)
     await upsertLeaderboardMessage(db, token, channelId, 'tournament:active:bracket', bracketPng, 'tournament-bracket.png')
-  } else {
+  }
+  else {
     await deleteLeaderboardMessage(db, token, channelId, 'tournament:active:bracket')
   }
 
@@ -1312,7 +1313,7 @@ async function buildQualifierOpponentRows(
     .sort((left, right) => left.meetings - right.meetings || compareTournamentStandingRows(left.row, right.row))
     .slice(0, 8)
 
-  return Promise.all(ranked.map(async (entry) => ({
+  return Promise.all(ranked.map(async entry => ({
     ...await toOpponentCardPlayer(db, tournamentId, entry.row, entry.row.playerId ? rankByPlayerId.get(entry.row.playerId) ?? null : null),
     note: buildOpponentRecommendationNote(playerStanding, entry.row, entry.meetings, minGames),
   })))

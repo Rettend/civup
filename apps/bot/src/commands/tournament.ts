@@ -1,10 +1,11 @@
 import type { QueueEntry } from '@civup/game'
+import type { EphemeralResponseTone } from '../embeds/response.ts'
 import type { TournamentLeaderboardImageData, TournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { createDb } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { lobbyOpenEmbed } from '../embeds/match.ts'
-import { ephemeralResponseEmbed, type EphemeralResponseTone } from '../embeds/response.ts'
+import { ephemeralResponseEmbed } from '../embeds/response.ts'
 import { storeActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
@@ -12,12 +13,12 @@ import { createLobby, mapLobbySlotsToEntries, upsertLobbyMessage } from '../serv
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
-import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
-import { getSystemChannel } from '../services/system/channels.ts'
-import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
-import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
+import { getSystemChannel } from '../services/system/channels.ts'
+import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
+import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { factory } from '../setup.ts'
+import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
 
 interface TournamentVar {
   steam_link?: string
@@ -198,10 +199,38 @@ function buildDemoTournamentLeaderboardImageData(identity: { userId: string, dis
     avatarUrl: identity?.avatarUrl ?? null,
   }
   const demoNames = [
-    'Example Player 1', self.displayName, 'Example Player 2', 'Example Player 3', 'Example Player 4', 'Example Player 5', 'Example Player 6', 'Example Player 7',
-    'Example Player 8', 'Example Player 9', 'Example Player 10', 'Example Player 11', 'Example Player 12', 'Example Player 13', 'Example Player 14', 'Example Player 15',
-    'Example Player 16', 'Example Player 17', 'Example Player 18', 'Example Player 19', 'Example Player 20', 'Example Player 21', 'Example Player 22', 'Example Player 23',
-    'Example Player 24', 'Example Player 25', 'Example Player 26', 'Example Player 27', 'Example Player 28', 'Example Player 29', 'Example Player 30', 'Example Player 31',
+    'Example Player 1',
+    self.displayName,
+    'Example Player 2',
+    'Example Player 3',
+    'Example Player 4',
+    'Example Player 5',
+    'Example Player 6',
+    'Example Player 7',
+    'Example Player 8',
+    'Example Player 9',
+    'Example Player 10',
+    'Example Player 11',
+    'Example Player 12',
+    'Example Player 13',
+    'Example Player 14',
+    'Example Player 15',
+    'Example Player 16',
+    'Example Player 17',
+    'Example Player 18',
+    'Example Player 19',
+    'Example Player 20',
+    'Example Player 21',
+    'Example Player 22',
+    'Example Player 23',
+    'Example Player 24',
+    'Example Player 25',
+    'Example Player 26',
+    'Example Player 27',
+    'Example Player 28',
+    'Example Player 29',
+    'Example Player 30',
+    'Example Player 31',
   ]
   const topGames = [7, 6, 5, 8, 6, 4, 7, 6]
   const topLosses = [1, 1, 1, 3, 2, 1, 4, 4]

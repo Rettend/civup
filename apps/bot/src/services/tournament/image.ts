@@ -213,7 +213,8 @@ function renderBracket(
       if (bottomY != null) {
         svg += `<path d="M${fromX + 4},${topY} H${midX} V${targetY} H${toX - 4}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
         svg += `<path d="M${fromX + 4},${bottomY} H${midX} V${targetY}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
-      } else {
+      }
+      else {
         svg += `<line x1="${fromX + 4}" y1="${topY}" x2="${toX - 4}" y2="${targetY}" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
       }
     }
@@ -279,7 +280,8 @@ function renderBracketSlot(
   if (isTbd) {
     svg += `<text x="${x + 16}" y="${textY}" fill="${COLORS.subtle}" font-size="18" font-weight="700">—</text>`
     svg += `<text x="${x + 44}" y="${textY}" fill="${COLORS.subtle}" font-size="20" font-weight="700" letter-spacing="2">TBD</text>`
-  } else {
+  }
+  else {
     svg += `<text x="${x + 16}" y="${textY}" fill="${seedColor}" font-size="18" font-weight="900">${seed}</text>`
     svg += `<text x="${x + 44}" y="${textY}" fill="${nameColor}" font-size="22" font-weight="${isWinner ? 900 : 700}">${escapeXml(truncateToWidth(displayName, width - 60, 22, isWinner ? 900 : 700))}</text>`
   }
@@ -654,9 +656,9 @@ function measureTextWidth(value: string, fontSize: number, fontWeight: number): 
 function getApproxCharWidth(char: string): number {
   if (char === ' ') return 0.28
   if (/^[ilI1|!.,'`:;]$/.test(char)) return 0.28
-  if (/^[mwMW@#%&]$/.test(char)) return 0.88
+  if (/^[mw@#%&]$/i.test(char)) return 0.88
   if (/^[A-Z]$/.test(char)) return 0.68
-  if (/^[0-9]$/.test(char)) return 0.56
+  if (/^\d$/.test(char)) return 0.56
   if (/^[a-z]$/.test(char)) return 0.53
   return 0.62
 }
