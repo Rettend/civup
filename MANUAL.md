@@ -304,13 +304,13 @@ Every ranked game also updates the player's overall ranked rating which Discord 
 
 Example with 5 configured roles:
 
-| Role | Overall pool |
-| ---- | ------------ |
-| `tier1` | top 5% |
-| `tier2` | next 15% |
-| `tier3` | next 20% |
-| `tier4` | next 50% |
-| `tier5` | bottom 10% |
+| Role    | Overall pool |
+| ------- | ------------ |
+| `tier1` | top 5%       |
+| `tier2` | next 15%     |
+| `tier3` | next 20%     |
+| `tier4` | next 50%     |
+| `tier5` | bottom 10%   |
 
 Players with less than **8 games** are `Unranked`, which means the bot won't touch their roles.
 

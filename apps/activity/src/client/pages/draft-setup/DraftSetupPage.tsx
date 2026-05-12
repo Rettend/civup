@@ -76,7 +76,7 @@ function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMod
 
   return (
     <span
-      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal leading-none font-medium inline-flex gap-1.5 normal-case items-center absolute right-0 top-1/2 -translate-y-1/2"
+      class="text-[11px] text-fg-subtle leading-none tracking-normal font-medium px-2 py-1 border border-border-subtle rounded-full bg-bg-muted/25 inline-flex gap-1.5 normal-case items-center right-0 top-1/2 absolute -translate-y-1/2"
       title={label()}
       aria-label={`Last used: ${label()}`}
     >

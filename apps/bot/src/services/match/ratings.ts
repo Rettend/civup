@@ -1,11 +1,12 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
+import type { DbBatchItem } from '../db/batch.ts'
 import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
-import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
+import { runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { buildPermanentAllyFfaEffectiveRows, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 
@@ -179,7 +180,6 @@ async function recalculateGlobalRatingsFromScratch(
   seasonRows: StoredSeasonRow[],
   opponentTierByPlayerId: ReadonlyMap<string, string>,
 ): Promise<{ matchIds: string[] } | { error: string }> {
-
   const completedMatches = await db
     .select({
       id: matches.id,

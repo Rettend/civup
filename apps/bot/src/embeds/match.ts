@@ -135,7 +135,7 @@ function formatOpenSlot(playerId: string | null | undefined, reservedLabel?: str
 function escapeDiscordFieldText(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\u02cb')
+    .replace(/`/g, '\u02CB')
     .slice(0, 80)
 }
 
