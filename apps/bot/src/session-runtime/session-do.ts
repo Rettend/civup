@@ -24,6 +24,7 @@ import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../servi
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
+import { isMatchTournamentLinked } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -1009,7 +1010,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const refreshedMessageIds = uniqueStrings([draftMessageId, ...await listMatchMessageIds(db, matchId)])
     if (refreshedMessageIds.length >= 2) return
 
-    const archiveChannelId = await getSystemChannel(this.env.KV, 'archive')
+    const archiveChannelId = await getSystemChannel(this.env.KV, await isMatchTournamentLinked(db, matchId) ? 'tournament-archive' : 'archive')
     if (!archiveChannelId) return
 
     const archiveMessage = await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {

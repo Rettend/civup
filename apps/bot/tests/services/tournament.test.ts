@@ -1,7 +1,10 @@
 import type { LobbyState } from '../../src/services/lobby/index.ts'
 import { describe, expect, test } from 'bun:test'
-import { matchParticipants, matches, tournamentCutPairings, tournaments } from '@civup/db'
+import { matchCivStatContributions, matchParticipants, matches, playerRatingEvents, playerRatings, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { allLeaderIds } from '@civup/game'
 import { eq } from 'drizzle-orm'
+import { backfillCivLeaderboardStatsFromHistory } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { cancelMatchByModerator, recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
 import {
   buildTournamentLobbySnapshot,
   buildTournamentStandings,
@@ -13,7 +16,7 @@ import {
   syncTournamentMatchAfterReport,
   validateTournamentLobbyJoin,
 } from '../../src/services/tournament/index.ts'
-import { createTestDatabase } from '../helpers/test-env.ts'
+import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const PLAYER_1 = '1000000000000001'
 const PLAYER_2 = '1000000000000002'
@@ -66,6 +69,103 @@ describe('tournament service', () => {
         { name: 'Alice', games: 1, wins: 1, losses: 0, eligible: true },
         { name: 'Bob', games: 1, wins: 0, losses: 1, eligible: true },
       ])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('reports tournament matches without normal rating or civ leaderboard effects', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      const tournament = await createTournament(db, { name: 'No Elo Cup', createdById: 'admin', minGames: 1 })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+      ]))
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-report', hostId: PLAYER_1 })
+      await insertActiveMatch(db, 'tournament-report')
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'tournament-report',
+        reporterId: PLAYER_1,
+        placements: `<@${PLAYER_1}>`,
+      }, { allowDirectTerminalWriteForTests: true })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('completed')
+      expect(result.participants.every(participant => participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+
+      const [link] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, 'tournament-report'))
+      expect(link?.status).toBe('reported')
+      expect(link?.winnerId).toBe(PLAYER_1)
+
+      expect(await db.select().from(playerRatings)).toHaveLength(0)
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+      expect(await db.select().from(matchCivStatContributions)).toHaveLength(0)
+
+      expect(await recalculateLeaderboardMode(db, 'duel')).toEqual({ matchIds: [] })
+      expect(await recalculateGlobalRatings(db)).toEqual({ matchIds: [] })
+      expect(await db.select().from(playerRatings)).toHaveLength(0)
+      expect((await backfillCivLeaderboardStatsFromHistory(db)).snapshot.completedMatchCount).toBe(0)
+      expect(await db.select().from(matchCivStatContributions)).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('moderator resolve and cancel keep tournament matches unrated', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      const tournament = await createTournament(db, { name: 'Mod Cup', createdById: 'admin', minGames: 1 })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+      ]))
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-mod', hostId: PLAYER_1 })
+      await insertActiveMatch(db, 'tournament-mod')
+
+      const reported = await reportMatch(db, kv, {
+        matchId: 'tournament-mod',
+        reporterId: PLAYER_1,
+        placements: `<@${PLAYER_1}>`,
+      }, { allowDirectTerminalWriteForTests: true })
+      expect('error' in reported).toBe(false)
+      if ('error' in reported) return
+
+      const resolved = await resolveMatchByModerator(db, kv, {
+        matchId: 'tournament-mod',
+        placements: `<@${PLAYER_2}>`,
+        resolvedAt: Date.now(),
+      }, { allowDirectTerminalWriteForTests: true })
+      expect('error' in resolved).toBe(false)
+      if ('error' in resolved) return
+      expect(resolved.recalculatedMatchIds).toEqual([])
+
+      let [link] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, 'tournament-mod'))
+      expect(link?.status).toBe('reported')
+      expect(link?.winnerId).toBe(PLAYER_2)
+      expect(await db.select().from(playerRatings)).toHaveLength(0)
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+
+      const cancelled = await cancelMatchByModerator(db, kv, {
+        matchId: 'tournament-mod',
+        cancelledAt: Date.now(),
+      }, { allowDirectTerminalWriteForTests: true })
+      expect('error' in cancelled).toBe(false)
+      if ('error' in cancelled) return
+      expect(cancelled.recalculatedMatchIds).toEqual([])
+
+      const [cancelledLink] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, 'tournament-mod'))
+      expect(cancelledLink?.status).toBe('cancelled')
+      expect(cancelledLink?.winnerId).toBeNull()
+      expect(await db.select().from(playerRatings)).toHaveLength(0)
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+      expect(await db.select().from(matchCivStatContributions)).toHaveLength(0)
     }
     finally {
       sqlite.close()
@@ -212,6 +312,46 @@ async function insertReportedMatch(
     ratingAfterMu: null,
     ratingAfterSigma: null,
   })))
+}
+
+async function insertActiveMatch(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  matchId: string,
+) {
+  await db.insert(matches).values({
+    id: matchId,
+    gameMode: '1v1',
+    status: 'active',
+    isOld: false,
+    seasonId: null,
+    draftData: JSON.stringify({ completedAt: Date.now() }),
+    createdAt: Date.now(),
+    completedAt: null,
+  })
+  await db.insert(matchParticipants).values([
+    {
+      matchId,
+      playerId: PLAYER_1,
+      team: 0,
+      civId: allLeaderIds[0]!,
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId,
+      playerId: PLAYER_2,
+      team: 1,
+      civId: allLeaderIds[1]!,
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+  ])
 }
 
 function buildLobby(id: string, slots: (string | null)[]): LobbyState {

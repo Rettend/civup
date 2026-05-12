@@ -26,7 +26,7 @@ import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEph
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
-import { listOpenTournamentSessionIds, syncTournamentMatchAfterReport } from '../../services/tournament/index.ts'
+import { isMatchTournamentLinked, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
@@ -793,9 +793,8 @@ export const command_match = factory.command<MatchVar>(
 
           const lobby = liveLobbyBeforeReport
           const isRankedResult = reportedContext.ranked
-          await syncTournamentMatchAfterReport(db, result.match.id).catch((error) => {
-            console.error(`Failed to sync tournament match after report ${result.match.id}:`, error)
-          })
+          const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+          const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
 
           if (result.idempotent) {
             console.log('[idempotency] slash report deduplicated after race', {
@@ -814,6 +813,7 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               sessionNamespace: c.env.SessionDO,
               archivePolicy: 'if-missing',
+              archiveChannelType,
             })
             queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
@@ -837,10 +837,11 @@ export const command_match = factory.command<MatchVar>(
               avatarUrl: identity.avatarUrl,
             },
             archivePolicy: 'always',
+            archiveChannelType,
           })
           queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
           try {
-            if (!reportedContext.redDeath) {
+            if (!isTournamentMatch && !reportedContext.redDeath) {
               await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
                 civ: true,
                 modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
@@ -851,7 +852,7 @@ export const command_match = factory.command<MatchVar>(
             console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
           }
 
-          if (isRankedResult) {
+          if (!isTournamentMatch && isRankedResult) {
             try {
               await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
             }

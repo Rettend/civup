@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
-import { and, asc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
 import { buildPermanentAllyFfaEffectiveRows, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
@@ -193,6 +193,7 @@ async function recalculateGlobalRatingsFromScratch(
     .where(and(
       eq(matches.status, 'completed'),
       inArray(matches.gameMode, [...GAME_MODES]),
+      excludeTournamentMatchesCondition(),
     ))
     .orderBy(asc(matches.createdAt), asc(matches.id))
 
@@ -214,6 +215,7 @@ async function recalculateGlobalRatingsFromScratch(
         .where(and(
           eq(matches.status, 'completed'),
           inArray(matches.gameMode, [...GAME_MODES]),
+          excludeTournamentMatchesCondition(),
         ))
     : []
 
@@ -302,6 +304,7 @@ async function recalculateGlobalRatingsFromBoundary(
       .where(and(
         inArray(matches.gameMode, [...GAME_MODES]),
         replayCondition,
+        excludeTournamentMatchesCondition(),
       ))
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
@@ -351,6 +354,7 @@ async function recalculateGlobalRatingsFromBoundary(
           eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
           inArray(playerRatingEvents.playerId, affectedPlayerIds),
           buildEventBoundaryCondition(boundaryMatch, false, 'before'),
+          excludeTournamentRatingEventsCondition(),
         ))
         .orderBy(asc(playerRatingEvents.matchCreatedAt), asc(playerRatingEvents.matchId), asc(playerRatingEvents.playerId))
     : []
@@ -418,6 +422,7 @@ async function recalculateLeaderboardModeFromScratch(
     .where(and(
       eq(matches.status, 'completed'),
       inArray(matches.gameMode, gameModes),
+      excludeTournamentMatchesCondition(),
     ))
     .orderBy(asc(matches.createdAt), asc(matches.id))
 
@@ -439,6 +444,7 @@ async function recalculateLeaderboardModeFromScratch(
         .where(and(
           eq(matches.status, 'completed'),
           inArray(matches.gameMode, gameModes),
+          excludeTournamentMatchesCondition(),
         ))
     : []
 
@@ -527,6 +533,7 @@ async function recalculateLeaderboardModeFromBoundary(
       .where(and(
         inArray(matches.gameMode, gameModes),
         replayCondition,
+        excludeTournamentMatchesCondition(),
       ))
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
@@ -573,6 +580,7 @@ async function recalculateLeaderboardModeFromBoundary(
           inArray(matches.gameMode, gameModes),
           inArray(matchParticipants.playerId, affectedPlayerIds),
           buildBoundaryCondition(boundaryMatch, false, 'before'),
+          excludeTournamentMatchesCondition(),
         ))
         .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
     : []
@@ -1135,4 +1143,20 @@ function buildEventBoundaryCondition(
       includeBoundary ? gte(playerRatingEvents.matchId, boundaryMatch.id) : gt(playerRatingEvents.matchId, boundaryMatch.id),
     ),
   )
+}
+
+function excludeTournamentMatchesCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${matches.id}
+       or ${tournamentMatches.sessionId} = ${matches.id}
+  )`
+}
+
+function excludeTournamentRatingEventsCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${playerRatingEvents.matchId}
+       or ${tournamentMatches.sessionId} = ${playerRatingEvents.matchId}
+  )`
 }

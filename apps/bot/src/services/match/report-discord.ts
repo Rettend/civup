@@ -1,15 +1,18 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../lobby/index.ts'
+import type { SystemChannelType } from '../system/channels.ts'
 import type { MatchReporterIdentity, ParticipantRow } from './types.ts'
 import { lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
 import { upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
+import { isMatchTournamentLinked } from '../tournament/index.ts'
 import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
+type ReportArchiveChannelType = Extract<SystemChannelType, 'archive' | 'tournament-archive'>
 
 interface SyncReportedMatchDiscordMessagesInput {
   db: Database
@@ -25,6 +28,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   matchDraftData?: string | null
   reporter?: MatchReporterIdentity | null
   archivePolicy?: ArchivePolicy
+  archiveChannelType?: ReportArchiveChannelType
 }
 
 export interface ReportedMatchDiscordSyncResult {
@@ -47,6 +51,7 @@ export async function syncReportedMatchDiscordMessages({
   matchDraftData = null,
   reporter = null,
   archivePolicy = 'always',
+  archiveChannelType,
 }: SyncReportedMatchDiscordMessagesInput): Promise<ReportedMatchDiscordSyncResult> {
   const errors: string[] = []
   let messageIds: string[] = []
@@ -124,8 +129,9 @@ export async function syncReportedMatchDiscordMessages({
     errors.push(`draft result update failed: ${formatError(draftUpdateError)}`)
   }
 
-  const archiveChannelId = await getSystemChannel(kv, 'archive').catch((error) => {
-    console.error(`Failed to read archive channel for reported match ${matchId}:`, error)
+  const resolvedArchiveChannelType = archiveChannelType ?? await resolveReportedArchiveChannelType(db, matchId)
+  const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType).catch((error) => {
+    console.error(`Failed to read ${resolvedArchiveChannelType} channel for reported match ${matchId}:`, error)
     errors.push(`archive channel lookup failed: ${formatError(error)}`)
     return null
   })
@@ -152,6 +158,10 @@ export async function syncReportedMatchDiscordMessages({
   }
 
   return { draftMessageUpdated, archiveMessageCreated, errors }
+}
+
+async function resolveReportedArchiveChannelType(db: Database, matchId: string): Promise<ReportArchiveChannelType> {
+  return await isMatchTournamentLinked(db, matchId) ? 'tournament-archive' : 'archive'
 }
 
 function resolveMatchReporterIdentity(

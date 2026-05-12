@@ -422,6 +422,29 @@ export async function syncTournamentMatchAfterReport(db: Database, matchId: stri
     .where(eq(tournamentMatches.sessionId, link.sessionId))
 }
 
+export async function syncTournamentMatchAfterCancel(db: Database, matchId: string): Promise<void> {
+  const link = await getTournamentMatchByMatchId(db, matchId)
+  if (!link) return
+
+  const participants = await db
+    .select({ playerId: matchParticipants.playerId })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, matchId))
+  const playerIds = participants.map(participant => participant.playerId).sort()
+
+  await db
+    .update(tournamentMatches)
+    .set({
+      matchId: link.matchId ?? matchId,
+      status: 'cancelled',
+      playerOneId: playerIds[0] ?? link.playerOneId,
+      playerTwoId: playerIds[1] ?? link.playerTwoId,
+      winnerId: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(tournamentMatches.sessionId, link.sessionId))
+}
+
 export async function buildTournamentStandings(db: Database, tournamentId: string): Promise<TournamentStandingRow[]> {
   const tournament = await getTournamentById(db, tournamentId)
   const playerRows = await db
