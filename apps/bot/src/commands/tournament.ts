@@ -6,7 +6,7 @@ import { Command, Option, SubCommand } from 'discord-hono'
 import { lobbyOpenEmbed } from '../embeds/match.ts'
 import { ephemeralResponseEmbed, type EphemeralResponseTone } from '../embeds/response.ts'
 import { storeActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { createChannelMessage, createInteractionFollowupMessageWithFile, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
+import { createChannelMessage, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { createLobby, mapLobbySlotsToEntries, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
@@ -15,7 +15,7 @@ import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
-import { renderTournamentLeaderboardPngPages, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
+import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
 import { factory } from '../setup.ts'
 
@@ -24,7 +24,6 @@ interface TournamentVar {
 }
 
 const TOURNAMENT_MODE = '1v1'
-const DISCORD_EPHEMERAL_MESSAGE_FLAG = 1 << 6
 
 export const command_tournament = factory.command<TournamentVar>(
   new Command('tournament', 'Tournament lobby and standings').options(
@@ -32,7 +31,7 @@ export const command_tournament = factory.command<TournamentVar>(
       new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
     new SubCommand('standings', 'Show active tournament standings'),
-    new SubCommand('opponents', 'Show recommended tournament opponents'),
+    new SubCommand('stats', 'Show your tournament stats and recommended opponents'),
     new SubCommand('demo-result', 'Preview a demo tournament leaderboard image'),
   ),
   async (c) => {
@@ -105,11 +104,18 @@ export const command_tournament = factory.command<TournamentVar>(
             await sendTransientEphemeralResponse(c, 'Could not build tournament standings.', 'error')
             return
           }
-          await sendLeaderboardImagePages(c, await renderTournamentLeaderboardPngPages(data), 'tournament-standings')
+          const png = await renderTournamentLeaderboardPng(data)
+          await editOriginalInteractionResponseWithFile({
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+            interactionToken: c.interaction.token,
+            filename: 'tournament-standings.png',
+            contentType: 'image/png',
+            data: png,
+          })
         })
       }
 
-      case 'opponents': {
+      case 'stats': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const identity = getIdentity(c)
           if (!identity) {
@@ -128,7 +134,7 @@ export const command_tournament = factory.command<TournamentVar>(
           await editOriginalInteractionResponseWithFile({
             applicationId: c.env.DISCORD_APPLICATION_ID,
             interactionToken: c.interaction.token,
-            filename: 'tournament-opponents.png',
+            filename: 'tournament-stats.png',
             contentType: 'image/png',
             data: png,
           })
@@ -138,7 +144,14 @@ export const command_tournament = factory.command<TournamentVar>(
       case 'demo-result': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const identity = getIdentity(c)
-          await sendLeaderboardImagePages(c, await renderTournamentLeaderboardPngPages(buildDemoTournamentLeaderboardImageData(identity)), 'tournament-leaderboard-demo')
+          const png = await renderTournamentLeaderboardPng(buildDemoTournamentLeaderboardImageData(identity))
+          await editOriginalInteractionResponseWithFile({
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+            interactionToken: c.interaction.token,
+            filename: 'tournament-leaderboard-demo.png',
+            contentType: 'image/png',
+            data: png,
+          })
         })
       }
 
@@ -147,37 +160,6 @@ export const command_tournament = factory.command<TournamentVar>(
     }
   },
 )
-
-async function sendLeaderboardImagePages(
-  c: {
-    env: { DISCORD_APPLICATION_ID: string }
-    interaction: { token: string }
-  },
-  pages: Uint8Array[],
-  filenamePrefix: string,
-): Promise<void> {
-  const [firstPage, ...additionalPages] = pages
-  if (!firstPage) return
-
-  await editOriginalInteractionResponseWithFile({
-    applicationId: c.env.DISCORD_APPLICATION_ID,
-    interactionToken: c.interaction.token,
-    filename: `${filenamePrefix}-1.png`,
-    contentType: 'image/png',
-    data: firstPage,
-  })
-
-  for (let index = 0; index < additionalPages.length; index++) {
-    await createInteractionFollowupMessageWithFile({
-      applicationId: c.env.DISCORD_APPLICATION_ID,
-      interactionToken: c.interaction.token,
-      filename: `${filenamePrefix}-${index + 2}.png`,
-      contentType: 'image/png',
-      data: additionalPages[index]!,
-      flags: DISCORD_EPHEMERAL_MESSAGE_FLAG,
-    })
-  }
-}
 
 function buildDemoTournamentLeaderboardImageData(identity: { userId: string, displayName: string, avatarUrl: string } | null): TournamentLeaderboardImageData {
   const minGames = 6
