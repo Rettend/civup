@@ -3,11 +3,13 @@ import type { GameMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
+import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -54,6 +56,7 @@ export interface LobbySnapshot {
   minPlayers: number
   targetSize: number
   draftConfig: Omit<SessionConfig, 'minRole' | 'maxRole'>
+  tournament?: TournamentLobbySnapshot | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
@@ -302,6 +305,12 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     ...snapshot,
     entries,
   }
+}
+
+export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {
+  const tournament = await buildTournamentLobbySnapshot(db, snapshot.id, snapshot.memberPlayerIds)
+  if (!tournament && snapshot.tournament == null) return snapshot
+  return { ...snapshot, tournament }
 }
 
 function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): ActivitySessionDirectoryEntry[] {

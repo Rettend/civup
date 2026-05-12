@@ -71,6 +71,13 @@ export interface LobbySnapshot {
     hiddenDraft: boolean
     duplicateFactions: boolean
   }
+  tournament?: {
+    id: string
+    name: string
+    rematchPolicy: 'allow' | 'warn' | 'block'
+    rematchWarning: string | null
+    configLocked: true
+  } | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
