@@ -26,7 +26,7 @@ import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEph
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
-import { isMatchTournamentLinked, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
+import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, isMatchTournamentLinked, listOpenTournamentSessionIds, refreshTournamentLeaderboard, updateTournamentMatchRoster } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
@@ -448,9 +448,12 @@ export const command_match = factory.command<MatchVar>(
               queueEntries: nextLobbyQueueEntries,
               slots: nextSlots,
             })
+            if (await getTournamentMatchBySessionId(db, nextLobby.id)) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
             const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
             try {
-              const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+              const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries, {
+                reservedSlotLabels: await buildTournamentReservedSlotLabels(db, nextLobby),
+              })
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
                 embeds: renderPayload.embeds,
                 components: renderPayload.components,
@@ -795,6 +798,11 @@ export const command_match = factory.command<MatchVar>(
           const isRankedResult = reportedContext.ranked
           const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
           const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+          if (isTournamentMatch) {
+            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              console.error(`Failed to refresh tournament leaderboard after match ${result.match.id}:`, error)
+            })
+          }
 
           if (result.idempotent) {
             console.log('[idempotency] slash report deduplicated after race', {
@@ -1088,7 +1096,9 @@ async function buildLobbyBumpRenderPayload(
 ): Promise<{ embeds: unknown[], components?: unknown } | { error: string }> {
   if (lobby.status === 'open') {
     const entries = mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(sessionNamespace, lobby))
-    return buildOpenLobbyRenderPayload(kv, lobby, entries)
+    return buildOpenLobbyRenderPayload(kv, lobby, entries, {
+      reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
+    })
   }
 
   if (lobby.status === 'drafting') {

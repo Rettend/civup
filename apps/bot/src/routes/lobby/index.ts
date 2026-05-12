@@ -41,7 +41,7 @@ import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
-import { getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
+import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
 import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
@@ -69,6 +69,17 @@ function lobbySessionMutationOptions(c: Context<Env>, queueEntries?: readonly Qu
     sessionNamespace: c.env.SessionDO,
     queueEntries,
   }
+}
+
+async function buildOpenLobbyRenderPayloadForMessage(
+  db: ReturnType<typeof createDb>,
+  kv: KVNamespace,
+  lobby: LobbyState,
+  entries: (QueueEntry | null)[],
+) {
+  return buildOpenLobbyRenderPayload(kv, lobby, entries, {
+    reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
+  })
 }
 
 async function getLobbyRosterEntriesForRender(
@@ -588,7 +599,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     queueBackgroundTask(c, async () => {
       const currentLobby = updated
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, updated, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, updated, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
@@ -714,7 +725,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     queueBackgroundTask(c, async () => {
       const currentLobby = finalizedLobby
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, finalizedLobby, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, finalizedLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
@@ -977,7 +988,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
@@ -1074,7 +1085,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
@@ -1121,7 +1132,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'strategy must be one of randomize, balance, or shuffle-teams' }, 400)
     }
 
-    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1139,7 +1151,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
       const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
       if (leaderboardMode != null) {
-        const db = createDb(c.env.DB)
         const rows = await db
           .select({
             playerId: playerRatings.playerId,
@@ -1182,7 +1193,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,
@@ -1224,7 +1235,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1278,7 +1290,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
-      const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
         embeds: renderPayload.embeds,
         components: renderPayload.components,

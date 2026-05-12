@@ -19,7 +19,7 @@ import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../servic
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
-import { isMatchTournamentLinked } from '../services/tournament/index.ts'
+import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId } from './match/shared'
 
@@ -159,6 +159,11 @@ export const command_mod = factory.autocomplete<ModVar>(
           const moderation = { actorId, reason }
           const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
           const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+          if (isTournamentMatch) {
+            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              console.error(`Failed to refresh tournament leaderboard after cancelling match ${result.match.id}:`, error)
+            })
+          }
 
           if (existingLobby) {
             try {
@@ -281,6 +286,11 @@ export const command_mod = factory.autocomplete<ModVar>(
             const isRankedMatch = matchContext.ranked
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
             const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after resolving match ${result.match.id}:`, error)
+              })
+            }
 
             try {
               if (!isTournamentMatch && !matchContext.redDeath) {
@@ -553,6 +563,11 @@ export const command_mod = factory.autocomplete<ModVar>(
               return
             }
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after correcting match ${result.match.id}:`, error)
+              })
+            }
 
             try {
               if (!isTournamentMatch && !matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {

@@ -105,14 +105,14 @@ describe('reported match Discord sync', () => {
       await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: 'player-1' })
       await markTournamentMatchDrafting(db, 'session-1', 'match-1')
       await storeMatchMessageMapping(db, 'draft-message', 'match-1')
-      await kv.put('system:channel:draft', 'draft-channel')
+      await kv.put('system:channel:tournament-draft', 'tournament-draft-channel')
       await kv.put('system:channel:tournament-archive', 'tournament-archive-channel')
 
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = input instanceof Request ? input : new Request(input, init)
         calls.push(`${request.method} ${request.url}`)
 
-        if (request.method === 'PATCH' && request.url.includes('/channels/draft-channel/messages/draft-message')) {
+        if (request.method === 'PATCH' && request.url.includes('/channels/tournament-draft-channel/messages/draft-message')) {
           return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
         }
         if (request.method === 'POST' && request.url.includes('/channels/tournament-archive-channel/messages')) {
