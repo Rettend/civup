@@ -239,8 +239,10 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const arrangeTargetTitle = () => isTeamGameMode(lobbyMode()) ? 'Teams' : 'Seat order'
   const randomizeButtonLabel = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
   const randomizeButtonTitle = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
+  const shuffleTeamsButtonLabel = () => lobbyMode() === '1v1' ? 'Randomize First Pick' : 'Shuffle teams'
+  const isTournamentOneVsOneLobby = () => lobbyMode() === '1v1' && currentLobby()?.tournament?.configLocked === true
   const showRandomizeLobbyAction = () => lobbyMode() !== '1v1'
-  const showShuffleTeamsLobbyAction = () => lobbyMode() === '1v1' || isTeamGameMode(lobbyMode())
+  const showShuffleTeamsLobbyAction = () => !isTournamentOneVsOneLobby() && (lobbyMode() === '1v1' || isTeamGameMode(lobbyMode()))
   const showBalanceLobbyAction = () => lobbyMode() !== '1v1'
   const seatCountToggleConfig = () => {
     const lobby = currentLobby()
@@ -493,7 +495,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
         strategy === 'balance'
           ? `${arrangeTargetTitle()} auto-balanced.`
           : strategy === 'shuffle-teams'
-            ? 'Teams shuffled.'
+            ? lobbyMode() === '1v1' ? 'First pick randomized.' : 'Teams shuffled.'
             : `${arrangeTargetTitle()} randomized.`,
       )
     }
@@ -641,6 +643,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     arrangeTargetLabel,
     randomizeButtonLabel,
     randomizeButtonTitle,
+    shuffleTeamsButtonLabel,
     showRandomizeLobbyAction,
     showShuffleTeamsLobbyAction,
     showBalanceLobbyAction,

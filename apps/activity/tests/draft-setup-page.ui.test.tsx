@@ -62,6 +62,48 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
   })
 
+  test('labels normal 1v1 shuffle as first-pick randomization and hides it for tournament lobbies', async () => {
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '1v1',
+        targetSize: 2,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Randomize First Pick' }))
+    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('1v1', 'lobby-1', 'host-1', 'shuffle-teams'))
+
+    cleanup()
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '1v1',
+        targetSize: 2,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+        ],
+        tournament: {
+          id: 'tournament-1',
+          name: 'Test Cup',
+          rematchPolicy: 'warn',
+          rematchWarning: null,
+          configLocked: true,
+        },
+      })}
+      />
+    ))
+
+    expect(screen.queryByRole('button', { name: 'Randomize First Pick' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Shuffle teams' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Start Draft' })).toBeTruthy()
+    cleanup()
+  })
+
   test('uses a constrained desktop shell so the action row stays in view', () => {
     const { container } = render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: '2v2' })} />)
 
@@ -496,9 +538,10 @@ describe('DraftSetupPage UI', () => {
       'Min rank',
       'Max rank',
       'Leaders',
-      'Ban Timer (minutes)',
-      'Pick Timer (minutes)',
+      'Ban Timer',
+      'Pick Timer',
       'Random draft',
+      'Hidden draft',
       'Duplicate leaders',
     ])
     expect(configCard.textContent?.includes('Game Mode')).toBe(false)
