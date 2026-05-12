@@ -55,11 +55,14 @@ export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'archive') return 'Archive'
   if (target === 'commands') return 'Bot Commands'
   if (target === 'civ-leaderboard') return 'Civ Leaderboard'
+  if (target === 'tournament-draft') return 'Tournament Draft'
+  if (target === 'tournament-archive') return 'Tournament Archive'
+  if (target === 'tournament-leaderboard') return 'Tournament Leaderboard'
   return 'Leaderboard'
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'commands') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'commands' || value === 'tournament-draft' || value === 'tournament-archive' || value === 'tournament-leaderboard') return value
   return null
 }
 

@@ -26,6 +26,7 @@ import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEph
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
+import { listOpenTournamentSessionIds, syncTournamentMatchAfterReport } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
@@ -221,7 +222,8 @@ export const command_match = factory.command<MatchVar>(
         }
 
         const db = createDb(c.env.DB)
-        const openLobbies = await getOpenSessionLobbyProjectionsByMode(db, mode)
+        const tournamentSessionIds = await listOpenTournamentSessionIds(db)
+        const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode)).filter(lobby => !tournamentSessionIds.has(lobby.id))
         if (openLobbies.length === 0) {
           if (joinRequest.entries.length > 1) {
             return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -791,6 +793,9 @@ export const command_match = factory.command<MatchVar>(
 
           const lobby = liveLobbyBeforeReport
           const isRankedResult = reportedContext.ranked
+          await syncTournamentMatchAfterReport(db, result.match.id).catch((error) => {
+            console.error(`Failed to sync tournament match after report ${result.match.id}:`, error)
+          })
 
           if (result.idempotent) {
             console.log('[idempotency] slash report deduplicated after race', {

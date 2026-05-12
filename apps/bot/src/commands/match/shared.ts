@@ -14,6 +14,7 @@ import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
+import { listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 
@@ -162,6 +163,7 @@ export async function joinLobbyAndMaybeStartMatch(
     preferredLobbyId?: string
     skipMatchmakingRankGate?: boolean
     liveMatchPlayerIds?: ReadonlySet<string>
+    includeTournamentLobbies?: boolean
   },
 ): Promise<
   | {
@@ -187,8 +189,12 @@ export async function joinLobbyAndMaybeStartMatch(
   const kv = getKvStore(c.env)
   if (!c.env.DB) return { error: 'D1 binding is not configured.' }
   const db = createCivupDb(c.env.DB)
-  const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
+  let openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
     .filter(lobby => lobby.memberPlayerIds.length > 0)
+  if (options?.includeTournamentLobbies !== true) {
+    const tournamentSessionIds = await listOpenTournamentSessionIds(db)
+    openLobbies = openLobbies.filter(lobby => !tournamentSessionIds.has(lobby.id))
+  }
   const currentLobbiesByPlayerId = await getCurrentSessionLobbyProjectionsForPlayers(db, requestedEntries.map(entry => entry.playerId))
   let currentOpenLobby: LobbyState | null = null
 

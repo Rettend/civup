@@ -11,6 +11,7 @@ import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handle
 import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
 import { handleSetup } from './setup.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
+import { handleTournamentCreate, handleTournamentCut, handleTournamentImport, handleTournamentStatus, modal_admin_tournament_create } from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
   new Command('admin', 'Admin commands for CivUp')
@@ -65,6 +66,14 @@ export const command_admin = factory.command<AdminVar>(
         ),
         new SubCommand('sync', 'Compute and apply current ranked role assignments'),
       ),
+      new SubGroup('tournament', 'Tournament management').options(
+        new SubCommand('create', 'Create a tournament'),
+        new SubCommand('import', 'Import tournament players from CSV').options(
+          new Option('csv', 'CSV file with seed, display_name, confirmed, discord_user_id', 'Attachment').required(),
+        ),
+        new SubCommand('cut', 'Lock qualifiers and create top cut pairings'),
+        new SubCommand('status', 'Show active tournament status'),
+      ),
       new SubCommand('setup', 'View or toggle system channels').options(
         new Option('target', 'Channel role to configure').choices(
           { name: 'Draft', value: 'draft' },
@@ -72,6 +81,9 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Bot Commands', value: 'commands' },
           { name: 'Leaderboard', value: 'leaderboard' },
           { name: 'Civ Leaderboard', value: 'civ-leaderboard' },
+          { name: 'Tournament Draft', value: 'tournament-draft' },
+          { name: 'Tournament Archive', value: 'tournament-archive' },
+          { name: 'Tournament Leaderboard', value: 'tournament-leaderboard' },
         ),
       ),
       new SubCommand('config', 'View or update configuration').options(
@@ -103,6 +115,10 @@ export const command_admin = factory.command<AdminVar>(
     if (c.sub.string === 'ranked set') return handleRankedRolesSet(c)
     if (c.sub.string === 'ranked unset') return handleRankedRolesUnset(c)
     if (c.sub.string === 'ranked sync') return handleRankedSync(c)
+    if (c.sub.string === 'tournament create') return handleTournamentCreate(c)
+    if (c.sub.string === 'tournament import') return handleTournamentImport(c)
+    if (c.sub.string === 'tournament cut') return handleTournamentCut(c)
+    if (c.sub.string === 'tournament status') return handleTournamentStatus(c)
     if (c.sub.string === 'setup') return handleSetup(c)
     if (c.sub.string === 'config') return handleConfig(c)
     if (c.sub.string === 'export') return handleExport(c)
@@ -114,4 +130,4 @@ export const command_admin = factory.command<AdminVar>(
   },
 )
 
-export { component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response }
+export { component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response, modal_admin_tournament_create }

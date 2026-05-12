@@ -114,7 +114,7 @@ describe('civ leaderboard command payload', () => {
     const payload = await buildCivLeaderboardCommandPayload(kv)
 
     expect(payload.embeds).toBeUndefined()
-    expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.')
+    expect(payload.content).toBe('Civ leaderboard snapshot is not available yet.')
   })
 
   test('does not show partial aggregate snapshot before historical backfill', async () => {
@@ -130,7 +130,7 @@ describe('civ leaderboard command payload', () => {
       const payload = await buildCivLeaderboardCommandPayload(kv)
 
       expect(payload.embeds).toBeUndefined()
-      expect(payload.content).toBe('Civ leaderboard snapshot is not available yet. Run the PPL civ leaderboard backfill script first.')
+      expect(payload.content).toBe('Civ leaderboard snapshot is not available yet.')
     }
     finally {
       sqlite.close()

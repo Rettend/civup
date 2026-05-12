@@ -2,6 +2,7 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource } from '../../services/lobby/index.ts'
+import type { LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
@@ -40,6 +41,7 @@ import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
+import { getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
 import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
@@ -151,7 +153,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
     if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
 
-    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!lobby || lobby.mode !== mode || lobby.status !== 'open') {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -328,6 +331,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'No lobby for this mode' }, 404)
     }
     let lobby = resolvedLobby
+    const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
 
     const parsedMinRole = Object.prototype.hasOwnProperty.call(body, 'minRole')
       ? parseLobbyMinRole(minRoleRaw)
@@ -446,6 +450,38 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
     }
 
+    if (tournamentMatch) {
+      const lockError = getTournamentLockedConfigError(lobby, {
+        hasTargetSize,
+        targetSize: parsedTargetSize,
+        hasLeaderPoolSize,
+        leaderPoolSize: parsedLeaderPoolSize ?? null,
+        hasMapVoteEnabled,
+        mapVoteEnabled: parsedMapVoteEnabled ?? false,
+        hasBlindBans,
+        blindBans: parsedBlindBans ?? true,
+        hasSimultaneousPick,
+        simultaneousPick: parsedSimultaneousPick ?? false,
+        hasPermanentAlly,
+        permanentAlly: parsedPermanentAlly ?? false,
+        hasRedDeath,
+        redDeath: parsedRedDeath ?? false,
+        hasDealOptionsSize,
+        dealOptionsSize: parsedDealOptionsSize ?? null,
+        hasRandomDraft,
+        randomDraft: parsedRandomDraft ?? false,
+        hasHiddenDraft,
+        hiddenDraft: parsedHiddenDraft ?? false,
+        hasDuplicateFactions,
+        duplicateFactions: parsedDuplicateFactions ?? false,
+        hasMinRole,
+        minRole: normalizedMinRole,
+        hasMaxRole,
+        maxRole: normalizedMaxRole,
+      })
+      if (lockError) return c.json({ error: lockError }, 400)
+    }
+
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
       return c.json({ error: 'This lobby is missing guild context, so min rank cannot be set.' }, 400)
     }
@@ -499,7 +535,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (gateError) return c.json({ error: gateError }, 400)
     }
 
-    const nextDraftConfig = normalizeDraftConfigForMode(mode, {
+    const baseDraftConfig = normalizeDraftConfigForMode(mode, {
       banTimerSeconds: resolvedBanTimerSeconds,
       pickTimerSeconds: resolvedPickTimerSeconds,
       leaderPoolSize: normalizedLeaderPoolSize,
@@ -514,6 +550,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       hiddenDraft: normalizedHiddenDraft,
       duplicateFactions: normalizedDuplicateFactions,
     }, requestedTargetSize)
+    const nextDraftConfig = lockTournamentDraftConfig(baseDraftConfig, tournamentMatch != null)
 
     if (!sameLobbySlots(slots, lobby.slots)) {
       const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby, lobbySessionMutationOptions(c))
@@ -599,7 +636,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'nextMode must be a supported lobby mode' }, 400)
     }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -613,6 +651,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
     }
 
+    const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
+    if (tournamentMatch) {
+      return c.json({ error: 'Tournament lobbies are fixed at 1v1.' }, 403)
+    }
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const sourceLobby = lobby
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, sourceLobby)
@@ -732,7 +774,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid target slot index' }, 400)
     }
 
-    const resolvedLobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -751,13 +794,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'You can only move yourself' }, 403)
     }
 
+    const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     let transferNotice: string | null = null
 
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
     let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentSessionLobbyProjectionsForPlayer>>[number] | null = null
     if (!alreadyInTargetLobby) {
-      const db = createDb(c.env.DB)
       const currentLobbiesForPlayer = await getCurrentSessionLobbyProjectionsForPlayer(db, movingPlayerId, {
         excludeLobbyIds: [lobby.id],
       })
@@ -774,6 +817,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         }
         transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
       }
+    }
+
+    if (tournamentMatch && movingPlayerId !== auth.identity.userId) {
+      return c.json({ error: 'Tournament lobbies only allow players to join themselves.' }, 403)
+    }
+    if (tournamentMatch && !alreadyInTargetLobby) {
+      const validation = await validateTournamentLobbyJoin(db, lobby, {
+        userId: auth.identity.userId,
+        displayName: auth.identity.displayName?.trim() || auth.identity.userId,
+        avatarUrl: auth.identity.avatarUrl,
+      })
+      if (!validation.ok) return c.json({ error: validation.error }, 403)
     }
 
     let lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
@@ -917,6 +972,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
 
+    if (tournamentMatch) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
+
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
@@ -968,7 +1025,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
-    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1011,6 +1069,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots,
       balanceSnapshot,
     })
+    if (await getTournamentMatchBySessionId(db, nextLobby.id)) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
@@ -1307,9 +1366,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       const { matchId, seats } = started
       const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobby)
-      const db = createDb(c.env.DB)
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
+      await markTournamentMatchDrafting(db, lobby.id, matchId)
 
       if (!started.idempotent && seats.length > 0) {
         queueBackgroundTask(c, async () => {
@@ -1430,6 +1489,75 @@ async function buildStoredLobbySnapshot(
 
 function isSteamLobbyEditableStatus(status: 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'): boolean {
   return status === 'open' || status === 'drafting' || status === 'active'
+}
+
+function lockTournamentDraftConfig(config: LobbyDraftConfig, locked: boolean): LobbyDraftConfig {
+  if (!locked) return config
+  return {
+    ...config,
+    leaderPoolSize: null,
+    mapVoteEnabled: false,
+    blindBans: true,
+    simultaneousPick: false,
+    permanentAlly: false,
+    redDeath: false,
+    dealOptionsSize: null,
+    randomDraft: false,
+    hiddenDraft: false,
+    duplicateFactions: false,
+  }
+}
+
+function getTournamentLockedConfigError(
+  lobby: LobbyState,
+  request: {
+    hasTargetSize: boolean
+    targetSize: number | undefined
+    hasLeaderPoolSize: boolean
+    leaderPoolSize: number | null
+    hasMapVoteEnabled: boolean
+    mapVoteEnabled: boolean
+    hasBlindBans: boolean
+    blindBans: boolean
+    hasSimultaneousPick: boolean
+    simultaneousPick: boolean
+    hasPermanentAlly: boolean
+    permanentAlly: boolean
+    hasRedDeath: boolean
+    redDeath: boolean
+    hasDealOptionsSize: boolean
+    dealOptionsSize: number | null
+    hasRandomDraft: boolean
+    randomDraft: boolean
+    hasHiddenDraft: boolean
+    hiddenDraft: boolean
+    hasDuplicateFactions: boolean
+    duplicateFactions: boolean
+    hasMinRole: boolean
+    minRole: LobbyState['minRole']
+    hasMaxRole: boolean
+    maxRole: LobbyState['maxRole']
+  },
+): string | null {
+  if (lobby.mode !== '1v1') return 'Tournament lobbies are fixed at 1v1.'
+  if (request.hasTargetSize && request.targetSize !== 2) return 'Tournament lobbies are fixed at 1v1.'
+  if (isLockedValueChange(request.hasLeaderPoolSize, request.leaderPoolSize, lobby.draftConfig.leaderPoolSize, null)) return 'Tournament leader pool is fixed.'
+  if (isLockedValueChange(request.hasMapVoteEnabled, request.mapVoteEnabled, lobby.draftConfig.mapVoteEnabled, false)) return 'Tournament lobbies do not use map vote.'
+  if (isLockedValueChange(request.hasBlindBans, request.blindBans, lobby.draftConfig.blindBans, true)) return 'Tournament blind-ban settings are locked.'
+  if (isLockedValueChange(request.hasSimultaneousPick, request.simultaneousPick, lobby.draftConfig.simultaneousPick, false)) return 'Tournament pick settings are locked.'
+  if (isLockedValueChange(request.hasPermanentAlly, request.permanentAlly, lobby.draftConfig.permanentAlly, false)) return 'Tournament ally settings are locked.'
+  if (isLockedValueChange(request.hasRedDeath, request.redDeath, lobby.draftConfig.redDeath, false)) return 'Tournament lobbies cannot enable Red Death.'
+  if (isLockedValueChange(request.hasDealOptionsSize, request.dealOptionsSize, lobby.draftConfig.dealOptionsSize, null)) return 'Tournament Red Death settings are locked.'
+  if (isLockedValueChange(request.hasRandomDraft, request.randomDraft, lobby.draftConfig.randomDraft, false)) return 'Tournament draft visibility settings are locked.'
+  if (isLockedValueChange(request.hasHiddenDraft, request.hiddenDraft, lobby.draftConfig.hiddenDraft, false)) return 'Tournament draft visibility settings are locked.'
+  if (isLockedValueChange(request.hasDuplicateFactions, request.duplicateFactions, lobby.draftConfig.duplicateFactions, false)) return 'Tournament duplicate leader settings are locked.'
+  if (request.hasMinRole && request.minRole !== lobby.minRole) return 'Tournament rank limits are locked.'
+  if (request.hasMaxRole && request.maxRole !== lobby.maxRole) return 'Tournament rank limits are locked.'
+  return null
+}
+
+function isLockedValueChange<T>(hasValue: boolean, requested: T, current: T, locked: T): boolean {
+  return hasValue && requested !== current && requested !== locked
 }
 
 function getLeaderPoolSizeError(

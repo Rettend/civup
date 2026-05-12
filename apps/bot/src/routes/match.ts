@@ -11,6 +11,7 @@ import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
+import { syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
@@ -95,6 +96,9 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
     const isRankedResult = reportedContext.ranked
+    await syncTournamentMatchAfterReport(db, result.match.id).catch((error) => {
+      console.error(`Failed to sync tournament match after activity report ${result.match.id}:`, error)
+    })
 
     if (result.idempotent) {
       console.log('[idempotency] activity report request deduplicated', {
