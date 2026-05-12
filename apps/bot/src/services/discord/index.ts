@@ -17,6 +17,7 @@ export interface DiscordInteractionFilePayload {
   filename: string
   contentType: string
   data: Uint8Array
+  flags?: number
 }
 
 export interface DiscordChannelFilePayload {
@@ -134,6 +135,30 @@ export async function editOriginalInteractionResponseWithFile(payload: DiscordIn
       body: form,
     },
   )
+}
+
+export async function createInteractionFollowupMessageWithFile(payload: DiscordInteractionFilePayload): Promise<DiscordMessageResponse> {
+  const form = new FormData()
+  const messagePayload: Record<string, unknown> = {
+    allowed_mentions: { parse: [] },
+    attachments: [{ id: 0, filename: payload.filename }],
+  }
+  if (payload.content != null) messagePayload.content = payload.content
+  if (payload.flags != null) messagePayload.flags = payload.flags
+
+  form.append('payload_json', JSON.stringify(messagePayload))
+  form.append('files[0]', new Blob([payload.data], { type: payload.contentType }), payload.filename)
+
+  const response = await requestDiscord(
+    'create interaction followup',
+    `https://discord.com/api/v10/webhooks/${payload.applicationId}/${payload.interactionToken}`,
+    {
+      method: 'POST',
+      body: form,
+    },
+  )
+
+  return response.json<DiscordMessageResponse>()
 }
 
 export async function createInteractionFollowupMessage(payload: DiscordInteractionFollowupPayload): Promise<DiscordMessageResponse> {
