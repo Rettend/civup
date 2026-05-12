@@ -1,14 +1,15 @@
 import type { LobbyState } from '../../src/services/lobby/index.ts'
 import type { TournamentStage } from '../../src/services/tournament/index.ts'
-import { describe, expect, test } from 'bun:test'
-import { matchCivStatContributions, matchParticipants, matches, playerRatingEvents, playerRatings, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { matchCivStatContributions, matches, matchParticipants, playerRatingEvents, playerRatings, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
-import { eq } from 'drizzle-orm'
+import { describe, expect, test } from 'bun:test'
+import { and, eq } from 'drizzle-orm'
 import { backfillCivLeaderboardStatsFromHistory } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { cancelMatchByModerator, recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng, renderTournamentResultPng } from '../../src/services/tournament/image.ts'
 import {
-  buildTournamentLobbySnapshot,
   buildTournamentLeaderboardImageData,
+  buildTournamentLobbySnapshot,
   buildTournamentOpponentCardData,
   buildTournamentReservedSlotLabels,
   buildTournamentResultImageData,
@@ -24,7 +25,6 @@ import {
   syncTournamentMatchAfterReport,
   validateTournamentLobbyJoin,
 } from '../../src/services/tournament/index.ts'
-import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng, renderTournamentResultPng } from '../../src/services/tournament/image.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const PLAYER_1 = '1000000000000001'
@@ -187,7 +187,7 @@ describe('tournament service', () => {
       if ('error' in resolved) return
       expect(resolved.recalculatedMatchIds).toEqual([])
 
-      let [link] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, 'tournament-mod'))
+      const [link] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, 'tournament-mod'))
       expect(link?.status).toBe('reported')
       expect(link?.winnerId).toBe(PLAYER_2)
       expect(await db.select().from(playerRatings)).toHaveLength(0)
@@ -300,6 +300,27 @@ describe('tournament service', () => {
       expect(storedPairings).toHaveLength(2)
       const [updatedTournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournament.id))
       expect(updatedTournament?.status).toBe('top_cut')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('rejects persisted unsupported top cut sizes', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Unsupported Cut Cup', createdById: 'admin', minGames: 1, topCut: 4 })
+      await db.update(tournaments).set({ topCut: 6 }).where(eq(tournaments.id, tournament.id))
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+        ['3', 'Carol', PLAYER_3],
+        ['4', 'Dave', PLAYER_4],
+      ]))
+      await reportTournamentMatch(db, tournament.id, 'unsupported-session-1', 'unsupported-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
+      await reportTournamentMatch(db, tournament.id, 'unsupported-session-2', 'unsupported-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
+
+      await expect(createTournamentCut(db, tournament.id)).resolves.toEqual({ error: 'Top cut must be one of: 2, 4, 8.' })
     }
     finally {
       sqlite.close()
@@ -471,6 +492,53 @@ describe('tournament service', () => {
       expect(finals).toHaveLength(1)
       expect(finals[0]?.status).toBe('reported')
       expect(finals[0]?.winnerId).toBe(PLAYER_3)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('updates an unstarted downstream pairing after a top-cut result correction', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Corrected Cup', createdById: 'admin', minGames: 1, topCut: 4 })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+        ['3', 'Carol', PLAYER_3],
+        ['4', 'Dave', PLAYER_4],
+      ]))
+      await reportTournamentMatch(db, tournament.id, 'correct-qualifier-1', 'correct-qualifier-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
+      await reportTournamentMatch(db, tournament.id, 'correct-qualifier-2', 'correct-qualifier-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
+      await createTournamentCut(db, tournament.id)
+
+      let pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      const semifinals = pairings.filter(pairing => pairing.round === 'semifinal').sort((left, right) => left.seedOne - right.seedOne)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'correct-semi-session-1', 'correct-semi-match-1', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'correct-semi-session-2', 'correct-semi-match-2', PLAYER_3)
+
+      pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      let finals = pairings.filter(pairing => pairing.round === 'final')
+      expect(finals).toHaveLength(1)
+      expect(finals[0]?.playerTwoId).toBe(PLAYER_3)
+
+      await db.update(matchParticipants)
+        .set({ placement: 1 })
+        .where(and(eq(matchParticipants.matchId, 'correct-semi-match-2'), eq(matchParticipants.playerId, PLAYER_2)))
+      await db.update(matchParticipants)
+        .set({ placement: 2 })
+        .where(and(eq(matchParticipants.matchId, 'correct-semi-match-2'), eq(matchParticipants.playerId, PLAYER_3)))
+      await syncTournamentMatchAfterReport(db, 'correct-semi-match-2')
+
+      pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      finals = pairings.filter(pairing => pairing.round === 'final')
+      expect(finals).toHaveLength(1)
+      expect(finals[0]?.status).toBe('scheduled')
+      expect(finals[0]?.sessionId).toBeNull()
+      expect(finals[0]?.seedOne).toBe(1)
+      expect(finals[0]?.playerOneId).toBe(PLAYER_1)
+      expect(finals[0]?.seedTwo).toBe(2)
+      expect(finals[0]?.playerTwoId).toBe(PLAYER_2)
     }
     finally {
       sqlite.close()

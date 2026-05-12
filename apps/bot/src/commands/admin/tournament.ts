@@ -3,7 +3,7 @@ import { createDb } from '@civup/db'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getActiveTournament, importTournamentPlayersCsv, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard, updateTournament } from '../../services/tournament/index.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getActiveTournament, importTournamentPlayersCsv, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -162,6 +162,10 @@ export const modal_admin_tournament_create = factory.modal(
     if (!name) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
 
     const rematchPolicy = normalizeTournamentRematchPolicy(vars.rematch_policy) ?? DEFAULT_TOURNAMENT_REMATCH_POLICY
+    const topCut = normalizeTournamentPositiveInteger(vars.top_cut, 0)
+    if (!isSupportedTournamentTopCut(topCut)) {
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
+    }
     const db = createDb(c.env.DB)
     const existing = await getActiveTournament(db)
     if (existing) {
@@ -172,7 +176,7 @@ export const modal_admin_tournament_create = factory.modal(
       name,
       createdById: actorId,
       minGames: normalizeTournamentPositiveInteger(vars.min_games, DEFAULT_TOURNAMENT_MIN_GAMES),
-      topCut: normalizeTournamentPositiveInteger(vars.top_cut, DEFAULT_TOURNAMENT_TOP_CUT),
+      topCut,
       rematchPolicy,
     })
 
@@ -198,6 +202,10 @@ export const modal_admin_tournament_edit = factory.modal(
     if (!name) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
 
     const rematchPolicy = normalizeTournamentRematchPolicy(vars.rematch_policy) ?? DEFAULT_TOURNAMENT_REMATCH_POLICY
+    const topCut = normalizeTournamentPositiveInteger(vars.top_cut, 0)
+    if (!isSupportedTournamentTopCut(topCut)) {
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
+    }
     const db = createDb(c.env.DB)
     const tournament = await getActiveTournament(db)
     if (!tournament) {
@@ -207,7 +215,7 @@ export const modal_admin_tournament_edit = factory.modal(
     await updateTournament(db, tournament.id, {
       name,
       minGames: normalizeTournamentPositiveInteger(vars.min_games, tournament.minGames),
-      topCut: normalizeTournamentPositiveInteger(vars.top_cut, tournament.topCut),
+      topCut,
       rematchPolicy,
     })
 

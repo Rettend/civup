@@ -154,6 +154,7 @@ export const DEFAULT_TOURNAMENT_MIN_GAMES = 6
 export const DEFAULT_TOURNAMENT_TOP_CUT = 8
 export const DEFAULT_TOURNAMENT_REMATCH_POLICY: TournamentRematchPolicy = 'warn'
 export const TOURNAMENT_SCORING_OPEN_WIN_RATE = 'open_win_rate'
+export const SUPPORTED_TOURNAMENT_TOP_CUTS = [2, 4, 8] as const
 
 const ACTIVE_TOURNAMENT_STATUSES: TournamentStatus[] = ['qualifier', 'qualifier_locked', 'top_cut']
 const ADVANCING_TOP_CUT_ROUNDS = ['quarterfinal', 'semifinal', 'final'] as const
@@ -180,8 +181,13 @@ export function normalizeTournamentPositiveInteger(value: unknown, fallback: num
   return fallback
 }
 
+export function isSupportedTournamentTopCut(value: number): value is typeof SUPPORTED_TOURNAMENT_TOP_CUTS[number] {
+  return (SUPPORTED_TOURNAMENT_TOP_CUTS as readonly number[]).includes(value)
+}
+
 export async function createTournament(db: Database, input: CreateTournamentInput) {
   const now = Date.now()
+  const topCut = input.topCut ?? DEFAULT_TOURNAMENT_TOP_CUT
   const tournament = {
     id: nanoid(10),
     name: input.name.trim(),
@@ -190,7 +196,7 @@ export async function createTournament(db: Database, input: CreateTournamentInpu
     scoring: TOURNAMENT_SCORING_OPEN_WIN_RATE,
     rematchPolicy: input.rematchPolicy ?? DEFAULT_TOURNAMENT_REMATCH_POLICY,
     minGames: input.minGames ?? DEFAULT_TOURNAMENT_MIN_GAMES,
-    topCut: input.topCut ?? DEFAULT_TOURNAMENT_TOP_CUT,
+    topCut: isSupportedTournamentTopCut(topCut) ? topCut : DEFAULT_TOURNAMENT_TOP_CUT,
     roleId: input.roleId?.trim() || null,
     createdById: input.createdById,
     createdAt: now,
@@ -209,7 +215,7 @@ export async function updateTournament(db: Database, tournamentId: string, input
   const set: Record<string, unknown> = { updatedAt: Date.now() }
   if (input.name != null) set.name = input.name
   if (input.minGames != null) set.minGames = input.minGames
-  if (input.topCut != null) set.topCut = input.topCut
+  if (input.topCut != null && isSupportedTournamentTopCut(input.topCut)) set.topCut = input.topCut
   if (input.rematchPolicy != null) set.rematchPolicy = input.rematchPolicy
   await db.update(tournaments).set(set).where(eq(tournaments.id, tournamentId))
 }
@@ -781,6 +787,9 @@ export async function createTournamentCut(db: Database, tournamentId: string): P
   if (tournament.status !== 'qualifier' && tournament.status !== 'qualifier_locked') {
     return { error: `Tournament is already ${tournament.status}.` }
   }
+  if (!isSupportedTournamentTopCut(tournament.topCut)) {
+    return { error: `Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.` }
+  }
 
   const existingPairings = await db
     .select({ id: tournamentCutPairings.id })
@@ -1179,13 +1188,6 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
     return
   }
 
-  const existingNextPairings = await db
-    .select({ id: tournamentCutPairings.id })
-    .from(tournamentCutPairings)
-    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
-    .limit(1)
-  if (existingNextPairings.length > 0) return
-
   const cutSize = await getTournamentCutSize(db, tournamentId)
   const sortedPairings = [...currentPairings].sort((left, right) => compareCutPairingsByBracketPosition(left, right, cutSize))
   const nextPairings: Array<typeof tournamentCutPairings.$inferInsert> = []
@@ -1210,6 +1212,18 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
     })
   }
   if (nextPairings.length === 0) return
+
+  const existingNextPairings = await db
+    .select()
+    .from(tournamentCutPairings)
+    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
+  if (existingNextPairings.length > 0) {
+    const canReplace = existingNextPairings.every(pairing => pairing.status === 'scheduled' && !pairing.sessionId && !pairing.matchId)
+    if (!canReplace) return
+    await db
+      .delete(tournamentCutPairings)
+      .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
+  }
 
   await db.insert(tournamentCutPairings).values(nextPairings)
   await db.update(tournaments).set({ updatedAt: now }).where(eq(tournaments.id, tournamentId))
