@@ -5,9 +5,9 @@ import { leaderboardMessageStates, matchParticipants, players, tournamentCutPair
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { Embed } from 'discord-hono'
-import { createChannelMessageWithFile, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
+import { createChannelMessageWithFile, deleteChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
-import { renderTournamentLeaderboardPng } from './image.ts'
+import { renderTournamentLeaderboardPngPages } from './image.ts'
 
 export type TournamentRematchPolicy = 'allow' | 'warn' | 'block'
 export type TournamentStatus = 'qualifier' | 'qualifier_locked' | 'top_cut' | 'completed' | 'cancelled'
@@ -897,40 +897,22 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
     : []
   const imageData = await buildTournamentLeaderboardImageData(db, tournament.id, standings, pairings)
   if (!imageData) return false
-  const png = await renderTournamentLeaderboardPng(imageData)
-  const scope = 'tournament:active'
-  const [existing] = await db
-    .select()
-    .from(leaderboardMessageStates)
-    .where(eq(leaderboardMessageStates.scope, scope))
-    .limit(1)
-
-  if (existing?.channelId === channelId) {
-    try {
-      await editChannelMessageWithFile({
-        token,
-        channelId,
-        messageId: existing.messageId,
-        filename: 'tournament-leaderboard.png',
-        contentType: 'image/png',
-        data: png,
-      })
-      await upsertTournamentLeaderboardMessageState(db, scope, channelId, existing.messageId)
-      return true
-    }
-    catch (error) {
-      if (!isDiscordApiError(error, 404)) throw error
-    }
+  const images = await renderTournamentLeaderboardPngPages(imageData)
+  const scopes = getTournamentLeaderboardPageScopes()
+  for (let index = 0; index < images.length; index++) {
+    await upsertTournamentLeaderboardPageMessage(db, {
+      token,
+      channelId,
+      scope: scopes[index]!,
+      filename: `tournament-leaderboard-${index + 1}.png`,
+      data: images[index]!,
+    })
   }
 
-  const created = await createChannelMessageWithFile({
-    token,
-    channelId,
-    filename: 'tournament-leaderboard.png',
-    contentType: 'image/png',
-    data: png,
-  })
-  await upsertTournamentLeaderboardMessageState(db, scope, channelId, created.id)
+  for (let index = images.length; index < scopes.length; index++) {
+    await deleteTournamentLeaderboardPageMessage(db, token, channelId, scopes[index]!)
+  }
+
   return true
 }
 
@@ -956,6 +938,73 @@ async function getTournamentForLeaderboard(db: Database) {
     .orderBy(desc(tournaments.updatedAt))
     .limit(1)
   return completed ?? null
+}
+
+function getTournamentLeaderboardPageScopes(): string[] {
+  return ['tournament:active', 'tournament:active:2', 'tournament:active:3']
+}
+
+async function upsertTournamentLeaderboardPageMessage(
+  db: Database,
+  input: {
+    token: string
+    channelId: string
+    scope: string
+    filename: string
+    data: Uint8Array
+  },
+): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(leaderboardMessageStates)
+    .where(eq(leaderboardMessageStates.scope, input.scope))
+    .limit(1)
+
+  if (existing?.channelId === input.channelId) {
+    try {
+      await editChannelMessageWithFile({
+        token: input.token,
+        channelId: input.channelId,
+        messageId: existing.messageId,
+        filename: input.filename,
+        contentType: 'image/png',
+        data: input.data,
+      })
+      await upsertTournamentLeaderboardMessageState(db, input.scope, input.channelId, existing.messageId)
+      return
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
+  }
+
+  const created = await createChannelMessageWithFile({
+    token: input.token,
+    channelId: input.channelId,
+    filename: input.filename,
+    contentType: 'image/png',
+    data: input.data,
+  })
+  await upsertTournamentLeaderboardMessageState(db, input.scope, input.channelId, created.id)
+}
+
+async function deleteTournamentLeaderboardPageMessage(db: Database, token: string, channelId: string, scope: string): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(leaderboardMessageStates)
+    .where(eq(leaderboardMessageStates.scope, scope))
+    .limit(1)
+  if (!existing) return
+
+  if (existing.channelId === channelId) {
+    try {
+      await deleteChannelMessage(token, channelId, existing.messageId)
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
+  }
+  await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
 }
 
 async function getTournamentPlayerByUserId(db: Database, tournamentId: string, playerId: string) {
