@@ -17,6 +17,7 @@ import {
   createTournamentCut,
   createTournamentMatchLink,
   importTournamentPlayersCsv,
+  leaveTournament,
   markTournamentMatchDrafting,
   resolveTournamentOpenLobbyTarget,
   syncTournamentMatchAfterCancel,
@@ -53,6 +54,34 @@ describe('tournament service', () => {
         { name: 'Alice', playerId: PLAYER_1, seed: 1 },
         { name: 'Bob', playerId: null, seed: 2 },
       ])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('left players cannot create or join tournament lobbies', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Leave Cup', createdById: 'admin' })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+      ]))
+
+      const leaveResult = await leaveTournament(db, tournament.id, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
+      expect(leaveResult).toEqual({ ok: true })
+
+      const target = await resolveTournamentOpenLobbyTarget(db, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
+      expect(target).toEqual({ error: 'You have left this tournament.' })
+
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'qualifier-session-1', hostId: PLAYER_2 })
+      const join = await validateTournamentLobbyJoin(db, buildLobby('qualifier-session-1', [PLAYER_2, null]), {
+        userId: PLAYER_1,
+        displayName: 'Alice',
+        avatarUrl: null,
+      })
+      expect(join).toEqual({ ok: false, error: 'You have left this tournament.' })
     }
     finally {
       sqlite.close()
@@ -332,7 +361,7 @@ describe('tournament service', () => {
         displayName: 'Bob',
         avatarUrl: null,
       })
-      expect(unpairedJoin).toEqual({ ok: false, error: 'This top-cut lobby is reserved for its paired players.' })
+      expect(unpairedJoin).toEqual({ ok: false, error: 'This playoff lobby is reserved for its paired players.' })
 
       const existingTarget = await resolveTournamentOpenLobbyTarget(db, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
       expect('error' in existingTarget).toBe(false)

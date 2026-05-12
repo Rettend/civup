@@ -200,6 +200,44 @@ export async function createTournament(db: Database, input: CreateTournamentInpu
   return tournament
 }
 
+export async function updateTournament(db: Database, tournamentId: string, input: {
+  name?: string
+  minGames?: number
+  topCut?: number
+  rematchPolicy?: TournamentRematchPolicy
+}): Promise<void> {
+  const set: Record<string, unknown> = { updatedAt: Date.now() }
+  if (input.name != null) set.name = input.name
+  if (input.minGames != null) set.minGames = input.minGames
+  if (input.topCut != null) set.topCut = input.topCut
+  if (input.rematchPolicy != null) set.rematchPolicy = input.rematchPolicy
+  await db.update(tournaments).set(set).where(eq(tournaments.id, tournamentId))
+}
+
+export async function leaveTournament(
+  db: Database,
+  tournamentId: string,
+  identity: TournamentIdentity,
+): Promise<{ ok: true } | { error: string }> {
+  const tournament = await getTournamentById(db, tournamentId)
+  if (!tournament) return { error: 'Tournament not found.' }
+  if (tournament.status !== 'qualifier') return { error: 'You can only leave during the qualifier phase.' }
+
+  const [player] = await db
+    .select()
+    .from(tournamentPlayers)
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
+    .limit(1)
+  if (!player) return { error: 'You are not linked as a player in this tournament.' }
+  if (!player.confirmed) return { error: 'You have already left this tournament.' }
+
+  await db
+    .update(tournamentPlayers)
+    .set({ confirmed: false, updatedAt: Date.now() })
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
+  return { ok: true }
+}
+
 export async function getActiveTournament(db: Database) {
   const [tournament] = await db
     .select()
@@ -318,6 +356,7 @@ export async function resolveTournamentPlayerForIdentity(
     ))
     .limit(1)
   if (linked) {
+    if (!linked.confirmed) return { ok: false, error: 'You have left this tournament.' }
     await upsertTournamentPlayerIdentity(db, identity)
     await db
       .update(tournamentPlayers)
@@ -505,7 +544,7 @@ export async function resolveTournamentOpenLobbyTarget(
   }
 
   const pairing = await getOpenTournamentCutPairingForPlayer(db, tournament.id, identity.userId)
-  if (!pairing) return { error: 'No open top-cut pairing found for you.' }
+  if (!pairing) return { error: 'No open playoff pairing found for you.' }
 
   const opponentId = pairing.playerOneId === identity.userId ? pairing.playerTwoId : pairing.playerOneId
   const opponent = opponentId ? await getTournamentPlayerByUserId(db, tournament.id, opponentId) : null
@@ -595,10 +634,10 @@ export async function validateTournamentLobbyJoin(
 
   if (tournament.status === 'top_cut') {
     const pairing = await getTournamentCutPairingBySessionId(db, lobby.id)
-    if (!pairing) return { ok: false, error: 'This top-cut lobby is missing its pairing.' }
-    if (pairing.status !== 'scheduled' && pairing.status !== 'open') return { ok: false, error: 'This top-cut pairing is not accepting players.' }
+    if (!pairing) return { ok: false, error: 'This playoff lobby is missing its pairing.' }
+    if (pairing.status !== 'scheduled' && pairing.status !== 'open') return { ok: false, error: 'This playoff pairing is not accepting players.' }
     if (identity.userId !== pairing.playerOneId && identity.userId !== pairing.playerTwoId) {
-      return { ok: false, error: 'This top-cut lobby is reserved for its paired players.' }
+      return { ok: false, error: 'This playoff lobby is reserved for its paired players.' }
     }
     const player = await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
     if (!player.ok) return player
@@ -748,13 +787,13 @@ export async function createTournamentCut(db: Database, tournamentId: string): P
     .from(tournamentCutPairings)
     .where(eq(tournamentCutPairings.tournamentId, tournamentId))
     .limit(1)
-  if (existingPairings.length > 0) return { error: 'Top cut pairings already exist for this tournament.' }
+  if (existingPairings.length > 0) return { error: 'Playoff pairings already exist for this tournament.' }
 
   const standings = await buildTournamentStandings(db, tournamentId)
   const qualified = standings.filter(row => row.eligible && row.playerId)
   const actualTopCut = Math.min(tournament.topCut, qualified.length)
   const pairedTopCut = actualTopCut - (actualTopCut % 2)
-  if (pairedTopCut < 2) return { error: 'At least two eligible linked players are required to create top cut pairings.' }
+  if (pairedTopCut < 2) return { error: 'At least two eligible linked players are required to create playoff pairings.' }
 
   const cutRows = qualified.slice(0, pairedTopCut).map((row, index) => ({
     ...row,
@@ -853,15 +892,16 @@ export async function buildTournamentLeaderboardImageData(
 
   const standings = standingsInput ?? await buildTournamentStandings(db, tournament.id)
   const pairingRows = pairingsInput ?? await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+  const sortedPairingRows = [...pairingRows].sort(compareCutPairingsForDisplay)
   const playersById = await getTournamentDisplayPlayersById(db, tournament.id, [
     ...standings.flatMap(row => row.playerId ? [row.playerId] : []),
-    ...pairingRows.flatMap(row => [row.playerOneId, row.playerTwoId, row.winnerId].filter((id): id is string => Boolean(id))),
+    ...sortedPairingRows.flatMap(row => [row.playerOneId, row.playerTwoId, row.winnerId].filter((id): id is string => Boolean(id))),
   ])
   const imageStandings = await Promise.all(standings.map(async row => ({
     ...await toOpponentCardPlayer(db, tournament.id, row),
     eligible: row.eligible,
   })))
-  const championId = pairingRows.find(row => row.round === 'final' && row.status === 'reported' && row.winnerId)?.winnerId ?? null
+  const championId = sortedPairingRows.find(row => row.round === 'final' && row.status === 'reported' && row.winnerId)?.winnerId ?? null
   const championStanding = championId ? standings.find(row => row.playerId === championId) : null
 
   return {
@@ -869,7 +909,7 @@ export async function buildTournamentLeaderboardImageData(
     status: tournament.status as TournamentStatus,
     minGames: tournament.minGames,
     standings: imageStandings,
-    pairings: pairingRows.map(row => ({
+    pairings: sortedPairingRows.map(row => ({
       round: row.round,
       seedOne: row.seedOne,
       seedTwo: row.seedTwo,
@@ -918,43 +958,20 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
     : []
   const imageData = await buildTournamentLeaderboardImageData(db, tournament.id, standings, pairings)
   if (!imageData) return false
-  const png = await renderTournamentLeaderboardPng(imageData)
-  const scope = 'tournament:active'
-  const [existing] = await db
-    .select()
-    .from(leaderboardMessageStates)
-    .where(eq(leaderboardMessageStates.scope, scope))
-    .limit(1)
 
-  if (existing?.channelId === channelId) {
-    try {
-      await editChannelMessageWithFile({
-        token,
-        channelId,
-        messageId: existing.messageId,
-        filename: 'tournament-leaderboard.png',
-        contentType: 'image/png',
-        data: png,
-      })
-      await upsertTournamentLeaderboardMessageState(db, scope, channelId, existing.messageId)
-      await deleteStaleTournamentLeaderboardPageMessages(db, token, channelId)
-      return true
-    }
-    catch (error) {
-      if (!isDiscordApiError(error, 404)) throw error
-    }
+  const hasPairings = pairings.length > 0
+  const standingsData = hasPairings ? { ...imageData, pairings: [], champion: null } : imageData
+  const standingsPng = await renderTournamentLeaderboardPng(standingsData)
+  await upsertLeaderboardMessage(db, token, channelId, 'tournament:active', standingsPng, 'tournament-standings.png')
+
+  if (hasPairings) {
+    const bracketPng = await renderTournamentLeaderboardPng(imageData)
+    await upsertLeaderboardMessage(db, token, channelId, 'tournament:active:bracket', bracketPng, 'tournament-bracket.png')
+  } else {
+    await deleteLeaderboardMessage(db, token, channelId, 'tournament:active:bracket')
   }
 
-  const created = await createChannelMessageWithFile({
-    token,
-    channelId,
-    filename: 'tournament-leaderboard.png',
-    contentType: 'image/png',
-    data: png,
-  })
-  await upsertTournamentLeaderboardMessageState(db, scope, channelId, created.id)
   await deleteStaleTournamentLeaderboardPageMessages(db, token, channelId)
-
   return true
 }
 
@@ -1001,6 +1018,67 @@ async function deleteStaleTournamentLeaderboardPageMessages(db: Database, token:
     }
     await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
   }
+}
+
+async function upsertLeaderboardMessage(
+  db: Database,
+  token: string,
+  channelId: string,
+  scope: string,
+  data: Uint8Array,
+  filename: string,
+): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(leaderboardMessageStates)
+    .where(eq(leaderboardMessageStates.scope, scope))
+    .limit(1)
+
+  if (existing?.channelId === channelId) {
+    try {
+      await editChannelMessageWithFile({
+        token,
+        channelId,
+        messageId: existing.messageId,
+        filename,
+        contentType: 'image/png',
+        data,
+      })
+      await upsertTournamentLeaderboardMessageState(db, scope, channelId, existing.messageId)
+      return
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
+  }
+
+  const created = await createChannelMessageWithFile({
+    token,
+    channelId,
+    filename,
+    contentType: 'image/png',
+    data,
+  })
+  await upsertTournamentLeaderboardMessageState(db, scope, channelId, created.id)
+}
+
+async function deleteLeaderboardMessage(db: Database, token: string, channelId: string, scope: string): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(leaderboardMessageStates)
+    .where(eq(leaderboardMessageStates.scope, scope))
+    .limit(1)
+  if (!existing) return
+
+  if (existing.channelId === channelId) {
+    try {
+      await deleteChannelMessage(token, channelId, existing.messageId)
+    }
+    catch (error) {
+      if (!isDiscordApiError(error, 404)) throw error
+    }
+  }
+  await db.delete(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, scope))
 }
 
 async function getTournamentPlayerByUserId(db: Database, tournamentId: string, playerId: string) {
@@ -1308,7 +1386,7 @@ function buildTournamentLeaderboardEmbed(
   })
 
   const fields: Array<{ name: string, value: string, inline: boolean }> = [
-    { name: tournament.status === 'top_cut' ? 'Top Cut' : 'Standings', value: standingLines.join('\n') || 'No players imported.', inline: false },
+    { name: tournament.status === 'top_cut' ? 'Playoffs' : 'Standings', value: standingLines.join('\n') || 'No players imported.', inline: false },
   ]
 
   const finalPairing = pairings.find(pairing => pairing.round === 'final' && pairing.status === 'reported' && pairing.winnerId)

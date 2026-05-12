@@ -1483,24 +1483,16 @@ function buildRankMatchUpdateLine(
   if (!player.managed) return null
   const previous = player.previousAssignment
   const next = player.assignment
-  const fallbackTier = getLowestRankedRoleTier(config)
-  if (!previous) {
-    if (fallbackTier && competitiveTierRank(next.tier) <= competitiveTierRank(fallbackTier)) return null
-    return `🆕 <@${player.playerId}> qualified for ${formatRankAnnouncementRole(config, next.tier)} after reaching ranked evidence`
-  }
-
-  if (player.pendingDemotion) {
-    return `🛡️ <@${player.playerId}> stays ${formatRankAnnouncementRole(config, player.pendingDemotion.currentTier)} under demotion protection; recalibration target is ${formatRankAnnouncementRole(config, player.pendingDemotion.targetTier)}`
-  }
+  if (!previous || player.pendingDemotion) return null
 
   const previousRank = competitiveTierRank(previous.tier)
   const nextRank = competitiveTierRank(next.tier)
   if (nextRank > previousRank) {
-    return `⬆️ <@${player.playerId}> recalibrated ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
+    return `⬆️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   if (nextRank < previousRank) {
-    return `⬇️ <@${player.playerId}> recalibrated ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)} after demotion protection cleared`
+    return `⬇️ <@${player.playerId}> ${formatRankAnnouncementRole(config, previous.tier)} -> ${formatRankAnnouncementRole(config, next.tier)}`
   }
 
   return null

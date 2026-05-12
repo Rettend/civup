@@ -719,7 +719,7 @@ describe('ranked role sync service', () => {
       playerIds: [playerIdFor('ffa', 1), playerIdFor('ffa', 2), playerIdFor('ffa', 8)],
     })
 
-    expect(lines).toHaveLength(3)
+    expect(lines).toHaveLength(1)
     expect(lines[0]).toContain('⬆️')
     expect(lines[0]).toContain('<@&11111111111111111> -> <@&33333333333333333>')
 
