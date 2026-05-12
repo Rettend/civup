@@ -1,18 +1,21 @@
 import type { QueueEntry } from '@civup/game'
+import type { TournamentOpenLobbyTarget, TournamentResultImageData } from '../services/tournament/index.ts'
 import { createDb } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
 import { lobbyOpenEmbed } from '../embeds/match.ts'
 import { ephemeralResponseEmbed, type EphemeralResponseTone } from '../embeds/response.ts'
 import { storeActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { createChannelMessage, deleteChannelMessage } from '../services/discord/index.ts'
+import { createChannelMessage, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { createLobby, mapLobbySlotsToEntries, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
-import { buildTournamentStandings, createTournamentMatchLink, getActiveQualifierTournament, getActiveTournament, resolveTournamentPlayerForIdentity } from '../services/tournament/index.ts'
+import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
+import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng, renderTournamentResultPng } from '../services/tournament/image.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
 import { factory } from '../setup.ts'
 
@@ -29,6 +32,7 @@ export const command_tournament = factory.command<TournamentVar>(
     ),
     new SubCommand('standings', 'Show active tournament standings'),
     new SubCommand('opponents', 'Show recommended tournament opponents'),
+    new SubCommand('demo-result', 'Preview a demo tournament result image'),
   ),
   async (c) => {
     switch (c.sub.string) {
@@ -95,18 +99,59 @@ export const command_tournament = factory.command<TournamentVar>(
             return
           }
           const standings = await buildTournamentStandings(db, tournament.id)
-          const lines = standings.slice(0, 15).map((row, index) => {
-            const record = `${row.wins}-${row.losses}`
-            const games = `${row.games}/${tournament.minGames}`
-            return `${index + 1}. ${row.displayName} - ${record} (${games})${row.eligible ? '' : ' pending'}`
+          const data = await buildTournamentLeaderboardImageData(db, tournament.id, standings)
+          if (!data) {
+            await sendTransientEphemeralResponse(c, 'Could not build tournament standings.', 'error')
+            return
+          }
+          const png = await renderTournamentLeaderboardPng(data)
+          await editOriginalInteractionResponseWithFile({
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+            interactionToken: c.interaction.token,
+            filename: 'tournament-standings.png',
+            contentType: 'image/png',
+            data: png,
           })
-          await sendEphemeralResponse(c, `**${tournament.name} standings**\n${lines.join('\n') || 'No players imported yet.'}`, 'info')
         })
       }
 
       case 'opponents': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, '`/tournament opponents` will use the image renderer in the next implementation slice.', 'info')
+          const identity = getIdentity(c)
+          if (!identity) {
+            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+            return
+          }
+
+          const db = createDb(c.env.DB)
+          const data = await buildTournamentOpponentCardData(db, identity)
+          if ('error' in data) {
+            await sendTransientEphemeralResponse(c, data.error, 'error')
+            return
+          }
+
+          const png = await renderTournamentOpponentsPng(data)
+          await editOriginalInteractionResponseWithFile({
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+            interactionToken: c.interaction.token,
+            filename: 'tournament-opponents.png',
+            contentType: 'image/png',
+            data: png,
+          })
+        })
+      }
+
+      case 'demo-result': {
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const identity = getIdentity(c)
+          const png = await renderTournamentResultPng(buildDemoTournamentResultImageData(identity))
+          await editOriginalInteractionResponseWithFile({
+            applicationId: c.env.DISCORD_APPLICATION_ID,
+            interactionToken: c.interaction.token,
+            filename: 'tournament-result-demo.png',
+            contentType: 'image/png',
+            data: png,
+          })
         })
       }
 
@@ -115,6 +160,30 @@ export const command_tournament = factory.command<TournamentVar>(
     }
   },
 )
+
+function buildDemoTournamentResultImageData(identity: { userId: string, displayName: string, avatarUrl: string } | null): TournamentResultImageData {
+  return {
+    tournamentName: 'Tournament Result Preview',
+    stage: 'qualifier',
+    matchLabel: 'Qualifier match - winner reported',
+    players: [
+      {
+        playerId: identity?.userId ?? '1000000000000001',
+        displayName: identity?.displayName ?? 'Rettend',
+        avatarUrl: identity?.avatarUrl ?? null,
+        civId: 'germany-frederick-barbarossa',
+        placement: 1,
+      },
+      {
+        playerId: '1000000000000002',
+        displayName: 'Hman',
+        avatarUrl: null,
+        civId: 'gaul-ambiorix',
+        placement: 2,
+      },
+    ],
+  }
+}
 
 async function createTournamentLobbyForCommand(input: {
   env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
@@ -125,11 +194,16 @@ async function createTournamentLobbyForCommand(input: {
   identity: { userId: string, displayName: string, avatarUrl: string }
 }): Promise<{ ok: true, lobbyId: string } | { error: string, tone: EphemeralResponseTone }> {
   const db = createDb(input.env.DB)
-  const tournament = await getActiveQualifierTournament(db)
-  if (!tournament) return { error: 'No active tournament qualifier is accepting lobbies.', tone: 'error' }
+  const target = await resolveTournamentOpenLobbyTarget(db, input.identity)
+  if ('error' in target) return { error: target.error, tone: 'error' }
 
-  const player = await resolveTournamentPlayerForIdentity(db, tournament.id, input.identity)
-  if (!player.ok) return { error: player.error, tone: 'error' }
+  if (target.existingSessionId) {
+    const existingLobby = await getSessionLobbyProjectionByMatch(db, target.existingSessionId).catch(() => null)
+    if (existingLobby && (existingLobby.status === 'open' || existingLobby.status === 'drafting' || existingLobby.status === 'active')) {
+      return { ok: true, lobbyId: existingLobby.id }
+    }
+    return { error: 'Your top-cut pairing already has a closed lobby. Ask an admin to reset it.', tone: 'error' }
+  }
 
   const createPreflight = await preflightMatchCreateSessionState(db, input.identity.userId)
   if (createPreflight.kind === 'reuse-hosted-open-lobby') {
@@ -147,7 +221,7 @@ async function createTournamentLobbyForCommand(input: {
   const result = await createTournamentLobby({
     env: input.env,
     kv: input.kv,
-    tournamentId: tournament.id,
+    target,
     channelId: input.channelId,
     guildId: input.guildId,
     steamLobbyLink: input.steamLobbyLink,
@@ -160,7 +234,7 @@ async function createTournamentLobbyForCommand(input: {
 async function createTournamentLobby(input: {
   env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
   kv: KVNamespace
-  tournamentId: string
+  target: TournamentOpenLobbyTarget
   channelId: string
   guildId: string | null
   steamLobbyLink: string | null
@@ -174,7 +248,8 @@ async function createTournamentLobby(input: {
     joinedAt: Date.now(),
   }
   const previewSlots = [input.identity.userId, null]
-  const embed = lobbyOpenEmbed(TOURNAMENT_MODE, mapLobbySlotsToEntries(previewSlots, [hostEntry]), previewSlots.length, undefined, undefined, 'live')
+  const reservedLabels = [null, input.target.opponentDisplayName]
+  const embed = lobbyOpenEmbed(TOURNAMENT_MODE, mapLobbySlotsToEntries(previewSlots, [hostEntry]), previewSlots.length, undefined, undefined, 'live', false, reservedLabels)
   let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
 
   try {
@@ -195,15 +270,24 @@ async function createTournamentLobby(input: {
       sessionNamespace: input.env.SessionDO,
     })
     await createTournamentMatchLink(db, {
-      tournamentId: input.tournamentId,
+      tournamentId: input.target.tournamentId,
       sessionId: lobby.id,
       hostId: input.identity.userId,
+      stage: input.target.stage,
+      cutPairingId: input.target.cutPairingId,
+      playerOneId: input.target.playerOneId ?? input.identity.userId,
+      playerTwoId: input.target.playerTwoId,
     })
-    const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, [hostEntry]))
+    const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, [hostEntry]), {
+      reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
+    })
     await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
       embeds: renderPayload.embeds,
       components: renderPayload.components,
     }, { db, sessionNamespace: input.env.SessionDO })
+    await refreshTournamentLeaderboard(db, input.kv, input.env.DISCORD_TOKEN).catch((error) => {
+      console.error('[tournament:create] failed to refresh tournament leaderboard', error)
+    })
     return { ok: true, lobbyId: lobby.id }
   }
   catch (error) {

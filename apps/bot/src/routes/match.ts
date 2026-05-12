@@ -11,7 +11,7 @@ import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
-import { isMatchTournamentLinked } from '../services/tournament/index.ts'
+import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
@@ -98,6 +98,11 @@ export function registerMatchRoutes(app: Hono<Env>) {
     const isRankedResult = reportedContext.ranked
     const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
     const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+    if (isTournamentMatch) {
+      await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+        console.error(`Failed to refresh tournament leaderboard after activity report ${result.match.id}:`, error)
+      })
+    }
 
     if (result.idempotent) {
       console.log('[idempotency] activity report request deduplicated', {
@@ -256,6 +261,11 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (result.previousStatus === 'completed') {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
       const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+      if (isTournamentMatch) {
+        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+          console.error(`Failed to refresh tournament leaderboard after activity scrub ${result.match.id}:`, error)
+        })
+      }
       if (!isTournamentMatch && scrubContext && !scrubContext.redDeath) {
         try {
           await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {

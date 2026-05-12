@@ -4,10 +4,11 @@ import type { LobbyState } from '../lobby/index.ts'
 import type { SystemChannelType } from '../system/channels.ts'
 import type { MatchReporterIdentity, ParticipantRow } from './types.ts'
 import { lobbyResultEmbed } from '../../embeds/match.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../discord/index.ts'
-import { upsertLobbyMessage } from '../lobby/index.ts'
+import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
+import { setLobbyMessage, upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
-import { isMatchTournamentLinked } from '../tournament/index.ts'
+import { buildTournamentResultImageData, isMatchTournamentLinked } from '../tournament/index.ts'
+import { renderTournamentResultPng } from '../tournament/image.ts'
 import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
@@ -65,32 +66,75 @@ export async function syncReportedMatchDiscordMessages({
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
+  const tournamentResultPng = await buildTournamentResultImageData(db, matchId, participants)
+    .then(data => data ? renderTournamentResultPng(data) : null)
+    .catch((error) => {
+      console.error(`Failed to render tournament result image for match ${matchId}:`, error)
+      errors.push(`tournament result image failed: ${formatError(error)}`)
+      return null
+    })
   let draftMessageUpdated = false
   let archiveMessageCreated = false
   let draftUpdateError: unknown = null
 
   if (lobby) {
     try {
-      const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
-        embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
-          mapVoteResult,
-          rankedRoleLines,
-          reporter: resolvedReporter,
-        }, lobby.draftConfig.redDeath)],
-        components: [],
-      }, { db, sessionNamespace })
-      await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+      if (tournamentResultPng) {
+        await editChannelMessageWithFile({
+          token,
+          channelId: lobby.channelId,
+          messageId: lobby.messageId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: tournamentResultPng,
+          components: [],
+        })
+        await storeMatchMessageMapping(db, lobby.messageId, matchId)
+      }
+      else {
+        const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
+          embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
+            mapVoteResult,
+            rankedRoleLines,
+            reporter: resolvedReporter,
+          }, lobby.draftConfig.redDeath)],
+          components: [],
+        }, { db, sessionNamespace })
+        await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+      }
       draftMessageUpdated = true
     }
     catch (error) {
-      console.error(`Failed to update lobby result embed for match ${matchId}:`, error)
-      draftUpdateError = error
+      if (tournamentResultPng && isDiscordApiError(error, 404)) {
+        try {
+          const created = await createChannelMessageWithFile({
+            token,
+            channelId: lobby.channelId,
+            filename: 'tournament-result.png',
+            contentType: 'image/png',
+            data: tournamentResultPng,
+            components: [],
+          })
+          await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id, { db, sessionNamespace })
+          await storeMatchMessageMapping(db, created.id, matchId)
+          draftMessageUpdated = true
+        }
+        catch (recreateError) {
+          console.error(`Failed to recreate tournament result message for match ${matchId}:`, recreateError)
+          draftUpdateError = recreateError
+        }
+      }
+      else {
+        console.error(`Failed to update lobby result ${tournamentResultPng ? 'image' : 'embed'} for match ${matchId}:`, error)
+        draftUpdateError = error
+      }
     }
   }
 
   if (!draftMessageUpdated && draftMessageId) {
-    const draftChannelId = await getSystemChannel(kv, 'draft').catch((error) => {
-      console.error(`Failed to read draft channel for reported match ${matchId}:`, error)
+    const draftChannelType = tournamentResultPng ? 'tournament-draft' : 'draft'
+    const draftChannelId = await getSystemChannel(kv, draftChannelType).catch((error) => {
+      console.error(`Failed to read ${draftChannelType} channel for reported match ${matchId}:`, error)
       draftUpdateError = error
       return null
     })
@@ -98,16 +142,29 @@ export async function syncReportedMatchDiscordMessages({
       let draftRepairError: unknown = null
       for (const messageId of messageIds) {
         try {
-          await editChannelMessage(token, draftChannelId, messageId, {
-            content: null,
-            embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
-              mapVoteResult,
-              rankedRoleLines,
-              reporter: resolvedReporter,
-            }, reportedRedDeath)],
-            components: [],
-            allowed_mentions: { parse: [] },
-          })
+          if (tournamentResultPng) {
+            await editChannelMessageWithFile({
+              token,
+              channelId: draftChannelId,
+              messageId,
+              filename: 'tournament-result.png',
+              contentType: 'image/png',
+              data: tournamentResultPng,
+              components: [],
+            })
+          }
+          else {
+            await editChannelMessage(token, draftChannelId, messageId, {
+              content: null,
+              embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+                mapVoteResult,
+                rankedRoleLines,
+                reporter: resolvedReporter,
+              }, reportedRedDeath)],
+              components: [],
+              allowed_mentions: { parse: [] },
+            })
+          }
           draftMessageUpdated = true
           draftRepairError = null
           break
@@ -141,14 +198,22 @@ export async function syncReportedMatchDiscordMessages({
   if (!shouldCreateArchive) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   try {
-    const archiveMessage = await createChannelMessage(token, archiveChannelId, {
-      embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
-        mapVoteResult,
-        rankedRoleLines,
-        reporter: resolvedReporter,
-      }, reportedRedDeath)],
-      allowed_mentions: { parse: [] },
-    })
+    const archiveMessage = tournamentResultPng
+      ? await createChannelMessageWithFile({
+          token,
+          channelId: archiveChannelId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: tournamentResultPng,
+        })
+      : await createChannelMessage(token, archiveChannelId, {
+          embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+            mapVoteResult,
+            rankedRoleLines,
+            reporter: resolvedReporter,
+          }, reportedRedDeath)],
+          allowed_mentions: { parse: [] },
+        })
     await storeMatchMessageMapping(db, archiveMessage.id, matchId)
     archiveMessageCreated = true
   }

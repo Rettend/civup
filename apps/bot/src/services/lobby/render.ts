@@ -7,11 +7,12 @@ export async function buildOpenLobbyRenderPayload(
   kv: KVNamespace,
   lobby: LobbyState,
   entries: (QueueEntry | null)[],
+  options: { reservedSlotLabels?: (string | null)[] } = {},
 ): Promise<{ embeds: [ReturnType<typeof lobbyOpenEmbed>], components: ReturnType<typeof lobbyComponents> }> {
   const { minRoleId, maxRoleId } = await resolveLobbyRankRoleIds(kv, lobby)
 
   return {
-    embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+    embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, options.reservedSlotLabels)],
     components: lobbyComponents(lobby.mode, lobby.id),
   }
 }
