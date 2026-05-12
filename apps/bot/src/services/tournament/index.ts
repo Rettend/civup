@@ -441,6 +441,18 @@ export async function markTournamentMatchDrafting(db: Database, sessionId: strin
     .where(eq(tournamentCutPairings.sessionId, sessionId))
 }
 
+export async function reopenTournamentMatchAfterDraftCancel(db: Database, sessionId: string): Promise<void> {
+  const now = Date.now()
+  await db
+    .update(tournamentMatches)
+    .set({ matchId: null, status: 'open', winnerId: null, updatedAt: now })
+    .where(eq(tournamentMatches.sessionId, sessionId))
+  await db
+    .update(tournamentCutPairings)
+    .set({ matchId: null, status: 'open', winnerId: null, updatedAt: now })
+    .where(eq(tournamentCutPairings.sessionId, sessionId))
+}
+
 export async function getTournamentMatchBySessionId(db: Database, sessionId: string) {
   const [row] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, sessionId)).limit(1)
   return row ?? null
