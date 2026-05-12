@@ -2,7 +2,8 @@ import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getActiveTournament, importTournamentPlayersCsv, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy } from '../../services/tournament/index.ts'
+import { getKvStore } from '../../services/kv/batch.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getActiveTournament, importTournamentPlayersCsv, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -65,6 +66,10 @@ export function handleTournamentImport(c: AdminCommandContext) {
       return
     }
 
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      console.error('[admin:tournament:import] failed to refresh tournament leaderboard', error)
+    })
+
     await sendEphemeralResponse(
       c,
       `Imported **${result.imported}** players into **${tournament.name}**. Linked: **${result.linked}**. Pending: **${result.pending}**.`,
@@ -107,6 +112,10 @@ export function handleTournamentCut(c: AdminCommandContext) {
       await sendTransientEphemeralResponse(c, result.error, 'error')
       return
     }
+
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      console.error('[admin:tournament:cut] failed to refresh tournament leaderboard', error)
+    })
 
     const cutSizeNote = result.actualTopCut === result.requestedTopCut
       ? `Top cut: **${result.actualTopCut}**`

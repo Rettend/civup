@@ -14,7 +14,7 @@ import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
-import { listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
+import { buildTournamentReservedSlotLabels, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 
@@ -386,7 +386,9 @@ export async function joinLobbyAndMaybeStartMatch(
   })
 
   const slottedEntries = mapLobbySlotsToEntries(finalSlots, finalQueueEntries)
-  const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+  const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries, {
+    reservedSlotLabels: await buildTournamentReservedSlotLabels(db, nextLobby),
+  })
   return {
     stage: 'open',
     lobby: nextLobby,

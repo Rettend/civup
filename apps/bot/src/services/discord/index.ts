@@ -19,6 +19,18 @@ export interface DiscordInteractionFilePayload {
   data: Uint8Array
 }
 
+export interface DiscordChannelFilePayload {
+  token: string
+  channelId: string
+  messageId?: string
+  content?: string | null
+  filename: string
+  contentType: string
+  data: Uint8Array
+  embeds?: unknown[]
+  components?: unknown
+}
+
 export interface DiscordInteractionFollowupPayload {
   applicationId: string
   interactionToken: string
@@ -81,6 +93,22 @@ export async function createChannelMessage(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+    },
+  )
+
+  return response.json<DiscordMessageResponse>()
+}
+
+export async function createChannelMessageWithFile(payload: DiscordChannelFilePayload): Promise<DiscordMessageResponse> {
+  const response = await requestDiscord(
+    'create message',
+    `https://discord.com/api/v10/channels/${payload.channelId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bot ${payload.token}`,
+      },
+      body: buildDiscordFileForm(payload),
     },
   )
 
@@ -164,6 +192,20 @@ export async function editChannelMessage(
   )
 }
 
+export async function editChannelMessageWithFile(payload: DiscordChannelFilePayload & { messageId: string }): Promise<void> {
+  await requestDiscord(
+    'edit message',
+    `https://discord.com/api/v10/channels/${payload.channelId}/messages/${payload.messageId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bot ${payload.token}`,
+      },
+      body: buildDiscordFileForm(payload),
+    },
+  )
+}
+
 export async function deleteChannelMessage(
   token: string,
   channelId: string,
@@ -179,6 +221,21 @@ export async function deleteChannelMessage(
       },
     },
   )
+}
+
+function buildDiscordFileForm(payload: DiscordChannelFilePayload): FormData {
+  const form = new FormData()
+  const messagePayload: Record<string, unknown> = {
+    content: payload.content ?? null,
+    embeds: payload.embeds ?? [],
+    components: payload.components ?? [],
+    allowed_mentions: { parse: [] },
+    attachments: [{ id: 0, filename: payload.filename }],
+  }
+
+  form.append('payload_json', JSON.stringify(messagePayload))
+  form.append('files[0]', new Blob([payload.data], { type: payload.contentType }), payload.filename)
+  return form
 }
 
 export async function editGuildMemberRoles(
