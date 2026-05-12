@@ -1,5 +1,5 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { matchBans, matches, matchParticipants, players, sessionDirectory } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -465,8 +465,8 @@ describe('SessionDO open session commands', () => {
     }
   })
 
-  test('revert lifecycle sync pushes the reopened lobby to selected draft sockets', async () => {
-    const { sqlite } = await createTestDatabase()
+  test('revert lifecycle sync pushes the reopened tournament lobby to selected draft sockets', async () => {
+    const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     const state = createFakeDurableObjectState()
     const room = new SessionDO(state, {
@@ -484,6 +484,7 @@ describe('SessionDO open session commands', () => {
         { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
       ])
       const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      await insertDraftingTournamentLink(db, openLobby.id, started.matchId)
       const draftConnection = createFakeConnection()
       draftConnection.connection.serializeAttachment({ id: 'conn-p2', sessionId: openLobby.id, playerId: 'p2', kind: 'draft', connectedAt: 20 })
       addFakeAcceptedConnection(state, draftConnection.connection)
@@ -499,8 +500,49 @@ describe('SessionDO open session commands', () => {
           id: openLobby.id,
           status: 'open',
           memberPlayerIds: ['p1', 'p2'],
+          tournament: {
+            id: 'tournament-session-test',
+            name: 'Session Test Cup',
+            configLocked: true,
+          },
         },
       })
+      const [tournamentMatch] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, openLobby.id))
+      expect(tournamentMatch).toMatchObject({ status: 'open', matchId: null, winnerId: null })
+      const [cutPairing] = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.sessionId, openLobby.id))
+      expect(cutPairing).toMatchObject({ status: 'open', matchId: null, winnerId: null })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('timeout lifecycle sync reopens tournament match state', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: createTestKv(),
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      await insertDraftingTournamentLink(db, openLobby.id, started.matchId)
+
+      await (room as any).syncDraftRuntimeLifecyclePayload(buildCancelledPayload(openLobby.id, started.seats, 'timeout'), 'test-timeout')
+
+      expect(await getSessionRecordBody(room)).toMatchObject({ phase: 'open', matchId: null })
+      const [tournamentMatch] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, openLobby.id))
+      expect(tournamentMatch).toMatchObject({ status: 'open', matchId: null, winnerId: null })
+      const [cutPairing] = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.sessionId, openLobby.id))
+      expect(cutPairing).toMatchObject({ status: 'open', matchId: null, winnerId: null })
     }
     finally {
       sqlite.close()
@@ -1387,6 +1429,51 @@ async function getSessionRecordBody(room: SessionDO): Promise<any> {
   expect(response.status).toBe(200)
   const body = await response.json() as any
   return body.record
+}
+
+async function insertDraftingTournamentLink(db: any, sessionId: string, matchId: string): Promise<void> {
+  const now = Date.now()
+  await db.insert(tournaments).values({
+    id: 'tournament-session-test',
+    name: 'Session Test Cup',
+    mode: '1v1',
+    status: 'top_cut',
+    scoring: 'open_win_rate',
+    rematchPolicy: 'warn',
+    minGames: 6,
+    topCut: 8,
+    roleId: null,
+    createdById: 'admin',
+    createdAt: now,
+    updatedAt: now,
+  })
+  await db.insert(tournamentMatches).values({
+    sessionId,
+    tournamentId: 'tournament-session-test',
+    matchId,
+    stage: 'semifinal',
+    status: 'drafting',
+    playerOneId: null,
+    playerTwoId: null,
+    winnerId: 'p1',
+    createdAt: now,
+    updatedAt: now,
+  })
+  await db.insert(tournamentCutPairings).values({
+    id: `${sessionId}-pairing`,
+    tournamentId: 'tournament-session-test',
+    round: 'semifinal',
+    seedOne: 1,
+    seedTwo: 2,
+    playerOneId: null,
+    playerTwoId: null,
+    sessionId,
+    matchId,
+    winnerId: 'p1',
+    status: 'drafting',
+    createdAt: now,
+    updatedAt: now,
+  })
 }
 
 function buildCompletePayload(matchId: string, seats: DraftSeat[]) {

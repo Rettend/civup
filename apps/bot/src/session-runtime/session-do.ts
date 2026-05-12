@@ -12,7 +12,7 @@ import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedIn
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
-import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
+import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
@@ -24,7 +24,7 @@ import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../servi
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
-import { isMatchTournamentLinked } from '../services/tournament/index.ts'
+import { isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -1198,6 +1198,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return { ok: false, status: 400, error: cancelled.error }
     }
 
+    if (payload.reason === 'timeout' || payload.reason === 'revert') {
+      await reopenTournamentMatchAfterDraftCancel(db, record.id)
+    }
+
     const transition = transitionRecordForDraftLifecycle(record, payload)
     if ('error' in transition) return transition
     const transitionRecord = withLifecycleEventSequence(transition.record, payload.eventSequence)
@@ -1892,10 +1896,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!this.env.KV) {
       return JSON.stringify({ type: 'error', message: 'Session lobby snapshots are not configured' } satisfies SessionServerMessage)
     }
+    const baseSnapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
+    const snapshot = this.env.DB
+      ? await attachTournamentLobbySnapshot(createDb(this.env.DB), baseSnapshot)
+      : baseSnapshot
     return JSON.stringify({
       type: 'lobby',
       lobbyId: record.id,
-      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+      snapshot,
     } satisfies SessionServerMessage)
   }
 
