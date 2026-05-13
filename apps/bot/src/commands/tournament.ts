@@ -1,6 +1,6 @@
 import type { QueueEntry } from '@civup/game'
 import type { EphemeralResponseTone } from '../embeds/response.ts'
-import type { TournamentLeaderboardImageData, TournamentOpenLobbyTarget } from '../services/tournament/index.ts'
+import type { TournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { createDb } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
@@ -34,7 +34,6 @@ export const command_tournament = factory.command<TournamentVar>(
     new SubCommand('standings', 'Show active tournament standings'),
     new SubCommand('stats', 'Show your tournament stats and recommended opponents'),
     new SubCommand('leave', 'Leave the active tournament'),
-    new SubCommand('demo-result', 'Preview a demo tournament leaderboard image'),
   ),
   async (c) => {
     switch (c.sub.string) {
@@ -143,20 +142,6 @@ export const command_tournament = factory.command<TournamentVar>(
         })
       }
 
-      case 'demo-result': {
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const identity = getIdentity(c)
-          const png = await renderTournamentLeaderboardPng(buildDemoTournamentLeaderboardImageData(identity))
-          await editOriginalInteractionResponseWithFile({
-            applicationId: c.env.DISCORD_APPLICATION_ID,
-            interactionToken: c.interaction.token,
-            filename: 'tournament-leaderboard-demo.png',
-            contentType: 'image/png',
-            data: png,
-          })
-        })
-      }
-
       case 'leave': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const identity = getIdentity(c)
@@ -190,90 +175,6 @@ export const command_tournament = factory.command<TournamentVar>(
     }
   },
 )
-
-function buildDemoTournamentLeaderboardImageData(identity: { userId: string, displayName: string, avatarUrl: string } | null): TournamentLeaderboardImageData {
-  const minGames = 6
-  const self = {
-    playerId: identity?.userId ?? '1000000000000001',
-    displayName: identity?.displayName ?? 'Rettend',
-    avatarUrl: identity?.avatarUrl ?? null,
-  }
-  const demoNames = [
-    'Hman',
-    self.displayName,
-    'SamDaDeal',
-    'Teej',
-    'Kaiserpinguin',
-    'Darth Vaper',
-    'Boris',
-    'Mats',
-    'TGM',
-    'PoppinKream',
-    'Maggie',
-    'Deezy',
-    'Goose',
-    'Helios',
-    'Bonobo',
-    'Cromwell',
-    'Aurelius',
-    'Novar',
-    'Zigzag',
-    'Sparrow',
-    'Nebu',
-    'Juno',
-    'Kublai',
-    'Mina',
-    'Lumen',
-    'Rook',
-    'Caspian',
-    'Nox',
-    'Orion',
-    'Vega',
-    'Atlas',
-    'Midas',
-  ]
-  const topGames = [7, 6, 5, 8, 6, 4, 7, 6]
-  const topLosses = [1, 1, 1, 3, 2, 1, 4, 4]
-  const standings = Array.from({ length: 62 }, (_, index) => {
-    const games = index < topGames.length ? topGames[index]! : 4 + ((index + 2) % 6)
-    const losses = index < topLosses.length ? topLosses[index]! : Math.min(games, 2 + Math.floor(index / 9) + (index % 2))
-    const wins = Math.max(0, games - losses)
-    const displayName = demoNames[index] ?? `Player ${String(index + 1).padStart(2, '0')}`
-    const player = index === 1
-      ? self
-      : { playerId: `100000000000${String(index + 2).padStart(4, '0')}`, displayName, avatarUrl: null }
-
-    return {
-      ...player,
-      seed: index + 1,
-      games,
-      wins,
-      losses,
-      winRate: games > 0 ? wins / games : 0,
-      eligible: games >= minGames,
-    }
-  })
-  const getName = (index: number) => standings[index]?.displayName ?? `Player ${index + 1}`
-
-  const pairings = [
-    { round: 'quarterfinal', seedOne: 3, seedTwo: 6, playerOneDisplayName: getName(2), playerTwoDisplayName: getName(5), winnerDisplayName: getName(2) },
-    { round: 'quarterfinal', seedOne: 1, seedTwo: 5, playerOneDisplayName: getName(0), playerTwoDisplayName: getName(4), winnerDisplayName: getName(0) },
-    { round: 'quarterfinal', seedOne: 7, seedTwo: 2, playerOneDisplayName: getName(6), playerTwoDisplayName: getName(1), winnerDisplayName: getName(1) },
-    { round: 'quarterfinal', seedOne: 4, seedTwo: 8, playerOneDisplayName: getName(3), playerTwoDisplayName: getName(7), winnerDisplayName: getName(3) },
-    { round: 'semifinal', seedOne: 3, seedTwo: 1, playerOneDisplayName: getName(2), playerTwoDisplayName: getName(0), winnerDisplayName: getName(0) },
-    { round: 'semifinal', seedOne: 2, seedTwo: 4, playerOneDisplayName: getName(1), playerTwoDisplayName: getName(3), winnerDisplayName: null },
-    { round: 'final', seedOne: 1, seedTwo: 0, playerOneDisplayName: getName(0), playerTwoDisplayName: 'TBD', winnerDisplayName: null },
-  ]
-
-  return {
-    tournamentName: 'Leaderboard Preview Cup',
-    status: 'top_cut',
-    minGames,
-    standings,
-    pairings,
-    champion: null,
-  }
-}
 
 async function createTournamentLobbyForCommand(input: {
   env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
