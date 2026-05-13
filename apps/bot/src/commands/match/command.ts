@@ -42,6 +42,7 @@ type MatchCreateOutcome
 
 interface CreateMatchLobbyInput {
   env: Env['Bindings']
+  executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   kv: KVNamespace
   mode: GameMode
   steamLobbyLink: string | null
@@ -141,6 +142,7 @@ export const command_match = factory.command<MatchVar>(
         const autoOpenActivity = interactionChannelId === draftChannelId
         const createInput = {
           env: c.env,
+          executionCtx: c.executionCtx,
           kv,
           mode,
           steamLobbyLink,
@@ -995,6 +997,12 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
       || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby, { queueEntries: await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry]) }) }
 
+    const activityOutcome = await createMatchActivityOutcome(input, lobby)
+    if (activityOutcome) {
+      if (!reusedExisting) queueMatchCreateLobbyMessageUpdate(input, lobby, [hostEntry])
+      return activityOutcome
+    }
+
     if (!reusedExisting) {
       const renderPayload = await buildOpenLobbyRenderPayload(
         kv,
@@ -1006,9 +1014,6 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
         components: renderPayload.components,
       }, { db, sessionNamespace: env.SessionDO })
     }
-
-    const activityOutcome = await createMatchActivityOutcome(input, lobby)
-    if (activityOutcome) return activityOutcome
 
     if (reusedExisting) {
       return {
@@ -1056,6 +1061,33 @@ async function createMatchActivityOutcome(input: CreateMatchLobbyInput, lobby: L
     id: lobby.id,
   })
   return { kind: 'activity' }
+}
+
+function queueMatchCreateLobbyMessageUpdate(input: CreateMatchLobbyInput, lobby: LobbyState, fallbackEntries: QueueEntry[]): void {
+  queueBackgroundTask(input.executionCtx, (async () => {
+    const db = createDb(input.env.DB)
+    const renderPayload = await buildOpenLobbyRenderPayload(
+      input.kv,
+      lobby,
+      mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(input.env.SessionDO, lobby, fallbackEntries)),
+    )
+    await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
+    }, { db, sessionNamespace: input.env.SessionDO })
+  })(), '[match:create] failed to update auto-open lobby message')
+}
+
+function queueBackgroundTask(context: { waitUntil: (promise: Promise<unknown>) => void }, task: Promise<unknown>, errorMessage: string): void {
+  const loggedTask = task.catch((error) => {
+    console.error(errorMessage, error)
+  })
+  try {
+    context.waitUntil(loggedTask)
+  }
+  catch {
+    void loggedTask
+  }
 }
 
 export function shouldAutoOpenMatchCreateActivity(

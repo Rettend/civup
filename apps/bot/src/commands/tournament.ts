@@ -24,6 +24,10 @@ interface TournamentVar {
   steam_link?: string
 }
 
+interface BackgroundContext {
+  waitUntil: (promise: Promise<unknown>) => void
+}
+
 const TOURNAMENT_MODE = '1v1'
 
 export const command_tournament = factory.command<TournamentVar>(
@@ -81,7 +85,11 @@ export const command_tournament = factory.command<TournamentVar>(
           })
         }
 
-        const result = await createTournamentLobbyForCommand(createInput)
+        const result = await createTournamentLobbyForCommand({
+          ...createInput,
+          deferPostCreateWork: true,
+          executionCtx: c.executionCtx,
+        })
         if ('error' in result) return immediateEphemeral(c, result.error, result.tone)
 
         await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, {
@@ -183,6 +191,8 @@ async function createTournamentLobbyForCommand(input: {
   guildId: string | null
   steamLobbyLink: string | null
   identity: { userId: string, displayName: string, avatarUrl: string }
+  deferPostCreateWork?: boolean
+  executionCtx?: BackgroundContext
 }): Promise<{ ok: true, lobbyId: string } | { error: string, tone: EphemeralResponseTone }> {
   const db = createDb(input.env.DB)
   const target = await resolveTournamentOpenLobbyTarget(db, input.identity)
@@ -217,6 +227,8 @@ async function createTournamentLobbyForCommand(input: {
     guildId: input.guildId,
     steamLobbyLink: input.steamLobbyLink,
     identity: input.identity,
+    deferPostCreateWork: input.deferPostCreateWork,
+    executionCtx: input.executionCtx,
   })
   if ('error' in result) return { error: result.error, tone: 'error' }
   return result
@@ -230,6 +242,8 @@ async function createTournamentLobby(input: {
   guildId: string | null
   steamLobbyLink: string | null
   identity: { userId: string, displayName: string, avatarUrl: string }
+  deferPostCreateWork?: boolean
+  executionCtx?: BackgroundContext
 }): Promise<{ ok: true, lobbyId: string } | { error: string }> {
   const db = createDb(input.env.DB)
   const hostEntry: QueueEntry = {
@@ -269,16 +283,12 @@ async function createTournamentLobby(input: {
       playerOneId: input.target.playerOneId ?? input.identity.userId,
       playerTwoId: input.target.playerTwoId,
     })
-    const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, [hostEntry]), {
-      reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
-    })
-    await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
-      embeds: renderPayload.embeds,
-      components: renderPayload.components,
-    }, { db, sessionNamespace: input.env.SessionDO })
-    await refreshTournamentLeaderboard(db, input.kv, input.env.DISCORD_TOKEN).catch((error) => {
-      console.error('[tournament:create] failed to refresh tournament leaderboard', error)
-    })
+    if (input.deferPostCreateWork) {
+      queueTournamentCreatePostWork(input, db, lobby, hostEntry)
+    }
+    else {
+      await updateTournamentCreatePostWork(input, db, lobby, hostEntry)
+    }
     return { ok: true, lobbyId: lobby.id }
   }
   catch (error) {
@@ -292,6 +302,49 @@ async function createTournamentLobby(input: {
       }
     }
     return { error: 'Failed to create tournament lobby. Please try again.' }
+  }
+}
+
+async function updateTournamentCreatePostWork(
+  input: {
+    env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
+    kv: KVNamespace
+  },
+  db: ReturnType<typeof createDb>,
+  lobby: Awaited<ReturnType<typeof createLobby>>,
+  hostEntry: QueueEntry,
+): Promise<void> {
+  const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, [hostEntry]), {
+    reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
+  })
+  await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
+    embeds: renderPayload.embeds,
+    components: renderPayload.components,
+  }, { db, sessionNamespace: input.env.SessionDO })
+}
+
+function queueTournamentCreatePostWork(
+  input: {
+    env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
+    kv: KVNamespace
+    executionCtx?: BackgroundContext
+  },
+  db: ReturnType<typeof createDb>,
+  lobby: Awaited<ReturnType<typeof createLobby>>,
+  hostEntry: QueueEntry,
+): void {
+  queueBackgroundTask(input.executionCtx, updateTournamentCreatePostWork(input, db, lobby, hostEntry), '[tournament:create] failed to finish auto-open post-create work')
+}
+
+function queueBackgroundTask(context: BackgroundContext | undefined, task: Promise<unknown>, errorMessage: string): void {
+  const loggedTask = task.catch((error) => {
+    console.error(errorMessage, error)
+  })
+  try {
+    context?.waitUntil(loggedTask)
+  }
+  catch {
+    void loggedTask
   }
 }
 
