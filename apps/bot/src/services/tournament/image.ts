@@ -376,7 +376,7 @@ function renderStandingStyleRow(
   const metricOffset = isCompact ? 96 : 112
   const percentOffset = isCompact ? 20 : 24
   const metricFont = isCompact ? 20 : 24
-  const nameMaxWidth = width - nameX - metricOffset - 24
+  const nameMaxWidth = width - nameX - metricOffset - (isCompact ? 24 : 72)
   const rankColor = highlighted ? COLORS.accent : COLORS.muted
   const fill = highlighted
     ? 'rgba(200,170,110,0.13)'
