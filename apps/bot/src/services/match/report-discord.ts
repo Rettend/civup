@@ -66,13 +66,21 @@ export async function syncReportedMatchDiscordMessages({
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
-  const tournamentResultPng = await buildTournamentResultImageData(db, matchId, participants)
-    .then(data => data ? renderTournamentResultPng(data) : null)
-    .catch((error) => {
+  const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+  let tournamentResultPng: Uint8Array | null = null
+  let tournamentImageFailed = false
+  if (tournamentLinked) {
+    try {
+      const tournamentResultData = await buildTournamentResultImageData(db, matchId, participants)
+      if (!tournamentResultData) throw new Error('Tournament result data was not available')
+      tournamentResultPng = await renderTournamentResultPng(tournamentResultData)
+    }
+    catch (error) {
+      tournamentImageFailed = true
       console.error(`Failed to render tournament result image for match ${matchId}:`, error)
       errors.push(`tournament result image failed: ${formatError(error)}`)
-      return null
-    })
+    }
+  }
   let draftMessageUpdated = false
   let archiveMessageCreated = false
   let draftUpdateError: unknown = null
@@ -90,8 +98,9 @@ export async function syncReportedMatchDiscordMessages({
           components: [],
         })
         await storeMatchMessageMapping(db, lobby.messageId, matchId)
+        draftMessageUpdated = true
       }
-      else {
+      else if (!tournamentImageFailed) {
         const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
           embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
             mapVoteResult,
@@ -101,8 +110,8 @@ export async function syncReportedMatchDiscordMessages({
           components: [],
         }, { db, sessionNamespace })
         await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+        draftMessageUpdated = true
       }
-      draftMessageUpdated = true
     }
     catch (error) {
       if (tournamentResultPng && isDiscordApiError(error, 404)) {
@@ -131,7 +140,7 @@ export async function syncReportedMatchDiscordMessages({
     }
   }
 
-  if (!draftMessageUpdated && draftMessageId) {
+  if (!draftMessageUpdated && draftMessageId && !tournamentImageFailed) {
     const draftChannelType = tournamentResultPng ? 'tournament-draft' : 'draft'
     const draftChannelId = await getSystemChannel(kv, draftChannelType).catch((error) => {
       console.error(`Failed to read ${draftChannelType} channel for reported match ${matchId}:`, error)
@@ -176,7 +185,7 @@ export async function syncReportedMatchDiscordMessages({
       }
 
       if (draftRepairError) {
-        console.error(`Failed to repair draft result embed for match ${matchId}:`, draftRepairError)
+        console.error(`Failed to repair draft result message for match ${matchId}:`, draftRepairError)
         draftUpdateError = draftRepairError
       }
     }
@@ -185,6 +194,8 @@ export async function syncReportedMatchDiscordMessages({
   if (!draftMessageUpdated && draftUpdateError) {
     errors.push(`draft result update failed: ${formatError(draftUpdateError)}`)
   }
+
+  if (tournamentImageFailed) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   const resolvedArchiveChannelType = archiveChannelType ?? await resolveReportedArchiveChannelType(db, matchId)
   const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType).catch((error) => {

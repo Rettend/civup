@@ -14,7 +14,7 @@ import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyRes
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
 import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
+import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
@@ -24,7 +24,8 @@ import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../servi
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
-import { isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel } from '../services/tournament/index.ts'
+import { renderTournamentResultPng } from '../services/tournament/image.ts'
+import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -997,6 +998,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
+    const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+    const tournamentResultPng = tournamentLinked
+      ? await this.renderReportedTournamentResultImage(db, matchId, participants)
+      : null
     const embed = lobbyResultEmbed(reportedMode, participants, undefined, {
       mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
       reporter: getReporterIdentityFromDraftData(match.draftData),
@@ -1004,20 +1009,36 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const messageIds = await listMatchMessageIds(db, matchId)
     const candidateMessageIds = uniqueStrings([record.projectionState.messageId, ...messageIds])
-    const draftMessageId = await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
+    const draftMessageId = tournamentResultPng
+      ? await this.editOrRecreateReportedDraftImageMessage(record, matchId, candidateMessageIds, tournamentResultPng)
+      : await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
     await storeMatchMessageMapping(db, draftMessageId, matchId)
 
     const refreshedMessageIds = uniqueStrings([draftMessageId, ...await listMatchMessageIds(db, matchId)])
     if (refreshedMessageIds.length >= 2) return
 
-    const archiveChannelId = await getSystemChannel(this.env.KV, await isMatchTournamentLinked(db, matchId) ? 'tournament-archive' : 'archive')
+    const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive')
     if (!archiveChannelId) return
 
-    const archiveMessage = await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
-      embeds: [embed],
-      allowed_mentions: { parse: [] },
-    })
+    const archiveMessage = tournamentResultPng
+      ? await createChannelMessageWithFile({
+          token: this.env.DISCORD_TOKEN,
+          channelId: archiveChannelId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: tournamentResultPng,
+        })
+      : await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
+          embeds: [embed],
+          allowed_mentions: { parse: [] },
+        })
     await storeMatchMessageMapping(db, archiveMessage.id, matchId)
+  }
+
+  private async renderReportedTournamentResultImage(db: ReturnType<typeof createDb>, matchId: string, participants: ParticipantRow[]): Promise<Uint8Array> {
+    const data = await buildTournamentResultImageData(db, matchId, participants)
+    if (!data) throw new Error(`Tournament result data was not available for match ${matchId}`)
+    return renderTournamentResultPng(data)
   }
 
   private async editOrRecreateReportedDraftMessage(record: SessionRecord, matchId: string, messageIds: string[], embed: unknown): Promise<string> {
@@ -1047,6 +1068,41 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
     await this.updateMessageProjection(record, created.id)
     if (lastError) console.warn('[session-do] recreated missing reported draft message', { matchId, messageId: created.id })
+    return created.id
+  }
+
+  private async editOrRecreateReportedDraftImageMessage(record: SessionRecord, matchId: string, messageIds: string[], png: Uint8Array): Promise<string> {
+    if (!this.env.DISCORD_TOKEN) throw new Error('Discord token is not configured')
+    let lastError: unknown = null
+    for (const messageId of messageIds) {
+      try {
+        await editChannelMessageWithFile({
+          token: this.env.DISCORD_TOKEN,
+          channelId: record.projectionState.channelId,
+          messageId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: png,
+          components: [],
+        })
+        return messageId
+      }
+      catch (error) {
+        lastError = error
+        if (!isDiscordApiError(error, 404)) throw error
+      }
+    }
+
+    const created = await createChannelMessageWithFile({
+      token: this.env.DISCORD_TOKEN,
+      channelId: record.projectionState.channelId,
+      filename: 'tournament-result.png',
+      contentType: 'image/png',
+      data: png,
+      components: [],
+    })
+    await this.updateMessageProjection(record, created.id)
+    if (lastError) console.warn('[session-do] recreated missing reported draft image message', { matchId, messageId: created.id })
     return created.id
   }
 
@@ -1799,6 +1855,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       const updated = await db.update(matches).set(values).where(eq(matches.id, command.matchId)).returning({ id: matches.id })
       if (updated.length === 0) throw new TerminalMatchNotFoundError(command.matchId)
       await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
+      await syncTournamentMatchAfterReport(db, command.matchId)
       return
     }
 
