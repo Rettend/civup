@@ -115,6 +115,34 @@ describe('tournament service', () => {
     }
   })
 
+  test('preserves imported display names for linked tournament players', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Alias Cup', createdById: 'admin' })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Seeded Alias', PLAYER_1],
+      ]))
+      await startTournament(db, tournament.id)
+
+      const data = await buildTournamentOpponentCardData(db, {
+        userId: PLAYER_1,
+        displayName: 'Discord Name',
+        avatarUrl: 'https://cdn.discordapp.com/embed/avatars/0.png',
+      })
+
+      expect('error' in data).toBe(false)
+      if ('error' in data) return
+      expect(data.player.displayName).toBe('Seeded Alias')
+      expect(data.player.avatarUrl).toBe('https://cdn.discordapp.com/embed/avatars/0.png')
+
+      const standings = await buildTournamentStandings(db, tournament.id)
+      expect(standings[0]?.displayName).toBe('Seeded Alias')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('left players cannot create or join tournament lobbies', async () => {
     const { db, sqlite } = await createTestDatabase()
     try {

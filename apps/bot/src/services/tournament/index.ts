@@ -417,7 +417,7 @@ export async function resolveTournamentPlayerForIdentity(
     await upsertTournamentPlayerIdentity(db, identity)
     await db
       .update(tournamentPlayers)
-      .set({ displayName: identity.displayName, avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
+      .set({ avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
       .where(and(
         eq(tournamentPlayers.tournamentId, tournamentId),
         eq(tournamentPlayers.playerId, identity.userId),
