@@ -717,7 +717,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     try {
       const message = await this.buildOpenLobbySnapshotMessage(record)
-      for (const connection of connections) connection.send(message)
+      for (const connection of connections) this.sendConnectionMessage(connection, message)
     }
     catch (error) {
       console.error('[session-do] failed to broadcast reopened lobby snapshot', buildDraftLifecycleLogContext(payload), error)
@@ -1928,7 +1928,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (record.phase === 'open') {
       const message = await this.buildOpenLobbySnapshotMessage(record)
-      for (const connection of openLobbyConnections) connection.send(message)
+      for (const connection of openLobbyConnections) this.sendConnectionMessage(connection, message)
       return
     }
 
@@ -1940,13 +1940,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (record.phase === 'cancelled' || record.phase === 'reported') {
       const message = JSON.stringify({ type: 'lobby', lobbyId: record.id, snapshot: null } satisfies SessionServerMessage)
       for (const connection of openLobbyConnections) {
-        connection.send(message)
+        this.sendConnectionMessage(connection, message)
       }
     }
   }
 
   private async sendOpenLobbySnapshot(connection: Connection, record: OpenSessionRecord): Promise<void> {
-    connection.send(await this.buildOpenLobbySnapshotMessage(record))
+    this.sendConnectionMessage(connection, await this.buildOpenLobbySnapshotMessage(record))
   }
 
   private async buildOpenLobbySnapshotMessage(record: OpenSessionRecord): Promise<string> {
@@ -2125,7 +2125,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private sendSessionMessage(connection: Connection, message: SessionServerMessage): void {
-    connection.send(JSON.stringify(message))
+    this.sendConnectionMessage(connection, JSON.stringify(message))
   }
 
   private async runSerializedCommand(operation: () => Promise<Response>): Promise<Response> {

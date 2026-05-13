@@ -592,30 +592,34 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }, requestedTargetSize)
     const nextDraftConfig = lockTournamentDraftConfig(baseDraftConfig, tournamentMatch != null)
 
-    if (!sameLobbySlots(slots, lobby.slots)) {
-      const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby, lobbySessionMutationOptions(c))
-      lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+    let updated: LobbyState
+    let nextLobbyQueueEntries: QueueEntry[]
+    try {
+      if (!sameLobbySlots(slots, lobby.slots)) {
+        const resizedLobby = await setLobbySlots(kv, lobby.id, slots, lobby, lobbySessionMutationOptions(c))
+        lobby = resizedLobby ?? { ...lobby, slots, updatedAt: Date.now() }
+      }
+
+      const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, nextDraftConfig, lobby, lobbySessionMutationOptions(c))
+
+      lobby = draftUpdated ?? lobby
+      const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby, lobbySessionMutationOptions(c))
+      lobby = minRoleUpdated ?? lobby
+      const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby, lobbySessionMutationOptions(c))
+      lobby = maxRoleUpdated ?? lobby
+      updated = hasSteamLobbyLink
+        ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby)
+        : lobby
+
+      nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, updated, lobbyQueueEntries)
+      if (updated.revision !== resolvedLobby.revision) {
+        updated = await setLobbyLastActivityAt(kv, updated.id, Date.now(), updated, lobbySessionMutationOptions(c)) ?? updated
+        nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, updated, nextLobbyQueueEntries)
+      }
     }
-
-    const draftUpdated = await setLobbyDraftConfig(kv, lobby.id, nextDraftConfig, lobby, lobbySessionMutationOptions(c))
-
-    lobby = draftUpdated ?? lobby
-    const minRoleUpdated = await setLobbyMinRole(kv, lobby.id, normalizedMinRole, lobby, lobbySessionMutationOptions(c))
-    lobby = minRoleUpdated ?? lobby
-    const maxRoleUpdated = await setLobbyMaxRole(kv, lobby.id, normalizedMaxRole, lobby, lobbySessionMutationOptions(c))
-    lobby = maxRoleUpdated ?? lobby
-    let updated = hasSteamLobbyLink
-      ? (await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby)
-      : lobby
-
-    if (!updated) {
-      return c.json({ error: 'Lobby not found' }, 404)
-    }
-
-    let nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, updated, lobbyQueueEntries)
-    if (updated.revision !== resolvedLobby.revision) {
-      updated = await setLobbyLastActivityAt(kv, updated.id, Date.now(), updated, lobbySessionMutationOptions(c)) ?? updated
-      nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, updated, nextLobbyQueueEntries)
+    catch (error) {
+      if (isSessionVersionStaleError(error)) return c.json({ error: 'Lobby changed; please retry.' }, 409)
+      throw error
     }
 
     const normalizedSlots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
