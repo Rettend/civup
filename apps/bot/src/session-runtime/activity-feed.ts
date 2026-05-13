@@ -185,14 +185,27 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {
-    connection.send(JSON.stringify(message))
+    sendConnectionMessage(connection, JSON.stringify(message))
   }
 
   private broadcastFeedMessage(connections: readonly Connection[], message: ActivityFeedMessage): void {
     const encoded = JSON.stringify(message)
     for (const connection of connections) {
-      connection.send(encoded)
+      sendConnectionMessage(connection, encoded)
     }
+  }
+}
+
+function sendConnectionMessage(connection: Connection, message: string): boolean {
+  if (connection.readyState >= 2) return false
+
+  try {
+    connection.send(message)
+    return true
+  }
+  catch (error) {
+    if (error instanceof Error && error.message.includes("Can't call WebSocket send() after close")) return false
+    throw error
   }
 }
 

@@ -1314,7 +1314,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   // ── Internal: Send message ─────────────────────────────────
 
   private send(connection: Connection, message: SessionServerMessage) {
-    connection.send(JSON.stringify(message))
+    this.sendConnectionMessage(connection, JSON.stringify(message))
   }
 
   private closeAllConnections(reason: string) {
