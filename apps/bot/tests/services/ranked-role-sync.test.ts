@@ -584,10 +584,7 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    globalThis.fetch = (async (_input, init) => {
-      if (init?.method === 'PUT' || init?.method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response('not found', { status: 404 })
-    }) as typeof fetch
+    installMemberRoleFetchMock()
 
     await syncRankedRoles({
       db,
@@ -635,10 +632,7 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    globalThis.fetch = (async (_input, init) => {
-      if (init?.method === 'PUT' || init?.method === 'DELETE') return new Response(null, { status: 204 })
-      return new Response('not found', { status: 404 })
-    }) as typeof fetch
+    const { deleteCalls, putCalls } = installMemberRoleFetchMock()
 
     await syncRankedRoles({
       db,
@@ -659,21 +653,8 @@ describe('ranked role sync service', () => {
       tier4: '99999999999999999',
     })
 
-    const deleteCalls: Array<{ userId: string, roleId: string }> = []
-    const putCalls: Array<{ userId: string, roleId: string }> = []
-    globalThis.fetch = (async (input, init) => {
-      const url = new URL(String(input))
-      const method = init?.method
-      if ((method === 'PUT' || method === 'DELETE') && url.pathname.includes('/members/')) {
-        const parts = url.pathname.split('/')
-        const roleId = parts.at(-1) ?? ''
-        const userId = parts.at(-3) ?? ''
-        if (method === 'DELETE') deleteCalls.push({ userId, roleId })
-        if (method === 'PUT') putCalls.push({ userId, roleId })
-        return new Response(null, { status: 204 })
-      }
-      return new Response('not found', { status: 404 })
-    }) as typeof fetch
+    deleteCalls.length = 0
+    putCalls.length = 0
 
     const result = await syncRankedRoles({
       db,
@@ -689,6 +670,62 @@ describe('ranked role sync service', () => {
     expect(putCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
     expect(new Set(deleteCalls.map(call => call.roleId))).toEqual(new Set(['22222222222222222']))
     expect(new Set(putCalls.map(call => call.roleId))).toEqual(new Set(['99999999999999999']))
+
+    sqlite.close()
+  })
+
+  test('role id migrations remove old roles for every affected member in one sync', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 40, { prefix: 'migration' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    const { memberRoles, getCalls } = installMemberRoleFetchMock()
+    const result = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+    })
+    expect(result.pendingDiscordChanges).toBe(0)
+
+    const assignments = await getCurrentRankAssignments(kv, 'guild-1')
+    const tier4PlayerIds = Object.entries(assignments.byPlayerId)
+      .filter(([_playerId, assignment]) => assignment.tier === TIER_4)
+      .map(([playerId]) => playerId)
+      .sort((a, b) => a.localeCompare(b))
+    expect(tier4PlayerIds.length).toBeGreaterThan(12)
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier4: '99999999999999999',
+    })
+
+    getCalls.length = 0
+    const migrationResult = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW + 10,
+      applyDiscord: true,
+    })
+    expect(migrationResult.pendingDiscordChanges).toBe(0)
+    expect(getCalls).toHaveLength(tier4PlayerIds.length)
+
+    for (const playerId of tier4PlayerIds) {
+      const roles = memberRoles.get(playerId) ?? new Set<string>()
+      expect(roles.has('22222222222222222')).toBe(false)
+      expect(roles.has('99999999999999999')).toBe(true)
+    }
 
     sqlite.close()
   })
@@ -874,6 +911,46 @@ async function seedPreviousAssignment(
       [playerId]: assignment,
     },
   }))
+}
+
+function installMemberRoleFetchMock(memberRoles = new Map<string, Set<string>>()): {
+  memberRoles: Map<string, Set<string>>
+  getCalls: Array<{ userId: string }>
+  deleteCalls: Array<{ userId: string, roleId: string }>
+  putCalls: Array<{ userId: string, roleId: string }>
+} {
+  const getCalls: Array<{ userId: string }> = []
+  const deleteCalls: Array<{ userId: string, roleId: string }> = []
+  const putCalls: Array<{ userId: string, roleId: string }> = []
+
+  globalThis.fetch = (async (input, init) => {
+    const url = new URL(String(input))
+    const method = init?.method ?? 'GET'
+    if (method === 'GET' && url.pathname.includes('/members/')) {
+      const userId = url.pathname.split('/').at(-1) ?? ''
+      getCalls.push({ userId })
+      return Response.json({ roles: [...(memberRoles.get(userId) ?? new Set<string>())] })
+    }
+    if ((method === 'PUT' || method === 'DELETE') && url.pathname.includes('/members/')) {
+      const parts = url.pathname.split('/')
+      const roleId = parts.at(-1) ?? ''
+      const userId = parts.at(-3) ?? ''
+      const roles = memberRoles.get(userId) ?? new Set<string>()
+      if (method === 'DELETE') {
+        deleteCalls.push({ userId, roleId })
+        roles.delete(roleId)
+      }
+      if (method === 'PUT') {
+        putCalls.push({ userId, roleId })
+        roles.add(roleId)
+      }
+      memberRoles.set(userId, roles)
+      return new Response(null, { status: 204 })
+    }
+    return new Response('not found', { status: 404 })
+  }) as typeof fetch
+
+  return { memberRoles, getCalls, deleteCalls, putCalls }
 }
 
 function playerIdFor(prefix: string, index: number): string {
