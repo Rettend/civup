@@ -10,6 +10,7 @@ import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.t
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import {
   createRankedRoleTierId,
+  fetchGuildMemberRoleIds,
   formatRankedRoleSlotLabel,
   getConfiguredRankedRoleId,
   getConfiguredRankedRoleLabel,
@@ -26,6 +27,7 @@ import {
 export interface CurrentRankAssignment {
   tier: CompetitiveTier
   sourceMode: LeaderboardMode | null
+  appliedRoleId?: string | null
 }
 
 export interface RankedRoleAssignments {
@@ -190,6 +192,11 @@ interface LadderSnapshots {
   scores: Map<string, number>
 }
 
+interface PlannedRankRoleChange {
+  removeRoleIds: string[]
+  addRoleId: string | null
+}
+
 interface RankedRolePreviewState {
   preview: RankedRolePreview
   ratings: RatingSnapshotRow[]
@@ -216,7 +223,6 @@ const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
 const EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.20, 0.40, 0.90] as const
 const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
 const DEMOTION_DELAY_SYNCS = 7
-const MAX_DISCORD_ROLE_CHANGES_PER_SYNC = 12
 const GLOBAL_RATING_SCOPE = 'global'
 const MODE_LADDER_MIN_GAMES = 10
 const TIER_1_EVIDENCE_GATE = { effectiveGames: 18 }
@@ -433,13 +439,15 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   let appliedDiscordChanges = 0
   let pendingDiscordChanges = 0
   let processedPlayerIds: Set<string> | null = null
+  let appliedRoleIdsByPlayerId: Map<string, string | null> | null = null
   if (options.applyDiscord) {
     const token = options.token?.trim()
     if (!token) throw new Error('Cannot sync ranked roles without a Discord bot token.')
     const applyResult = await applyCurrentRankRoles(options.kv, options.guildId, token, preview.playerPreviews)
     appliedDiscordChanges = applyResult.appliedChanges
-    pendingDiscordChanges = applyResult.pendingChanges
+    pendingDiscordChanges = 0
     processedPlayerIds = applyResult.processedPlayerIds
+    appliedRoleIdsByPlayerId = applyResult.appliedRoleIdsByPlayerId
   }
 
   await persistRankedRoleSyncState({
@@ -449,11 +457,8 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
     previousCandidates: state.previousCandidates,
     playerPreviews: preview.playerPreviews,
     processedPlayerIds,
+    appliedRoleIdsByPlayerId,
   })
-
-  if (pendingDiscordChanges > 0) {
-    await markRankedRolesDirty(options.kv, `pending ranked role sync (${pendingDiscordChanges} remaining)`)
-  }
 
   return {
     ...preview,
@@ -1326,6 +1331,7 @@ async function persistRankedRoleSyncState(options: {
   previousCandidates: RankedRoleDemotionCandidates
   playerPreviews: RankedRolePlayerPreview[]
   processedPlayerIds: Set<string> | null
+  appliedRoleIdsByPlayerId: Map<string, string | null> | null
 }): Promise<void> {
   const nextAssignments = { ...options.previousAssignments.byPlayerId }
   const nextCandidates = { ...options.previousCandidates.byPlayerId }
@@ -1335,7 +1341,10 @@ async function persistRankedRoleSyncState(options: {
 
   for (const player of previewsToPersist) {
     if (!player.managed) continue
-    nextAssignments[player.playerId] = player.assignment
+    const appliedRoleId = options.appliedRoleIdsByPlayerId?.get(player.playerId)
+    nextAssignments[player.playerId] = appliedRoleId === undefined
+      ? player.assignment
+      : { ...player.assignment, appliedRoleId }
     if (player.pendingDemotion) nextCandidates[player.playerId] = player.pendingDemotion
     else delete nextCandidates[player.playerId]
   }
@@ -1351,7 +1360,7 @@ async function applyCurrentRankRoles(
   guildId: string,
   token: string,
   playerPreviews: RankedRolePlayerPreview[],
-): Promise<{ appliedChanges: number, pendingChanges: number, processedPlayerIds: Set<string> }> {
+): Promise<{ appliedChanges: number, processedPlayerIds: Set<string>, appliedRoleIdsByPlayerId: Map<string, string | null> }> {
   const [config, previousAppliedConfig] = await Promise.all([
     getRankedRoleConfig(kv, guildId),
     getAppliedRankedRoleConfig(kv, guildId),
@@ -1360,11 +1369,11 @@ async function applyCurrentRankRoles(
   if (missingTiers.length > 0) {
     throw new Error(`Cannot sync ranked roles until all current roles are configured: ${missingTiers.join(', ')}`)
   }
+  const managedRoleIds = buildManagedRankedRoleIds(config, previousAppliedConfig)
 
   let appliedChanges = 0
-  let processedChanges = 0
-  let pendingChanges = 0
   const processedPlayerIds = new Set<string>()
+  const appliedRoleIdsByPlayerId = new Map<string, string | null>()
   for (const preview of playerPreviews) {
     if (!preview.managed) continue
     if (!isDiscordSnowflake(preview.playerId)) continue
@@ -1374,23 +1383,32 @@ async function applyCurrentRankRoles(
     const previousRoleId = resolvePreviouslyAppliedRoleId(preview.previousAssignment, previousAppliedConfig, config)
     if (preview.previousAssignment && preview.previousAssignment.tier === preview.assignment.tier && previousRoleId === desiredRoleId) {
       processedPlayerIds.add(preview.playerId)
+      appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
       continue
     }
 
-    if (processedChanges >= MAX_DISCORD_ROLE_CHANGES_PER_SYNC) {
-      pendingChanges += 1
-      continue
-    }
-
-    const changed = await applyTrackedRankRoleChange({
+    const plan = await planTrackedRankRoleChange({
       token,
       guildId,
       playerId: preview.playerId,
       previousRoleId,
       nextRoleId: desiredRoleId,
+      managedRoleIds,
+    })
+    if (!plannedRankRoleChangeHasChanges(plan)) {
+      processedPlayerIds.add(preview.playerId)
+      appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
+      continue
+    }
+
+    const changed = await applyPlannedRankRoleChange({
+      token,
+      guildId,
+      playerId: preview.playerId,
+      plan,
     })
     processedPlayerIds.add(preview.playerId)
-    processedChanges += 1
+    appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
     if (changed) appliedChanges += 1
   }
 
@@ -1398,8 +1416,8 @@ async function applyCurrentRankRoles(
 
   return {
     appliedChanges,
-    pendingChanges,
     processedPlayerIds,
+    appliedRoleIdsByPlayerId,
   }
 }
 
@@ -1440,8 +1458,86 @@ function resolvePreviouslyAppliedRoleId(
   currentConfig: RankedRoleConfig,
 ): string | null {
   if (!previousAssignment) return null
+  if (previousAssignment.appliedRoleId) return previousAssignment.appliedRoleId
   if (previousAppliedConfig?.has(previousAssignment.tier)) return previousAppliedConfig.get(previousAssignment.tier) ?? null
   return getConfiguredRankedRoleId(currentConfig, previousAssignment.tier)
+}
+
+function buildManagedRankedRoleIds(
+  currentConfig: RankedRoleConfig,
+  previousAppliedConfig: Map<CompetitiveTier, string | null> | null,
+): Set<string> {
+  const roleIds = new Set<string>()
+
+  for (let index = 0; index < getRankedRoleTierCount(currentConfig); index++) {
+    const roleId = getConfiguredRankedRoleId(currentConfig, createRankedRoleTierId(index + 1))
+    if (roleId) roleIds.add(roleId)
+  }
+
+  for (const roleId of previousAppliedConfig?.values() ?? []) {
+    if (roleId) roleIds.add(roleId)
+  }
+
+  return roleIds
+}
+
+async function planTrackedRankRoleChange(options: {
+  token: string
+  guildId: string
+  playerId: string
+  previousRoleId: string | null
+  nextRoleId: string | null
+  managedRoleIds: Set<string>
+}): Promise<PlannedRankRoleChange> {
+  const currentRoleIds = new Set(await fetchGuildMemberRoleIds(options.token, options.guildId, options.playerId))
+  const removeRoleIds = new Set<string>()
+
+  for (const roleId of currentRoleIds) {
+    if (options.managedRoleIds.has(roleId) && roleId !== options.nextRoleId) removeRoleIds.add(roleId)
+  }
+  if (options.previousRoleId && options.previousRoleId !== options.nextRoleId && currentRoleIds.has(options.previousRoleId)) {
+    removeRoleIds.add(options.previousRoleId)
+  }
+
+  return {
+    removeRoleIds: [...removeRoleIds].sort((left, right) => left.localeCompare(right)),
+    addRoleId: options.nextRoleId && !currentRoleIds.has(options.nextRoleId) ? options.nextRoleId : null,
+  }
+}
+
+function plannedRankRoleChangeHasChanges(plan: PlannedRankRoleChange): boolean {
+  return plan.removeRoleIds.length > 0 || plan.addRoleId != null
+}
+
+async function applyPlannedRankRoleChange(options: {
+  token: string
+  guildId: string
+  playerId: string
+  plan: PlannedRankRoleChange
+}): Promise<boolean> {
+  let changed = false
+
+  for (const roleId of options.plan.removeRoleIds) {
+    try {
+      await removeGuildMemberRole(options.token, options.guildId, options.playerId, roleId)
+      changed = true
+    }
+    catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404)) throw error
+    }
+  }
+
+  if (options.plan.addRoleId) {
+    try {
+      await addGuildMemberRole(options.token, options.guildId, options.playerId, options.plan.addRoleId)
+      changed = true
+    }
+    catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404)) throw error
+    }
+  }
+
+  return changed
 }
 
 async function applyTrackedRankRoleChange(options: {
@@ -1553,10 +1649,15 @@ function normalizeCurrentRankAssignment(value: unknown): CurrentRankAssignment |
   if (!value || typeof value !== 'object') return null
   const tier = normalizeRankedRoleTierId((value as { tier?: unknown }).tier)
   if (!tier) return null
+  const sourceMode = LEADERBOARD_MODES.includes((value as { sourceMode?: unknown }).sourceMode as LeaderboardMode)
+    ? (value as { sourceMode?: LeaderboardMode }).sourceMode ?? null
+    : null
+  const appliedRoleId = normalizeSnowflake((value as { appliedRoleId?: unknown }).appliedRoleId)
 
   return {
     tier,
-    sourceMode: null,
+    sourceMode,
+    ...(appliedRoleId ? { appliedRoleId } : {}),
   }
 }
 
@@ -1585,4 +1686,10 @@ function normalizePositiveInteger(value: unknown): number {
 
 function isDiscordSnowflake(value: string): boolean {
   return /^\d{17,20}$/.test(value)
+}
+
+function normalizeSnowflake(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return isDiscordSnowflake(trimmed) ? trimmed : null
 }
