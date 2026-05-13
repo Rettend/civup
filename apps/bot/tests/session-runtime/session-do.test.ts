@@ -1051,6 +1051,43 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('terminal lifecycle sync reports linked tournament matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+      await insertDraftingQualifierTournamentLink(db, openLobby.id, openLobby.id)
+      await db.update(matchParticipants).set({ placement: 1 }).where(eq(matchParticipants.playerId, 'p1'))
+      await db.update(matchParticipants).set({ placement: 2 }).where(eq(matchParticipants.playerId, 'p2'))
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'draft-completed', opensSwapWindow: false, at: 30 }),
+      }))
+      expect(completed.status).toBe(200)
+
+      await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 40 })
+
+      const [link] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, openLobby.id)).limit(1)
+      expect(link).toMatchObject({ status: 'reported', winnerId: 'p1' })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('applies explicit open-lobby commands through the session aggregate', async () => {
     const room = new SessionDO(createFakeDurableObjectState(), {} as any)
     const openLobby = buildLobby({
@@ -1386,6 +1423,63 @@ describe('SessionDO open session commands', () => {
       sqlite.close()
     }
   })
+
+  test('reported Discord repair preserves tournament result images', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createSqliteD1Database(sqlite)
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: d1,
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+    const requests: Array<{ method: string, url: string, contentType: string | null }> = []
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (request.url.includes('cdn.discordapp.com')) return new Response('not found', { status: 404 })
+      requests.push({ method: request.method, url: request.url, contentType: request.headers.get('content-type') })
+      if (request.method === 'PATCH' && request.url.includes('/channels/channel-1/messages/message-1')) {
+        return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
+      }
+      if (request.method === 'POST' && request.url.includes('/channels/tournament-archive/messages')) {
+        return new Response(JSON.stringify({ id: 'archive-message' }), { headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response('unexpected request', { status: 500 })
+    }) as typeof fetch
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      await startDraft(room, { hostId: 'p1', now: 20 })
+      await insertDraftingTournamentLink(db, openLobby.id, openLobby.id)
+      await kv.put('system:channel:tournament-archive', 'tournament-archive')
+      await db.update(matches).set({ status: 'completed', completedAt: 40 }).where(eq(matches.id, openLobby.id))
+      await db.update(matchParticipants).set({ civId: null, placement: 1 }).where(eq(matchParticipants.playerId, 'p1'))
+      await db.update(matchParticipants).set({ civId: null, placement: 2 }).where(eq(matchParticipants.playerId, 'p2'))
+
+      const response = await room.fetch(sessionRequest('/commands/reported-discord-sync', {
+        method: 'POST',
+        body: JSON.stringify({ matchId: openLobby.id }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(requests).toEqual([
+        expect.objectContaining({ method: 'PATCH', url: 'https://discord.com/api/v10/channels/channel-1/messages/message-1' }),
+        expect.objectContaining({ method: 'POST', url: 'https://discord.com/api/v10/channels/tournament-archive/messages' }),
+      ])
+      expect(requests.every(request => request.contentType?.startsWith('multipart/form-data'))).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 async function openLobbyCommand(room: SessionDO, command: unknown): Promise<any> {
@@ -1471,6 +1565,36 @@ async function insertDraftingTournamentLink(db: any, sessionId: string, matchId:
     matchId,
     winnerId: 'p1',
     status: 'drafting',
+    createdAt: now,
+    updatedAt: now,
+  })
+}
+
+async function insertDraftingQualifierTournamentLink(db: any, sessionId: string, matchId: string): Promise<void> {
+  const now = Date.now()
+  await db.insert(tournaments).values({
+    id: 'tournament-qualifier-session-test',
+    name: 'Session Test Cup',
+    mode: '1v1',
+    status: 'qualifier',
+    scoring: 'open_win_rate',
+    rematchPolicy: 'warn',
+    minGames: 6,
+    topCut: 8,
+    roleId: null,
+    createdById: 'admin',
+    createdAt: now,
+    updatedAt: now,
+  })
+  await db.insert(tournamentMatches).values({
+    sessionId,
+    tournamentId: 'tournament-qualifier-session-test',
+    matchId,
+    stage: 'qualifier',
+    status: 'drafting',
+    playerOneId: 'p1',
+    playerTwoId: 'p2',
+    winnerId: null,
     createdAt: now,
     updatedAt: now,
   })
