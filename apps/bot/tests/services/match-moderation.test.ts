@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allLeaderIds, getLeaders } from '@civup/game'
 import { buildLeaderboard, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
@@ -75,6 +75,33 @@ describe('match moderation recalculation', () => {
       expect(result.participants.every(participant => participant.team == null)).toBe(true)
       const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
       expect(globalRatingRows).toHaveLength(9)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('creates a manual Permanent Ally FFA match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-pa-ffa',
+        mode: 'ffa',
+        permanentAlly: true,
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 8).map(leader => leader.id)),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(JSON.parse(result.match.draftData ?? '{}').permanentAlly).toBe(true)
+      expect(result.participants).toHaveLength(8)
+      expect(result.participants.map(participant => participant.placement)).toEqual([1, 1, 2, 2, 3, 3, 4, 4])
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
     }
     finally {
       sqlite.close()
@@ -550,6 +577,48 @@ describe('match moderation recalculation', () => {
         .limit(1)
 
       expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('cancel resumes cleanup for already-cancelled matches with stale rating events', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.update(matches).set({ status: 'cancelled', completedAt: 10_000 }).where(eq(matches.id, 'm1'))
+      await db
+        .update(matchParticipants)
+        .set({ placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null })
+        .where(eq(matchParticipants.matchId, 'm1'))
+      await db.insert(playerRatings).values([
+        { playerId: 'p1', mode: 'global', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
+        { playerId: 'p2', mode: 'global', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
+      ])
+      await db.insert(playerRatingEvents).values([
+        { matchId: 'm1', playerId: 'p1', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 1, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
+        { matchId: 'm1', playerId: 'p2', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 0, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
+      ])
+
+      const result = await cancelMatchByModerator(db, kv, {
+        matchId: 'm1',
+        cancelledAt: 11_000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.previousStatus).toBe('cancelled')
+      expect(result.recalculatedMatchIds).toEqual(['m2', 'm3'])
+
+      const staleEvents = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'm1'))
+      expect(staleEvents).toHaveLength(0)
+
+      const globalRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatings).toHaveLength(2)
+      expect(globalRatings.every(row => row.gamesPlayed === 2)).toBe(true)
     }
     finally {
       sqlite.close()

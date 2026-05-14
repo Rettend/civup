@@ -103,6 +103,7 @@ interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOpti
 
 const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 const GLOBAL_RATING_SCOPE = 'global'
+const D1_SAFE_IN_LIST_CHUNK_SIZE = 80
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
@@ -309,55 +310,14 @@ async function recalculateGlobalRatingsFromBoundary(
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
 
-  const replayParticipantRows = replayMatches.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          civId: matchParticipants.civId,
-          placement: matchParticipants.placement,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
-    : []
+  const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierEventRows = affectedPlayerIds.length > 0
-    ? await db
-        .select({
-          matchId: playerRatingEvents.matchId,
-          matchCreatedAt: playerRatingEvents.matchCreatedAt,
-          matchCompletedAt: playerRatingEvents.matchCompletedAt,
-          playerId: playerRatingEvents.playerId,
-          ratingAfterMu: playerRatingEvents.ratingAfterMu,
-          ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
-          gamesDelta: playerRatingEvents.gamesDelta,
-          winsDelta: playerRatingEvents.winsDelta,
-          importedGamesDelta: playerRatingEvents.importedGamesDelta,
-          effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
-          winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
-          winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
-          effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
-          effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
-        })
-        .from(playerRatingEvents)
-        .where(and(
-          eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
-          inArray(playerRatingEvents.playerId, affectedPlayerIds),
-          buildEventBoundaryCondition(boundaryMatch, false, 'before'),
-          excludeTournamentRatingEventsCondition(),
-        ))
-        .orderBy(asc(playerRatingEvents.matchCreatedAt), asc(playerRatingEvents.matchId), asc(playerRatingEvents.playerId))
-    : []
+  const earlierEventRows = await listEarlierGlobalRatingEventRows(db, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -538,52 +498,14 @@ async function recalculateLeaderboardModeFromBoundary(
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
 
-  const replayParticipantRows = replayMatches.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          civId: matchParticipants.civId,
-          placement: matchParticipants.placement,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
-    : []
+  const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierParticipantRows = affectedPlayerIds.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          createdAt: matches.createdAt,
-          completedAt: matches.completedAt,
-          isOld: matches.isOld,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          placement: matchParticipants.placement,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-        .where(and(
-          eq(matches.status, 'completed'),
-          inArray(matches.gameMode, gameModes),
-          inArray(matchParticipants.playerId, affectedPlayerIds),
-          buildBoundaryCondition(boundaryMatch, false, 'before'),
-          excludeTournamentMatchesCondition(),
-        ))
-        .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
-    : []
+  const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, gameModes, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -625,6 +547,117 @@ async function recalculateLeaderboardModeFromBoundary(
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
+}
+
+async function listReplayParticipantRows(db: Database, matchIds: string[]): Promise<StoredParticipantRow[]> {
+  const rows: StoredParticipantRow[] = []
+  for (const chunk of chunkArray(matchIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: matchParticipants.matchId,
+        playerId: matchParticipants.playerId,
+        team: matchParticipants.team,
+        civId: matchParticipants.civId,
+        placement: matchParticipants.placement,
+        ratingBeforeMu: matchParticipants.ratingBeforeMu,
+        ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+        ratingAfterMu: matchParticipants.ratingAfterMu,
+        ratingAfterSigma: matchParticipants.ratingAfterSigma,
+      })
+      .from(matchParticipants)
+      .where(inArray(matchParticipants.matchId, chunk)))
+  }
+  return rows
+}
+
+async function listEarlierGlobalRatingEventRows(
+  db: Database,
+  playerIds: string[],
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+): Promise<HistoricalRatingEventRow[]> {
+  const rows: HistoricalRatingEventRow[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: playerRatingEvents.matchId,
+        matchCreatedAt: playerRatingEvents.matchCreatedAt,
+        matchCompletedAt: playerRatingEvents.matchCompletedAt,
+        playerId: playerRatingEvents.playerId,
+        ratingAfterMu: playerRatingEvents.ratingAfterMu,
+        ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+        gamesDelta: playerRatingEvents.gamesDelta,
+        winsDelta: playerRatingEvents.winsDelta,
+        importedGamesDelta: playerRatingEvents.importedGamesDelta,
+        effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
+        winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
+        winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
+        effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
+        effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
+      })
+      .from(playerRatingEvents)
+      .where(and(
+        eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
+        inArray(playerRatingEvents.playerId, chunk),
+        buildEventBoundaryCondition(boundaryMatch, false, 'before'),
+        excludeTournamentRatingEventsCondition(),
+      )))
+  }
+
+  return rows.sort(compareHistoricalRatingEventRows)
+}
+
+async function listEarlierLeaderboardParticipantRows(
+  db: Database,
+  gameModes: readonly string[],
+  playerIds: string[],
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+): Promise<HistoricalParticipantRow[]> {
+  const rows: HistoricalParticipantRow[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: matchParticipants.matchId,
+        createdAt: matches.createdAt,
+        completedAt: matches.completedAt,
+        isOld: matches.isOld,
+        playerId: matchParticipants.playerId,
+        team: matchParticipants.team,
+        placement: matchParticipants.placement,
+        ratingAfterMu: matchParticipants.ratingAfterMu,
+        ratingAfterSigma: matchParticipants.ratingAfterSigma,
+      })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+      .where(and(
+        eq(matches.status, 'completed'),
+        inArray(matches.gameMode, gameModes),
+        inArray(matchParticipants.playerId, chunk),
+        buildBoundaryCondition(boundaryMatch, false, 'before'),
+        excludeTournamentMatchesCondition(),
+      )))
+  }
+
+  return rows.sort(compareHistoricalParticipantRows)
+}
+
+function chunkArray<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+function compareHistoricalRatingEventRows(left: HistoricalRatingEventRow, right: HistoricalRatingEventRow): number {
+  return left.matchCreatedAt - right.matchCreatedAt
+    || left.matchId.localeCompare(right.matchId)
+    || left.playerId.localeCompare(right.playerId)
+}
+
+function compareHistoricalParticipantRows(left: HistoricalParticipantRow, right: HistoricalParticipantRow): number {
+  return left.createdAt - right.createdAt
+    || left.matchId.localeCompare(right.matchId)
+    || left.playerId.localeCompare(right.playerId)
 }
 
 function createReplayStates(_playerIds?: string[]): {
@@ -1019,14 +1052,16 @@ async function replacePlayerRatings(
   if (playerIds) {
     if (playerIds.length === 0) return
 
-    ratingQueries.push(
-      db
-        .delete(playerRatings)
-        .where(and(
-          eq(playerRatings.mode, leaderboardMode),
-          inArray(playerRatings.playerId, playerIds),
-        )),
-    )
+    for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+      ratingQueries.push(
+        db
+          .delete(playerRatings)
+          .where(and(
+            eq(playerRatings.mode, leaderboardMode),
+            inArray(playerRatings.playerId, chunk),
+          )),
+      )
+    }
   }
   else {
     ratingQueries.push(db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode)))
@@ -1069,13 +1104,17 @@ async function deleteRatingEventsFromBoundary(
     ? boundaryCondition
     : or(eq(playerRatingEvents.matchId, boundaryMatch.id), boundaryCondition)
 
-  await db
-    .delete(playerRatingEvents)
-    .where(and(
-      eq(playerRatingEvents.mode, ratingScope),
-      inArray(playerRatingEvents.playerId, playerIds),
-      replayRangeCondition,
-    ))
+  const eventDeleteQueries: DbBatchItem[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    eventDeleteQueries.push(db
+      .delete(playerRatingEvents)
+      .where(and(
+        eq(playerRatingEvents.mode, ratingScope),
+        inArray(playerRatingEvents.playerId, chunk),
+        replayRangeCondition,
+      )))
+  }
+  await runDbBatch(db, eventDeleteQueries)
 }
 
 function createDefaultRatingState(playerId: string): RatingState {

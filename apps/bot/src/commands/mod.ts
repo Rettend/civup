@@ -34,6 +34,9 @@ interface ModVar extends MatchVar {
 const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
 const MANUAL_MATCH_MAX_PLAYERS = 12
 const MANUAL_MATCH_SLOT_NUMBERS = Array.from({ length: MANUAL_MATCH_MAX_PLAYERS }, (_, index) => index + 1)
+const MANUAL_GAME_MODE_CHOICES = GAME_MODE_CHOICES.flatMap(choice => choice.value === 'ffa'
+  ? [{ name: 'FFA', value: 'ffa' }, { name: 'FFA Classic', value: 'ffa-classic' }]
+  : [choice])
 
 export const command_mod = factory.autocomplete<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
@@ -49,7 +52,7 @@ export const command_mod = factory.autocomplete<ModVar>(
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
       new SubCommand('manual', 'Create a completed match report from players and leaders').options(
-        new Option('mode', 'Game mode for the manual report').required().choices(...GAME_MODE_CHOICES),
+        new Option('mode', 'Game mode for the manual report').required().choices(...MANUAL_GAME_MODE_CHOICES),
         ...buildManualReportOptions(),
       ),
       new SubCommand('swap', 'Set or swap reported match leaders').options(
@@ -431,6 +434,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const result = await createManualReportedMatch(db, kv, {
               mode: parsedInput.mode,
+              permanentAlly: parsedInput.permanentAlly,
               players: parsedInput.players,
               reporterId: actor.userId,
               reportedAt: Date.now(),
@@ -678,17 +682,19 @@ function buildManualReportOptions() {
 
 type ManualReportParseResult = {
   mode: GameMode
+  permanentAlly: boolean
   players: ManualReportedMatchPlayerInput[]
 } | { error: string }
 
 function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & { var: ModVar }): ManualReportParseResult {
-  const mode = parseGameMode(c.var.mode)
-  if (!mode) return { error: 'Please provide a valid game mode.' }
+  const parsedMode = parseManualReportMode(c.var.mode)
+  if (!parsedMode) return { error: 'Please provide a valid game mode.' }
+  const { mode, permanentAlly } = parsedMode
 
   const highestSlot = findHighestManualReportSlot(c.var)
   if (highestSlot === 0) return { error: 'Provide player and leader slots for the completed match.' }
 
-  const allowedCounts = manualReportPlayerCountOptions(mode)
+  const allowedCounts = manualReportPlayerCountOptions(mode, permanentAlly)
   if (!allowedCounts.includes(highestSlot)) {
     return { error: `${formatModeLabel(mode, mode)} manual reports require ${formatAllowedCounts(allowedCounts)} players. Fill slots 1-${allowedCounts[allowedCounts.length - 1]}.` }
   }
@@ -719,7 +725,7 @@ function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & {
     })
   }
 
-  return { mode, players }
+  return { mode, permanentAlly, players }
 }
 
 function findHighestManualReportSlot(vars: ModVar): number {
@@ -737,8 +743,15 @@ function formatAllowedCounts(counts: readonly number[]): string {
   return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
 }
 
-function manualReportPlayerCountOptions(mode: GameMode): readonly number[] {
-  return mode === 'ffa' ? startPlayerCountOptions(mode, maxPlayerCount(mode)) : playerCountOptions(mode)
+function parseManualReportMode(value: string | null | undefined): { mode: GameMode, permanentAlly: boolean } | null {
+  if (value === 'ffa-classic') return { mode: 'ffa', permanentAlly: false }
+  const mode = parseGameMode(value)
+  if (!mode) return null
+  return { mode, permanentAlly: mode === 'ffa' }
+}
+
+function manualReportPlayerCountOptions(mode: GameMode, permanentAlly: boolean): readonly number[] {
+  return mode === 'ffa' ? startPlayerCountOptions(mode, maxPlayerCount(mode), { permanentAlly }) : playerCountOptions(mode)
 }
 
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {

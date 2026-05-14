@@ -34,7 +34,8 @@ export async function createManualReportedMatch(
 
   const activeSeason = await getActiveSeason(db)
   const playerCount = input.players.length
-  const draftData = buildManualReportedDraftData(matchId, input.mode, input.players, input.reporterId, input.reportedAt)
+  const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
+  const draftData = buildManualReportedDraftData(matchId, input.mode, input.players, input.reporterId, input.reportedAt, permanentAlly)
   const participantRows = input.players.map((player, index) => {
     const team = resolveManualReportTeam(input.mode, index, playerCount)
     return {
@@ -42,7 +43,7 @@ export async function createManualReportedMatch(
       playerId: player.playerId,
       team,
       civId: player.civId,
-      placement: input.mode === 'ffa' ? index + 1 : (team ?? 0) + 1,
+      placement: input.mode === 'ffa' ? resolveManualFfaPlacement(index, permanentAlly) : (team ?? 0) + 1,
       ratingBeforeMu: null,
       ratingBeforeSigma: null,
       ratingAfterMu: null,
@@ -128,8 +129,9 @@ export async function createManualReportedMatch(
 }
 
 function validateManualReportedMatchInput(input: CreateManualReportedMatchInput): string | null {
+  const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
   const allowedCounts = input.mode === 'ffa'
-    ? startPlayerCountOptions(input.mode, maxPlayerCount(input.mode))
+    ? startPlayerCountOptions(input.mode, maxPlayerCount(input.mode), { permanentAlly })
     : playerCountOptions(input.mode)
   if (!allowedCounts.includes(input.players.length)) {
     return `${input.mode} manual reports require ${formatAllowedCounts(allowedCounts)} players.`
@@ -165,6 +167,7 @@ function buildManualReportedDraftData(
   players: ManualReportedMatchPlayerInput[],
   reporterId: string,
   reportedAt: number,
+  permanentAlly: boolean,
 ): string {
   const playerCount = players.length
   const state: DraftState = {
@@ -199,10 +202,14 @@ function buildManualReportedDraftData(
     reportedById: reporterId,
     mapVoteResult: null,
     redDeath: false,
-    permanentAlly: false,
+    permanentAlly,
     hiddenDraft: false,
     state,
   })
+}
+
+function resolveManualFfaPlacement(index: number, permanentAlly: boolean): number {
+  return permanentAlly ? Math.floor(index / 2) + 1 : index + 1
 }
 
 function resolveManualReportTeam(mode: GameMode, slot: number, playerCount: number): number | null {

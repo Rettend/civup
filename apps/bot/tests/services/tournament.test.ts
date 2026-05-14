@@ -1,6 +1,6 @@
 import type { LobbyState } from '../../src/services/lobby/index.ts'
 import type { TournamentStage } from '../../src/services/tournament/index.ts'
-import { matchCivStatContributions, matches, matchParticipants, playerRatingEvents, playerRatings, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { matchCivStatContributions, matches, matchParticipants, playerRatingEvents, playerRatings, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
@@ -222,6 +222,94 @@ describe('tournament service', () => {
 
       const standings = await buildTournamentStandings(db, tournament.id)
       expect(standings[0]?.displayName).toBe('Seeded Alias')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('builds tournament stats for another linked player without auto-linking pending entries', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Lookup Cup', createdById: 'admin' })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Alice', PLAYER_1],
+        ['2', 'Bob', PLAYER_2],
+        ['3', 'Pending Carol', ''],
+      ]))
+      await startTournament(db, tournament.id)
+
+      const data = await buildTournamentOpponentCardData(db, { userId: PLAYER_2, displayName: 'Discord Bob', avatarUrl: null }, { autoLink: false })
+      expect('error' in data).toBe(false)
+      if ('error' in data) return
+      expect(data.player.displayName).toBe('Bob')
+
+      const pending = await buildTournamentOpponentCardData(db, { userId: PLAYER_3, displayName: 'Pending Carol', avatarUrl: null }, { autoLink: false })
+      expect(pending).toEqual({ error: 'That player is not linked as a player in the active tournament.' })
+      const [pendingRow] = await db
+        .select({ playerId: tournamentPlayers.playerId })
+        .from(tournamentPlayers)
+        .where(and(eq(tournamentPlayers.tournamentId, tournament.id), eq(tournamentPlayers.displayName, 'Pending Carol')))
+        .limit(1)
+      expect(pendingRow?.playerId).toBeNull()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('recommends qualifier opponents by closest record before standings rank', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Closest Cup', createdById: 'admin', minGames: 1 })
+      await importTournamentPlayersCsv(db, tournament.id, playersCsv([
+        ['1', 'Target', PLAYER_1],
+        ['2', 'Four Zero', PLAYER_2],
+        ['3', 'Three Zero', PLAYER_3],
+        ['4', 'Two Zero', PLAYER_4],
+        ['5', 'Same Record', PLAYER_5],
+      ]))
+      await startTournament(db, tournament.id)
+
+      let matchIndex = 0
+      const reportRecord = async (playerId: string, wins: number, losses: number) => {
+        for (let index = 0; index < wins; index += 1) {
+          matchIndex += 1
+          const opponentId = `closest-opponent-${matchIndex}`
+          await db.insert(players).values({ id: opponentId, displayName: opponentId, avatarUrl: null, createdAt: Date.now() })
+          await reportTournamentMatch(db, tournament.id, `closest-session-${matchIndex}`, `closest-match-${matchIndex}`, [
+            [playerId, 1],
+            [opponentId, 2],
+          ])
+        }
+        for (let index = 0; index < losses; index += 1) {
+          matchIndex += 1
+          const opponentId = `closest-opponent-${matchIndex}`
+          await db.insert(players).values({ id: opponentId, displayName: opponentId, avatarUrl: null, createdAt: Date.now() })
+          await reportTournamentMatch(db, tournament.id, `closest-session-${matchIndex}`, `closest-match-${matchIndex}`, [
+            [playerId, 2],
+            [opponentId, 1],
+          ])
+        }
+      }
+
+      await reportRecord(PLAYER_1, 2, 1)
+      await reportRecord(PLAYER_2, 4, 0)
+      await reportRecord(PLAYER_3, 3, 0)
+      await reportRecord(PLAYER_4, 2, 0)
+      await reportRecord(PLAYER_5, 2, 1)
+
+      const data = await buildTournamentOpponentCardData(db, { userId: PLAYER_1, displayName: 'Target', avatarUrl: null })
+      expect('error' in data).toBe(false)
+      if ('error' in data) return
+      expect(data.player.wins).toBe(2)
+      expect(data.player.losses).toBe(1)
+      expect(data.opponents.map(opponent => opponent.displayName)).toEqual([
+        'Same Record',
+        'Two Zero',
+        'Three Zero',
+        'Four Zero',
+      ])
     }
     finally {
       sqlite.close()

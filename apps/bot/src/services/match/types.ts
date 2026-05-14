@@ -91,6 +91,7 @@ export interface ManualReportedMatchPlayerInput {
 export interface CreateManualReportedMatchInput {
   matchId?: string
   mode: GameMode
+  permanentAlly?: boolean
   players: ManualReportedMatchPlayerInput[]
   reporterId: string
   reportedAt: number
