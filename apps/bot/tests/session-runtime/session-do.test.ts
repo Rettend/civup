@@ -139,6 +139,65 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('starts odd-player regular FFA drafts', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+    } as any)
+    const playerIds = Array.from({ length: 7 }, (_, index) => `p${index + 1}`)
+    const openLobby = buildLobby({
+      id: 'odd-ffa-start',
+      mode: 'ffa',
+      memberPlayerIds: playerIds,
+      slots: playerIds,
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, permanentAlly: false },
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, playerIds.map((playerId, index) => ({
+        playerId,
+        displayName: `Player ${index + 1}`,
+        avatarUrl: null,
+        joinedAt: 10 + index,
+      })))
+
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      expect(started.seats).toHaveLength(7)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('rejects odd-player Permanent Ally FFA drafts', async () => {
+    const room = new SessionDO(createFakeDurableObjectState(), {} as any)
+    const playerIds = Array.from({ length: 7 }, (_, index) => `p${index + 1}`)
+    const openLobby = buildLobby({
+      id: 'odd-pa-ffa-start',
+      mode: 'ffa',
+      memberPlayerIds: playerIds,
+      slots: playerIds,
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, permanentAlly: true },
+    })
+
+    await createSessionFromLobby(room, openLobby, playerIds.map((playerId, index) => ({
+      playerId,
+      displayName: `Player ${index + 1}`,
+      avatarUrl: null,
+      joinedAt: 10 + index,
+    })))
+
+    const startResponse = await room.fetch(sessionRequest('/commands/start-draft', {
+      method: 'POST',
+      body: JSON.stringify({ hostId: 'p1', now: 20 }),
+    }))
+
+    expect(startResponse.status).toBe(400)
+    expect(await startResponse.json()).toEqual({ error: 'Permanent Ally FFA requires an even player count.' })
+  })
+
   test('terminal lifecycle commands report and cancel through the session aggregate', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

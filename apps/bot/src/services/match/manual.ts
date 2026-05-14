@@ -2,22 +2,28 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
 import { matches, matchParticipants, players } from '@civup/db'
-import { defaultPlayerCount, getLeaders, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
+import { getLeaders, maxPlayerCount, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getActiveSeason } from '../season/index.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
-import { recalculateLeaderboardMode } from './ratings.ts'
+import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
 const MANUAL_MATCH_ID_LENGTH = 10
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 const LIVE_LEADER_IDS = new Set(getLeaders('live').map(leader => leader.id))
 
+interface CreateManualReportedMatchOptions {
+  rankedRoleGuildId?: string | null
+}
+
 export async function createManualReportedMatch(
   db: Database,
   kv: KVNamespace,
   input: CreateManualReportedMatchInput,
+  options: CreateManualReportedMatchOptions = {},
 ): Promise<CreateManualReportedMatchResult> {
   const validationError = validateManualReportedMatchInput(input)
   if (validationError) return { error: validationError }
@@ -88,6 +94,15 @@ export async function createManualReportedMatch(
         await rollbackManualReportedMatch(db, matchId)
         return recalculated
       }
+      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+        fromMatchId: matchId,
+        includeFromMatch: true,
+        opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+      })
+      if ('error' in recalculatedGlobal) {
+        await rollbackManualReportedMatch(db, matchId)
+        return recalculatedGlobal
+      }
       recalculatedMatchIds = recalculated.matchIds
     }
 
@@ -114,7 +129,7 @@ export async function createManualReportedMatch(
 
 function validateManualReportedMatchInput(input: CreateManualReportedMatchInput): string | null {
   const allowedCounts = input.mode === 'ffa'
-    ? startPlayerCountOptions(input.mode, defaultPlayerCount(input.mode))
+    ? startPlayerCountOptions(input.mode, maxPlayerCount(input.mode))
     : playerCountOptions(input.mode)
   if (!allowedCounts.includes(input.players.length)) {
     return `${input.mode} manual reports require ${formatAllowedCounts(allowedCounts)} players.`
@@ -202,4 +217,10 @@ async function rollbackManualReportedMatch(db: Database, matchId: string): Promi
 function formatAllowedCounts(counts: readonly number[]): string {
   if (counts.length === 1) return String(counts[0])
   return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
+}
+
+async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+  if (!guildId) return new Map()
+  const assignments = await getCurrentRankAssignments(kv, guildId)
+  return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
 }

@@ -382,7 +382,7 @@ async function buildLobbySnapshotFromSessionParts(
     lastArrange: session.lastArrange,
     memberPlayerIds,
     entries,
-    minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath })[0] ?? targetSize,
+    minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath, permanentAlly: session.config.permanentAlly })[0] ?? targetSize,
     targetSize,
     draftConfig: {
       banTimerSeconds: session.config.banTimerSeconds,

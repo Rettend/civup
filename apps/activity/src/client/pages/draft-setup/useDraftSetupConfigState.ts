@@ -249,7 +249,7 @@ export function useDraftSetupConfigState(input: {
   const canStartLobby = () => {
     const lobby = input.currentLobby()
     if (!lobby) return false
-    return canStartWithPlayerCount(inferGameMode(lobby.mode), input.filledSlots(), lobby.targetSize, { redDeath: optimisticDraftConfig().redDeath })
+    return canStartWithPlayerCount(inferGameMode(lobby.mode), input.filledSlots(), lobby.targetSize, { redDeath: optimisticDraftConfig().redDeath, permanentAlly: optimisticDraftConfig().permanentAlly })
   }
   const lobbyMinRoleValue = () => input.currentLobby()?.minRole ?? ''
   const formattedLobbyMinRole = () => formatLobbyMinRole(input.currentLobby()?.minRole ?? null, rankedRoleOptions())

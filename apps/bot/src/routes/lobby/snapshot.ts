@@ -43,12 +43,12 @@ export async function getLobbyBalanceSnapshot(
   return leaderboardMode ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode) : null
 }
 
-export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false): number {
-  return startPlayerCountOptions(mode, targetSize, { redDeath })[0] ?? targetSize
+export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false, permanentAlly = false): number {
+  return startPlayerCountOptions(mode, targetSize, { redDeath, permanentAlly })[0] ?? targetSize
 }
 
-export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number, redDeath = false): boolean {
-  return canStartWithPlayerCount(mode, playerCount, targetSize, { redDeath })
+export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number, redDeath = false, permanentAlly = false): boolean {
+  return canStartWithPlayerCount(mode, playerCount, targetSize, { redDeath, permanentAlly })
 }
 
 export async function getUniqueOpenLobbyForChannel(
