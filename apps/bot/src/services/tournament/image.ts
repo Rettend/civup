@@ -3,6 +3,7 @@ import { getLeader } from '@civup/game'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { LEADER_EMOJI_IDS } from '../../constants/leader-emojis.ts'
+import { TOURNAMENT_EMOJI_ICONS, type TournamentEmojiIcon } from '../../constants/tournament-emoji-icons.ts'
 
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
@@ -33,8 +34,11 @@ interface AvatarPlayer {
   avatarUrl: string | null
 }
 
+type InlineTextSegment = { type: 'text', value: string } | { type: 'emoji', value: string, icon: TournamentEmojiIcon }
+
 let wasmReady: Promise<unknown> | null = null
 let fontBuffersReady: Promise<Uint8Array[]> | null = null
+let emojiSvgInstance = 0
 
 export async function renderTournamentOpponentsPng(data: TournamentOpponentCardData): Promise<Uint8Array> {
   return renderSvgToPng(await renderTournamentOpponentsSvg(data))
@@ -226,7 +230,7 @@ function renderBracket(
     const lastCenters = matchCenters[lastRoundIndex]
     const lastY = lastCenters?.[0] ?? BRACKET_START_Y + bracketH / 2
     svg += `<text x="${lastX + 4}" y="${lastY - 14}" fill="${COLORS.accent}" font-size="20" font-weight="900" letter-spacing="1">CHAMPION</text>`
-    svg += `<text x="${lastX + 4}" y="${lastY + 12}" fill="${COLORS.fg}" font-size="28" font-weight="900">${escapeXml(truncateToWidth(champion.displayName, 180, 28, 900))}</text>`
+    svg += renderInlineText(champion.displayName, lastX + 4, lastY + 12, 180, 28, 900, COLORS.fg)
   }
 
   return svg
@@ -283,7 +287,7 @@ function renderBracketSlot(
   }
   else {
     svg += `<text x="${x + 16}" y="${textY}" fill="${seedColor}" font-size="18" font-weight="900">${seed}</text>`
-    svg += `<text x="${x + 44}" y="${textY}" fill="${nameColor}" font-size="22" font-weight="${isWinner ? 900 : 700}">${escapeXml(truncateToWidth(displayName, width - 60, 22, isWinner ? 900 : 700))}</text>`
+    svg += renderInlineText(displayName, x + 44, textY, width - 60, 22, isWinner ? 900 : 700, nameColor)
   }
 
   return svg
@@ -331,7 +335,7 @@ function renderPlayerStatsPanel(player: TournamentOpponentCardPlayer, avatarData
   return `
     <rect x="64" y="166" width="470" height="152" rx="24" fill="rgba(255,255,255,0.045)" />
     ${renderAvatar(player, 92, 194, 96, avatarClipId(player), avatarDataUri, COLORS.accent, false)}
-    <text x="216" y="232" fill="${COLORS.fg}" font-size="42" font-weight="900">${escapeXml(truncateToWidth(player.displayName, 288, 42, 900))}</text>
+    ${renderInlineText(player.displayName, 216, 232, 288, 42, 900, COLORS.fg)}
     <text x="218" y="274" fill="${COLORS.muted}" font-size="28" font-weight="800">${player.games} games</text>
 
     <rect x="64" y="348" width="222" height="162" rx="24" fill="rgba(255,255,255,0.045)" />
@@ -385,7 +389,7 @@ function renderStandingStyleRow(
     <rect x="${x}" y="${y}" width="${width}" height="${rowHeight}" rx="16" fill="${fill}" />
     <text x="${x + rankX}" y="${y + rankY}" text-anchor="middle" fill="${rankColor}" font-size="${rankFont}" font-weight="900">#${rank}</text>
     ${renderAvatar(row, x + avatarX, y + avatarY, avatarSize, avatarClipId(row), avatarData.get(avatarKey(row)), rankColor, false)}
-    <text x="${x + nameX}" y="${y + textY}" fill="${COLORS.fg}" font-size="${nameFont}" font-weight="900">${escapeXml(truncateToWidth(row.displayName, nameMaxWidth, nameFont, 900))}</text>
+    ${renderInlineText(row.displayName, x + nameX, y + textY, nameMaxWidth, nameFont, 900, COLORS.fg)}
     <text x="${x + width - metricOffset}" y="${y + textY}" text-anchor="end" fill="${COLORS.fg}" font-size="${metricFont}" font-weight="900">${row.wins}-${row.losses}</text>
     <text x="${x + width - percentOffset}" y="${y + textY}" text-anchor="end" fill="${highlighted ? COLORS.accent : COLORS.muted}" font-size="${metricFont}" font-weight="900">${Math.round(row.winRate * 100)}%</text>
   `
@@ -438,7 +442,7 @@ function renderResultRows(data: TournamentResultImageData, avatarData: Map<strin
       ${renderAvatar(player, 96, y + 30, 118, avatarId, avatarData.get(avatarKey(player)), color)}
       <circle cx="210" cy="${y + 134}" r="42" fill="${COLORS.panel}" stroke="${COLORS.borderSubtle}" stroke-width="2" />
       ${leaderIcon ? `<image href="${leaderIcon}" x="170" y="${y + 94}" width="80" height="80" preserveAspectRatio="xMidYMid meet" />` : `<text x="210" y="${y + 148}" text-anchor="middle" fill="${COLORS.accent}" font-size="31" font-weight="900">${escapeXml(getLeaderInitials(player.civId))}</text>`}
-      <text x="286" y="${y + 92}" fill="${COLORS.fg}" font-size="58" font-weight="900">${escapeXml(truncateToWidth(player.displayName, 570, 58, 900))}</text>
+      ${renderInlineText(player.displayName, 286, y + 92, 570, 58, 900, COLORS.fg)}
       <text x="288" y="${y + 140}" fill="${COLORS.muted}" font-size="31" font-weight="800">${escapeXml(truncateToWidth(formatLeader(player.civId), 570, 31, 800))}</text>
       <text x="1018" y="${y + 100}" text-anchor="middle" fill="${COLORS.fg}" font-size="88" font-weight="900">#${player.placement ?? '?'}</text>
       <text x="1018" y="${y + 148}" text-anchor="middle" fill="${color}" font-size="38" font-weight="900" letter-spacing="2">${label}</text>
@@ -639,18 +643,128 @@ function truncateToWidth(value: string, maxWidth: number, fontSize: number, font
   const suffix = '...'
   const suffixWidth = measureTextWidth(suffix, fontSize, fontWeight)
   let result = ''
-  for (const char of value) {
-    if (measureTextWidth(result + char, fontSize, fontWeight) + suffixWidth > maxWidth) break
-    result += char
+  for (const segment of splitInlineTextSegments(value)) {
+    if (segment.type === 'emoji') {
+      if (measureTextWidth(result + segment.value, fontSize, fontWeight) + suffixWidth > maxWidth) break
+      result += segment.value
+      continue
+    }
+
+    let segmentComplete = true
+    for (const char of segment.value) {
+      if (measureTextWidth(result + char, fontSize, fontWeight) + suffixWidth > maxWidth) {
+        segmentComplete = false
+        break
+      }
+      result += char
+    }
+    if (!segmentComplete) break
   }
   return result.length > 0 ? `${result.trimEnd()}${suffix}` : suffix
 }
 
+function renderInlineText(value: string, x: number, y: number, maxWidth: number, fontSize: number, fontWeight: number, fill: string): string {
+  const segments = splitInlineTextSegments(truncateToWidth(value, maxWidth, fontSize, fontWeight))
+  let currentX = x
+  let svg = ''
+  let textRun = ''
+
+  const flushText = () => {
+    if (!textRun) return
+    svg += `<text x="${currentX}" y="${y}" fill="${fill}" font-size="${fontSize}" font-weight="${fontWeight}">${escapeXml(textRun)}</text>`
+    currentX += measurePlainTextWidth(textRun, fontSize, fontWeight)
+    textRun = ''
+  }
+
+  for (const segment of segments) {
+    if (segment.type === 'text') {
+      textRun += segment.value
+      continue
+    }
+    flushText()
+    const size = getEmojiRenderSize(fontSize)
+    svg += renderEmojiIcon(segment.icon, currentX, y - (fontSize * 0.84), size)
+    currentX += getEmojiAdvance(fontSize)
+  }
+  flushText()
+  return svg
+}
+
 function measureTextWidth(value: string, fontSize: number, fontWeight: number): number {
+  return splitInlineTextSegments(value).reduce((sum, segment) => (
+    sum + (segment.type === 'emoji' ? getEmojiAdvance(fontSize) : measurePlainTextWidth(segment.value, fontSize, fontWeight))
+  ), 0)
+}
+
+function measurePlainTextWidth(value: string, fontSize: number, fontWeight: number): number {
   const weightFactor = fontWeight >= 800 ? 1.06 : 1
   let width = 0
   for (const char of value) width += getApproxCharWidth(char) * fontSize * weightFactor
   return width
+}
+
+function splitInlineTextSegments(value: string): InlineTextSegment[] {
+  const emojiEntries = Object.entries(TOURNAMENT_EMOJI_ICONS).sort((left, right) => right[0].length - left[0].length)
+  const segments: InlineTextSegment[] = []
+  let index = 0
+  let textRun = ''
+
+  const flushText = () => {
+    if (!textRun) return
+    segments.push({ type: 'text', value: textRun })
+    textRun = ''
+  }
+
+  while (index < value.length) {
+    const emoji = emojiEntries.find(([candidate]) => value.startsWith(candidate, index))
+    if (emoji) {
+      flushText()
+      segments.push({ type: 'emoji', value: emoji[0], icon: emoji[1] })
+      index += emoji[0].length
+      continue
+    }
+
+    const codePoint = value.codePointAt(index)
+    if (codePoint == null) break
+    const char = String.fromCodePoint(codePoint)
+    textRun += char
+    index += char.length
+  }
+
+  flushText()
+  return segments
+}
+
+function renderEmojiIcon(icon: TournamentEmojiIcon, x: number, y: number, size: number): string {
+  const prefix = `tournament-emoji-${emojiSvgInstance++}-`
+  const body = prefixSvgIds(icon.body, prefix)
+  return `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="0 0 ${icon.width} ${icon.height}" overflow="visible">${body}</svg>`
+}
+
+function prefixSvgIds(body: string, prefix: string): string {
+  const ids = [...body.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]!).filter(Boolean)
+  let result = body
+  for (const id of ids) {
+    const escaped = escapeRegExp(id)
+    result = result
+      .replace(new RegExp(`id="${escaped}"`, 'g'), `id="${prefix}${id}"`)
+      .replace(new RegExp(`url\\(#${escaped}\\)`, 'g'), `url(#${prefix}${id})`)
+      .replace(new RegExp(`href="#${escaped}"`, 'g'), `href="#${prefix}${id}"`)
+      .replace(new RegExp(`xlink:href="#${escaped}"`, 'g'), `xlink:href="#${prefix}${id}"`)
+  }
+  return result
+}
+
+function getEmojiRenderSize(fontSize: number): number {
+  return fontSize * 1.04
+}
+
+function getEmojiAdvance(fontSize: number): number {
+  return fontSize * 1.06
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function getApproxCharWidth(char: string): number {

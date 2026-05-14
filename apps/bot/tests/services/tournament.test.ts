@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { backfillCivLeaderboardStatsFromHistory } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { cancelMatchByModerator, recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
-import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng, renderTournamentResultPng } from '../../src/services/tournament/image.ts'
+import { renderTournamentLeaderboardPng, renderTournamentLeaderboardSvg, renderTournamentOpponentsPng, renderTournamentResultPng, renderTournamentResultSvg } from '../../src/services/tournament/image.ts'
 import {
   buildTournamentLeaderboardImageData,
   buildTournamentLobbySnapshot,
@@ -17,6 +17,7 @@ import {
   createTournament,
   createTournamentCut,
   createTournamentMatchLink,
+  importTournamentPlayers,
   importTournamentPlayersCsv,
   leaveTournament,
   markTournamentMatchDrafting,
@@ -38,6 +39,65 @@ const PLAYER_7 = '1000000000000007'
 const PLAYER_8 = '1000000000000008'
 
 describe('tournament service', () => {
+  test('renders configured display name emoji as inline tournament icons', async () => {
+    const leaderboardData = {
+      tournamentName: 'Emoji Cup',
+      status: 'qualifier',
+      minGames: 1,
+      standings: [
+        {
+          playerId: 'player-emoji',
+          displayName: 'Sam 🎧',
+          avatarUrl: null,
+          seed: 1,
+          games: 1,
+          wins: 1,
+          losses: 0,
+          winRate: 1,
+          eligible: true,
+        },
+        {
+          playerId: 'player-long-name',
+          displayName: 'VeryLongTournamentPlayerNameThatCannotFit',
+          avatarUrl: null,
+          seed: 2,
+          games: 1,
+          wins: 0,
+          losses: 1,
+          winRate: 0,
+          eligible: true,
+        },
+      ],
+      pairings: [],
+      champion: null,
+    } as const
+    const svg = await renderTournamentLeaderboardSvg(leaderboardData)
+
+    expect(svg).toContain('Sam ')
+    expect(svg).toContain('Very')
+    expect(svg).toContain('tournament-emoji-')
+    expect(svg).not.toContain('Sam 🎧')
+    expect(svg).not.toMatch(/>\.\.\.<\/text>/)
+
+    expect((await renderTournamentLeaderboardPng(leaderboardData)).byteLength).toBeGreaterThan(0)
+
+    const resultData = {
+      tournamentName: 'Emoji Cup',
+      stage: 'qualifier',
+      matchLabel: 'Qualifier match',
+      players: [
+        { playerId: 'p1', displayName: '🐒Monkey Style🐒', avatarUrl: null, civId: null, placement: 1 },
+        { playerId: 'p2', displayName: 'Sn0w🦦', avatarUrl: null, civId: null, placement: 2 },
+      ],
+    } as const
+    const resultSvg = await renderTournamentResultSvg(resultData)
+    expect(resultSvg).toContain('Monkey Style')
+    expect(resultSvg).toContain('Sn0w')
+    expect(resultSvg).not.toContain('🐒')
+    expect(resultSvg).not.toContain('🦦')
+    expect((await renderTournamentResultPng(resultData)).byteLength).toBeGreaterThan(0)
+  })
+
   test('imports tournament players from CSV and links Discord IDs', async () => {
     const { db, sqlite } = await createTestDatabase()
     try {
@@ -56,6 +116,31 @@ describe('tournament service', () => {
         { name: 'Bob', playerId: null, seed: 2 },
       ])
       expect(tournament.status).toBe('setup')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('imports resolved tournament member names and avatars', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const tournament = await createTournament(db, { name: 'Resolved Cup', createdById: 'admin' })
+      const result = await importTournamentPlayers(db, tournament.id, [{
+        seed: 1,
+        displayName: 'Resolved Nick',
+        confirmed: true,
+        playerId: PLAYER_1,
+        avatarUrl: 'https://cdn.discordapp.com/avatars/player/avatar.png?size=128',
+      }])
+
+      expect('error' in result).toBe(false)
+      const standings = await buildTournamentStandings(db, tournament.id)
+      expect(standings[0]?.displayName).toBe('Resolved Nick')
+
+      const imageData = await buildTournamentLeaderboardImageData(db, tournament.id, standings, [])
+      expect(imageData?.standings[0]?.displayName).toBe('Resolved Nick')
+      expect(imageData?.standings[0]?.avatarUrl).toBe('https://cdn.discordapp.com/avatars/player/avatar.png?size=128')
     }
     finally {
       sqlite.close()

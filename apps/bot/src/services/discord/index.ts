@@ -43,6 +43,17 @@ export interface DiscordGuildRolePayload {
   color?: number
 }
 
+export interface DiscordGuildMemberResponse {
+  nick?: string | null
+  avatar?: string | null
+  user?: {
+    id?: string
+    username?: string
+    global_name?: string | null
+    avatar?: string | null
+  }
+}
+
 interface DiscordMessageResponse {
   id: string
 }
@@ -195,6 +206,25 @@ export async function createDmChannel(
   )
 
   return response.json<DiscordDmChannelResponse>()
+}
+
+export async function fetchGuildMember(
+  token: string,
+  guildId: string,
+  userId: string,
+): Promise<DiscordGuildMemberResponse> {
+  const response = await requestDiscord(
+    'fetch guild member',
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+
+  return response.json<DiscordGuildMemberResponse>()
 }
 
 export async function editChannelMessage(
