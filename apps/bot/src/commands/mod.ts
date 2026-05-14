@@ -347,6 +347,27 @@ export const command_mod = factory.autocomplete<ModVar>(
                 }
               }
 
+              if (isTournamentMatch) {
+                const syncResult = await syncReportedMatchDiscordMessages({
+                  db,
+                  kv,
+                  token: c.env.DISCORD_TOKEN,
+                  matchId: result.match.id,
+                  reportedMode: mode,
+                  reportedRedDeath: matchContext.redDeath,
+                  participants: result.participants,
+                  lobby: existingLobby,
+                  sessionNamespace: c.env.SessionDO,
+                  matchDraftData: result.match.draftData,
+                  archivePolicy: 'always',
+                  archiveChannelType: 'tournament-archive',
+                })
+                if (syncResult.errors.length > 0) {
+                  console.error(`Failed to sync resolved tournament match ${result.match.id} images:`, syncResult.errors)
+                }
+                return
+              }
+
               if (existingLobby) {
                 try {
                   const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
