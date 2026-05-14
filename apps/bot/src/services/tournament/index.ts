@@ -113,6 +113,10 @@ export interface TournamentOpponentCardData {
   } | null
 }
 
+interface BuildTournamentOpponentCardDataOptions {
+  autoLink?: boolean
+}
+
 export interface TournamentCutResult {
   tournamentId: string
   tournamentName: string
@@ -461,6 +465,33 @@ export async function resolveTournamentPlayerForIdentity(
 
   if (matches.length > 1) return { ok: false, error: 'Your tournament entry is ambiguous. Ask an admin to link your Discord ID.' }
   return { ok: false, error: 'You are not linked as a player in the active tournament.' }
+}
+
+async function resolveLinkedTournamentPlayerForIdentity(
+  db: Database,
+  tournamentId: string,
+  identity: TournamentIdentity,
+): Promise<{ ok: true } | { ok: false, error: string }> {
+  const [linked] = await db
+    .select()
+    .from(tournamentPlayers)
+    .where(and(
+      eq(tournamentPlayers.tournamentId, tournamentId),
+      eq(tournamentPlayers.playerId, identity.userId),
+    ))
+    .limit(1)
+  if (!linked) return { ok: false, error: 'That player is not linked as a player in the active tournament.' }
+  if (!linked.confirmed) return { ok: false, error: 'That player has left this tournament.' }
+
+  await upsertTournamentPlayerIdentity(db, identity)
+  await db
+    .update(tournamentPlayers)
+    .set({ avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
+    .where(and(
+      eq(tournamentPlayers.tournamentId, tournamentId),
+      eq(tournamentPlayers.playerId, identity.userId),
+    ))
+  return { ok: true }
 }
 
 export async function createTournamentMatchLink(
@@ -922,16 +953,19 @@ export async function isMatchTournamentLinked(db: Database, matchId: string): Pr
 export async function buildTournamentOpponentCardData(
   db: Database,
   identity: TournamentIdentity,
+  options: BuildTournamentOpponentCardDataOptions = {},
 ): Promise<TournamentOpponentCardData | { error: string }> {
   const tournament = await getActiveTournament(db)
   if (!tournament) return { error: 'No active tournament.' }
 
-  const resolved = await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
+  const resolved = options.autoLink === false
+    ? await resolveLinkedTournamentPlayerForIdentity(db, tournament.id, identity)
+    : await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
   if (!resolved.ok) return { error: resolved.error }
 
   const standings = await buildTournamentStandings(db, tournament.id)
   const playerStanding = standings.find(row => row.playerId === identity.userId)
-  if (!playerStanding) return { error: 'You are not linked as a player in the active tournament.' }
+  if (!playerStanding) return { error: options.autoLink === false ? 'That player is not linked as a player in the active tournament.' : 'You are not linked as a player in the active tournament.' }
 
   const rankByPlayerId = buildTournamentRankByPlayerId(standings)
   const player = await toOpponentCardPlayer(db, tournament.id, playerStanding, rankByPlayerId.get(identity.userId) ?? null)
@@ -1371,13 +1405,34 @@ async function buildQualifierOpponentRows(
   const rows = standings.filter(row => row.playerId && row.playerId !== playerId)
   const meetings = await Promise.all(rows.map(row => countReportedMeetings(db, tournamentId, playerId, row.playerId!)))
   const ranked = rows.map((row, index) => ({ row, meetings: meetings[index] ?? 0 }))
-    .sort((left, right) => left.meetings - right.meetings || compareTournamentStandingRows(left.row, right.row))
+    .sort((left, right) => compareTournamentRecommendationRows(playerStanding, left, right))
     .slice(0, 8)
 
   return Promise.all(ranked.map(async entry => ({
     ...await toOpponentCardPlayer(db, tournamentId, entry.row, entry.row.playerId ? rankByPlayerId.get(entry.row.playerId) ?? null : null),
     note: buildOpponentRecommendationNote(playerStanding, entry.row, entry.meetings, minGames),
   })))
+}
+
+function compareTournamentRecommendationRows(
+  player: TournamentStandingRow,
+  left: { row: TournamentStandingRow, meetings: number },
+  right: { row: TournamentStandingRow, meetings: number },
+): number {
+  const meetingDiff = left.meetings - right.meetings
+  if (meetingDiff !== 0) return meetingDiff
+
+  const recordDiff = getRecordDistance(player, left.row) - getRecordDistance(player, right.row)
+  if (recordDiff !== 0) return recordDiff
+
+  const winRateDiff = Math.abs(left.row.winRate - player.winRate) - Math.abs(right.row.winRate - player.winRate)
+  if (winRateDiff !== 0) return winRateDiff
+
+  return compareTournamentStandingRows(left.row, right.row)
+}
+
+function getRecordDistance(player: TournamentStandingRow, opponent: TournamentStandingRow): number {
+  return Math.abs(opponent.wins - player.wins) + Math.abs(opponent.losses - player.losses)
 }
 
 function buildOpponentRecommendationNote(player: TournamentStandingRow, opponent: TournamentStandingRow, meetings: number, minGames: number): string {

@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, LeaderboardMode } from '@civup/game'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
-import { matchBans, matches, matchParticipants } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents } from '@civup/db'
 import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
@@ -561,8 +561,11 @@ export async function cancelMatchByModerator(
 
   const previousStatus = match.status
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
+    ? await matchHasRatingEvents(db, input.matchId)
+    : false
   let completedLeaderboardMode: LeaderboardMode | null = null
-  if (previousStatus === 'completed' && !tournamentLinked) {
+  if ((previousStatus === 'completed' || hasStaleRatingEvents) && !tournamentLinked) {
     const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
     if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
     completedLeaderboardMode = gameContext.leaderboardMode
@@ -583,7 +586,7 @@ export async function cancelMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   let recalculatedMatchIds: string[] = []
-  if (previousStatus === 'completed') {
+  if (previousStatus === 'completed' || hasStaleRatingEvents) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
   }
   if (completedLeaderboardMode != null) {
@@ -620,6 +623,15 @@ export async function cancelMatchByModerator(
     previousStatus,
     recalculatedMatchIds,
   }
+}
+
+async function matchHasRatingEvents(db: Database, matchId: string): Promise<boolean> {
+  const [event] = await db
+    .select({ matchId: playerRatingEvents.matchId })
+    .from(playerRatingEvents)
+    .where(eq(playerRatingEvents.matchId, matchId))
+    .limit(1)
+  return event != null
 }
 
 async function runTerminalSessionCommand(
