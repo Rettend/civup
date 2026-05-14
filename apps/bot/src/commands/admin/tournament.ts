@@ -1,9 +1,11 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
+import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
+import { fetchGuildMember, isDiscordApiError } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayersCsv, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament, type TournamentPlayerImportRow } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -60,8 +62,19 @@ export function handleTournamentImport(c: AdminCommandContext) {
       return
     }
 
-    const csv = await response.text()
-    const result = await importTournamentPlayersCsv(db, tournament.id, csv).catch((error) => {
+    const parsedRows = await parseTournamentPlayersCsv(await response.text())
+    if ('error' in parsedRows) {
+      await sendTransientEphemeralResponse(c, parsedRows.error, 'error')
+      return
+    }
+
+    const resolvedRows = await resolveTournamentImportRows(c.env.DISCORD_TOKEN, c.interaction.guild_id ?? null, parsedRows)
+    if ('error' in resolvedRows) {
+      await sendTransientEphemeralResponse(c, resolvedRows.error, 'error')
+      return
+    }
+
+    const result = await importTournamentPlayers(db, tournament.id, resolvedRows).catch((error) => {
       console.error('[admin:tournament:import] failed to import tournament players', error)
       return { error: 'Failed to import players. Check the CSV for duplicate seeds, duplicate display names, or duplicate Discord user IDs.' }
     })
@@ -82,6 +95,55 @@ export function handleTournamentImport(c: AdminCommandContext) {
       'success',
     )
   })
+}
+
+async function resolveTournamentImportRows(
+  token: string,
+  guildId: string | null,
+  rows: TournamentPlayerImportRow[],
+): Promise<TournamentPlayerImportRow[] | { error: string }> {
+  const linkedRows = rows.filter(row => row.playerId)
+  if (linkedRows.length === 0) return rows
+  if (!guildId) return { error: 'Tournament import with Discord IDs must be run from a server so nicknames can be resolved.' }
+
+  const resolvedByPlayerId = new Map<string, { displayName: string, avatarUrl: string | null }>()
+  const failures: string[] = []
+  for (const row of linkedRows) {
+    const playerId = row.playerId!
+    if (resolvedByPlayerId.has(playerId)) continue
+    try {
+      const member = await fetchGuildMember(token, guildId, playerId)
+      const displayName = member.nick?.trim()
+        || member.user?.global_name?.trim()
+        || member.user?.username?.trim()
+      if (!displayName) {
+        failures.push(playerId)
+        continue
+      }
+
+      resolvedByPlayerId.set(playerId, {
+        displayName,
+        avatarUrl: buildGuildMemberAvatarUrl(guildId, playerId, member.avatar) ?? buildDiscordAvatarUrl(playerId, member.user?.avatar ?? null),
+      })
+    }
+    catch (error) {
+      failures.push(isDiscordApiError(error) ? `${playerId} (${error.status})` : playerId)
+    }
+  }
+
+  if (failures.length > 0) return { error: `Could not resolve Discord member names for: ${failures.join(', ')}` }
+
+  return rows.map((row) => {
+    if (!row.playerId) return row
+    const resolved = resolvedByPlayerId.get(row.playerId)
+    return resolved ? { ...row, displayName: resolved.displayName, avatarUrl: resolved.avatarUrl } : row
+  })
+}
+
+function buildGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string | null | undefined): string | null {
+  if (!avatarHash) return null
+  const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
+  return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
 }
 
 export function handleTournamentStatus(c: AdminCommandContext) {

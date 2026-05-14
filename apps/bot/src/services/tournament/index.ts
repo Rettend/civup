@@ -35,6 +35,7 @@ export interface TournamentPlayerImportRow {
   displayName: string
   confirmed: boolean
   playerId: string | null
+  avatarUrl?: string | null
 }
 
 export interface TournamentImportResult {
@@ -324,9 +325,12 @@ export async function parseTournamentPlayersCsv(csv: string): Promise<Tournament
 export async function importTournamentPlayersCsv(db: Database, tournamentId: string, csv: string): Promise<TournamentImportResult | { error: string }> {
   const parsed = await parseTournamentPlayersCsv(csv)
   if ('error' in parsed) return parsed
+  return importTournamentPlayers(db, tournamentId, parsed)
+}
 
+export async function importTournamentPlayers(db: Database, tournamentId: string, rows: TournamentPlayerImportRow[]): Promise<TournamentImportResult | { error: string }> {
   const normalizedNames = new Map<string, string[]>()
-  for (const row of parsed) {
+  for (const row of rows) {
     const key = normalizeIdentityName(row.displayName)
     normalizedNames.set(key, [...(normalizedNames.get(key) ?? []), row.displayName])
   }
@@ -339,7 +343,7 @@ export async function importTournamentPlayersCsv(db: Database, tournamentId: str
 
   const seeds = new Map<number, string[]>()
   const playerIds = new Map<string, string[]>()
-  for (const row of parsed) {
+  for (const row of rows) {
     if (row.seed != null) {
       seeds.set(row.seed, [...(seeds.get(row.seed) ?? []), row.displayName])
     }
@@ -363,27 +367,30 @@ export async function importTournamentPlayersCsv(db: Database, tournamentId: str
   }
 
   const now = Date.now()
-  const linkedRows = parsed.filter(row => row.playerId)
+  const linkedRows = rows.filter(row => row.playerId)
   for (const row of linkedRows) {
+    const playerUpdateValues = row.avatarUrl === undefined
+      ? { displayName: row.displayName }
+      : { displayName: row.displayName, avatarUrl: row.avatarUrl }
     await db.insert(players).values({
       id: row.playerId!,
       displayName: row.displayName,
-      avatarUrl: null,
+      avatarUrl: row.avatarUrl ?? null,
       createdAt: now,
     }).onConflictDoUpdate({
       target: players.id,
-      set: { displayName: row.displayName },
+      set: playerUpdateValues,
     })
   }
 
   await db.delete(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, tournamentId))
-  for (const batch of chunkArray(parsed, TOURNAMENT_PLAYER_IMPORT_BATCH_SIZE)) {
+  for (const batch of chunkArray(rows, TOURNAMENT_PLAYER_IMPORT_BATCH_SIZE)) {
     await db.insert(tournamentPlayers).values(batch.map(row => ({
       tournamentId,
       seed: row.seed,
       playerId: row.playerId,
       displayName: row.displayName,
-      avatarUrl: null,
+      avatarUrl: row.avatarUrl ?? null,
       confirmed: row.confirmed,
       linkedAt: row.playerId ? now : null,
       createdAt: now,
@@ -392,9 +399,9 @@ export async function importTournamentPlayersCsv(db: Database, tournamentId: str
   }
 
   return {
-    imported: parsed.length,
+    imported: rows.length,
     linked: linkedRows.length,
-    pending: parsed.length - linkedRows.length,
+    pending: rows.length - linkedRows.length,
     duplicateDisplayNames,
   }
 }
