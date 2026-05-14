@@ -84,7 +84,7 @@ describe('reported match Discord sync', () => {
   test('routes tournament reports to the tournament archive channel', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const calls: string[] = []
+    const calls: Array<{ method: string, url: string, contentType: string | null }> = []
 
     try {
       await db.insert(players).values([
@@ -110,7 +110,7 @@ describe('reported match Discord sync', () => {
 
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = input instanceof Request ? input : new Request(input, init)
-        calls.push(`${request.method} ${request.url}`)
+        calls.push({ method: request.method, url: request.url, contentType: request.headers.get('content-type') })
 
         if (request.method === 'PATCH' && request.url.includes('/channels/tournament-draft-channel/messages/draft-message')) {
           return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
@@ -137,7 +137,8 @@ describe('reported match Discord sync', () => {
 
       expect(result.archiveMessageCreated).toBe(true)
       expect(result.errors).toEqual([])
-      expect(calls).toContain('POST https://discord.com/api/v10/channels/tournament-archive-channel/messages')
+      expect(calls).toContainEqual(expect.objectContaining({ method: 'POST', url: 'https://discord.com/api/v10/channels/tournament-archive-channel/messages' }))
+      expect(calls.every(call => call.contentType?.startsWith('multipart/form-data'))).toBe(true)
     }
     finally {
       sqlite.close()

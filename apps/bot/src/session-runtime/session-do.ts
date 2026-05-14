@@ -1002,15 +1002,17 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const tournamentResultPng = tournamentLinked
       ? await this.renderReportedTournamentResultImage(db, matchId, participants)
       : null
-    const embed = lobbyResultEmbed(reportedMode, participants, undefined, {
-      mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
-      reporter: getReporterIdentityFromDraftData(match.draftData),
-    }, reportedRedDeath)
+    const embed = tournamentLinked
+      ? null
+      : lobbyResultEmbed(reportedMode, participants, undefined, {
+          mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
+          reporter: getReporterIdentityFromDraftData(match.draftData),
+        }, reportedRedDeath)
 
     const messageIds = await listMatchMessageIds(db, matchId)
     const candidateMessageIds = uniqueStrings([record.projectionState.messageId, ...messageIds])
-    const draftMessageId = tournamentResultPng
-      ? await this.editOrRecreateReportedDraftImageMessage(record, matchId, candidateMessageIds, tournamentResultPng)
+    const draftMessageId = tournamentLinked
+      ? await this.editOrRecreateReportedDraftImageMessage(record, matchId, candidateMessageIds, tournamentResultPng!)
       : await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
     await storeMatchMessageMapping(db, draftMessageId, matchId)
 
@@ -1020,13 +1022,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive')
     if (!archiveChannelId) return
 
-    const archiveMessage = tournamentResultPng
+    const archiveMessage = tournamentLinked
       ? await createChannelMessageWithFile({
           token: this.env.DISCORD_TOKEN,
           channelId: archiveChannelId,
           filename: 'tournament-result.png',
           contentType: 'image/png',
-          data: tournamentResultPng,
+          data: tournamentResultPng!,
         })
       : await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
           embeds: [embed],
