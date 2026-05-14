@@ -334,7 +334,7 @@ async function ensureStartableLobby(
   let selectedCount = next.slots.filter(Boolean).length
   let fillerIndex = 1
 
-  while (!canStartWithPlayerCount(next.mode, selectedCount, next.slots.length, { redDeath: next.draftConfig.redDeath })) {
+  while (!canStartWithPlayerCount(next.mode, selectedCount, next.slots.length, { redDeath: next.draftConfig.redDeath, permanentAlly: next.draftConfig.permanentAlly })) {
     const emptyIndex = next.slots.findIndex(slot => slot == null)
     if (emptyIndex === -1) break
 

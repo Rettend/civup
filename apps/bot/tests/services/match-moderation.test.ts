@@ -43,6 +43,38 @@ describe('match moderation recalculation', () => {
       const ratingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duo'))
       expect(ratingRows).toHaveLength(4)
       expect(ratingRows.every(row => row.gamesPlayed === 1)).toBe(true)
+      const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatingRows).toHaveLength(4)
+      expect(globalRatingRows.every(row => row.gamesPlayed === 1)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('creates a manual odd-player FFA match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-ffa-9',
+        mode: 'ffa',
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 9).map(leader => leader.id)),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.match.status).toBe('completed')
+      expect(result.recalculatedMatchIds).toEqual(['manual-ffa-9'])
+      expect(result.participants).toHaveLength(9)
+      expect(result.participants.map(participant => participant.placement)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
+      const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatingRows).toHaveLength(9)
     }
     finally {
       sqlite.close()

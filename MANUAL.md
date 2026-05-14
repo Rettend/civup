@@ -235,7 +235,7 @@ Default leader pool sizes (and min allowed override):
 - `4v4`: 56 (min 14)
 - `5v5`: 64 (min 16)
 - `6v6`: 72 (min 18)
-- `FFA`: `6 x player count`: 36-72 for 6, 8, 10, or 12 players (min `3 x player count` 18-36)
+- `FFA`: `6 x player count`: 36-72 for 6-12 players (min `3 x player count` 18-36)
 
 Max allowed override is all leaders (85).
 
