@@ -18,10 +18,11 @@ import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
 import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { factory } from '../setup.ts'
-import { findBlockingDraftMatchIdsForPlayers, getIdentity, preflightMatchCreateSessionState } from './match/shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, getIdentity, getIdentityByUserId, preflightMatchCreateSessionState } from './match/shared.ts'
 
 interface TournamentVar {
   steam_link?: string
+  player?: string
 }
 
 interface BackgroundContext {
@@ -36,7 +37,9 @@ export const command_tournament = factory.command<TournamentVar>(
       new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
     new SubCommand('standings', 'Show active tournament standings'),
-    new SubCommand('stats', 'Show your tournament stats and recommended opponents'),
+    new SubCommand('stats', 'Show tournament stats and recommended opponents').options(
+      new Option('player', 'Player to look up (defaults to you)', 'User'),
+    ),
     new SubCommand('leave', 'Leave the active tournament'),
   ),
   async (c) => {
@@ -126,14 +129,16 @@ export const command_tournament = factory.command<TournamentVar>(
 
       case 'stats': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
-          const identity = getIdentity(c)
+          const caller = getIdentity(c)
+          const targetId = c.var.player ?? caller?.userId
+          const identity = targetId ? getIdentityByUserId(c, targetId) : null
           if (!identity) {
-            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+            await sendTransientEphemeralResponse(c, c.var.player ? 'Could not identify that player.' : 'Could not identify you.', 'error')
             return
           }
 
           const db = createDb(c.env.DB)
-          const data = await buildTournamentOpponentCardData(db, identity)
+          const data = await buildTournamentOpponentCardData(db, identity, { autoLink: caller?.userId === identity.userId })
           if ('error' in data) {
             await sendTransientEphemeralResponse(c, data.error, 'error')
             return
