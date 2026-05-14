@@ -2,7 +2,7 @@ import type { GameMode, Leader, QueueEntry } from '@civup/game'
 import type { ManualReportedMatchPlayerInput } from '../services/match/index.ts'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, maxPlayerCount, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
@@ -434,6 +434,8 @@ export const command_mod = factory.autocomplete<ModVar>(
               players: parsedInput.players,
               reporterId: actor.userId,
               reportedAt: Date.now(),
+            }, {
+              rankedRoleGuildId: c.interaction.guild_id ?? null,
             })
 
             if ('error' in result) {
@@ -686,7 +688,7 @@ function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & {
   const highestSlot = findHighestManualReportSlot(c.var)
   if (highestSlot === 0) return { error: 'Provide player and leader slots for the completed match.' }
 
-  const allowedCounts = playerCountOptions(mode)
+  const allowedCounts = manualReportPlayerCountOptions(mode)
   if (!allowedCounts.includes(highestSlot)) {
     return { error: `${formatModeLabel(mode, mode)} manual reports require ${formatAllowedCounts(allowedCounts)} players. Fill slots 1-${allowedCounts[allowedCounts.length - 1]}.` }
   }
@@ -733,6 +735,10 @@ function findHighestManualReportSlot(vars: ModVar): number {
 function formatAllowedCounts(counts: readonly number[]): string {
   if (counts.length === 1) return String(counts[0])
   return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
+}
+
+function manualReportPlayerCountOptions(mode: GameMode): readonly number[] {
+  return mode === 'ffa' ? startPlayerCountOptions(mode, maxPlayerCount(mode)) : playerCountOptions(mode)
 }
 
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {

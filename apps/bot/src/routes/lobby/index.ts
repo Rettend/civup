@@ -1528,7 +1528,7 @@ async function buildStoredLobbySnapshot(
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
     entries: lobby.slots.map(() => null),
-    minPlayers: lobbyMinPlayerCount(mode, lobby.slots.length, lobby.draftConfig.redDeath),
+    minPlayers: lobbyMinPlayerCount(mode, lobby.slots.length, lobby.draftConfig.redDeath, lobby.draftConfig.permanentAlly),
     targetSize: lobby.slots.length,
     draftConfig: lobby.draftConfig,
     serverDefaults,

@@ -565,7 +565,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!selectedEntries.some(entry => entry.playerId === record.hostId)) {
       return json({ error: 'Host must be in a lobby slot before starting.' }, 400)
     }
-    if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath })) {
+    if (record.mode === 'ffa' && !record.config.redDeath && record.config.permanentAlly && selectedEntries.length % 2 !== 0) {
+      return json({ error: 'Permanent Ally FFA requires an even player count.' }, 400)
+    }
+    if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
       return json({ error: 'Session cannot start with the current slotted player count.' }, 400)
     }
     const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length)
