@@ -46,7 +46,7 @@ export function buildDraftRuntimeConfig(
 ): DraftRuntimeConfigResult {
   const matchId = options.matchId
   const redDeathMode = options.redDeath === true
-  const seats: DraftSeat[] = buildSeats(mode, entries)
+  const seats: DraftSeat[] = buildDraftSeats(mode, entries)
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const hiddenDraft = options.hiddenDraft === true
   const randomDraft = !hiddenDraft && options.randomDraft === true
@@ -83,7 +83,7 @@ export function buildDraftRuntimeConfig(
 
 // ── Build seats with team assignment ────────────────────────
 
-function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
+export function buildDraftSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
   if (isTeamMode(mode)) {
     const teams = teamCount(mode, entries.length)
     const playersPerTeam = teamSize(mode, entries.length) ?? 1

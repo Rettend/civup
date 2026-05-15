@@ -4,14 +4,16 @@ import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../servic
 import type { ParticipantRow } from '../services/match/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftRuntimeEnv } from './draft-room.ts'
-import type { DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
+import type { RepeatDraftRoomSnapshot, RoomRecord } from './draft-room-domain.ts'
+import type { StoredMapVoteState } from './map-vote-room-state.ts'
+import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getDraftFormat, getMinimumLeaderPoolSize, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getMinimumLeaderPoolSize, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
+import { buildDraftRuntimeConfig, buildDraftSeats } from '../services/activity/index.ts'
 import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
@@ -19,7 +21,7 @@ import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { getDraftStateFromDraftData, getHiddenDraftFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -27,7 +29,9 @@ import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentResultPng } from '../services/tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
+import { createRoomRecord } from './draft-room-domain.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
+import { EMPTY_STORED_MAP_VOTE_STATE, isMapVoteInProgress } from './map-vote-room-state.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
@@ -57,6 +61,42 @@ interface StartDraftCommandResult {
   seats: DraftSeat[]
   idempotent?: boolean
 }
+
+interface RepeatDraftCommandRequest {
+  expectedVersion?: number
+  hostId?: string
+  now?: number
+}
+
+interface RepeatDraftAvailability {
+  kind: 'resume' | 'complete'
+  matchId: string
+}
+
+interface RepeatDraftCommandResult {
+  kind: 'resume' | 'complete'
+  record: DraftSessionRecord | ActiveSessionRecord
+  matchId: string
+  seats: DraftSeat[]
+  participants?: ParticipantRow[]
+}
+
+type RepeatDraftSource
+  = | {
+    kind: 'resume'
+    matchId: string
+    state: DraftState
+    mapVote: StoredMapVoteState
+    previews?: RepeatDraftRoomSnapshot['previews']
+    config?: RoomRecord['config']
+  }
+    | {
+      kind: 'complete'
+      matchId: string
+      state: DraftState
+      hiddenDraft: boolean
+      permanentAlly: boolean
+    }
 
 interface SessionConnectionState {
   playerId: string | null
@@ -255,6 +295,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({ record })
     }
 
+    if (request.method === 'GET' && url.pathname === '/repeat-draft') {
+      return await this.runSerializedCommand(() => this.handleRepeatDraftAvailabilityRequest())
+    }
+
     if (request.method === 'POST' && url.pathname === '/commands/create-from-lobby') {
       return await this.runSerializedCommand(() => this.handleCreateFromLobby(request))
     }
@@ -265,6 +309,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (request.method === 'POST' && url.pathname === '/commands/start-draft') {
       return await this.runSerializedCommand(() => this.handleStartDraftCommand(request))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/commands/repeat-draft') {
+      return await this.runSerializedCommand(() => this.handleRepeatDraftCommand(request))
     }
 
     if (request.method === 'POST' && url.pathname === '/commands/draft-lifecycle') {
@@ -598,6 +646,288 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!ensured.ok) return json({ error: ensured.error }, ensured.status)
 
     return json({ ok: true, record: ensured.record, matchId: ensured.record.matchId, seats: ensured.seats } satisfies { ok: true } & StartDraftCommandResult)
+  }
+
+  private async handleRepeatDraftAvailabilityRequest(): Promise<Response> {
+    const record = await this.getRecord()
+    if (!record) return json({ error: 'Session not found' }, 404)
+    if (record.phase !== 'open') return json({ repeatDraft: null })
+
+    const repeatDraft = await this.getRepeatDraftAvailability(record)
+    return json({ repeatDraft })
+  }
+
+  private async handleRepeatDraftCommand(request: Request): Promise<Response> {
+    let body: RepeatDraftCommandRequest | null = null
+    try {
+      body = await request.json<RepeatDraftCommandRequest>()
+    }
+    catch {
+      body = null
+    }
+
+    const record = await this.getRecord()
+    if (!record) return json({ error: 'Session not found' }, 404)
+    if (record.phase !== 'open') return json({ error: `Session is not open (phase: ${record.phase})` }, 409)
+    if (body?.hostId && body.hostId !== record.hostId) {
+      return json({ error: 'Only the session host can repeat the draft' }, 403)
+    }
+
+    const expected = normalizeOptionalPositiveInteger(body?.expectedVersion)
+    if (expected != null && expected !== record.version) return json({ error: 'Session changed before draft repeat' }, 409)
+    if (!this.env.DB) return json({ error: 'D1 binding is not configured' }, 503)
+
+    const currentSeats = this.buildCurrentDraftSeats(record)
+    const source = await this.findRepeatDraftSource(record, currentSeats)
+    if (!source) return json({ error: 'No repeatable draft matches the current players and teams.' }, 409)
+
+    const now = normalizePositiveInteger(body?.now, Date.now())
+    if (source.kind === 'resume') return await this.repeatResumedDraft(record, source, currentSeats, now)
+    return await this.repeatCompletedDraft(record, source, currentSeats, now)
+  }
+
+  private async repeatResumedDraft(
+    record: OpenSessionRecord,
+    source: Extract<RepeatDraftSource, { kind: 'resume' }>,
+    currentSeats: DraftSeat[],
+    now: number,
+  ): Promise<Response> {
+    const db = createDb(this.env.DB!)
+    const previousRoom = await this.getRoomRecord()
+    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'resume')
+    const mapVote = prepareRepeatedMapVote(source.mapVote, now)
+    const timing = getRepeatDraftTiming(state, mapVote, now)
+    const runtimeConfig = await this.buildRepeatRuntimeConfig(record, state, currentSeats, source.config)
+    const room = createRoomRecord(runtimeConfig, state, mapVote, {
+      timerEndsAt: timing.timerEndsAt,
+      alarmStepIndex: timing.alarmStepIndex,
+      previews: source.previews,
+      lifecycleEventSequence: previousRoom?.lifecycleEventSequence ?? record.lifecycleEventSequence ?? 0,
+      repeatDraft: null,
+    })
+
+    await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+    await this.setRoomRecord(room)
+
+    const next: DraftSessionRecord = {
+      ...record,
+      phase: 'draft',
+      matchId: record.id,
+      version: record.version + 1,
+      frozenAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+      closedAt: null,
+      draftStartSync: null,
+    }
+    const commit = await this.commitRecord(next)
+    if (commit) {
+      if (previousRoom) await this.setRoomRecord(previousRoom)
+      return commit
+    }
+    await this.rescheduleRoomAlarm()
+
+    return json({ kind: 'resume', record: next, matchId: next.matchId, seats: currentSeats } satisfies RepeatDraftCommandResult)
+  }
+
+  private async repeatCompletedDraft(
+    record: OpenSessionRecord,
+    source: Extract<RepeatDraftSource, { kind: 'complete' }>,
+    currentSeats: DraftSeat[],
+    now: number,
+  ): Promise<Response> {
+    const db = createDb(this.env.DB!)
+    const previousRoom = await this.getRoomRecord()
+    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'complete')
+    const runtimeConfig = await this.buildRepeatRuntimeConfig(record, state, currentSeats)
+    const room = createRoomRecord(runtimeConfig, state, { ...EMPTY_STORED_MAP_VOTE_STATE }, {
+      completedAt: now,
+      lifecycleEventSequence: previousRoom?.lifecycleEventSequence ?? record.lifecycleEventSequence ?? 0,
+      repeatDraft: null,
+    })
+
+    await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+    const activated = await activateDraftMatch(db, {
+      state,
+      completedAt: now,
+      hostId: record.hostId,
+      mapVoteResult: null,
+      hiddenDraft: source.hiddenDraft,
+      permanentAlly: source.permanentAlly,
+    })
+    if ('error' in activated) return json({ error: activated.error }, 400)
+
+    await this.setRoomRecord(room)
+
+    const next: ActiveSessionRecord = {
+      ...record,
+      phase: 'active',
+      matchId: record.id,
+      version: record.version + 1,
+      frozenAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+      closedAt: null,
+      draftStartSync: null,
+    }
+    const commit = await this.commitRecord(next)
+    if (commit) {
+      if (previousRoom) await this.setRoomRecord(previousRoom)
+      return commit
+    }
+    await this.rescheduleRoomAlarm()
+
+    return json({ kind: 'complete', record: next, matchId: next.matchId, seats: currentSeats, participants: activated.participants } satisfies RepeatDraftCommandResult)
+  }
+
+  private async getRepeatDraftAvailability(record: OpenSessionRecord): Promise<RepeatDraftAvailability | null> {
+    try {
+      const currentSeats = this.buildCurrentDraftSeats(record)
+      const source = await this.findRepeatDraftSource(record, currentSeats)
+      return source ? { kind: source.kind, matchId: source.matchId } : null
+    }
+    catch (error) {
+      console.warn('[session-do] failed to resolve repeat draft availability', { sessionId: record.id }, error)
+      return null
+    }
+  }
+
+  private async findRepeatDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<RepeatDraftSource | null> {
+    if (!canStartWithPlayerCount(record.mode, currentSeats.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
+      return null
+    }
+
+    const resume = await this.findResumeDraftSource(record, currentSeats)
+    if (resume) return resume
+    return await this.findCompletedRepeatDraftSource(record, currentSeats)
+  }
+
+  private async findResumeDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'resume' }> | null> {
+    const room = await this.getRoomRecord()
+    const repeatDraft = room?.repeatDraft ?? null
+    if (repeatDraft && sameDraftSeats(repeatDraft.state.seats, currentSeats)) {
+      return {
+        kind: 'resume',
+        matchId: record.id,
+        state: repeatDraft.state,
+        mapVote: repeatDraft.mapVote,
+        previews: repeatDraft.previews,
+        config: room?.config,
+      }
+    }
+
+    if (room?.state.status === 'cancelled'
+      && (room.state.cancelReason === 'timeout' || room.state.cancelReason === 'revert')
+      && sameDraftSeats(room.state.seats, currentSeats)) {
+      return {
+        kind: 'resume',
+        matchId: record.id,
+        state: room.state,
+        mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
+        previews: room.previews,
+        config: room.config,
+      }
+    }
+
+    if (!this.env.DB) return null
+    const [match] = await createDb(this.env.DB)
+      .select({ draftData: matches.draftData, status: matches.status })
+      .from(matches)
+      .where(eq(matches.id, record.id))
+      .limit(1)
+    if (match?.status !== 'cancelled') return null
+
+    const state = getDraftStateFromDraftData(match.draftData)
+    if (!state || (state.cancelReason !== 'timeout' && state.cancelReason !== 'revert')) return null
+    if (!sameDraftSeats(state.seats, currentSeats)) return null
+    return {
+      kind: 'resume',
+      matchId: record.id,
+      state,
+      mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
+    }
+  }
+
+  private async findCompletedRepeatDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'complete' }> | null> {
+    if (!this.env.DB || currentSeats.length === 0) return null
+    const playerIds = currentSeats.map(seat => seat.playerId)
+    const rows = await createDb(this.env.DB)
+      .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+      .where(and(
+        inArray(matchParticipants.playerId, playerIds),
+        inArray(matches.status, ['active', 'completed']),
+      ))
+      .orderBy(desc(matches.createdAt))
+      .limit(120)
+
+    const seen = new Set<string>()
+    for (const row of rows) {
+      if (seen.has(row.id) || row.id === record.id || row.gameMode !== record.mode) continue
+      seen.add(row.id)
+      const state = getDraftStateFromDraftData(row.draftData)
+      if (!state || state.status !== 'complete') continue
+      if (!sameDraftSeats(state.seats, currentSeats)) continue
+      const context = getStoredGameModeContext(row.gameMode, row.draftData)
+      if (!context || context.redDeath !== record.config.redDeath) continue
+      return {
+        kind: 'complete',
+        matchId: row.id,
+        state,
+        hiddenDraft: getHiddenDraftFromDraftData(row.draftData),
+        permanentAlly: context.permanentAlly,
+      }
+    }
+
+    return null
+  }
+
+  private buildCurrentDraftSeats(record: OpenSessionRecord): DraftSeat[] {
+    return buildDraftSeats(record.mode, buildSessionRosterSlotEntries(record))
+  }
+
+  private async buildRepeatRuntimeConfig(
+    record: OpenSessionRecord,
+    state: DraftState,
+    currentSeats: DraftSeat[],
+    sourceConfig?: RoomRecord['config'],
+  ): Promise<RoomRecord['config']> {
+    const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
+    const runtime = buildDraftRuntimeConfig(record.mode, buildSessionRosterSlotEntries(record), {
+      matchId: record.id,
+      hostId: record.hostId,
+      leaderDataVersion: record.config.leaderDataVersion,
+      blindBans: record.config.blindBans,
+      simultaneousPick: record.config.simultaneousPick,
+      permanentAlly: record.config.permanentAlly,
+      redDeath: record.config.redDeath,
+      mapVoteEnabled: record.config.mapVoteEnabled,
+      randomDraft: record.config.randomDraft,
+      hiddenDraft: record.config.hiddenDraft,
+      duplicateFactions: record.config.duplicateFactions,
+      timerConfig,
+      leaderPoolSize: record.config.leaderPoolSize,
+      dealOptionsSize: record.config.dealOptionsSize,
+      steamLobbyLink: record.projectionState.steamLobbyLink,
+    })
+
+    return {
+      ...runtime.config,
+      ...(sourceConfig ? {
+        formatId: sourceConfig.formatId,
+        civPool: sourceConfig.civPool,
+        dealOptionsSize: sourceConfig.dealOptionsSize,
+        duplicateFactions: sourceConfig.duplicateFactions,
+      } : {}),
+      matchId: record.id,
+      hostId: record.hostId,
+      formatId: state.formatId,
+      seats: currentSeats,
+      civPool: sourceConfig?.civPool ?? buildRepeatCivPool(state),
+      timerConfig,
+      steamLobbyLink: record.projectionState.steamLobbyLink,
+    }
   }
 
   private async handleDraftLifecycleCommand(request: Request): Promise<Response> {
@@ -1937,7 +2267,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
-    if (record.phase === 'draft' && record.matchId) {
+    if ((record.phase === 'draft' || record.phase === 'active') && record.matchId) {
       await Promise.all(openLobbyConnections.map(connection => this.sendSessionStarted(connection, record)))
       return
     }
@@ -1962,14 +2292,16 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const snapshot = this.env.DB
       ? await attachTournamentLobbySnapshot(createDb(this.env.DB), baseSnapshot)
       : baseSnapshot
+    const repeatDraft = await this.getRepeatDraftAvailability(record)
+    const nextSnapshot = repeatDraft ? { ...snapshot, repeatDraft } : snapshot
     return JSON.stringify({
       type: 'lobby',
       lobbyId: record.id,
-      snapshot,
+      snapshot: nextSnapshot,
     } satisfies SessionServerMessage)
   }
 
-  private async sendSessionStarted(connection: Connection, record: DraftSessionRecord): Promise<void> {
+  private async sendSessionStarted(connection: Connection, record: DraftSessionRecord | ActiveSessionRecord): Promise<void> {
     const state = connection.state as SessionConnectionState | null
     const playerId = state?.playerId ?? null
     const sessionAccessToken = playerId && this.env.CIVUP_SECRET
@@ -2511,6 +2843,67 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     projectionSync: null,
     terminalSync: record.terminalSync ?? null,
   }
+}
+
+function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: DraftSeat[], kind: 'resume' | 'complete'): DraftState {
+  const status: DraftState['status'] = kind === 'complete'
+    ? 'complete'
+    : state.status === 'cancelled'
+      ? state.currentStepIndex >= 0 ? 'active' : 'waiting'
+      : state.status === 'complete'
+        ? 'active'
+        : state.status
+
+  return {
+    ...state,
+    matchId,
+    seats,
+    status,
+    cancelReason: null,
+    submissions: kind === 'complete' ? {} : state.submissions,
+    pendingBlindBans: kind === 'complete' ? [] : state.pendingBlindBans,
+    dealtCivIds: kind === 'complete' ? null : state.dealtCivIds,
+  }
+}
+
+function prepareRepeatedMapVote(mapVote: StoredMapVoteState, now: number): StoredMapVoteState {
+  if (!isMapVoteInProgress(mapVote)) return mapVote
+  return {
+    ...mapVote,
+    endsAt: now + (mapVote.phase === 'voting' ? MAP_VOTE_VOTING_DURATION_MS : MAP_VOTE_REVEAL_DURATION_MS),
+  }
+}
+
+function getRepeatDraftTiming(state: DraftState, mapVote: StoredMapVoteState, now: number): { timerEndsAt: number | null, alarmStepIndex: number } {
+  if (isMapVoteInProgress(mapVote)) return { timerEndsAt: null, alarmStepIndex: -1 }
+  if (state.status !== 'active') return { timerEndsAt: null, alarmStepIndex: -1 }
+
+  const step = getCurrentStep(state)
+  if (!step || step.timer <= 0) return { timerEndsAt: null, alarmStepIndex: -1 }
+  return { timerEndsAt: now + step.timer * 1000, alarmStepIndex: state.currentStepIndex }
+}
+
+function sameDraftSeats(left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index++) {
+    const leftSeat = left[index]
+    const rightSeat = right[index]
+    if (!leftSeat || !rightSeat) return false
+    if (leftSeat.playerId !== rightSeat.playerId) return false
+    if ((leftSeat.team ?? null) !== (rightSeat.team ?? null)) return false
+  }
+  return true
+}
+
+function buildRepeatCivPool(state: DraftState): string[] {
+  return uniqueStrings([
+    ...state.availableCivIds,
+    ...state.bans.map(selection => selection.civId),
+    ...state.picks.map(selection => selection.civId),
+    ...state.pendingBlindBans.map(selection => selection.civId),
+    ...Object.values(state.submissions).flat(),
+    ...(state.dealtCivIds ?? []),
+  ])
 }
 
 function buildNextRoster(

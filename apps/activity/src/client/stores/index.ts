@@ -28,6 +28,7 @@ export {
   type LobbyStateWatchOptions,
   placeLobbySlot,
   type RankedRoleOptionSnapshot,
+  repeatLobbyDraft,
   removeLobbySlot,
   reportMatchResult,
   scrubMatchResult,
