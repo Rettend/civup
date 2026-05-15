@@ -101,7 +101,7 @@ export interface SystemWorld {
     createOpen: (input: { mode: GameMode, players: WorldPlayerInput[], hostId?: string, channelId?: string, guildId?: string | null, memberPlayerIds?: string[], slots?: (string | null)[] }) => Promise<LobbyState>
     get: (mode: Parameters<typeof getLobby>[1]) => Promise<LobbyState | null>
     getById: (lobbyId: string) => Promise<LobbyState | null>
-    config: (mode: GameMode, input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
+    config: (mode: GameMode, input: { hostId: string, lobbyId?: string, banTimerSeconds?: number | null, pickTimerSeconds?: number | null, leaderPoolSize?: number | null, leaderDataVersion?: 'live' | 'beta' | null, mapVoteEnabled?: boolean, blindBans?: boolean, simultaneousPick?: boolean, permanentAlly?: boolean, redDeath?: boolean, dealOptionsSize?: number | null, randomDraft?: boolean, duplicateFactions?: boolean, minRole?: CompetitiveTier | null, maxRole?: CompetitiveTier | null, steamLobbyLink?: string | null, targetSize?: number | null }) => Promise<RouteResult>
     changeMode: (mode: GameMode, input: { hostId: string, lobbyId?: string, nextMode: GameMode }) => Promise<RouteResult>
     arrange: (mode: GameMode, input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
     cancel: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
@@ -334,6 +334,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             mapVoteEnabled: input.mapVoteEnabled,
             blindBans: input.blindBans,
             simultaneousPick: input.simultaneousPick,
+            permanentAlly: input.permanentAlly,
             redDeath: input.redDeath,
             dealOptionsSize: input.dealOptionsSize,
             randomDraft: input.randomDraft,
@@ -404,6 +405,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             leaderDataVersion: lobbyBeforeStart.draftConfig.leaderDataVersion,
             blindBans: lobbyBeforeStart.draftConfig.blindBans,
             simultaneousPick: lobbyBeforeStart.draftConfig.simultaneousPick,
+            permanentAlly: lobbyBeforeStart.draftConfig.permanentAlly,
             redDeath: lobbyBeforeStart.draftConfig.redDeath,
             mapVoteEnabled: lobbyBeforeStart.draftConfig.mapVoteEnabled,
             randomDraft: lobbyBeforeStart.draftConfig.randomDraft,

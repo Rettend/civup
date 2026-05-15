@@ -85,35 +85,39 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
       >
         {actions().pending.cancel() ? 'Cancelling' : 'Cancel Lobby'}
       </button>
-      <button
-        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-        title={actions().randomizeButtonTitle()}
-        aria-label={actions().randomizeButtonLabel()}
-        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
-        onClick={() => void actions().randomizeLobby()}
-      >
-        <span class="i-ph:shuffle-simple-bold text-lg" />
-      </button>
-      <Show when={actions().arrangeTargetLabel() === 'teams'}>
+      <Show when={actions().showRandomizeLobbyAction()}>
         <button
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-          title="Shuffle teams"
-          aria-label="Shuffle teams"
+          title={actions().randomizeButtonTitle()}
+          aria-label={actions().randomizeButtonLabel()}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          onClick={() => void actions().randomizeLobby()}
+        >
+          <span class="i-ph:shuffle-simple-bold text-lg" />
+        </button>
+      </Show>
+      <Show when={actions().showShuffleTeamsLobbyAction()}>
+        <button
+          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+          title={actions().shuffleTeamsButtonLabel()}
+          aria-label={actions().shuffleTeamsButtonLabel()}
           disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
           onClick={() => void actions().shuffleTeamsLobby()}
         >
           <span class="i-ph:arrows-clockwise-bold text-lg" />
         </button>
       </Show>
-      <button
-        class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-        title={`Auto-balance ${actions().arrangeTargetLabel()}`}
-        aria-label={`Auto-balance ${actions().arrangeTargetLabel()}`}
-        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
-        onClick={() => void actions().balanceLobby()}
-      >
-        <span class="i-ph:scales-bold text-lg" />
-      </button>
+      <Show when={actions().showBalanceLobbyAction()}>
+        <button
+          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+          title={`Auto-balance ${actions().arrangeTargetLabel()}`}
+          aria-label={`Auto-balance ${actions().arrangeTargetLabel()}`}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          onClick={() => void actions().balanceLobby()}
+        >
+          <span class="i-ph:scales-bold text-lg" />
+        </button>
+      </Show>
       <Show when={actions().fillTestPlayersAvailable()}>
         <button
           class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"

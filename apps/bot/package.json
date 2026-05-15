@@ -19,6 +19,7 @@
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
+    "generate:tournament-emojis": "bun scripts/generate-tournament-emoji-icons.ts",
     "d1:create": "wrangler d1 create civup --binding DB --update-config",
     "kv:create": "wrangler kv namespace create civup --binding KV --update-config",
     "d1:migrate:local": "wrangler d1 migrations apply civup --local",
@@ -32,6 +33,8 @@
     "@civup/rating": "workspace:*",
     "@civup/session": "workspace:*",
     "@civup/utils": "workspace:*",
+    "@fontsource/inter": "^5.2.8",
+    "@resvg/resvg-wasm": "^2.6.2",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.11.8",
@@ -40,7 +43,9 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260206.0",
+    "@iconify-json/fluent-emoji": "^1.2.7",
     "@types/node": "^25.2.1",
+    "unicode-emoji-json": "^0.9.0",
     "wrangler": "^4.22.0"
   }
 }

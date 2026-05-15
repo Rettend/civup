@@ -37,11 +37,16 @@ export interface ArrangeLobbySlotsInput {
 export function arrangeLobbySlots(
   input: ArrangeLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
-  if (input.strategy === 'shuffle-teams' && !isTeamMode(input.mode)) {
-    return { error: 'Shuffle teams is only available in team lobbies.' }
+  if (input.strategy === 'shuffle-teams') {
+    if (!supportsTeamArrange(input.mode)) return { error: 'Shuffle teams is only available in team lobbies.' }
+    return arrangeTeamLobbySlots(input)
   }
   if (isTeamMode(input.mode)) return arrangeTeamLobbySlots(input)
   return arrangeSeatLobbySlots(input)
+}
+
+function supportsTeamArrange(mode: GameMode): boolean {
+  return teamSize(mode) != null
 }
 
 function arrangeSeatLobbySlots(
@@ -49,6 +54,10 @@ function arrangeSeatLobbySlots(
 ): { slots: (string | null)[] } | { error: string } {
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
   if (slottedPlayerIds.length === 0) return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
+
+  if (input.strategy === 'shuffle-teams') {
+    return { error: 'Shuffle teams is only available in team lobbies.' }
+  }
 
   if (input.strategy === 'randomize') {
     const random = input.random ?? Math.random
@@ -73,7 +82,7 @@ function arrangeSeatLobbySlots(
 function arrangeTeamLobbySlots(
   input: ArrangeLobbySlotsInput,
 ): { slots: (string | null)[] } | { error: string } {
-  if (!isTeamMode(input.mode)) {
+  if (!supportsTeamArrange(input.mode)) {
     return { error: 'Team arrange actions are only available in team lobbies.' }
   }
 

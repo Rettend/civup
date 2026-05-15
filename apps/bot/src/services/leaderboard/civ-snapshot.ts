@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
-import { civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants } from '@civup/db'
+import { civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants, tournamentMatches } from '@civup/db'
 import { getLeader, redDeathLeaderMap } from '@civup/game'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, or, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 
 export interface CivLeaderboardSnapshotRow {
@@ -170,6 +170,7 @@ export async function repairCivLeaderboardStatsFromContributions(
       contributionsJson: matchCivStatContributions.contributionsJson,
     })
     .from(matchCivStatContributions)
+    .where(excludeTournamentContributionCondition())
 
   const aggregateByCivId = new Map<string, CivAggregate>()
   let completedMatchCount = 0
@@ -208,7 +209,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
         draftData: matches.draftData,
       })
       .from(matches)
-      .where(eq(matches.status, 'completed')),
+      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
     db
       .select({
         matchId: matchParticipants.matchId,
@@ -217,7 +218,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(eq(matches.status, 'completed')),
+      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
   ])
 
   const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
@@ -318,6 +319,11 @@ export async function reconcileCivLeaderboardMatchContribution(
   matchId: string,
   updatedAt = Date.now(),
 ): Promise<void> {
+  if (await isTournamentMatchId(db, matchId)) {
+    await replaceCivLeaderboardMatchContribution(db, matchId, { completedMatchCount: 0, entries: [] }, updatedAt)
+    return
+  }
+
   const [match] = await db
     .select({ id: matches.id, status: matches.status, draftData: matches.draftData })
     .from(matches)
@@ -360,7 +366,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
         draftData: matches.draftData,
       })
       .from(matches)
-      .where(eq(matches.status, 'completed')),
+      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
     db
       .select({
         civId: matchParticipants.civId,
@@ -372,6 +378,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
       .where(and(
         eq(matches.status, 'completed'),
         sql`${matchParticipants.civId} is not null`,
+        excludeTournamentMatchesCondition(),
       ))
       .groupBy(matchParticipants.civId),
   ])
@@ -607,6 +614,31 @@ function buildMatchCivStatContribution(
       }))
       .sort((left, right) => left.civId.localeCompare(right.civId)),
   }
+}
+
+async function isTournamentMatchId(db: Database, matchId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ sessionId: tournamentMatches.sessionId })
+    .from(tournamentMatches)
+    .where(or(eq(tournamentMatches.matchId, matchId), eq(tournamentMatches.sessionId, matchId)))
+    .limit(1)
+  return row != null
+}
+
+function excludeTournamentMatchesCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${matches.id}
+       or ${tournamentMatches.sessionId} = ${matches.id}
+  )`
+}
+
+function excludeTournamentContributionCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${matchCivStatContributions.matchId}
+       or ${tournamentMatches.sessionId} = ${matchCivStatContributions.matchId}
+  )`
 }
 
 function addContributionToAggregates(

@@ -1,11 +1,11 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
@@ -31,6 +31,7 @@ interface CompletedPlayerMatchRow {
   gameMode: string
   draftData: string | null
   isOld: boolean
+  isTournament: boolean
 }
 
 interface CommonPlayerStat {
@@ -112,7 +113,7 @@ export async function playerCardEmbed(
 
   const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter, displaySeason?.id ?? null)
 
-  const completedParticipationRows = await db
+  const completedParticipationRowsRaw = await db
     .select({
       matchId: matchParticipants.matchId,
       playerId: matchParticipants.playerId,
@@ -126,11 +127,17 @@ export async function playerCardEmbed(
       gameMode: matches.gameMode,
       draftData: matches.draftData,
       isOld: matches.isOld,
+      tournamentSessionId: tournamentMatches.sessionId,
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
     .where(completedMatchesWhere)
     .orderBy(desc(matches.completedAt), desc(matches.id))
+  const completedParticipationRows = completedParticipationRowsRaw.map(({ tournamentSessionId, ...row }) => ({
+    ...row,
+    isTournament: tournamentSessionId != null,
+  }))
   const completedParticipations = await hydrateModeRatingSnapshotsFromEvents(db, completedParticipationRows)
 
   const topLeaders = summarizeLeaderStats(completedParticipations)
@@ -429,6 +436,7 @@ function formatRecentMatchLine(match: {
   gameMode: string
   draftData: string | null
   isOld: boolean
+  isTournament: boolean
 }): string {
   const placement = formatPlacementCode(match.placement)
   const rating = formatRecentRatingChange(match)
@@ -447,7 +455,9 @@ function formatRecentRatingChange(match: {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  isTournament?: boolean
 }): string {
+  if (match.isTournament) return '`Tournament`'
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null

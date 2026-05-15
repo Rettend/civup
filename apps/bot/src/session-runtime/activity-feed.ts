@@ -6,7 +6,7 @@ import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
 import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
+import { attachTournamentLobbySnapshot, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -159,10 +159,11 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async buildLobbyFeedMessage(record: SessionRecord): Promise<ActivityFeedMessage> {
     if (record.phase !== 'open') return { type: 'lobby', lobbyId: record.id, snapshot: null }
     if (!this.env.KV) return { type: 'error', message: 'Activity lobby snapshots are not configured' }
+    const snapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
     return {
       type: 'lobby',
       lobbyId: record.id,
-      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+      snapshot: this.env.DB ? await attachTournamentLobbySnapshot(createDb(this.env.DB), snapshot) : snapshot,
     }
   }
 
@@ -184,14 +185,27 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {
-    connection.send(JSON.stringify(message))
+    sendConnectionMessage(connection, JSON.stringify(message))
   }
 
   private broadcastFeedMessage(connections: readonly Connection[], message: ActivityFeedMessage): void {
     const encoded = JSON.stringify(message)
     for (const connection of connections) {
-      connection.send(encoded)
+      sendConnectionMessage(connection, encoded)
     }
+  }
+}
+
+function sendConnectionMessage(connection: Connection, message: string): boolean {
+  if (connection.readyState >= 2) return false
+
+  try {
+    connection.send(message)
+    return true
+  }
+  catch (error) {
+    if (error instanceof Error && error.message.includes("Can't call WebSocket send() after close")) return false
+    throw error
   }
 }
 

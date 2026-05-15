@@ -16,6 +16,7 @@ export interface CapacityScenario {
   id: string
   label: string
   mode: GameMode
+  targetSize?: number
   joinGroups: string[][]
   spectatorIds?: string[]
 }

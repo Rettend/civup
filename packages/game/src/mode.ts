@@ -20,7 +20,7 @@ const GAME_MODE_DEFINITIONS = {
   '4v4': { label: '4v4', playerCountOptions: [8], teamSize: 4, leaderboardMode: 'squad', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
   '5v5': { label: '5v5', playerCountOptions: [10], teamSize: 5, leaderboardMode: 'squad', balanceLeaderboardMode: 'squad', unranked: false, redDeathDuplicateFactionsRequired: false },
   '6v6': { label: '6v6', playerCountOptions: [12], teamSize: 6, leaderboardMode: 'squad', balanceLeaderboardMode: 'squad', unranked: false, redDeathDuplicateFactionsRequired: true },
-  'ffa': { label: 'FFA', playerCountOptions: [8], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
+  'ffa': { label: 'FFA', playerCountOptions: [8, 12], teamSize: null, leaderboardMode: 'ffa', balanceLeaderboardMode: null, unranked: false, redDeathDuplicateFactionsRequired: false },
 } as const satisfies Record<GameMode, GameModeDefinition>
 
 export const GAME_MODE_CHOICES = [
@@ -50,6 +50,8 @@ export const LEADERBOARD_MODE_LABELS: Record<LeaderboardMode, string> = {
 }
 
 const RED_DEATH_FFA_START_PLAYER_COUNTS = [4, 6, 8, 10] as const
+const FFA_START_PLAYER_COUNTS = [6, 7, 8, 9, 10, 11, 12] as const
+const PERMANENT_ALLY_FFA_START_PLAYER_COUNTS = [6, 8, 10, 12] as const
 const RED_DEATH_GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', '5v5', '6v6'] as const satisfies readonly GameMode[]
 
 const LEADERBOARD_MODE_GAME_MODES = {
@@ -233,13 +235,17 @@ export function minPlayerCount(mode: GameMode): number {
 export function startPlayerCountOptions(
   mode: GameMode,
   targetSize: number = defaultPlayerCount(mode),
-  options: { redDeath?: boolean } = {},
+  options: { redDeath?: boolean, permanentAlly?: boolean } = {},
 ): readonly number[] {
   if (mode === 'ffa' && options.redDeath) {
     return RED_DEATH_FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
   }
 
-  if (mode === 'ffa' && targetSize === 8) return [6, 8]
+  if (mode === 'ffa' && options.permanentAlly) {
+    return PERMANENT_ALLY_FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
+  }
+
+  if (mode === 'ffa') return FFA_START_PLAYER_COUNTS.filter(count => count <= targetSize)
   if (mode === '2v2' && targetSize === 8) return [6, 8]
   return playerCountOptions(mode).includes(targetSize) ? [targetSize] : []
 }
@@ -249,7 +255,7 @@ export function canStartWithPlayerCount(
   mode: GameMode,
   playerCount: number,
   targetSize: number = playerCount,
-  options: { redDeath?: boolean } = {},
+  options: { redDeath?: boolean, permanentAlly?: boolean } = {},
 ): boolean {
   return startPlayerCountOptions(mode, targetSize, options).includes(playerCount)
 }
