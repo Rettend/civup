@@ -24,6 +24,22 @@ describe('PlayerSlot UI', () => {
     expect(storeSpies.toggleFfaPlacement).toHaveBeenCalledWith(0)
   })
 
+  test('shows Permanent Ally FFA placement badges as pair numbers', () => {
+    uiMockState.userId = 'host-1'
+    uiMockState.draftSeatIndex = 0
+    uiMockState.permanentAlly = true
+    uiMockState.ffaPlacementOrder = [0, 1, 2]
+    uiMockState.draftState = createCompleteDraftState({ formatId: 'ffa' })
+
+    const first = render(() => <PlayerSlot seatIndex={0} />)
+    const second = render(() => <PlayerSlot seatIndex={1} />)
+    const third = render(() => <PlayerSlot seatIndex={2} />)
+
+    expect(first.container.innerHTML).toContain('i-ph:number-one-bold')
+    expect(second.container.innerHTML).toContain('i-ph:number-one-bold')
+    expect(third.container.innerHTML).toContain('i-ph:number-two-bold')
+  })
+
   test('selects the winning team in completed team drafts', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftSeatIndex = 0

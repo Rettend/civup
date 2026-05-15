@@ -25,7 +25,7 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between relative">
                   <span>Players</span>
                   <Show when={state.players.arrangeEvent()}>
-                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} />}
+                    {event => <LastArrangeIndicator strategy={event().strategy} isTeamMode={state.players.isTeamMode()} mode={state.config.lobbyMode()} />}
                   </Show>
                 </div>
 
@@ -71,12 +71,12 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
   )
 }
 
-function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean }) {
-  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode)
+function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMode: boolean, mode: string }) {
+  const label = () => getLastArrangeLabel(props.strategy, props.isTeamMode, props.mode)
 
   return (
     <span
-      class="rounded-full border border-border-subtle bg-bg-muted/25 px-2 py-1 text-[11px] text-fg-subtle tracking-normal leading-none font-medium inline-flex gap-1.5 normal-case items-center absolute right-0 top-1/2 -translate-y-1/2"
+      class="text-[11px] text-fg-subtle leading-none tracking-normal font-medium px-2 py-1 border border-border-subtle rounded-full bg-bg-muted/25 inline-flex gap-1.5 normal-case items-center right-0 top-1/2 absolute -translate-y-1/2"
       title={label()}
       aria-label={`Last used: ${label()}`}
     >
@@ -86,12 +86,12 @@ function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMod
   )
 }
 
-function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean) {
+function getLastArrangeLabel(strategy: LobbyArrangeStrategy, isTeamMode: boolean, mode: string) {
   switch (strategy) {
     case 'balance':
       return isTeamMode ? 'Teams balanced' : 'Seat order balanced'
     case 'shuffle-teams':
-      return 'Teams shuffled'
+      return mode === '1v1' ? 'First pick randomized' : 'Teams shuffled'
     default:
       return isTeamMode ? 'Players shuffled' : 'Seat order randomized'
   }

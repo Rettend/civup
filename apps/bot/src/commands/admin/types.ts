@@ -8,6 +8,10 @@ export interface AdminVar {
   mode?: string
   target?: string
   role?: string
+  csv?: string
+  min_games?: string
+  top_cut?: string
+  rematch_policy?: string
   slot?: string
   role1?: string
   role2?: string

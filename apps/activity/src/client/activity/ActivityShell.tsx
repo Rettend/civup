@@ -1204,6 +1204,8 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.redDeath !== b.draftConfig.redDeath) return false
   if (a.draftConfig.dealOptionsSize !== b.draftConfig.dealOptionsSize) return false
   if (a.draftConfig.randomDraft !== b.draftConfig.randomDraft) return false
+  if ((a.tournament?.id ?? null) !== (b.tournament?.id ?? null)) return false
+  if ((a.tournament?.rematchWarning ?? null) !== (b.tournament?.rematchWarning ?? null)) return false
   if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false
   if (a.serverDefaults.pickTimerSeconds !== b.serverDefaults.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false

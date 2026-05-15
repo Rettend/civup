@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
-import { matchBans, matches, matchParticipants } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents } from '@civup/db'
 import { and, eq, inArray, lt, or } from 'drizzle-orm'
 import { runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { getLiveSessionLobbyProjections } from '../session/index.ts'
@@ -27,8 +27,21 @@ export async function pruneAbandonedMatches(
 
   const removedMatchIds: string[] = []
   const clearedLiveLobbyMatchIds: string[] = []
+  const staleMatchIds = staleMatches.map(match => match.id)
+  const ratedStaleMatchIds = staleMatchIds.length > 0
+    ? new Set((await db
+        .select({ matchId: playerRatingEvents.matchId })
+        .from(playerRatingEvents)
+        .where(inArray(playerRatingEvents.matchId, staleMatchIds)))
+      .map(row => row.matchId))
+    : new Set<string>()
 
   for (const match of staleMatches) {
+    if (ratedStaleMatchIds.has(match.id)) {
+      console.warn('[cleanup] skipping abandoned match prune because rating events still reference it', { matchId: match.id })
+      continue
+    }
+
     if (!await runCleanupTerminalSessionCommand(db, options, match.id, 'cancel-session', now)) continue
 
     await db.delete(matchBans).where(eq(matchBans.matchId, match.id))

@@ -35,6 +35,8 @@ export interface DraftStore {
   swapState: LeaderSwapState | null
   /** Steam lobby deep link projected by the session aggregate. */
   steamLobbyLink: string | null
+  /** Whether completed FFA result reporting should group adjacent placements as allies. */
+  permanentAlly: boolean
   /** Server-authoritative pre-draft map vote state. */
   mapVote: MapVoteSnapshot
   /** Recently swapped seats for transient portrait flash effects. */
@@ -57,6 +59,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   previews: EMPTY_DRAFT_PREVIEWS,
   swapState: null,
   steamLobbyLink: null,
+  permanentAlly: false,
   mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
   swapFlashSeatIndices: [],
   initVersion: 0,
@@ -81,6 +84,7 @@ export function initDraft(
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
+  permanentAlly = false,
 ) {
   clearSwapFlash()
   const nextInitVersion = draftStore.initVersion + 1
@@ -96,6 +100,7 @@ export function initDraft(
     previews,
     swapState,
     steamLobbyLink,
+    permanentAlly,
     mapVote,
     swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
@@ -117,6 +122,7 @@ export function resetDraft() {
     previews: EMPTY_DRAFT_PREVIEWS,
     swapState: null,
     steamLobbyLink: null,
+    permanentAlly: false,
     mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
@@ -143,6 +149,7 @@ export function updateDraft(
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
+  permanentAlly = false,
 ) {
   const flashSeats = swapState ? findChangedPickSeats(draftStore.state?.picks ?? [], state.picks) : []
 
@@ -157,6 +164,7 @@ export function updateDraft(
     s.previews = previews
     s.swapState = swapState
     s.steamLobbyLink = steamLobbyLink
+    s.permanentAlly = permanentAlly
     s.mapVote = mapVote
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
   }))

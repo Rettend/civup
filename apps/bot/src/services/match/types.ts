@@ -91,6 +91,7 @@ export interface ManualReportedMatchPlayerInput {
 export interface CreateManualReportedMatchInput {
   matchId?: string
   mode: GameMode
+  permanentAlly?: boolean
   players: ManualReportedMatchPlayerInput[]
   reporterId: string
   reportedAt: number
@@ -110,6 +111,7 @@ export interface ActivateDraftInput {
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
+  permanentAlly?: boolean
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -121,6 +123,7 @@ export interface CancelDraftInput {
   hostId: string
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
+  permanentAlly?: boolean
   allowActive?: boolean
 }
 

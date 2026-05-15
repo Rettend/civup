@@ -3,11 +3,13 @@ import type { GameMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
+import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -54,6 +56,7 @@ export interface LobbySnapshot {
   minPlayers: number
   targetSize: number
   draftConfig: Omit<SessionConfig, 'minRole' | 'maxRole'>
+  tournament?: TournamentLobbySnapshot | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
@@ -304,10 +307,16 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   }
 }
 
+export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {
+  const tournament = await buildTournamentLobbySnapshot(db, snapshot.id, snapshot.memberPlayerIds)
+  if (!tournament && snapshot.tournament == null) return snapshot
+  return { ...snapshot, tournament }
+}
+
 function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): ActivitySessionDirectoryEntry[] {
   if (!isActivitySessionPhase(row.phase) || !isGameMode(row.mode)) return []
   const roster = parseSessionRoster(row.rosterJson)
-  const config = parseSessionConfig(row.configJson)
+  const config = parseSessionConfig(row.configJson, row.mode)
   if (!roster || !config) return []
 
   return [{
@@ -373,7 +382,7 @@ async function buildLobbySnapshotFromSessionParts(
     lastArrange: session.lastArrange,
     memberPlayerIds,
     entries,
-    minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath })[0] ?? targetSize,
+    minPlayers: startPlayerCountOptions(session.mode, targetSize, { redDeath: session.config.redDeath, permanentAlly: session.config.permanentAlly })[0] ?? targetSize,
     targetSize,
     draftConfig: {
       banTimerSeconds: session.config.banTimerSeconds,
@@ -383,6 +392,7 @@ async function buildLobbySnapshotFromSessionParts(
       mapVoteEnabled: session.config.mapVoteEnabled,
       blindBans: session.config.blindBans,
       simultaneousPick: session.config.simultaneousPick,
+      permanentAlly: session.config.permanentAlly,
       redDeath: session.config.redDeath,
       dealOptionsSize: session.config.dealOptionsSize,
       randomDraft: session.config.randomDraft,
@@ -420,7 +430,7 @@ function parseSessionRoster(raw: string): SessionRoster | null {
   }
 }
 
-function parseSessionConfig(raw: string): SessionConfig | null {
+function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
   try {
     const parsed = JSON.parse(raw) as Partial<SessionConfig>
     if (!parsed || typeof parsed !== 'object') return null
@@ -432,6 +442,7 @@ function parseSessionConfig(raw: string): SessionConfig | null {
       mapVoteEnabled: parsed.mapVoteEnabled === true,
       blindBans: parsed.blindBans === true,
       simultaneousPick: parsed.simultaneousPick === true,
+      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
       randomDraft: parsed.randomDraft === true,

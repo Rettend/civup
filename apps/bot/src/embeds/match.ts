@@ -61,6 +61,7 @@ export function lobbyOpenEmbed(
   maxRoleId?: string | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
+  reservedSlotLabels: (string | null)[] = [],
 ): Embed {
   const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion, redDeath, targetSize)
   const rankFields = [
@@ -76,12 +77,12 @@ export function lobbyOpenEmbed(
     const fields = [
       {
         name: 'Team A',
-        value: `1. ${p1 ? `<@${p1}>` : '`[empty]`'}`,
+        value: `1. ${formatOpenSlot(p1, reservedSlotLabels[0])}`,
         inline: true,
       },
       {
         name: 'Team B',
-        value: `1. ${p2 ? `<@${p2}>` : '`[empty]`'}`,
+        value: `1. ${formatOpenSlot(p2, reservedSlotLabels[1])}`,
         inline: true,
       },
     ]
@@ -93,8 +94,9 @@ export function lobbyOpenEmbed(
     const totalTeams = Math.max(1, Math.floor(targetSize / teamSize))
     const fields = layoutTeamFields(Array.from({ length: totalTeams }, (_, teamIndex) => {
       const teamLines = Array.from({ length: teamSize }, (_, index) => {
-        const playerId = entries[(teamIndex * teamSize) + index]?.playerId
-        return `${index + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
+        const slotIndex = (teamIndex * teamSize) + index
+        const playerId = entries[slotIndex]?.playerId
+        return `${index + 1}. ${formatOpenSlot(playerId, reservedSlotLabels[slotIndex])}`
       }).join('\n')
 
       return {
@@ -109,12 +111,12 @@ export function lobbyOpenEmbed(
   const half = Math.ceil(targetSize / 2)
   const firstColumn = Array.from({ length: half }, (_, i) => {
     const playerId = entries[i]?.playerId
-    return `${i + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
+    return `${i + 1}. ${formatOpenSlot(playerId, reservedSlotLabels[i])}`
   }).join('\n')
   const secondColumn = Array.from({ length: targetSize - half }, (_, i) => {
     const seat = half + i
     const playerId = entries[seat]?.playerId
-    return `${seat + 1}. ${playerId ? `<@${playerId}>` : '`[empty]`'}`
+    return `${seat + 1}. ${formatOpenSlot(playerId, reservedSlotLabels[seat])}`
   }).join('\n')
 
   const fields = [
@@ -122,6 +124,19 @@ export function lobbyOpenEmbed(
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
   ]
   return rankFields.length > 0 ? embed.fields(...rankFields, ...fields) : embed.fields(...fields)
+}
+
+function formatOpenSlot(playerId: string | null | undefined, reservedLabel?: string | null): string {
+  if (playerId) return `<@${playerId}>`
+  const label = reservedLabel?.trim()
+  return label ? escapeDiscordFieldText(label) : '`[empty]`'
+}
+
+function escapeDiscordFieldText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\u02CB')
+    .slice(0, 80)
 }
 
 export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
@@ -278,7 +293,7 @@ function lobbyReportedEmbed(
   targetSize?: number,
 ): Embed {
   const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath, targetSize)
-  const usesTeamRows = isTeamMode(mode)
+  const usesTeamRows = isTeamMode(mode) || participants.some(participant => participant.team != null)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants)
     : formatReportedFlatRows(participants)

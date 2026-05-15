@@ -77,6 +77,19 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
 
   onAlarm(): void | Promise<void> {}
 
+  protected sendConnectionMessage<TState>(connection: Connection<TState>, message: WSMessage): boolean {
+    if (connection.readyState >= 2) return false
+
+    try {
+      connection.send(message)
+      return true
+    }
+    catch (error) {
+      if (isClosedWebSocketSendError(error)) return false
+      throw error
+    }
+  }
+
   async alarm(): Promise<void> {
     await this.onAlarm()
   }
@@ -191,4 +204,8 @@ function readSessionIdFromUrl(url: URL): string | null {
   catch {
     return raw
   }
+}
+
+function isClosedWebSocketSendError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Can't call WebSocket send() after close")
 }

@@ -67,7 +67,7 @@ export async function createLobby(
     lastActivityAt: now,
     memberPlayerIds: [input.hostId],
     slots,
-    draftConfig: { ...DEFAULT_DRAFT_CONFIG },
+    draftConfig: normalizeDraftConfigForMode(input.mode, DEFAULT_DRAFT_CONFIG, slots.length),
     createdAt: now,
     updatedAt: now,
     revision: 1,

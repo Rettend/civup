@@ -5,7 +5,7 @@ import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
+import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
@@ -46,7 +46,9 @@ describe('system scenarios', () => {
       })
 
       if (mode === 'ffa') {
-        expectOrderedPlacements(result.reportedParticipants, result.activeParticipants.map(participant => participant.playerId))
+        expect(result.activeParticipants.every(participant => participant.team == null)).toBe(true)
+        expect(result.reportedParticipants.every(participant => participant.team == null)).toBe(true)
+        expectAdjacentPairPlacements(result.reportedParticipants, result.activeParticipants.map(participant => participant.playerId))
       }
       else {
         expectTeamPlacements(result.reportedParticipants, new Map([[0, 1], [1, 2]]))
@@ -68,7 +70,8 @@ describe('system scenarios', () => {
     })
     expect(findDraftRuntimeConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
     expect(parseDraftData(simultaneous.reportedMatch)?.state).toMatchObject({ formatId: 'default-ffa-simultaneous' })
-    expectOrderedPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
+    expect(simultaneous.reportedParticipants.every(participant => participant.team == null)).toBe(true)
+    expectAdjacentPairPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
 
     const redDeathWorld = await createTrackedWorld()
     const redDeath = await runReportedLifecycle(redDeathWorld, {
@@ -257,13 +260,26 @@ describe('system scenarios', () => {
       mode: 'ffa',
       players: createPlayers(8, 'ffa-order'),
     })
+    const configured = await world.lobby.config('ffa', {
+      hostId: 'ffa-order1',
+      lobbyId: lobby.id,
+      permanentAlly: false,
+    })
+    expect(configured.status).toBe(200)
+    await world.flushBackgroundTasks()
+    expect((await world.lobby.getById(lobby.id))?.draftConfig.permanentAlly).toBe(false)
+    expect((await getSessionRecord(world.env.SessionDO, lobby.id))?.config.permanentAlly).toBe(false)
 
     const started = await world.lobby.start('ffa', { hostId: 'ffa-order1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
+    expect((await getSessionRecord(world.env.SessionDO, lobby.id))?.config.permanentAlly).toBe(false)
+    expect(findDraftRuntimeConfig(world, started.matchId)?.seats.some(seat => seat.team != null)).toBe(false)
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
+    expect(parseDraftData(await world.match.get(started.matchId))?.permanentAlly).toBe(false)
     const participants = await world.match.getParticipants(started.matchId)
+    expect(participants.every(participant => participant.team == null)).toBe(true)
     const orderedIds = [
       participants[3]!.playerId,
       participants[0]!.playerId,
@@ -2777,10 +2793,9 @@ async function runReportedLifecycle(
   }
 }
 
-function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string }>) {
-  return mode === 'ffa'
-    ? buildOrderedMentions(participants)
-    : 'A'
+function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string, team?: number | null }>) {
+  if (mode !== 'ffa') return 'A'
+  return buildOrderedMentions(participants)
 }
 
 function buildOrderedMentions(participants: Array<{ playerId: string }>) {
@@ -2791,6 +2806,13 @@ function expectOrderedPlacements(participants: Array<{ playerId: string, placeme
   const placements = new Map(participants.map(participant => [participant.playerId, participant.placement]))
   orderedIds.forEach((playerId, index) => {
     expect(placements.get(playerId)).toBe(index + 1)
+  })
+}
+
+function expectAdjacentPairPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {
+  const placements = new Map(participants.map(participant => [participant.playerId, participant.placement]))
+  orderedIds.forEach((playerId, index) => {
+    expect(placements.get(playerId)).toBe(Math.floor(index / 2) + 1)
   })
 }
 

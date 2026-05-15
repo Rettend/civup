@@ -17,6 +17,19 @@ export interface DiscordInteractionFilePayload {
   filename: string
   contentType: string
   data: Uint8Array
+  flags?: number
+}
+
+export interface DiscordChannelFilePayload {
+  token: string
+  channelId: string
+  messageId?: string
+  content?: string | null
+  filename: string
+  contentType: string
+  data: Uint8Array
+  embeds?: unknown[]
+  components?: unknown
 }
 
 export interface DiscordInteractionFollowupPayload {
@@ -28,6 +41,17 @@ export interface DiscordInteractionFollowupPayload {
 export interface DiscordGuildRolePayload {
   name: string
   color?: number
+}
+
+export interface DiscordGuildMemberResponse {
+  nick?: string | null
+  avatar?: string | null
+  user?: {
+    id?: string
+    username?: string
+    global_name?: string | null
+    avatar?: string | null
+  }
 }
 
 interface DiscordMessageResponse {
@@ -87,6 +111,22 @@ export async function createChannelMessage(
   return response.json<DiscordMessageResponse>()
 }
 
+export async function createChannelMessageWithFile(payload: DiscordChannelFilePayload): Promise<DiscordMessageResponse> {
+  const response = await requestDiscord(
+    'create message',
+    `https://discord.com/api/v10/channels/${payload.channelId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bot ${payload.token}`,
+      },
+      body: buildDiscordFileForm(payload),
+    },
+  )
+
+  return response.json<DiscordMessageResponse>()
+}
+
 export async function editOriginalInteractionResponseWithFile(payload: DiscordInteractionFilePayload): Promise<void> {
   const form = new FormData()
   const messagePayload: Record<string, unknown> = {
@@ -106,6 +146,30 @@ export async function editOriginalInteractionResponseWithFile(payload: DiscordIn
       body: form,
     },
   )
+}
+
+export async function createInteractionFollowupMessageWithFile(payload: DiscordInteractionFilePayload): Promise<DiscordMessageResponse> {
+  const form = new FormData()
+  const messagePayload: Record<string, unknown> = {
+    allowed_mentions: { parse: [] },
+    attachments: [{ id: 0, filename: payload.filename }],
+  }
+  if (payload.content != null) messagePayload.content = payload.content
+  if (payload.flags != null) messagePayload.flags = payload.flags
+
+  form.append('payload_json', JSON.stringify(messagePayload))
+  form.append('files[0]', new Blob([payload.data], { type: payload.contentType }), payload.filename)
+
+  const response = await requestDiscord(
+    'create interaction followup',
+    `https://discord.com/api/v10/webhooks/${payload.applicationId}/${payload.interactionToken}`,
+    {
+      method: 'POST',
+      body: form,
+    },
+  )
+
+  return response.json<DiscordMessageResponse>()
 }
 
 export async function createInteractionFollowupMessage(payload: DiscordInteractionFollowupPayload): Promise<DiscordMessageResponse> {
@@ -144,6 +208,25 @@ export async function createDmChannel(
   return response.json<DiscordDmChannelResponse>()
 }
 
+export async function fetchGuildMember(
+  token: string,
+  guildId: string,
+  userId: string,
+): Promise<DiscordGuildMemberResponse> {
+  const response = await requestDiscord(
+    'fetch guild member',
+    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+
+  return response.json<DiscordGuildMemberResponse>()
+}
+
 export async function editChannelMessage(
   token: string,
   channelId: string,
@@ -164,6 +247,20 @@ export async function editChannelMessage(
   )
 }
 
+export async function editChannelMessageWithFile(payload: DiscordChannelFilePayload & { messageId: string }): Promise<void> {
+  await requestDiscord(
+    'edit message',
+    `https://discord.com/api/v10/channels/${payload.channelId}/messages/${payload.messageId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bot ${payload.token}`,
+      },
+      body: buildDiscordFileForm(payload),
+    },
+  )
+}
+
 export async function deleteChannelMessage(
   token: string,
   channelId: string,
@@ -179,6 +276,21 @@ export async function deleteChannelMessage(
       },
     },
   )
+}
+
+function buildDiscordFileForm(payload: DiscordChannelFilePayload): FormData {
+  const form = new FormData()
+  const messagePayload: Record<string, unknown> = {
+    content: payload.content ?? null,
+    embeds: payload.embeds ?? [],
+    components: payload.components ?? [],
+    allowed_mentions: { parse: [] },
+    attachments: [{ id: 0, filename: payload.filename }],
+  }
+
+  form.append('payload_json', JSON.stringify(messagePayload))
+  form.append('files[0]', new Blob([payload.data], { type: payload.contentType }), payload.filename)
+  return form
 }
 
 export async function editGuildMemberRoles(

@@ -12,9 +12,9 @@ import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedIn
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig } from '../services/activity/index.ts'
-import { buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
+import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
-import { createChannelMessage, editChannelMessage, isDiscordApiError } from '../services/discord/index.ts'
+import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
@@ -24,6 +24,8 @@ import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../servi
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
+import { renderTournamentResultPng } from '../services/tournament/image.ts'
+import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -315,8 +317,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
 
       if (record?.phase === 'draft') {
-        await this.recoverTerminalDraftRuntime(record)
-        record = await this.getRecord()
+        record = await this.recoverDraftRuntimeBeforeSelectedAccess(connection, record)
+        if (!record) return
       }
 
       if (record?.phase === 'active' && !await this.getRoomRecord()) {
@@ -337,8 +339,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
       if (record?.phase === 'draft') {
-        await this.recoverTerminalDraftRuntime(record)
-        record = await this.getRecord()
+        record = await this.recoverDraftRuntimeBeforeSelectedAccess(connection, record)
+        if (!record) return
       }
       if (record && isTerminalSessionPhase(record.phase)) {
         if (connection.readyState < 2) connection.close(1000, 'Session closed')
@@ -563,7 +565,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!selectedEntries.some(entry => entry.playerId === record.hostId)) {
       return json({ error: 'Host must be in a lobby slot before starting.' }, 400)
     }
-    if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath })) {
+    if (record.mode === 'ffa' && !record.config.redDeath && record.config.permanentAlly && selectedEntries.length % 2 !== 0) {
+      return json({ error: 'Permanent Ally FFA requires an even player count.' }, 400)
+    }
+    if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
       return json({ error: 'Session cannot start with the current slotted player count.' }, 400)
     }
     const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length)
@@ -715,7 +720,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     try {
       const message = await this.buildOpenLobbySnapshotMessage(record)
-      for (const connection of connections) connection.send(message)
+      for (const connection of connections) this.sendConnectionMessage(connection, message)
     }
     catch (error) {
       console.error('[session-do] failed to broadcast reopened lobby snapshot', buildDraftLifecycleLogContext(payload), error)
@@ -740,6 +745,22 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         error: result.error,
       })
     }
+  }
+
+  private async recoverDraftRuntimeBeforeSelectedAccess(connection: Connection, record: DraftSessionRecord): Promise<SessionRecord | null> {
+    await this.recoverTerminalDraftRuntime(record)
+    const current = await this.getRecord()
+    if (current?.phase !== 'draft') return current
+
+    const room = await this.getRoomRecord()
+    if (!current.draftStartSync && room) return current
+
+    const result = await this.finishDraftStartSync(current)
+    if (result.ok) return result.record
+
+    this.sendSessionMessage(connection, { type: 'error', message: 'Draft room is still being prepared. Please reconnect shortly.' })
+    connection.close(1013, 'Draft room is still initializing')
+    return null
   }
 
   private async finishDraftStartSync(record: DraftSessionRecord): Promise<{ ok: true, record: DraftSessionRecord, seats: DraftSeat[] } | { ok: false, status: number, error: string }> {
@@ -776,6 +797,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         leaderDataVersion: record.config.leaderDataVersion,
         blindBans: record.config.blindBans,
         simultaneousPick: record.config.simultaneousPick,
+        permanentAlly: record.config.permanentAlly,
         redDeath: record.config.redDeath,
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,
@@ -979,27 +1001,49 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
-    const embed = lobbyResultEmbed(reportedMode, participants, undefined, {
-      mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
-      reporter: getReporterIdentityFromDraftData(match.draftData),
-    }, reportedRedDeath)
+    const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+    const tournamentResultPng = tournamentLinked
+      ? await this.renderReportedTournamentResultImage(db, matchId, participants)
+      : null
+    const embed = tournamentLinked
+      ? null
+      : lobbyResultEmbed(reportedMode, participants, undefined, {
+          mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
+          reporter: getReporterIdentityFromDraftData(match.draftData),
+        }, reportedRedDeath)
 
     const messageIds = await listMatchMessageIds(db, matchId)
     const candidateMessageIds = uniqueStrings([record.projectionState.messageId, ...messageIds])
-    const draftMessageId = await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
+    const draftMessageId = tournamentLinked
+      ? await this.editOrRecreateReportedDraftImageMessage(record, matchId, candidateMessageIds, tournamentResultPng!)
+      : await this.editOrRecreateReportedDraftMessage(record, matchId, candidateMessageIds, embed)
     await storeMatchMessageMapping(db, draftMessageId, matchId)
 
     const refreshedMessageIds = uniqueStrings([draftMessageId, ...await listMatchMessageIds(db, matchId)])
     if (refreshedMessageIds.length >= 2) return
 
-    const archiveChannelId = await getSystemChannel(this.env.KV, 'archive')
+    const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive')
     if (!archiveChannelId) return
 
-    const archiveMessage = await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
-      embeds: [embed],
-      allowed_mentions: { parse: [] },
-    })
+    const archiveMessage = tournamentLinked
+      ? await createChannelMessageWithFile({
+          token: this.env.DISCORD_TOKEN,
+          channelId: archiveChannelId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: tournamentResultPng!,
+        })
+      : await createChannelMessage(this.env.DISCORD_TOKEN, archiveChannelId, {
+          embeds: [embed],
+          allowed_mentions: { parse: [] },
+        })
     await storeMatchMessageMapping(db, archiveMessage.id, matchId)
+  }
+
+  private async renderReportedTournamentResultImage(db: ReturnType<typeof createDb>, matchId: string, participants: ParticipantRow[]): Promise<Uint8Array> {
+    const data = await buildTournamentResultImageData(db, matchId, participants)
+    if (!data) throw new Error(`Tournament result data was not available for match ${matchId}`)
+    return renderTournamentResultPng(data)
   }
 
   private async editOrRecreateReportedDraftMessage(record: SessionRecord, matchId: string, messageIds: string[], embed: unknown): Promise<string> {
@@ -1029,6 +1073,41 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
     await this.updateMessageProjection(record, created.id)
     if (lastError) console.warn('[session-do] recreated missing reported draft message', { matchId, messageId: created.id })
+    return created.id
+  }
+
+  private async editOrRecreateReportedDraftImageMessage(record: SessionRecord, matchId: string, messageIds: string[], png: Uint8Array): Promise<string> {
+    if (!this.env.DISCORD_TOKEN) throw new Error('Discord token is not configured')
+    let lastError: unknown = null
+    for (const messageId of messageIds) {
+      try {
+        await editChannelMessageWithFile({
+          token: this.env.DISCORD_TOKEN,
+          channelId: record.projectionState.channelId,
+          messageId,
+          filename: 'tournament-result.png',
+          contentType: 'image/png',
+          data: png,
+          components: [],
+        })
+        return messageId
+      }
+      catch (error) {
+        lastError = error
+        if (!isDiscordApiError(error, 404)) throw error
+      }
+    }
+
+    const created = await createChannelMessageWithFile({
+      token: this.env.DISCORD_TOKEN,
+      channelId: record.projectionState.channelId,
+      filename: 'tournament-result.png',
+      contentType: 'image/png',
+      data: png,
+      components: [],
+    })
+    await this.updateMessageProjection(record, created.id)
+    if (lastError) console.warn('[session-do] recreated missing reported draft image message', { matchId, messageId: created.id })
     return created.id
   }
 
@@ -1122,6 +1201,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
+      permanentAlly: record.config.permanentAlly === true,
     })
 
     if ('error' in result) {
@@ -1166,6 +1246,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
+      permanentAlly: record.config.permanentAlly === true,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 
@@ -1176,6 +1257,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         return { ok: true, ignored: true }
       }
       return { ok: false, status: 400, error: cancelled.error }
+    }
+
+    if (payload.reason === 'timeout' || payload.reason === 'revert') {
+      await reopenTournamentMatchAfterDraftCancel(db, record.id)
     }
 
     const transition = transitionRecordForDraftLifecycle(record, payload)
@@ -1775,6 +1860,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       const updated = await db.update(matches).set(values).where(eq(matches.id, command.matchId)).returning({ id: matches.id })
       if (updated.length === 0) throw new TerminalMatchNotFoundError(command.matchId)
       await db.delete(matchBans).where(eq(matchBans.matchId, command.matchId))
+      await syncTournamentMatchAfterReport(db, command.matchId)
       return
     }
 
@@ -1847,7 +1933,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (record.phase === 'open') {
       const message = await this.buildOpenLobbySnapshotMessage(record)
-      for (const connection of openLobbyConnections) connection.send(message)
+      for (const connection of openLobbyConnections) this.sendConnectionMessage(connection, message)
       return
     }
 
@@ -1859,23 +1945,27 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (record.phase === 'cancelled' || record.phase === 'reported') {
       const message = JSON.stringify({ type: 'lobby', lobbyId: record.id, snapshot: null } satisfies SessionServerMessage)
       for (const connection of openLobbyConnections) {
-        connection.send(message)
+        this.sendConnectionMessage(connection, message)
       }
     }
   }
 
   private async sendOpenLobbySnapshot(connection: Connection, record: OpenSessionRecord): Promise<void> {
-    connection.send(await this.buildOpenLobbySnapshotMessage(record))
+    this.sendConnectionMessage(connection, await this.buildOpenLobbySnapshotMessage(record))
   }
 
   private async buildOpenLobbySnapshotMessage(record: OpenSessionRecord): Promise<string> {
     if (!this.env.KV) {
       return JSON.stringify({ type: 'error', message: 'Session lobby snapshots are not configured' } satisfies SessionServerMessage)
     }
+    const baseSnapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
+    const snapshot = this.env.DB
+      ? await attachTournamentLobbySnapshot(createDb(this.env.DB), baseSnapshot)
+      : baseSnapshot
     return JSON.stringify({
       type: 'lobby',
       lobbyId: record.id,
-      snapshot: await buildLobbySnapshotFromSessionRecord(this.env.KV, record),
+      snapshot,
     } satisfies SessionServerMessage)
   }
 
@@ -1937,6 +2027,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       previews: { bans: {}, picks: {} },
       swapState: null,
       steamLobbyLink: record.projectionState.steamLobbyLink,
+      permanentAlly: record.config.permanentAlly === true,
     })
     connection.close(1000, 'Draft closed')
   }
@@ -2039,7 +2130,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private sendSessionMessage(connection: Connection, message: SessionServerMessage): void {
-    connection.send(JSON.stringify(message))
+    this.sendConnectionMessage(connection, JSON.stringify(message))
   }
 
   private async runSerializedCommand(operation: () => Promise<Response>): Promise<Response> {

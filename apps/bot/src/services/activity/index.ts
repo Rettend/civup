@@ -20,6 +20,7 @@ export interface CreateDraftRuntimeOptions {
   leaderDataVersion?: LeaderDataVersion
   blindBans?: boolean
   simultaneousPick?: boolean
+  permanentAlly?: boolean
   redDeath?: boolean
   mapVoteEnabled?: boolean
   randomDraft?: boolean
@@ -44,8 +45,8 @@ export function buildDraftRuntimeConfig(
   options: CreateDraftRuntimeOptions,
 ): DraftRuntimeConfigResult {
   const matchId = options.matchId
-  const seats: DraftSeat[] = buildSeats(mode, entries)
   const redDeathMode = options.redDeath === true
+  const seats: DraftSeat[] = buildSeats(mode, entries)
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
   const hiddenDraft = options.hiddenDraft === true
   const randomDraft = !hiddenDraft && options.randomDraft === true
@@ -69,6 +70,7 @@ export function buildDraftRuntimeConfig(
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     randomDraft,
     hiddenDraft,
+    permanentAlly: mode === 'ffa' && !redDeathMode && options.permanentAlly !== false,
     duplicateFactions,
     mapVoteEnabled,
     leaderDataVersion: options.leaderDataVersion ?? 'live',
@@ -112,7 +114,6 @@ function buildSeats(mode: GameMode, entries: QueueEntry[]): DraftSeat[] {
     }))
   }
 
-  // FFA: no teams
   return entries.map(e => ({
     playerId: e.playerId,
     displayName: e.displayName,

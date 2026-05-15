@@ -1,6 +1,6 @@
 import type { DraftSeat, GameMode, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
-import type { Env } from '../../env.ts'
 import type { EphemeralResponseTone } from '../../embeds/response.ts'
+import type { Env } from '../../env.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
@@ -8,6 +8,7 @@ import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isT
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
+import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
@@ -25,6 +26,7 @@ import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEph
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
+import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, isMatchTournamentLinked, listOpenTournamentSessionIds, refreshTournamentLeaderboard, updateTournamentMatchRoster } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
@@ -40,6 +42,7 @@ type MatchCreateOutcome
 
 interface CreateMatchLobbyInput {
   env: Env['Bindings']
+  executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   kv: KVNamespace
   mode: GameMode
   steamLobbyLink: string | null
@@ -53,6 +56,10 @@ interface CreateMatchLobbyInput {
 interface DeferredMatchCreateContext {
   executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   followup: (data?: any) => Promise<unknown>
+}
+
+interface ImmediateEphemeralContext {
+  flags: (...flag: any[]) => { res: (data?: any) => Response }
 }
 
 function buildMatchCreateSubCommand() {
@@ -132,37 +139,64 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
+        const autoOpenActivity = interactionChannelId === draftChannelId
         const createInput = {
           env: c.env,
+          executionCtx: c.executionCtx,
           kv,
           mode,
           steamLobbyLink,
-          autoOpenActivity: false,
+          autoOpenActivity,
           interactionChannelId,
           draftChannelId,
           guildId: c.interaction.guild_id ?? null,
           identity,
         }
 
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          try {
-            const outcome = await createMatchLobby(createInput)
-            await sendDeferredMatchCreateOutcome(c, outcome)
-          }
-          catch (error) {
-            console.error('[match:create] unexpected failure', {
-              mode,
-              interactionChannelId,
-              userId: identity.userId,
-            }, error)
+        if (!autoOpenActivity) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
             try {
-              await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+              const outcome = await createMatchLobby(createInput)
+              await sendDeferredMatchCreateOutcome(c, outcome)
             }
-            catch (followupError) {
-              console.error('[match:create] failed to send error followup', followupError)
+            catch (error) {
+              console.error('[match:create] unexpected failure', {
+                mode,
+                interactionChannelId,
+                userId: identity.userId,
+              }, error)
+              try {
+                await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+              }
+              catch (followupError) {
+                console.error('[match:create] failed to send error followup', followupError)
+              }
             }
+          })
+        }
+
+        try {
+          const outcome = await createMatchLobby(createInput)
+          if (outcome.kind === 'activity') return c.resActivity()
+          if (outcome.kind === 'clear') {
+            return sendImmediateEphemeralResponse(
+              c,
+              steamLobbyLink !== null
+                ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
+                : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
+              'success',
+            )
           }
-        })
+          return sendImmediateEphemeralResponse(c, outcome.message, outcome.tone)
+        }
+        catch (error) {
+          console.error('[match:create] unexpected failure', {
+            mode,
+            interactionChannelId,
+            userId: identity.userId,
+          }, error)
+          return sendImmediateEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+        }
       }
 
       // ── join ────────────────────────────────────────────
@@ -190,7 +224,8 @@ export const command_match = factory.command<MatchVar>(
         }
 
         const db = createDb(c.env.DB)
-        const openLobbies = await getOpenSessionLobbyProjectionsByMode(db, mode)
+        const tournamentSessionIds = await listOpenTournamentSessionIds(db)
+        const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode)).filter(lobby => !tournamentSessionIds.has(lobby.id))
         if (openLobbies.length === 0) {
           if (joinRequest.entries.length > 1) {
             return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -415,9 +450,12 @@ export const command_match = factory.command<MatchVar>(
               queueEntries: nextLobbyQueueEntries,
               slots: nextSlots,
             })
+            if (await getTournamentMatchBySessionId(db, nextLobby.id)) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
             const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
             try {
-              const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries)
+              const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries, {
+                reservedSlotLabels: await buildTournamentReservedSlotLabels(db, nextLobby),
+              })
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, nextLobby, {
                 embeds: renderPayload.embeds,
                 components: renderPayload.components,
@@ -588,7 +626,7 @@ export const command_match = factory.command<MatchVar>(
                 const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
                 const filled = slots.filter(slot => slot != null).length
-                const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: lobby.draftConfig.redDeath })
+                const validCounts = startPlayerCountOptions(mode, slots.length, { redDeath: lobby.draftConfig.redDeath, permanentAlly: lobby.draftConfig.permanentAlly })
                 const target = formatPlayerCountList(validCounts, slots.length)
                 lines.push(`- ${formatModeLabel(mode)} - ${label} (${filled}/${target}) - ${link} - \`${lobby.id}\``)
                 continue
@@ -672,7 +710,9 @@ export const command_match = factory.command<MatchVar>(
                 await sendTransientEphemeralResponse(c, 'For FFA reporting, you must provide a `winner` (1st place) user.', 'error')
                 return
               }
-              const requiredPlacements = matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
+              const requiredPlacements = matchContext.permanentAlly
+                ? participantRows.length
+                : matchContext.redDeath ? 4 : (participantRows.length > 0 ? participantRows.length : minPlayerCount(mode))
               const placementLabelByCount: Record<number, string> = {
                 2: 'second',
                 3: 'third',
@@ -683,10 +723,16 @@ export const command_match = factory.command<MatchVar>(
                 8: 'eighth',
                 9: 'ninth',
                 10: 'tenth',
+                11: 'eleventh',
+                12: 'twelfth',
               }
               const lastRequiredPlacement = placementLabelByCount[requiredPlacements] ?? `${requiredPlacements}th`
-              if (orderedFfaIds.length < requiredPlacements) {
-                await sendTransientEphemeralResponse(c, `FFA reporting needs at least ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`).`, 'error')
+              const hasEnoughPlacements = matchContext.permanentAlly
+                ? orderedFfaIds.length === requiredPlacements
+                : orderedFfaIds.length >= requiredPlacements
+              if (!hasEnoughPlacements) {
+                const countText = matchContext.permanentAlly ? 'exactly' : 'at least'
+                await sendTransientEphemeralResponse(c, `FFA reporting needs ${countText} ${requiredPlacements} ordered users (\`winner\` + \`second\` to \`${lastRequiredPlacement}\`). Permanent Ally reports should click teammates adjacent to each other: 1/1, 2/2, 3/3, etc.`, 'error')
                 return
               }
               placements = orderedFfaIds.map(playerId => `<@${playerId}>`).join('\n')
@@ -752,6 +798,13 @@ export const command_match = factory.command<MatchVar>(
 
           const lobby = liveLobbyBeforeReport
           const isRankedResult = reportedContext.ranked
+          const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+          const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+          if (isTournamentMatch) {
+            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              console.error(`Failed to refresh tournament leaderboard after match ${result.match.id}:`, error)
+            })
+          }
 
           if (result.idempotent) {
             console.log('[idempotency] slash report deduplicated after race', {
@@ -770,6 +823,7 @@ export const command_match = factory.command<MatchVar>(
               lobby,
               sessionNamespace: c.env.SessionDO,
               archivePolicy: 'if-missing',
+              archiveChannelType,
             })
             queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
             await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
@@ -793,10 +847,11 @@ export const command_match = factory.command<MatchVar>(
               avatarUrl: identity.avatarUrl,
             },
             archivePolicy: 'always',
+            archiveChannelType,
           })
           queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
           try {
-            if (!reportedContext.redDeath) {
+            if (!isTournamentMatch && !reportedContext.redDeath) {
               await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
                 civ: true,
                 modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
@@ -807,7 +862,7 @@ export const command_match = factory.command<MatchVar>(
             console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
           }
 
-          if (isRankedResult) {
+          if (!isTournamentMatch && isRankedResult) {
             try {
               await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
             }
@@ -942,6 +997,12 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
       || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby, { queueEntries: await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry]) }) }
 
+    const activityOutcome = await createMatchActivityOutcome(input, lobby)
+    if (activityOutcome) {
+      if (!reusedExisting) queueMatchCreateLobbyMessageUpdate(input, lobby, [hostEntry])
+      return activityOutcome
+    }
+
     if (!reusedExisting) {
       const renderPayload = await buildOpenLobbyRenderPayload(
         kv,
@@ -953,9 +1014,6 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
         components: renderPayload.components,
       }, { db, sessionNamespace: env.SessionDO })
     }
-
-    const activityOutcome = await createMatchActivityOutcome(input, lobby)
-    if (activityOutcome) return activityOutcome
 
     if (reusedExisting) {
       return {
@@ -1005,6 +1063,33 @@ async function createMatchActivityOutcome(input: CreateMatchLobbyInput, lobby: L
   return { kind: 'activity' }
 }
 
+function queueMatchCreateLobbyMessageUpdate(input: CreateMatchLobbyInput, lobby: LobbyState, fallbackEntries: QueueEntry[]): void {
+  queueBackgroundTask(input.executionCtx, (async () => {
+    const db = createDb(input.env.DB)
+    const renderPayload = await buildOpenLobbyRenderPayload(
+      input.kv,
+      lobby,
+      mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(input.env.SessionDO, lobby, fallbackEntries)),
+    )
+    await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
+      embeds: renderPayload.embeds,
+      components: renderPayload.components,
+    }, { db, sessionNamespace: input.env.SessionDO })
+  })(), '[match:create] failed to update auto-open lobby message')
+}
+
+function queueBackgroundTask(context: { waitUntil: (promise: Promise<unknown>) => void }, task: Promise<unknown>, errorMessage: string): void {
+  const loggedTask = task.catch((error) => {
+    console.error(errorMessage, error)
+  })
+  try {
+    context.waitUntil(loggedTask)
+  }
+  catch {
+    void loggedTask
+  }
+}
+
 export function shouldAutoOpenMatchCreateActivity(
   interactionChannelId: string | null,
   draftChannelId: string,
@@ -1020,6 +1105,10 @@ async function sendDeferredMatchCreateOutcome(c: DeferredMatchCreateContext, out
   }
 
   await sendTransientEphemeralResponse(c, outcome.message, outcome.tone)
+}
+
+function sendImmediateEphemeralResponse(c: ImmediateEphemeralContext, message: string, tone: EphemeralResponseTone): Response {
+  return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(message, tone)] })
 }
 
 async function getLobbyRosterEntriesForRender(
@@ -1039,7 +1128,9 @@ async function buildLobbyBumpRenderPayload(
 ): Promise<{ embeds: unknown[], components?: unknown } | { error: string }> {
   if (lobby.status === 'open') {
     const entries = mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(sessionNamespace, lobby))
-    return buildOpenLobbyRenderPayload(kv, lobby, entries)
+    return buildOpenLobbyRenderPayload(kv, lobby, entries, {
+      reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
+    })
   }
 
   if (lobby.status === 'drafting') {
@@ -1108,11 +1199,15 @@ function buildDraftSeatsFromLobby(
       playerId,
       displayName: entry?.displayName ?? 'Unknown',
       avatarUrl: entry?.avatarUrl ?? null,
-      team: slotToTeamIndex(lobby.mode, slot, lobby.slots.length) ?? undefined,
+      team: getLobbyDraftSeatTeam(lobby, slot) ?? undefined,
     })
   }
 
   return seats
+}
+
+function getLobbyDraftSeatTeam(lobby: LobbyState, slot: number): number | null {
+  return slotToTeamIndex(lobby.mode, slot, lobby.slots.length)
 }
 
 function orderLobbyParticipantsBySlots<T extends { playerId: string }>(

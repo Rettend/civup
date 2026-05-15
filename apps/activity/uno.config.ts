@@ -18,6 +18,8 @@ export default defineConfig({
       collections: {
         custom: {
           'number-ten-bold': () => fs.readFile('./src/assets/number-ten-bold.svg', 'utf-8'),
+          'number-eleven-bold': () => fs.readFile('./src/assets/number-eleven-bold.svg', 'utf-8'),
+          'number-twelve-bold': () => fs.readFile('./src/assets/number-twelve-bold.svg', 'utf-8'),
         },
       },
     }),
@@ -123,6 +125,8 @@ export default defineConfig({
     'i-ph:number-eight-bold',
     'i-ph:number-nine-bold',
     'i-custom:number-ten-bold',
+    'i-custom:number-eleven-bold',
+    'i-custom:number-twelve-bold',
   ],
   preflights: [
     {

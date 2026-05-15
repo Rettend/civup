@@ -1,4 +1,4 @@
-import { matches } from '@civup/db'
+import { matches, players, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -509,6 +509,92 @@ describe('lobby routes', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Shuffle teams is only available in team lobbies.' })
   })
 
+  test('start route randomizes first pick for tournament 1v1 lobbies', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const hostId = '1000000000000001'
+    const opponentId = '1000000000000002'
+
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId,
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '1v1', {
+      playerId: hostId,
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: opponentId,
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, [hostId, opponentId], lobby)
+    await setLobbySlots(kv, lobby.id, [hostId, opponentId], withMembers ?? lobby)
+
+    const { db } = getExistingTestLobbyRuntime(kv)
+    const now = Date.now()
+    await db.insert(players).values([
+      { id: hostId, displayName: 'Host', avatarUrl: null, createdAt: now },
+      { id: opponentId, displayName: 'Player 2', avatarUrl: null, createdAt: now },
+    ])
+    await db.insert(tournaments).values({
+      id: 'tournament-route-test',
+      name: 'Test Cup',
+      mode: '1v1',
+      status: 'qualifier',
+      scoring: 'open_win_rate',
+      rematchPolicy: 'warn',
+      minGames: 6,
+      topCut: 8,
+      roleId: null,
+      createdById: 'admin',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(tournamentPlayers).values([
+      { tournamentId: 'tournament-route-test', seed: 1, playerId: hostId, displayName: 'Host', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
+      { tournamentId: 'tournament-route-test', seed: 2, playerId: opponentId, displayName: 'Player 2', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
+    ])
+    await db.insert(tournamentMatches).values({
+      sessionId: lobby.id,
+      tournamentId: 'tournament-route-test',
+      matchId: null,
+      stage: 'qualifier',
+      status: 'open',
+      playerOneId: hostId,
+      playerTwoId: null,
+      winnerId: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+    Math.random = () => 0
+
+    const response = await app.request('/api/lobby/1v1/start', {
+      method: 'POST',
+      headers: buildAuthHeaders(hostId, 'Host'),
+      body: JSON.stringify({ userId: hostId, lobbyId: lobby.id }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.status).toBe('drafting')
+    expect(updatedLobby?.slots).toEqual([opponentId, hostId])
+    expect(updatedLobby?.lastArrange?.strategy).toBe('shuffle-teams')
+  })
+
   test('direct lobby joins ignore matchmaking max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -842,6 +928,7 @@ describe('lobby routes', () => {
       mapVoteEnabled: false,
       blindBans: true,
       simultaneousPick: false,
+      permanentAlly: false,
       redDeath: false,
       dealOptionsSize: null,
       randomDraft: false,
@@ -942,6 +1029,59 @@ describe('lobby routes', () => {
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.draftConfig.mapVoteEnabled).toBe(true)
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
+  })
+
+  test('config route expands and preserves regular FFA target size', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: 'ffa',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, 'ffa', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const expandResponse = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        targetSize: 12,
+      }),
+    }, buildEnv(kv))
+
+    expect(expandResponse.status).toBe(200)
+    await expect(expandResponse.json()).resolves.toMatchObject({ targetSize: 12 })
+    expect((await getLobbyById(kv, lobby.id))?.slots).toHaveLength(12)
+
+    const configResponse = await app.request('/api/lobby/ffa/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        mapVoteEnabled: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(configResponse.status).toBe(200)
+    await expect(configResponse.json()).resolves.toMatchObject({ targetSize: 12 })
+    expect((await getLobbyById(kv, lobby.id))?.slots).toHaveLength(12)
   })
 
   test('config route updates the base-game random draft toggle', async () => {

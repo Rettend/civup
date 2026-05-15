@@ -70,6 +70,20 @@ describe('draft runtime config', () => {
 
     expect(result.config.formatId).toBe('default-ffa')
     expect(result.formatId).toBe('default-ffa')
+    expect(result.seats.every(seat => seat.team == null)).toBe(true)
+    expect(result.config.permanentAlly).toBe(true)
+  })
+
+  test('leaves FFA seats unteamed when Permanent Ally is disabled', async () => {
+    const result = buildDraftRuntimeConfig('ffa', baseFfaEntries, {
+      matchId: 'session-ffa-no-pa',
+      hostId: 'p1',
+      permanentAlly: false,
+    })
+
+    expect(result.config.formatId).toBe('default-ffa')
+    expect(result.seats.every(seat => seat.team == null)).toBe(true)
+    expect(result.config.permanentAlly).toBe(false)
   })
 
   test('uses simultaneous FFA when requested', async () => {

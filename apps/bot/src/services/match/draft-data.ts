@@ -9,15 +9,17 @@ interface ParsedDraftData {
   reportedById?: unknown
   mapVoteResult?: unknown
   redDeath?: unknown
+  permanentAlly?: unknown
   hiddenDraft?: unknown
   state?: {
-    seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown }>
+    seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown, team?: unknown }>
   }
 }
 
 export interface StoredGameModeContext {
   mode: GameMode
   redDeath: boolean
+  permanentAlly: boolean
   leaderboardMode: LeaderboardMode | null
   ranked: boolean
   label: string
@@ -85,6 +87,16 @@ export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
   return parsed?.hiddenDraft === true
 }
 
+export function getPermanentAllyFromDraftData(gameMode: string, draftData: string | null): boolean {
+  const mode = parseGameMode(gameMode)
+  const parsed = parseDraftData(draftData)
+  if (mode !== 'ffa' || parsed?.redDeath === true) return false
+  if (typeof parsed?.permanentAlly === 'boolean') return parsed.permanentAlly
+  if (parsed?.manualReport === true) return false
+  if (Array.isArray(parsed?.state?.seats) && parsed.state.seats.some(seat => seat?.team != null)) return true
+  return true
+}
+
 export function isManualReportDraftData(draftData: string | null): boolean {
   const parsed = parseDraftData(draftData)
   return parsed?.manualReport === true
@@ -116,11 +128,13 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
 
   const parsed = parseDraftData(draftData)
   const redDeath = parsed?.redDeath === true
+  const permanentAlly = getPermanentAllyFromDraftData(mode, draftData)
   const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
   const leaderboardMode = toLeaderboardMode(mode, { redDeath })
   return {
     mode,
     redDeath,
+    permanentAlly,
     leaderboardMode,
     ranked: leaderboardMode != null,
     label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),

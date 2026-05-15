@@ -1,12 +1,14 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons } from '@civup/db'
+import type { DbBatchItem } from '../db/batch.ts'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
-import { and, asc, eq, gt, gte, inArray, lt, or } from 'drizzle-orm'
-import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
+import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
+import { runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
+import { buildPermanentAllyFfaEffectiveRows, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 
 interface LeaderboardSnapshotRow {
   playerId: string
@@ -101,6 +103,7 @@ interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOpti
 
 const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 const GLOBAL_RATING_SCOPE = 'global'
+const D1_SAFE_IN_LIST_CHUNK_SIZE = 80
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
@@ -178,7 +181,6 @@ async function recalculateGlobalRatingsFromScratch(
   seasonRows: StoredSeasonRow[],
   opponentTierByPlayerId: ReadonlyMap<string, string>,
 ): Promise<{ matchIds: string[] } | { error: string }> {
-
   const completedMatches = await db
     .select({
       id: matches.id,
@@ -192,6 +194,7 @@ async function recalculateGlobalRatingsFromScratch(
     .where(and(
       eq(matches.status, 'completed'),
       inArray(matches.gameMode, [...GAME_MODES]),
+      excludeTournamentMatchesCondition(),
     ))
     .orderBy(asc(matches.createdAt), asc(matches.id))
 
@@ -213,6 +216,7 @@ async function recalculateGlobalRatingsFromScratch(
         .where(and(
           eq(matches.status, 'completed'),
           inArray(matches.gameMode, [...GAME_MODES]),
+          excludeTournamentMatchesCondition(),
         ))
     : []
 
@@ -301,58 +305,19 @@ async function recalculateGlobalRatingsFromBoundary(
       .where(and(
         inArray(matches.gameMode, [...GAME_MODES]),
         replayCondition,
+        excludeTournamentMatchesCondition(),
       ))
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
 
-  const replayParticipantRows = replayMatches.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          civId: matchParticipants.civId,
-          placement: matchParticipants.placement,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
-    : []
+  const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierEventRows = affectedPlayerIds.length > 0
-    ? await db
-        .select({
-          matchId: playerRatingEvents.matchId,
-          matchCreatedAt: playerRatingEvents.matchCreatedAt,
-          matchCompletedAt: playerRatingEvents.matchCompletedAt,
-          playerId: playerRatingEvents.playerId,
-          ratingAfterMu: playerRatingEvents.ratingAfterMu,
-          ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
-          gamesDelta: playerRatingEvents.gamesDelta,
-          winsDelta: playerRatingEvents.winsDelta,
-          importedGamesDelta: playerRatingEvents.importedGamesDelta,
-          effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
-          winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
-          winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
-          effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
-          effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
-        })
-        .from(playerRatingEvents)
-        .where(and(
-          eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
-          inArray(playerRatingEvents.playerId, affectedPlayerIds),
-          buildEventBoundaryCondition(boundaryMatch, false, 'before'),
-        ))
-        .orderBy(asc(playerRatingEvents.matchCreatedAt), asc(playerRatingEvents.matchId), asc(playerRatingEvents.playerId))
-    : []
+  const earlierEventRows = await listEarlierGlobalRatingEventRows(db, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -417,6 +382,7 @@ async function recalculateLeaderboardModeFromScratch(
     .where(and(
       eq(matches.status, 'completed'),
       inArray(matches.gameMode, gameModes),
+      excludeTournamentMatchesCondition(),
     ))
     .orderBy(asc(matches.createdAt), asc(matches.id))
 
@@ -438,6 +404,7 @@ async function recalculateLeaderboardModeFromScratch(
         .where(and(
           eq(matches.status, 'completed'),
           inArray(matches.gameMode, gameModes),
+          excludeTournamentMatchesCondition(),
         ))
     : []
 
@@ -526,55 +493,19 @@ async function recalculateLeaderboardModeFromBoundary(
       .where(and(
         inArray(matches.gameMode, gameModes),
         replayCondition,
+        excludeTournamentMatchesCondition(),
       ))
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
 
-  const replayParticipantRows = replayMatches.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          civId: matchParticipants.civId,
-          placement: matchParticipants.placement,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .where(inArray(matchParticipants.matchId, replayMatches.map(match => match.id)))
-    : []
+  const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierParticipantRows = affectedPlayerIds.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          createdAt: matches.createdAt,
-          completedAt: matches.completedAt,
-          isOld: matches.isOld,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          placement: matchParticipants.placement,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-        .where(and(
-          eq(matches.status, 'completed'),
-          inArray(matches.gameMode, gameModes),
-          inArray(matchParticipants.playerId, affectedPlayerIds),
-          buildBoundaryCondition(boundaryMatch, false, 'before'),
-        ))
-        .orderBy(asc(matches.createdAt), asc(matches.id), asc(matchParticipants.playerId))
-    : []
+  const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, gameModes, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -616,6 +547,117 @@ async function recalculateLeaderboardModeFromBoundary(
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
+}
+
+async function listReplayParticipantRows(db: Database, matchIds: string[]): Promise<StoredParticipantRow[]> {
+  const rows: StoredParticipantRow[] = []
+  for (const chunk of chunkArray(matchIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: matchParticipants.matchId,
+        playerId: matchParticipants.playerId,
+        team: matchParticipants.team,
+        civId: matchParticipants.civId,
+        placement: matchParticipants.placement,
+        ratingBeforeMu: matchParticipants.ratingBeforeMu,
+        ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+        ratingAfterMu: matchParticipants.ratingAfterMu,
+        ratingAfterSigma: matchParticipants.ratingAfterSigma,
+      })
+      .from(matchParticipants)
+      .where(inArray(matchParticipants.matchId, chunk)))
+  }
+  return rows
+}
+
+async function listEarlierGlobalRatingEventRows(
+  db: Database,
+  playerIds: string[],
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+): Promise<HistoricalRatingEventRow[]> {
+  const rows: HistoricalRatingEventRow[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: playerRatingEvents.matchId,
+        matchCreatedAt: playerRatingEvents.matchCreatedAt,
+        matchCompletedAt: playerRatingEvents.matchCompletedAt,
+        playerId: playerRatingEvents.playerId,
+        ratingAfterMu: playerRatingEvents.ratingAfterMu,
+        ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+        gamesDelta: playerRatingEvents.gamesDelta,
+        winsDelta: playerRatingEvents.winsDelta,
+        importedGamesDelta: playerRatingEvents.importedGamesDelta,
+        effectiveGamesDelta: playerRatingEvents.effectiveGamesDelta,
+        winsVsTier1Delta: playerRatingEvents.winsVsTier1Delta,
+        winsVsTier2PlusDelta: playerRatingEvents.winsVsTier2PlusDelta,
+        effectiveWinsVsTier1Delta: playerRatingEvents.effectiveWinsVsTier1Delta,
+        effectiveWinsVsTier2PlusDelta: playerRatingEvents.effectiveWinsVsTier2PlusDelta,
+      })
+      .from(playerRatingEvents)
+      .where(and(
+        eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
+        inArray(playerRatingEvents.playerId, chunk),
+        buildEventBoundaryCondition(boundaryMatch, false, 'before'),
+        excludeTournamentRatingEventsCondition(),
+      )))
+  }
+
+  return rows.sort(compareHistoricalRatingEventRows)
+}
+
+async function listEarlierLeaderboardParticipantRows(
+  db: Database,
+  gameModes: readonly string[],
+  playerIds: string[],
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+): Promise<HistoricalParticipantRow[]> {
+  const rows: HistoricalParticipantRow[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    rows.push(...await db
+      .select({
+        matchId: matchParticipants.matchId,
+        createdAt: matches.createdAt,
+        completedAt: matches.completedAt,
+        isOld: matches.isOld,
+        playerId: matchParticipants.playerId,
+        team: matchParticipants.team,
+        placement: matchParticipants.placement,
+        ratingAfterMu: matchParticipants.ratingAfterMu,
+        ratingAfterSigma: matchParticipants.ratingAfterSigma,
+      })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+      .where(and(
+        eq(matches.status, 'completed'),
+        inArray(matches.gameMode, gameModes),
+        inArray(matchParticipants.playerId, chunk),
+        buildBoundaryCondition(boundaryMatch, false, 'before'),
+        excludeTournamentMatchesCondition(),
+      )))
+  }
+
+  return rows.sort(compareHistoricalParticipantRows)
+}
+
+function chunkArray<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+function compareHistoricalRatingEventRows(left: HistoricalRatingEventRow, right: HistoricalRatingEventRow): number {
+  return left.matchCreatedAt - right.matchCreatedAt
+    || left.matchId.localeCompare(right.matchId)
+    || left.playerId.localeCompare(right.playerId)
+}
+
+function compareHistoricalParticipantRows(left: HistoricalParticipantRow, right: HistoricalParticipantRow): number {
+  return left.createdAt - right.createdAt
+    || left.matchId.localeCompare(right.matchId)
+    || left.playerId.localeCompare(right.playerId)
 }
 
 function createReplayStates(_playerIds?: string[]): {
@@ -787,14 +829,20 @@ async function replayCompletedMatch(
   }
 
   const gameMode = gameContext.mode
-  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, (playerId) => {
+  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, gameContext.permanentAlly, (playerId) => {
     const existingRating = ratingStateByPlayer.get(playerId)
     if (existingRating) return { mu: existingRating.mu, sigma: existingRating.sigma }
     const rating = createRating(playerId)
     return { mu: rating.mu, sigma: rating.sigma }
   })
+  if ('error' in ratingUpdates) return ratingUpdates.error
 
   const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
+  const effectiveRows = gameContext.permanentAlly && gameMode === 'ffa'
+    ? buildPermanentAllyFfaEffectiveRows(participantRows)
+    : participantRows
+  if ('error' in effectiveRows) return effectiveRows.error
+  const effectiveRowByPlayerId = new Map(effectiveRows.map(row => [row.playerId, row]))
   const participantUpdateQueries: DbBatchItem[] = []
   const isImportedGame = match.isOld
   const writeParticipantSnapshots = options.writeParticipantSnapshots ?? true
@@ -805,9 +853,10 @@ async function replayCompletedMatch(
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
     const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const effectiveParticipant = effectiveRowByPlayerId.get(participant.playerId) ?? participant
     const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
     const qualityWins = leaderboardMode == null
-      ? countQualityWinsForParticipant(participant, participantRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
+      ? countQualityWinsForParticipant(effectiveParticipant, effectiveRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
       : { winsVsTier1: 0, winsVsTier2Plus: 0, effectiveWinsVsTier1: 0, effectiveWinsVsTier2Plus: 0 }
     const ratingBeforeMu = update.before.mu
     const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
@@ -837,7 +886,7 @@ async function replayCompletedMatch(
       mu: ratingAfterMu,
       sigma: ratingAfterSigma,
       gamesPlayed: currentState.gamesPlayed + 1,
-      wins: currentState.wins + (participant.placement === 1 ? 1 : 0),
+      wins: currentState.wins + (effectiveParticipant.placement === 1 ? 1 : 0),
       importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
       effectiveGames: currentState.effectiveGames + sourceWeight,
       winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
@@ -857,7 +906,7 @@ async function replayCompletedMatch(
       ratingAfterMu,
       ratingAfterSigma,
       gamesDelta: 1,
-      winsDelta: participant.placement === 1 ? 1 : 0,
+      winsDelta: effectiveParticipant.placement === 1 ? 1 : 0,
       importedGamesDelta: isImportedGame ? 1 : 0,
       effectiveGamesDelta: sourceWeight,
       winsVsTier1Delta: qualityWins.winsVsTier1,
@@ -946,8 +995,13 @@ function rankedRoleTierNumber(tier: string | null): number | null {
 function calculateRatingUpdatesForMatch(
   gameMode: string,
   participantRows: StoredParticipantRow[],
+  permanentAlly: boolean,
   resolveRating: (playerId: string) => { mu: number, sigma: number },
-) {
+): ReturnType<typeof calculateRatings> | { error: string } {
+  if (permanentAlly && gameMode === 'ffa') {
+    return calculatePermanentAllyFfaRatingUpdates(participantRows, resolveRating)
+  }
+
   if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
     const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
 
@@ -998,14 +1052,16 @@ async function replacePlayerRatings(
   if (playerIds) {
     if (playerIds.length === 0) return
 
-    ratingQueries.push(
-      db
-        .delete(playerRatings)
-        .where(and(
-          eq(playerRatings.mode, leaderboardMode),
-          inArray(playerRatings.playerId, playerIds),
-        )),
-    )
+    for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+      ratingQueries.push(
+        db
+          .delete(playerRatings)
+          .where(and(
+            eq(playerRatings.mode, leaderboardMode),
+            inArray(playerRatings.playerId, chunk),
+          )),
+      )
+    }
   }
   else {
     ratingQueries.push(db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode)))
@@ -1048,13 +1104,17 @@ async function deleteRatingEventsFromBoundary(
     ? boundaryCondition
     : or(eq(playerRatingEvents.matchId, boundaryMatch.id), boundaryCondition)
 
-  await db
-    .delete(playerRatingEvents)
-    .where(and(
-      eq(playerRatingEvents.mode, ratingScope),
-      inArray(playerRatingEvents.playerId, playerIds),
-      replayRangeCondition,
-    ))
+  const eventDeleteQueries: DbBatchItem[] = []
+  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
+    eventDeleteQueries.push(db
+      .delete(playerRatingEvents)
+      .where(and(
+        eq(playerRatingEvents.mode, ratingScope),
+        inArray(playerRatingEvents.playerId, chunk),
+        replayRangeCondition,
+      )))
+  }
+  await runDbBatch(db, eventDeleteQueries)
 }
 
 function createDefaultRatingState(playerId: string): RatingState {
@@ -1122,4 +1182,20 @@ function buildEventBoundaryCondition(
       includeBoundary ? gte(playerRatingEvents.matchId, boundaryMatch.id) : gt(playerRatingEvents.matchId, boundaryMatch.id),
     ),
   )
+}
+
+function excludeTournamentMatchesCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${matches.id}
+       or ${tournamentMatches.sessionId} = ${matches.id}
+  )`
+}
+
+function excludeTournamentRatingEventsCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${playerRatingEvents.matchId}
+       or ${tournamentMatches.sessionId} = ${playerRatingEvents.matchId}
+  )`
 }

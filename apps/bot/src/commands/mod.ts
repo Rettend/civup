@@ -2,7 +2,7 @@ import type { GameMode, Leader, QueueEntry } from '@civup/game'
 import type { ManualReportedMatchPlayerInput } from '../services/match/index.ts'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
-import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex } from '@civup/game'
+import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, maxPlayerCount, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
@@ -19,6 +19,7 @@ import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../servic
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
+import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId } from './match/shared'
 
@@ -33,6 +34,9 @@ interface ModVar extends MatchVar {
 const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
 const MANUAL_MATCH_MAX_PLAYERS = 12
 const MANUAL_MATCH_SLOT_NUMBERS = Array.from({ length: MANUAL_MATCH_MAX_PLAYERS }, (_, index) => index + 1)
+const MANUAL_GAME_MODE_CHOICES = GAME_MODE_CHOICES.flatMap(choice => choice.value === 'ffa'
+  ? [{ name: 'FFA', value: 'ffa' }, { name: 'FFA Classic', value: 'ffa-classic' }]
+  : [choice])
 
 export const command_mod = factory.autocomplete<ModVar>(
   new Command('mod', 'Moderation commands for match and lobby operations').options(
@@ -48,7 +52,7 @@ export const command_mod = factory.autocomplete<ModVar>(
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
       new SubCommand('manual', 'Create a completed match report from players and leaders').options(
-        new Option('mode', 'Game mode for the manual report').required().choices(...GAME_MODE_CHOICES),
+        new Option('mode', 'Game mode for the manual report').required().choices(...MANUAL_GAME_MODE_CHOICES),
         ...buildManualReportOptions(),
       ),
       new SubCommand('swap', 'Set or swap reported match leaders').options(
@@ -156,6 +160,13 @@ export const command_mod = factory.autocomplete<ModVar>(
 
           const mode = matchContext.mode
           const moderation = { actorId, reason }
+          const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+          const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+          if (isTournamentMatch) {
+            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              console.error(`Failed to refresh tournament leaderboard after cancelling match ${result.match.id}:`, error)
+            })
+          }
 
           if (existingLobby) {
             try {
@@ -171,7 +182,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           }
 
           const shouldArchiveCancellation = result.previousStatus === 'completed'
-          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, 'archive') : null
+          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, archiveChannelType) : null
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
@@ -186,7 +197,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
           const isRankedMatch = matchContext.ranked
           try {
-            if (!matchContext.redDeath) {
+            if (!isTournamentMatch && !matchContext.redDeath) {
               await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
                 civ: true,
                 modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -198,7 +209,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           }
 
           try {
-            if (isRankedMatch) {
+            if (!isTournamentMatch && isRankedMatch) {
               await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
             }
           }
@@ -276,9 +287,16 @@ export const command_mod = factory.autocomplete<ModVar>(
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
             const participantIds = result.participants.map(participant => participant.playerId)
             const isRankedMatch = matchContext.ranked
+            const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after resolving match ${result.match.id}:`, error)
+              })
+            }
 
             try {
-              if (!matchContext.redDeath) {
+              if (!isTournamentMatch && !matchContext.redDeath) {
                 await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -290,7 +308,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
 
             try {
-              if (isRankedMatch) {
+              if (!isTournamentMatch && isRankedMatch) {
                 await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
               }
             }
@@ -307,7 +325,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               let rankedRoleLines: string[] = []
-              if (isRankedMatch && guildId) {
+              if (!isTournamentMatch && isRankedMatch && guildId) {
                 try {
                   const rankedPreview = await previewRankedRoles({
                     db,
@@ -332,6 +350,27 @@ export const command_mod = factory.autocomplete<ModVar>(
                 }
               }
 
+              if (isTournamentMatch) {
+                const syncResult = await syncReportedMatchDiscordMessages({
+                  db,
+                  kv,
+                  token: c.env.DISCORD_TOKEN,
+                  matchId: result.match.id,
+                  reportedMode: mode,
+                  reportedRedDeath: matchContext.redDeath,
+                  participants: result.participants,
+                  lobby: existingLobby,
+                  sessionNamespace: c.env.SessionDO,
+                  matchDraftData: result.match.draftData,
+                  archivePolicy: 'always',
+                  archiveChannelType: 'tournament-archive',
+                })
+                if (syncResult.errors.length > 0) {
+                  console.error(`Failed to sync resolved tournament match ${result.match.id} images:`, syncResult.errors)
+                }
+                return
+              }
+
               if (existingLobby) {
                 try {
                   const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
@@ -347,7 +386,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 }
               }
 
-              const archiveChannelId = await getSystemChannel(kv, 'archive')
+              const archiveChannelId = await getSystemChannel(kv, archiveChannelType)
               if (archiveChannelId) {
                 try {
                   const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
@@ -395,9 +434,12 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const result = await createManualReportedMatch(db, kv, {
               mode: parsedInput.mode,
+              permanentAlly: parsedInput.permanentAlly,
               players: parsedInput.players,
               reporterId: actor.userId,
               reportedAt: Date.now(),
+            }, {
+              rankedRoleGuildId: c.interaction.guild_id ?? null,
             })
 
             if ('error' in result) {
@@ -547,9 +589,15 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
               return
             }
+            const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after correcting match ${result.match.id}:`, error)
+              })
+            }
 
             try {
-              if (!matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
+              if (!isTournamentMatch && !matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
                 await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`, { civ: true })
               }
             }
@@ -577,6 +625,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 sessionNamespace: c.env.SessionDO,
                 matchDraftData: result.match.draftData,
                 archivePolicy: 'if-missing',
+                archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
               })
               if (syncResult.errors.length > 0) {
                 console.error(`Failed to refresh leader-corrected match ${result.match.id} embeds:`, syncResult.errors)
@@ -633,17 +682,19 @@ function buildManualReportOptions() {
 
 type ManualReportParseResult = {
   mode: GameMode
+  permanentAlly: boolean
   players: ManualReportedMatchPlayerInput[]
 } | { error: string }
 
 function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & { var: ModVar }): ManualReportParseResult {
-  const mode = parseGameMode(c.var.mode)
-  if (!mode) return { error: 'Please provide a valid game mode.' }
+  const parsedMode = parseManualReportMode(c.var.mode)
+  if (!parsedMode) return { error: 'Please provide a valid game mode.' }
+  const { mode, permanentAlly } = parsedMode
 
   const highestSlot = findHighestManualReportSlot(c.var)
   if (highestSlot === 0) return { error: 'Provide player and leader slots for the completed match.' }
 
-  const allowedCounts = playerCountOptions(mode)
+  const allowedCounts = manualReportPlayerCountOptions(mode, permanentAlly)
   if (!allowedCounts.includes(highestSlot)) {
     return { error: `${formatModeLabel(mode, mode)} manual reports require ${formatAllowedCounts(allowedCounts)} players. Fill slots 1-${allowedCounts[allowedCounts.length - 1]}.` }
   }
@@ -674,7 +725,7 @@ function parseManualReportInput(c: Parameters<typeof getIdentityByUserId>[0] & {
     })
   }
 
-  return { mode, players }
+  return { mode, permanentAlly, players }
 }
 
 function findHighestManualReportSlot(vars: ModVar): number {
@@ -690,6 +741,17 @@ function findHighestManualReportSlot(vars: ModVar): number {
 function formatAllowedCounts(counts: readonly number[]): string {
   if (counts.length === 1) return String(counts[0])
   return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
+}
+
+function parseManualReportMode(value: string | null | undefined): { mode: GameMode, permanentAlly: boolean } | null {
+  if (value === 'ffa-classic') return { mode: 'ffa', permanentAlly: false }
+  const mode = parseGameMode(value)
+  if (!mode) return null
+  return { mode, permanentAlly: mode === 'ffa' }
+}
+
+function manualReportPlayerCountOptions(mode: GameMode, permanentAlly: boolean): readonly number[] {
+  return mode === 'ffa' ? startPlayerCountOptions(mode, maxPlayerCount(mode), { permanentAlly }) : playerCountOptions(mode)
 }
 
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
