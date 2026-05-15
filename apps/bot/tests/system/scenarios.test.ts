@@ -1151,6 +1151,167 @@ describe('system scenarios', () => {
     })
   })
 
+  test('repeat draft resumes a reverted lobby with the same players', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(2, 'repeat-resume')
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: 'channel-repeat-resume',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.cancelDraft(started.matchId, { reason: 'revert' })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: lobby.id,
+          repeatDraft: {
+            kind: 'resume',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('1v1', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(repeated.kind).toBe('resume')
+    expect(repeated.matchId).toBe(started.matchId)
+    expect((await world.match.get(repeated.matchId))?.status).toBe('drafting')
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('drafting')
+  })
+
+  test('repeat draft resumes a timed-out lobby with the same players', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(2, 'repeat-timeout')
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: 'channel-repeat-timeout',
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.timeoutDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: lobby.id,
+          repeatDraft: {
+            kind: 'resume',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('1v1', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(repeated.kind).toBe('resume')
+    expect(repeated.matchId).toBe(started.matchId)
+    expect((await world.match.get(repeated.matchId))?.status).toBe('drafting')
+    expect((await world.lobby.getById(lobby.id))?.status).toBe('drafting')
+  })
+
+  test('repeat draft copies a completed draft into a new matching lobby', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(2, 'repeat-complete')
+    const firstLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: 'channel-repeat-complete',
+    })
+    const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const sourceParticipants = await world.match.getParticipants(started.matchId)
+    const secondLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: firstLobby.channelId,
+    })
+
+    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: secondLobby.id,
+          repeatDraft: {
+            kind: 'complete',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('1v1', { hostId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(repeated.kind).toBe('complete')
+    expect(repeated.matchId).toBe(secondLobby.id)
+    const repeatedMatch = await world.match.get(repeated.matchId)
+    expect(repeatedMatch?.status).toBe('active')
+    const repeatedDraftData = JSON.parse(repeatedMatch?.draftData ?? '{}') as { mapVoteResult?: unknown }
+    expect(repeatedDraftData.mapVoteResult).toBeNull()
+
+    const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
+    expect(repeatedParticipants.map(participant => [participant.playerId, participant.civId])).toEqual(
+      players.map(player => [player.id, civByPlayer.get(player.id)]),
+    )
+  })
+
+  test('repeat draft rejects the same players seated on different teams', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(4, 'repeat-teams')
+    const firstLobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: players.map(player => player.id),
+      channelId: 'channel-repeat-teams',
+    })
+    const started = await world.lobby.start('2v2', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const secondLobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: [players[0]!.id, players[2]!.id, players[1]!.id, players[3]!.id],
+      channelId: firstLobby.channelId,
+    })
+
+    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: secondLobby.id,
+        },
+      },
+    })
+    expect((launch.body as any).selection.lobby.repeatDraft).toBeUndefined()
+    await expect(world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow('No repeatable draft matches the current players and teams.')
+  })
+
   test('report sync recreates a deleted lobby message and rebinds the stored message id', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
