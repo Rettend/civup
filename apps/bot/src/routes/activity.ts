@@ -17,7 +17,7 @@ import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
-import { getSessionRecord } from '../session-runtime/session-do-client.ts'
+import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 
 export interface LobbyJoinEligibility {
@@ -157,7 +157,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
       const session = sessions[0]!
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
       const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
+      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -178,7 +179,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (session) {
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
       const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
+      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this user' }, 404)
@@ -377,7 +379,8 @@ async function serializeActivityLaunchSelection(
     const lobbySnapshot = record
       ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot)
       : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot)
-    const lobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
+    const tournamentLobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
+    const lobby = await attachRepeatDraftSnapshot(tournamentLobby, sessionNamespace, selection.target.session.sessionId)
     return {
       kind: 'lobby',
       option: selection.target.option,
@@ -396,6 +399,18 @@ async function serializeActivityLaunchSelection(
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
+}
+
+async function attachRepeatDraftSnapshot(
+  snapshot: LobbySnapshot,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+): Promise<LobbySnapshot> {
+  const repeatDraft = await getSessionRepeatDraftAvailability(sessionNamespace, sessionId).catch((error) => {
+    console.warn('[activity] failed to attach repeat draft snapshot', { sessionId }, error)
+    return null
+  })
+  return repeatDraft ? { ...snapshot, repeatDraft } : snapshot
 }
 
 export async function resolveLobbyJoinEligibility(

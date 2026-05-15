@@ -73,14 +73,26 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
     <div class="flex gap-3 items-center">
       <button
         class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110"
-        disabled={!actions().canStartLobby() || actions().pending.start() || actions().pending.lobbyAction()}
+        disabled={!actions().canStartLobby() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
         onClick={() => void actions().startLobbyDraft()}
       >
         {actions().pending.start() ? 'Starting' : 'Start Draft'}
       </button>
+      <Show when={actions().repeatDraft()}>
+        {repeatDraft => (
+          <button
+            class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
+            title={repeatDraft().kind === 'resume' ? 'Resume the reverted draft' : 'Repeat the previous completed draft'}
+            disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+            onClick={() => void actions().repeatLobbyDraft()}
+          >
+            {actions().pending.repeat() ? 'Repeating' : repeatDraft().kind === 'resume' ? 'Resume Draft' : 'Repeat Draft'}
+          </button>
+        )}
+      </Show>
       <button
         class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
         onClick={() => void actions().cancel()}
       >
         {actions().pending.cancel() ? 'Cancelling' : 'Cancel Lobby'}
@@ -90,7 +102,7 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
           title={actions().randomizeButtonTitle()}
           aria-label={actions().randomizeButtonLabel()}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
           onClick={() => void actions().randomizeLobby()}
         >
           <span class="i-ph:shuffle-simple-bold text-lg" />
@@ -101,7 +113,7 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
           title={actions().shuffleTeamsButtonLabel()}
           aria-label={actions().shuffleTeamsButtonLabel()}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
           onClick={() => void actions().shuffleTeamsLobby()}
         >
           <span class="i-ph:arrows-clockwise-bold text-lg" />
@@ -112,7 +124,7 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
           title={`Auto-balance ${actions().arrangeTargetLabel()}`}
           aria-label={`Auto-balance ${actions().arrangeTargetLabel()}`}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
           onClick={() => void actions().balanceLobby()}
         >
           <span class="i-ph:scales-bold text-lg" />
@@ -121,7 +133,7 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
       <Show when={actions().fillTestPlayersAvailable()}>
         <button
           class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default"
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.lobbyAction()}
+          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
           onClick={() => void actions().fillTestPlayers()}
         >
           Fill Test Players

@@ -57,10 +57,16 @@ export interface LobbySnapshot {
   targetSize: number
   draftConfig: Omit<SessionConfig, 'minRole' | 'maxRole'>
   tournament?: TournamentLobbySnapshot | null
+  repeatDraft?: RepeatDraftSnapshot | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
   }
+}
+
+export interface RepeatDraftSnapshot {
+  kind: 'resume' | 'complete'
+  matchId: string
 }
 
 export interface ActivitySessionDirectoryEntry {

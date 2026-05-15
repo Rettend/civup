@@ -7,11 +7,13 @@ import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civ
 import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { attachTournamentLobbySnapshot, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
+import { getSessionRepeatDraftAvailability } from './session-do-client.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
   KV?: KVNamespace
   CIVUP_SECRET?: string
+  SessionDO?: DurableObjectNamespace
 }
 
 export type ActivityFeedMessage
@@ -160,10 +162,15 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (record.phase !== 'open') return { type: 'lobby', lobbyId: record.id, snapshot: null }
     if (!this.env.KV) return { type: 'error', message: 'Activity lobby snapshots are not configured' }
     const snapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
+    const repeatDraft = await getSessionRepeatDraftAvailability(this.env.SessionDO, record.id).catch((error) => {
+      console.warn('[activity-feed] failed to attach repeat draft snapshot', { sessionId: record.id }, error)
+      return null
+    })
+    const repeatSnapshot = repeatDraft ? { ...snapshot, repeatDraft } : snapshot
     return {
       type: 'lobby',
       lobbyId: record.id,
-      snapshot: this.env.DB ? await attachTournamentLobbySnapshot(createDb(this.env.DB), snapshot) : snapshot,
+      snapshot: this.env.DB ? await attachTournamentLobbySnapshot(createDb(this.env.DB), repeatSnapshot) : repeatSnapshot,
     }
   }
 

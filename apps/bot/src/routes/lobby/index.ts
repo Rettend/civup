@@ -6,7 +6,7 @@ import { createDb, playerRatings } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
-import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
+import { lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import {
@@ -41,7 +41,7 @@ import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } f
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
-import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
+import { getSessionRecord, repeatSessionDraft, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
@@ -132,9 +132,9 @@ function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
   }
 }
 
-function parseSessionDraftStartError(error: unknown): { status: 400 | 403 | 409, message: string } | null {
+function parseSessionDraftCommandError(error: unknown): { status: 400 | 403 | 409, message: string } | null {
   if (!(error instanceof Error)) return null
-  const match = /^Failed to start session draft for [^:]+: (400|403|409) (.*)$/.exec(error.message)
+  const match = /^Failed to (?:start|repeat) session draft for [^:]+: (400|403|409) (.*)$/.exec(error.message)
   if (!match) return null
   return {
     status: Number(match[1]) as 400 | 403 | 409,
@@ -1441,9 +1441,98 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     catch (error) {
       console.error(`Failed to start lobby draft for mode ${mode}:`, error)
-      const commandError = parseSessionDraftStartError(error)
+      const commandError = parseSessionDraftCommandError(error)
       if (commandError) return c.json({ error: commandError.message }, commandError.status)
       return c.json({ error: 'Failed to start draft. Please try again.' }, 500)
+    }
+  })
+
+  app.post('/api/lobby/:mode/repeat-draft', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mode = parseGameMode(c.req.param('mode'))
+    const kv = getKvStore(c.env)
+    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    }
+    catch {
+      return c.json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'Invalid request body' }, 400)
+    }
+
+    const { userId, lobbyId } = body as { userId?: string, lobbyId?: unknown }
+    if (typeof userId !== 'string' || userId.length === 0) {
+      return c.json({ error: 'userId is required' }, 400)
+    }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const internalSecret = c.env.CIVUP_SECRET?.trim() ?? ''
+    if (internalSecret.length === 0) {
+      return c.json({ error: 'Draft auth is not configured.' }, 503)
+    }
+
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    if (!lobby) return c.json({ error: 'No open lobby for this mode' }, 404)
+    if (lobby.hostId !== auth.identity.userId) {
+      return c.json({ error: 'Only the lobby host can repeat the draft' }, 403)
+    }
+
+    try {
+      const repeated = await repeatSessionDraft(c.env.SessionDO, lobby.id, {
+        expectedVersion: lobby.revision,
+        hostId: auth.identity.userId,
+      })
+      if (repeated.record.mode !== mode) return c.json({ error: 'Session mode does not match lobby route.' }, 409)
+
+      const { matchId, seats } = repeated
+      const lobbyForMessage = buildLobbyStateFromSessionRecord(repeated.record, lobby)
+      await syncLobbyDerivedState(kv, lobbyForMessage)
+      await markTournamentMatchDrafting(db, lobby.id, matchId)
+
+      queueBackgroundTask(c, async () => {
+        const currentLobby = lobbyForMessage
+        if (repeated.kind === 'complete') {
+          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+            embeds: [lobbyDraftCompleteEmbed(mode, repeated.participants ?? [], null, currentLobby.draftConfig.leaderDataVersion, currentLobby.draftConfig.redDeath)],
+            components: lobbyComponents(mode, currentLobby.id),
+          }, lobbySessionMutationOptions(c))
+          await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+          return
+        }
+
+        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+          embeds: [lobbyDraftingEmbed(mode, seats, currentLobby.draftConfig.leaderDataVersion, currentLobby.draftConfig.redDeath)],
+          components: lobbyComponents(mode, currentLobby.id),
+        }, lobbySessionMutationOptions(c))
+        await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+      }, `Failed to update repeated draft lobby embed for mode ${mode}:`)
+
+      return c.json({
+        ok: true as const,
+        kind: repeated.kind,
+        matchId,
+        sessionAccessToken: await createSessionAccessToken(internalSecret, {
+          userId: auth.identity.userId,
+          sessionId: matchId,
+          channelId: lobbyForMessage.channelId,
+        }),
+      })
+    }
+    catch (error) {
+      const commandError = parseSessionDraftCommandError(error)
+      if (commandError) return c.json({ error: commandError.message }, commandError.status)
+      console.error(`Failed to repeat lobby draft for mode ${mode}:`, error)
+      return c.json({ error: 'Failed to repeat draft. Please try again.' }, 500)
     }
   })
 

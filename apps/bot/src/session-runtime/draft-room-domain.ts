@@ -51,6 +51,14 @@ export interface RoomRecord {
   swapSafetyEndsAt: number | null
   mapVote: StoredMapVoteState
   lifecycleEventSequence: number
+  repeatDraft: RepeatDraftRoomSnapshot | null
+}
+
+export interface RepeatDraftRoomSnapshot {
+  reason: 'timeout' | 'revert'
+  state: DraftState
+  mapVote: StoredMapVoteState
+  previews: DraftPreviewState
 }
 
 export type RoomEffect
@@ -173,6 +181,7 @@ export function createRoomRecord(
     lifecycleEventSequence: typeof overrides.lifecycleEventSequence === 'number' && Number.isFinite(overrides.lifecycleEventSequence)
       ? overrides.lifecycleEventSequence
       : 0,
+    repeatDraft: overrides.repeatDraft ?? null,
   }
 }
 
@@ -204,8 +213,28 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
       lifecycleEventSequence: typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
         ? raw.lifecycleEventSequence
         : 0,
+      repeatDraft: normalizeRepeatDraftRoomSnapshot(raw.repeatDraft),
     },
   )
+}
+
+function normalizeRepeatDraftRoomSnapshot(value: unknown): RepeatDraftRoomSnapshot | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<RepeatDraftRoomSnapshot>
+  if (raw.reason !== 'timeout' && raw.reason !== 'revert') return null
+  if (!raw.state || typeof raw.state !== 'object') return null
+
+  return {
+    reason: raw.reason,
+    state: raw.state,
+    mapVote: raw.mapVote && typeof raw.mapVote === 'object'
+      ? raw.mapVote
+      : { ...EMPTY_STORED_MAP_VOTE_STATE },
+    previews: sanitizeDraftPreviews(
+      raw.state,
+      raw.previews ?? createEmptyDraftPreviews(),
+    ),
+  }
 }
 
 export function applyDraftResultCommand(
@@ -253,6 +282,7 @@ export function applyDraftResultCommand(
       alarmStepIndex: -1,
       timerEndsAt: null,
       completedAt,
+      repeatDraft: null,
     }
 
     if (canOpenSwapWindowForState(nextState)) {
@@ -293,12 +323,21 @@ export function applyDraftResultCommand(
   }
   else if (nextState.status === 'cancelled') {
     const cancelledAt = nextRoom.cancelledAt ?? command.now
+    const repeatDraft = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
+      ? {
+          reason: nextState.cancelReason,
+          state: room.state,
+          mapVote: room.mapVote,
+          previews: sanitizeDraftPreviews(room.state, room.previews),
+        } satisfies RepeatDraftRoomSnapshot
+      : null
     nextRoom = {
       ...clearSwapWindowState(nextRoom),
       alarmStepIndex: -1,
       timerEndsAt: null,
       cancelledAt,
       mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
+      repeatDraft,
     }
     alarmEffect = { type: 'delete-alarm' }
     const shouldReopenLobby = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
@@ -323,7 +362,7 @@ export function applyDraftResultCommand(
     }
   }
   else {
-    nextRoom = clearSwapWindowState(nextRoom)
+    nextRoom = { ...clearSwapWindowState(nextRoom), repeatDraft: null }
     effects.push({ type: 'broadcast-update', events: command.events })
   }
 

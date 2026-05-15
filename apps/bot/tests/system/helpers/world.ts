@@ -106,6 +106,7 @@ export interface SystemWorld {
     arrange: (mode: GameMode, input: { hostId: string, lobbyId?: string, strategy: 'randomize' | 'balance' | 'shuffle-teams' }) => Promise<RouteResult>
     cancel: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<RouteResult>
     start: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean }>
+    repeat: (mode: GameMode, input: { hostId: string, lobbyId?: string }) => Promise<{ ok: boolean, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null, error?: string }>
     place: (mode: GameMode, input: { userId: string, targetSlot: number, lobbyId?: string, playerId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, transferNotice?: string | null, error?: string }>>
     remove: (mode: GameMode, input: { userId: string, slot: number, lobbyId?: string, displayName?: string, avatarUrl?: string | null }) => Promise<RouteResult<{ lobby?: unknown, error?: string }>>
   }
@@ -415,6 +416,18 @@ export async function createSystemWorld(): Promise<SystemWorld> {
           })
           draftRuntimeRecords.set(runtime.matchId, createCapturedDraftRuntimeRecord(runtime.config, draftRuntimeRecords.get(runtime.matchId)))
         }
+        return body
+      },
+      async repeat(mode, input) {
+        const response = await requestAs(`/api/lobby/${mode}/repeat-draft`, {
+          method: 'POST',
+          body: JSON.stringify({ userId: input.hostId, lobbyId: input.lobbyId }),
+        }, {
+          userId: input.hostId,
+          displayName: input.hostId,
+        })
+        const body = await response.json() as { ok: boolean, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null, error?: string }
+        if (!response.ok) throw new Error(body.error ?? `Failed to repeat lobby draft: ${response.status}`)
         return body
       },
       place(mode, input) {

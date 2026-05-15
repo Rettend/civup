@@ -78,6 +78,10 @@ export interface LobbySnapshot {
     rematchWarning: string | null
     configLocked: true
   } | null
+  repeatDraft?: {
+    kind: 'resume' | 'complete'
+    matchId: string
+  } | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
@@ -806,6 +810,24 @@ export async function startLobbyDraft(
     console.error('Failed to start lobby draft:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while starting lobby draft' }
+  }
+}
+
+/** Repeat or resume the previous matching draft from an open lobby (host-only). */
+export async function repeatLobbyDraft(
+  mode: string,
+  lobbyId: string,
+  userId: string,
+): Promise<{ ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }> {
+  try {
+    const data = await activityApiPost<{ kind?: 'resume' | 'complete', matchId?: string, sessionAccessToken?: string | null }>(`/api/lobby/${mode}/repeat-draft`, { lobbyId, userId })
+    if (!data.matchId) return { ok: false, error: 'Draft repeated but no match ID was returned' }
+    return { ok: true, kind: data.kind ?? 'complete', matchId: data.matchId, sessionAccessToken: data.sessionAccessToken ?? null }
+  }
+  catch (err) {
+    console.error('Failed to repeat lobby draft:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while repeating draft' }
   }
 }
 

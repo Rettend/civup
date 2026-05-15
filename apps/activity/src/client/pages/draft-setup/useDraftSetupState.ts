@@ -14,6 +14,7 @@ import {
   isMobileLayout,
   isSpectator,
   placeLobbySlot,
+  repeatLobbyDraft,
   removeLobbySlot,
   sendCancel,
   sendStart,
@@ -40,6 +41,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
+  const [repeatPending, setRepeatPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [pendingArrangeStrategy, setPendingArrangeStrategy] = createSignal<LobbyArrangeStrategy | null>(null)
@@ -478,6 +480,22 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setStartPending(false)
     }
   }
+  const handleRepeatLobbyDraftAction = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || !lobby.repeatDraft || repeatPending() || startPending() || lobbyActionPending()) return
+    setRepeatPending(true)
+    clearConfigMessage()
+    try {
+      const result = await repeatLobbyDraft(lobby.mode, lobby.id, currentUserId)
+      if (!result.ok) return showErrorMessage(result.error)
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.sessionAccessToken)
+      showInfoMessage(result.kind === 'resume' ? 'Draft restored. Opening draft...' : 'Draft repeated. Opening report screen...')
+    }
+    finally {
+      setRepeatPending(false)
+    }
+  }
   const handleArrangeLobby = async (strategy: LobbyArrangeStrategy) => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -569,6 +587,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const pending = {
     lobbyAction: lobbyActionPending,
     start: startPending,
+    repeat: repeatPending,
     cancel: cancelPending,
   }
 
@@ -640,6 +659,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     isLobbyMode,
     pending,
     canStartLobby: configState.derived.canStartLobby,
+    repeatDraft: () => currentLobby()?.repeatDraft ?? null,
     arrangeTargetLabel,
     randomizeButtonLabel,
     randomizeButtonTitle,
@@ -653,6 +673,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     joinLobby: handleJoinLobby,
     leaveLobby: handleLeaveLobby,
     startLobbyDraft: handleStartLobbyDraftAction,
+    repeatLobbyDraft: handleRepeatLobbyDraftAction,
     randomizeLobby: () => handleArrangeLobby('randomize'),
     shuffleTeamsLobby: () => handleArrangeLobby('shuffle-teams'),
     balanceLobby: () => handleArrangeLobby('balance'),
