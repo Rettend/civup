@@ -1,14 +1,16 @@
 import type { Database } from '@civup/db'
 import type { DraftState, LeaderboardMode } from '@civup/game'
+import type { DbBatchItem } from '../db/batch.ts'
 import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
-import { matchBans, matches, matchParticipants } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents } from '@civup/db'
 import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
-import { type DbBatchItem, runDbBatch } from '../db/batch.ts'
+import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
+import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
 import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
@@ -54,13 +56,14 @@ export async function resolveMatchByModerator(
 
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+  const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
 
   const previousStatus = match.status
 
   const sessionValidationError = await validateReportableSession(db, options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
 
-  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants)
+  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants, { permanentAlly: gameContext.permanentAlly })
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode
@@ -77,7 +80,15 @@ export async function resolveMatchByModerator(
     applyQueries.push(
       db
         .update(matchParticipants)
-        .set({ placement })
+        .set(tournamentLinked
+          ? {
+              placement,
+              ratingBeforeMu: null,
+              ratingBeforeSigma: null,
+              ratingAfterMu: null,
+              ratingAfterSigma: null,
+            }
+          : { placement })
         .where(
           and(
             eq(matchParticipants.matchId, input.matchId),
@@ -88,7 +99,7 @@ export async function resolveMatchByModerator(
   }
 
   let recalculatedMatchIds: string[] = []
-  if (leaderboardMode == null) {
+  if (leaderboardMode == null || tournamentLinked) {
     await runDbBatch(db, applyQueries)
     const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
     if (lifecycleError) {
@@ -96,6 +107,7 @@ export async function resolveMatchByModerator(
       if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
       return { error: lifecycleError }
     }
+    if (tournamentLinked) await syncTournamentMatchAfterReport(db, input.matchId)
   }
   else {
     try {
@@ -173,7 +185,8 @@ export async function resolveMatchByModerator(
     }
   }
 
-  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+  if (tournamentLinked) await removeCivLeaderboardMatchContribution(db, input.matchId)
+  else await reconcileCivLeaderboardMatchContribution(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -547,8 +560,12 @@ export async function cancelMatchByModerator(
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
   const previousStatus = match.status
+  const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
+    ? await matchHasRatingEvents(db, input.matchId)
+    : false
   let completedLeaderboardMode: LeaderboardMode | null = null
-  if (previousStatus === 'completed') {
+  if ((previousStatus === 'completed' || hasStaleRatingEvents) && !tournamentLinked) {
     const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
     if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
     completedLeaderboardMode = gameContext.leaderboardMode
@@ -569,7 +586,7 @@ export async function cancelMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   let recalculatedMatchIds: string[] = []
-  if (previousStatus === 'completed') {
+  if (previousStatus === 'completed' || hasStaleRatingEvents) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
   }
   if (completedLeaderboardMode != null) {
@@ -587,6 +604,7 @@ export async function cancelMatchByModerator(
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
   }
+  if (tournamentLinked) await syncTournamentMatchAfterCancel(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -605,6 +623,15 @@ export async function cancelMatchByModerator(
     previousStatus,
     recalculatedMatchIds,
   }
+}
+
+async function matchHasRatingEvents(db: Database, matchId: string): Promise<boolean> {
+  const [event] = await db
+    .select({ matchId: playerRatingEvents.matchId })
+    .from(playerRatingEvents)
+    .where(eq(playerRatingEvents.matchId, matchId))
+    .limit(1)
+  return event != null
 }
 
 async function runTerminalSessionCommand(

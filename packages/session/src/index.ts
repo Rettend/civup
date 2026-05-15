@@ -21,6 +21,7 @@ export interface DraftRuntimeConfig {
   dealOptionsSize?: number
   randomDraft?: boolean
   hiddenDraft?: boolean
+  permanentAlly?: boolean
   duplicateFactions?: boolean
   mapVoteEnabled?: boolean
   leaderDataVersion?: LeaderDataVersion
@@ -70,6 +71,7 @@ export type SessionServerMessage
     previews: DraftPreviewState
     swapState?: LeaderSwapState | null
     steamLobbyLink?: string | null
+    permanentAlly?: boolean
   }
   | {
     type: 'update'
@@ -84,6 +86,7 @@ export type SessionServerMessage
     previews: DraftPreviewState
     swapState?: LeaderSwapState | null
     steamLobbyLink?: string | null
+    permanentAlly?: boolean
   }
   | { type: 'preview', previews: DraftPreviewState }
   | { type: 'projection-update', steamLobbyLink: string | null }

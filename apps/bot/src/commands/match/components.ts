@@ -10,6 +10,7 @@ import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../../services/session/index.ts'
+import { getTournamentMatchBySessionId, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -32,6 +33,15 @@ export const component_match_join = factory.component(
     const interactionMessageId = c.interaction.message?.id ?? null
     const db = createDb(env.DB)
     const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
+    const clickedTournamentMatch = clickedLobby ? await getTournamentMatchBySessionId(db, clickedLobby.id) : null
+    if (clickedLobby?.status === 'open' && clickedTournamentMatch) {
+      const validation = await validateTournamentLobbyJoin(db, clickedLobby, identity)
+      if (!validation.ok) {
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          await sendTransientEphemeralResponse(c, validation.error, 'error')
+        })
+      }
+    }
     if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
       await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby.channelId, identity.userId, {
         kind: 'match',
@@ -96,6 +106,7 @@ export const component_match_join = factory.component(
           preferredLobbyId: lobby.id,
           skipMatchmakingRankGate: true,
           liveMatchPlayerIds: new Set(blockingDraftMatchIdByPlayer.keys()),
+          includeTournamentLobbies: clickedTournamentMatch != null,
         },
       )
       if ('error' in outcome) {
@@ -108,6 +119,7 @@ export const component_match_join = factory.component(
       }
 
       try {
+        if (clickedTournamentMatch) await updateTournamentMatchRoster(db, outcome.lobby.id, outcome.lobby.memberPlayerIds)
         await upsertLobbyMessage(kv, env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,

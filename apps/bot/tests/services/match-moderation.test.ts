@@ -1,6 +1,6 @@
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allLeaderIds, getLeaders } from '@civup/game'
-import { buildLeaderboard } from '@civup/rating'
+import { buildLeaderboard, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
@@ -43,6 +43,65 @@ describe('match moderation recalculation', () => {
       const ratingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duo'))
       expect(ratingRows).toHaveLength(4)
       expect(ratingRows.every(row => row.gamesPlayed === 1)).toBe(true)
+      const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatingRows).toHaveLength(4)
+      expect(globalRatingRows.every(row => row.gamesPlayed === 1)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('creates a manual odd-player FFA match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-ffa-9',
+        mode: 'ffa',
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 9).map(leader => leader.id)),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(result.match.status).toBe('completed')
+      expect(result.recalculatedMatchIds).toEqual(['manual-ffa-9'])
+      expect(result.participants).toHaveLength(9)
+      expect(result.participants.map(participant => participant.placement)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
+      const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatingRows).toHaveLength(9)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('creates a manual Permanent Ally FFA match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-pa-ffa',
+        mode: 'ffa',
+        permanentAlly: true,
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers(getLeaders('live').slice(0, 8).map(leader => leader.id)),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(JSON.parse(result.match.draftData ?? '{}').permanentAlly).toBe(true)
+      expect(result.participants).toHaveLength(8)
+      expect(result.participants.map(participant => participant.placement)).toEqual([1, 1, 2, 2, 3, 3, 4, 4])
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
     }
     finally {
       sqlite.close()
@@ -524,6 +583,48 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('cancel resumes cleanup for already-cancelled matches with stale rating events', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.update(matches).set({ status: 'cancelled', completedAt: 10_000 }).where(eq(matches.id, 'm1'))
+      await db
+        .update(matchParticipants)
+        .set({ placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null })
+        .where(eq(matchParticipants.matchId, 'm1'))
+      await db.insert(playerRatings).values([
+        { playerId: 'p1', mode: 'global', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
+        { playerId: 'p2', mode: 'global', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
+      ])
+      await db.insert(playerRatingEvents).values([
+        { matchId: 'm1', playerId: 'p1', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 1, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
+        { matchId: 'm1', playerId: 'p2', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 0, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
+      ])
+
+      const result = await cancelMatchByModerator(db, kv, {
+        matchId: 'm1',
+        cancelledAt: 11_000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.previousStatus).toBe('cancelled')
+      expect(result.recalculatedMatchIds).toEqual(['m2', 'm3'])
+
+      const staleEvents = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'm1'))
+      expect(staleEvents).toHaveLength(0)
+
+      const globalRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
+      expect(globalRatings).toHaveLength(2)
+      expect(globalRatings.every(row => row.gamesPlayed === 2)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('cancel on the latest completed 1v1 match does not replay downstream matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -867,6 +968,62 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('report resolves Permanent Ally FFA placements from adjacent player clicks', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActivePermanentAllyFfaMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'ffa-pa',
+        reporterId: 'p2',
+        placements: '<@p3>\n<@p4>\n<@p1>\n<@p2>\n<@p5>\n<@p6>',
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      const placementByPlayer = new Map(result.participants.map(participant => [participant.playerId, participant.placement]))
+      expect(placementByPlayer.get('p3')).toBe(1)
+      expect(placementByPlayer.get('p4')).toBe(1)
+      expect(placementByPlayer.get('p1')).toBe(2)
+      expect(placementByPlayer.get('p2')).toBe(2)
+      expect(placementByPlayer.get('p5')).toBe(3)
+      expect(placementByPlayer.get('p6')).toBe(3)
+      expect(result.participants.every(participant => participant.team == null)).toBe(true)
+
+      expect(displayDelta(result.participants, 'p1')).toBeCloseTo(displayDelta(result.participants, 'p2'), 10)
+      expect(displayDelta(result.participants, 'p3')).toBeCloseTo(displayDelta(result.participants, 'p4'), 10)
+      expect(displayDelta(result.participants, 'p5')).toBeCloseTo(displayDelta(result.participants, 'p6'), 10)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('report rejects one-click-per-team Permanent Ally FFA placements', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActivePermanentAllyFfaMatch(db)
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'ffa-pa',
+        reporterId: 'p2',
+        placements: '<@p3>\n<@p1>\n<@p5>',
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(true)
+      if (!('error' in result)) return
+      expect(result.error).toContain('include every player exactly once')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('report resolves ordered team placements for multi-team 2v2 matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -1024,6 +1181,15 @@ function buildManualPlayers(leaderIds: string[]) {
   }))
 }
 
+function displayDelta(participants: Array<{ playerId: string, ratingBeforeMu: number | null, ratingBeforeSigma: number | null, ratingAfterMu: number | null, ratingAfterSigma: number | null }>, playerId: string): number {
+  const participant = participants.find(row => row.playerId === playerId)
+  expect(typeof participant?.ratingBeforeMu).toBe('number')
+  expect(typeof participant?.ratingBeforeSigma).toBe('number')
+  expect(typeof participant?.ratingAfterMu).toBe('number')
+  expect(typeof participant?.ratingAfterSigma).toBe('number')
+  return displayRating(participant!.ratingAfterMu!, participant!.ratingAfterSigma!) - displayRating(participant!.ratingBeforeMu!, participant!.ratingBeforeSigma!)
+}
+
 async function seedActiveFfaMatch(db: any): Promise<void> {
   await db.insert(players).values([
     { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
@@ -1041,7 +1207,7 @@ async function seedActiveFfaMatch(db: any): Promise<void> {
     createdAt: 1000,
     completedAt: null,
     seasonId: null,
-    draftData: JSON.stringify({ completedAt: 1000 }),
+    draftData: JSON.stringify({ completedAt: 1000, permanentAlly: false }),
   })
 
   await db.insert(matchParticipants).values([
@@ -1051,6 +1217,45 @@ async function seedActiveFfaMatch(db: any): Promise<void> {
     { matchId: 'ffa1', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'ffa1', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
     { matchId: 'ffa1', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+}
+
+async function seedActivePermanentAllyFfaMatch(db: any): Promise<void> {
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+    { id: 'p3', displayName: 'P3', avatarUrl: null, createdAt: 1 },
+    { id: 'p4', displayName: 'P4', avatarUrl: null, createdAt: 1 },
+    { id: 'p5', displayName: 'P5', avatarUrl: null, createdAt: 1 },
+    { id: 'p6', displayName: 'P6', avatarUrl: null, createdAt: 1 },
+  ])
+
+  await db.insert(matches).values({
+    id: 'ffa-pa',
+    gameMode: 'ffa',
+    status: 'active',
+    createdAt: 1000,
+    completedAt: null,
+    seasonId: null,
+    draftData: JSON.stringify({ completedAt: 1000, permanentAlly: true }),
+  })
+
+  await db.insert(matchParticipants).values([
+    { matchId: 'ffa-pa', playerId: 'p1', team: null, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p2', team: null, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p3', team: null, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'ffa-pa', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+
+  await db.insert(playerRatings).values([
+    { playerId: 'p1', mode: 'ffa', mu: 31, sigma: 6.4, gamesPlayed: 4, wins: 1, lastPlayedAt: 900 },
+    { playerId: 'p2', mode: 'ffa', mu: 22, sigma: 7.1, gamesPlayed: 4, wins: 0, lastPlayedAt: 900 },
+    { playerId: 'p3', mode: 'ffa', mu: 27, sigma: 5.9, gamesPlayed: 4, wins: 1, lastPlayedAt: 900 },
+    { playerId: 'p4', mode: 'ffa', mu: 24, sigma: 8.0, gamesPlayed: 4, wins: 0, lastPlayedAt: 900 },
+    { playerId: 'p5', mode: 'ffa', mu: 29, sigma: 6.7, gamesPlayed: 4, wins: 1, lastPlayedAt: 900 },
+    { playerId: 'p6', mode: 'ffa', mu: 20, sigma: 7.5, gamesPlayed: 4, wins: 0, lastPlayedAt: 900 },
   ])
 }
 

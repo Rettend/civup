@@ -13,11 +13,11 @@ import {
 
 describe('leader pool helper defaults', () => {
   test('uses full FFA target size for open-lobby placeholder defaults', () => {
-    expect(leaderPoolSizePlaceholder('ffa', 6, 8)).toBe('48')
+    expect(leaderPoolSizePlaceholder('ffa', 6, 12)).toBe('72')
   })
 
   test('uses full FFA target size for open-lobby formatted defaults', () => {
-    expect(formatLeaderPoolValue(null, 'ffa', 6, 8)).toBe('48')
+    expect(formatLeaderPoolValue(null, 'ffa', 6, 12)).toBe('72')
   })
 
   test('preserves explicit leader pool overrides', () => {
@@ -134,6 +134,7 @@ function createLobbySnapshot(
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,
+      permanentAlly: false,
       dealOptionsSize: null,
       randomDraft: false,
       hiddenDraft: false,

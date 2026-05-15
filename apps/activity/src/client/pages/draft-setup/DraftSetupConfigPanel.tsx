@@ -29,7 +29,7 @@ interface ConfigRowDefinition {
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
     key: 'mapVote',
-    when: state => state.isLobbyMode() && state.derived.supportsMapVote(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsMapVote(),
     renderEditable: state => (
       <SwitchRow
         label="Map Vote"
@@ -44,7 +44,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'blindBans',
-    when: state => state.isLobbyMode() && state.derived.supportsBlindBans(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindBans(),
     renderEditable: state => (
       <SwitchRow
         label="Blind Bans"
@@ -78,7 +78,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
@@ -92,8 +92,23 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
+    key: 'permanentAlly',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Permanent Ally"
+        active={state.derived.optimisticDraftConfig().permanentAlly}
+        disabled={state.lobbyActionPending() || state.pending.permanentAlly()}
+        onChange={checked => void state.actions.changePermanentAlly(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Permanent Ally" value={state.derived.formattedPermanentAlly()} valueClass={state.derived.draftConfig().permanentAlly ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'gameMode',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <Dropdown
         label="Game Mode"
@@ -106,7 +121,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'rankBounds',
-    when: state => state.isLobbyMode() && !state.derived.isUnranked(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isUnranked(),
     renderEditable: (state, helpers) => (
       <div class="flex flex-col gap-1.5">
         <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
@@ -137,7 +152,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'leaderPool',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -179,7 +194,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Ban Timer (minutes)" value={state.derived.formattedBanTimer()} />
+      <ReadonlyTimerRow label="Ban Timer" value={state.derived.formattedBanTimer()} />
     ),
   },
   {
@@ -203,12 +218,12 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Pick Timer (minutes)" value={state.derived.formattedPickTimer()} />
+      <ReadonlyTimerRow label="Pick Timer" value={state.derived.formattedPickTimer()} />
     ),
   },
   {
     key: 'randomDraft',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
@@ -223,7 +238,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'hiddenDraft',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <SwitchRow
         label="Hidden draft"
@@ -238,7 +253,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'duplicateFactions',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <SwitchRow
         label={state.derived.duplicateOptionLabel()}
@@ -253,7 +268,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'redDeath',
-    when: state => state.isLobbyMode(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <div class="mt-1 pt-3 border-t border-border-subtle">
         <SwitchRow
@@ -319,7 +334,11 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
             <span
               class={cn(
                 'text-base shrink-0 self-center',
-                state().message.tone() === 'error' ? 'i-ph-x-bold text-danger' : 'i-ph-check-bold text-accent',
+                state().message.tone() === 'error'
+                  ? 'i-ph-x-bold text-danger'
+                  : state().message.tone() === 'warning'
+                    ? 'i-ph-warning-bold text-amber-400'
+                    : 'i-ph-check-bold text-accent',
               )}
             />
             <Show when={state().message.tone() === 'info' && state().message.rankRoleSetDetail()} fallback={<span class="leading-relaxed">{state().message.text()}</span>}>

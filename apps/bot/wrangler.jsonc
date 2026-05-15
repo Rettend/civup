@@ -6,6 +6,13 @@
   "keep_vars": true,
   "compatibility_date": "2025-02-19",
   "compatibility_flags": ["nodejs_compat"],
+  "rules": [
+    {
+      "type": "Data",
+      "globs": ["**/*.woff2"],
+      "fallthrough": false
+    }
+  ],
 
   "vars": {
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",

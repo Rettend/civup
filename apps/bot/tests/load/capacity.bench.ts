@@ -98,10 +98,11 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     joinGroups: [['p2', 'p3', 'p4'], ['p5', 'p6', 'p7', 'p8']],
   },
   {
-    id: 'ffa-eight-player',
-    label: 'ffa8',
+    id: 'ffa-twelve-player',
+    label: 'ffa12',
     mode: 'ffa',
-    joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8']],
+    targetSize: 12,
+    joinGroups: [['p2'], ['p3'], ['p4'], ['p5'], ['p6'], ['p7'], ['p8'], ['p9'], ['p10'], ['p11'], ['p12']],
   },
 ]
 
@@ -661,7 +662,7 @@ async function simulateScenarioLifecycle(input: {
     let draftRoomIncomingMessagesWithTeamPickPreviews = started.draftRoomIncomingMessagesWithTeamPickPreviews
 
     botRequests += 1
-    await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState)
+    await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState)
     await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
 
     const acceptedSwaps = isTeamMode(input.mode.mode) ? Math.max(0, Math.trunc(input.acceptedSwaps ?? 0)) : 0
@@ -674,7 +675,7 @@ async function simulateScenarioLifecycle(input: {
 
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
-      await handleDraftCompleteLifecycleSync(db, kv, started.matchId, completedDraftState, { finalized: true })
+      await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState, { finalized: true })
       await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
@@ -759,6 +760,10 @@ async function simulateMatchCreate(
     queueEntries: [hostEntry],
     db,
   })
+  if (mode.targetSize != null && mode.targetSize !== lobby.slots.length) {
+    const slots = Array.from({ length: mode.targetSize }, (_value, index) => index === 0 ? HOST_ID : null)
+    await setLobbySlots(kv, lobby.id, slots, lobby, { db })
+  }
 }
 
 async function simulateMatchJoin(
@@ -864,7 +869,7 @@ async function assertDraftingCapacityState(
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('drafting')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(lobby?.status).toBe('drafting')
 
   for (const playerId of expectedPlayerIds) {
@@ -884,7 +889,7 @@ async function assertActiveCapacityState(
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
 
   expect(match?.status).toBe('active')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null)).toBe(true)
   expect(lobby?.status).toBe('active')
 
@@ -904,7 +909,7 @@ async function assertCompletedCapacityState(
   const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   expect(match?.status).toBe('completed')
-  expect(participants.map(participant => participant.playerId)).toEqual(expectedPlayerIds)
+  expect(sortParticipantIdsByExpectedOrder(participants, expectedPlayerIds)).toEqual(expectedPlayerIds)
   expect(participants.every(participant => participant.civId != null && participant.placement != null)).toBe(true)
   expect((await getLobbyById(kv, matchId))?.status).toBe('completed')
 
@@ -955,9 +960,20 @@ async function startDraftFromOpenLobby(
   }
 }
 
+function sortParticipantIdsByExpectedOrder(
+  participants: Array<{ playerId: string }>,
+  expectedPlayerIds: string[],
+): string[] {
+  const expectedOrder = new Map(expectedPlayerIds.map((playerId, index) => [playerId, index]))
+  return [...participants]
+    .sort((left, right) => (expectedOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (expectedOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER))
+    .map(participant => participant.playerId)
+}
+
 async function handleDraftCompleteLifecycleSync(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
+  mode: CapacityScenario,
   matchId: string,
   state: DraftState,
   options: {
@@ -968,6 +984,7 @@ async function handleDraftCompleteLifecycleSync(
     state,
     completedAt: NOW + 5_000,
     hostId: state.seats[0]?.playerId ?? HOST_ID,
+    permanentAlly: mode.mode === 'ffa',
   })
   if ('error' in activated) throw new Error(activated.error)
   if (activated.alreadyActive && options.finalized !== true) return
@@ -1258,6 +1275,28 @@ function projectSimulationResultToTargetArchitecture(
       doRequestsRaw,
       doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),
     },
+  }
+}
+
+function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSample, 'd1RowsRead' | 'd1RowsWritten'> {
+  const playerCount = scenarioPlayersPerDraft(mode)
+
+  return {
+    d1RowsRead: roundSnapshotNumber(
+      RANKED_FINISH_CONTEXT_READS_PER_MATCH + playerCount * (
+        RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_READS_PER_PLAYER
+        + RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER
+        + RANKED_FINISH_SEASON_READS_PER_PLAYER
+      ),
+    ),
+    d1RowsWritten: roundSnapshotNumber(
+      playerCount * (
+        RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVENT_WRITES_PER_PLAYER
+        + RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER
+      ),
+    ),
   }
 }
 

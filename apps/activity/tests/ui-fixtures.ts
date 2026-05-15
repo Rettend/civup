@@ -71,6 +71,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       blindBans: true,
       simultaneousPick: false,
       redDeath: false,
+      permanentAlly: true,
       dealOptionsSize: null,
       randomDraft: false,
       hiddenDraft: false,

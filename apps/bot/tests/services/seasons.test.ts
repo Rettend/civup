@@ -316,6 +316,17 @@ describe('season services', () => {
       gamesPlayed: 10,
       lastPlayedAt: NOW,
     })
+    await seedRating(db, {
+      playerId: HERO_ID,
+      mode: 'global',
+      mu: 50,
+      sigma: 6,
+      gamesPlayed: 25,
+      effectiveGames: 25,
+      winsVsTier1: 1,
+      winsVsTier2Plus: 4,
+      lastPlayedAt: NOW,
+    })
 
     await syncRankedRoles({
       db,
@@ -332,7 +343,7 @@ describe('season services', () => {
     expect(peakRows).toHaveLength(1)
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
     expect(peakRows[0]?.tier).toBe(TIER_1)
-    expect(peakRows[0]?.sourceMode).toBe('ffa')
+    expect(peakRows[0]?.sourceMode).toBeNull()
 
     sqlite.close()
   })
@@ -350,6 +361,17 @@ describe('season services', () => {
       mu: 50,
       sigma: 6,
       gamesPlayed: 6,
+      lastPlayedAt: NOW,
+    })
+    await seedRating(db, {
+      playerId: HERO_ID,
+      mode: 'global',
+      mu: 50,
+      sigma: 6,
+      gamesPlayed: 25,
+      effectiveGames: 25,
+      winsVsTier1: 1,
+      winsVsTier2Plus: 4,
       lastPlayedAt: NOW,
     })
 
@@ -427,17 +449,23 @@ async function seedRating(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   row: {
     playerId: string
-    mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
+    mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | 'global'
     mu: number
     sigma: number
     gamesPlayed: number
+    effectiveGames?: number
     wins?: number
+    winsVsTier1?: number
+    winsVsTier2Plus?: number
     lastPlayedAt: number
   },
 ): Promise<void> {
   const values = {
     ...row,
     wins: row.wins ?? 0,
+    effectiveGames: row.effectiveGames ?? row.gamesPlayed,
+    winsVsTier1: row.winsVsTier1 ?? 0,
+    winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
   }
 
   await db.insert(playerRatings).values(values).onConflictDoUpdate({
