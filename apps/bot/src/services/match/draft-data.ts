@@ -1,4 +1,4 @@
-import type { DraftState, GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
@@ -11,6 +11,7 @@ interface ParsedDraftData {
   redDeath?: unknown
   permanentAlly?: unknown
   hiddenDraft?: unknown
+  doublePickMetrics?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown, team?: unknown }>
   }
@@ -109,6 +110,22 @@ export function getDraftStateFromDraftData(draftData: string | null): DraftState
     : null
 }
 
+export function getDoublePickMetricsFromDraftData(draftData: string | null): DraftDoublePickMetrics | undefined {
+  const parsed = parseDraftData(draftData)
+  const raw = parsed?.doublePickMetrics
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+
+  const metrics = raw as Partial<DraftDoublePickMetrics>
+  const normalized = {
+    groups: normalizeMetricCount(metrics.groups),
+    fallbackStarted: normalizeMetricCount(metrics.fallbackStarted),
+    fallbackResolved: normalizeMetricCount(metrics.fallbackResolved),
+    bothMissedTimeouts: normalizeMetricCount(metrics.bothMissedTimeouts),
+    fallbackTimeouts: normalizeMetricCount(metrics.fallbackTimeouts),
+  }
+  return normalized.groups > 0 ? normalized : undefined
+}
+
 export function getMapVoteResultFromDraftData(draftData: string | null): ResolvedMapVoteResult | null {
   const parsed = parseDraftData(draftData)
   const result = parsed?.mapVoteResult
@@ -139,4 +156,9 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
     ranked: leaderboardMode != null,
     label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
   }
+}
+
+function normalizeMetricCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.round(value))
 }

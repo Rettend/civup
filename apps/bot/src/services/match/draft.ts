@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { DraftState, GameMode } from '@civup/game'
+import type { DraftDoublePickMetrics, DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { isRedDeathFormatId } from '@civup/game'
@@ -143,6 +143,7 @@ export async function activateDraftMatch(
 
   const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
   const permanentAlly = isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly)
+  const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
@@ -150,6 +151,7 @@ export async function activateDraftMatch(
     redDeath: isRedDeathFormatId(input.state.formatId),
     permanentAlly,
     hiddenDraft: input.hiddenDraft === true,
+    ...(doublePickMetrics ? { doublePickMetrics } : {}),
     state: input.state,
   })
 
@@ -274,6 +276,7 @@ export async function cancelDraftMatch(
   }
 
   const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
 
   for (const participant of participantRows) {
     await db
@@ -302,6 +305,7 @@ export async function cancelDraftMatch(
         redDeath: isRedDeathFormatId(input.state.formatId),
         permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly),
         hiddenDraft: input.hiddenDraft === true,
+        ...(doublePickMetrics ? { doublePickMetrics } : {}),
         state: input.state,
       }),
     })
@@ -323,6 +327,17 @@ export async function cancelDraftMatch(
 
 function isPermanentAllyFfaDraft(gameMode: GameMode, state: DraftState, permanentAlly?: boolean): boolean {
   return gameMode === 'ffa' && !isRedDeathFormatId(state.formatId) && permanentAlly === true
+}
+
+function normalizeDoublePickMetrics(metrics: DraftDoublePickMetrics | undefined): DraftDoublePickMetrics | null {
+  if (!metrics || metrics.groups <= 0) return null
+  return {
+    groups: Math.max(0, Math.round(metrics.groups)),
+    fallbackStarted: Math.max(0, Math.round(metrics.fallbackStarted)),
+    fallbackResolved: Math.max(0, Math.round(metrics.fallbackResolved)),
+    bothMissedTimeouts: Math.max(0, Math.round(metrics.bothMissedTimeouts)),
+    fallbackTimeouts: Math.max(0, Math.round(metrics.fallbackTimeouts)),
+  }
 }
 
 function mapCivsFromDraftState(

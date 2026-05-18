@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
@@ -21,7 +21,7 @@ import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { getDraftStateFromDraftData, getHiddenDraftFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -89,6 +89,7 @@ type RepeatDraftSource
     mapVote: StoredMapVoteState
     previews?: RepeatDraftRoomSnapshot['previews']
     config?: RoomRecord['config']
+    doublePickMetrics?: DraftDoublePickMetrics
   }
     | {
       kind: 'complete'
@@ -754,6 +755,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       previews: prepareRepeatedDraftPreviews(source.previews, seatIndexMap),
       lifecycleEventSequence: previousRoom?.lifecycleEventSequence ?? record.lifecycleEventSequence ?? 0,
       repeatDraft: null,
+      doublePickMetrics: source.doublePickMetrics ?? previousRoom?.doublePickMetrics,
     })
 
     try {
@@ -940,6 +942,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         mapVote: repeatDraft.mapVote,
         previews: repeatDraft.previews,
         config: room?.config,
+        doublePickMetrics: repeatDraft.doublePickMetrics,
       }
     }
 
@@ -954,6 +957,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
         previews: room.previews,
         config: room.config,
+        doublePickMetrics: room.doublePickMetrics,
       }
     }
 
@@ -979,6 +983,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       matchId: record.id,
       state,
       mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
+      doublePickMetrics: getDoublePickMetricsFromDraftData(match.draftData),
     }
   }
 
@@ -1670,6 +1675,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
+      doublePickMetrics: payload.doublePickMetrics,
     })
 
     if ('error' in result) {
@@ -1715,6 +1721,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
+      doublePickMetrics: payload.doublePickMetrics,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 
