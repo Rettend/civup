@@ -107,11 +107,11 @@ describe('createDraft', () => {
     const seats = create2v2Seats()
     const draft = createDraft('match-123', default2v2, seats, createTestCivPool())
 
-    // 2v2 has: ban([0,1]), then A1, B1, B2, A2 pick individually
-    expect(draft.steps.length).toBe(5)
+    // 2v2 has: ban([0,1]), then A1, B1+B2, A2 picks.
+    expect(draft.steps.length).toBe(4)
     expect(draft.steps[0]!.action).toBe('ban')
     expect(draft.steps[0]!.seats).toEqual([0, 1])
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2]])
   })
 
   test('creates draft with FFA format and correct number of steps', () => {
@@ -195,6 +195,7 @@ describe('getPickSeatForPlayer', () => {
     state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
     state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-11' }, false))
     state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-12' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 4, civId: 'civ-13' }, false))
 
     expect(getPickSeatForPlayer(state, 0)).toBe(2)
     expect(getPickSeatForPlayer(state, 2)).toBe(2)
@@ -510,7 +511,7 @@ describe('processDraftInput — PICK (sequential)', () => {
     expect(result.events).toContainEqual({ type: 'PICK_SUBMITTED', seatIndex: 0, civId: 'civ-10' })
   })
 
-  test('keeps the back-to-back Team 2 picks on separate seats', () => {
+  test('keeps the back-to-back Team 2 picks on one shared step', () => {
     let state = startDraft(createDraft('match-123', default2v2, create2v2Seats(), createTestCivPool()))
     state = completeBanPhase(state)
 
@@ -519,26 +520,26 @@ describe('processDraftInput — PICK (sequential)', () => {
     if (isDraftError(result)) throw new Error(result.error)
     state = result.state
 
-    // Team 2 now gets consecutive picks from B1 then B2.
-    expect(state.steps[state.currentStepIndex]!.seats).toEqual([1])
+    // Team 2 now gets consecutive picks from B1 and B2 on the same timer.
+    expect(state.steps[state.currentStepIndex]!.seats).toEqual([1, 3])
     expect(state.steps[state.currentStepIndex]!.count).toBe(1)
 
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
 
-    expect(result.state.currentStepIndex).toBe(3)
-    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([3])
-    expect(result.state.submissions).toEqual({})
+    expect(result.state.currentStepIndex).toBe(2)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([1, 3])
+    expect(result.state.submissions).toEqual({ 1: ['civ-20'] })
 
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
 
-    expect(result.state.currentStepIndex).toBe(4)
+    expect(result.state.currentStepIndex).toBe(3)
     expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([2])
     expect(result.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 1, stepIndex: 2 })
-    expect(result.state.picks).toContainEqual({ civId: 'civ-21', seatIndex: 3, stepIndex: 3 })
+    expect(result.state.picks).toContainEqual({ civId: 'civ-21', seatIndex: 3, stepIndex: 2 })
   })
 
   test('rejects pick from wrong seat', () => {
@@ -588,11 +589,11 @@ describe('processDraftInput — PICK (sequential)', () => {
 
     result = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' })
     if (isDraftError(result)) throw new Error(result.error)
-    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([1])
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([1, 3])
 
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     if (isDraftError(result)) throw new Error(result.error)
-    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([3])
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([1, 3])
 
     result = processDraftInput(result.state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
     if (isDraftError(result)) throw new Error(result.error)
@@ -605,19 +606,19 @@ describe('processDraftInput — PICK (sequential)', () => {
     expect(result.state.picks).toEqual([
       { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
       { civId: 'civ-20', seatIndex: 1, stepIndex: 2 },
-      { civId: 'civ-21', seatIndex: 3, stepIndex: 3 },
-      { civId: 'civ-11', seatIndex: 2, stepIndex: 4 },
+      { civId: 'civ-21', seatIndex: 3, stepIndex: 2 },
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 3 },
     ])
   })
 
-  test('full 3v3 rosters expand to individual pick steps', () => {
+  test('full 3v3 rosters group adjacent same-team pick steps', () => {
     const draft = startDraft(createDraft('match-123', default3v3, create3v3PlayerSeats(), createTestCivPool()))
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2, 4], [5]])
   })
 
-  test('full 4v4 rosters expand to individual pick steps', () => {
+  test('full 4v4 rosters group adjacent same-team pick steps', () => {
     const draft = startDraft(createDraft('match-4v4', default4v4, create4v4PlayerSeats(), createTestCivPool()))
-    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
+    expect(draft.steps.slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7]])
   })
 
   test('Red Death picks must come from dealt options', () => {
@@ -842,6 +843,100 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(result.state.status).toBe('cancelled')
     expect(result.state.cancelReason).toBe('timeout')
     expect(result.state.picks.length).toBe(0)
+  })
+
+  test('timeout on a partial double pick creates a single-seat fallback phase', () => {
+    let state = startDraft(createDraft('match-double-fallback', default2v2, create2v2Seats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' }, false))
+
+    result = processDraftInput(state, { type: 'TIMEOUT' }, false)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('active')
+    expect(result.state.currentStepIndex).toBe(3)
+    expect(result.state.steps[result.state.currentStepIndex]).toEqual({
+      action: 'pick',
+      seats: [3],
+      count: 1,
+      timer: 60,
+      fallbackForStepIndex: 2,
+    })
+    expect(result.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 1, stepIndex: 2 })
+    expect(result.events).toEqual([{ type: 'STEP_ADVANCED', stepIndex: 3 }])
+  })
+
+  test('fallback double pick phase resolves and continues the draft', () => {
+    let state = startDraft(createDraft('match-double-fallback-resolve', default2v2, create2v2Seats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' }, false))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, false))
+
+    result = processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' }, false)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('active')
+    expect(result.state.currentStepIndex).toBe(4)
+    expect(result.state.steps[result.state.currentStepIndex]!.seats).toEqual([2])
+    expect(result.state.picks).toContainEqual({ civId: 'civ-21', seatIndex: 3, stepIndex: 3 })
+  })
+
+  test('timeout on a double pick with neither player submitted cancels immediately', () => {
+    let state = startDraft(createDraft('match-double-both-timeout', default2v2, create2v2Seats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+
+    result = processDraftInput(state, { type: 'TIMEOUT' }, false)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('timeout')
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 1, selections: [] })
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 3, selections: [] })
+  })
+
+  test('timeout on a fallback double pick phase cancels the draft', () => {
+    let state = startDraft(createDraft('match-double-fallback-timeout', default2v2, create2v2Seats(), createTestCivPool()))
+
+    let result = processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    result = processDraftInput(result.state, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true)
+    if (isDraftError(result)) throw new Error(result.error)
+    state = result.state
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }, false))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' }, false))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, false))
+
+    result = processDraftInput(state, { type: 'TIMEOUT' }, false)
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('cancelled')
+    expect(result.state.cancelReason).toBe('timeout')
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 3, selections: [] })
   })
 
   test('timeout on duel pick cancels immediately', () => {
