@@ -5,7 +5,7 @@ import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { GAME_MODES, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -32,6 +32,7 @@ export interface ActivityOverviewPlayerSnapshot {
   playerId: string
   displayName: string
   avatarUrl?: string | null
+  team?: number | null
 }
 
 export interface ActivityOverviewSnapshot {
@@ -199,7 +200,7 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     redDeath: session.config.redDeath,
     hostId: session.hostId,
     memberPlayerIds: session.roster.participants.map(member => member.playerId),
-    players: buildActivityOverviewPlayers(session.roster),
+    players: buildActivityOverviewPlayers(session.mode, session.roster),
     updatedAt: session.updatedAt,
   }]
 }
@@ -223,17 +224,18 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     redDeath: record.config.redDeath,
     hostId: record.hostId,
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
-    players: buildActivityOverviewPlayers(record.roster),
+    players: buildActivityOverviewPlayers(record.mode, record.roster),
     updatedAt: record.updatedAt,
   }]
 }
 
-function buildActivityOverviewPlayers(roster: SessionRoster): ActivityOverviewPlayerSnapshot[] {
+function buildActivityOverviewPlayers(mode: GameMode, roster: SessionRoster): ActivityOverviewPlayerSnapshot[] {
   const memberByPlayerId = new Map(roster.participants.map(member => [member.playerId, member]))
   const players: ActivityOverviewPlayerSnapshot[] = []
   const seen = new Set<string>()
 
-  for (const playerId of roster.slots) {
+  for (let slotIndex = 0; slotIndex < roster.slots.length; slotIndex += 1) {
+    const playerId = roster.slots[slotIndex]
     if (!playerId || seen.has(playerId)) continue
     const member = memberByPlayerId.get(playerId)
     seen.add(playerId)
@@ -241,6 +243,7 @@ function buildActivityOverviewPlayers(roster: SessionRoster): ActivityOverviewPl
       playerId,
       displayName: member?.displayName ?? playerId,
       avatarUrl: member?.avatarUrl ?? null,
+      team: slotToTeamIndex(mode, slotIndex, roster.slots.length),
     })
   }
 
@@ -251,6 +254,7 @@ function buildActivityOverviewPlayers(roster: SessionRoster): ActivityOverviewPl
       playerId: member.playerId,
       displayName: member.displayName ?? member.playerId,
       avatarUrl: member.avatarUrl ?? null,
+      team: null,
     })
   }
 
