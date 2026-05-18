@@ -213,18 +213,14 @@ function OverviewTargetCard(props: {
       onFocus={() => preloadActivityTargetRoute(props.option)}
       onClick={() => props.onSelect(props.option)}
       class={cn(
-        'group relative flex min-h-[156px] flex-col overflow-hidden rounded-xl border p-3 text-left transition-all duration-150 cursor-pointer',
-        'bg-bg-subtle/95 border-border-subtle',
+        'group relative flex min-h-[156px] flex-col overflow-visible rounded-xl border p-3 text-left transition-all duration-150 cursor-pointer',
+        meta().surfaceClass,
         'disabled:opacity-60 disabled:cursor-wait',
         props.selected
-          ? 'border-accent/60 bg-accent/8 shadow-[0_0_0_1px_var(--accent-subtle)] hover:border-accent/80 hover:bg-accent/14'
-          : 'hover:border-accent/40 hover:bg-bg-subtle',
+          ? 'ring-2 ring-accent shadow-[0_0_24px_var(--accent-subtle)]'
+          : 'hover:ring-1 hover:ring-white/15',
       )}
     >
-      <span class="pointer-events-none absolute left-px right-px top-px h-0.5 overflow-hidden rounded-t-[0.65rem]">
-        <span class={cn('block h-full w-full', meta().barClass)} />
-      </span>
-
       <div class="flex gap-3 items-center justify-between">
         <div class="flex gap-2 min-w-0 items-center">
           <span class={cn(meta().icon, meta().iconColorClass, 'text-lg shrink-0')} />
@@ -385,7 +381,7 @@ function buildNavItems(counts: Record<OverviewFilter, number>) {
       key: 'all' as const,
       label: 'All',
       count: counts.all,
-        icon: 'i-ph:squares-four-duotone',
+      icon: 'i-ph:squares-four-duotone',
       activeClass: 'text-fg bg-white/8',
     },
     {
@@ -424,25 +420,25 @@ function getStatusMeta(status: OverviewStatus) {
       return {
         icon: 'i-ph:circle-duotone',
         iconColorClass: 'text-note',
-        barClass: 'bg-note',
+        surfaceClass: 'bg-note/12 border-note/30 hover:bg-note/18',
       }
     case 'closed':
       return {
         icon: 'i-ph:minus-circle-duotone',
         iconColorClass: 'text-[#a78bfa]',
-        barClass: 'bg-[#a78bfa]',
+        surfaceClass: 'bg-[#a78bfa]/12 border-[#a78bfa]/30 hover:bg-[#a78bfa]/18',
       }
     case 'drafting':
       return {
         icon: 'i-ph:play-circle-duotone',
         iconColorClass: 'text-info',
-        barClass: 'bg-info',
+        surfaceClass: 'bg-info/12 border-info/30 hover:bg-info/18',
       }
     case 'completed':
       return {
         icon: 'i-ph:check-circle-duotone',
         iconColorClass: 'text-accent',
-        barClass: 'bg-accent',
+        surfaceClass: 'bg-accent/10 border-accent/25 hover:bg-accent/16',
       }
   }
 }
