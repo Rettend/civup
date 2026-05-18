@@ -47,7 +47,15 @@ interface DiscordUserResponse {
   avatar?: string | null
 }
 
+interface DiscordIdentityResponse extends DiscordUserResponse {
+  nick?: string | null
+  guildAvatar?: string | null
+  guildId?: string | null
+}
+
 interface DiscordGuildMemberResponse {
+  nick?: string | null
+  avatar?: string | null
   user?: DiscordUserResponse | null
 }
 
@@ -362,8 +370,8 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
 
     const sessionToken = await createActivitySession(internalSecret, {
       userId,
-      displayName: discordUser.global_name ?? discordUser.username ?? null,
-      avatarUrl: buildDiscordAvatarUrl(userId, discordUser.avatar ?? null),
+      displayName: resolveDiscordDisplayName(discordUser),
+      avatarUrl: buildDiscordIdentityAvatarUrl(discordUser, userId),
     })
 
     const response = json({
@@ -413,7 +421,7 @@ function json(data: unknown, status = 200): Response {
   })
 }
 
-async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordUserResponse | Response> {
+async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResponse | Response> {
   const url = allowedGuildId
     ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
     : 'https://discord.com/api/v10/users/@me'
@@ -440,7 +448,7 @@ async function loadDiscordUser(accessToken: string, allowedGuildId: string | nul
   }
 
   if (!allowedGuildId) {
-    return response.json<DiscordUserResponse>()
+    return response.json<DiscordIdentityResponse>()
   }
 
   const member = await response.json<DiscordGuildMemberResponse>()
@@ -449,7 +457,33 @@ async function loadDiscordUser(accessToken: string, allowedGuildId: string | nul
     return json({ error: 'Failed to verify Discord user' }, 502)
   }
 
-  return member.user
+  return {
+    ...member.user,
+    nick: member.nick ?? null,
+    guildAvatar: member.avatar ?? null,
+    guildId: allowedGuildId,
+  }
+}
+
+function resolveDiscordDisplayName(user: DiscordIdentityResponse): string | null {
+  return normalizeOptionalDiscordName(user.nick)
+    ?? normalizeOptionalDiscordName(user.global_name)
+    ?? normalizeOptionalDiscordName(user.username)
+}
+
+function normalizeOptionalDiscordName(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
+function buildDiscordIdentityAvatarUrl(user: DiscordIdentityResponse, userId: string): string {
+  if (user.guildId && user.guildAvatar) return buildDiscordGuildMemberAvatarUrl(user.guildId, userId, user.guildAvatar)
+  return buildDiscordAvatarUrl(userId, user.avatar ?? null)
+}
+
+function buildDiscordGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string): string {
+  const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
+  return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
 }
 
 function normalizeGuildId(value: string | undefined): string | null {
