@@ -90,6 +90,35 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Closed Host')).toBeTruthy()
   })
 
+  test('shows six player names before switching larger lobbies to avatar-only columns', () => {
+    const sixPlayers = Array.from({ length: 6 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `Player ${index + 1}`,
+      avatarUrl: null,
+      team: index < 3 ? 0 : 1,
+    }))
+
+    let rendered = render(() => <LobbyOverviewPage options={[createActivityTargetOption({ mode: '3v3', participantCount: 6, targetSize: 6, players: sixPlayers })]} onSelect={onSelect} />)
+
+    expect(screen.getByText('Player 6')).toBeTruthy()
+    expect(rendered.container.querySelector('[data-overview-name-grid]')?.className).toContain('grid-cols-3')
+    expect(rendered.container.querySelector('[data-overview-avatar-grid]')).toBeNull()
+
+    document.body.innerHTML = ''
+    const eightPlayers = Array.from({ length: 8 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `Player ${index + 1}`,
+      avatarUrl: null,
+      team: index < 4 ? 0 : 1,
+    }))
+    rendered = render(() => <LobbyOverviewPage options={[createActivityTargetOption({ mode: '4v4', participantCount: 8, targetSize: 8, players: eightPlayers })]} onSelect={onSelect} />)
+
+    expect(rendered.container.querySelector('[data-overview-avatar-grid]')).toBeTruthy()
+    expect(rendered.container.querySelectorAll('[data-overview-player-avatar]')).toHaveLength(8)
+    expect(screen.getByRole('img', { name: 'Player 8' })).toBeTruthy()
+    expect(rendered.container.querySelector('[data-overview-name-grid]')).toBeNull()
+  })
+
   test('shows the mini overview with hidden-count, host or joined tags, and mini empty fallback', () => {
     uiMockState.isMiniView = true
 
