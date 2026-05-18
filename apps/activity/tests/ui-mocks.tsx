@@ -41,6 +41,7 @@ export const storeSpies = {
   fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
   placeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
   removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
+  repeatLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
   startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
   updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Partial<LobbySnapshot>) => ({
     ...uiMockState.updateLobbyConfigResult,
@@ -122,6 +123,7 @@ interface MockState {
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
   placeLobbySlotResult: { ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }
   removeLobbySlotResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
+  repeatLobbyDraftResult: { ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   startLobbyDraftResult: { ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
   updateLobbyModeResult: { ok: true } | { ok: false, error: string }
@@ -239,6 +241,7 @@ function defaults(): MockState {
     fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
     placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
     removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
+    repeatLobbyDraftResult: { ok: true, kind: 'complete', matchId: 'match-1', sessionAccessToken: 'session-token' },
     startLobbyDraftResult: { ok: true, matchId: 'match-1', sessionAccessToken: 'session-token' },
     updateLobbyConfigResult: { ok: true },
     updateLobbyModeResult: { ok: true },
@@ -618,6 +621,7 @@ mock.module('~/client/stores', () => ({
   pickSelections: () => uiMockState.pickSelections,
   placeLobbySlot: (...args: Parameters<typeof storeSpies.placeLobbySlot>) => storeSpies.placeLobbySlot(...args),
   removeLobbySlot: (...args: Parameters<typeof storeSpies.removeLobbySlot>) => storeSpies.removeLobbySlot(...args),
+  repeatLobbyDraft: (...args: Parameters<typeof storeSpies.repeatLobbyDraft>) => storeSpies.repeatLobbyDraft(...args),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
   resetMapVote,
   resultSelectionsLocked: () => uiMockState.resultSelectionsLocked,
