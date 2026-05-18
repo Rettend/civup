@@ -229,7 +229,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -244,6 +244,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       randomDraft?: unknown
       hiddenDraft?: unknown
       duplicateFactions?: unknown
+      closed?: unknown
       minRole?: unknown
       maxRole?: unknown
       steamLobbyLink?: unknown
@@ -279,6 +280,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
     const hasHiddenDraft = Object.prototype.hasOwnProperty.call(body, 'hiddenDraft')
     const hasDuplicateFactions = Object.prototype.hasOwnProperty.call(body, 'duplicateFactions')
+    const hasClosed = Object.prototype.hasOwnProperty.call(body, 'closed')
     const hasTargetSize = Object.prototype.hasOwnProperty.call(body, 'targetSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
@@ -319,6 +321,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedDuplicateFactions = hasDuplicateFactions
       ? parseLobbyDuplicateFactions(duplicateFactionsRaw)
       : undefined
+    const parsedClosed = hasClosed
+      ? parseLobbyClosed(closedRaw)
+      : undefined
     const parsedTargetSize = hasTargetSize
       ? parseLobbyTargetSize(mode, targetSizeRaw)
       : undefined
@@ -351,6 +356,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasDuplicateFactions && parsedDuplicateFactions === undefined) {
       return c.json({ error: 'duplicateFactions must be true or false' }, 400)
+    }
+    if (hasClosed && parsedClosed === undefined) {
+      return c.json({ error: 'closed must be true or false' }, 400)
     }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
@@ -430,6 +438,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedDuplicateFactions = hasDuplicateFactions
       ? parsedDuplicateFactions ?? false
       : lobby.draftConfig.duplicateFactions
+    const normalizedClosed = hasClosed
+      ? parsedClosed ?? false
+      : lobby.draftConfig.closed === true
     const parsedRedDeathFfaTargetSize = mode === 'ffa' && hasTargetSize
       ? parseRedDeathFfaTargetSize(targetSizeRaw)
       : undefined
@@ -448,7 +459,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
-    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
     const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
     const currentUserIsHost = lobby.hostId === auth.identity.userId
     const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
@@ -589,6 +600,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       randomDraft: normalizedRandomDraft,
       hiddenDraft: normalizedHiddenDraft,
       duplicateFactions: normalizedDuplicateFactions,
+      closed: normalizedClosed,
     }, requestedTargetSize)
     const nextDraftConfig = lockTournamentDraftConfig(baseDraftConfig, tournamentMatch != null)
 
@@ -843,6 +855,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     let transferNotice: string | null = null
 
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
+    if (lobby.draftConfig.closed === true && !isHost && !alreadyInTargetLobby) {
+      return c.json({ error: 'This lobby is closed.' }, 403)
+    }
     let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentSessionLobbyProjectionsForPlayer>>[number] | null = null
     if (!alreadyInTargetLobby) {
       const currentLobbiesForPlayer = await getCurrentSessionLobbyProjectionsForPlayer(db, movingPlayerId, {
@@ -1762,6 +1777,10 @@ function parseLobbyHiddenDraft(value: unknown): boolean | undefined {
 }
 
 function parseLobbyDuplicateFactions(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyClosed(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

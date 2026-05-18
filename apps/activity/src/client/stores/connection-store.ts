@@ -70,6 +70,7 @@ export interface LobbySnapshot {
     randomDraft: boolean
     hiddenDraft: boolean
     duplicateFactions: boolean
+    closed?: boolean
   }
   tournament?: {
     id: string
@@ -139,13 +140,20 @@ export interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
   isMember: boolean
   isHost: boolean
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
+}
+
+export interface ActivityOverviewPlayerSnapshot {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
 }
 
 export interface ActivityOverviewOptionSnapshot {
@@ -155,12 +163,13 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
   hostId: string
   memberPlayerIds: string[]
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
 }
 
@@ -665,6 +674,7 @@ export async function updateLobbyConfig(
     randomDraft?: boolean
     hiddenDraft?: boolean
     duplicateFactions?: boolean
+    closed?: boolean
     targetSize?: number
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
@@ -688,6 +698,7 @@ export async function updateLobbyConfig(
       randomDraft: draftConfig.randomDraft,
       hiddenDraft: draftConfig.hiddenDraft,
       duplicateFactions: draftConfig.duplicateFactions,
+      closed: draftConfig.closed,
       targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,

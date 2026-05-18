@@ -22,6 +22,7 @@ export interface LobbyDraftConfig {
   randomDraft: boolean
   hiddenDraft: boolean
   duplicateFactions: boolean
+  closed?: boolean
 }
 
 export interface LobbyState {

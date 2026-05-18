@@ -201,6 +201,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return slot >= 0 ? slot : null
   })
   const isCurrentUserSlotted = () => currentUserLobbySlot() != null
+  const isLobbyClosed = () => currentLobby()?.draftConfig.closed === true
 
   const configState = useDraftSetupConfigState({
     props,
@@ -291,6 +292,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode() || !userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
+    if (isLobbyClosed() && !amHost() && !isCurrentUserSlotted()) return false
     if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     return true
   }
@@ -307,6 +309,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const canLeaveLobby = () => isLobbyMode() && !amHost() && currentUserLobbySlot() != null
   const joinLobbyButtonTitle = () => {
     if (props.showJoinPending) return 'Joining lobby...'
+    if (isLobbyClosed() && !amHost() && !isCurrentUserSlotted()) return 'This lobby is closed.'
     if (props.joinEligibility?.blockedReason) return props.joinEligibility.blockedReason
     if (joinLobbyTargetSlot() == null) return 'No empty seats available.'
     return 'Join Lobby'
@@ -388,6 +391,22 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       const result = await fillLobbyWithTestPlayers(lobby.mode, lobby.id, currentUserId)
       if (!result.ok) return showErrorMessage(result.error)
       showInfoMessage(result.addedCount > 0 ? `Added ${result.addedCount} test player${result.addedCount === 1 ? '' : 's'} to empty slots.` : 'Lobby is already full.')
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+  const handleToggleLobbyClosed = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending()) return
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const nextClosed = !isLobbyClosed()
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { closed: nextClosed })
+      if (!result.ok) return showErrorMessage(result.error)
+      showInfoMessage(nextClosed ? 'Lobby closed.' : 'Lobby opened.')
     }
     finally {
       setLobbyActionPending(false)
@@ -659,6 +678,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     isLobbyMode,
     pending,
     canStartLobby: configState.derived.canStartLobby,
+    isLobbyClosed,
     repeatDraft: () => currentLobby()?.repeatDraft ?? null,
     arrangeTargetLabel,
     randomizeButtonLabel,
@@ -674,6 +694,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     leaveLobby: handleLeaveLobby,
     startLobbyDraft: handleStartLobbyDraftAction,
     repeatLobbyDraft: handleRepeatLobbyDraftAction,
+    toggleLobbyClosed: handleToggleLobbyClosed,
     randomizeLobby: () => handleArrangeLobby('randomize'),
     shuffleTeamsLobby: () => handleArrangeLobby('shuffle-teams'),
     balanceLobby: () => handleArrangeLobby('balance'),

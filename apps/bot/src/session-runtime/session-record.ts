@@ -342,6 +342,7 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     randomDraft: config.randomDraft,
     hiddenDraft: config.hiddenDraft,
     duplicateFactions: config.duplicateFactions,
+    closed: config.closed === true,
   }
 }
 

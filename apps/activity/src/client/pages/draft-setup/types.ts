@@ -25,6 +25,7 @@ export interface LobbyEditableDraftConfig {
   randomDraft: boolean
   hiddenDraft: boolean
   duplicateFactions: boolean
+  closed: boolean
 }
 
 export type EditableConfigField = 'ban' | 'pick' | 'leaderPool'

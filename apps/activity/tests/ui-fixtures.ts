@@ -28,6 +28,10 @@ export function createActivityTargetOption(overrides: Partial<ActivityTargetOpti
     redDeath: false,
     isMember: false,
     isHost: false,
+    players: [
+      { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+      { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+    ],
     updatedAt: 1,
     ...overrides,
   }
