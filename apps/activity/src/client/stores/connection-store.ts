@@ -154,6 +154,7 @@ export interface ActivityOverviewPlayerSnapshot {
   playerId: string
   displayName: string
   avatarUrl?: string | null
+  team?: number | null
 }
 
 export interface ActivityOverviewOptionSnapshot {

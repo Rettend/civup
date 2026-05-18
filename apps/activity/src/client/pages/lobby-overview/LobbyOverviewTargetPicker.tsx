@@ -18,8 +18,10 @@ interface LobbyOverviewTargetPickerProps {
 
 type OverviewFilter = 'all' | 'open' | 'drafting' | 'completed'
 type OverviewStatus = 'open' | 'closed' | 'drafting' | 'completed'
+type OverviewPlayer = NonNullable<ActivityTargetOption['players']>[number]
 
-const PLAYER_PREVIEW_LIMIT = 4
+const NAME_PLAYER_PREVIEW_LIMIT = 6
+const AVATAR_PLAYER_PREVIEW_LIMIT = 12
 
 export function LobbyOverviewTargetPicker(props: LobbyOverviewTargetPickerProps) {
   return (
@@ -197,8 +199,9 @@ function OverviewTargetCard(props: {
   const status = () => getOptionStatus(props.option)
   const meta = () => getStatusMeta(status())
   const players = () => props.option.players ?? []
-  const visiblePlayers = () => getVisiblePlayers(props.option)
-  const hiddenPlayers = () => Math.max(0, players().length - visiblePlayers().length)
+  const namePreviewPlayers = () => players().slice(0, NAME_PLAYER_PREVIEW_LIMIT)
+  const avatarPreviewPlayers = () => players().slice(0, AVATAR_PLAYER_PREVIEW_LIMIT)
+  const showAvatarPreview = () => players().length > NAME_PLAYER_PREVIEW_LIMIT
 
   return (
     <button
@@ -218,7 +221,9 @@ function OverviewTargetCard(props: {
           : 'hover:border-accent/40 hover:bg-bg-subtle',
       )}
     >
-      <span class={cn('left-0 right-0 top-0 h-0.5 absolute', meta().barClass)} />
+      <span class="pointer-events-none absolute left-px right-px top-px h-0.5 overflow-hidden rounded-t-[0.65rem]">
+        <span class={cn('block h-full w-full', meta().barClass)} />
+      </span>
 
       <div class="flex gap-3 items-center justify-between">
         <div class="flex gap-2 min-w-0 items-center">
@@ -242,20 +247,18 @@ function OverviewTargetCard(props: {
           </div>
         )}
       >
-        <div class="mt-3 gap-1.5 grid grid-cols-2">
-          <For each={visiblePlayers()}>
-            {player => <PlayerPreviewPill player={player} />}
-          </For>
-          <Show when={hiddenPlayers() > 0}>
-            <div class="rounded-md px-2 h-7 border border-border-subtle bg-white/4 flex gap-1.5 min-w-0 items-center justify-center">
-              <span class="i-ph:dots-three-bold text-sm text-fg-subtle" />
-              <span class="text-[11px] text-fg-muted font-mono font-bold tabular-nums">
-                +
-                {hiddenPlayers()}
-              </span>
+        <Show
+          when={showAvatarPreview()}
+          fallback={(
+            <div class={cn('mt-3 gap-1.5 grid', players().length > 4 ? 'grid-cols-3' : 'grid-cols-2')} data-overview-name-grid>
+              <For each={namePreviewPlayers()}>
+                {player => <PlayerPreviewPill player={player} />}
+              </For>
             </div>
-          </Show>
-        </div>
+          )}
+        >
+          <PlayerAvatarTeamPreview players={avatarPreviewPlayers()} />
+        </Show>
       </Show>
 
       <div class="mt-auto pt-3 flex gap-3 h-8 items-center justify-between">
@@ -277,7 +280,7 @@ function OverviewTargetCard(props: {
   )
 }
 
-function PlayerPreviewPill(props: { player: NonNullable<ActivityTargetOption['players']>[number] }) {
+function PlayerPreviewPill(props: { player: OverviewPlayer }) {
   return (
     <div class="rounded-md px-1.5 h-7 border border-border-subtle bg-white/5 flex gap-1.5 min-w-0 items-center">
       <Show
@@ -295,9 +298,70 @@ function PlayerPreviewPill(props: { player: NonNullable<ActivityTargetOption['pl
   )
 }
 
-function getVisiblePlayers(option: ActivityTargetOption): NonNullable<ActivityTargetOption['players']> {
-  const players = option.players ?? []
-  return players.slice(0, players.length > PLAYER_PREVIEW_LIMIT ? PLAYER_PREVIEW_LIMIT - 1 : PLAYER_PREVIEW_LIMIT)
+function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
+  const columns = () => splitPlayersForAvatarColumns(props.players)
+
+  return (
+    <div class="mt-3 px-1 grid grid-cols-2 gap-4" data-overview-avatar-grid>
+      <For each={columns()}>
+        {column => (
+          <div class="flex flex-wrap gap-1.5 min-w-0 items-center content-start">
+            <For each={column}>
+              {player => <PlayerPreviewAvatar player={player} />}
+            </For>
+          </div>
+        )}
+      </For>
+    </div>
+  )
+}
+
+function PlayerPreviewAvatar(props: { player: OverviewPlayer }) {
+  return (
+    <span class="group/avatar relative flex h-7 w-7 min-w-0 items-center justify-center rounded-full bg-white/8" role="img" aria-label={props.player.displayName} data-overview-player-avatar>
+      <Show
+        when={props.player.avatarUrl}
+        fallback={(
+          <span class="rounded-full flex h-full w-full items-center justify-center">
+            <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
+          </span>
+        )}
+      >
+        {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-full w-full object-cover" />}
+      </Show>
+      <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-border-subtle bg-bg-elevated/96 px-2.5 py-1 text-[10px] text-fg shadow-[0_8px_20px_rgba(0,0,0,0.32)] opacity-0 transition-opacity duration-100 group-hover/avatar:duration-0 group-hover/avatar:opacity-100 group-focus-visible/avatar:duration-0 group-focus-visible/avatar:opacity-100" role="tooltip">
+        {props.player.displayName}
+        <span class="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-border-subtle bg-bg-elevated/96" />
+      </span>
+    </span>
+  )
+}
+
+function splitPlayersForAvatarColumns(players: OverviewPlayer[]): [OverviewPlayer[], OverviewPlayer[]] {
+  const hasTeamData = players.some(player => typeof player.team === 'number')
+  if (!hasTeamData) {
+    const splitIndex = Math.ceil(players.length / 2)
+    return [players.slice(0, splitIndex), players.slice(splitIndex)]
+  }
+
+  const columns: [OverviewPlayer[], OverviewPlayer[]] = [[], []]
+  const ungrouped: OverviewPlayer[] = []
+
+  for (const player of players) {
+    if (typeof player.team === 'number') {
+      const columnIndex = player.team % 2 === 0 ? 0 : 1
+      columns[columnIndex].push(player)
+    }
+    else {
+      ungrouped.push(player)
+    }
+  }
+
+  for (const player of ungrouped) {
+    columns[columns[0].length <= columns[1].length ? 0 : 1].push(player)
+  }
+
+  return columns
 }
 
 function getOverviewCounts(options: ActivityTargetOption[]): Record<OverviewFilter, number> {

@@ -465,7 +465,7 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'lobby',
         id: lobby.id,
         participantCount: 1,
-        players: [expect.objectContaining({ playerId: 'host-1', displayName: 'Host' })],
+        players: [expect.objectContaining({ playerId: 'host-1', displayName: 'Host', team: 0 })],
         status: 'open',
       }),
     ])
@@ -483,8 +483,8 @@ describe('lobby service D1-backed projection behavior', () => {
         id: lobby.id,
         participantCount: 2,
         players: [
-          expect.objectContaining({ playerId: 'host-1', displayName: 'Host' }),
-          expect.objectContaining({ playerId: 'player-2', displayName: 'Player 2' }),
+          expect.objectContaining({ playerId: 'host-1', displayName: 'Host', team: 0 }),
+          expect.objectContaining({ playerId: 'player-2', displayName: 'Player 2', team: 1 }),
         ],
         status: 'open',
       }),
