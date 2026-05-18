@@ -1279,6 +1279,144 @@ describe('system scenarios', () => {
     )
   })
 
+  test('repeat draft keeps player leaders when same-team seats are reordered', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(4, 'repeat-team-order')
+    const firstLobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: players.map(player => player.id),
+      channelId: 'channel-repeat-team-order',
+    })
+    const started = await world.lobby.start('2v2', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const sourceParticipants = await world.match.getParticipants(started.matchId)
+    const secondLobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: [players[1]!.id, players[0]!.id, players[3]!.id, players[2]!.id],
+      channelId: firstLobby.channelId,
+    })
+
+    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: secondLobby.id,
+          repeatDraft: {
+            kind: 'complete',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(repeated.kind).toBe('complete')
+    const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
+    const repeatedCivByPlayer = new Map(repeatedParticipants.map(participant => [participant.playerId, participant.civId]))
+    for (const player of players) expect(repeatedCivByPlayer.get(player.id)).toBe(civByPlayer.get(player.id))
+    expect(new Map(repeatedParticipants.map(participant => [participant.playerId, participant.team]))).toEqual(new Map([
+      [players[0]!.id, 0],
+      [players[1]!.id, 0],
+      [players[2]!.id, 1],
+      [players[3]!.id, 1],
+    ]))
+  })
+
+  test('repeat draft keeps player leaders when 1v1 seats are reordered', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(2, 'repeat-duel-order')
+    const firstLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: 'channel-repeat-duel-order',
+    })
+    const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const sourceParticipants = await world.match.getParticipants(started.matchId)
+    const secondLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      slots: [players[1]!.id, players[0]!.id],
+      channelId: firstLobby.channelId,
+    })
+
+    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: secondLobby.id,
+          repeatDraft: {
+            kind: 'complete',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('1v1', { hostId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.flushBackgroundTasks()
+
+    const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
+    const repeatedCivByPlayer = new Map(repeatedParticipants.map(participant => [participant.playerId, participant.civId]))
+    for (const player of players) expect(repeatedCivByPlayer.get(player.id)).toBe(civByPlayer.get(player.id))
+  })
+
+  test('repeat draft resumes a reverted team draft after same-team seats are reordered', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(4, 'repeat-resume-order')
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: players.map(player => player.id),
+      channelId: 'channel-repeat-resume-order',
+    })
+
+    const started = await world.lobby.start('2v2', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.cancelDraft(started.matchId, { reason: 'revert' })).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[1]!.id, targetSlot: 0 })).status).toBe(200)
+    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[3]!.id, targetSlot: 2 })).status).toBe(200)
+
+    const launch = await world.activity.launch({ channelId: lobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: lobby.id,
+          repeatDraft: {
+            kind: 'resume',
+            matchId: started.matchId,
+          },
+        },
+      },
+    })
+
+    const repeated = await world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+
+    expect(repeated.kind).toBe('resume')
+    expect(repeated.matchId).toBe(started.matchId)
+    expect((await world.match.get(repeated.matchId))?.status).toBe('drafting')
+  })
+
   test('repeat draft rejects the same players seated on different teams', async () => {
     const world = await createTrackedWorld()
     const players = createPlayers(4, 'repeat-teams')

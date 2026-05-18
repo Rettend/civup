@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
@@ -9,7 +9,7 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getMinimumLeaderPoolSize, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
@@ -743,14 +743,15 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const db = createDb(this.env.DB!)
     const previousRoom = await this.getRoomRecord()
     const dbSnapshot = await this.loadRepeatDraftDbSnapshot(db, record.id)
-    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'resume')
-    const mapVote = prepareRepeatedMapVote(source.mapVote, now)
+    const seatIndexMap = buildRepeatSeatIndexMap(source.state.seats, currentSeats)
+    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'resume', seatIndexMap)
+    const mapVote = prepareRepeatedMapVote(source.mapVote, now, seatIndexMap)
     const timing = getRepeatDraftTiming(state, mapVote, now)
     const runtimeConfig = await this.buildRepeatRuntimeConfig(record, state, currentSeats, source.config)
     const room = createRoomRecord(runtimeConfig, state, mapVote, {
       timerEndsAt: timing.timerEndsAt,
       alarmStepIndex: timing.alarmStepIndex,
-      previews: source.previews,
+      previews: prepareRepeatedDraftPreviews(source.previews, seatIndexMap),
       lifecycleEventSequence: previousRoom?.lifecycleEventSequence ?? record.lifecycleEventSequence ?? 0,
       repeatDraft: null,
     })
@@ -794,7 +795,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const db = createDb(this.env.DB!)
     const previousRoom = await this.getRoomRecord()
     const dbSnapshot = await this.loadRepeatDraftDbSnapshot(db, record.id)
-    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'complete')
+    const seatIndexMap = buildRepeatSeatIndexMap(source.state.seats, currentSeats)
+    const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'complete', seatIndexMap)
     const runtimeConfig = await this.buildRepeatRuntimeConfig(record, state, currentSeats)
     const room = createRoomRecord(runtimeConfig, state, { ...EMPTY_STORED_MAP_VOTE_STATE }, {
       completedAt: now,
@@ -930,7 +932,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private async findResumeDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'resume' }> | null> {
     const room = await this.getRoomRecord()
     const repeatDraft = room?.repeatDraft ?? null
-    if (repeatDraft && sameDraftSeats(repeatDraft.state.seats, currentSeats) && (!room?.config || isRepeatRuntimeConfigCompatible(record, repeatDraft.state, room.config))) {
+    if (repeatDraft && sameRepeatDraftRoster(record.mode, repeatDraft.state.seats, currentSeats) && (!room?.config || isRepeatRuntimeConfigCompatible(record, repeatDraft.state, room.config))) {
       return {
         kind: 'resume',
         matchId: record.id,
@@ -943,7 +945,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (room?.state.status === 'cancelled'
       && (room.state.cancelReason === 'timeout' || room.state.cancelReason === 'revert')
-      && sameDraftSeats(room.state.seats, currentSeats)
+      && sameRepeatDraftRoster(record.mode, room.state.seats, currentSeats)
       && isRepeatRuntimeConfigCompatible(record, room.state, room.config)) {
       return {
         kind: 'resume',
@@ -965,7 +967,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const state = getDraftStateFromDraftData(match.draftData)
     if (!state || (state.cancelReason !== 'timeout' && state.cancelReason !== 'revert')) return null
-    if (!sameDraftSeats(state.seats, currentSeats)) return null
+    if (!sameRepeatDraftRoster(record.mode, state.seats, currentSeats)) return null
     const context = getStoredGameModeContext(record.mode, match.draftData)
     if (!context || !isRepeatDraftDataCompatible(record, state, {
       redDeath: context.redDeath,
@@ -1000,7 +1002,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       seen.add(row.id)
       const state = getDraftStateFromDraftData(row.draftData)
       if (!state || state.status !== 'complete') continue
-      if (!sameDraftSeats(state.seats, currentSeats)) continue
+      if (!sameRepeatDraftRoster(record.mode, state.seats, currentSeats)) continue
       const context = getStoredGameModeContext(row.gameMode, row.draftData)
       const hiddenDraft = getHiddenDraftFromDraftData(row.draftData)
       if (!context || !isRepeatDraftDataCompatible(record, state, {
@@ -3146,7 +3148,7 @@ function isPermanentAllyFfaConfig(record: OpenSessionRecord): boolean {
   return record.mode === 'ffa' && record.config.redDeath !== true && record.config.permanentAlly === true
 }
 
-function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: DraftSeat[], kind: 'resume' | 'complete'): DraftState {
+function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: DraftSeat[], kind: 'resume' | 'complete', seatIndexMap: ReadonlyMap<number, number>): DraftState {
   const status: DraftState['status'] = kind === 'complete'
     ? 'complete'
     : state.status === 'cancelled'
@@ -3159,19 +3161,31 @@ function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: Dr
     ...state,
     matchId,
     seats,
+    steps: remapDraftSteps(state.steps, seatIndexMap),
     status,
     cancelReason: null,
-    submissions: kind === 'complete' ? {} : state.submissions,
-    pendingBlindBans: kind === 'complete' ? [] : state.pendingBlindBans,
+    submissions: kind === 'complete' ? {} : remapSeatSelectionRecord(state.submissions, seatIndexMap),
+    bans: remapDraftSelections(state.bans, seatIndexMap),
+    picks: remapDraftSelections(state.picks, seatIndexMap),
+    pendingBlindBans: kind === 'complete' ? [] : remapDraftSelections(state.pendingBlindBans, seatIndexMap),
     dealtCivIds: kind === 'complete' ? null : state.dealtCivIds,
   }
 }
 
-function prepareRepeatedMapVote(mapVote: StoredMapVoteState, now: number): StoredMapVoteState {
-  if (!isMapVoteInProgress(mapVote)) return mapVote
+function prepareRepeatedMapVote(mapVote: StoredMapVoteState, now: number, seatIndexMap: ReadonlyMap<number, number>): StoredMapVoteState {
+  const remapped = remapStoredMapVote(mapVote, seatIndexMap)
+  if (!isMapVoteInProgress(remapped)) return remapped
   return {
-    ...mapVote,
-    endsAt: now + (mapVote.phase === 'voting' ? MAP_VOTE_VOTING_DURATION_MS : MAP_VOTE_REVEAL_DURATION_MS),
+    ...remapped,
+    endsAt: now + (remapped.phase === 'voting' ? MAP_VOTE_VOTING_DURATION_MS : MAP_VOTE_REVEAL_DURATION_MS),
+  }
+}
+
+function prepareRepeatedDraftPreviews(previews: DraftPreviewState | undefined, seatIndexMap: ReadonlyMap<number, number>): DraftPreviewState | undefined {
+  if (!previews) return undefined
+  return {
+    bans: remapSeatSelectionRecord(previews.bans, seatIndexMap),
+    picks: remapSeatSelectionRecord(previews.picks, seatIndexMap),
   }
 }
 
@@ -3184,16 +3198,81 @@ function getRepeatDraftTiming(state: DraftState, mapVote: StoredMapVoteState, no
   return { timerEndsAt: now + step.timer * 1000, alarmStepIndex: state.currentStepIndex }
 }
 
-function sameDraftSeats(left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
+function sameRepeatDraftRoster(mode: GameMode, left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
   if (left.length !== right.length) return false
-  for (let index = 0; index < left.length; index++) {
-    const leftSeat = left[index]
-    const rightSeat = right[index]
-    if (!leftSeat || !rightSeat) return false
-    if (leftSeat.playerId !== rightSeat.playerId) return false
-    if ((leftSeat.team ?? null) !== (rightSeat.team ?? null)) return false
+  const rightSeatsByPlayerId = new Map<string, DraftSeat>()
+  for (const seat of right) {
+    if (rightSeatsByPlayerId.has(seat.playerId)) return false
+    rightSeatsByPlayerId.set(seat.playerId, seat)
+  }
+  for (const leftSeat of left) {
+    const rightSeat = rightSeatsByPlayerId.get(leftSeat.playerId)
+    if (!rightSeat) return false
+    if (isTeamMode(mode) && (leftSeat.team ?? null) !== (rightSeat.team ?? null)) return false
   }
   return true
+}
+
+function buildRepeatSeatIndexMap(sourceSeats: readonly DraftSeat[], targetSeats: readonly DraftSeat[]): Map<number, number> {
+  const targetIndexByPlayerId = new Map(targetSeats.map((seat, index) => [seat.playerId, index]))
+  const seatIndexMap = new Map<number, number>()
+  sourceSeats.forEach((seat, index) => {
+    const nextIndex = targetIndexByPlayerId.get(seat.playerId)
+    if (nextIndex != null) seatIndexMap.set(index, nextIndex)
+  })
+  return seatIndexMap
+}
+
+function remapDraftSelections(selections: readonly DraftSelection[], seatIndexMap: ReadonlyMap<number, number>): DraftSelection[] {
+  return selections.map(selection => ({
+    ...selection,
+    seatIndex: remapSeatIndex(selection.seatIndex, seatIndexMap),
+  }))
+}
+
+function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap: ReadonlyMap<number, number>): Record<number, string[]> {
+  const next: Record<number, string[]> = {}
+  for (const [seatIndex, selections] of Object.entries(record)) {
+    const nextSeatIndex = remapSeatIndex(Number(seatIndex), seatIndexMap)
+    next[nextSeatIndex] = [...selections]
+  }
+  return next
+}
+
+function remapDraftSteps(steps: DraftState['steps'], seatIndexMap: ReadonlyMap<number, number>): DraftState['steps'] {
+  return steps.map(step => step.seats === 'all'
+    ? step
+    : {
+        ...step,
+        seats: step.seats.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
+      })
+}
+
+function remapStoredMapVote(mapVote: StoredMapVoteState, seatIndexMap: ReadonlyMap<number, number>): StoredMapVoteState {
+  return {
+    ...mapVote,
+    selections: remapSeatValueRecord(mapVote.selections, seatIndexMap, selection => ({
+      mapTypes: [...selection.mapTypes],
+      mapScripts: [...selection.mapScripts],
+    })),
+    confirmations: remapSeatValueRecord(mapVote.confirmations, seatIndexMap, confirmed => confirmed),
+    revealedVotes: mapVote.revealedVotes?.map(ballot => ({
+      ...ballot,
+      seatIndex: remapSeatIndex(ballot.seatIndex, seatIndexMap),
+    })) ?? null,
+  }
+}
+
+function remapSeatValueRecord<T>(record: Record<number, T>, seatIndexMap: ReadonlyMap<number, number>, clone: (value: T) => T): Record<number, T> {
+  const next: Record<number, T> = {}
+  for (const [seatIndex, value] of Object.entries(record)) {
+    next[remapSeatIndex(Number(seatIndex), seatIndexMap)] = clone(value)
+  }
+  return next
+}
+
+function remapSeatIndex(seatIndex: number, seatIndexMap: ReadonlyMap<number, number>): number {
+  return seatIndexMap.get(seatIndex) ?? seatIndex
 }
 
 function buildRepeatCivPool(state: DraftState): string[] {
