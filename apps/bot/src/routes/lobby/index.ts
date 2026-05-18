@@ -6,7 +6,7 @@ import { createDb, playerRatings } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
-import { lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed } from '../../embeds/match.ts'
+import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import {
@@ -1499,23 +1499,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       await syncLobbyDerivedState(kv, lobbyForMessage)
       await markTournamentMatchDrafting(db, lobby.id, matchId)
 
-      queueBackgroundTask(c, async () => {
-        const currentLobby = lobbyForMessage
-        if (repeated.kind === 'complete') {
-          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-            embeds: [lobbyDraftCompleteEmbed(mode, repeated.participants ?? [], null, currentLobby.draftConfig.leaderDataVersion, currentLobby.draftConfig.redDeath)],
-            components: lobbyComponents(mode, currentLobby.id),
+      if (repeated.kind === 'resume') {
+        queueBackgroundTask(c, async () => {
+          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
+            components: lobbyComponents(mode, lobbyForMessage.id),
           }, lobbySessionMutationOptions(c))
           await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
-          return
-        }
-
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-          embeds: [lobbyDraftingEmbed(mode, seats, currentLobby.draftConfig.leaderDataVersion, currentLobby.draftConfig.redDeath)],
-          components: lobbyComponents(mode, currentLobby.id),
-        }, lobbySessionMutationOptions(c))
-        await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
-      }, `Failed to update repeated draft lobby embed for mode ${mode}:`)
+        }, `Failed to update repeated draft lobby embed for mode ${mode}:`)
+      }
 
       return c.json({
         ok: true as const,

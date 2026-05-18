@@ -29,7 +29,7 @@ import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentResultPng } from '../services/tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
-import { createRoomRecord } from './draft-room-domain.ts'
+import { createRoomRecord, ROOM_RECORD_KEY } from './draft-room-domain.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE, isMapVoteInProgress } from './map-vote-room-state.ts'
 import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
@@ -293,6 +293,18 @@ interface ReportedDiscordSyncMarker {
   lastError: string
   createdAt: number
   updatedAt: number
+}
+
+interface SessionCommitFailure {
+  response: Response
+  pending: boolean
+}
+
+interface RepeatDraftDbSnapshot {
+  matchId: string
+  match: typeof matches.$inferSelect | null
+  participants: Array<typeof matchParticipants.$inferSelect>
+  bans: Array<typeof matchBans.$inferSelect>
 }
 
 interface ReportClaimMarker {
@@ -650,7 +662,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({ error: 'Permanent Ally FFA requires an even player count.' }, 400)
     }
     if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
-      return json({ error: 'Session cannot start with the current slotted player count.' }, 400)
+      return json({ error: 'Session cannot start with the current player count.' }, 400)
     }
     const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length)
     if (leaderPoolError) return json({ error: leaderPoolError }, 400)
@@ -711,6 +723,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!this.env.DB) return json({ error: 'D1 binding is not configured' }, 503)
 
     const currentSeats = this.buildCurrentDraftSeats(record)
+    const startError = getRepeatDraftStartError(record, currentSeats)
+    if (startError) return json({ error: startError }, 400)
+
     const source = await this.findRepeatDraftSource(record, currentSeats)
     if (!source) return json({ error: 'No repeatable draft matches the current players and teams.' }, 409)
 
@@ -727,6 +742,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   ): Promise<Response> {
     const db = createDb(this.env.DB!)
     const previousRoom = await this.getRoomRecord()
+    const dbSnapshot = await this.loadRepeatDraftDbSnapshot(db, record.id)
     const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'resume')
     const mapVote = prepareRepeatedMapVote(source.mapVote, now)
     const timing = getRepeatDraftTiming(state, mapVote, now)
@@ -739,8 +755,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       repeatDraft: null,
     })
 
-    await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
-    await this.setRoomRecord(room)
+    try {
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await this.setRoomRecord(room)
+    }
+    catch (error) {
+      await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
+      throw error
+    }
 
     const next: DraftSessionRecord = {
       ...record,
@@ -753,10 +775,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       closedAt: null,
       draftStartSync: null,
     }
-    const commit = await this.commitRecord(next)
+    const commit = await this.commitRecordDetailed(next)
     if (commit) {
-      if (previousRoom) await this.setRoomRecord(previousRoom)
-      return commit
+      if (!commit.pending) await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
+      return commit.response
     }
     await this.rescheduleRoomAlarm()
 
@@ -771,6 +793,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   ): Promise<Response> {
     const db = createDb(this.env.DB!)
     const previousRoom = await this.getRoomRecord()
+    const dbSnapshot = await this.loadRepeatDraftDbSnapshot(db, record.id)
     const state = prepareRepeatedDraftState(source.state, record.id, currentSeats, 'complete')
     const runtimeConfig = await this.buildRepeatRuntimeConfig(record, state, currentSeats)
     const room = createRoomRecord(runtimeConfig, state, { ...EMPTY_STORED_MAP_VOTE_STATE }, {
@@ -779,18 +802,28 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       repeatDraft: null,
     })
 
-    await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
-    const activated = await activateDraftMatch(db, {
-      state,
-      completedAt: now,
-      hostId: record.hostId,
-      mapVoteResult: null,
-      hiddenDraft: source.hiddenDraft,
-      permanentAlly: source.permanentAlly,
-    })
-    if ('error' in activated) return json({ error: activated.error }, 400)
-
-    await this.setRoomRecord(room)
+    let activated!: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never }
+    try {
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      const activation = await activateDraftMatch(db, {
+        state,
+        completedAt: now,
+        hostId: record.hostId,
+        mapVoteResult: null,
+        hiddenDraft: source.hiddenDraft,
+        permanentAlly: source.permanentAlly,
+      })
+      if ('error' in activation) {
+        await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
+        return json({ error: activation.error }, 400)
+      }
+      activated = activation
+      await this.setRoomRecord(room)
+    }
+    catch (error) {
+      await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
+      throw error
+    }
 
     const next: ActiveSessionRecord = {
       ...record,
@@ -803,14 +836,75 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       closedAt: null,
       draftStartSync: null,
     }
-    const commit = await this.commitRecord(next)
+    const commit = await this.commitRecordDetailed(next)
     if (commit) {
-      if (previousRoom) await this.setRoomRecord(previousRoom)
-      return commit
+      if (!commit.pending) await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
+      return commit.response
     }
     await this.rescheduleRoomAlarm()
+    await this.updateCompletedRepeatProjection(db, next, state, activated, source, now)
 
     return json({ kind: 'complete', record: next, matchId: next.matchId, seats: currentSeats, participants: activated.participants } satisfies RepeatDraftCommandResult)
+  }
+
+  private async loadRepeatDraftDbSnapshot(db: ReturnType<typeof createDb>, matchId: string): Promise<RepeatDraftDbSnapshot> {
+    const [matchRows, participants, bans] = await Promise.all([
+      db.select().from(matches).where(eq(matches.id, matchId)).limit(1),
+      db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId)),
+      db.select().from(matchBans).where(eq(matchBans.matchId, matchId)),
+    ])
+    return { matchId, match: matchRows[0] ?? null, participants, bans }
+  }
+
+  private async restoreRepeatDraftState(db: ReturnType<typeof createDb>, snapshot: RepeatDraftDbSnapshot, previousRoom: RoomRecord | null): Promise<void> {
+    await Promise.all([
+      this.restoreRepeatDraftDbSnapshot(db, snapshot),
+      this.restoreRepeatRoomRecord(previousRoom),
+    ])
+  }
+
+  private async restoreRepeatDraftDbSnapshot(db: ReturnType<typeof createDb>, snapshot: RepeatDraftDbSnapshot): Promise<void> {
+    await db.delete(matchBans).where(eq(matchBans.matchId, snapshot.matchId))
+    await db.delete(matchParticipants).where(eq(matchParticipants.matchId, snapshot.matchId))
+    await db.delete(matches).where(eq(matches.id, snapshot.matchId))
+
+    if (!snapshot.match) return
+    await db.insert(matches).values(snapshot.match)
+    if (snapshot.participants.length > 0) await db.insert(matchParticipants).values(snapshot.participants)
+    if (snapshot.bans.length > 0) await db.insert(matchBans).values(snapshot.bans)
+  }
+
+  private async restoreRepeatRoomRecord(previousRoom: RoomRecord | null): Promise<void> {
+    if (previousRoom) {
+      await this.setRoomRecord(previousRoom)
+      return
+    }
+    await this.ctx.storage.delete(ROOM_RECORD_KEY)
+  }
+
+  private async updateCompletedRepeatProjection(
+    db: ReturnType<typeof createDb>,
+    record: ActiveSessionRecord,
+    state: DraftState,
+    activated: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never },
+    source: Extract<RepeatDraftSource, { kind: 'complete' }>,
+    completedAt: number,
+  ): Promise<void> {
+    const eventSequence = (record.lifecycleEventSequence ?? 0) + 1
+    const payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }> = {
+      eventId: `${record.id}:repeat-complete:${eventSequence}`,
+      eventKind: 'DraftCompleted',
+      eventSequence,
+      outcome: 'complete',
+      matchId: record.matchId,
+      hostId: record.hostId,
+      completedAt,
+      finalized: true,
+      state,
+      mapVoteResult: null,
+      hiddenDraft: source.hiddenDraft === true ? true : undefined,
+    }
+    await this.updateCompletedDraftProjection(db, payload, activated, record, { repeatDraft: true })
   }
 
   private async getRepeatDraftAvailability(record: OpenSessionRecord): Promise<RepeatDraftAvailability | null> {
@@ -826,9 +920,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async findRepeatDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<RepeatDraftSource | null> {
-    if (!canStartWithPlayerCount(record.mode, currentSeats.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
-      return null
-    }
+    if (getRepeatDraftStartError(record, currentSeats)) return null
 
     const resume = await this.findResumeDraftSource(record, currentSeats)
     if (resume) return resume
@@ -838,7 +930,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private async findResumeDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'resume' }> | null> {
     const room = await this.getRoomRecord()
     const repeatDraft = room?.repeatDraft ?? null
-    if (repeatDraft && sameDraftSeats(repeatDraft.state.seats, currentSeats)) {
+    if (repeatDraft && sameDraftSeats(repeatDraft.state.seats, currentSeats) && (!room?.config || isRepeatRuntimeConfigCompatible(record, repeatDraft.state, room.config))) {
       return {
         kind: 'resume',
         matchId: record.id,
@@ -851,7 +943,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (room?.state.status === 'cancelled'
       && (room.state.cancelReason === 'timeout' || room.state.cancelReason === 'revert')
-      && sameDraftSeats(room.state.seats, currentSeats)) {
+      && sameDraftSeats(room.state.seats, currentSeats)
+      && isRepeatRuntimeConfigCompatible(record, room.state, room.config)) {
       return {
         kind: 'resume',
         matchId: record.id,
@@ -873,6 +966,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const state = getDraftStateFromDraftData(match.draftData)
     if (!state || (state.cancelReason !== 'timeout' && state.cancelReason !== 'revert')) return null
     if (!sameDraftSeats(state.seats, currentSeats)) return null
+    const context = getStoredGameModeContext(record.mode, match.draftData)
+    if (!context || !isRepeatDraftDataCompatible(record, state, {
+      redDeath: context.redDeath,
+      permanentAlly: context.permanentAlly,
+      hiddenDraft: getHiddenDraftFromDraftData(match.draftData),
+    })) return null
     return {
       kind: 'resume',
       matchId: record.id,
@@ -903,12 +1002,17 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       if (!state || state.status !== 'complete') continue
       if (!sameDraftSeats(state.seats, currentSeats)) continue
       const context = getStoredGameModeContext(row.gameMode, row.draftData)
-      if (!context || context.redDeath !== record.config.redDeath) continue
+      const hiddenDraft = getHiddenDraftFromDraftData(row.draftData)
+      if (!context || !isRepeatDraftDataCompatible(record, state, {
+        redDeath: context.redDeath,
+        permanentAlly: context.permanentAlly,
+        hiddenDraft,
+      })) continue
       return {
         kind: 'complete',
         matchId: row.id,
         state,
-        hiddenDraft: getHiddenDraftFromDraftData(row.draftData),
+        hiddenDraft,
         permanentAlly: context.permanentAlly,
       }
     }
@@ -947,12 +1051,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     return {
       ...runtime.config,
-      ...(sourceConfig ? {
-        formatId: sourceConfig.formatId,
-        civPool: sourceConfig.civPool,
-        dealOptionsSize: sourceConfig.dealOptionsSize,
-        duplicateFactions: sourceConfig.duplicateFactions,
-      } : {}),
+      ...(sourceConfig ?? {}),
       matchId: record.id,
       hostId: record.hostId,
       formatId: state.formatId,
@@ -2068,6 +2167,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async commitRecord(record: SessionRecord): Promise<Response | null> {
+    const failure = await this.commitRecordDetailed(record)
+    return failure?.response ?? null
+  }
+
+  private async commitRecordDetailed(record: SessionRecord): Promise<SessionCommitFailure | null> {
     let projected = false
     try {
       await this.ctx.storage.put(SESSION_COMMIT_INTENT_STORAGE_KEY, { record, createdAt: Date.now() } satisfies SessionCommitIntent)
@@ -2088,10 +2192,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         })
       }
       if (isSessionAdmissionError(error)) {
-        return json({ error: error.message, playerIds: error.playerIds }, 409)
+        return { response: json({ error: error.message, playerIds: error.playerIds }, 409), pending: projected }
       }
       console.error('[session-do] failed to commit session record', error)
-      return json({ error: error instanceof Error ? error.message : String(error) }, 500)
+      return { response: json({ error: error instanceof Error ? error.message : String(error) }, 500), pending: projected }
     }
 
     await this.clearPendingCommitIntent().catch((error) => {
@@ -2990,6 +3094,56 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     projectionSync: null,
     terminalSync: record.terminalSync ?? null,
   }
+}
+
+function getRepeatDraftStartError(record: OpenSessionRecord, currentSeats: readonly DraftSeat[]): string | null {
+  if (!currentSeats.some(seat => seat.playerId === record.hostId)) {
+    return 'Host must be in a lobby slot before repeating.'
+  }
+  if (record.mode === 'ffa' && !record.config.redDeath && record.config.permanentAlly && currentSeats.length % 2 !== 0) {
+    return 'Permanent Ally FFA requires an even player count.'
+  }
+  if (!canStartWithPlayerCount(record.mode, currentSeats.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
+    return 'Session cannot start with the current player count.'
+  }
+  return getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, currentSeats.length)
+}
+
+function isRepeatDraftDataCompatible(
+  record: OpenSessionRecord,
+  state: DraftState,
+  source: { redDeath: boolean, permanentAlly: boolean, hiddenDraft: boolean },
+): boolean {
+  return isRepeatDraftFormatCompatible(record, state)
+    && source.redDeath === record.config.redDeath
+    && source.permanentAlly === isPermanentAllyFfaConfig(record)
+    && source.hiddenDraft === record.config.hiddenDraft
+}
+
+function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: DraftState, sourceConfig: RoomRecord['config']): boolean {
+  return isRepeatDraftFormatCompatible(record, state)
+    && (sourceConfig.leaderDataVersion ?? 'live') === record.config.leaderDataVersion
+    && (sourceConfig.hiddenDraft === true) === record.config.hiddenDraft
+    && (sourceConfig.permanentAlly === true) === isPermanentAllyFfaConfig(record)
+    && (sourceConfig.mapVoteEnabled === true) === record.config.mapVoteEnabled
+    && (sourceConfig.randomDraft === true) === (!record.config.hiddenDraft && record.config.randomDraft)
+}
+
+function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftState): boolean {
+  const redDeath = record.config.redDeath === true
+  const hiddenDraft = record.config.hiddenDraft === true
+  const format = getDraftFormat(record.mode, {
+    simultaneousPick: record.mode === 'ffa' && !redDeath && record.config.simultaneousPick === true,
+    randomDraft: !hiddenDraft && record.config.randomDraft === true,
+    redDeath,
+    blindBans: record.config.blindBans,
+    seatCount: state.seats.length,
+  })
+  return state.formatId === format.id
+}
+
+function isPermanentAllyFfaConfig(record: OpenSessionRecord): boolean {
+  return record.mode === 'ffa' && record.config.redDeath !== true && record.config.permanentAlly === true
 }
 
 function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: DraftSeat[], kind: 'resume' | 'complete'): DraftState {
