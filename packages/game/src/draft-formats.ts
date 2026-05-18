@@ -21,6 +21,38 @@ function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: 60 }
 }
 
+function createTeamPickSteps(gameMode: TeamGameMode, seatCount: number, pickOrder: readonly number[]): DraftStep[] {
+  const steps: DraftStep[] = []
+  for (const seat of pickOrder) {
+    const previousStep = steps.at(-1)
+    const previousSeat = previousStep?.action === 'pick' && previousStep.seats !== 'all'
+      ? previousStep.seats.at(-1)
+      : null
+
+    if (
+      previousStep
+      && previousStep.action === 'pick'
+      && previousStep.seats !== 'all'
+      && previousStep.count === 1
+      && previousStep.timer === 60
+      && previousSeat != null
+      && getTeamPickOrderTeam(gameMode, seatCount, previousSeat) === getTeamPickOrderTeam(gameMode, seatCount, seat)
+    ) {
+      previousStep.seats = [...previousStep.seats, seat]
+      continue
+    }
+
+    steps.push(createSinglePickStep(seat))
+  }
+
+  return steps
+}
+
+function getTeamPickOrderTeam(gameMode: TeamGameMode, seatCount: number, seatIndex: number): number {
+  if (gameMode === '2v2') return seatIndex % getTwoVTwoTeamCount(seatCount)
+  return seatIndex % 2
+}
+
 function createCaptainBanStep(captainCount: number): DraftStep {
   return {
     action: 'ban',
@@ -68,7 +100,7 @@ function createTeamFormat(config: {
         ...(config.blindBans === false
           ? VISIBLE_TEAM_BAN_STEPS
           : [(config.getBanStep ?? (() => TEAM_BAN_STEP))(seatCount)]),
-        ...pickOrder.map(createSinglePickStep),
+        ...createTeamPickSteps(config.gameMode, seatCount, pickOrder),
       ]
     },
   }

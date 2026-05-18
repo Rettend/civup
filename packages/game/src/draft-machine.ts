@@ -406,6 +406,9 @@ function processTimeout(
       return { error: 'No pending picks to timeout' }
     }
 
+    const fallbackResult = processDoublePickFallbackTimeout(state, step, timedOutSeats)
+    if (fallbackResult) return fallbackResult
+
     const cancelResult = processCancel(state, 'timeout')
     if (isDraftError(cancelResult)) return cancelResult
 
@@ -632,19 +635,19 @@ export function getPickSeatForPlayer(state: DraftState, seatIndex: number): numb
   const step = getCurrentStep(state)
   if (!step || step.action !== 'pick') return null
   if (isSeatPendingForStep(state, step, seatIndex)) return seatIndex
-  if (step.seats === 'all' || step.seats.length !== 1) return null
+  if (step.seats === 'all') return null
 
   const ownSeat = state.seats[seatIndex]
-  const targetSeatIndex = step.seats[0]
-  if (targetSeatIndex == null) return null
-
-  const targetSeat = state.seats[targetSeatIndex]
-  if (!ownSeat || !targetSeat) return null
-  if (ownSeat.team == null || targetSeat.team == null || ownSeat.team !== targetSeat.team) return null
+  if (!ownSeat || ownSeat.team == null) return null
   if (!isSeatTeamCaptain(state.seats, seatIndex)) return null
-  if (!isSeatPendingForStep(state, step, targetSeatIndex)) return null
 
-  return targetSeatIndex
+  const targetSeatIndex = step.seats.find((candidateSeatIndex) => {
+    const targetSeat = state.seats[candidateSeatIndex]
+    if (!targetSeat || targetSeat.team == null || targetSeat.team !== ownSeat.team) return false
+    return isSeatPendingForStep(state, step, candidateSeatIndex)
+  })
+
+  return targetSeatIndex ?? null
 }
 
 /** Get picks for a specific seat */
@@ -666,6 +669,54 @@ export function isPlayerTurn(state: DraftState, playerId: string): boolean {
 function isSeatPendingForStep(state: DraftState, step: DraftStep, seatIndex: number): boolean {
   if (!isSeatActive(step, seatIndex, state.seats.length)) return false
   return (state.submissions[seatIndex]?.length ?? 0) < step.count
+}
+
+function processDoublePickFallbackTimeout(
+  state: DraftState,
+  step: DraftStep,
+  timedOutSeats: number[],
+): DraftResult | null {
+  if (!isDoublePickStep(state, step)) return null
+  if (timedOutSeats.length !== 1) return null
+
+  const [seatIndex] = timedOutSeats
+  if (seatIndex == null) return null
+
+  const fallbackStep: DraftStep = {
+    action: 'pick',
+    seats: [seatIndex],
+    count: 1,
+    timer: step.timer,
+    fallbackForStepIndex: state.currentStepIndex,
+  }
+  const nextStepIndex = state.currentStepIndex + 1
+
+  return {
+    state: {
+      ...state,
+      steps: [
+        ...state.steps.slice(0, nextStepIndex),
+        fallbackStep,
+        ...state.steps.slice(nextStepIndex),
+      ],
+      currentStepIndex: nextStepIndex,
+      submissions: {},
+      dealtCivIds: null,
+    },
+    events: [{ type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
+  }
+}
+
+export function isDoublePickStep(state: DraftState, step: DraftStep): boolean {
+  if (step.action !== 'pick') return false
+  if (step.seats === 'all' || step.seats.length !== 2) return false
+  if (step.count !== 1 || step.fallbackForStepIndex != null) return false
+
+  const [leftSeatIndex, rightSeatIndex] = step.seats
+  if (leftSeatIndex == null || rightSeatIndex == null) return false
+  const leftTeam = state.seats[leftSeatIndex]?.team
+  const rightTeam = state.seats[rightSeatIndex]?.team
+  return leftTeam != null && leftTeam === rightTeam
 }
 
 function isSeatTeamCaptain(seats: DraftSeat[], seatIndex: number): boolean {

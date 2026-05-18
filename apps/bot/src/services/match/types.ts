@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftSeat, DraftState, GameMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, ResolvedMapVoteResult } from '@civup/game'
 
 export interface MatchRow {
   id: string
@@ -117,6 +117,7 @@ export interface ActivateDraftInput {
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
   permanentAlly?: boolean
+  doublePickMetrics?: DraftDoublePickMetrics
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -129,6 +130,7 @@ export interface CancelDraftInput {
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
   permanentAlly?: boolean
+  doublePickMetrics?: DraftDoublePickMetrics
   allowActive?: boolean
 }
 

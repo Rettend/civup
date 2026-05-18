@@ -1,4 +1,5 @@
 import type {
+  DraftDoublePickMetrics,
   DraftEvent,
   DraftPreviewState,
   DraftState,
@@ -16,6 +17,7 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   getCurrentStep,
+  isDoublePickStep,
   isRedDeathFormatId,
   MAP_VOTE_REVEAL_DURATION_MS,
   MAP_VOTE_VOTING_DURATION_MS,
@@ -52,6 +54,7 @@ export interface RoomRecord {
   mapVote: StoredMapVoteState
   lifecycleEventSequence: number
   repeatDraft: RepeatDraftRoomSnapshot | null
+  doublePickMetrics: DraftDoublePickMetrics
 }
 
 export interface RepeatDraftRoomSnapshot {
@@ -59,6 +62,7 @@ export interface RepeatDraftRoomSnapshot {
   state: DraftState
   mapVote: StoredMapVoteState
   previews: DraftPreviewState
+  doublePickMetrics: DraftDoublePickMetrics
 }
 
 export type RoomEffect
@@ -182,6 +186,7 @@ export function createRoomRecord(
       ? overrides.lifecycleEventSequence
       : 0,
     repeatDraft: overrides.repeatDraft ?? null,
+    doublePickMetrics: normalizeDoublePickMetrics(overrides.doublePickMetrics, state),
   }
 }
 
@@ -213,12 +218,13 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
       lifecycleEventSequence: typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
         ? raw.lifecycleEventSequence
         : 0,
-      repeatDraft: normalizeRepeatDraftRoomSnapshot(raw.repeatDraft),
+      repeatDraft: normalizeRepeatDraftRoomSnapshot(raw.repeatDraft, raw.doublePickMetrics),
+      doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics, raw.state),
     },
   )
 }
 
-function normalizeRepeatDraftRoomSnapshot(value: unknown): RepeatDraftRoomSnapshot | null {
+function normalizeRepeatDraftRoomSnapshot(value: unknown, fallbackMetrics?: unknown): RepeatDraftRoomSnapshot | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<RepeatDraftRoomSnapshot>
   if (raw.reason !== 'timeout' && raw.reason !== 'revert') return null
@@ -234,6 +240,7 @@ function normalizeRepeatDraftRoomSnapshot(value: unknown): RepeatDraftRoomSnapsh
       raw.state,
       raw.previews ?? createEmptyDraftPreviews(),
     ),
+    doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics ?? fallbackMetrics, raw.state),
   }
 }
 
@@ -250,6 +257,10 @@ export function applyDraftResultCommand(
     ...room,
     state: nextState,
     previews: sanitizeDraftPreviews(nextState, room.previews),
+  }
+  nextRoom = {
+    ...nextRoom,
+    doublePickMetrics: applyDoublePickMetricUpdate(room.state, nextState, command.events, room.doublePickMetrics),
   }
 
   let alarmEffect: RoomEffect | null = null
@@ -329,6 +340,7 @@ export function applyDraftResultCommand(
           state: room.state,
           mapVote: room.mapVote,
           previews: sanitizeDraftPreviews(room.state, room.previews),
+          doublePickMetrics: nextRoom.doublePickMetrics,
         } satisfies RepeatDraftRoomSnapshot
       : null
     nextRoom = {
@@ -667,6 +679,7 @@ function createCompleteLifecycleSync(
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
+    doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -691,6 +704,7 @@ function createCancelledLifecycleSync(
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
+    doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -715,6 +729,82 @@ function createLifecycleSyncEffect(
 
 function createDraftLifecycleEventId(matchId: string, eventSequence: number): string {
   return `${matchId}:lifecycle:${eventSequence}`
+}
+
+function applyDoublePickMetricUpdate(
+  previousState: DraftState,
+  nextState: DraftState,
+  events: DraftEvent[],
+  metrics: DraftDoublePickMetrics,
+): DraftDoublePickMetrics {
+  const previousStep = previousState.status === 'active'
+    ? previousState.steps[previousState.currentStepIndex]
+    : null
+  if (!previousStep) return metrics
+
+  let nextMetrics = metrics
+  const timeoutCancelled = nextState.status === 'cancelled' && nextState.cancelReason === 'timeout'
+
+  if (isDoublePickStep(previousState, previousStep)) {
+    const nextStep = nextState.status === 'active'
+      ? nextState.steps[nextState.currentStepIndex]
+      : null
+    if (nextStep?.fallbackForStepIndex === previousState.currentStepIndex) {
+      nextMetrics = incrementDoublePickMetric(nextMetrics, 'fallbackStarted')
+    }
+    else if (timeoutCancelled && getPendingSeats(previousState, previousStep).length === 2) {
+      nextMetrics = incrementDoublePickMetric(nextMetrics, 'bothMissedTimeouts')
+    }
+  }
+
+  if (isDoublePickFallbackStep(previousStep)) {
+    const resolved = nextState.status !== 'cancelled' && events.some(event => event.type === 'PICK_SUBMITTED')
+    if (resolved) nextMetrics = incrementDoublePickMetric(nextMetrics, 'fallbackResolved')
+    if (timeoutCancelled) nextMetrics = incrementDoublePickMetric(nextMetrics, 'fallbackTimeouts')
+  }
+
+  return nextMetrics
+}
+
+function incrementDoublePickMetric(
+  metrics: DraftDoublePickMetrics,
+  key: Exclude<keyof DraftDoublePickMetrics, 'groups'>,
+): DraftDoublePickMetrics {
+  return {
+    ...metrics,
+    [key]: metrics[key] + 1,
+  }
+}
+
+function normalizeDoublePickMetrics(value: unknown, state: DraftState): DraftDoublePickMetrics {
+  const raw = value && typeof value === 'object' ? value as Partial<DraftDoublePickMetrics> : {}
+  return {
+    groups: normalizeMetricCount(raw.groups, countDoublePickSteps(state)),
+    fallbackStarted: normalizeMetricCount(raw.fallbackStarted, 0),
+    fallbackResolved: normalizeMetricCount(raw.fallbackResolved, 0),
+    bothMissedTimeouts: normalizeMetricCount(raw.bothMissedTimeouts, 0),
+    fallbackTimeouts: normalizeMetricCount(raw.fallbackTimeouts, 0),
+  }
+}
+
+function normalizeMetricCount(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.round(value))
+}
+
+function countDoublePickSteps(state: DraftState): number {
+  return state.steps.filter(step => isDoublePickStep(state, step)).length
+}
+
+function isDoublePickFallbackStep(step: DraftState['steps'][number]): boolean {
+  return step.action === 'pick' && step.fallbackForStepIndex != null
+}
+
+function getPendingSeats(state: DraftState, step: DraftState['steps'][number]): number[] {
+  const activeSeats = step.seats === 'all'
+    ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex)
+    : step.seats
+  return activeSeats.filter(seatIndex => (state.submissions[seatIndex]?.length ?? 0) < step.count)
 }
 
 function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null, random: RandomSource = Math.random): DraftState {

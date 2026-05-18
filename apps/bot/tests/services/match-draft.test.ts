@@ -54,6 +54,51 @@ describe('draft match activation', () => {
     }
   })
 
+  test('stores double-pick metrics in draft data when provided', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const matchId = 'match-draft-double-pick-metrics'
+      const seats = create2v2Seats()
+      const completedState = buildCompleted2v2DraftState(matchId, seats)
+
+      await createDraftMatch(db, {
+        matchId,
+        mode: '2v2',
+        seats,
+      })
+
+      const metrics = {
+        groups: 1,
+        fallbackStarted: 1,
+        fallbackResolved: 1,
+        bothMissedTimeouts: 0,
+        fallbackTimeouts: 0,
+      }
+      const result = await activateDraftMatch(db, {
+        state: completedState,
+        completedAt: 1_700_000_000_000,
+        hostId: seats[0]?.playerId ?? 'p1',
+        doublePickMetrics: metrics,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      const [storedMatch] = await db
+        .select()
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1)
+      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { doublePickMetrics?: typeof metrics } : null
+
+      expect(storedDraftData?.doublePickMetrics).toEqual(metrics)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('re-syncs an active match after a swap without rewriting the whole draft', async () => {
     const { db, sqlite } = await createTestDatabase()
     const sqlTracker = trackSqlite(sqlite)

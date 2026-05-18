@@ -33,7 +33,6 @@ import {
   hasSubmitted,
   hiddenDraftLeaderSelections,
   isHiddenDraftComplete,
-  isMyOwnPickTurn,
   isMyTurn,
   isRandomSelected,
   isRedDeathDraft,
@@ -318,7 +317,7 @@ export function LeaderGridOverlay() {
   createEffect(() => {
     const currentStep = step()
     if (!currentStep || hasSubmitted()) return
-    if (currentStep.action === 'pick' && !isMyOwnPickTurn()) return
+    if (currentStep.action === 'pick' && currentPickTargetSeatIndex() == null) return
     if (isMyTurn()) setGridOpen(true)
   })
 

@@ -145,6 +145,16 @@ export interface DraftStep {
   count: number
   /** Timer in seconds (0 = no timer / unlimited) */
   timer: number
+  /** Original grouped pick step that spawned this temporary fallback step. */
+  fallbackForStepIndex?: number
+}
+
+export interface DraftDoublePickMetrics {
+  groups: number
+  fallbackStarted: number
+  fallbackResolved: number
+  bothMissedTimeouts: number
+  fallbackTimeouts: number
 }
 
 export interface DraftFormat {

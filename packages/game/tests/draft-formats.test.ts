@@ -54,34 +54,34 @@ const visibleTeamBanSteps = [
 ] as const
 
 describe('draft formats', () => {
-  test('2v2 full roster order stays A1, B1, B2, A2', () => {
-    expect(default2v2.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
+  test('2v2 full roster groups the back-to-back Team B picks', () => {
+    expect(default2v2.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2]])
   })
 
   test('2v2v2v2 uses four captains for bans and a 12344321 snake', () => {
     expect(default2v2.getSteps(8)[0]).toEqual({ action: 'ban', seats: [0, 1, 2, 3], count: 3, timer: 120 })
-    expect(default2v2.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [3], [7], [6], [5], [4]])
+    expect(default2v2.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [3, 7], [6], [5], [4]])
   })
 
   test('2v2v2 uses three captains for bans and a 123321 snake', () => {
     expect(default2v2.getSteps(6)[0]).toEqual({ action: 'ban', seats: [0, 1, 2], count: 3, timer: 120 })
-    expect(default2v2.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [2], [5], [4], [3]])
+    expect(default2v2.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [2, 5], [4], [3]])
   })
 
-  test('3v3 full roster order stays A1, B1, B2, A2, A3, B3', () => {
-    expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
+  test('3v3 full roster groups adjacent same-team picks', () => {
+    expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2, 4], [5]])
   })
 
-  test('4v4 full roster order stays A1, B1, B2, A2, B3, A3, A4, B4', () => {
-    expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
+  test('4v4 full roster groups adjacent same-team picks', () => {
+    expect(default4v4.getSteps(8).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7]])
   })
 
   test('5v5 uses the expanded two-team pick order', () => {
-    expect(default5v5.getSteps(10).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
+    expect(default5v5.getSteps(10).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7], [8], [9]])
   })
 
   test('6v6 uses the expanded 12-seat pick order', () => {
-    expect(default6v6.getSteps(12).slice(1).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
+    expect(default6v6.getSteps(12).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7, 9], [8, 10], [11]])
   })
 
   test('FFA opens with two blind bans each', () => {
@@ -123,7 +123,7 @@ describe('draft formats', () => {
     expect(format.blindBans).toBe(false)
     expect(format.id).toBe('default-2v2-visible-bans')
     expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
-    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2]])
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2]])
   })
 
   test('1v1 visible bans alternate one at a time before picks', () => {
@@ -142,25 +142,25 @@ describe('draft formats', () => {
   test('3v3 visible bans follow the 122112 captain sequence before picks', () => {
     const steps = getDraftFormat('3v3', { blindBans: false, seatCount: 6 }).getSteps(6)
     expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
-    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [4], [5]])
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2, 4], [5]])
   })
 
   test('4v4 visible bans use the same 122112 captain sequence before picks', () => {
     const steps = getDraftFormat('4v4', { blindBans: false, seatCount: 8 }).getSteps(8)
     expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
-    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7]])
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7]])
   })
 
   test('5v5 visible bans use the same 122112 captain sequence before picks', () => {
     const steps = getDraftFormat('5v5', { blindBans: false, seatCount: 10 }).getSteps(10)
     expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
-    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [8], [9]])
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7], [8], [9]])
   })
 
   test('6v6 visible bans use the same 122112 captain sequence before picks', () => {
     const steps = getDraftFormat('6v6', { blindBans: false, seatCount: 12 }).getSteps(12)
     expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
-    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1], [3], [2], [5], [4], [6], [7], [9], [8], [10], [11]])
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2], [5], [4, 6], [7, 9], [8, 10], [11]])
   })
 
   test('ignores visible bans for unsupported 2v2 multi-team drafts', () => {
@@ -244,8 +244,6 @@ describe('formatDraftStepLabel', () => {
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, teamerSeats))).toEqual([
       'PICK T1',
       'PICK T2',
-      'PICK T2',
-      'PICK T1',
       'PICK T1',
       'PICK T2',
     ])
@@ -256,10 +254,8 @@ describe('formatDraftStepLabel', () => {
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, teamer4v4Seats))).toEqual([
       'PICK T1',
       'PICK T2',
-      'PICK T2',
       'PICK T1',
       'PICK T2',
-      'PICK T1',
       'PICK T1',
       'PICK T2',
     ])
@@ -270,10 +266,8 @@ describe('formatDraftStepLabel', () => {
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, teamer5v5Seats))).toEqual([
       'PICK T1',
       'PICK T2',
-      'PICK T2',
       'PICK T1',
       'PICK T2',
-      'PICK T1',
       'PICK T1',
       'PICK T2',
       'PICK T1',

@@ -4,6 +4,7 @@ import { cn } from '~/client/lib/css'
 import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
   canOpenLeaderGrid,
+  currentPickTargetSeatIndex,
   currentStep,
   draftStore,
   gridOpen,
@@ -12,7 +13,6 @@ import {
   isMapVotePhase,
   isMiniView,
   isMobileLayout,
-  isMyOwnPickTurn,
   isSpectator,
   mapVotePhase,
   setGridOpen,
@@ -97,7 +97,7 @@ export function DraftView(props: DraftViewProps) {
 
   const isMyPickTurn = () => {
     const step = currentStep()
-    return !!step && step.action === 'pick' && isMyOwnPickTurn() && !hasSubmitted()
+    return !!step && step.action === 'pick' && currentPickTargetSeatIndex() != null && !hasSubmitted()
   }
 
   const [showTurnFlash, setShowTurnFlash] = createSignal(false)
@@ -165,7 +165,7 @@ export function DraftView(props: DraftViewProps) {
     if (isMiniView()) return
     if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
-    if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
+    if (currentStep()?.action === 'pick' && currentPickTargetSeatIndex() == null) return
 
     const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
     if (autoOpenedGridToken() === nextToken) return
