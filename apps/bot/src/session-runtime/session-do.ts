@@ -240,6 +240,24 @@ interface ReportedDiscordSyncCommandRequest {
   at?: number
 }
 
+type ReportClaimCommandRequest
+  = | {
+    type: 'claim'
+    matchId?: string
+    reporterId?: string | null
+    at?: number
+  }
+  | {
+    type: 'status'
+    matchId?: string
+    at?: number
+  }
+  | {
+    type: 'release'
+    matchId?: string
+    claimId?: string
+  }
+
 interface OpenSessionPatch {
   expectedVersion?: number
   mode?: GameMode
@@ -260,6 +278,8 @@ interface OpenSessionPatch {
 const SESSION_RECORD_STORAGE_KEY = 'session-record'
 const SESSION_COMMIT_INTENT_STORAGE_KEY = 'session-commit-intent'
 const REPORTED_DISCORD_SYNC_STORAGE_KEY = 'reported-discord-sync'
+const REPORT_CLAIM_STORAGE_KEY = 'report-claim'
+const REPORT_CLAIM_TTL_MS = 10 * 60 * 1000
 
 interface SessionCommitIntent {
   record: SessionRecord
@@ -273,6 +293,15 @@ interface ReportedDiscordSyncMarker {
   lastError: string
   createdAt: number
   updatedAt: number
+}
+
+interface ReportClaimMarker {
+  matchId: string
+  claimId: string
+  reporterId: string | null
+  createdAt: number
+  updatedAt: number
+  expiresAt: number
 }
 
 class TerminalMatchNotFoundError extends Error {
@@ -325,6 +354,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (request.method === 'POST' && url.pathname === '/commands/session-lifecycle') {
       return await this.runSerializedCommand(() => this.handleSessionLifecycleCommand(request))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/commands/report-claim') {
+      return await this.runSerializedCommand(() => this.handleReportClaimCommand(request))
     }
 
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
@@ -1300,6 +1333,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return { ok: true }
     }
 
+    if (await this.getActiveReportClaimMarker(marker.matchId)) {
+      return await this.deferReportedDiscordSync(marker, 202, 'reported Discord sync is waiting for the active report request')
+    }
+
     try {
       await this.syncReportedDiscordMessages(record, marker.matchId)
     }
@@ -1868,6 +1905,68 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return json({ ok: true, record: finished.record })
   }
 
+  private async handleReportClaimCommand(request: Request): Promise<Response> {
+    let body: ReportClaimCommandRequest | null = null
+    try {
+      body = await request.json<ReportClaimCommandRequest>()
+    }
+    catch {
+      body = null
+    }
+
+    if (!body || typeof body !== 'object' || typeof body.type !== 'string') {
+      return json({ error: 'claim command type is required' }, 400)
+    }
+
+    const record = await this.getRecord()
+    if (!record) return json({ error: 'Session not found' }, 404)
+    const matchId = typeof body.matchId === 'string' && body.matchId.length > 0 ? body.matchId : record.matchId ?? record.id
+    if (record.id !== matchId && record.matchId !== matchId) {
+      return json({ error: `Session ${record.id} does not belong to match ${matchId}` }, 409)
+    }
+
+    if (body.type === 'release') {
+      const released = await this.clearReportClaimMarker(matchId, body.claimId)
+      if (released) await this.retryReportedDiscordSyncAfterReportClaimRelease(matchId)
+      await this.rescheduleSessionAlarm(await this.getRecord())
+      return json({ ok: true, released })
+    }
+
+    const now = normalizePositiveInteger(body.at, Date.now())
+    const activeClaim = await this.getActiveReportClaimMarker(matchId, now)
+    if (activeClaim) {
+      return json({
+        claimed: false,
+        processing: true,
+        claim: { matchId: activeClaim.matchId, claimId: activeClaim.claimId },
+      })
+    }
+
+    if (record.phase === 'reported') {
+      return json({ claimed: false, alreadyReported: true })
+    }
+
+    if (record.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
+    if (record.phase !== 'active' && record.phase !== 'swap') {
+      return json({ error: `Session is not reportable (phase: ${record.phase})` }, 409)
+    }
+
+    if (body.type === 'status') return json({ claimed: false })
+
+    if (body.type !== 'claim') return json({ error: 'Unknown report claim command' }, 400)
+
+    const claim: ReportClaimMarker = {
+      matchId,
+      claimId: createReportClaimId(now),
+      reporterId: typeof body.reporterId === 'string' && body.reporterId.trim().length > 0 ? body.reporterId.trim() : null,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + REPORT_CLAIM_TTL_MS,
+    }
+    await this.ctx.storage.put(REPORT_CLAIM_STORAGE_KEY, claim)
+    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId } })
+  }
+
   private async handleReportedDiscordSyncCommand(request: Request): Promise<Response> {
     let body: ReportedDiscordSyncCommandRequest | null = null
     try {
@@ -2080,6 +2179,47 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async clearReportedDiscordSyncMarker(): Promise<void> {
     await this.ctx.storage.delete(REPORTED_DISCORD_SYNC_STORAGE_KEY)
+  }
+
+  private async getReportClaimMarker(): Promise<ReportClaimMarker | null> {
+    return await this.ctx.storage.get<ReportClaimMarker>(REPORT_CLAIM_STORAGE_KEY) ?? null
+  }
+
+  private async getActiveReportClaimMarker(matchId: string, now: number = Date.now()): Promise<ReportClaimMarker | null> {
+    const marker = await this.getReportClaimMarker()
+    if (!marker || marker.matchId !== matchId) return null
+    if (marker.expiresAt > now) return marker
+
+    await this.ctx.storage.delete(REPORT_CLAIM_STORAGE_KEY)
+    return null
+  }
+
+  private async clearReportClaimMarker(matchId: string, claimId?: string | null): Promise<boolean> {
+    const marker = await this.getReportClaimMarker()
+    if (!marker || marker.matchId !== matchId) return false
+    if (claimId && marker.claimId !== claimId) return false
+    await this.ctx.storage.delete(REPORT_CLAIM_STORAGE_KEY)
+    return true
+  }
+
+  private async retryReportedDiscordSyncAfterReportClaimRelease(matchId: string): Promise<void> {
+    const marker = await this.getReportedDiscordSyncMarker()
+    if (!marker || marker.matchId !== matchId) return
+
+    const ready: ReportedDiscordSyncMarker = {
+      ...marker,
+      nextRetryAt: 0,
+      updatedAt: Date.now(),
+    }
+    await this.ctx.storage.put(REPORTED_DISCORD_SYNC_STORAGE_KEY, ready)
+    const result = await this.finishReportedDiscordSync(ready)
+    if (!result.ok) {
+      console.warn('[session-do] reported Discord sync after report claim release deferred', {
+        matchId,
+        status: result.status,
+        error: result.error,
+      })
+    }
   }
 
   protected override async setDraftRuntimeAlarm(_nextAlarm: number | null): Promise<void> {
@@ -2612,6 +2752,13 @@ function buildTerminalSyncCommand(
     }
   }
   return { type: 'cancel-session', matchId, at }
+}
+
+function createReportClaimId(now: number): string {
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2)
+  return `${now}-${random}`
 }
 
 function isSameTerminalSyncCommand(left: SessionTerminalSyncCommand | null | undefined, right: SessionTerminalSyncCommand): boolean {

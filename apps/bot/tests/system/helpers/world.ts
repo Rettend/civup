@@ -993,7 +993,7 @@ async function handleDiscordRequest(
       messages.set(id, {
         id,
         channelId: channelId!,
-        payload: bodyText ? JSON.parse(bodyText) : null,
+        payload: parseDiscordRequestPayload(bodyText),
       })
       return jsonResponse({ id })
     }
@@ -1007,7 +1007,7 @@ async function handleDiscordRequest(
       if (!existing) return jsonResponse({ error: 'Unknown message' }, 404)
       messages.set(messageId, {
         ...existing,
-        payload: bodyText ? JSON.parse(bodyText) : null,
+        payload: parseDiscordRequestPayload(bodyText),
       })
       return jsonResponse({ id: messageId })
     }
@@ -1054,6 +1054,16 @@ async function handleDiscordRequest(
   }
 
   return jsonResponse({ error: `Unhandled Discord request ${request.method} ${url.pathname}` }, 500)
+}
+
+function parseDiscordRequestPayload(bodyText: string | null): unknown {
+  if (!bodyText) return null
+  try {
+    return JSON.parse(bodyText)
+  }
+  catch {
+    return bodyText
+  }
 }
 
 function jsonResponse(value: unknown, status = 200): Response {

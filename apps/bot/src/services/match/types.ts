@@ -39,7 +39,12 @@ export interface ReportInput {
   leaderAssignments?: Record<string, string>
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean } | { error: string }
+export interface ReportProcessingClaim {
+  matchId: string
+  claimId: string
+}
+
+export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportClaim?: ReportProcessingClaim } | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
