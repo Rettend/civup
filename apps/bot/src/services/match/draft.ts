@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isRedDeathFormatId, isTeamMode } from '@civup/game'
+import { isRedDeathFormatId } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
@@ -331,45 +331,6 @@ function mapCivsFromDraftState(
   gameMode: GameMode,
 ): Map<string, string | null> {
   const civByPlayer = new Map<string, string | null>()
-
-  if (isTeamMode(gameMode)) {
-    const playerToSeatIndex = new Map<string, number>()
-    state.seats.forEach((seat, idx) => {
-      playerToSeatIndex.set(seat.playerId, idx)
-    })
-
-    const orderedParticipants = [...participantRows].sort((a, b) => {
-      const aSeat = playerToSeatIndex.get(a.playerId) ?? Number.MAX_SAFE_INTEGER
-      const bSeat = playerToSeatIndex.get(b.playerId) ?? Number.MAX_SAFE_INTEGER
-      return aSeat - bSeat
-    })
-
-    const picksByTeam = new Map<number, string[]>()
-    for (const pick of state.picks) {
-      const team = state.seats[pick.seatIndex]?.team
-      if (team == null) continue
-      const teamPicks = picksByTeam.get(team) ?? []
-      teamPicks.push(pick.civId)
-      picksByTeam.set(team, teamPicks)
-    }
-
-    const teamPickOffsets = new Map<number, number>()
-    for (const participant of orderedParticipants) {
-      const team = participant.team
-      if (team == null) {
-        civByPlayer.set(participant.playerId, null)
-        continue
-      }
-
-      const offset = teamPickOffsets.get(team) ?? 0
-      const civId = picksByTeam.get(team)?.[offset] ?? null
-      civByPlayer.set(participant.playerId, civId)
-      teamPickOffsets.set(team, offset + 1)
-    }
-
-    return civByPlayer
-  }
-
   const pickBySeat = new Map<number, string>()
   for (const pick of state.picks) {
     if (!pickBySeat.has(pick.seatIndex)) {
