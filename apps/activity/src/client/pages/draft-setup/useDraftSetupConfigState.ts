@@ -49,6 +49,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.randomDraft === b.randomDraft
     && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
+    && a.closed === b.closed
 }
 
 export function useDraftSetupConfigState(input: {
@@ -182,6 +183,7 @@ export function useDraftSetupConfigState(input: {
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
+      closed: false,
     }
   }
 
@@ -313,6 +315,7 @@ export function useDraftSetupConfigState(input: {
               randomDraft: nextConfig.randomDraft,
               hiddenDraft: nextConfig.hiddenDraft,
               duplicateFactions: nextConfig.duplicateFactions,
+              closed: nextConfig.closed,
               targetSize: options.targetSize,
               minRole: lobby.minRole,
               maxRole: lobby.maxRole,
@@ -375,6 +378,7 @@ export function useDraftSetupConfigState(input: {
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: current.duplicateFactions,
+        closed: current.closed,
       }, { preserveConfigMessage: preserveClampMessage })
     }
     finally {
@@ -433,6 +437,7 @@ export function useDraftSetupConfigState(input: {
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: checked && requiresRedDeathDuplicateFactions(input.lobbyMode()) ? true : current.duplicateFactions,
+        closed: current.closed,
       }, { targetSize: lobby?.mode === 'ffa' ? (checked ? 10 : (regularFfaExtraSeatsOccupied() ? 12 : 8)) : undefined })
       input.showInfoMessage(checked ? 'Red Death enabled.' : 'Red Death disabled.')
     }
@@ -684,6 +689,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     randomDraft: lobby.draftConfig.randomDraft,
     hiddenDraft: lobby.draftConfig.hiddenDraft,
     duplicateFactions: lobby.draftConfig.duplicateFactions,
+    closed: lobby.draftConfig.closed === true,
   }
 }
 
