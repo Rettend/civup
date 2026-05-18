@@ -1314,6 +1314,63 @@ describe('system scenarios', () => {
     await expect(world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow('No repeatable draft matches the current players and teams.')
   })
 
+  test('repeat draft requires the host to be slotted', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(2, 'repeat-host-seat')
+    const firstLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players,
+      channelId: 'channel-repeat-host-seat',
+    })
+    const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const secondLobby = await world.lobby.createOpen({
+      mode: '1v1',
+      hostId: 'repeat-host-seat-host',
+      players,
+      channelId: firstLobby.channelId,
+    })
+
+    await expect(world.lobby.repeat('1v1', { hostId: 'repeat-host-seat-host', lobbyId: secondLobby.id })).rejects.toThrow('Host must be in a lobby slot before repeating.')
+  })
+
+  test('repeat draft rejects completed FFA drafts with a different Permanent Ally setting', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(8, 'repeat-pa')
+    const firstLobby = await world.lobby.createOpen({
+      mode: 'ffa',
+      players,
+      channelId: 'channel-repeat-pa',
+    })
+    const started = await world.lobby.start('ffa', { hostId: players[0]!.id, lobbyId: firstLobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const secondLobby = await world.lobby.createOpen({
+      mode: 'ffa',
+      players,
+      channelId: firstLobby.channelId,
+    })
+    expect((await world.lobby.config('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id, permanentAlly: false })).status).toBe(200)
+
+    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
+    expect(launch.body).toMatchObject({
+      selection: {
+        kind: 'lobby',
+        lobby: {
+          id: secondLobby.id,
+        },
+      },
+    })
+    expect((launch.body as any).selection.lobby.repeatDraft).toBeUndefined()
+    await expect(world.lobby.repeat('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow('No repeatable draft matches the current players and teams.')
+  })
+
   test('report sync recreates a deleted lobby message and rebinds the stored message id', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
