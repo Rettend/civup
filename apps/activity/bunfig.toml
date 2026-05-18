@@ -1,6 +1,6 @@
 [test]
 preload = [
-  "./tests/setup-activity-dom.ts",
+  "./tests/setup-dom.ts",
 ]
 coverageReporter = [
   "text",
