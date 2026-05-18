@@ -35,7 +35,7 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
               <span class="i-ph-arrow-right-bold text-base" />
             </button>
           </Show>
-          <div class="mx-auto px-6 py-4 pb-24 max-w-5xl">
+          <div class="mx-auto px-4 py-4 pb-24 w-full max-w-[1600px] sm:px-6">
             <TargetPickerPanel {...props} />
           </div>
           <Show when={props.onPractice}>

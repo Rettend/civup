@@ -33,12 +33,17 @@ interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
   isMember: boolean
   isHost: boolean
+  players?: {
+    playerId: string
+    displayName: string
+    avatarUrl?: string | null
+  }[]
   updatedAt: number
 }
 
@@ -441,6 +446,14 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
+  if (lobby.draftConfig.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
+      pendingSlot: null,
+    }
+  }
+
   const otherCurrentLobbies = options?.db
     ? await getCurrentLobbyProjectionsForJoin(options.db, userId, lobby.id)
     : []
@@ -534,6 +547,14 @@ async function resolveSessionJoinEligibility(
     return {
       canJoin: false,
       blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  if (session.config.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
       pendingSlot: null,
     }
   }

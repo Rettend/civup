@@ -1026,6 +1026,7 @@ function materializeOverviewOptions(
       redDeath: option.redDeath,
       isMember: option.memberPlayerIds.includes(currentUserId),
       isHost: option.hostId === currentUserId,
+      players: option.players ?? [],
       updatedAt: option.updatedAt,
     }))
     .sort(compareActivityTargetOptions)
@@ -1102,7 +1103,7 @@ function buildLobbyTargetOptionFromSnapshot(
     matchId: null,
     channelId: channelId ?? '',
     mode: snapshot.mode as ActivityTargetOption['mode'],
-    status: 'open',
+    status: snapshot.draftConfig.closed === true ? 'closed' : 'open',
     participantCount: snapshot.entries.filter(entry => entry != null).length,
     targetSize: snapshot.targetSize,
     redDeath: snapshot.draftConfig.redDeath,
@@ -1130,6 +1131,14 @@ function resolveLiveJoinEligibility(
     return {
       canJoin: false,
       blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.draftConfig.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
       pendingSlot: null,
     }
   }

@@ -465,6 +465,7 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'lobby',
         id: lobby.id,
         participantCount: 1,
+        players: [expect.objectContaining({ playerId: 'host-1', displayName: 'Host' })],
         status: 'open',
       }),
     ])
@@ -481,6 +482,10 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'lobby',
         id: lobby.id,
         participantCount: 2,
+        players: [
+          expect.objectContaining({ playerId: 'host-1', displayName: 'Host' }),
+          expect.objectContaining({ playerId: 'player-2', displayName: 'Player 2' }),
+        ],
         status: 'open',
       }),
     ])
@@ -509,7 +514,30 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'match',
         id: lobby.id,
         participantCount: 2,
-        status: 'active',
+        status: 'completed',
+      }),
+    ])
+  })
+
+  test('marks closed open lobbies in the activity overview', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host-1',
+      channelId: 'channel-closed',
+      messageId: 'message-closed',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+
+    const closedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...lobby.draftConfig, closed: true }, lobby)
+    await syncLobbyDerivedState(kv, closedLobby ?? lobby)
+
+    const overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-closed')
+    expect(overview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        status: 'closed',
       }),
     ])
   })

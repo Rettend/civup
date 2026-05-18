@@ -19,6 +19,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   randomDraft: false,
   hiddenDraft: false,
   duplicateFactions: false,
+  closed: false,
 }
 
 export function parseLobbyState(raw: unknown): LobbyState | null {
@@ -93,6 +94,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     randomDraft: hiddenDraft ? false : randomDraft,
     hiddenDraft,
     duplicateFactions: normalizeDuplicateFactions(config?.duplicateFactions),
+    closed: normalizeClosed(config?.closed),
   }
 }
 
@@ -116,6 +118,7 @@ export function normalizeDraftConfigForMode(
     randomDraft: normalized.hiddenDraft ? false : normalized.randomDraft,
     hiddenDraft: normalized.hiddenDraft,
     duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
+    closed: normalized.closed,
   }
 }
 
@@ -182,6 +185,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.randomDraft === b.randomDraft
     && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
+    && (a.closed ?? false) === (b.closed ?? false)
 }
 
 function resolveStoredSlotCount(mode: GameMode, value: unknown): number {
@@ -259,6 +263,10 @@ function normalizeHiddenDraft(value: unknown): boolean {
 }
 
 function normalizeDuplicateFactions(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeClosed(value: unknown): boolean {
   return value === true
 }
 

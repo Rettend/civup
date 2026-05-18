@@ -18,13 +18,20 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'completed'
   participantCount: number
   targetSize: number
   redDeath: boolean
   hostId: string
   memberPlayerIds: string[]
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
+}
+
+export interface ActivityOverviewPlayerSnapshot {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
 }
 
 export interface ActivityOverviewSnapshot {
@@ -92,7 +99,7 @@ type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
 
 const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'swap', 'active'] as const
 const ACTIVITY_TARGET_PHASES = ['open', 'draft', 'swap', 'active', 'reported'] as const
-const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<ActivityOverviewOptionSnapshot['status']>(['open', 'drafting', 'active'])
+const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<string>(['open', 'closed', 'drafting', 'completed', 'active'])
 
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
@@ -141,7 +148,7 @@ function compareActivityDirectoryRowsByUpdatedAtDesc(left: ActivityDirectoryRow,
 }
 
 function isLiveActivityOverviewPhase(phase: SessionRecord['phase']): boolean {
-  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active' || phase === 'reported'
+  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
 }
 
 export async function getActivitySessionById(
@@ -174,7 +181,7 @@ export async function getOpenActivitySessionsForUser(
 }
 
 export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEntry): ActivityOverviewOptionSnapshot[] {
-  const status = mapSessionPhaseToActivityStatus(session.phase)
+  const status = mapSessionPhaseToActivityStatus(session.phase, session.config.closed === true)
   if (!status) return []
   const matchId = session.phase === 'open' ? null : session.matchId ?? session.sessionId
   const id = session.phase === 'open' ? session.sessionId : matchId ?? session.sessionId
@@ -192,12 +199,13 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     redDeath: session.config.redDeath,
     hostId: session.hostId,
     memberPlayerIds: session.roster.participants.map(member => member.playerId),
+    players: buildActivityOverviewPlayers(session.roster),
     updatedAt: session.updatedAt,
   }]
 }
 
 export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRecord): ActivityOverviewOptionSnapshot[] {
-  const status = mapSessionPhaseToActivityStatus(record.phase)
+  const status = mapSessionPhaseToActivityStatus(record.phase, record.config.closed === true)
   if (!status) return []
 
   const matchId = record.phase === 'open' ? null : record.matchId ?? record.id
@@ -215,8 +223,38 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     redDeath: record.config.redDeath,
     hostId: record.hostId,
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
+    players: buildActivityOverviewPlayers(record.roster),
     updatedAt: record.updatedAt,
   }]
+}
+
+function buildActivityOverviewPlayers(roster: SessionRoster): ActivityOverviewPlayerSnapshot[] {
+  const memberByPlayerId = new Map(roster.participants.map(member => [member.playerId, member]))
+  const players: ActivityOverviewPlayerSnapshot[] = []
+  const seen = new Set<string>()
+
+  for (const playerId of roster.slots) {
+    if (!playerId || seen.has(playerId)) continue
+    const member = memberByPlayerId.get(playerId)
+    seen.add(playerId)
+    players.push({
+      playerId,
+      displayName: member?.displayName ?? playerId,
+      avatarUrl: member?.avatarUrl ?? null,
+    })
+  }
+
+  for (const member of roster.participants) {
+    if (seen.has(member.playerId)) continue
+    seen.add(member.playerId)
+    players.push({
+      playerId: member.playerId,
+      displayName: member.displayName ?? member.playerId,
+      avatarUrl: member.avatarUrl ?? null,
+    })
+  }
+
+  return players
 }
 
 export async function buildLobbySnapshotFromSessionRecord(
@@ -404,6 +442,7 @@ async function buildLobbySnapshotFromSessionParts(
       randomDraft: session.config.randomDraft,
       hiddenDraft: session.config.hiddenDraft,
       duplicateFactions: session.config.duplicateFactions,
+      closed: session.config.closed === true,
     },
     serverDefaults,
   }
@@ -454,6 +493,7 @@ function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
       randomDraft: parsed.randomDraft === true,
       hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,
+      closed: parsed.closed === true,
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,
     }
@@ -469,16 +509,16 @@ export function compareActivityOverviewOptions(left: ActivityOverviewOptionSnaps
   return left.id.localeCompare(right.id)
 }
 
-function mapSessionPhaseToActivityStatus(phase: SessionPhase): ActivityOverviewOptionSnapshot['status'] | null {
+function mapSessionPhaseToActivityStatus(phase: SessionPhase, closed: boolean): ActivityOverviewOptionSnapshot['status'] | null {
   switch (phase) {
     case 'open':
-      return 'open'
+      return closed ? 'closed' : 'open'
     case 'draft':
       return 'drafting'
     case 'swap':
-      return 'active'
+      return 'completed'
     case 'active':
-      return 'active'
+      return 'completed'
     case 'reported':
       return 'completed'
     case 'cancelled':
