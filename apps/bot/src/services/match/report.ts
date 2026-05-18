@@ -2,12 +2,12 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import type { ParticipantRow, ReportInput, ReportResult } from './types.ts'
+import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
-import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
@@ -111,6 +111,9 @@ export async function reportMatch(
   }
 
   if (match.status === 'completed') {
+    const processingResult = await buildReportProcessingResultIfClaimed(options, match, participantRows)
+    if (processingResult) return processingResult
+
     const sessionValidationError = await validateReportableSession(options, input.matchId)
     if (sessionValidationError) return { error: sessionValidationError }
 
@@ -142,9 +145,11 @@ export async function reportMatch(
   }
 
   const gameMode = gameContext.mode
-  const sessionValidationError = await validateReportableSession(options, input.matchId)
-  if (sessionValidationError) return { error: sessionValidationError }
-  if (await isSessionAlreadyReported(options, input.matchId)) {
+  const reportClaim = await claimReportedMatchProcessing(options, input.matchId, input.reporterId)
+  if ('error' in reportClaim) return reportClaim
+  if (!reportClaim.claimed) {
+    if (reportClaim.processing) return { match, participants: participantRows, idempotent: true, reportProcessing: true }
+
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
 
@@ -162,71 +167,20 @@ export async function reportMatch(
     return { match: updatedMatch ?? match, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants), idempotent: true }
   }
 
-  const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
-    ? validateHiddenDraftLeaderAssignments(match.draftData, participantRows, input.leaderAssignments)
-    : null
-  if (hiddenLeaderAssignments && 'error' in hiddenLeaderAssignments) return hiddenLeaderAssignments
+  let reportCompleted = false
+  try {
+    const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
+      ? validateHiddenDraftLeaderAssignments(match.draftData, participantRows, input.leaderAssignments)
+      : null
+    if (hiddenLeaderAssignments && 'error' in hiddenLeaderAssignments) return hiddenLeaderAssignments
 
-  if (gameContext.permanentAlly && gameMode === 'ffa') {
-    const parsedPlacements = parsePermanentAllyFfaPlacements(input.placements, participantRows)
-    if ('error' in parsedPlacements) return parsedPlacements
-
-    for (const participant of participantRows) {
-      const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
-      if (placement == null) return { error: `Permanent Ally FFA placement missing for <@${participant.playerId}>.` }
-      await db
-        .update(matchParticipants)
-        .set({ placement })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        )
-    }
-  }
-  else if (isTeamMode(gameMode) || gameMode === '1v1') {
-    const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
-    if (uniqueTeams.size > 2) {
-      const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
-      if ('error' in parsedTeams) return parsedTeams
-
-      for (let index = 0; index < parsedTeams.orderedTeams.length; index++) {
-        const teamIndex = parsedTeams.orderedTeams[index]!
-        await db
-          .update(matchParticipants)
-          .set({ placement: index + 1 })
-          .where(
-            and(
-              eq(matchParticipants.matchId, input.matchId),
-              eq(matchParticipants.team, teamIndex),
-            ),
-          )
-      }
-
-      const remainingTeams = [...uniqueTeams].filter(teamIndex => !parsedTeams.orderedTeams.includes(teamIndex))
-      let nextPlacement = parsedTeams.orderedTeams.length + 1
-      for (const teamIndex of remainingTeams) {
-        await db
-          .update(matchParticipants)
-          .set({ placement: nextPlacement })
-          .where(
-            and(
-              eq(matchParticipants.matchId, input.matchId),
-              eq(matchParticipants.team, teamIndex),
-            ),
-          )
-        nextPlacement += 1
-      }
-    }
-    else {
-      const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
-      if ('error' in resolvedTeam) return resolvedTeam
-
-      const winTeamIdx = resolvedTeam.winningTeamIndex
+    if (gameContext.permanentAlly && gameMode === 'ffa') {
+      const parsedPlacements = parsePermanentAllyFfaPlacements(input.placements, participantRows)
+      if ('error' in parsedPlacements) return parsedPlacements
 
       for (const participant of participantRows) {
-        const placement = participant.team === winTeamIdx ? 1 : 2
+        const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
+        if (placement == null) return { error: `Permanent Ally FFA placement missing for <@${participant.playerId}>.` }
         await db
           .update(matchParticipants)
           .set({ placement })
@@ -238,60 +192,174 @@ export async function reportMatch(
           )
       }
     }
-  }
-  else {
-    const parsedOrder = parseOrderedParticipantIds(input.placements, participantRows)
-    if ('error' in parsedOrder) return parsedOrder
-    const placementIds = parsedOrder.orderedIds
+    else if (isTeamMode(gameMode) || gameMode === '1v1') {
+      const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
+      if (uniqueTeams.size > 2) {
+        const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
+        if ('error' in parsedTeams) return parsedTeams
 
-    for (let index = 0; index < placementIds.length; index++) {
-      const playerId = placementIds[index]!
-      await db
-        .update(matchParticipants)
-        .set({ placement: index + 1 })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, playerId),
-          ),
-        )
+        for (let index = 0; index < parsedTeams.orderedTeams.length; index++) {
+          const teamIndex = parsedTeams.orderedTeams[index]!
+          await db
+            .update(matchParticipants)
+            .set({ placement: index + 1 })
+            .where(
+              and(
+                eq(matchParticipants.matchId, input.matchId),
+                eq(matchParticipants.team, teamIndex),
+              ),
+            )
+        }
+
+        const remainingTeams = [...uniqueTeams].filter(teamIndex => !parsedTeams.orderedTeams.includes(teamIndex))
+        let nextPlacement = parsedTeams.orderedTeams.length + 1
+        for (const teamIndex of remainingTeams) {
+          await db
+            .update(matchParticipants)
+            .set({ placement: nextPlacement })
+            .where(
+              and(
+                eq(matchParticipants.matchId, input.matchId),
+                eq(matchParticipants.team, teamIndex),
+              ),
+            )
+          nextPlacement += 1
+        }
+      }
+      else {
+        const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
+        if ('error' in resolvedTeam) return resolvedTeam
+
+        const winTeamIdx = resolvedTeam.winningTeamIndex
+
+        for (const participant of participantRows) {
+          const placement = participant.team === winTeamIdx ? 1 : 2
+          await db
+            .update(matchParticipants)
+            .set({ placement })
+            .where(
+              and(
+                eq(matchParticipants.matchId, input.matchId),
+                eq(matchParticipants.playerId, participant.playerId),
+              ),
+            )
+        }
+      }
+    }
+    else {
+      const parsedOrder = parseOrderedParticipantIds(input.placements, participantRows)
+      if ('error' in parsedOrder) return parsedOrder
+      const placementIds = parsedOrder.orderedIds
+
+      for (let index = 0; index < placementIds.length; index++) {
+        const playerId = placementIds[index]!
+        await db
+          .update(matchParticipants)
+          .set({ placement: index + 1 })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.playerId, playerId),
+            ),
+          )
+      }
+
+      const mentionedIds = new Set(placementIds)
+      const unplaced = participantRows.filter(participant => !mentionedIds.has(participant.playerId))
+      const lastPlace = placementIds.length + 1
+      for (const participant of unplaced) {
+        await db
+          .update(matchParticipants)
+          .set({ placement: lastPlace })
+          .where(
+            and(
+              eq(matchParticipants.matchId, input.matchId),
+              eq(matchParticipants.playerId, participant.playerId),
+            ),
+          )
+      }
     }
 
-    const mentionedIds = new Set(placementIds)
-    const unplaced = participantRows.filter(participant => !mentionedIds.has(participant.playerId))
-    const lastPlace = placementIds.length + 1
-    for (const participant of unplaced) {
-      await db
-        .update(matchParticipants)
-        .set({ placement: lastPlace })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        )
+    if (hiddenLeaderAssignments) {
+      await applyHiddenDraftLeaderAssignments(db, input.matchId, hiddenLeaderAssignments.assignments)
+    }
+
+    const updatedParticipants = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, input.matchId))
+
+    if (updatedParticipants.some(participant => participant.placement === null)) {
+      return { error: 'Could not resolve placements for all participants.' }
+    }
+
+    const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, options)
+    if ('error' in finalized) {
+      return finalized
+    }
+
+    reportCompleted = true
+    return reportClaim.claim ? { ...finalized, reportClaim: reportClaim.claim } : finalized
+  }
+  finally {
+    if (!reportCompleted && reportClaim.claim) {
+      await releaseReportedMatchProcessingClaim(options.sessionNamespace, reportClaim.claim).catch((error) => {
+        console.error(`Failed to release report claim for match ${input.matchId}:`, error)
+      })
+    }
+  }
+}
+
+type ReportProcessingClaimAttempt
+  = | { claimed: true, claim: ReportProcessingClaim | null }
+    | { claimed: false, processing?: boolean, alreadyReported?: boolean }
+    | { error: string }
+
+async function buildReportProcessingResultIfClaimed(
+  options: ReportMatchOptions,
+  match: MatchRow,
+  participants: ParticipantRow[],
+): Promise<ReportResult | null> {
+  if (!options.sessionNamespace) return null
+  try {
+    const status = await getSessionReportClaimStatus(options.sessionNamespace, match.id, { matchId: match.id })
+    if (!status.claimed && status.processing) {
+      return { match, participants, idempotent: true, reportProcessing: true }
+    }
+  }
+  catch {
+    return null
+  }
+  return null
+}
+
+async function claimReportedMatchProcessing(
+  options: ReportMatchOptions,
+  matchId: string,
+  reporterId: string,
+): Promise<ReportProcessingClaimAttempt> {
+  if (options.sessionNamespace) {
+    try {
+      const result = await claimSessionReport(options.sessionNamespace, matchId, { matchId, reporterId })
+      if (result.claimed) return { claimed: true, claim: result.claim }
+      return { claimed: false, processing: result.processing, alreadyReported: result.alreadyReported }
+    }
+    catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
     }
   }
 
-  if (hiddenLeaderAssignments) {
-    await applyHiddenDraftLeaderAssignments(db, input.matchId, hiddenLeaderAssignments.assignments)
-  }
+  const sessionValidationError = await validateReportableSession(options, matchId)
+  if (sessionValidationError) return { error: sessionValidationError }
+  return { claimed: true, claim: null }
+}
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
-
-  if (updatedParticipants.some(participant => participant.placement === null)) {
-    return { error: 'Could not resolve placements for all participants.' }
-  }
-
-  const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, options)
-  if ('error' in finalized) {
-    return finalized
-  }
-
-  return finalized
+export async function releaseReportedMatchProcessingClaim(
+  sessionNamespace: DurableObjectNamespace | null | undefined,
+  claim: ReportProcessingClaim,
+): Promise<void> {
+  if (!sessionNamespace) return
+  await releaseSessionReportClaim(sessionNamespace, claim.matchId, claim)
 }
 
 function validateHiddenDraftLeaderAssignments(
@@ -960,16 +1028,6 @@ async function validateReportableSession(
   }
   catch (error) {
     return error instanceof Error ? error.message : String(error)
-  }
-}
-
-async function isSessionAlreadyReported(options: ReportMatchOptions, matchId: string): Promise<boolean> {
-  if (!options.sessionNamespace) return false
-  try {
-    return (await getSessionRecord(options.sessionNamespace, matchId))?.phase === 'reported'
-  }
-  catch {
-    return false
   }
 }
 

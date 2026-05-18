@@ -18,7 +18,7 @@ import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingM
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { cancelMatchByModerator, getStoredGameModeContext, reportMatch } from '../../services/match/index.ts'
+import { cancelMatchByModerator, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../../services/match/index.ts'
 import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../../services/ranked/role-sync.ts'
@@ -790,27 +790,52 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-          if (!reportedContext) {
-            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+          if (result.reportProcessing) {
+            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** is already being reported.`, 'info')
             return
           }
 
-          const lobby = liveLobbyBeforeReport
-          const isRankedResult = reportedContext.ranked
-          const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
-          const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
-          if (isTournamentMatch) {
-            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
-              console.error(`Failed to refresh tournament leaderboard after match ${result.match.id}:`, error)
-            })
-          }
+          try {
+            const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!reportedContext) {
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+              return
+            }
 
-          if (result.idempotent) {
-            console.log('[idempotency] slash report deduplicated after race', {
-              matchId: result.match.id,
-              reporterId: identity.userId,
-            })
+            const lobby = liveLobbyBeforeReport
+            const isRankedResult = reportedContext.ranked
+            const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after match ${result.match.id}:`, error)
+              })
+            }
+
+            if (result.idempotent) {
+              console.log('[idempotency] slash report deduplicated after race', {
+                matchId: result.match.id,
+                reporterId: identity.userId,
+              })
+              const discordSync = await syncReportedMatchDiscordMessages({
+                db,
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                matchId: result.match.id,
+                reportedMode: reportedContext.mode,
+                reportedRedDeath: reportedContext.redDeath,
+                participants: result.participants,
+                matchDraftData: result.match.draftData,
+                lobby,
+                sessionNamespace: c.env.SessionDO,
+                archivePolicy: 'if-missing',
+                archiveChannelType,
+              })
+              queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
+              return
+            }
+
             const discordSync = await syncReportedMatchDiscordMessages({
               db,
               kv,
@@ -822,56 +847,45 @@ export const command_match = factory.command<MatchVar>(
               matchDraftData: result.match.draftData,
               lobby,
               sessionNamespace: c.env.SessionDO,
-              archivePolicy: 'if-missing',
+              reporter: {
+                userId: identity.userId,
+                displayName: identity.displayName,
+                avatarUrl: identity.avatarUrl,
+              },
+              archivePolicy: 'always',
               archiveChannelType,
             })
             queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
-            return
-          }
+            try {
+              if (!isTournamentMatch && !reportedContext.redDeath) {
+                await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
+                  civ: true,
+                  modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+                })
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+            }
 
-          const discordSync = await syncReportedMatchDiscordMessages({
-            db,
-            kv,
-            token: c.env.DISCORD_TOKEN,
-            matchId: result.match.id,
-            reportedMode: reportedContext.mode,
-            reportedRedDeath: reportedContext.redDeath,
-            participants: result.participants,
-            matchDraftData: result.match.draftData,
-            lobby,
-            sessionNamespace: c.env.SessionDO,
-            reporter: {
-              userId: identity.userId,
-              displayName: identity.displayName,
-              avatarUrl: identity.avatarUrl,
-            },
-            archivePolicy: 'always',
-            archiveChannelType,
-          })
-          queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-          try {
-            if (!isTournamentMatch && !reportedContext.redDeath) {
-              await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
-                civ: true,
-                modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+            if (!isTournamentMatch && isRankedResult) {
+              try {
+                await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
+              }
+              catch (error) {
+                console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+              }
+            }
+
+            await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')
+          }
+          finally {
+            if (result.reportClaim) {
+              await releaseReportedMatchProcessingClaim(c.env.SessionDO, result.reportClaim).catch((error) => {
+                console.error(`Failed to release report claim for match ${result.match.id}:`, error)
               })
             }
           }
-          catch (error) {
-            console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-          }
-
-          if (!isTournamentMatch && isRankedResult) {
-            try {
-              await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
-            }
-            catch (error) {
-              console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
-            }
-          }
-
-          await sendTransientEphemeralResponse(c, `Reported result for match **${result.match.id}**.`, 'success')
         })
       }
 
