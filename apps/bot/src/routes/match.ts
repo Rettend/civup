@@ -6,7 +6,7 @@ import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
-import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, reportMatch } from '../services/match/index.ts'
+import { cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
@@ -89,26 +89,49 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: result.error }, 400)
     }
 
-    const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-    if (!reportedContext) {
-      return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
+    if (result.reportProcessing) {
+      return c.json({ ok: true, reportProcessing: true, match: result.match, participants: result.participants })
     }
 
-    const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
-    const isRankedResult = reportedContext.ranked
-    const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
-    const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
-    if (isTournamentMatch) {
-      await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
-        console.error(`Failed to refresh tournament leaderboard after activity report ${result.match.id}:`, error)
-      })
-    }
+    try {
+      const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+      if (!reportedContext) {
+        return c.json({ error: `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.` }, 400)
+      }
 
-    if (result.idempotent) {
-      console.log('[idempotency] activity report request deduplicated', {
-        matchId: result.match.id,
-        reporterId,
-      })
+      const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
+      const isRankedResult = reportedContext.ranked
+      const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+      const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+      if (isTournamentMatch) {
+        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+          console.error(`Failed to refresh tournament leaderboard after activity report ${result.match.id}:`, error)
+        })
+      }
+
+      if (result.idempotent) {
+        console.log('[idempotency] activity report request deduplicated', {
+          matchId: result.match.id,
+          reporterId,
+        })
+        const discordSync = await syncReportedMatchDiscordMessages({
+          db,
+          kv,
+          token: c.env.DISCORD_TOKEN,
+          matchId: result.match.id,
+          reportedMode: reportedContext.mode,
+          reportedRedDeath: reportedContext.redDeath,
+          participants: result.participants,
+          matchDraftData: result.match.draftData,
+          lobby,
+          sessionNamespace: c.env.SessionDO,
+          archivePolicy: 'if-missing',
+          archiveChannelType,
+        })
+        queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
+        return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
+      }
+
       const discordSync = await syncReportedMatchDiscordMessages({
         db,
         kv,
@@ -120,55 +143,45 @@ export function registerMatchRoutes(app: Hono<Env>) {
         matchDraftData: result.match.draftData,
         lobby,
         sessionNamespace: c.env.SessionDO,
-        archivePolicy: 'if-missing',
+        reporter: {
+          userId: auth.identity.userId,
+          displayName: auth.identity.displayName,
+          avatarUrl: auth.identity.avatarUrl,
+        },
+        archivePolicy: 'always',
         archiveChannelType,
       })
       queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-      return c.json({ ok: true, alreadyReported: true, match: result.match, participants: result.participants })
-    }
+      try {
+        if (!isTournamentMatch && !reportedContext.redDeath) {
+          await markLeaderboardsDirty(db, `activity-report:${result.match.id}`, {
+            civ: true,
+            modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+          })
+        }
+      }
+      catch (error) {
+        console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
+      }
 
-    const discordSync = await syncReportedMatchDiscordMessages({
-      db,
-      kv,
-      token: c.env.DISCORD_TOKEN,
-      matchId: result.match.id,
-      reportedMode: reportedContext.mode,
-      reportedRedDeath: reportedContext.redDeath,
-      participants: result.participants,
-      matchDraftData: result.match.draftData,
-      lobby,
-      sessionNamespace: c.env.SessionDO,
-      reporter: {
-        userId: auth.identity.userId,
-        displayName: auth.identity.displayName,
-        avatarUrl: auth.identity.avatarUrl,
-      },
-      archivePolicy: 'always',
-      archiveChannelType,
-    })
-    queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
-    try {
-      if (!isTournamentMatch && !reportedContext.redDeath) {
-        await markLeaderboardsDirty(db, `activity-report:${result.match.id}`, {
-          civ: true,
-          modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
+      if (!isTournamentMatch && isRankedResult) {
+        try {
+          await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
+        }
+        catch (error) {
+          console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
+        }
+      }
+
+      return c.json({ ok: true, match: result.match, participants: result.participants })
+    }
+    finally {
+      if (result.reportClaim) {
+        await releaseReportedMatchProcessingClaim(c.env.SessionDO, result.reportClaim).catch((error) => {
+          console.error(`Failed to release report claim for match ${result.match.id}:`, error)
         })
       }
     }
-    catch (error) {
-      console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
-    }
-
-    if (!isTournamentMatch && isRankedResult) {
-      try {
-        await markRankedRolesDirty(kv, `activity-report:${result.match.id}`)
-      }
-      catch (error) {
-        console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
-      }
-    }
-
-    return c.json({ ok: true, match: result.match, participants: result.participants })
   })
 
   app.post('/api/match/:matchId/scrub', async (c) => {

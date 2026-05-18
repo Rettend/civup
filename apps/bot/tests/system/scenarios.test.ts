@@ -5,6 +5,8 @@ import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { setSystemChannel } from '../../src/services/system/channels.ts'
+import { createTournament, createTournamentMatchLink, importTournamentPlayersCsv } from '../../src/services/tournament/index.ts'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
@@ -1408,6 +1410,84 @@ describe('system scenarios', () => {
     expect(await world.inspect.matchMapping('p2')).toBeNull()
     expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(archivePostsAfterFirstReport)
     expect(await world.match.getMessageIds(started.matchId)).toEqual(messageIdsAfterFirstReport)
+  })
+
+  test('concurrent duplicate report submission creates one archive result', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reports = await Promise.all([
+      world.match.report(started.matchId, {
+        reporterId: 'p1',
+        placements: 'A',
+      }),
+      world.match.report(started.matchId, {
+        reporterId: 'p1',
+        placements: 'A',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    expect(reports.every(report => report.ok)).toBe(true)
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(1)
+    expect((await world.match.getMessageIds(started.matchId)).length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('concurrent duplicate tournament report submission creates one archive image', async () => {
+    const world = await createTrackedWorld()
+    await setSystemChannel(world.kv, 'tournament-archive', 'channel-tournament-archive')
+    const playerOneId = '100000000000000001'
+    const playerTwoId = '100000000000000002'
+
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: playerOneId, displayName: 'Alice' }, { id: playerTwoId, displayName: 'Bob' }],
+    })
+    const tournament = await createTournament(world.db, { name: 'Concurrent Cup', createdById: 'admin', minGames: 1 })
+    const imported = await importTournamentPlayersCsv(world.db, tournament.id, [
+      'seed,display_name,confirmed,discord_user_id',
+      `1,Alice,true,${playerOneId}`,
+      `2,Bob,true,${playerTwoId}`,
+    ].join('\n'))
+    expect('error' in imported).toBe(false)
+    await createTournamentMatchLink(world.db, {
+      tournamentId: tournament.id,
+      sessionId: lobby.id,
+      hostId: playerOneId,
+      playerOneId,
+      playerTwoId,
+    })
+
+    const started = await world.lobby.start('1v1', { hostId: playerOneId, lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const reports = await Promise.all([
+      world.match.report(started.matchId, {
+        reporterId: playerOneId,
+        placements: 'A',
+      }),
+      world.match.report(started.matchId, {
+        reporterId: playerOneId,
+        placements: 'A',
+      }),
+    ])
+    await world.flushBackgroundTasks()
+
+    expect(reports.every(report => report.ok)).toBe(true)
+    expect((await world.match.get(started.matchId))?.status).toBe('completed')
+    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-tournament-archive/messages'))).toHaveLength(1)
+    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(0)
   })
 
   test('stale cancellation redelivery after players move on does not clear the newer lobby bindings or message', async () => {

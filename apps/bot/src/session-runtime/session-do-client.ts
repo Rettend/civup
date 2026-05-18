@@ -141,6 +141,15 @@ export interface SessionReportedDiscordSyncCommand {
   at?: number
 }
 
+export interface SessionReportClaim {
+  matchId: string
+  claimId: string
+}
+
+export type SessionReportClaimResult
+  = | { claimed: true, claim: SessionReportClaim }
+    | { claimed: false, processing?: boolean, alreadyReported?: boolean }
+
 export type SessionDraftLifecycleSyncResult
   = | { ok: true, ignored?: boolean, synced?: boolean }
     | { ok: false, status: number, error: string }
@@ -398,6 +407,73 @@ export async function queueSessionReportedDiscordSync(
 
   if (!response.ok) {
     await throwSessionCommandError(response, `queue reported Discord sync for ${sessionId}`)
+  }
+}
+
+export async function claimSessionReport(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: { matchId?: string, reporterId?: string | null, at?: number } = {},
+): Promise<SessionReportClaimResult> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...command, type: 'claim' }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `claim report processing for ${sessionId}`)
+  }
+
+  const body = await response.json<SessionReportClaimResult>()
+  if (body.claimed && body.claim?.claimId && body.claim.matchId) return body
+  if (!body.claimed) return body
+  throw new Error(`Failed to claim report processing for ${sessionId}: invalid response`)
+}
+
+export async function getSessionReportClaimStatus(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: { matchId?: string, at?: number } = {},
+): Promise<SessionReportClaimResult> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...command, type: 'status' }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `read report processing claim for ${sessionId}`)
+  }
+
+  return await response.json<SessionReportClaimResult>()
+}
+
+export async function releaseSessionReportClaim(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  claim: SessionReportClaim,
+): Promise<void> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'release', matchId: claim.matchId, claimId: claim.claimId }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `release report processing claim for ${sessionId}`)
   }
 }
 
