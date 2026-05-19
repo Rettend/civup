@@ -217,7 +217,7 @@ function OverviewTargetCard(props: {
         meta().surfaceClass,
         'disabled:opacity-60 disabled:cursor-wait',
         props.selected
-          ? 'ring-2 ring-accent shadow-[0_0_24px_var(--accent-subtle)]'
+          ? cn('ring-2', meta().selectedRingClass)
           : 'hover:ring-1 hover:ring-white/15',
       )}
     >
@@ -278,18 +278,9 @@ function OverviewTargetCard(props: {
 
 function PlayerPreviewPill(props: { player: OverviewPlayer }) {
   return (
-    <div class="rounded-md px-1.5 h-7 border border-border-subtle bg-white/5 flex gap-1.5 min-w-0 items-center">
-      <Show
-        when={props.player.avatarUrl}
-        fallback={(
-          <span class="rounded-full bg-bg-muted flex h-4 w-4 shrink-0 items-center justify-center">
-            <span class="text-[7px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
-          </span>
-        )}
-      >
-        {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-4 w-4 object-cover shrink-0" />}
-      </Show>
-      <span class="text-[11px] text-fg leading-none truncate">{props.player.displayName}</span>
+    <div class="rounded-full pr-2 h-7 bg-white/6 flex gap-1.5 min-w-0 items-center">
+      <PlayerAvatarBubble player={props.player} />
+      <span class="text-xs text-fg leading-none truncate">{props.player.displayName}</span>
     </div>
   )
 }
@@ -314,21 +305,29 @@ function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
 
 function PlayerPreviewAvatar(props: { player: OverviewPlayer }) {
   return (
-    <span class="group/avatar relative flex h-7 w-7 min-w-0 items-center justify-center rounded-full bg-white/8" role="img" aria-label={props.player.displayName} data-overview-player-avatar>
-      <Show
-        when={props.player.avatarUrl}
-        fallback={(
-          <span class="rounded-full flex h-full w-full items-center justify-center">
-            <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
-          </span>
-        )}
-      >
-        {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-full w-full object-cover" />}
-      </Show>
+    <span class="group/avatar relative inline-flex" role="img" aria-label={props.player.displayName} data-overview-player-avatar>
+      <PlayerAvatarBubble player={props.player} />
       <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-border-subtle bg-bg-elevated/96 px-2.5 py-1 text-[10px] text-fg shadow-[0_8px_20px_rgba(0,0,0,0.32)] opacity-0 transition-opacity duration-100 group-hover/avatar:duration-0 group-hover/avatar:opacity-100 group-focus-visible/avatar:duration-0 group-focus-visible/avatar:opacity-100" role="tooltip">
         {props.player.displayName}
         <span class="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-border-subtle bg-bg-elevated/96" />
       </span>
+    </span>
+  )
+}
+
+function PlayerAvatarBubble(props: { player: OverviewPlayer }) {
+  return (
+    <span class="rounded-full h-7 w-7 shrink-0 flex items-center justify-center overflow-hidden">
+      <Show
+        when={props.player.avatarUrl}
+        fallback={(
+          <span class="rounded-full flex h-6 w-6 items-center justify-center">
+            <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
+          </span>
+        )}
+      >
+        {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-6 w-6 object-cover" />}
+      </Show>
     </span>
   )
 }
@@ -421,24 +420,28 @@ function getStatusMeta(status: OverviewStatus) {
         icon: 'i-ph:circle-duotone',
         iconColorClass: 'text-note',
         surfaceClass: 'bg-note/12 border-note/30 hover:bg-note/18',
+        selectedRingClass: 'ring-note/80',
       }
     case 'closed':
       return {
         icon: 'i-ph:minus-circle-duotone',
         iconColorClass: 'text-[#a78bfa]',
         surfaceClass: 'bg-[#a78bfa]/12 border-[#a78bfa]/30 hover:bg-[#a78bfa]/18',
+        selectedRingClass: 'ring-[#a78bfa]/80',
       }
     case 'drafting':
       return {
         icon: 'i-ph:play-circle-duotone',
         iconColorClass: 'text-info',
         surfaceClass: 'bg-info/12 border-info/30 hover:bg-info/18',
+        selectedRingClass: 'ring-info/80',
       }
     case 'completed':
       return {
         icon: 'i-ph:check-circle-duotone',
         iconColorClass: 'text-accent',
         surfaceClass: 'bg-accent/10 border-accent/25 hover:bg-accent/16',
+        selectedRingClass: 'ring-accent/80',
       }
   }
 }

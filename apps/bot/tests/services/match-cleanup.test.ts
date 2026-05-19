@@ -1,15 +1,27 @@
 import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
+
 describe('match cleanup reconciliation', () => {
   test('clears live lobbies whose backing match is already completed', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
+    const requests: Array<{ url: string, init?: RequestInit }> = []
+
+    globalThis.fetch = (async (input, init) => {
+      requests.push({ url: String(input), init })
+      return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
 
     try {
       await db.insert(players).values([
@@ -49,6 +61,9 @@ describe('match cleanup reconciliation', () => {
       expect((await getLobbyById(kv, activeLobby!.id))?.status).toBe('completed')
       expect(await kv.get('lobby:host:host')).toBeNull()
       expect(await getChannelForMatch(db, matchId)).toBeNull()
+      const editRequest = requests.find(request => request.init?.method === 'PATCH')
+      expect(editRequest).toBeDefined()
+      expect(String(editRequest?.init?.body)).toContain('RESULT REPORTED')
     }
     finally {
       sqlite.close()
@@ -112,4 +127,103 @@ describe('match cleanup reconciliation', () => {
       sqlite.close()
     }
   })
+
+  test('batches rating-event checks for many stale matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const ratedMatchId = 'stale-match-085'
+      const staleMatchRows = Array.from({ length: 161 }, (_, index) => ({
+        id: `stale-match-${String(index).padStart(3, '0')}`,
+        gameMode: '1v1',
+        status: 'cancelled',
+        createdAt: 1,
+        completedAt: 2,
+        seasonId: null,
+        draftData: null,
+      }))
+
+      await db.insert(players).values({ id: 'rated-player', displayName: 'Rated Player', avatarUrl: null, createdAt: 1 })
+      await db.insert(matches).values(staleMatchRows)
+      await db.insert(playerRatingEvents).values({
+        matchId: ratedMatchId,
+        playerId: 'rated-player',
+        mode: 'duel',
+        gameMode: '1v1',
+        ratingBeforeMu: 25,
+        ratingBeforeSigma: 8.333,
+        ratingAfterMu: 26,
+        ratingAfterSigma: 8,
+        gamesDelta: 1,
+        winsDelta: 1,
+        importedGamesDelta: 0,
+        effectiveGamesDelta: 1,
+        winsVsTier1Delta: 0,
+        winsVsTier2PlusDelta: 0,
+        effectiveWinsVsTier1Delta: 0,
+        effectiveWinsVsTier2PlusDelta: 0,
+        matchCreatedAt: 1,
+        matchCompletedAt: 2,
+        updatedAt: 2,
+      })
+
+      const result = await pruneAbandonedMatches(db, kv, { staleCancelledMs: 0, allowDirectTerminalWriteForTests: true })
+
+      expect(result.removedMatchIds).toHaveLength(staleMatchRows.length - 1)
+      expect(result.removedMatchIds).not.toContain(ratedMatchId)
+      const remaining = await db.select({ id: matches.id }).from(matches)
+      expect(remaining).toEqual([{ id: ratedMatchId }])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('directly prunes stale unrated matches whose SessionDO record is missing', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const matchId = 'orphan-stale-match'
+      await db.insert(matches).values({
+        id: matchId,
+        gameMode: '1v1',
+        status: 'cancelled',
+        createdAt: 1,
+        completedAt: 2,
+        seasonId: null,
+        draftData: null,
+      })
+
+      const result = await pruneAbandonedMatches(db, kv, {
+        staleCancelledMs: 0,
+        sessionNamespace: missingSessionNamespace(),
+      })
+
+      expect(result.removedMatchIds).toEqual([matchId])
+      expect(await db.select().from(matches).where(eq(matches.id, matchId))).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
+
+function missingSessionNamespace(): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      return name as unknown as DurableObjectId
+    },
+    get() {
+      return {
+        async fetch() {
+          return new Response(JSON.stringify({ error: 'Session not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        },
+      } as DurableObjectStub
+    },
+  } as DurableObjectNamespace
+}
