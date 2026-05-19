@@ -32,6 +32,7 @@ export interface PlayerRankModeSummary {
   rating: number | null
   gamesPlayed: number
   wins: number
+  rank: number | null
   eligible: boolean
 }
 
@@ -49,15 +50,14 @@ export async function getPlayerStatsRankProfile(
   playerId: string,
   now = Date.now(),
 ): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[] }> {
-  const [preview, ratingRows, config] = await Promise.all([
+  const [preview, ratingRows] = await Promise.all([
     previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
-    getRankedRoleConfig(kv, guildId),
   ])
 
   const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
   return {
-    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, config),
+    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config),
     ratingRows,
   }
 }
@@ -69,14 +69,13 @@ export async function getPlayerRankProfile(
   playerId: string,
   now = Date.now(),
 ): Promise<PlayerRankProfile> {
-  const [preview, ratingRows, config] = await Promise.all([
+  const [preview, ratingRows] = await Promise.all([
     previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
-    getRankedRoleConfig(kv, guildId),
   ])
 
   const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
-  return buildPlayerRankProfile(previewPlayer, ratingRows, config)
+  return buildPlayerRankProfile(previewPlayer, ratingRows, preview.config)
 }
 
 function buildPlayerRankProfile(
@@ -101,6 +100,7 @@ function buildPlayerRankProfile(
       rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
+      rank: previewPlayer?.ladderRanks[mode] ?? null,
       eligible: (ratingRow?.gamesPlayed ?? 0) >= getLeaderboardMinGames(mode),
     } satisfies PlayerRankModeSummary]
   })) as Record<LeaderboardMode, PlayerRankModeSummary>

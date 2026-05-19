@@ -6,6 +6,7 @@ import { getLeaders, maxPlayerCount, playerCountOptions, slotToTeamIndex, startP
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
+import { reconcilePlayerCivStatMatchContributionFromRows } from '../leaderboard/player-civ-stats.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getActiveSeason } from '../season/index.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
@@ -108,6 +109,13 @@ export async function createManualReportedMatch(
     }
 
     await reconcileCivLeaderboardMatchContribution(db, matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, {
+      id: matchId,
+      status: 'completed',
+      draftData,
+      gameMode: input.mode,
+      seasonId: activeSeason?.id ?? null,
+    }, participantRows, { updatedAt: input.reportedAt, previous: 'empty' })
 
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
     const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))

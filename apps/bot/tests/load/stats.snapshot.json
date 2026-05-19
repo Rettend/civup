@@ -17,7 +17,7 @@
       "leaderboardPlayersPerMode": 250,
       "output": {
         "fieldCount": 8,
-        "jsonBytes": 1508,
+        "jsonBytes": 1570,
         "topLeadersLines": 5,
         "commonTeammatesLines": 0,
         "commonOpponentsLines": 5,
@@ -60,7 +60,7 @@
       "leaderboardPlayersPerMode": 250,
       "output": {
         "fieldCount": 9,
-        "jsonBytes": 1681,
+        "jsonBytes": 1743,
         "topLeadersLines": 5,
         "commonTeammatesLines": 5,
         "commonOpponentsLines": 5,
@@ -103,7 +103,7 @@
       "leaderboardPlayersPerMode": 250,
       "output": {
         "fieldCount": 8,
-        "jsonBytes": 1512,
+        "jsonBytes": 1576,
         "topLeadersLines": 5,
         "commonTeammatesLines": 0,
         "commonOpponentsLines": 5,
@@ -146,7 +146,7 @@
       "leaderboardPlayersPerMode": 250,
       "output": {
         "fieldCount": 9,
-        "jsonBytes": 1688,
+        "jsonBytes": 1750,
         "topLeadersLines": 5,
         "commonTeammatesLines": 5,
         "commonOpponentsLines": 5,

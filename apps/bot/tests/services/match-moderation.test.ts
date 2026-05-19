@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, getLeaders } from '@civup/game'
 import { buildLeaderboard, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
@@ -199,6 +199,55 @@ describe('match moderation recalculation', () => {
       expect(p2?.civId).toBe('rome')
       expect(p1?.ratingAfterMu).toBe(27)
       expect(p2?.ratingAfterMu).toBe(23)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('mod leader correction keeps tournament matches out of player leader aggregates', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.insert(tournaments).values({
+        id: 'tournament-1',
+        name: 'Tournament 1',
+        mode: '1v1',
+        status: 'qualifier',
+        scoring: 'open_win_rate',
+        rematchPolicy: 'warn',
+        minGames: 1,
+        topCut: 2,
+        roleId: null,
+        createdById: 'mod',
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      await db.insert(tournamentMatches).values({
+        sessionId: 'tournament-session-1',
+        tournamentId: 'tournament-1',
+        matchId: 'm1',
+        stage: 'qualifier',
+        status: 'reported',
+        playerOneId: 'p1',
+        playerTwoId: 'p2',
+        winnerId: 'p1',
+        createdAt: 1,
+        updatedAt: 1,
+      })
+
+      const leaderId = allLeaderIds.find(id => id !== 'rome' && id !== 'greece') ?? allLeaderIds[0]!
+      const result = await correctMatchLeadersByModerator(db, {
+        matchId: 'm1',
+        playerId: 'p1',
+        leaderId,
+        correctedAt: 10_000,
+      })
+
+      expect('error' in result).toBe(false)
+      expect(await db.select().from(playerCivStats)).toEqual([])
+      expect(await db.select().from(matchPlayerCivStatContributions)).toEqual([])
     }
     finally {
       sqlite.close()

@@ -533,7 +533,7 @@ function summarizeOutput(embed: {
   return {
     fieldCount: fields.length,
     jsonBytes: JSON.stringify(embed).length,
-    topLeadersLines: countFieldLines(fields, 'Top Leaders'),
+    topLeadersLines: countFieldLines(fields, 'Top Played Leaders'),
     commonTeammatesLines: countFieldLines(fields, 'Common Teammates'),
     commonOpponentsLines: countFieldLines(fields, 'Common Opponents'),
     recentMatchesLines: countFieldLines(fields, 'Recent Matches'),
