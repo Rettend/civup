@@ -31,7 +31,11 @@ const ZOOMED_LEADERS = [
 ]
 
 const SLIGHTLY_ZOOMED_LEADERS = [
+  'Anacaona',
+  'Maria Theresa',
+  'Stanislaw II',
   'Te\' K\'inich II',
+  'Theodoric',
 ]
 
 interface LeaderCardProps {
