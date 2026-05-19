@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
+import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
@@ -741,6 +742,50 @@ describe('lobby routes', () => {
     expect(configuredLobby.maxRole).toBe('tier2')
   })
 
+  test('config route reopens closed lobbies in the activity overview', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const closeResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: true }),
+    }, buildEnv(kv))
+    expect(closeResponse.status).toBe(200)
+    await expect(closeResponse.json()).resolves.toMatchObject({ draftConfig: { closed: true } })
+    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'closed' }))
+
+    const openResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: false }),
+    }, buildEnv(kv))
+    expect(openResponse.status).toBe(200)
+    await expect(openResponse.json()).resolves.toMatchObject({ draftConfig: { closed: false } })
+    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'open' }))
+  })
+
   test('config route rejects spoofed activity user IDs', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -1442,6 +1487,51 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.redDeath).toBe(true)
     expect(updatedLobby?.draftConfig.randomDraft).toBe(true)
     expect(updatedLobby?.draftConfig.duplicateFactions).toBe(false)
+  })
+
+  test('mode changes preserve closed lobbies', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const closedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...lobby.draftConfig, closed: true }, lobby)
+    expect(closedLobby?.draftConfig.closed).toBe(true)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        nextMode: '3v3',
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      mode: '3v3',
+      draftConfig: { closed: true },
+    })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.closed).toBe(true)
   })
 
   test('mode changes force duplicate factions for Red Death 6v6', async () => {

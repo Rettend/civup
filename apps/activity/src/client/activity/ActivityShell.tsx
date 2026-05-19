@@ -428,7 +428,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
-    if (filteredSnapshot.selection.option.status === 'completed') {
+    if (filteredSnapshot.selection.option.reported === true) {
       const current = state()
       if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && draftStore.state?.status === 'complete') {
         if (!current.reported) setState({ ...current, reported: true })
@@ -1181,10 +1181,34 @@ function applyLiveLobbyMembership(
   currentUserId: string,
 ): ActivityTargetOption[] {
   return options.map((option) => {
-    if (option.kind !== 'lobby' || option.isMember) return option
+    if (option.kind !== 'lobby') return option
     const snapshot = liveLobbySnapshots.get(option.id)
-    if (!snapshot || !isLobbySnapshotMember(snapshot, currentUserId)) return option
-    return { ...option, isMember: true }
+    if (!snapshot) return option
+
+    const status = snapshot.draftConfig.closed === true ? 'closed' : 'open'
+    const participantCount = snapshot.entries.filter(entry => entry != null).length
+    const isMember = option.isMember || isLobbySnapshotMember(snapshot, currentUserId)
+    const isHost = snapshot.hostId === currentUserId
+    if (
+      option.status === status
+      && option.participantCount === participantCount
+      && option.targetSize === snapshot.targetSize
+      && option.mode === snapshot.mode
+      && option.redDeath === snapshot.draftConfig.redDeath
+      && option.isMember === isMember
+      && option.isHost === isHost
+    ) return option
+
+    return {
+      ...option,
+      mode: snapshot.mode,
+      status,
+      participantCount,
+      targetSize: snapshot.targetSize,
+      redDeath: snapshot.draftConfig.redDeath,
+      isMember,
+      isHost,
+    }
   })
 }
 
@@ -1213,6 +1237,7 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.redDeath !== b.draftConfig.redDeath) return false
   if (a.draftConfig.dealOptionsSize !== b.draftConfig.dealOptionsSize) return false
   if (a.draftConfig.randomDraft !== b.draftConfig.randomDraft) return false
+  if ((a.draftConfig.closed === true) !== (b.draftConfig.closed === true)) return false
   if ((a.tournament?.id ?? null) !== (b.tournament?.id ?? null)) return false
   if ((a.tournament?.rematchWarning ?? null) !== (b.tournament?.rematchWarning ?? null)) return false
   if ((a.repeatDraft?.kind ?? null) !== (b.repeatDraft?.kind ?? null)) return false

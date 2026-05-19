@@ -51,13 +51,16 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
   let configMessageTimeout: ReturnType<typeof setTimeout> | null = null
 
-  createRenderEffect(() => {
-    const incomingLobby = props.lobby ?? null
+  const applyLobbySnapshot = (incomingLobby: LobbySnapshot | null) => {
     setLobbyState((current) => {
       if (!incomingLobby) return null
-      if (current && incomingLobby.revision < current.revision) return current
+      if (current && current.id === incomingLobby.id && incomingLobby.revision < current.revision) return current
       return incomingLobby
     })
+  }
+
+  createRenderEffect(() => {
+    applyLobbySnapshot(props.lobby ?? null)
   })
 
   const clearOptimisticLobbyAction = () => {
@@ -406,6 +409,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       const nextClosed = !isLobbyClosed()
       const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { closed: nextClosed })
       if (!result.ok) return showErrorMessage(result.error)
+      applyLobbySnapshot(result.lobby)
       showInfoMessage(nextClosed ? 'Lobby closed.' : 'Lobby opened.')
     }
     finally {

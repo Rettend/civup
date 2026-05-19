@@ -540,6 +540,18 @@ describe('lobby service D1-backed projection behavior', () => {
         status: 'closed',
       }),
     ])
+
+    const reopenedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...(closedLobby ?? lobby).draftConfig, closed: false }, closedLobby ?? lobby)
+    await syncLobbyDerivedState(kv, reopenedLobby ?? closedLobby ?? lobby)
+
+    const reopenedOverview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-closed')
+    expect(reopenedOverview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        status: 'open',
+      }),
+    ])
   })
 
   test('tracks the current hosted lobby without scanning all modes', async () => {

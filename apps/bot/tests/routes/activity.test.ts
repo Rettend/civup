@@ -664,7 +664,7 @@ describe('activity target selection', () => {
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, oldMatchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', isMember: true })])
+    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', reported: false, isMember: true })])
   })
 
   test('opens overview from an explicit launch target even when following a lobby', async () => {
@@ -733,8 +733,9 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.option.status).toBe('completed')
+    expect(snapshot.selection.option.reported).toBe(true)
     expect(snapshot.selection.sessionAccessToken).toEqual(expect.any(String))
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id, status: 'completed' })])
+    expect(snapshot.options).toEqual([])
   })
 
   test('opens a clicked reportable active match when Discord launch channel differs from the button interaction channel', async () => {
