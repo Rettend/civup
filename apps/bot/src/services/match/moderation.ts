@@ -8,6 +8,7 @@ import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
+import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
@@ -185,9 +186,6 @@ export async function resolveMatchByModerator(
     }
   }
 
-  if (tournamentLinked) await removeCivLeaderboardMatchContribution(db, input.matchId)
-  else await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-
   const [updatedMatch] = await db
     .select()
     .from(matches)
@@ -199,6 +197,15 @@ export async function resolveMatchByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (tournamentLinked) {
+    await removeCivLeaderboardMatchContribution(db, input.matchId)
+    await removePlayerCivStatMatchContribution(db, input.matchId)
+  }
+  else {
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
+  }
 
   return {
     match: updatedMatch,
@@ -278,7 +285,6 @@ export async function correctMatchLeadersByModerator(
   }
 
   await runDbBatch(db, applyQueries)
-  await reconcileCivLeaderboardMatchContribution(db, input.matchId)
 
   const [updatedMatch] = await db
     .select()
@@ -291,6 +297,15 @@ export async function correctMatchLeadersByModerator(
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (await isMatchTournamentLinked(db, input.matchId)) {
+    await removeCivLeaderboardMatchContribution(db, input.matchId)
+    await removePlayerCivStatMatchContribution(db, input.matchId)
+  }
+  else {
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
+  }
 
   return {
     match: updatedMatch,
@@ -345,6 +360,7 @@ async function rollbackResolvedMatchModeration(
 
     await runDbBatch(db, rollbackQueries)
     await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
+    await reconcilePlayerCivStatMatchContribution(db, options.input.matchId)
 
     const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
       fromMatchId: options.input.matchId,
@@ -588,6 +604,7 @@ export async function cancelMatchByModerator(
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed' || hasStaleRatingEvents) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
+    await removePlayerCivStatMatchContribution(db, input.matchId)
   }
   if (completedLeaderboardMode != null) {
     const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
