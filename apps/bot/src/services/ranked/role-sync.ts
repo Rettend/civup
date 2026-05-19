@@ -66,6 +66,7 @@ export interface RankedRolePlayerPreview {
   previousAssignment: CurrentRankAssignment | null
   previousSourceMode: LeaderboardMode | null
   ladderTiers: Record<LeaderboardMode, CompetitiveTier | null>
+  ladderRanks: Record<LeaderboardMode, number | null>
   ladderScores: Record<LeaderboardMode, number | null>
   pendingDemotion: RankedRoleDemotionCandidate | null
   status: 'promoted' | 'demoted' | 'changed' | 'kept' | 'new'
@@ -74,6 +75,7 @@ export interface RankedRolePlayerPreview {
 export interface RankedRolePreview {
   guildId: string
   evaluatedAt: number
+  config: RankedRoleConfig
   playerPreviews: RankedRolePlayerPreview[]
   missingConfigTiers: CompetitiveTier[]
   unrankedCount: number
@@ -189,6 +191,7 @@ interface LadderAssignment {
 interface LadderSnapshots {
   earn: Map<string, LadderAssignment>
   keep: Map<string, LadderAssignment>
+  ranks: Map<string, number>
   scores: Map<string, number>
 }
 
@@ -627,10 +630,10 @@ async function buildRankedRolePreviewState({
   includePlayerIdentities = true,
   rankedMinGames = MODE_LADDER_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [leaderboardSnapshots, previousAssignments, previousCandidates, config, globalRatingRows] = await Promise.all([
+  const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
+  const [leaderboardSnapshots, previousAssignments, config, globalRatingRows] = await Promise.all([
     getLeaderboardModeSnapshotsForPreview(db, kv),
     getCurrentRankAssignments(kv, guildId),
-    getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
     db
       .select({
@@ -650,6 +653,9 @@ async function buildRankedRolePreviewState({
       .from(playerRatings)
       .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
   ])
+  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, requestedPlayerIds)
+    ? await getRankedRoleDemotionCandidates(kv, guildId)
+    : { byPlayerId: {} }
 
   const ratings = [...leaderboardSnapshots.values()]
     .flatMap(snapshot => snapshot.rows)
@@ -702,7 +708,6 @@ async function buildRankedRolePreviewState({
     knownPlayerIds.add(playerId)
   }
 
-  const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
   const previewPlayerIds = requestedPlayerIds ?? [...knownPlayerIds].sort((a, b) => a.localeCompare(b))
   const playerIdentityById = await loadPlayerIdentityById(
     db,
@@ -731,6 +736,7 @@ async function buildRankedRolePreviewState({
     const earnAssignment = qualified ? toCurrentAssignment(globalLadders.earn.get(playerId) ?? null) : null
     const keepAssignment = qualified ? toCurrentAssignment(globalLadders.keep.get(playerId) ?? null) : null
     const ladderTiers = buildLadderTierMap(playerId, laddersByMode)
+    const ladderRanks = buildLadderRankMap(playerId, laddersByMode)
     const ladderScores = buildLadderScoreMap(playerId, laddersByMode)
     const liveAssignment = qualified
       ? resolveLiveAssignment({
@@ -779,6 +785,7 @@ async function buildRankedRolePreviewState({
       previousAssignment,
       previousSourceMode: previousAssignment?.sourceMode ?? null,
       ladderTiers,
+      ladderRanks,
       ladderScores,
       pendingDemotion: finalAssignment.pendingDemotion,
       status: qualified ? classifyPreviewStatus(previousAssignment, finalAssignment.assignment, fallbackTier) : 'kept',
@@ -791,6 +798,7 @@ async function buildRankedRolePreviewState({
     preview: {
       guildId,
       evaluatedAt: now,
+      config,
       playerPreviews,
       missingConfigTiers: getMissingRankedRoleConfigTiers(config),
       unrankedCount,
@@ -812,6 +820,17 @@ function buildRequestedPlayerIds(playerIds: string[] | undefined): string[] | nu
   const filtered = [...new Set(playerIds.filter(isDiscordSnowflake))]
   if (filtered.length === 0) return []
   return filtered.sort((a, b) => a.localeCompare(b))
+}
+
+function shouldLoadRankedRoleDemotionCandidates(
+  previousAssignments: RankedRoleAssignments,
+  requestedPlayerIds: string[] | null,
+): boolean {
+  if (requestedPlayerIds) {
+    return requestedPlayerIds.some(playerId => previousAssignments.byPlayerId[playerId] != null)
+  }
+
+  return Object.keys(previousAssignments.byPlayerId).some(isDiscordSnowflake)
 }
 
 async function loadPlayerIdentityById(
@@ -896,6 +915,7 @@ function buildLadderSnapshots(
   return {
     earn: buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
     keep: buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
+    ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -918,6 +938,7 @@ function buildGlobalLadderSnapshots(
   return {
     earn: applyGlobalEvidenceGates(buildEarnAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
     keep: applyGlobalEvidenceGates(buildKeepAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
+    ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -1242,6 +1263,16 @@ function buildLadderTierMap(playerId: string, laddersByMode: Map<LeaderboardMode
     'squad': laddersByMode.get('squad')?.earn.get(playerId)?.tier ?? null,
     'ffa': laddersByMode.get('ffa')?.earn.get(playerId)?.tier ?? null,
     'red-death': laddersByMode.get('red-death')?.earn.get(playerId)?.tier ?? null,
+  }
+}
+
+function buildLadderRankMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
+  return {
+    'duel': laddersByMode.get('duel')?.ranks.get(playerId) ?? null,
+    'duo': laddersByMode.get('duo')?.ranks.get(playerId) ?? null,
+    'squad': laddersByMode.get('squad')?.ranks.get(playerId) ?? null,
+    'ffa': laddersByMode.get('ffa')?.ranks.get(playerId) ?? null,
+    'red-death': laddersByMode.get('red-death')?.ranks.get(playerId) ?? null,
   }
 }
 
