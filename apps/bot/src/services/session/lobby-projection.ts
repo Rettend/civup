@@ -264,6 +264,7 @@ function parseSessionConfig(raw: string, mode: SessionDirectoryRow['mode']): Ses
       randomDraft: parsed.randomDraft === true,
       hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,
+      closed: parsed.closed === true,
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,
     }

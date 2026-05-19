@@ -43,10 +43,11 @@ export const storeSpies = {
   removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
   repeatLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
   startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
-  updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Partial<LobbySnapshot>) => ({
-    ...uiMockState.updateLobbyConfigResult,
-    lobby: { steamLobbyLink: patch.steamLobbyLink ?? null },
-  })),
+  updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Record<string, unknown>) => {
+    const result = uiMockState.updateLobbyConfigResult
+    if (!result.ok) return result
+    return { ok: true, lobby: mockLobbySnapshotFromConfigPatch(patch) }
+  }),
   updateLobbyMode: mock(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
 }
 
@@ -171,6 +172,35 @@ function mockLobbySnapshot(): LobbySnapshot {
     serverDefaults: {
       banTimerSeconds: 60,
       pickTimerSeconds: 90,
+    },
+  }
+}
+
+function mockLobbySnapshotFromConfigPatch(patch: Record<string, unknown>): LobbySnapshot {
+  const snapshot = mockLobbySnapshot()
+  return {
+    ...snapshot,
+    revision: snapshot.revision + 1,
+    steamLobbyLink: typeof patch.steamLobbyLink === 'string' || patch.steamLobbyLink === null ? patch.steamLobbyLink : snapshot.steamLobbyLink,
+    minRole: patch.minRole === null || typeof patch.minRole === 'string' ? patch.minRole as LobbySnapshot['minRole'] : snapshot.minRole,
+    maxRole: patch.maxRole === null || typeof patch.maxRole === 'string' ? patch.maxRole as LobbySnapshot['maxRole'] : snapshot.maxRole,
+    targetSize: typeof patch.targetSize === 'number' ? patch.targetSize : snapshot.targetSize,
+    draftConfig: {
+      ...snapshot.draftConfig,
+      banTimerSeconds: typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null ? patch.banTimerSeconds : snapshot.draftConfig.banTimerSeconds,
+      pickTimerSeconds: typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null ? patch.pickTimerSeconds : snapshot.draftConfig.pickTimerSeconds,
+      leaderPoolSize: typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null ? patch.leaderPoolSize : snapshot.draftConfig.leaderPoolSize,
+      leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : snapshot.draftConfig.leaderDataVersion,
+      mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : snapshot.draftConfig.mapVoteEnabled,
+      blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : snapshot.draftConfig.blindBans,
+      simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : snapshot.draftConfig.simultaneousPick,
+      permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : snapshot.draftConfig.permanentAlly,
+      redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : snapshot.draftConfig.redDeath,
+      dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : snapshot.draftConfig.dealOptionsSize,
+      randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : snapshot.draftConfig.randomDraft,
+      hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : snapshot.draftConfig.hiddenDraft,
+      duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : snapshot.draftConfig.duplicateFactions,
+      closed: typeof patch.closed === 'boolean' ? patch.closed : snapshot.draftConfig.closed,
     },
   }
 }

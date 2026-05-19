@@ -340,6 +340,61 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
+  test('orders recent rating changes by rating replay order', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedPlayerIdentity(db, '100010000000000098')
+
+    await seedCompletedMatch(db, {
+      matchId: 'rating-order-oldest',
+      gameMode: '3v3',
+      createdAt: NOW - 30_000,
+      completedAt: NOW - 1_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'rating-order-middle',
+      gameMode: '3v3',
+      createdAt: NOW - 20_000,
+      completedAt: NOW - 3_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'rome-trajan' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'babylon-hammurabi' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'rating-order-newest',
+      gameMode: '3v3',
+      createdAt: NOW - 10_000,
+      completedAt: NOW - 2_000,
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await db.insert(playerRatingEvents).values([
+      ratingEvent({ matchId: 'rating-order-oldest', before: 1000, after: 1015, createdAt: NOW - 30_000, completedAt: NOW - 1_000 }),
+      ratingEvent({ matchId: 'rating-order-middle', before: 1015, after: 1057, createdAt: NOW - 20_000, completedAt: NOW - 3_000 }),
+      ratingEvent({ matchId: 'rating-order-newest', before: 1057, after: 1064, createdAt: NOW - 10_000, completedAt: NOW - 2_000 }),
+    ])
+
+    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
+    const value = recentMatchesField?.value ?? ''
+
+    expect(value.indexOf('Hojo Tokimune')).toBeLessThan(value.indexOf('Trajan'))
+    expect(value.indexOf('Trajan')).toBeLessThan(value.indexOf('Hammurabi'))
+    expect(value).toContain('` +7` 📈 `(1064)`')
+    expect(value).toContain('`+42` 📈 `(1057)`')
+    expect(value).toContain('`+15` 📈 `(1015)`')
+
+    sqlite.close()
+  })
+
   test('renders top common teammates and opponents with plain player names', async () => {
     const { db, sqlite } = await createTestDatabase()
 
@@ -662,6 +717,7 @@ async function seedCompletedMatch(
   row: {
     matchId: string
     gameMode: GameMode
+    createdAt?: number
     completedAt: number
     isOld?: boolean
     participants: Array<{
@@ -679,7 +735,7 @@ async function seedCompletedMatch(
     isOld: row.isOld ?? false,
     seasonId: null,
     draftData: null,
-    createdAt: row.completedAt - 10_000,
+    createdAt: row.createdAt ?? row.completedAt - 10_000,
     completedAt: row.completedAt,
   })
 
@@ -694,4 +750,38 @@ async function seedCompletedMatch(
     ratingAfterMu: null,
     ratingAfterSigma: null,
   })))
+}
+
+function ratingEvent(input: {
+  matchId: string
+  before: number
+  after: number
+  createdAt: number
+  completedAt: number
+}) {
+  return {
+    matchId: input.matchId,
+    playerId: HERO_ID,
+    mode: 'squad',
+    gameMode: '3v3',
+    ratingBeforeMu: displayRatingToMu(input.before),
+    ratingBeforeSigma: 8,
+    ratingAfterMu: displayRatingToMu(input.after),
+    ratingAfterSigma: 8,
+    gamesDelta: 1,
+    winsDelta: 1,
+    importedGamesDelta: 0,
+    effectiveGamesDelta: 1,
+    winsVsTier1Delta: 0,
+    winsVsTier2PlusDelta: 0,
+    effectiveWinsVsTier1Delta: 0,
+    effectiveWinsVsTier2PlusDelta: 0,
+    matchCreatedAt: input.createdAt,
+    matchCompletedAt: input.completedAt,
+    updatedAt: NOW,
+  }
+}
+
+function displayRatingToMu(rating: number): number {
+  return 25 + ((rating - 1000) / 36)
 }

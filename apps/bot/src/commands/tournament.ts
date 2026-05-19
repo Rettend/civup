@@ -259,7 +259,7 @@ async function createTournamentLobby(input: {
   }
   const previewSlots = [input.identity.userId, null]
   const reservedLabels = [null, input.target.opponentDisplayName]
-  const embed = lobbyOpenEmbed(TOURNAMENT_MODE, mapLobbySlotsToEntries(previewSlots, [hostEntry]), previewSlots.length, undefined, undefined, 'live', false, reservedLabels)
+  const embed = lobbyOpenEmbed(TOURNAMENT_MODE, mapLobbySlotsToEntries(previewSlots, [hostEntry]), previewSlots.length, undefined, undefined, 'live', false, { reservedSlotLabels: reservedLabels })
   let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
 
   try {

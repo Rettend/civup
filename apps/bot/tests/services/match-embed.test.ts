@@ -94,6 +94,13 @@ describe('match result embed', () => {
     ])
   })
 
+  test('marks closed open lobbies with a closed title and purple highlight', () => {
+    const embed = lobbyOpenEmbed('ffa', Array.from({ length: 6 }, () => null), 6, null, null, 'live', false, { closed: true }).toJSON()
+
+    expect(embed.title).toBe('LOBBY CLOSED  -  FFA')
+    expect(embed.color).toBe(0x8B5CF6)
+  })
+
   test('pads four-team cancelled lobbies into a 2x2 inline field layout', () => {
     const participants = Array.from({ length: 8 }, (_, index) => ({
       playerId: `1000100000000000${String(index + 1).padStart(2, '0')}`,

@@ -31,10 +31,11 @@ interface ReporterContext {
   avatarUrl?: string | null
 }
 
-export type LobbyStage = 'open' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
+export type LobbyStage = 'open' | 'closed' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
 
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
+  'closed': 'LOBBY CLOSED',
   'drafting': 'DRAFTING',
   'draft-complete': 'DRAFT COMPLETE',
   'reported': 'RESULT REPORTED',
@@ -45,6 +46,7 @@ const STAGE_LABELS: Record<LobbyStage, string> = {
 
 const STAGE_COLORS: Record<LobbyStage, number> = {
   'open': 0x2563EB,
+  'closed': 0x8B5CF6,
   'drafting': 0x0EA5A4,
   'draft-complete': 0xD97706,
   'reported': 0x475569,
@@ -61,9 +63,10 @@ export function lobbyOpenEmbed(
   maxRoleId?: string | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
-  reservedSlotLabels: (string | null)[] = [],
+  options: { reservedSlotLabels?: (string | null)[], closed?: boolean } = {},
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'open', leaderDataVersion, redDeath, targetSize)
+  const reservedSlotLabels = options.reservedSlotLabels ?? []
+  const embed = baseLobbyEmbed(mode, options.closed ? 'closed' : 'open', leaderDataVersion, redDeath, targetSize)
   const rankFields = [
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,

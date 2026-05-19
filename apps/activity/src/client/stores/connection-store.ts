@@ -141,6 +141,7 @@ export interface ActivityTargetOption {
   channelId: string
   mode: string
   status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -165,6 +166,7 @@ export interface ActivityOverviewOptionSnapshot {
   channelId: string
   mode: string
   status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean

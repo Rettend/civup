@@ -19,6 +19,7 @@ export interface ActivityOverviewOptionSnapshot {
   channelId: string
   mode: GameMode
   status: 'open' | 'closed' | 'drafting' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -195,6 +196,7 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     channelId: session.channelId,
     mode: session.mode,
     status,
+    reported: session.phase === 'reported',
     participantCount: countFilledSlots(session.roster.slots),
     targetSize: session.roster.slots.length,
     redDeath: session.config.redDeath,
@@ -219,6 +221,7 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     channelId: record.projectionState.channelId,
     mode: record.mode,
     status,
+    reported: record.phase === 'reported',
     participantCount: countFilledSlots(record.roster.slots),
     targetSize: record.roster.slots.length,
     redDeath: record.config.redDeath,

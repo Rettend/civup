@@ -133,7 +133,7 @@ export async function playerCardEmbed(
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
     .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
     .where(completedMatchesWhere)
-    .orderBy(desc(matches.completedAt), desc(matches.id))
+    .orderBy(desc(matches.createdAt), desc(matches.id))
   const completedParticipationRows = completedParticipationRowsRaw.map(({ tournamentSessionId, ...row }) => ({
     ...row,
     isTournament: tournamentSessionId != null,

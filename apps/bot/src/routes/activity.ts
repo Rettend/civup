@@ -34,6 +34,7 @@ interface ActivityTargetOption {
   channelId: string
   mode: GameMode
   status: 'open' | 'closed' | 'drafting' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -365,7 +366,9 @@ async function buildActivityLaunchSnapshotFromTargets(
 ): Promise<ActivityLaunchSnapshot> {
   return {
     selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db, sessionNamespace) : null,
-    options: context.targets.map(target => target.option),
+    options: context.targets
+      .filter(target => target.session.phase !== 'reported')
+      .map(target => target.option),
   }
 }
 
