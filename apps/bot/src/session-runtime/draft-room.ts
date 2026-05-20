@@ -1022,15 +1022,17 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     if (typeof storage.setAlarm === 'function') await storage.setAlarm(nextAlarm)
   }
 
-  private async finalizeCompletedDraft(state: DraftState) {
+  protected async finalizeCompletedDraft(_state?: DraftState): Promise<boolean> {
     const room = await this.getRoomRecord()
-    if (!room?.swapWindowOpen) return
-    await this.applyRoomTransition(finalizeCompletedDraftCommand(room, {
+    if (!room?.swapWindowOpen || room.state.status !== 'complete') return false
+    const transition = finalizeCompletedDraftCommand(room, {
       type: 'finalize-completed-draft',
       now: this.now(),
-    }), 'finalize-complete', {
+    })
+    await this.applyRoomTransition(transition, 'finalize-complete', {
       finalized: true,
     })
+    return transition.response === true
   }
 
   private async handleStart(state: DraftState, config: DraftRuntimeConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {

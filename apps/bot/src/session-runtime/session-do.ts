@@ -2054,14 +2054,24 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({ claimed: false, alreadyReported: true })
     }
 
-    if (record.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
-    if (record.phase !== 'active' && record.phase !== 'swap') {
-      return json({ error: `Session is not reportable (phase: ${record.phase})` }, 409)
+    if (body.type === 'status') {
+      if (record.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
+      if (record.phase !== 'active' && record.phase !== 'swap') {
+        return json({ error: `Session is not reportable (phase: ${record.phase})` }, 409)
+      }
+      return json({ claimed: false })
     }
 
-    if (body.type === 'status') return json({ claimed: false })
-
     if (body.type !== 'claim') return json({ error: 'Unknown report claim command' }, 400)
+
+    const finalized = await this.finalizeSwapWindowForReportClaim(record)
+    if (!finalized.ok) return finalized.response
+    const reportableRecord = finalized.record
+
+    if (reportableRecord.phase === 'cancelled') return json({ error: 'Cancelled sessions cannot be reported' }, 409)
+    if (reportableRecord.phase !== 'active') {
+      return json({ error: `Session is not reportable (phase: ${reportableRecord.phase})` }, 409)
+    }
 
     const claim: ReportClaimMarker = {
       matchId,
@@ -2073,6 +2083,25 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
     await this.ctx.storage.put(REPORT_CLAIM_STORAGE_KEY, claim)
     return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId } })
+  }
+
+  private async finalizeSwapWindowForReportClaim(record: SessionRecord): Promise<{ ok: true, record: SessionRecord } | { ok: false, response: Response }> {
+    if (record.phase !== 'swap') return { ok: true, record }
+
+    await this.finalizeCompletedDraft()
+    let current = await this.getRecord() ?? record
+    if (current.phase !== 'swap') return { ok: true, record: current }
+
+    const pendingPayload = current.lifecycleSync?.payload
+    if (pendingPayload?.outcome === 'complete') {
+      const retry = await this.syncDraftLifecyclePayload(pendingPayload)
+      current = await this.getRecord() ?? current
+      if (current.phase !== 'swap') return { ok: true, record: current }
+      if (!retry.ok && retry.status < 500) return { ok: false, response: json({ error: retry.error }, retry.status) }
+      return { ok: false, response: json({ claimed: false, processing: true, finalizing: true }) }
+    }
+
+    return { ok: false, response: json({ error: 'Swap window could not be finalized before reporting.' }, 409) }
   }
 
   private async handleReportedDiscordSyncCommand(request: Request): Promise<Response> {

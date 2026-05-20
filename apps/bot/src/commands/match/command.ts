@@ -791,7 +791,10 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (result.reportProcessing) {
-            await sendTransientEphemeralResponse(c, `Match **${result.match.id}** is already being reported.`, 'info')
+            const message = result.reportFinalizing
+              ? `Match **${result.match.id}** is finalizing leader swaps. Try reporting again in a moment.`
+              : `Match **${result.match.id}** is already being reported.`
+            await sendTransientEphemeralResponse(c, message, 'info')
             return
           }
 

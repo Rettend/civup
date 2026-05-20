@@ -87,7 +87,7 @@ export async function reportMatch(
   input: ReportInput,
   options: ReportMatchOptions = {},
 ): Promise<ReportResult> {
-  const [match] = await db
+  let [match] = await db
     .select()
     .from(matches)
     .where(eq(matches.id, input.matchId))
@@ -97,7 +97,7 @@ export async function reportMatch(
     return { error: `Match **${input.matchId}** not found.` }
   }
 
-  const participantRows = await db
+  let participantRows = await db
     .select()
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
@@ -143,16 +143,10 @@ export async function reportMatch(
     return { error: `Match **${input.matchId}** is not active (status: ${match.status}).` }
   }
 
-  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
-  if (!gameContext) {
-    return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
-  }
-
-  const gameMode = gameContext.mode
   const reportClaim = await claimReportedMatchProcessing(options, input.matchId, input.reporterId)
   if ('error' in reportClaim) return reportClaim
   if (!reportClaim.claimed) {
-    if (reportClaim.processing) return { match, participants: participantRows, idempotent: true, reportProcessing: true }
+    if (reportClaim.processing) return { match, participants: participantRows, idempotent: true, reportProcessing: true, reportFinalizing: reportClaim.finalizing }
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
@@ -172,6 +166,26 @@ export async function reportMatch(
     await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch ?? match, updatedParticipants)
     return { match: updatedMatch ?? match, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants), idempotent: true }
   }
+
+  const [refreshedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+  match = refreshedMatch
+  if (!match) return { error: `Match **${input.matchId}** not found.` }
+
+  participantRows = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
+  if (!gameContext) {
+    return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+  }
+
+  const gameMode = gameContext.mode
 
   let reportCompleted = false
   try {
@@ -318,7 +332,7 @@ export async function reportMatch(
 
 type ReportProcessingClaimAttempt
   = | { claimed: true, claim: ReportProcessingClaim | null }
-    | { claimed: false, processing?: boolean, alreadyReported?: boolean }
+    | { claimed: false, processing?: boolean, alreadyReported?: boolean, finalizing?: boolean }
     | { error: string }
 
 async function buildReportProcessingResultIfClaimed(
@@ -348,7 +362,7 @@ async function claimReportedMatchProcessing(
     try {
       const result = await claimSessionReport(options.sessionNamespace, matchId, { matchId, reporterId })
       if (result.claimed) return { claimed: true, claim: result.claim }
-      return { claimed: false, processing: result.processing, alreadyReported: result.alreadyReported }
+      return { claimed: false, processing: result.processing, alreadyReported: result.alreadyReported, finalizing: result.finalizing }
     }
     catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }
