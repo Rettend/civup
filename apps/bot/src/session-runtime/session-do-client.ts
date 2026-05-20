@@ -148,7 +148,7 @@ export interface SessionReportClaim {
 
 export type SessionReportClaimResult
   = | { claimed: true, claim: SessionReportClaim }
-    | { claimed: false, processing?: boolean, alreadyReported?: boolean }
+    | { claimed: false, processing?: boolean, alreadyReported?: boolean, finalizing?: boolean }
 
 export type SessionDraftLifecycleSyncResult
   = | { ok: true, ignored?: boolean, synced?: boolean }
