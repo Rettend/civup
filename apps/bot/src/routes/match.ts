@@ -90,7 +90,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     if (result.reportProcessing) {
-      return c.json({ ok: true, reportProcessing: true, match: result.match, participants: result.participants })
+      return c.json({ ok: true, reportProcessing: true, reportFinalizing: result.reportFinalizing === true, match: result.match, participants: result.participants })
     }
 
     try {
