@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -253,6 +253,75 @@ describe('match reporter identity', () => {
     }
   })
 
+  test('active rated reports with existing rating events do not apply ratings again', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'active-existing-events',
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 1,
+        completedAt: null,
+        seasonId: null,
+        draftData: JSON.stringify({
+          completedAt: 2,
+          state: {
+            seats: [
+              { playerId: 'p1', displayName: 'Player One', avatarUrl: null, team: 0 },
+              { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, team: 1 },
+            ],
+          },
+        }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'active-existing-events', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'active-existing-events', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const first = await reportMatch(db, kv, {
+        matchId: 'active-existing-events',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      }, directTerminalOptions)
+      expect('error' in first).toBe(false)
+      if ('error' in first) return
+
+      const ratingsAfterFirst = sortByPlayerAndMode(await db.select().from(playerRatings))
+      const eventsAfterFirst = sortByPlayerAndMode(await db.select().from(playerRatingEvents))
+      expect(ratingsAfterFirst).toHaveLength(4)
+      expect(eventsAfterFirst).toHaveLength(4)
+
+      await db.update(matches).set({ status: 'active', completedAt: null }).where(eq(matches.id, 'active-existing-events'))
+
+      const second = await reportMatch(db, kv, {
+        matchId: 'active-existing-events',
+        reporterId: 'p2',
+        placements: '<@p2>',
+      }, directTerminalOptions)
+
+      expect('error' in second).toBe(false)
+      if ('error' in second) return
+      expect(second.idempotent).toBe(true)
+      expect(second.match.status).toBe('completed')
+      expect(sortByPlayerAndMode(await db.select().from(playerRatings))).toEqual(ratingsAfterFirst)
+      expect(sortByPlayerAndMode(await db.select().from(playerRatingEvents))).toEqual(eventsAfterFirst)
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'active-existing-events'))
+      const placementByPlayerId = new Map(participants.map(participant => [participant.playerId, participant.placement]))
+      expect(placementByPlayerId.get('p1')).toBe(1)
+      expect(placementByPlayerId.get('p2')).toBe(2)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('reportMatch clears activity residue but leaves the lobby available for message sync', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -498,6 +567,10 @@ describe('match reporter identity', () => {
     }
   })
 })
+
+function sortByPlayerAndMode<T extends { playerId: string, mode: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => a.playerId.localeCompare(b.playerId) || a.mode.localeCompare(b.mode))
+}
 
 function failTerminalLifecycleForSession(namespace: DurableObjectNamespace, sessionId: string): DurableObjectNamespace {
   return {
