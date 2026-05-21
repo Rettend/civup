@@ -189,6 +189,19 @@ export async function reportMatch(
 
   let reportCompleted = false
   try {
+    if (!tournamentLinked && gameContext.leaderboardMode != null && hasPreparedRatedReportParticipantMarkers(participantRows)) {
+      const preparedReport = await buildPreparedRatedReportResultIfRatingEventsExist(
+        db,
+        kv,
+        match,
+        participantRows,
+        input.reporterId,
+        options,
+        gameContext.leaderboardMode,
+      )
+      if (preparedReport) return preparedReport
+    }
+
     const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
       ? validateHiddenDraftLeaderAssignments(match.draftData, participantRows, input.leaderAssignments)
       : null
@@ -829,6 +842,78 @@ async function applyRatingScopeUpdate(
   }
 
   return null
+}
+
+type PreparedRatedReportState = 'none' | 'complete' | 'partial'
+
+function hasPreparedRatedReportParticipantMarkers(participantRows: ParticipantRow[]): boolean {
+  return participantRows.some(participant => (
+    participant.placement != null
+    || participant.ratingBeforeMu != null
+    || participant.ratingBeforeSigma != null
+    || participant.ratingAfterMu != null
+    || participant.ratingAfterSigma != null
+  ))
+}
+
+async function buildPreparedRatedReportResultIfRatingEventsExist(
+  db: Database,
+  kv: KVNamespace,
+  match: MatchRow,
+  participantRows: ParticipantRow[],
+  reporterId: string,
+  options: ReportMatchOptions,
+  leaderboardMode: LeaderboardMode,
+): Promise<ReportResult | null> {
+  const preparedState = await getPreparedRatedReportState(db, match.id, participantRows, leaderboardMode)
+  if (preparedState === 'none') return null
+  if (preparedState === 'partial') {
+    return { error: `Match **${match.id}** has a partially prepared rating report. Try again after cleanup finishes or ask an admin to repair it.` }
+  }
+
+  const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), reporterId, true)
+  if (cleanupError) return { error: cleanupError }
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, match.id))
+    .limit(1)
+  if (!updatedMatch) return { error: `Match **${match.id}** not found after cleanup.` }
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, match.id))
+
+  await reconcileCivLeaderboardMatchContribution(db, match.id)
+  await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
+  return { match: updatedMatch, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants), idempotent: true }
+}
+
+async function getPreparedRatedReportState(
+  db: Database,
+  matchId: string,
+  participantRows: ParticipantRow[],
+  leaderboardMode: LeaderboardMode,
+): Promise<PreparedRatedReportState> {
+  const playerIds = [...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0))]
+  if (playerIds.length === 0) return 'none'
+
+  const scopes = [leaderboardMode, GLOBAL_RATING_SCOPE]
+  const rows = await db
+    .select({ playerId: playerRatingEvents.playerId, mode: playerRatingEvents.mode })
+    .from(playerRatingEvents)
+    .where(and(
+      eq(playerRatingEvents.matchId, matchId),
+      inArray(playerRatingEvents.playerId, playerIds),
+      inArray(playerRatingEvents.mode, scopes),
+    ))
+  if (rows.length === 0) return 'none'
+
+  const eventKeys = new Set(rows.map(row => `${row.playerId}:${row.mode}`))
+  const complete = playerIds.every(playerId => scopes.every(scope => eventKeys.has(`${playerId}:${scope}`)))
+  return complete ? 'complete' : 'partial'
 }
 
 function scaleRatingAfterForSource(update: ReturnType<typeof calculateRatings>[number], sourceWeight: number): { mu: number, sigma: number } {
