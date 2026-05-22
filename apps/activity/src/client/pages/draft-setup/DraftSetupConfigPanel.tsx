@@ -3,7 +3,7 @@ import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { For, Show } from 'solid-js'
+import { createEffect, createSignal, For, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
@@ -361,6 +361,11 @@ function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, 
 
   return (
     <div class="flex flex-col gap-2">
+      <Show when={state().isLobbyMode()}>
+        <Show when={props.mode === 'editable'} fallback={<ReadonlyLobbyAccessRow closed={state().derived.draftConfig().closed} />}>
+          <EditableLobbyAccessRow state={state()} />
+        </Show>
+      </Show>
       <For each={CONFIG_ROWS}>
         {row => (
           <Show when={canRenderRow(row)}>
@@ -393,6 +398,50 @@ function SwitchRow(props: {
         tone={props.tone}
         onChange={props.onChange}
       />
+    </div>
+  )
+}
+
+function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
+  const state = () => props.state
+  const [localOpen, setLocalOpen] = createSignal<boolean | null>(null)
+  const isOpen = () => localOpen() ?? !state().derived.optimisticLobbyClosed()
+  const label = () => isOpen() ? 'Lobby Open' : 'Lobby Closed'
+
+  createEffect(() => {
+    const local = localOpen()
+    if (local != null && local === !state().derived.draftConfig().closed) setLocalOpen(null)
+  })
+
+  return (
+    <div class="px-1 flex gap-3 items-center justify-between">
+      <span class={cn('text-sm font-medium', isOpen() ? 'text-note' : 'text-[#a78bfa]')}>
+        {label()}
+      </span>
+      <Switch
+        ariaLabel={label()}
+        checked={isOpen()}
+        disabled={state().lobbyActionPending() || state().pending.closed()}
+        class="w-auto"
+        tone="note"
+        inactiveTone="purple"
+        onChange={(checked) => {
+          setLocalOpen(checked)
+          void state().actions.changeLobbyOpen(checked).then((saved) => {
+            if (!saved) setLocalOpen(null)
+          })
+        }}
+      />
+    </div>
+  )
+}
+
+function ReadonlyLobbyAccessRow(props: { closed: boolean }) {
+  return (
+    <div class="text-sm px-3 py-2 rounded-md bg-bg/35 flex items-center">
+      <span class={cn('font-medium', props.closed ? 'text-[#a78bfa]' : 'text-note')}>
+        {props.closed ? 'Lobby Closed' : 'Lobby Open'}
+      </span>
     </div>
   )
 }

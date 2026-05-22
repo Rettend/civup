@@ -82,6 +82,8 @@ export function useDraftSetupConfigState(input: {
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
   const [hiddenDraftPending, setHiddenDraftPending] = createSignal(false)
   const [duplicateFactionsPending, setDuplicateFactionsPending] = createSignal(false)
+  const [closedPending, setClosedPending] = createSignal(false)
+  const [closedOverride, setClosedOverride] = createSignal<boolean | null>(null)
   const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(input.props.lobby ? buildEditableLobbyDraftConfig(input.props.lobby) : null)
   const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(input.props.prefetchedRankedRoleOptions ?? [])
   const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(input.props.prefetchedFillTestPlayersAvailable ?? false)
@@ -284,7 +286,11 @@ export function useDraftSetupConfigState(input: {
   createEffect(() => {
     if (optimisticTimerConfig.status() === 'error') input.showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
   })
-
+  createEffect(() => {
+    const override = closedOverride()
+    if (override == null) return
+    if (draftConfig().closed === override) setClosedOverride(null)
+  })
   const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig, options: { preserveConfigMessage?: boolean, targetSize?: number } = {}) => {
     const currentUserId = userId()
     if (!currentUserId) {
@@ -293,7 +299,7 @@ export function useDraftSetupConfigState(input: {
       return false
     }
     if (!options.preserveConfigMessage) input.clearConfigMessage()
-    await optimisticTimerConfig.commit(nextConfig, async () => {
+    const committed = await optimisticTimerConfig.commit(nextConfig, async () => {
       const lobby = input.currentLobby()
       if (lobby) {
         const payload = isTournamentLobby()
@@ -301,6 +307,7 @@ export function useDraftSetupConfigState(input: {
               banTimerSeconds: nextConfig.banTimerSeconds,
               pickTimerSeconds: nextConfig.pickTimerSeconds,
               leaderDataVersion: nextConfig.leaderDataVersion,
+              closed: nextConfig.closed,
             }
           : {
               banTimerSeconds: nextConfig.banTimerSeconds,
@@ -325,6 +332,7 @@ export function useDraftSetupConfigState(input: {
           ...payload,
         })
         if (!result.ok) throw new Error(result.error)
+        setLobbyTimerConfig(buildEditableLobbyDraftConfig(result.lobby))
         return
       }
       await sendConfig(nextConfig.banTimerSeconds, nextConfig.pickTimerSeconds)
@@ -332,7 +340,7 @@ export function useDraftSetupConfigState(input: {
       syncTimeoutMs: input.currentLobby() ? 9000 : 5000,
       syncTimeoutMessage: 'Save not confirmed. Please try again.',
     })
-    return true
+    return committed
   }
 
   const saveConfigOnBlur = async () => {
@@ -464,6 +472,22 @@ export function useDraftSetupConfigState(input: {
   const handleDuplicateFactionsChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().duplicateFactions, setDuplicateFactionsPending, current => ({ ...current, duplicateFactions: checked }))
+  }
+  const handleLobbyOpenChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || !input.amHost() || input.lobbyActionPending() || closedPending()) return false
+    const nextClosed = !checked
+    const current = optimisticDraftConfig()
+    if (nextClosed === (closedOverride() ?? current.closed)) return true
+    setClosedPending(true)
+    setClosedOverride(nextClosed)
+    try {
+      const saved = await commitDraftConfig({ ...current, closed: nextClosed })
+      if (!saved) setClosedOverride(null)
+      return saved
+    }
+    finally {
+      setClosedPending(false)
+    }
   }
   const handleLobbyModeChange = async (nextMode: LobbyModeValue) => {
     const lobby = input.currentLobby()
@@ -605,6 +629,7 @@ export function useDraftSetupConfigState(input: {
     randomDraft: randomDraftPending,
     hiddenDraft: hiddenDraftPending,
     duplicateFactions: duplicateFactionsPending,
+    closed: closedPending,
     spinner: showConfigSpinner,
   }
 
@@ -612,6 +637,7 @@ export function useDraftSetupConfigState(input: {
     timerConfig,
     draftConfig,
     optimisticDraftConfig,
+    optimisticLobbyClosed: () => closedOverride() ?? optimisticDraftConfig().closed,
     isRedDeath: isRedDeathLobbyMode,
     isTournamentLobby,
     isUnranked: isUnrankedLobbyMode,
@@ -668,6 +694,7 @@ export function useDraftSetupConfigState(input: {
     changeRandomDraft: handleRandomDraftChange,
     changeHiddenDraft: handleHiddenDraftChange,
     changeDuplicateFactions: handleDuplicateFactionsChange,
+    changeLobbyOpen: handleLobbyOpenChange,
     changeLobbyMode: handleLobbyModeChange,
     changeMinRole: handleLobbyMinRoleChange,
     changeMaxRole: handleLobbyMaxRoleChange,

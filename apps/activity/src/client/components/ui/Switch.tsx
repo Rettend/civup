@@ -7,13 +7,14 @@ interface SwitchProps {
   ariaLabel?: string
   checked?: boolean
   disabled?: boolean
-  tone?: 'accent' | 'danger' | 'orange'
+  tone?: 'accent' | 'danger' | 'orange' | 'note'
+  inactiveTone?: 'purple'
   onChange?: (checked: boolean) => void
   class?: string
 }
 
 export function Switch(props: SwitchProps) {
-  const [local, rest] = splitProps(props, ['label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'onChange', 'class'])
+  const [local, rest] = splitProps(props, ['label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'inactiveTone', 'onChange', 'class'])
 
   const activeTrackClass = () => {
     if (local.tone === 'danger') {
@@ -22,13 +23,27 @@ export function Switch(props: SwitchProps) {
     if (local.tone === 'orange') {
       return 'border-[#f97316]/60 bg-[#f97316]/18 shadow-[0_0_8px_rgba(249,115,22,0.24),inset_0_1px_0_rgba(251,146,60,0.28)]'
     }
+    if (local.tone === 'note') {
+      return 'bg-note-muted border-note/60 shadow-[0_0_8px_var(--note-muted),inset_0_1px_0_var(--note-muted)]'
+    }
     return 'bg-accent/25 border-accent/50 shadow-[0_0_8px_var(--accent-subtle),inset_0_1px_0_var(--accent-muted)]'
+  }
+
+  const inactiveTrackClass = () => {
+    if (local.inactiveTone === 'purple') return 'bg-[#a78bfa]/18 border-[#a78bfa]/60 shadow-[0_0_8px_rgba(167,139,250,0.22),inset_0_1px_0_rgba(196,181,253,0.22)] group-hover:border-[#a78bfa]/75'
+    return 'bg-bg-muted border-border-subtle group-hover:border-border'
   }
 
   const activeThumbClass = () => {
     if (local.tone === 'danger') return 'left-[calc(100%-18px)] bg-danger shadow-[0_0_6px_var(--danger-muted)]'
     if (local.tone === 'orange') return 'left-[calc(100%-18px)] bg-[#f97316] shadow-[0_0_6px_rgba(249,115,22,0.35)]'
+    if (local.tone === 'note') return 'left-[calc(100%-18px)] bg-note shadow-[0_0_6px_var(--note-muted)]'
     return 'left-[calc(100%-18px)] bg-accent shadow-[0_0_6px_var(--accent-muted)]'
+  }
+
+  const inactiveThumbClass = () => {
+    if (local.inactiveTone === 'purple') return 'left-1 bg-[#a78bfa] shadow-[0_0_6px_rgba(167,139,250,0.35)]'
+    return 'left-1 bg-fg-subtle group-hover:bg-fg-muted'
   }
 
   return (
@@ -69,7 +84,7 @@ export function Switch(props: SwitchProps) {
           'border',
           local.checked
             ? activeTrackClass()
-            : 'bg-bg-muted border-border-subtle group-hover:border-border',
+            : inactiveTrackClass(),
         )}
       >
         {/* Thumb */}
@@ -79,7 +94,7 @@ export function Switch(props: SwitchProps) {
             'transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
             local.checked
               ? activeThumbClass()
-              : 'left-1 bg-fg-subtle group-hover:bg-fg-muted',
+              : inactiveThumbClass(),
           )}
         />
       </div>
