@@ -1,8 +1,9 @@
 import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { rankEmbed } from '../embeds/rank.ts'
+import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
+import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { getPlayerRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { getActiveSeason } from '../services/season/index.ts'
@@ -29,14 +30,14 @@ export const command_rank = factory.command<Var>(
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
-      c.executionCtx.waitUntil((async () => {
-        try {
-          await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
-        }
-        catch (error) {
-          console.error(`Failed to sync player profile for ${targetId}:`, error)
-        }
-      })())
+      const identity = getIdentityByUserId(c, targetId)
+      if (identity) {
+        await upsertPlayerProfile(db, {
+          playerId: identity.userId,
+          displayName: identity.displayName,
+          avatarUrl: identity.avatarUrl,
+        })
+      }
 
       const [profile, activeSeason, seasonHistory] = await Promise.all([
         getPlayerRankProfile(db, kv, guildId, targetId),

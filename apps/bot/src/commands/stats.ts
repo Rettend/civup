@@ -4,8 +4,9 @@ import { GAME_MODE_CHOICES, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode 
 import { Command, Option } from 'discord-hono'
 import { playerCardEmbed } from '../embeds/player-card.ts'
 import { teamCardEmbed } from '../embeds/team-card.ts'
+import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
+import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
@@ -54,16 +55,15 @@ export const command_stats = factory.command<Var>(
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
-      c.executionCtx.waitUntil((async () => {
-        await Promise.allSettled(playerIds.map(async (playerId) => {
-          try {
-            await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, playerId)
-          }
-          catch (error) {
-            console.error(`Failed to sync player profile for ${playerId}:`, error)
-          }
-        }))
-      })())
+      const identities = new Map(playerIds.flatMap((playerId) => {
+        const identity = getIdentityByUserId(c, playerId)
+        return identity ? [[identity.userId, identity] as const] : []
+      }))
+      await upsertPlayerProfiles(db, [...identities.values()].map(identity => ({
+        playerId: identity.userId,
+        displayName: identity.displayName,
+        avatarUrl: identity.avatarUrl,
+      })))
 
       if (teammateIds.length > 0) {
         const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
