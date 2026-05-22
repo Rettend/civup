@@ -399,23 +399,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setLobbyActionPending(false)
     }
   }
-  const handleToggleLobbyClosed = async () => {
-    const lobby = currentLobby()
-    const currentUserId = userId()
-    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending()) return
-    setLobbyActionPending(true)
-    clearConfigMessage()
-    try {
-      const nextClosed = !isLobbyClosed()
-      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { closed: nextClosed })
-      if (!result.ok) return showErrorMessage(result.error)
-      applyLobbySnapshot(result.lobby)
-      showInfoMessage(nextClosed ? 'Lobby closed.' : 'Lobby opened.')
-    }
-    finally {
-      setLobbyActionPending(false)
-    }
-  }
   const handleMovePlayerToSlot = async (slot: number, draggedPlayerId: string) => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -682,7 +665,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     isLobbyMode,
     pending,
     canStartLobby: configState.derived.canStartLobby,
-    isLobbyClosed,
     repeatDraft: () => currentLobby()?.repeatDraft ?? null,
     arrangeTargetLabel,
     randomizeButtonLabel,
@@ -698,7 +680,6 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     leaveLobby: handleLeaveLobby,
     startLobbyDraft: handleStartLobbyDraftAction,
     repeatLobbyDraft: handleRepeatLobbyDraftAction,
-    toggleLobbyClosed: handleToggleLobbyClosed,
     randomizeLobby: () => handleArrangeLobby('randomize'),
     shuffleTeamsLobby: () => handleArrangeLobby('shuffle-teams'),
     balanceLobby: () => handleArrangeLobby('balance'),

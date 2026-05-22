@@ -1,5 +1,5 @@
 import type { useDraftSetupState } from './useDraftSetupState'
-import { createMemo, Show } from 'solid-js'
+import { Show } from 'solid-js'
 
 type DraftSetupActionsState = ReturnType<typeof useDraftSetupState>['actions']
 type DraftSetupStatusState = ReturnType<typeof useDraftSetupState>['status']
@@ -69,7 +69,6 @@ function GuestActions(props: { actions: DraftSetupActionsState, status: DraftSet
 
 function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
   const actions = () => props.actions
-  const isLobbyClosed = createMemo(() => actions().isLobbyClosed())
   return (
     <div class="flex max-w-full flex-wrap gap-3 items-center justify-center">
       <button
@@ -131,17 +130,6 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           <span class="i-ph:scales-bold text-lg" />
         </button>
       </Show>
-      <button
-        class={isLobbyClosed()
-          ? 'text-[#a78bfa] border border-[#a78bfa]/40 rounded-lg bg-[#a78bfa]/10 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-[#c4b5fd] hover:border-[#a78bfa]/70 hover:bg-[#a78bfa]/15 disabled:opacity-60 disabled:cursor-default shrink-0'
-          : 'text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0'}
-        title={isLobbyClosed() ? 'Open Lobby' : 'Close Lobby'}
-        aria-label={isLobbyClosed() ? 'Open Lobby' : 'Close Lobby'}
-        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
-        onClick={() => void actions().toggleLobbyClosed()}
-      >
-        <span class={isLobbyClosed() ? 'i-ph:minus-circle-duotone text-lg' : 'i-ph:circle-duotone text-lg'} />
-      </button>
       <Show when={actions().fillTestPlayersAvailable()}>
         <button
           class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0 whitespace-nowrap"
