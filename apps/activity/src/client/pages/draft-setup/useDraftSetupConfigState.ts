@@ -21,11 +21,11 @@ import {
   formatLobbyMaxRole,
   formatLobbyMinRole,
   formatTimerValue,
+  getLeaderPoolSizeMaximum,
   getLeaderPoolSizeMinimum,
   getTimerConfigFromDraft,
   leaderPoolSizePlaceholder,
   leaderPoolSizeToInput,
-  MAX_LEADER_POOL_INPUT,
   MAX_TIMER_MINUTES,
   normalizeLobbyRankRoleValue,
   parseLeaderPoolSizeInput,
@@ -202,6 +202,7 @@ export function useDraftSetupConfigState(input: {
   const leaderPoolPlayerCount = () => input.currentLobby()?.entries.filter(entry => entry != null).length ?? state()?.seats.length ?? 0
   const leaderPoolValidationCount = () => input.currentLobby()?.targetSize ?? state()?.seats.length ?? leaderPoolPlayerCount()
   const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
+  const leaderPoolMaximumValue = () => getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
   const isRedDeathLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().redDeath : isRedDeathDraft()
   const leaderPoolPlaceholderValue = () => isRedDeathLobbyMode()
     ? String(draftConfig().dealOptionsSize ?? 2)
@@ -341,11 +342,11 @@ export function useDraftSetupConfigState(input: {
 
       const parsedBan = parseTimerMinutesInput(banMinutes())
       const parsedPick = parseTimerMinutesInput(pickMinutes())
-      const parsedLeaderPool = isRedDeathLobbyMode() ? parseLeaderPoolSizeInput(leaderPoolInput(), 2, 10) : parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimumValue())
+      const parsedLeaderPool = isRedDeathLobbyMode() ? parseLeaderPoolSizeInput(leaderPoolInput(), 2, 10) : parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimumValue(), leaderPoolMaximumValue())
       const preserveClampMessage = activeField != null && clampedField === activeField
       if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        input.showErrorMessage(resolveConfigFieldRangeMessage(activeField, leaderPoolMinimumValue(), isRedDeathLobbyMode()))
+        input.showErrorMessage(resolveConfigFieldRangeMessage(activeField, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode()))
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
@@ -399,7 +400,14 @@ export function useDraftSetupConfigState(input: {
     }
   }
 
-  const handleLeaderDataVersionChange = async (checked: boolean) => commitToggleConfigChange(checked ? 'beta' : 'live', optimisticDraftConfig().leaderDataVersion, setLeaderDataVersionPending, current => ({ ...current, leaderDataVersion: checked ? 'beta' : 'live' }))
+  const handleLeaderDataVersionChange = async (checked: boolean) => {
+    const nextVersion = checked ? 'beta' : 'live'
+    await commitToggleConfigChange(nextVersion, optimisticDraftConfig().leaderDataVersion, setLeaderDataVersionPending, current => ({
+      ...current,
+      leaderDataVersion: nextVersion,
+      leaderPoolSize: current.leaderPoolSize == null ? null : Math.min(current.leaderPoolSize, getLeaderPoolSizeMaximum(nextVersion)),
+    }))
+  }
   const handleMapVoteEnabledChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || mapVoteEnabledPending() || !supportsMapVoteToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().mapVoteEnabled, setMapVoteEnabledPending, current => ({ ...current, mapVoteEnabled: checked }))
@@ -559,7 +567,7 @@ export function useDraftSetupConfigState(input: {
   const handleClampedField = (field: EditableConfigField) => {
     clampedField = field
     optimisticTimerConfig.clearError()
-    input.showErrorMessage(resolveConfigFieldRangeMessage(field, leaderPoolMinimumValue(), isRedDeathLobbyMode()))
+    input.showErrorMessage(resolveConfigFieldRangeMessage(field, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode()))
   }
   const clearConfigInputError = () => {
     optimisticTimerConfig.clearError()
@@ -612,6 +620,7 @@ export function useDraftSetupConfigState(input: {
     supportsMapVote: supportsMapVoteToggle,
     supportsBlindBans: supportsBlindBansToggle,
     leaderPoolMinimum: leaderPoolMinimumValue,
+    leaderPoolMaximum: leaderPoolMaximumValue,
     leaderPoolPlaceholder: leaderPoolPlaceholderValue,
     banTimerPlaceholder,
     pickTimerPlaceholder,
@@ -693,14 +702,14 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
   }
 }
 
-export function resolveConfigFieldRangeMessage(field: EditableConfigField | null, leaderPoolMinimum: number, isRedDeathLobbyMode: boolean): string {
+export function resolveConfigFieldRangeMessage(field: EditableConfigField | null, leaderPoolMinimum: number, leaderPoolMaximum: number, isRedDeathLobbyMode: boolean): string {
   switch (field) {
     case 'ban':
       return `Ban timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
     case 'pick':
       return `Pick timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
     case 'leaderPool':
-      return isRedDeathLobbyMode ? 'Factions can be 2-10, or blank for the default.' : `Leaders can be ${leaderPoolMinimum}-${MAX_LEADER_POOL_INPUT}, or blank for the default.`
+      return isRedDeathLobbyMode ? 'Factions can be 2-10, or blank for the default.' : `Leaders can be ${leaderPoolMinimum}-${leaderPoolMaximum}, or blank for the default.`
     default:
       return 'Value is out of range.'
   }

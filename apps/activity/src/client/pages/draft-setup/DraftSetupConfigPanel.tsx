@@ -6,7 +6,7 @@ import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion }
 import { For, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
-import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
+import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
 type ConfigRowMode = 'editable' | 'readonly'
@@ -159,7 +159,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         label={state.derived.poolInputLabel()}
         ariaLabel={state.derived.poolInputLabel()}
         min={state.derived.isRedDeath() ? '2' : String(state.derived.leaderPoolMinimum())}
-        max={state.derived.isRedDeath() ? '10' : String(MAX_LEADER_POOL_INPUT)}
+        max={state.derived.isRedDeath() ? '10' : String(state.derived.leaderPoolMaximum())}
         step="1"
         value={state.fields.leaderPoolInput()}
         placeholder={state.derived.leaderPoolPlaceholder()}

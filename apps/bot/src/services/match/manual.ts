@@ -208,6 +208,7 @@ function buildManualReportedDraftData(
     completedAt: reportedAt,
     hostId: players[0]?.playerId ?? reporterId,
     reportedById: reporterId,
+    leaderDataVersion: 'live',
     mapVoteResult: null,
     redDeath: false,
     permanentAlly,

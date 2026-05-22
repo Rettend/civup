@@ -9,7 +9,7 @@ import { setLobbyMessage, upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentResultPng } from '../tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked } from '../tournament/index.ts'
-import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
+import { getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
@@ -66,6 +66,7 @@ export async function syncReportedMatchDiscordMessages({
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
+  const leaderDataVersion = getLeaderDataVersionFromDraftData(matchDraftData, lobby?.draftConfig.leaderDataVersion ?? 'live')
   const tournamentLinked = await isMatchTournamentLinked(db, matchId)
   let tournamentResultPng: Uint8Array | null = null
   let tournamentImageFailed = false
@@ -106,6 +107,7 @@ export async function syncReportedMatchDiscordMessages({
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
+            leaderDataVersion,
           }, lobby.draftConfig.redDeath)],
           components: [],
         }, { db, sessionNamespace })
@@ -169,6 +171,7 @@ export async function syncReportedMatchDiscordMessages({
                 mapVoteResult,
                 rankedRoleLines,
                 reporter: resolvedReporter,
+                leaderDataVersion,
               }, reportedRedDeath)],
               components: [],
               allowed_mentions: { parse: [] },
@@ -226,6 +229,7 @@ export async function syncReportedMatchDiscordMessages({
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
+            leaderDataVersion,
           }, reportedRedDeath)],
           allowed_mentions: { parse: [] },
         })

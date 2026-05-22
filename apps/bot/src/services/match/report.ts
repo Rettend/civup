@@ -4,7 +4,7 @@ import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
-import { allFactionIds, allLeaderIds, isTeamMode } from '@civup/game'
+import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
@@ -13,7 +13,7 @@ import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchCon
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
-import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
+import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
@@ -423,7 +423,7 @@ function validateHiddenDraftLeaderAssignments(
   }
 
   const draftState = getDraftStateFromDraftData(draftData)
-  const validCivIds = new Set(getRedDeathFromDraftData(draftData) ? allFactionIds : allLeaderIds)
+  const validCivIds = new Set(getRedDeathFromDraftData(draftData) ? allFactionIds : getLeaderIds(getLeaderDataVersionFromDraftData(draftData)))
   for (const civId of draftState?.availableCivIds ?? []) validCivIds.add(civId)
   for (const ban of draftState?.bans ?? []) validCivIds.add(ban.civId)
   for (const pick of draftState?.picks ?? []) validCivIds.add(pick.civId)

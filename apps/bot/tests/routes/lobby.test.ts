@@ -1,4 +1,5 @@
 import { matches, players, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import { getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -979,8 +980,67 @@ describe('lobby routes', () => {
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
+      closed: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
+  })
+
+  test('config route clamps beta leader pool when switching back to live data', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    const betaMax = getMaxLeaderPoolSize('beta')
+    const liveMax = getMaxLeaderPoolSize('live')
+    expect(betaMax).toBeGreaterThan(liveMax)
+
+    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
+      ...lobby.draftConfig,
+      leaderPoolSize: betaMax,
+      leaderDataVersion: 'beta',
+    }, lobby)
+    expect(configuredLobby).not.toBeNull()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        leaderDataVersion: 'live',
+        leaderPoolSize: betaMax,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      draftConfig: {
+        leaderDataVersion: 'live',
+        leaderPoolSize: liveMax,
+      },
+    })
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.leaderDataVersion).toBe('live')
+    expect(updatedLobby?.draftConfig.leaderPoolSize).toBe(liveMax)
   })
 
   test('config route allows clearing Red Death factions to server default', async () => {

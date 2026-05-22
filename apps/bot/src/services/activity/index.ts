@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, allLeaderIds, getDraftFormat, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getDraftFormat, getLeaderIds, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -56,11 +56,12 @@ export function buildDraftRuntimeConfig(
     : (options.duplicateFactions === true)
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
+  const leaderDataVersion = options.leaderDataVersion ?? 'live'
   const civPool = redDeathMode
     ? [...allFactionIds]
     : hiddenDraft
-      ? [...allLeaderIds]
-      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize))
+      ? getLeaderIds(leaderDataVersion)
+      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion), Math.random, leaderDataVersion)
   const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,
@@ -73,7 +74,7 @@ export function buildDraftRuntimeConfig(
     permanentAlly: mode === 'ffa' && !redDeathMode && options.permanentAlly !== false,
     duplicateFactions,
     mapVoteEnabled,
-    leaderDataVersion: options.leaderDataVersion ?? 'live',
+    leaderDataVersion,
     timerConfig: options.timerConfig,
     steamLobbyLink: options.steamLobbyLink ?? null,
   }

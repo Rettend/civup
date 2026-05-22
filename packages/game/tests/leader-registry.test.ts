@@ -3,9 +3,20 @@ import { allLeaderIds, getFaction, getLeader, getLeaders } from '../src/index.ts
 import { leaders as betaLeaders } from '../src/leaders-beta.ts'
 import { leaders as liveLeaders } from '../src/leaders.ts'
 
+const betaOnlyLeaderIds = [
+  'austria-maria-theresa',
+  'goths-theodoric',
+  'poland-stanislaw-ii',
+  'taino-anacaona',
+]
+
 describe('leader registry', () => {
-  test('beta roster keeps the same leader ids and order as live', () => {
-    expect(getLeaders('beta').map(leader => leader.id)).toEqual(allLeaderIds)
+  test('beta roster preserves live leader order and includes beta-only leaders', () => {
+    const betaLeaderIds = getLeaders('beta').map(leader => leader.id)
+
+    expect(betaLeaderIds.filter(id => allLeaderIds.includes(id))).toEqual(allLeaderIds)
+    expect(betaOnlyLeaderIds.every(id => betaLeaderIds.includes(id))).toBe(true)
+    expect(betaOnlyLeaderIds.some(id => allLeaderIds.includes(id))).toBe(false)
   })
 
   test('versioned lookup returns matching live and beta leader entries', () => {

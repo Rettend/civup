@@ -263,6 +263,7 @@ describe('draft room domain', () => {
       matchId: 'match-1',
       hostId: 'p1',
       formatId: 'default-1v1',
+      leaderDataVersion: 'beta',
       seats,
       civPool: allLeaderIds.slice(0, 8),
     }, state, EMPTY_STORED_MAP_VOTE_STATE, {
@@ -328,6 +329,7 @@ describe('draft room domain', () => {
       matchId: 'match-1',
       hostId: 'p1',
       formatId: 'default-1v1',
+      leaderDataVersion: 'beta',
       seats,
       civPool: allLeaderIds.slice(0, 8),
     }, started.state, {
@@ -361,6 +363,7 @@ describe('draft room domain', () => {
       delivery: 'await',
       payload: expect.objectContaining({
         eventKind: 'DraftCompleted',
+        leaderDataVersion: 'beta',
       }),
     })
   })
