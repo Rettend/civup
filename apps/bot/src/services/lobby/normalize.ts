@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { defaultPlayerCount, MAX_LEADER_POOL_SIZE, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { defaultPlayerCount, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -80,11 +80,12 @@ export function normalizeStoredSlots(mode: GameMode, value: unknown): (string | 
 export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined): LobbyDraftConfig {
   const randomDraft = normalizeRandomDraft(config?.randomDraft)
   const hiddenDraft = normalizeHiddenDraft(config?.hiddenDraft)
+  const leaderDataVersion = normalizeLeaderDataVersion(config?.leaderDataVersion)
   return {
     banTimerSeconds: normalizeTimerSeconds(config?.banTimerSeconds),
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
-    leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize),
-    leaderDataVersion: normalizeLeaderDataVersion(config?.leaderDataVersion),
+    leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize, leaderDataVersion),
+    leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteFlag(config?.mapVoteEnabled),
     blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
@@ -216,10 +217,10 @@ function normalizeTimerSeconds(value: unknown): number | null {
   return rounded >= 0 ? rounded : null
 }
 
-function normalizeLeaderPoolSize(value: unknown): number | null {
+function normalizeLeaderPoolSize(value: unknown, version: LeaderDataVersion): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
-  if (rounded < 1 || rounded > MAX_LEADER_POOL_SIZE) return null
+  if (rounded < 1 || rounded > getMaxLeaderPoolSize(version)) return null
   return rounded
 }
 

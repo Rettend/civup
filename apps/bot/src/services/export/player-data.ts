@@ -401,7 +401,13 @@ function resolveLeaderMeta(civId: string): { leaderName: string, civilizationNam
     return { leaderName: leader.name, civilizationName: leader.civilization }
   }
   catch {
-    return { leaderName: '', civilizationName: '' }
+    try {
+      const leader = getLeader(civId, 'beta')
+      return { leaderName: leader.name, civilizationName: leader.civilization }
+    }
+    catch {
+      return { leaderName: '', civilizationName: '' }
+    }
   }
 }
 

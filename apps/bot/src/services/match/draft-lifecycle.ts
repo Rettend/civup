@@ -23,6 +23,7 @@ function buildDraftLifecycleContext(payload: DraftLifecyclePayload): Record<stri
     eventKind: payload.eventKind,
     eventSequence: payload.eventSequence,
     matchId: payload.matchId,
+    leaderDataVersion: payload.leaderDataVersion ?? 'live',
     outcome: payload.outcome,
     finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
     stateStatus: payload.state.status,

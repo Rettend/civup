@@ -189,6 +189,7 @@ export function lobbyCancelledEmbed(
     redDeath,
     participants.length,
     footerUser,
+    leaderDataVersion,
   )
 }
 
@@ -205,7 +206,7 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null } = {},
   redDeath = false,
 ): Embed {
   return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
@@ -244,8 +245,10 @@ function lobbyDraftCompleteLeaderEmbed(
   redDeath = false,
   targetSize?: number,
   footerUser?: ReporterContext | null,
+  leaderNameDataVersion?: LeaderDataVersion | null,
 ): Embed {
   const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
+  const resolvedLeaderDataVersion = leaderNameDataVersion ?? leaderDataVersion
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
   const mapField = buildMapField(mapVoteResult)
@@ -258,7 +261,7 @@ function lobbyDraftCompleteLeaderEmbed(
       const teamParticipants = participants.filter(participant => participant.team === teamIndex)
       return {
         name: `Team ${String.fromCharCode(65 + teamIndex)}`,
-        value: teamParticipants.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`).join('\n') || '`[empty]`',
+        value: teamParticipants.map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId, resolvedLeaderDataVersion)}`).join('\n') || '`[empty]`',
         inline: true,
       }
     }))
@@ -267,7 +270,7 @@ function lobbyDraftCompleteLeaderEmbed(
   }
 
   const lines = participants
-    .map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`)
+    .map((participant, index) => `${index + 1}. <@${participant.playerId}> - ${formatLeaderName(participant.civId, resolvedLeaderDataVersion)}`)
     .join('\n')
 
   const playerField = { name: 'Players', value: lines || '`[empty]`', inline: false }
@@ -291,15 +294,15 @@ function lobbyReportedEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null } = {},
   redDeath = false,
   targetSize?: number,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'reported', undefined, redDeath, targetSize)
+  const embed = baseLobbyEmbed(mode, 'reported', options.leaderDataVersion, redDeath, targetSize)
   const usesTeamRows = isTeamMode(mode) || participants.some(participant => participant.team != null)
   const description = usesTeamRows
-    ? formatReportedTeamRows(participants)
-    : formatReportedFlatRows(participants)
+    ? formatReportedTeamRows(participants, options.leaderDataVersion)
+    : formatReportedFlatRows(participants, options.leaderDataVersion)
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
   const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
@@ -326,7 +329,7 @@ function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | n
   return normalizeAvailableLeaderDataVersion(leaderDataVersion) === 'beta' ? 'BBG Beta' : 'BBG Live'
 }
 
-function formatReportedTeamRows(participants: LobbyParticipant[]): string {
+function formatReportedTeamRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null): string {
   const byTeam = new Map<number, LobbyParticipant[]>()
 
   for (const participant of participants) {
@@ -356,7 +359,7 @@ function formatReportedTeamRows(participants: LobbyParticipant[]): string {
     lines.push(`${formatPlacementCode(teamEntry.placement)} **${formatTeamName(teamEntry.team)}**`)
 
     for (const participant of teamEntry.participants) {
-      lines.push(`\u00A0\u00A0\u00A0${formatReportedPlayerDetails(participant)}`)
+      lines.push(`\u00A0\u00A0\u00A0${formatReportedPlayerDetails(participant, leaderDataVersion)}`)
     }
 
     if (index < teams.length - 1) lines.push('')
@@ -365,7 +368,7 @@ function formatReportedTeamRows(participants: LobbyParticipant[]): string {
   return lines.join('\n')
 }
 
-function formatReportedFlatRows(participants: LobbyParticipant[]): string {
+function formatReportedFlatRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null): string {
   const ordered = [...participants].sort((a, b) => {
     const placementOrder = (a.placement ?? 99) - (b.placement ?? 99)
     if (placementOrder !== 0) return placementOrder
@@ -374,7 +377,7 @@ function formatReportedFlatRows(participants: LobbyParticipant[]): string {
 
   return ordered
     .map((participant) => {
-      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant)}`
+      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant, leaderDataVersion)}`
     })
     .join('\n')
 }
@@ -399,9 +402,9 @@ function formatPlacementCode(placement: number | null | undefined): string {
   return `\`${`#${placement}`.padEnd(3, ' ')}\``
 }
 
-function formatReportedPlayerDetails(participant: LobbyParticipant): string {
+function formatReportedPlayerDetails(participant: LobbyParticipant, leaderDataVersion?: LeaderDataVersion | null): string {
   const rating = formatReportedRating(participant)
-  return `${rating} <@${participant.playerId}> - ${formatLeaderName(participant.civId)}`
+  return `${rating} <@${participant.playerId}> - ${formatLeaderName(participant.civId, leaderDataVersion)}`
 }
 
 function formatReportedRating(participant: LobbyParticipant): string {
@@ -483,10 +486,10 @@ function buildReporterFooter(reporter?: ReporterContext | null): { text: string,
   }
 }
 
-function formatLeaderName(civId: string | null): string {
+function formatLeaderName(civId: string | null, leaderDataVersion?: LeaderDataVersion | null): string {
   if (!civId) return '`[empty]`'
   try {
-    const name = getLeader(civId).name
+    const name = getLeader(civId, leaderDataVersion ?? 'live').name
     const emoji = leaderEmojiMention(civId)
     return emoji ? `${emoji} ${name}` : name
   }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import { getLeaderIds } from '../src/leader-registry.ts'
 
 describe('leader pool helpers', () => {
   test('uses fixed versus defaults', () => {
@@ -41,8 +42,25 @@ describe('leader pool helpers', () => {
     expect(pool.every(id => typeof id === 'string' && id.length > 0)).toBe(true)
   })
 
+  test('samples beta-only leaders when using beta data', () => {
+    const liveLeaderIds = getLeaderIds('live')
+    const betaOnlyLeaderIds = getLeaderIds('beta').filter(id => !liveLeaderIds.includes(id))
+    const pool = sampleLeaderPool(getMaxLeaderPoolSize('beta'), () => 0, 'beta')
+
+    expect(MAX_LEADER_POOL_SIZE).toBe(getMaxLeaderPoolSize('beta'))
+    expect(betaOnlyLeaderIds).toEqual([
+      'austria-maria-theresa',
+      'goths-theodoric',
+      'poland-stanislaw-ii',
+      'taino-anacaona',
+    ])
+    expect(betaOnlyLeaderIds.every(id => pool.includes(id))).toBe(true)
+  })
+
   test('rejects invalid sample sizes', () => {
-    expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${MAX_LEADER_POOL_SIZE}.`)
-    expect(() => sampleLeaderPool(MAX_LEADER_POOL_SIZE + 1)).toThrow(`Leader pool size must be between 1 and ${MAX_LEADER_POOL_SIZE}.`)
+    const liveMaxLeaderPoolSize = getMaxLeaderPoolSize('live')
+
+    expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
+    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
   })
 })

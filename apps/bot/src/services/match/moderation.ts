@@ -3,7 +3,7 @@ import type { DraftState, LeaderboardMode } from '@civup/game'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents } from '@civup/db'
-import { allLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
+import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
@@ -12,7 +12,7 @@ import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchCon
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
-import { getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
+import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -21,8 +21,6 @@ interface MatchSessionLifecycleOptions {
   allowDirectTerminalWriteForTests?: boolean
   rankedRoleGuildId?: string | null
 }
-
-const LIVE_LEADER_IDS = new Set<string>(allLeaderIds)
 
 interface MatchBanRow {
   matchId: string
@@ -245,7 +243,8 @@ export async function correctMatchLeadersByModerator(
   const corrections: MatchLeaderCorrection[] = []
   if (hasLeader) {
     const leaderId = input.leaderId!.trim()
-    if (!LIVE_LEADER_IDS.has(leaderId)) return { error: `Unknown leader: **${leaderId}**.` }
+    const validCivIds = new Set(getRedDeathFromDraftData(match.draftData) ? allFactionIds : getLeaderIds(getLeaderDataVersionFromDraftData(match.draftData)))
+    if (!validCivIds.has(leaderId)) return { error: `Unknown leader: **${leaderId}**.` }
     corrections.push({
       playerId: participant.playerId,
       previousCivId: participant.civId,

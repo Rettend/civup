@@ -16,6 +16,10 @@ export function getLeaders(version: LeaderDataVersion = 'live'): Leader[] {
   return normalizeAvailableLeaderDataVersion(version) === 'beta' ? betaLeaders : liveLeaders
 }
 
+export function getLeaderIds(version: LeaderDataVersion = 'live'): string[] {
+  return getLeaders(version).map(leader => leader.id)
+}
+
 export function getLeaderMap(version: LeaderDataVersion = 'live'): Map<string, Leader> {
   return normalizeAvailableLeaderDataVersion(version) === 'beta' ? betaLeaderMap : liveLeaderMap
 }

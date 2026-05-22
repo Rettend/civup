@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
@@ -9,7 +9,7 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, allLeaderIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
@@ -21,7 +21,7 @@ import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -97,6 +97,7 @@ type RepeatDraftSource
       state: DraftState
       hiddenDraft: boolean
       permanentAlly: boolean
+      leaderDataVersion: LeaderDataVersion
     }
 
 interface SessionConnectionState {
@@ -665,7 +666,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
       return json({ error: 'Session cannot start with the current player count.' }, 400)
     }
-    const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length)
+    const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length, record.config.leaderDataVersion)
     if (leaderPoolError) return json({ error: leaderPoolError }, 400)
 
     if (!this.env.DB) return json({ error: 'D1 binding is not configured' }, 503)
@@ -813,6 +814,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         state,
         completedAt: now,
         hostId: record.hostId,
+        leaderDataVersion: record.config.leaderDataVersion,
         mapVoteResult: null,
         hiddenDraft: source.hiddenDraft,
         permanentAlly: source.permanentAlly,
@@ -902,6 +904,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       outcome: 'complete',
       matchId: record.matchId,
       hostId: record.hostId,
+      leaderDataVersion: record.config.leaderDataVersion,
       completedAt,
       finalized: true,
       state,
@@ -973,10 +976,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!state || (state.cancelReason !== 'timeout' && state.cancelReason !== 'revert')) return null
     if (!sameRepeatDraftRoster(record.mode, state.seats, currentSeats)) return null
     const context = getStoredGameModeContext(record.mode, match.draftData)
+    const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
     if (!context || !isRepeatDraftDataCompatible(record, state, {
       redDeath: context.redDeath,
       permanentAlly: context.permanentAlly,
       hiddenDraft: getHiddenDraftFromDraftData(match.draftData),
+      leaderDataVersion,
     })) return null
     return {
       kind: 'resume',
@@ -1010,10 +1015,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       if (!sameRepeatDraftRoster(record.mode, state.seats, currentSeats)) continue
       const context = getStoredGameModeContext(row.gameMode, row.draftData)
       const hiddenDraft = getHiddenDraftFromDraftData(row.draftData)
+      const leaderDataVersion = getLeaderDataVersionFromDraftData(row.draftData, record.config.leaderDataVersion)
       if (!context || !isRepeatDraftDataCompatible(record, state, {
         redDeath: context.redDeath,
         permanentAlly: context.permanentAlly,
         hiddenDraft,
+        leaderDataVersion,
       })) continue
       return {
         kind: 'complete',
@@ -1021,6 +1028,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         state,
         hiddenDraft,
         permanentAlly: context.permanentAlly,
+        leaderDataVersion,
       }
     }
 
@@ -1299,6 +1307,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       eventSequence,
       matchId: room.state.matchId,
       hostId: room.config.hostId || room.state.seats[0]?.playerId || undefined,
+      leaderDataVersion: room.config.leaderDataVersion ?? 'live',
       state: room.state,
       mapVoteResult: room.mapVote.result ?? null,
       hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
@@ -1470,6 +1479,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const context = getStoredGameModeContext(match.gameMode, match.draftData)
     const reportedMode = context?.mode ?? record.mode
     const reportedRedDeath = context?.redDeath ?? record.config.redDeath
+    const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
     const participants = await db
       .select()
       .from(matchParticipants)
@@ -1483,6 +1493,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       : lobbyResultEmbed(reportedMode, participants, undefined, {
           mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
           reporter: getReporterIdentityFromDraftData(match.draftData),
+          leaderDataVersion,
         }, reportedRedDeath)
 
     const messageIds = await listMatchMessageIds(db, matchId)
@@ -1672,6 +1683,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       state: payload.state,
       completedAt: payload.completedAt,
       hostId,
+      leaderDataVersion: payload.leaderDataVersion ?? record.config.leaderDataVersion,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
@@ -1718,6 +1730,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       cancelledAt: payload.cancelledAt,
       reason: payload.reason,
       hostId,
+      leaderDataVersion: payload.leaderDataVersion ?? record.config.leaderDataVersion,
       mapVoteResult: payload.mapVoteResult ?? null,
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
@@ -2691,7 +2704,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       stepIndex: ban.phase,
     }))
     const unavailableCivIds = new Set([...picks, ...bans].map(selection => selection.civId))
-    const availableCivIds = (record.config.redDeath === true ? allFactionIds : allLeaderIds)
+    const availableCivIds = (record.config.redDeath === true ? allFactionIds : getLeaderIds(record.config.leaderDataVersion ?? 'live'))
       .filter(civId => !unavailableCivIds.has(civId))
 
     return {
@@ -2936,6 +2949,7 @@ function buildDraftLifecycleLogContext(payload: DraftLifecyclePayload, extra: Re
     eventKind: payload.eventKind,
     eventSequence: payload.eventSequence,
     matchId: payload.matchId,
+    leaderDataVersion: payload.leaderDataVersion ?? 'live',
     outcome: payload.outcome,
     finalized: payload.outcome === 'complete' ? payload.finalized === true : false,
     stateStatus: payload.state.status,
@@ -3144,18 +3158,19 @@ function getRepeatDraftStartError(record: OpenSessionRecord, currentSeats: reado
   if (!canStartWithPlayerCount(record.mode, currentSeats.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
     return 'Session cannot start with the current player count.'
   }
-  return getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, currentSeats.length)
+  return getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, currentSeats.length, record.config.leaderDataVersion)
 }
 
 function isRepeatDraftDataCompatible(
   record: OpenSessionRecord,
   state: DraftState,
-  source: { redDeath: boolean, permanentAlly: boolean, hiddenDraft: boolean },
+  source: { redDeath: boolean, permanentAlly: boolean, hiddenDraft: boolean, leaderDataVersion: LeaderDataVersion },
 ): boolean {
   return isRepeatDraftFormatCompatible(record, state)
     && source.redDeath === record.config.redDeath
     && source.permanentAlly === isPermanentAllyFfaConfig(record)
     && source.hiddenDraft === record.config.hiddenDraft
+    && source.leaderDataVersion === (record.config.leaderDataVersion ?? 'live')
 }
 
 function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: DraftState, sourceConfig: RoomRecord['config']): boolean {
@@ -3419,9 +3434,13 @@ function getLeaderPoolSizeError(
   redDeath: boolean,
   leaderPoolSize: number | null,
   playerCount: number,
+  leaderDataVersion: LeaderDataVersion,
 ): string | null {
   if (redDeath) return null
   if (leaderPoolSize == null) return null
+
+  const maximumSize = getMaxLeaderPoolSize(leaderDataVersion)
+  if (leaderPoolSize > maximumSize) return `Leaders must be at most ${maximumSize} for this BBG version.`
 
   const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
   if (leaderPoolSize >= minimumSize) return null

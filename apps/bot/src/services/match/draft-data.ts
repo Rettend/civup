@@ -1,6 +1,6 @@
-import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
-import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
+import { formatModeLabel, normalizeAvailableLeaderDataVersion, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
   manualReport?: unknown
@@ -11,6 +11,7 @@ interface ParsedDraftData {
   redDeath?: unknown
   permanentAlly?: unknown
   hiddenDraft?: unknown
+  leaderDataVersion?: unknown
   doublePickMetrics?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown, team?: unknown }>
@@ -21,6 +22,7 @@ export interface StoredGameModeContext {
   mode: GameMode
   redDeath: boolean
   permanentAlly: boolean
+  leaderDataVersion: LeaderDataVersion
   leaderboardMode: LeaderboardMode | null
   ranked: boolean
   label: string
@@ -88,6 +90,11 @@ export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
   return parsed?.hiddenDraft === true
 }
 
+export function getLeaderDataVersionFromDraftData(draftData: string | null, fallback: LeaderDataVersion = 'live'): LeaderDataVersion {
+  const parsed = parseDraftData(draftData)
+  return normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion, fallback)
+}
+
 export function getPermanentAllyFromDraftData(gameMode: string, draftData: string | null): boolean {
   const mode = parseGameMode(gameMode)
   const parsed = parseDraftData(draftData)
@@ -146,12 +153,14 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
   const parsed = parseDraftData(draftData)
   const redDeath = parsed?.redDeath === true
   const permanentAlly = getPermanentAllyFromDraftData(mode, draftData)
+  const leaderDataVersion = normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion)
   const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
   const leaderboardMode = toLeaderboardMode(mode, { redDeath })
   return {
     mode,
     redDeath,
     permanentAlly,
+    leaderDataVersion,
     leaderboardMode,
     ranked: leaderboardMode != null,
     label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
@@ -161,4 +170,10 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
 function normalizeMetricCount(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0
   return Math.max(0, Math.round(value))
+}
+
+function normalizeStoredLeaderDataVersion(value: unknown, fallback: LeaderDataVersion = 'live'): LeaderDataVersion {
+  if (value === 'beta') return normalizeAvailableLeaderDataVersion('beta')
+  if (value === 'live') return 'live'
+  return normalizeAvailableLeaderDataVersion(fallback)
 }

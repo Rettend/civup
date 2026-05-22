@@ -743,7 +743,12 @@ function resolveLeaderName(civId: string): string {
     return getLeader(civId).name
   }
   catch {
-    return ''
+    try {
+      return getLeader(civId, 'beta').name
+    }
+    catch {
+      return ''
+    }
   }
 }
 

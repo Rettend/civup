@@ -1,4 +1,4 @@
-import type { GameMode, Leader, QueueEntry } from '@civup/game'
+import type { GameMode, Leader, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { ManualReportedMatchPlayerInput } from '../services/match/index.ts'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
@@ -10,7 +10,7 @@ import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getLeaderDataVersionFromDraftData, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
@@ -32,6 +32,7 @@ interface ModVar extends MatchVar {
 }
 
 const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
+const BETA_LEADER_ID_SET = new Set(getLeaders('beta').map(leader => leader.id))
 const MANUAL_MATCH_MAX_PLAYERS = 12
 const MANUAL_MATCH_SLOT_NUMBERS = Array.from({ length: MANUAL_MATCH_MAX_PLAYERS }, (_, index) => index + 1)
 const MANUAL_GAME_MODE_CHOICES = GAME_MODE_CHOICES.flatMap(choice => choice.value === 'ffa'
@@ -283,6 +284,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const existingLobby = result.previousStatus === 'completed' ? null : await getSessionLobbyProjectionByMatch(db, result.match.id)
             const mode = matchContext.mode
+            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData, existingLobby?.draftConfig.leaderDataVersion ?? 'live')
             const moderation = { actorId, reason }
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
             const participantIds = result.participants.map(participant => participant.playerId)
@@ -376,6 +378,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                   const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
+                      leaderDataVersion,
                     }, existingLobby.draftConfig.redDeath)],
                     components: [],
                   }, { db, sessionNamespace: c.env.SessionDO })
@@ -392,6 +395,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                   const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
+                      leaderDataVersion,
                     }, matchContext.redDeath)],
                   })
                   await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
@@ -605,9 +609,10 @@ export const command_mod = factory.autocomplete<ModVar>(
               console.error(`Failed to mark leaderboards dirty after correcting leaders for match ${result.match.id}:`, error)
             }
 
+            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData)
             await sendEphemeralResponse(
               c,
-              `Updated leaders for match **${result.match.id}**.${reason ? ` Reason: ${reason}` : ''}\n${formatLeaderCorrections(result.corrections)}`,
+              `Updated leaders for match **${result.match.id}**.${reason ? ` Reason: ${reason}` : ''}\n${formatLeaderCorrections(result.corrections, leaderDataVersion)}`,
               'success',
             )
 
@@ -775,29 +780,40 @@ function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, va
 function resolveLeaderInput(input: string): string | null {
   const normalized = input.trim()
   if (LIVE_LEADER_ID_SET.has(normalized)) return normalized
+  if (BETA_LEADER_ID_SET.has(normalized)) return normalized
 
   const lower = normalized.toLowerCase()
   const exact = getLeaders('live').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
   if (exact) return exact.id
+  const betaExact = getLeaders('beta').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
+  if (betaExact) return betaExact.id
 
   const matches = searchLeaders(normalized, 'live').filter(leader => LIVE_LEADER_ID_SET.has(leader.id))
-  return matches.length === 1 ? matches[0]!.id : null
+  if (matches.length === 1) return matches[0]!.id
+  const betaMatches = searchLeaders(normalized, 'beta').filter(leader => BETA_LEADER_ID_SET.has(leader.id))
+  return betaMatches.length === 1 ? betaMatches[0]!.id : null
 }
 
-function formatLeaderCorrections(corrections: Array<{ playerId: string, previousCivId: string | null, nextCivId: string | null }>): string {
+function formatLeaderCorrections(corrections: Array<{ playerId: string, previousCivId: string | null, nextCivId: string | null }>, leaderDataVersion: LeaderDataVersion): string {
   return corrections
-    .map(correction => `<@${correction.playerId}>: ${formatLeaderLabel(correction.previousCivId)} -> ${formatLeaderLabel(correction.nextCivId)}`)
+    .map(correction => `<@${correction.playerId}>: ${formatLeaderLabel(correction.previousCivId, leaderDataVersion)} -> ${formatLeaderLabel(correction.nextCivId, leaderDataVersion)}`)
     .join('\n')
 }
 
-function formatLeaderLabel(leaderId: string | null): string {
+function formatLeaderLabel(leaderId: string | null, leaderDataVersion: LeaderDataVersion = 'live'): string {
   if (!leaderId) return 'No leader'
   try {
-    const leader = getLeader(leaderId, 'live')
+    const leader = getLeader(leaderId, leaderDataVersion)
     return `${leader.name} (${leader.civilization})`
   }
   catch {
-    return leaderId
+    try {
+      const leader = getLeader(leaderId, 'beta')
+      return `${leader.name} (${leader.civilization})`
+    }
+    catch {
+      return leaderId
+    }
   }
 }
 

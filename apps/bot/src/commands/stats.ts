@@ -43,6 +43,7 @@ export const command_stats = factory.command<Var>(
     const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode && teammateIds.length === 0
 
     if (!targetId) return c.res('Could not identify the player.')
     const playerIds = [targetId, ...teammateIds]
@@ -86,6 +87,8 @@ export const command_stats = factory.command<Var>(
         visibleModes,
       })
       return { embeds: [embed] }
+    }, {
+      ephemeral: isDefaultSelfLookup,
     })
   },
 )
