@@ -54,7 +54,8 @@ const visibleTeamBanSteps = [
 ] as const
 
 describe('draft formats', () => {
-  test('2v2 full roster groups the back-to-back Team B picks', () => {
+  test('2v2 full roster groups the back-to-back Team B picks with a double timer', () => {
+    expect(default2v2.getSteps(4)[2]).toEqual({ action: 'pick', seats: [1, 3], count: 1, timer: 120, fallbackTimer: 60 })
     expect(default2v2.getSteps(4).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2]])
   })
 
@@ -69,6 +70,7 @@ describe('draft formats', () => {
   })
 
   test('3v3 full roster groups adjacent same-team picks', () => {
+    expect(default3v3.getSteps(6)[2]).toEqual({ action: 'pick', seats: [1, 3], count: 1, timer: 60 })
     expect(default3v3.getSteps(6).slice(1).map(step => step.seats)).toEqual([[0], [1, 3], [2, 4], [5]])
   })
 
