@@ -686,7 +686,7 @@ function processDoublePickFallbackTimeout(
     action: 'pick',
     seats: [seatIndex],
     count: 1,
-    timer: step.timer,
+    timer: step.fallbackTimer ?? step.timer,
     fallbackForStepIndex: state.currentStepIndex,
   }
   const nextStepIndex = state.currentStepIndex + 1
