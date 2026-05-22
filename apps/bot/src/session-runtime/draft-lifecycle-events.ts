@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftDoublePickMetrics, DraftState, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftCancelReason, DraftDoublePickMetrics, DraftState, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 
 export const DRAFT_LIFECYCLE_EVENT_KINDS = [
   'DraftCompleted',
@@ -15,6 +15,7 @@ export interface DraftLifecycleCompletePayload {
   outcome: 'complete'
   matchId: string
   hostId?: string
+  leaderDataVersion?: LeaderDataVersion
   completedAt: number
   finalized?: boolean
   state: DraftState
@@ -30,6 +31,7 @@ export interface DraftLifecycleCancelledPayload {
   outcome: 'cancelled'
   matchId: string
   hostId?: string
+  leaderDataVersion?: LeaderDataVersion
   cancelledAt: number
   reason: DraftCancelReason
   state: DraftState

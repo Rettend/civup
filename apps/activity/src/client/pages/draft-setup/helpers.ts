@@ -1,7 +1,7 @@
-import type { CompetitiveTier, DraftState, GameMode } from '@civup/game'
+import type { CompetitiveTier, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
+import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
@@ -294,6 +294,10 @@ export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number, t
 
 export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): number {
   return getMinimumLeaderPoolSize(mode, playerCount)
+}
+
+export function getLeaderPoolSizeMaximum(version: LeaderDataVersion): number {
+  return getMaxLeaderPoolSize(version)
 }
 
 export function supportsBlindBansControl(mode: GameMode, options: { redDeath?: boolean, targetSize?: number } = {}): boolean {

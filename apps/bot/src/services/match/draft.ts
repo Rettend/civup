@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftDoublePickMetrics, DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isRedDeathFormatId } from '@civup/game'
+import { isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
@@ -147,6 +147,7 @@ export async function activateDraftMatch(
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
+    leaderDataVersion: normalizeAvailableLeaderDataVersion(input.leaderDataVersion),
     mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
     permanentAlly,
@@ -301,6 +302,7 @@ export async function cancelDraftMatch(
         cancelledAt: input.cancelledAt,
         reason: input.reason,
         hostId: input.hostId,
+        leaderDataVersion: normalizeAvailableLeaderDataVersion(input.leaderDataVersion),
         mapVoteResult: input.mapVoteResult ?? null,
         redDeath: isRedDeathFormatId(input.state.formatId),
         permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly),

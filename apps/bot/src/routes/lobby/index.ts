@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
+import { defaultPlayerCount, formatModeLabel, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -403,12 +403,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : lobby.draftConfig.pickTimerSeconds
     const normalizedMinRole = normalizedRankBounds.minimum
     const normalizedMaxRole = normalizedRankBounds.maximum
-    const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
+    const requestedLeaderPoolSize: number | null = hasLeaderPoolSize
       ? parsedLeaderPoolSize ?? null
       : lobby.draftConfig.leaderPoolSize
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const leaderDataVersionChanged = normalizedLeaderDataVersion !== lobby.draftConfig.leaderDataVersion
+    const normalizedLeaderPoolSize = requestedLeaderPoolSize == null || !leaderDataVersionChanged
+      ? requestedLeaderPoolSize
+      : Math.min(requestedLeaderPoolSize, getMaxLeaderPoolSize(normalizedLeaderDataVersion))
     const normalizedMapVoteEnabled = hasMapVoteEnabled
       ? parsedMapVoteEnabled ?? false
       : lobby.draftConfig.mapVoteEnabled
@@ -572,6 +576,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       mode,
       normalizedRedDeath,
       normalizedLeaderPoolSize,
+      normalizedLeaderDataVersion,
       slots.length,
     )
     if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
@@ -1708,10 +1713,14 @@ function getLeaderPoolSizeError(
   mode: GameMode,
   redDeath: boolean,
   leaderPoolSize: number | null,
+  leaderDataVersion: 'live' | 'beta',
   playerCount: number,
 ): string | null {
   if (redDeath) return null
   if (leaderPoolSize == null) return null
+
+  const maximumSize = getMaxLeaderPoolSize(leaderDataVersion)
+  if (leaderPoolSize > maximumSize) return `Leaders must be at most ${maximumSize} for this BBG version.`
 
   const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
   if (leaderPoolSize >= minimumSize) return null

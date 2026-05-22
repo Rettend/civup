@@ -55,14 +55,27 @@ describe('match result embed', () => {
     expect(fields).toContain('<@&1> -> <@&2>')
   })
 
-  test('omits the BBG footer when no beta leader data is active', () => {
+  test('shows BBG footers when a leader data version is provided', () => {
     const openEmbed = lobbyOpenEmbed('2v2', [null, null, null, null], 4, null, null, 'beta').toJSON()
     const resultEmbed = lobbyResultEmbed('ffa', []).toJSON()
     const cancelledEmbed = lobbyCancelledEmbed('2v2', [], 'scrub', undefined, 'live').toJSON()
 
-    expect(openEmbed.footer).toBeUndefined()
+    expect(openEmbed.footer).toEqual({ text: 'BBG Beta' })
     expect(resultEmbed.footer).toBeUndefined()
     expect(cancelledEmbed.footer).toBeUndefined()
+  })
+
+  test('resolves beta-only leaders in reported results', () => {
+    const embed = lobbyResultEmbed('ffa', [{
+      playerId: '100010000000000001',
+      team: null,
+      civId: 'taino-anacaona',
+      placement: 1,
+    }], undefined, { leaderDataVersion: 'beta' }).toJSON()
+
+    expect(embed.description).toContain('Anacaona')
+    expect(embed.description).not.toContain('taino-anacaona')
+    expect(embed.footer).toEqual({ text: 'BBG Beta' })
   })
 
   test('shows the reporter in the reported-result footer only when provided', () => {

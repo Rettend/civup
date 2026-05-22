@@ -27,6 +27,7 @@ describe('draft match activation', () => {
         state: completedState,
         completedAt: 1_700_000_000_000,
         hostId: seats[0]?.playerId ?? 'p1',
+        leaderDataVersion: 'beta',
       })
 
       expect('error' in result).toBe(false)
@@ -42,6 +43,8 @@ describe('draft match activation', () => {
         .where(eq(matches.id, matchId))
         .limit(1)
       expect(storedMatch?.status).toBe('active')
+      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string } : null
+      expect(storedDraftData?.leaderDataVersion).toBe('beta')
 
       const storedBans = await db
         .select()
