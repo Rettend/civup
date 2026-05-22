@@ -62,6 +62,54 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
   })
 
+  test('shows lobby access as an open-by-default config switch', async () => {
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    const accessSwitch = screen.getByRole('switch', { name: 'Lobby Open' })
+
+    expectTextInOrder(configCard, ['Lobby Open', 'Map Vote'])
+    expect(accessSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByRole('button', { name: 'Close Lobby' })).toBeNull()
+
+    fireEvent.click(accessSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === '2v2' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === true)).toBe(true))
+
+    cleanup()
+    storeSpies.updateLobbyConfig.mockClear()
+
+    const closedLobby = createLobbySnapshot()
+    render(() => (
+      <DraftSetupPage lobby={{
+        ...closedLobby,
+        draftConfig: { ...closedLobby.draftConfig, closed: true },
+      }} />
+    ))
+
+    const closedSwitch = screen.getByRole('switch', { name: 'Lobby Closed' })
+    const closedTrack = closedSwitch.querySelector('div') as HTMLElement
+
+    expect(closedSwitch.getAttribute('aria-checked')).toBe('false')
+    expect(closedTrack.className).toContain('bg-[#a78bfa]/18')
+
+    fireEvent.click(closedSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === 'ffa' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === false)).toBe(true))
+  })
+
   test('labels normal 1v1 shuffle as first-pick randomization and hides it for tournament lobbies', async () => {
     render(() => (
       <DraftSetupPage lobby={createLobbySnapshot({
@@ -524,6 +572,9 @@ describe('DraftSetupPage UI', () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: '2v2' })} />)
 
     expect(screen.getByText('Waiting for host')).toBeTruthy()
+    const readonlyLobbyAccess = screen.getByText('Lobby Open') as HTMLElement
+    expect(readonlyLobbyAccess.className).toContain('text-note')
+    expect(screen.queryByRole('switch', { name: 'Lobby Open' })).toBeNull()
     expect(screen.queryByRole('switch', { name: 'Blind Bans' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start Draft' })).toBeNull()
     expect(screen.getByText('Map Vote')).toBeTruthy()
@@ -533,6 +584,7 @@ describe('DraftSetupPage UI', () => {
 
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
     expectTextInOrder(configCard, [
+      'Lobby Open',
       'Map Vote',
       'Blind Bans',
       'Min rank',
