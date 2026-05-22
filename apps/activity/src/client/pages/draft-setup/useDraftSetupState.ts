@@ -157,7 +157,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const persistentConfigMessage = () => currentLobby()?.tournament?.rematchWarning ?? null
   const effectiveConfigMessage = () => configMessage() ?? persistentConfigMessage()
   const effectiveConfigMessageTone = () => configMessageTone() ?? (persistentConfigMessage() ? 'warning' : null)
-  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby()))
+  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby(), userId()))
   const teamBalance = (team: number) => lobbyBalance()?.teams.find(summary => summary.team === team) ?? null
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(currentLobby(), userId(), (props.showJoinPending === true) || pendingPlaceSelfSlot() != null, props.joinEligibility, pendingPlaceSelfSlot())
   const steamLobbyLink = () => currentLobby()?.steamLobbyLink ?? props.steamLobbyLink ?? null

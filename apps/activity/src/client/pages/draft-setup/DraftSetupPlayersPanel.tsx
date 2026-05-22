@@ -1,4 +1,4 @@
-import type { PlayerRow } from './helpers'
+import type { LobbyBalanceTeamSummary, PlayerRow } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy } from '~/client/stores'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
@@ -178,14 +178,26 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
                   </div>
                   <Show when={state().teamBalance(team)}>
                     {summary => (
-                      <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap">
+                      <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap" title={formatTeamBalanceTitle(summary(), team)}>
                         {Math.round(summary().probability * 100)}
                         %
-                        <Show when={summary().uncertainty >= 0.01}>
-                          <span class="text-fg-subtle font-normal ml-1">
-                            ±
-                            {Math.round(summary().uncertainty * 100)}
-                          </span>
+                        <Show when={formatTeamBalanceRange(summary())}>
+                          {range => (
+                            <span class="text-fg-subtle font-normal ml-1">
+                              (
+                              {range()}
+                              )
+                            </span>
+                          )}
+                        </Show>
+                        <Show when={formatProjectedWinDelta(summary())}>
+                          {delta => (
+                            <span class="text-fg-subtle font-normal ml-1">
+                              ·
+                              {' '}
+                              {delta()}
+                            </span>
+                          )}
                         </Show>
                       </div>
                     )}
@@ -225,6 +237,37 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
       </div>
     </div>
   )
+}
+
+function formatTeamBalanceRange(summary: LobbyBalanceTeamSummary): string | null {
+  if (summary.uncertainty < 0.01) return null
+
+  const lower = Math.round(Math.max(0, summary.probability - summary.uncertainty) * 100)
+  const upper = Math.round(Math.min(1, summary.probability + summary.uncertainty) * 100)
+  if (lower === upper) return null
+  return `${lower}-${upper}%`
+}
+
+function formatProjectedWinDelta(summary: LobbyBalanceTeamSummary): string | null {
+  if (!summary.projectedWinDelta) return null
+  return formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
+}
+
+function formatSignedDisplayDelta(displayDelta: number): string {
+  const rounded = Math.round(displayDelta)
+  if (rounded === 0) return '0'
+  return `${rounded > 0 ? '+' : ''}${rounded}`
+}
+
+function formatTeamBalanceTitle(summary: LobbyBalanceTeamSummary, team: number): string {
+  const teamLabel = `Team ${String.fromCharCode(65 + team)}`
+  const range = formatTeamBalanceRange(summary)
+  const chanceText = `Win chance: ${Math.round(summary.probability * 100)}%${range ? ` (${range})` : ''}.`
+
+  if (!summary.projectedWinDelta) return chanceText
+
+  const delta = formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
+  return `${chanceText} ${delta} is your Elo change if ${teamLabel} wins.`
 }
 
 function getArrangeOverlayIconClass(strategy: LobbyArrangeStrategy | null) {
