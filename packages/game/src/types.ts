@@ -145,6 +145,8 @@ export interface DraftStep {
   count: number
   /** Timer in seconds (0 = no timer / unlimited) */
   timer: number
+  /** Timer for a temporary fallback phase spawned by this grouped pick step. */
+  fallbackTimer?: number
   /** Original grouped pick step that spawned this temporary fallback step. */
   fallbackForStepIndex?: number
 }

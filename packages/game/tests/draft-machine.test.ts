@@ -523,6 +523,8 @@ describe('processDraftInput — PICK (sequential)', () => {
     // Team 2 now gets consecutive picks from B1 and B2 on the same timer.
     expect(state.steps[state.currentStepIndex]!.seats).toEqual([1, 3])
     expect(state.steps[state.currentStepIndex]!.count).toBe(1)
+    expect(state.steps[state.currentStepIndex]!.timer).toBe(120)
+    expect(state.steps[state.currentStepIndex]!.fallbackTimer).toBe(60)
 
     result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' })
     expect(isDraftError(result)).toBe(false)

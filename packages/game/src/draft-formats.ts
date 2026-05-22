@@ -6,6 +6,7 @@ const FULL_ROSTER_5V5_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 8, 9] as const
 const FULL_ROSTER_6V6_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 9, 8, 10, 11] as const
 const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
+const PICK_STEP_TIMER = 60
 const SEQUENTIAL_BAN_STEP_TIMER = 45
 const VISIBLE_TEAM_BAN_STEPS: DraftStep[] = [
   { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
@@ -18,7 +19,7 @@ type VisibleBanGameMode = Extract<GameMode, '1v1' | '2v2' | '3v3' | '4v4' | '5v5
 type TeamGameMode = Exclude<VisibleBanGameMode, '1v1'>
 
 function createSinglePickStep(seat: number): DraftStep {
-  return { action: 'pick', seats: [seat], count: 1, timer: 60 }
+  return { action: 'pick', seats: [seat], count: 1, timer: PICK_STEP_TIMER }
 }
 
 function createTeamPickSteps(gameMode: TeamGameMode, seatCount: number, pickOrder: readonly number[]): DraftStep[] {
@@ -39,6 +40,10 @@ function createTeamPickSteps(gameMode: TeamGameMode, seatCount: number, pickOrde
       && getTeamPickOrderTeam(gameMode, seatCount, previousSeat) === getTeamPickOrderTeam(gameMode, seatCount, seat)
     ) {
       previousStep.seats = [...previousStep.seats, seat]
+      if (configUsesDoubleTimer(gameMode)) {
+        previousStep.timer = PICK_STEP_TIMER * previousStep.seats.length
+        previousStep.fallbackTimer = PICK_STEP_TIMER
+      }
       continue
     }
 
@@ -51,6 +56,10 @@ function createTeamPickSteps(gameMode: TeamGameMode, seatCount: number, pickOrde
 function getTeamPickOrderTeam(gameMode: TeamGameMode, seatCount: number, seatIndex: number): number {
   if (gameMode === '2v2') return seatIndex % getTwoVTwoTeamCount(seatCount)
   return seatIndex % 2
+}
+
+function configUsesDoubleTimer(gameMode: TeamGameMode): boolean {
+  return gameMode === '2v2'
 }
 
 function createCaptainBanStep(captainCount: number): DraftStep {

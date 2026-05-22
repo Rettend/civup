@@ -1459,7 +1459,13 @@ function applyTimerConfigToSteps(
 
   return steps.map((step) => {
     if (step.action === 'ban' && banTimer != null) return { ...step, timer: banTimer }
-    if (step.action === 'pick' && pickTimer != null) return { ...step, timer: pickTimer }
+    if (step.action === 'pick' && pickTimer != null) {
+      return {
+        ...step,
+        timer: step.fallbackTimer != null ? Math.min(pickTimer * 2, MAX_TIMER_SECONDS) : pickTimer,
+        fallbackTimer: step.fallbackTimer != null ? pickTimer : step.fallbackTimer,
+      }
+    }
     return step
   })
 }
