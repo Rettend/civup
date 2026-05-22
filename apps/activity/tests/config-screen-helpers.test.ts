@@ -73,6 +73,34 @@ describe('lobby balance summary', () => {
     expect(summary?.teams[0]?.uncertainty ?? 1).toBeLessThan(0.1)
   })
 
+  test('calculates personalized projected Elo deltas for each winning team', () => {
+    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+    ]), 'a1')
+
+    const teamA = summary?.teams.find(team => team.team === 0)
+    const teamB = summary?.teams.find(team => team.team === 1)
+
+    expect(teamA?.projectedWinDelta?.displayDelta ?? 0).toBeGreaterThan(0)
+    expect(teamB?.projectedWinDelta?.displayDelta ?? 0).toBeLessThan(0)
+  })
+
+  test('omits projected Elo deltas for unseated viewers', () => {
+    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
+      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+    ]), 'spectator')
+
+    const teamA = summary?.teams.find(team => team.team === 0)
+
+    expect(teamA?.projectedWinDelta).toBeNull()
+  })
+
   test('widens uncertainty when players have little rating history', () => {
     const veteranSummary = buildLobbyBalanceSummary(createLobbySnapshot([
       { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },

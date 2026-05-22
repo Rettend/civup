@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftState, GameMode, LeaderDataVersion } from '@
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
-import { createRating, predictWinProbabilities } from '@civup/rating'
+import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -49,6 +49,11 @@ export interface LobbyBalanceTeamSummary {
   playerCount: number
   probability: number
   uncertainty: number
+  projectedWinDelta: LobbyBalanceProjectedWinDelta | null
+}
+
+export interface LobbyBalanceProjectedWinDelta {
+  displayDelta: number
 }
 
 export interface LobbyBalanceSummary {
@@ -99,7 +104,7 @@ export type PendingOptimisticLobbyAction
     playerId: string
   }
 
-export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null): LobbyBalanceSummary | null {
+export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUserId: string | null = null): LobbyBalanceSummary | null {
   if (!lobby) return null
 
   const mode = inferGameMode(lobby.mode)
@@ -153,8 +158,37 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null): LobbyBala
         playerCount: players.length,
         probability,
         uncertainty: estimateProbabilityUncertainty(teams, index, probability),
+        projectedWinDelta: estimateProjectedWinDelta(teams, index, currentUserId),
       }
     }),
+  }
+}
+
+function estimateProjectedWinDelta(teams: LobbyBalancePlayer[][], winningTeamIndex: number, currentUserId: string | null): LobbyBalanceProjectedWinDelta | null {
+  if (teams.length !== 2) return null
+  if (!currentUserId) return null
+
+  try {
+    const orderedTeams = [
+      teams[winningTeamIndex] ?? [],
+      teams[winningTeamIndex === 0 ? 1 : 0] ?? [],
+    ]
+    const updates = calculateRatings({
+      type: 'team',
+      teams: orderedTeams.map(players => ({
+        players: players.map(player => ({
+          playerId: player.playerId,
+          mu: player.mu,
+          sigma: player.sigma,
+        })),
+      })),
+    })
+
+    const userUpdate = updates.find(update => update.playerId === currentUserId)
+    return userUpdate ? { displayDelta: userUpdate.displayDelta } : null
+  }
+  catch {
+    return null
   }
 }
 
