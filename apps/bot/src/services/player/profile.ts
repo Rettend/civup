@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import { players } from '@civup/db'
 import { api, ApiError, buildDiscordAvatarUrl } from '@civup/utils'
+import { sql } from 'drizzle-orm'
 
 interface DiscordUserResponse {
   id: string
@@ -42,21 +43,28 @@ export async function fetchDiscordPlayerProfile(token: string, playerId: string)
 }
 
 export async function upsertPlayerProfile(db: Database, profile: PlayerProfileInput): Promise<void> {
+  await upsertPlayerProfiles(db, [profile])
+}
+
+export async function upsertPlayerProfiles(db: Database, profiles: PlayerProfileInput[]): Promise<void> {
+  if (profiles.length === 0) return
+
   const now = Date.now()
   await db
     .insert(players)
-    .values({
+    .values(profiles.map(profile => ({
       id: profile.playerId,
       displayName: profile.displayName,
       avatarUrl: profile.avatarUrl,
       createdAt: now,
-    })
+    })))
     .onConflictDoUpdate({
       target: players.id,
       set: {
-        displayName: profile.displayName,
-        avatarUrl: profile.avatarUrl,
+        displayName: sql<string>`excluded.display_name`,
+        avatarUrl: sql<string | null>`excluded.avatar_url`,
       },
+      where: sql`${players.displayName} is not excluded.display_name or ${players.avatarUrl} is not excluded.avatar_url`,
     })
 }
 
