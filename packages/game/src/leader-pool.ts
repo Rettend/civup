@@ -1,7 +1,8 @@
 import type { RandomSource } from './random.ts'
-import type { GameMode, LeaderDataVersion } from './types.ts'
+import type { CompetitiveTier, GameMode, LeaderDataVersion } from './types.ts'
 import { getLeaderIds } from './leader-registry.ts'
 import { defaultPlayerCount } from './mode.ts'
+import { competitiveTierNumber } from './types.ts'
 
 const VERSUS_DEFAULT_LEADER_POOL_BASE = 24
 const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
@@ -10,6 +11,11 @@ const VERSUS_MINIMUM_LEADER_POOL_BASE = 6
 const FFA_DEFAULT_PLAYER_FLOOR = 6
 const FFA_DEFAULT_POOL_MULTIPLIER = 6
 const FFA_MINIMUM_POOL_MULTIPLIER = 3
+const LEADER_POOL_RANK_STEP_SIZE = 2
+const VERSUS_DEFAULT_RANK_NUMBER = 5
+const FFA_DEFAULT_RANK_NUMBER = 3
+
+export const DEFAULT_LEADER_POOL_RANK_TIER: CompetitiveTier = 'tier5'
 
 export const MAX_LEADER_POOL_SIZE = Math.max(getLeaderIds('live').length, getLeaderIds('beta').length)
 
@@ -22,19 +28,17 @@ export function getDefaultLeaderPoolSize(
   mode: GameMode,
   playerCount: number = defaultPlayerCount(mode),
   version: LeaderDataVersion = 'live',
+  rankTier: CompetitiveTier | null | undefined = DEFAULT_LEADER_POOL_RANK_TIER,
 ): number {
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
   const maxLeaderPoolSize = getMaxLeaderPoolSize(version)
+  const baseSize = mode === 'ffa'
+    ? Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount) * FFA_DEFAULT_POOL_MULTIPLIER
+    : VERSUS_DEFAULT_LEADER_POOL_BASE + normalizedPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER
+  const adjustedSize = baseSize + getLeaderPoolRankAdjustment(mode, rankTier)
+  const minimumSize = getMinimumLeaderPoolSize(mode, normalizedPlayerCount)
 
-  if (mode !== 'ffa') {
-    return Math.min(
-      maxLeaderPoolSize,
-      VERSUS_DEFAULT_LEADER_POOL_BASE + normalizedPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER,
-    )
-  }
-
-  const scaledPlayerCount = Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount)
-  return Math.min(maxLeaderPoolSize, scaledPlayerCount * FFA_DEFAULT_POOL_MULTIPLIER)
+  return Math.min(maxLeaderPoolSize, Math.max(minimumSize, adjustedSize))
 }
 
 /** Smallest playable leader pool for a finished draft lobby. */
@@ -51,8 +55,36 @@ export function resolveLeaderPoolSize(
   playerCount: number,
   leaderPoolSize: number | null | undefined,
   version: LeaderDataVersion = 'live',
+  rankTier: CompetitiveTier | null | undefined = DEFAULT_LEADER_POOL_RANK_TIER,
 ): number {
-  return leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount, version)
+  return leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount, version, rankTier)
+}
+
+export function resolveAverageLeaderPoolRankTier(tiers: readonly (CompetitiveTier | null | undefined)[]): CompetitiveTier {
+  if (tiers.length === 0) return DEFAULT_LEADER_POOL_RANK_TIER
+
+  const averageRank = tiers.reduce((total, tier) => total + leaderPoolRankNumber(tier), 0) / tiers.length
+  return rankNumberToLeaderPoolTier(Math.round(averageRank))
+}
+
+export function formatLeaderPoolRankLabel(tier: CompetitiveTier | null | undefined): string {
+  return `rank${leaderPoolRankNumber(tier)}`
+}
+
+function getLeaderPoolRankAdjustment(mode: GameMode, tier: CompetitiveTier | null | undefined): number {
+  const baseline = mode === 'ffa' ? FFA_DEFAULT_RANK_NUMBER : VERSUS_DEFAULT_RANK_NUMBER
+  return (leaderPoolRankNumber(tier) - baseline) * LEADER_POOL_RANK_STEP_SIZE
+}
+
+function leaderPoolRankNumber(tier: CompetitiveTier | null | undefined): number {
+  const number = tier ? competitiveTierNumber(tier) : null
+  if (number == null) return VERSUS_DEFAULT_RANK_NUMBER
+  return Math.max(1, Math.min(5, number))
+}
+
+function rankNumberToLeaderPoolTier(rank: number): CompetitiveTier {
+  const clamped = Math.max(1, Math.min(5, Math.round(rank)))
+  return `tier${clamped}`
 }
 
 /** Pick a random unique leader subset from the full roster. */

@@ -1,12 +1,16 @@
 import type { QueueEntry } from '@civup/game'
 import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import { buildLobbySnapshotFromSessionRecord } from '../../src/services/activity/session-state.ts'
+import type { LobbyState } from '../../src/services/lobby/types.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import {
   buildDraftRuntimeConfig,
   getChannelForMatch,
   getLobbyForUser,
   getMatchForUser,
 } from '../../src/services/activity/index.ts'
+import { buildOpenSessionRecordFromLobby } from '../../src/session-runtime/session-record.ts'
 import { createLobby, getExistingTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -159,6 +163,27 @@ describe('draft runtime config', () => {
     expect(result.config.randomDraft).toBe(false)
   })
 
+  test('uses rank-adjusted default leader pools', async () => {
+    const rank1Teamers = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
+      matchId: 'session-rank1-teamers',
+      hostId: 'p1',
+      leaderPoolRankTier: 'tier1',
+    })
+    const ffaEntries = Array.from({ length: 8 }, (_, index) => ({
+      playerId: `ffa-${index + 1}`,
+      displayName: `FFA ${index + 1}`,
+      joinedAt: index,
+    }))
+    const rank5Ffa = buildDraftRuntimeConfig('ffa', ffaEntries, {
+      matchId: 'session-rank5-ffa',
+      hostId: 'ffa-1',
+      leaderPoolRankTier: 'tier5',
+    })
+
+    expect(rank1Teamers.config.civPool).toHaveLength(32)
+    expect(rank5Ffa.config.civPool).toHaveLength(52)
+  })
+
   test('forces duplicate factions for Red Death 6v6 rooms', async () => {
     const entries: QueueEntry[] = Array.from({ length: 12 }, (_, index) => ({
       playerId: `p${index + 1}`,
@@ -210,5 +235,134 @@ describe('draft runtime config', () => {
 
     expect(result.config.formatId).toBe('default-2v2')
     expect(result.formatId).toBe('default-2v2')
+  })
+})
+
+describe('lobby activity snapshots', () => {
+  test('serializes average lobby rank and rank-adjusted default leader pool', async () => {
+    const { kv } = createTrackedKv()
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier1: '11111111111111111',
+      tier2: '12222222222222222',
+      tier3: '13333333333333333',
+      tier4: '14444444444444444',
+      tier5: '15555555555555555',
+    })
+    const queueEntries = Array.from({ length: 4 }, (_, index) => ({
+      playerId: `p${index + 1}`,
+      displayName: `P${index + 1}`,
+      joinedAt: index,
+    }))
+    const lobby: LobbyState = {
+      id: 'ranked-lobby',
+      mode: '2v2',
+      status: 'open',
+      guildId: 'guild-1',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      matchId: null,
+      steamLobbyLink: null,
+      minRole: null,
+      maxRole: null,
+      lastArrange: null,
+      lastActivityAt: 1,
+      memberPlayerIds: ['p1', 'p2', 'p3', 'p4'],
+      slots: ['p1', 'p2', 'p3', 'p4'],
+      draftConfig: {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        mapVoteEnabled: false,
+        blindBans: true,
+        simultaneousPick: false,
+        permanentAlly: true,
+        redDeath: false,
+        dealOptionsSize: null,
+        randomDraft: false,
+        hiddenDraft: false,
+        duplicateFactions: false,
+        closed: false,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      revision: 1,
+    }
+
+    const snapshot = await buildLobbySnapshotFromSessionRecord(
+      kv,
+      buildOpenSessionRecordFromLobby(lobby, queueEntries),
+      null,
+      {
+        byPlayerId: {
+          p1: { tier: 'tier1', sourceMode: null },
+          p2: { tier: 'tier2', sourceMode: null },
+          p3: { tier: 'tier3', sourceMode: null },
+        },
+      },
+    )
+
+    expect(snapshot.lobbyRank).toEqual({
+      tier: 'tier3',
+      leaderPoolSize: 36,
+    })
+  })
+
+  test('uses rank5 leader pool defaults when rank assignments are missing', async () => {
+    const { kv } = createTrackedKv()
+    const queueEntries = Array.from({ length: 4 }, (_, index) => ({
+      playerId: `u${index + 1}`,
+      displayName: `U${index + 1}`,
+      joinedAt: index,
+    }))
+    const lobby: LobbyState = {
+      id: 'unranked-lobby',
+      mode: '2v2',
+      status: 'open',
+      guildId: 'guild-1',
+      hostId: 'u1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      matchId: null,
+      steamLobbyLink: null,
+      minRole: null,
+      maxRole: null,
+      lastArrange: null,
+      lastActivityAt: 1,
+      memberPlayerIds: ['u1', 'u2', 'u3', 'u4'],
+      slots: ['u1', 'u2', 'u3', 'u4'],
+      draftConfig: {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        mapVoteEnabled: false,
+        blindBans: true,
+        simultaneousPick: false,
+        permanentAlly: true,
+        redDeath: false,
+        dealOptionsSize: null,
+        randomDraft: false,
+        hiddenDraft: false,
+        duplicateFactions: false,
+        closed: false,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      revision: 1,
+    }
+
+    const snapshot = await buildLobbySnapshotFromSessionRecord(
+      kv,
+      buildOpenSessionRecordFromLobby(lobby, queueEntries),
+      null,
+      { byPlayerId: {} },
+    )
+
+    expect(snapshot.lobbyRank).toEqual({
+      tier: 'tier5',
+      leaderPoolSize: 40,
+    })
   })
 })

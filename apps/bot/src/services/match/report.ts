@@ -167,18 +167,20 @@ export async function reportMatch(
     return { match: updatedMatch ?? match, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants), idempotent: true }
   }
 
-  const [refreshedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
-  match = refreshedMatch
-  if (!match) return { error: `Match **${input.matchId}** not found.` }
+  if (reportClaim.finalized) {
+    const [refreshedMatch] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, input.matchId))
+      .limit(1)
+    match = refreshedMatch
+    if (!match) return { error: `Match **${input.matchId}** not found.` }
 
-  participantRows = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+    participantRows = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, input.matchId))
+  }
 
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) {
@@ -344,7 +346,7 @@ export async function reportMatch(
 }
 
 type ReportProcessingClaimAttempt
-  = | { claimed: true, claim: ReportProcessingClaim | null }
+  = | { claimed: true, claim: ReportProcessingClaim | null, finalized?: boolean }
     | { claimed: false, processing?: boolean, alreadyReported?: boolean, finalizing?: boolean }
     | { error: string }
 
@@ -374,7 +376,7 @@ async function claimReportedMatchProcessing(
   if (options.sessionNamespace) {
     try {
       const result = await claimSessionReport(options.sessionNamespace, matchId, { matchId, reporterId })
-      if (result.claimed) return { claimed: true, claim: result.claim }
+      if (result.claimed) return { claimed: true, claim: result.claim, finalized: result.finalized }
       return { claimed: false, processing: result.processing, alreadyReported: result.alreadyReported, finalizing: result.finalizing }
     }
     catch (error) {

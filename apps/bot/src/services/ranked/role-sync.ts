@@ -222,6 +222,11 @@ const CURRENT_ASSIGNMENTS_KEY_PREFIX = 'ranked-roles:current-assignments:'
 const DEMOTION_CANDIDATES_KEY_PREFIX = 'ranked-roles:demotion-candidates:'
 const RANKED_ROLES_DIRTY_STATE_KEY = 'ranked-roles:dirty'
 const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
+// Keep this shorter than the daily role sync interval so old isolates do not
+// hide a fresh daily assignment snapshot for another full day.
+const CURRENT_ASSIGNMENTS_CACHE_TTL_MS = 4 * 60 * 60 * 1_000
+
+const currentRankAssignmentsCacheByNamespace = new WeakMap<KVNamespace, Map<string, { assignments: RankedRoleAssignments, expiresAt: number }>>()
 
 const EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.20, 0.40, 0.90] as const
 const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
@@ -543,11 +548,29 @@ export async function listRankedRoleConfigGuildIds(kv: KVNamespace): Promise<str
 }
 
 export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string): Promise<RankedRoleAssignments> {
-  const raw = await kv.get(currentAssignmentsKey(guildId), 'json') as RankedRoleAssignments | null
-  if (!raw || !raw.byPlayerId || typeof raw.byPlayerId !== 'object') return { byPlayerId: {} }
+  const now = Date.now()
+  const cached = getCachedCurrentRankAssignments(kv, guildId, now)
+  if (cached) return cached
+
+  const key = currentRankAssignmentsKey(guildId)
+  const raw = await kv.get(key, 'json')
+  const assignments = normalizeRankedRoleAssignments(raw)
+  cacheCurrentRankAssignments(kv, guildId, assignments, now)
+  return assignments
+}
+
+export function getCachedCurrentRankAssignments(kv: KVNamespace, guildId: string, now = Date.now()): RankedRoleAssignments | null {
+  const cached = getCurrentRankAssignmentsCache(kv).get(currentRankAssignmentsKey(guildId))
+  if (!cached || cached.expiresAt <= now) return null
+  return cloneRankedRoleAssignments(cached.assignments)
+}
+
+export function normalizeRankedRoleAssignments(raw: unknown): RankedRoleAssignments {
+  const rawByPlayerId = raw && typeof raw === 'object' ? (raw as { byPlayerId?: unknown }).byPlayerId : null
+  if (!rawByPlayerId || typeof rawByPlayerId !== 'object') return { byPlayerId: {} }
 
   const byPlayerId: Record<string, CurrentRankAssignment> = {}
-  for (const [playerId, assignment] of Object.entries(raw.byPlayerId)) {
+  for (const [playerId, assignment] of Object.entries(rawByPlayerId as Record<string, unknown>)) {
     const normalized = normalizeCurrentRankAssignment(assignment)
     if (!normalized) continue
     byPlayerId[playerId] = normalized
@@ -556,8 +579,37 @@ export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string
   return { byPlayerId }
 }
 
+function cloneRankedRoleAssignments(assignments: RankedRoleAssignments): RankedRoleAssignments {
+  return {
+    byPlayerId: Object.fromEntries(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, { ...assignment }])),
+  }
+}
+
 export async function setCurrentRankAssignments(kv: KVNamespace, guildId: string, assignments: RankedRoleAssignments): Promise<void> {
-  await kv.put(currentAssignmentsKey(guildId), JSON.stringify(assignments))
+  await kv.put(currentRankAssignmentsKey(guildId), JSON.stringify(assignments))
+  cacheCurrentRankAssignments(kv, guildId, normalizeRankedRoleAssignments(assignments))
+}
+
+export function cacheCurrentRankAssignments(kv: KVNamespace, guildId: string, assignments: RankedRoleAssignments, now = Date.now()): void {
+  getCurrentRankAssignmentsCache(kv).set(currentRankAssignmentsKey(guildId), {
+    assignments: cloneRankedRoleAssignments(assignments),
+    expiresAt: now + CURRENT_ASSIGNMENTS_CACHE_TTL_MS,
+  })
+}
+
+export function clearCurrentRankAssignmentsCache(kv: KVNamespace, guildId?: string): void {
+  const cache = currentRankAssignmentsCacheByNamespace.get(kv)
+  if (!cache) return
+  if (guildId) cache.delete(currentRankAssignmentsKey(guildId))
+  else cache.clear()
+}
+
+function getCurrentRankAssignmentsCache(kv: KVNamespace): Map<string, { assignments: RankedRoleAssignments, expiresAt: number }> {
+  const current = currentRankAssignmentsCacheByNamespace.get(kv)
+  if (current) return current
+  const next = new Map<string, { assignments: RankedRoleAssignments, expiresAt: number }>()
+  currentRankAssignmentsCacheByNamespace.set(kv, next)
+  return next
 }
 
 export async function getRankedRoleDemotionCandidates(kv: KVNamespace, guildId: string): Promise<RankedRoleDemotionCandidates> {
@@ -603,7 +655,7 @@ export async function clearRankedRolesDirtyState(kv: KVNamespace): Promise<void>
   await kv.delete(RANKED_ROLES_DIRTY_STATE_KEY)
 }
 
-function currentAssignmentsKey(guildId: string): string {
+export function currentRankAssignmentsKey(guildId: string): string {
   return `${CURRENT_ASSIGNMENTS_KEY_PREFIX}${guildId}`
 }
 

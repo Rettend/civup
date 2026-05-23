@@ -4,7 +4,7 @@ export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPickSe
 export type { DraftProcessOptions } from './draft-machine.ts'
 export { allFactionIds, factionMap, factions, getFaction, searchFactions } from './factions.ts'
 export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
-export { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
+export { DEFAULT_LEADER_POOL_RANK_TIER, formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
 export { allLeaderIds, getLeader, getLeaderIds, getLeaderMap, getLeaders, leaderBetaMap, leaderMap, leaders, leadersBeta, redDeathLeaderMap, redDeathLeaders, searchLeaders } from './leader-registry.ts'
 export {
   createMapVoteRng,
