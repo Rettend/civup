@@ -1,7 +1,7 @@
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
 import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
-import { formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
+import { formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
 import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
 import {
   arrangeLobbySlots,
@@ -222,6 +222,17 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     showInfoMessage,
     showRankRoleSetMessage,
   })
+  const lobbyRankBadge = () => {
+    const rank = currentLobby()?.lobbyRank ?? null
+    if (!rank) return null
+
+    const roleOption = configState.options.rankedRoles().find(option => option.tier === rank.tier) ?? null
+    return {
+      label: roleOption?.label ?? formatLeaderPoolRankLabel(rank.tier),
+      color: roleOption?.color ?? null,
+      leaderPoolSize: rank.leaderPoolSize,
+    }
+  }
 
   createEffect(() => {
     const slot = pendingPlaceSelfSlot()
@@ -610,6 +621,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     canSaveSteamLobbyLink: isCurrentUserSlotted,
     savePending: lobbyActionPending,
     formatLabel,
+    lobbyRank: lobbyRankBadge,
     modeLabelClass: configState.derived.modeLabelClass,
     saveSteamLobbyLink: configState.actions.saveSteamLobbyLink,
   }

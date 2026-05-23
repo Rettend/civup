@@ -48,14 +48,14 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
     await addToQueue(kv, '2v2', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
 
-    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb', null, null], withMember ?? lobby)
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
@@ -142,19 +142,19 @@ describe('lobby routes', () => {
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
+      headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({
-        userId: 'pleb',
+        userId: 'guest',
         lobbyId: lobby.id,
         targetSlot: 1,
-        displayName: 'Pleb',
+        displayName: 'Guest',
         avatarUrl: null,
       }),
     }, buildEnv(kv))
 
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'guest'])
   })
 
   test('direct lobby joins reject players who are already in a live match', async () => {
@@ -286,8 +286,8 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
     await addToQueue(kv, '1v1', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
@@ -298,8 +298,8 @@ describe('lobby routes', () => {
       joinedAt: Date.now() + 2,
     })
 
-    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb'], populatedSource ?? sourceLobby)
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest'], populatedSource ?? sourceLobby)
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -307,12 +307,12 @@ describe('lobby routes', () => {
 
     const joinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
+      headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({
-        userId: 'pleb',
+        userId: 'guest',
         lobbyId: targetLobby.id,
         targetSlot: 1,
-        displayName: 'Pleb',
+        displayName: 'Guest',
         avatarUrl: null,
       }),
     }, buildEnv(kv))
@@ -322,8 +322,8 @@ describe('lobby routes', () => {
       transferNotice: 'Moved you from your previous 1v1 lobby.',
     })
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
-    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
-    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBe(targetLobby.id)
+    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'guest'])
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'guest')).toBe(targetLobby.id)
   })
 
   test('direct lobby joins block hosts from abandoning players in another open lobby', async () => {
@@ -333,7 +333,7 @@ describe('lobby routes', () => {
 
     const sourceLobby = await createLobby(kv, {
       mode: '1v1',
-      hostId: 'pleb',
+      hostId: 'guest',
       channelId: 'channel-source',
       messageId: 'message-source',
     })
@@ -345,8 +345,8 @@ describe('lobby routes', () => {
     })
 
     await addToQueue(kv, '1v1', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now(),
     })
@@ -363,17 +363,17 @@ describe('lobby routes', () => {
       joinedAt: Date.now() + 2,
     })
 
-    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['pleb', 'ally'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['pleb', 'ally'], populatedSource ?? sourceLobby)
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['guest', 'ally'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['guest', 'ally'], populatedSource ?? sourceLobby)
 
     const joinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
+      headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({
-        userId: 'pleb',
+        userId: 'guest',
         lobbyId: targetLobby.id,
         targetSlot: 1,
-        displayName: 'Pleb',
+        displayName: 'Guest',
         avatarUrl: null,
       }),
     }, buildEnv(kv))
@@ -865,8 +865,8 @@ describe('lobby routes', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
-    await setLobbySlots(kv, lobby.id, ['host', 'pleb', null, null], withMembers ?? lobby)
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -875,9 +875,9 @@ describe('lobby routes', () => {
 
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
+      headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({
-        userId: 'pleb',
+        userId: 'guest',
         lobbyId: lobby.id,
         steamLobbyLink: 'steam://joinlobby/289070/22222222222222222/76561198000000000',
       }),
@@ -899,8 +899,8 @@ describe('lobby routes', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
-    await setLobbySlots(kv, lobby.id, ['host', 'pleb', null, null], withMembers ?? lobby)
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
@@ -1350,14 +1350,14 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
     await addToQueue(kv, '1v1', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
 
-    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
@@ -1367,28 +1367,28 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/1v1/remove', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
-      body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
+      headers: buildAuthHeaders('guest', 'Guest'),
+      body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'pleb')).toBeNull()
+    expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'guest')).toBeNull()
 
     const rejoinResponse = await app.request('/api/lobby/1v1/place', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
+      headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({
-        userId: 'pleb',
+        userId: 'guest',
         lobbyId: lobby.id,
         targetSlot: 1,
-        displayName: 'Pleb',
+        displayName: 'Guest',
         avatarUrl: null,
       }),
     }, buildEnv(kv))
 
     expect(rejoinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'pleb'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'guest'])
   })
 
   test('removing yourself keeps the current lobby available for spectating', async () => {
@@ -1410,14 +1410,14 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
     await addToQueue(kv, '1v1', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now() + 1,
     })
 
-    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'pleb'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'pleb'], withMember ?? lobby)
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
@@ -1427,12 +1427,12 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/1v1/remove', {
       method: 'POST',
-      headers: buildAuthHeaders('pleb', 'Pleb'),
-      body: JSON.stringify({ userId: 'pleb', slot: 1, lobbyId: lobby.id }),
+      headers: buildAuthHeaders('guest', 'Guest'),
+      body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'pleb', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'guest', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toContainEqual(expect.objectContaining({ kind: 'lobby', id: lobby.id }))
   })

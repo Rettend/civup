@@ -205,10 +205,13 @@ export function useDraftSetupConfigState(input: {
   const leaderPoolValidationCount = () => input.currentLobby()?.targetSize ?? state()?.seats.length ?? leaderPoolPlayerCount()
   const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
   const leaderPoolMaximumValue = () => getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
+  const lobbyLeaderPoolDefaultSize = () => input.currentLobby()?.lobbyRank?.leaderPoolSize ?? null
   const isRedDeathLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().redDeath : isRedDeathDraft()
-  const leaderPoolPlaceholderValue = () => isRedDeathLobbyMode()
-    ? String(draftConfig().dealOptionsSize ?? 2)
-    : leaderPoolSizePlaceholder(input.lobbyMode(), leaderPoolPlayerCount(), input.currentLobby()?.targetSize)
+  const leaderPoolPlaceholderValue = () => {
+    if (isRedDeathLobbyMode()) return String(draftConfig().dealOptionsSize ?? 2)
+    const defaultSize = lobbyLeaderPoolDefaultSize()
+    return defaultSize == null ? leaderPoolSizePlaceholder(input.lobbyMode(), leaderPoolPlayerCount(), input.currentLobby()?.targetSize) : String(defaultSize)
+  }
   const currentDraftLeaderPoolSize = () => {
     const draftState = state()
     if (!draftState) return null
@@ -217,7 +220,12 @@ export function useDraftSetupConfigState(input: {
   const formattedLeaderPool = () => {
     if (isRedDeathLobbyMode()) return String(draftConfig().dealOptionsSize ?? 2)
     const lobby = input.currentLobby()
-    if (lobby) return formatLeaderPoolValue(draftConfig().leaderPoolSize, inferGameMode(lobby.mode), leaderPoolPlayerCount(), lobby.targetSize)
+    if (lobby) {
+      const leaderPoolSize = draftConfig().leaderPoolSize
+      if (leaderPoolSize != null) return String(leaderPoolSize)
+      const defaultSize = lobbyLeaderPoolDefaultSize()
+      return defaultSize == null ? formatLeaderPoolValue(null, inferGameMode(lobby.mode), leaderPoolPlayerCount(), lobby.targetSize) : String(defaultSize)
+    }
     const size = currentDraftLeaderPoolSize()
     return size == null ? 'Unknown' : String(size)
   }

@@ -92,7 +92,7 @@ Use `/admin config` to inspect and change the global default configs.
 
 > [!NOTE]
 >
-> - leader pool size is hard-coded for each game mode not avaiable as a global config currently
+> - default leader pool size is rank-based for each game mode and not available as a global config currently
 > - hosts can override timers and leader pool size for their lobby before the draft starts
 > - leaving a timer blank means "use the server default"
 > - setting a timer to `0` means unlimited
@@ -227,15 +227,27 @@ When the Steam lobby link is set, other players see a gold Steam button top left
 
 Each draft uses a random subset of leaders.
 
-Default leader pool sizes (and min allowed override):
+For non-Red Death drafts, blank leader pool size uses the average rank of the slotted lobby players. Unranked, missing-rank, or no-role servers count as `rank5`.
 
-- `1v1`: 32 (min 8)
-- `2v2`: 40 (min 10)
-- `3v3`: 48 (min 12)
-- `4v4`: 56 (min 14)
-- `5v5`: 64 (min 16)
-- `6v6`: 72 (min 18)
-- `FFA`: `6 x player count`: 36-72 for 6-12 players (min `3 x player count` 18-36)
+Default leader pool sizes by average lobby rank:
+
+| Rank    | 1v1 | 2v2 | 3v3 | 4v4 | 5v5 | 6v6 | FFA 8p |
+| ------- | --: | --: | --: | --: | --: | --: | -----: |
+| `rank1` |  24 |  32 |  40 |  48 |  56 |  64 |     44 |
+| `rank2` |  26 |  34 |  42 |  50 |  58 |  66 |     46 |
+| `rank3` |  28 |  36 |  44 |  52 |  60 |  68 |     48 |
+| `rank4` |  30 |  38 |  46 |  54 |  62 |  70 |     50 |
+| `rank5` |  32 |  40 |  48 |  56 |  64 |  72 |     52 |
+
+Min allowed override:
+
+- `1v1`: 8
+- `2v2`: 10
+- `3v3`: 12
+- `4v4`: 14
+- `5v5`: 16
+- `6v6`: 18
+- `FFA`: `3 x player count`: 18-36 for 6-12 players
 
 Max allowed override is all leaders (85).
 

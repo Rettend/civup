@@ -3,6 +3,7 @@ import { Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { SteamLobbyButton } from '~/client/components/draft/SteamLobbyButton'
 import { cn } from '~/client/lib/css'
+import { buildRolePillStyle } from './helpers'
 
 type DraftSetupHeaderState = ReturnType<typeof useDraftSetupState>['header']
 
@@ -46,8 +47,21 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
       <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
         <div class="h-9 w-9" />
         <div class="text-center">
-          <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
-          <span class={cn('text-sm font-medium', header().modeLabelClass())}>{header().formatLabel()}</span>
+          <div class="relative inline-flex flex-col items-center sm:inline-block">
+            <h1 class="text-2xl text-heading mb-1">Draft Setup</h1>
+            <Show when={header().lobbyRank()}>
+              {rank => (
+                <span
+                  class="text-[11px] leading-none font-semibold px-2 py-1 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center justify-center max-sm:mb-1 sm:absolute sm:left-full sm:top-1/2 sm:ml-3 sm:-translate-y-[calc(50%+0.125rem)]"
+                  style={buildRolePillStyle(rank().color)}
+                  title={rank().leaderPoolSize == null ? `Average lobby rank: ${rank().label}` : `Average lobby rank: ${rank().label}. Default leaders: ${rank().leaderPoolSize}`}
+                >
+                  {rank().label} lobby
+                </span>
+              )}
+            </Show>
+          </div>
+          <span class={cn('block text-sm font-medium', header().modeLabelClass())}>{header().formatLabel()}</span>
         </div>
         <div class="h-9 w-9" />
       </div>

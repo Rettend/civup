@@ -46,8 +46,8 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const result = await joinLobbyAndMaybeStartMatch({
       env: buildTestLobbyEnv(kv),
     }, '2v2', [{
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: '',
     }])
 
@@ -85,8 +85,8 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const result = await joinLobbyAndMaybeStartMatch({
       env: buildTestLobbyEnv(kv),
     }, '2v2', [{
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: '',
     }], {
       preferredLobbyId: lobby.id,
@@ -96,7 +96,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
     expect(result.stage).toBe('open')
-    expect(result.lobby.memberPlayerIds).toContain('pleb')
+    expect(result.lobby.memberPlayerIds).toContain('guest')
   })
 
   test('keeps matchmaking max rank as a /match join gate', async () => {
@@ -205,15 +205,15 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const result = await joinLobbyAndMaybeStartMatch({
       env: buildTestLobbyEnv(kv),
     }, '2v2', [{
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: '',
     }])
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
     expect(result.stage).toBe('open')
-    expect(result.lobby.memberPlayerIds).toContain('pleb')
+    expect(result.lobby.memberPlayerIds).toContain('guest')
   })
 
   test('joins a queued player into the canonical roster despite old slot residue', async () => {
@@ -392,14 +392,14 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       joinedAt: Date.now() + 1,
     })
     await addToQueue(kv, '2v2', {
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: null,
       joinedAt: Date.now() + 2,
     })
 
-    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'pleb'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'pleb', null, null], populatedSource ?? sourceLobby)
+    const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby)
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest', null, null], populatedSource ?? sourceLobby)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -409,8 +409,8 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const result = await joinLobbyAndMaybeStartMatch({
       env: buildTestLobbyEnv(kv),
     }, '2v2', [{
-      playerId: 'pleb',
-      displayName: 'Pleb',
+      playerId: 'guest',
+      displayName: 'Guest',
       avatarUrl: '',
     }], {
       preferredLobbyId: targetLobby.id,
@@ -420,7 +420,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     if (!('stage' in result)) return
     expect(result.lobby.id).toBe(targetLobby.id)
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
-    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'pleb'])
+    expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'guest'])
   })
 })
 

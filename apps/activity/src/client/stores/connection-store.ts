@@ -39,6 +39,10 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lobbyRank?: {
+    tier: CompetitiveTier
+    leaderPoolSize: number | null
+  } | null
   lastArrange?: {
     strategy: LobbyArrangeStrategy
     at: number

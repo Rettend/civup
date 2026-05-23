@@ -5,6 +5,7 @@ import type { ActivityTargetSelection } from '../services/activity/launch-target
 import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
+import type { RankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
 import type { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
@@ -16,6 +17,7 @@ import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActiv
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
+import { cacheCurrentRankAssignments, currentRankAssignmentsKey, getCachedCurrentRankAssignments, normalizeRankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -75,6 +77,7 @@ interface ChannelActivityTarget {
   option: ActivityTargetOption
   session: ActivitySessionDirectoryEntry
   balanceSnapshot?: LeaderboardModeSnapshot | null
+  rankAssignments?: RankedRoleAssignments | null
 }
 
 interface ResolvedActivitySelection {
@@ -84,6 +87,11 @@ interface ResolvedActivitySelection {
 
 interface ActivityLaunchContext {
   targets: ChannelActivityTarget[]
+}
+
+interface ActivityLaunchState {
+  balanceSnapshots: Map<string, LeaderboardModeSnapshot>
+  rankAssignmentsByGuildId: Map<string, RankedRoleAssignments>
 }
 
 interface ActivityRuntimeOptions {
@@ -385,8 +393,8 @@ async function serializeActivityLaunchSelection(
   if (selection.target.option.kind === 'lobby') {
     const record = await resolveAuthoritativeSessionRecord(sessionNamespace, selection.target.session)
     const lobbySnapshot = record
-      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot)
-      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot)
+      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot, selection.target.rankAssignments)
+      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot, selection.target.rankAssignments)
     const tournamentLobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
     const lobby = await attachRepeatDraftSnapshot(tournamentLobby, sessionNamespace, selection.target.session.sessionId)
     return {
@@ -634,7 +642,7 @@ async function loadActivityLaunchContext(
   if (!db) return { targets: [] }
 
   const channelSessions = await getActivitySessionsByChannel(createDb(db), channelId)
-  const balanceSnapshots = await loadActivityLaunchState(kv, channelSessions)
+  const launchState = await loadActivityLaunchState(kv, channelSessions)
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
@@ -649,7 +657,8 @@ async function loadActivityLaunchContext(
 
     targets.push({
       session,
-      balanceSnapshot: resolveSessionBalanceSnapshot(balanceSnapshots, session),
+      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
+      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
       option: {
         ...option,
         isMember: option.memberPlayerIds.includes(userId),
@@ -666,17 +675,33 @@ async function loadActivityLaunchContext(
 async function loadActivityLaunchState(
   kv: KVNamespace,
   channelSessions: ActivitySessionDirectoryEntry[],
-): Promise<Map<string, LeaderboardModeSnapshot>> {
+): Promise<ActivityLaunchState> {
   const requestedBalanceModes = [...new Set(
     channelSessions
       .filter(session => session.phase === 'open')
       .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath }))
       .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
   )]
-  if (requestedBalanceModes.length === 0) return new Map()
+  const requestedGuildIds = [...new Set(channelSessions
+    .filter(session => session.phase === 'open')
+    .filter(session => !session.config.redDeath)
+    .map(session => session.guildId)
+    .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0))]
+  const rankAssignmentsByGuildId = new Map<string, RankedRoleAssignments>()
+  const uncachedGuildIds = requestedGuildIds.filter((guildId) => {
+    const cached = getCachedCurrentRankAssignments(kv, guildId)
+    if (!cached) return true
+    rankAssignmentsByGuildId.set(guildId, cached)
+    return false
+  })
+
+  if (requestedBalanceModes.length === 0 && uncachedGuildIds.length === 0) {
+    return { balanceSnapshots: new Map(), rankAssignmentsByGuildId }
+  }
 
   const rawState = await kvMget(kv, [
     ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
+    ...uncachedGuildIds.map(guildId => ({ key: currentRankAssignmentsKey(guildId), type: 'json' as const })),
   ])
 
   const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
@@ -688,7 +713,17 @@ async function loadActivityLaunchState(
     balanceSnapshots.set(mode, snapshot)
   }
 
-  return balanceSnapshots
+  const assignmentsOffset = requestedBalanceModes.length
+  for (let index = 0; index < uncachedGuildIds.length; index++) {
+    const guildId = uncachedGuildIds[index]
+    if (!guildId) continue
+
+    const assignments = normalizeRankedRoleAssignments(rawState[assignmentsOffset + index])
+    cacheCurrentRankAssignments(kv, guildId, assignments)
+    rankAssignmentsByGuildId.set(guildId, assignments)
+  }
+
+  return { balanceSnapshots, rankAssignmentsByGuildId }
 }
 
 function resolveSessionBalanceSnapshot(
@@ -698,6 +733,13 @@ function resolveSessionBalanceSnapshot(
   const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath })
   if (!mode) return null
   return balanceSnapshots.get(mode) ?? null
+}
+
+function resolveSessionRankAssignments(
+  rankAssignmentsByGuildId: ReadonlyMap<string, RankedRoleAssignments>,
+  session: ActivitySessionDirectoryEntry,
+): RankedRoleAssignments | null {
+  return session.guildId ? rankAssignmentsByGuildId.get(session.guildId) ?? null : null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {

@@ -1226,6 +1226,8 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.status !== b.status) return false
   if (a.minRole !== b.minRole) return false
   if (a.maxRole !== b.maxRole) return false
+  if ((a.lobbyRank?.tier ?? null) !== (b.lobbyRank?.tier ?? null)) return false
+  if ((a.lobbyRank?.leaderPoolSize ?? null) !== (b.lobbyRank?.leaderPoolSize ?? null)) return false
   if (a.minPlayers !== b.minPlayers) return false
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false

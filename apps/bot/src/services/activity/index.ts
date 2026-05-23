@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
 import { allFactionIds, getDraftFormat, getLeaderIds, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
@@ -28,6 +28,7 @@ export interface CreateDraftRuntimeOptions {
   duplicateFactions?: boolean
   timerConfig?: DraftTimerConfig
   leaderPoolSize?: number | null
+  leaderPoolRankTier?: CompetitiveTier | null
   dealOptionsSize?: number | null
   steamLobbyLink?: string | null
 }
@@ -61,7 +62,7 @@ export function buildDraftRuntimeConfig(
     ? [...allFactionIds]
     : hiddenDraft
       ? getLeaderIds(leaderDataVersion)
-      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion), Math.random, leaderDataVersion)
+      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion, options.leaderPoolRankTier), Math.random, leaderDataVersion)
   const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,

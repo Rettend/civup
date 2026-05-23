@@ -35,6 +35,7 @@ import {
 } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
+import { buildLobbyRankSnapshot } from '../../services/lobby/rank.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
@@ -1619,6 +1620,13 @@ async function buildStoredLobbySnapshot(
   lobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
 ) {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const slottedPlayerIds = lobby.slots.filter((playerId): playerId is string => playerId != null)
+  const lobbyRank = await buildLobbyRankSnapshot(kv, lobby.guildId, slottedPlayerIds, {
+    mode,
+    playerCount: slottedPlayerIds.length,
+    leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+    redDeath: lobby.draftConfig.redDeath,
+  })
   return {
     id: lobby.id,
     revision: lobby.revision,
@@ -1628,6 +1636,7 @@ async function buildStoredLobbySnapshot(
     steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
+    lobbyRank,
     entries: lobby.slots.map(() => null),
     minPlayers: lobbyMinPlayerCount(mode, lobby.slots.length, lobby.draftConfig.redDeath, lobby.draftConfig.permanentAlly),
     targetSize: lobby.slots.length,

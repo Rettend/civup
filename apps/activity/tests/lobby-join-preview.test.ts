@@ -53,7 +53,7 @@ describe('resolvePendingJoinGhostSlot', () => {
   test('returns null when the pending join is blocked', () => {
     expect(resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
       canJoin: false,
-      blockedReason: 'This lobby requires at least Legion.',
+      blockedReason: 'This lobby requires at least Rank 2.',
       pendingSlot: null,
     })).toBeNull()
   })
