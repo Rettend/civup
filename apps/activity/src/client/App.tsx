@@ -9,6 +9,7 @@ import {
   preloadLobbyWaitingRoute,
   preloadPracticePage,
 } from './activity/route-preloads'
+import { UiScaleController } from './components/ui/UiScaleController'
 
 const ActivityShell = lazy(preloadActivityShell)
 const ActivityIndexRoute = lazy(preloadActivityIndexRoute)
@@ -20,18 +21,21 @@ const PracticePage = lazy(preloadPracticePage)
 
 export default function App() {
   return (
-    <Suspense fallback={<AppRouteFallback />}>
-      <Router>
-        <Route path="/practice/:game?" component={PracticePage} />
-        <Route path="/" component={ActivityShell}>
-          <Route path="/" component={ActivityIndexRoute} />
-          <Route path="/overview" component={LobbyOverviewRoute} />
-          <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
-          <Route path="/draft/:matchId" component={DraftActivityRoute} />
-        </Route>
-        <Route path="*all" component={ActivityRedirectRoute} />
-      </Router>
-    </Suspense>
+    <>
+      <UiScaleController />
+      <Suspense fallback={<AppRouteFallback />}>
+        <Router>
+          <Route path="/practice/:game?" component={PracticePage} />
+          <Route path="/" component={ActivityShell}>
+            <Route path="/" component={ActivityIndexRoute} />
+            <Route path="/overview" component={LobbyOverviewRoute} />
+            <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
+            <Route path="/draft/:matchId" component={DraftActivityRoute} />
+          </Route>
+          <Route path="*all" component={ActivityRedirectRoute} />
+        </Router>
+      </Suspense>
+    </>
   )
 }
 

@@ -10,6 +10,10 @@ const onSwitchTarget = mock(() => {})
 
 const { DraftPage } = await import('../src/client/pages/draft')
 
+function queryUiScaleControl() {
+  return document.querySelector('[aria-label="UI Scale"]')
+}
+
 describe('DraftPage UI', () => {
   beforeEach(() => {
     cleanup()
@@ -23,6 +27,23 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
     expect(screen.getByText('Joining draft room...')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeTruthy()
+  })
+
+  test('closes the UI scale panel when clicking outside', async () => {
+    uiMockState.connectionStatus = 'connecting'
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+
+    const details = queryUiScaleControl()?.closest('details') as HTMLDetailsElement | null
+    expect(details).toBeTruthy()
+
+    await Promise.resolve()
+
+    details!.open = true
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+
+    expect(details!.open).toBe(false)
   })
 
   test('keeps the joining shell after socket connect until draft state hydrates', () => {
@@ -127,6 +148,7 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
     expect(screen.getByText('Reconnecting...')).toBeTruthy()
@@ -203,6 +225,7 @@ describe('DraftPage UI', () => {
     mount(null)
 
     expect(screen.getByText('Draft Reverted')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeNull()
   })
 
   test('transitions from the auto-start splash into the active draft shell', () => {
