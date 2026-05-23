@@ -20,6 +20,7 @@ import {
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
+import { UiScaleMenu } from '../ui/UiScaleMenu'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
@@ -332,22 +333,22 @@ function CancelledDraftScreen(props: {
 
   return (
     <main class="text-fg font-sans bg-bg h-screen relative overflow-y-auto">
-      <Show when={props.onSwitchTarget}>
-        <button
-          type="button"
-          class={cn(
-            'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
-            isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
-          )}
-          title="Lobby Overview"
-          aria-label="Lobby Overview"
-          onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
-          onFocus={() => { void preloadLobbyOverviewRoute() }}
-          onClick={() => props.onSwitchTarget?.()}
-        >
-          <span class="i-ph-squares-four-bold text-base" />
-        </button>
-      </Show>
+      <div class={cn('flex gap-2 items-center z-20 absolute', isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6')}>
+        <UiScaleMenu buttonClass="border-border-subtle h-9 w-9" />
+        <Show when={props.onSwitchTarget}>
+          <button
+            type="button"
+            class="text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
+            title="Lobby Overview"
+            aria-label="Lobby Overview"
+            onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
+            onFocus={() => { void preloadLobbyOverviewRoute() }}
+            onClick={() => props.onSwitchTarget?.()}
+          >
+            <span class="i-ph-squares-four-bold text-base" />
+          </button>
+        </Show>
+      </div>
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}

@@ -36,6 +36,7 @@ import {
   userId,
 } from '~/client/stores'
 import { Button, HorizontalScroller } from '../ui'
+import { UiScaleMenu } from '../ui/UiScaleMenu'
 import { BanSquare } from './BanSquare'
 import { SteamLobbyButton } from './SteamLobbyButton'
 
@@ -386,8 +387,11 @@ export function DraftHeader(props: DraftHeaderProps) {
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
   const hasSteamLobbyButton = () => true
+  const hasScaleButton = () => true
   const hasOverviewButton = () => Boolean(props.onSwitchTarget)
-  const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + Number(hasOverviewButton())
+  const rightHeaderButtonCount = () => Number(hasScaleButton()) + Number(hasOverviewButton())
+  const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + rightHeaderButtonCount()
+  const desktopRightInsetClass = () => rightHeaderButtonCount() > 1 ? 'pr-24' : 'pr-12'
 
   const renderOverviewButton = () => (
     <Show when={props.onSwitchTarget}>
@@ -642,7 +646,8 @@ export function DraftHeader(props: DraftHeaderProps) {
             <div class="flex items-center left-3 top-1/2 justify-start absolute z-20 -translate-y-1/2">
               {renderSteamLobbyButton('h-8 w-8')}
             </div>
-            <div class="flex items-center right-3 top-1/2 justify-end absolute z-20 -translate-y-1/2">
+            <div class="flex gap-2 items-center right-3 top-1/2 justify-end absolute z-20 -translate-y-1/2">
+              <UiScaleMenu />
               {renderOverviewButton()}
             </div>
           </div>
@@ -671,14 +676,15 @@ export function DraftHeader(props: DraftHeaderProps) {
           <div class="left-4 top-1/2 absolute z-20 -translate-y-1/2">
             {renderSteamLobbyButton('h-8 w-8')}
           </div>
-          <div class="right-4 top-1/2 absolute z-20 -translate-y-1/2">
+          <div class="flex gap-2 items-center right-4 top-1/2 absolute z-20 -translate-y-1/2">
+            <UiScaleMenu />
             {renderOverviewButton()}
           </div>
 
           <div class={cn(
             'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4',
             hasSteamLobbyButton() && 'pl-12',
-            hasOverviewButton() && 'pr-12',
+            desktopRightInsetClass(),
           )}
           >
             {renderBanRail('left', leftBans(), showLeftNoBans())}

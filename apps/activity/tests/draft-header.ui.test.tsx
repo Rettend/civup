@@ -10,6 +10,10 @@ const onSwitchTarget = mock(() => {})
 
 const { DraftHeader } = await import('../src/client/components/draft/DraftHeader')
 
+function queryUiScaleControl() {
+  return document.querySelector('[aria-label="UI Scale"]')
+}
+
 describe('DraftHeader UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -32,6 +36,7 @@ describe('DraftHeader UI', () => {
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
+    expect(queryUiScaleControl()).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Lobby Overview' }))
     expect(onSwitchTarget).toHaveBeenCalledTimes(1)
 

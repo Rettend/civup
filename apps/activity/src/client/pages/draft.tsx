@@ -1,6 +1,9 @@
+import type { JSX } from 'solid-js'
 import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
-import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
+import { UiScaleMenu } from '~/client/components/ui/UiScaleMenu'
+import { cn } from '~/client/lib/css'
+import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, isMobileLayout, sendStart, userId } from '~/client/stores'
 
 type ReportResultStatus = 'idle' | 'submitting' | 'done'
 
@@ -76,12 +79,12 @@ export function DraftPage(props: DraftPageProps) {
   return (
     <Switch>
       <Match when={connectionStatus() === 'connecting'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+        <DraftStatusShell>
           <div class="text-center">
             <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
             <div class="text-sm text-fg-muted">Joining draft room...</div>
           </div>
-        </main>
+        </DraftStatusShell>
       </Match>
 
       <Match when={shouldRenderDraftView()}>
@@ -125,32 +128,32 @@ export function DraftPage(props: DraftPageProps) {
       </Match>
 
       <Match when={connectionStatus() === 'reconnecting'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+        <DraftStatusShell>
           <div class="text-center">
             <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
             <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
           </div>
-        </main>
+        </DraftStatusShell>
       </Match>
 
       <Match when={connectionStatus() === 'error'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+        <DraftStatusShell>
           <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
             <div class="text-lg text-danger font-bold mb-2">Connection Error</div>
             <div class="text-sm text-fg-muted">
               {connectionError() ?? 'Failed to connect to draft room'}
             </div>
           </div>
-        </main>
+        </DraftStatusShell>
       </Match>
 
       <Match when={connectionStatus() === 'disconnected'}>
-        <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+        <DraftStatusShell>
           <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
             <div class="text-lg text-fg-subtle font-bold mb-2">Disconnected</div>
             <div class="text-sm text-fg-muted">Lost connection to the draft room.</div>
           </div>
-        </main>
+        </DraftStatusShell>
       </Match>
     </Switch>
   )
@@ -158,29 +161,29 @@ export function DraftPage(props: DraftPageProps) {
 
 function JoiningDraftRoomScreen() {
   return (
-    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+    <DraftStatusShell>
       <div class="text-center">
         <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
         <div class="text-sm text-fg-muted">Joining draft room...</div>
       </div>
-    </main>
+    </DraftStatusShell>
   )
 }
 
 function AutoStartingDraftScreen() {
   return (
-    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+    <DraftStatusShell>
       <div class="text-center">
         <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
         <div class="text-sm text-fg-muted">Starting draft...</div>
       </div>
-    </main>
+    </DraftStatusShell>
   )
 }
 
 function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => void }) {
   return (
-    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
+    <DraftStatusShell>
       <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">
         <div class="text-2xl text-accent font-bold">CivUp</div>
         <div class="text-sm text-fg-muted">
@@ -196,6 +199,19 @@ function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => voi
           </button>
         </Show>
       </div>
+    </DraftStatusShell>
+  )
+}
+
+function DraftStatusShell(props: { children: JSX.Element }) {
+  return (
+    <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center relative">
+      <Show when={!isMiniView()}>
+        <div class={cn('absolute z-20', isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6')}>
+          <UiScaleMenu buttonClass="border-border-subtle h-9 w-9" />
+        </div>
+      </Show>
+      {props.children}
     </main>
   )
 }
