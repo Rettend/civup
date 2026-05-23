@@ -33,6 +33,10 @@ function hasIconClass(container: HTMLElement, iconClass: string) {
   return Array.from(container.querySelectorAll('span')).some(element => element.className.includes(iconClass))
 }
 
+function queryUiScaleControl() {
+  return document.querySelector('[aria-label="UI Scale"]')
+}
+
 describe('DraftSetupPage UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -58,6 +62,7 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('heading', { name: 'Draft Setup' })).toBeTruthy()
     expect(screen.getByText('Players')).toBeTruthy()
     expect(screen.getByText('Config')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
   })
