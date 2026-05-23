@@ -91,16 +91,16 @@ describe('season snapshot roles', () => {
     })
 
     const guildRoles = new Map<string, { id: string, name: string, color: number }>([
-      ['11111111111111111', { id: '11111111111111111', name: 'Stonefolk', color: 0x111111 }],
-      ['12222222222222222', { id: '12222222222222222', name: 'Bronzeguard', color: 0x222222 }],
-      ['13333333333333333', { id: '13333333333333333', name: 'Iron Vanguard', color: 0x333333 }],
-      ['14444444444444444', { id: '14444444444444444', name: 'Legion Prime', color: 0x444444 }],
-      ['15555555555555555', { id: '15555555555555555', name: 'Sun Champion', color: 0x555555 }],
-      ['71111111111111111', { id: '71111111111111111', name: 'S1 Pleb', color: 0 }],
-      ['72222222222222222', { id: '72222222222222222', name: 'S1 Squire', color: 0 }],
-      ['73333333333333333', { id: '73333333333333333', name: 'S1 Gladiator', color: 0 }],
-      ['74444444444444444', { id: '74444444444444444', name: 'S1 Legion', color: 0 }],
-      ['75555555555555555', { id: '75555555555555555', name: 'S1 Champion', color: 0 }],
+      ['11111111111111111', { id: '11111111111111111', name: 'Rank 5 Current', color: 0x111111 }],
+      ['12222222222222222', { id: '12222222222222222', name: 'Rank 4 Current', color: 0x222222 }],
+      ['13333333333333333', { id: '13333333333333333', name: 'Rank 3 Current', color: 0x333333 }],
+      ['14444444444444444', { id: '14444444444444444', name: 'Rank 2 Current', color: 0x444444 }],
+      ['15555555555555555', { id: '15555555555555555', name: 'Rank 1 Current', color: 0x555555 }],
+      ['71111111111111111', { id: '71111111111111111', name: 'S1 Rank 5', color: 0 }],
+      ['72222222222222222', { id: '72222222222222222', name: 'S1 Rank 4', color: 0 }],
+      ['73333333333333333', { id: '73333333333333333', name: 'S1 Rank 3', color: 0 }],
+      ['74444444444444444', { id: '74444444444444444', name: 'S1 Rank 2', color: 0 }],
+      ['75555555555555555', { id: '75555555555555555', name: 'S1 Rank 1', color: 0 }],
     ])
     const memberRoles = new Map<string, string[]>([
       [veteranId, ['74444444444444444']],
@@ -156,7 +156,7 @@ describe('season snapshot roles', () => {
     })
 
     expect(createdRoles.tier4).toMatch(/^8/)
-    expect([...guildRoles.values()].some(role => role.name === 'S5 Bronzeguard' && role.color === 0x222222)).toBeTrue()
+    expect([...guildRoles.values()].some(role => role.name === 'S5 Rank 4 Current' && role.color === 0x222222)).toBeTrue()
 
     await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
       id: 'season-5',

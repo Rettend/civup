@@ -19,6 +19,7 @@ import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
+import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
@@ -1268,7 +1269,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
     else {
       const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
-      const runtime = buildDraftRuntimeConfig(record.mode, buildSessionRosterSlotEntries(record), {
+      const slotEntries = buildSessionRosterSlotEntries(record)
+      const leaderPoolRankTier = record.config.leaderPoolSize == null && !record.config.redDeath && !record.config.hiddenDraft && this.env.KV
+        ? await resolveLobbyRankTier(this.env.KV, record.guildId, slotEntries.map(entry => entry.playerId))
+        : null
+      const runtime = buildDraftRuntimeConfig(record.mode, slotEntries, {
         matchId: record.matchId,
         hostId: record.hostId,
         leaderDataVersion: record.config.leaderDataVersion,
@@ -1282,6 +1287,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         duplicateFactions: record.config.duplicateFactions,
         timerConfig,
         leaderPoolSize: record.config.leaderPoolSize,
+        leaderPoolRankTier,
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
@@ -2095,26 +2101,39 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       expiresAt: now + REPORT_CLAIM_TTL_MS,
     }
     await this.ctx.storage.put(REPORT_CLAIM_STORAGE_KEY, claim)
-    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId } })
+    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId }, finalized: finalized.finalized === true })
   }
 
-  private async finalizeSwapWindowForReportClaim(record: SessionRecord): Promise<{ ok: true, record: SessionRecord } | { ok: false, response: Response }> {
+  private async finalizeSwapWindowForReportClaim(record: SessionRecord): Promise<{ ok: true, record: SessionRecord, finalized?: boolean } | { ok: false, response: Response }> {
     if (record.phase !== 'swap') return { ok: true, record }
 
     await this.finalizeCompletedDraft()
     let current = await this.getRecord() ?? record
-    if (current.phase !== 'swap') return { ok: true, record: current }
+    if (current.phase !== 'swap') return { ok: true, record: current, finalized: current.phase === 'active' }
 
     const pendingPayload = current.lifecycleSync?.payload
     if (pendingPayload?.outcome === 'complete') {
       const retry = await this.syncDraftLifecyclePayload(pendingPayload)
       current = await this.getRecord() ?? current
-      if (current.phase !== 'swap') return { ok: true, record: current }
+      if (current.phase !== 'swap') return { ok: true, record: current, finalized: current.phase === 'active' }
       if (!retry.ok && retry.status < 500) return { ok: false, response: json({ error: retry.error }, retry.status) }
       return { ok: false, response: json({ claimed: false, processing: true, finalizing: true }) }
     }
 
-    return { ok: false, response: json({ error: 'Swap window could not be finalized before reporting.' }, 409) }
+    const now = Date.now()
+    const activeRecord = {
+      ...current,
+      phase: 'active',
+      version: current.version + 1,
+      updatedAt: now,
+      lastActivityAt: now,
+      closedAt: null,
+      draftStartSync: null,
+    } satisfies SessionRecord
+    const commit = await this.commitRecord(activeRecord)
+    if (commit) return { ok: false, response: commit }
+    return { ok: true, record: activeRecord, finalized: true }
+
   }
 
   private async handleReportedDiscordSyncCommand(request: Request): Promise<Response> {
@@ -3256,12 +3275,39 @@ function sameRepeatDraftRoster(mode: GameMode, left: readonly DraftSeat[], right
     if (rightSeatsByPlayerId.has(seat.playerId)) return false
     rightSeatsByPlayerId.set(seat.playerId, seat)
   }
+  const leftPlayerIds = new Set<string>()
   for (const leftSeat of left) {
-    const rightSeat = rightSeatsByPlayerId.get(leftSeat.playerId)
-    if (!rightSeat) return false
-    if (isTeamMode(mode) && (leftSeat.team ?? null) !== (rightSeat.team ?? null)) return false
+    if (leftPlayerIds.has(leftSeat.playerId)) return false
+    leftPlayerIds.add(leftSeat.playerId)
+    if (!rightSeatsByPlayerId.has(leftSeat.playerId)) return false
+  }
+  return !isTeamMode(mode) || sameRepeatDraftTeamPartitions(left, right)
+}
+
+function sameRepeatDraftTeamPartitions(left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
+  const leftGroups = repeatDraftTeamGroupKeys(left)
+  const rightGroups = repeatDraftTeamGroupKeys(right)
+  if (!leftGroups || !rightGroups || leftGroups.length !== rightGroups.length) return false
+
+  const remaining = new Set(rightGroups)
+  for (const group of leftGroups) {
+    if (!remaining.delete(group)) return false
   }
   return true
+}
+
+function repeatDraftTeamGroupKeys(seats: readonly DraftSeat[]): string[] | null {
+  const playerIdsByTeam = new Map<number, string[]>()
+  for (const seat of seats) {
+    if (seat.team == null) return null
+
+    const playerIds = playerIdsByTeam.get(seat.team) ?? []
+    playerIds.push(seat.playerId)
+    playerIdsByTeam.set(seat.team, playerIds)
+  }
+
+  return [...playerIdsByTeam.values()]
+    .map(playerIds => playerIds.sort().join('\0'))
 }
 
 function buildRepeatSeatIndexMap(sourceSeats: readonly DraftSeat[], targetSeats: readonly DraftSeat[]): Map<number, number> {

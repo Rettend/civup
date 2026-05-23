@@ -1,14 +1,16 @@
 import type { Database } from '@civup/db'
-import type { GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
+import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { buildLobbyRankSnapshot } from '../lobby/rank.ts'
 import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
 
 export interface ActivityOverviewOptionSnapshot {
@@ -50,6 +52,10 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: SessionConfig['minRole']
   maxRole: SessionConfig['maxRole']
+  lobbyRank?: {
+    tier: CompetitiveTier
+    leaderPoolSize: number | null
+  } | null
   lastArrange: LobbyArrangeMarker | null
   memberPlayerIds: string[]
   entries: ({
@@ -268,6 +274,7 @@ export async function buildLobbySnapshotFromSessionRecord(
   kv: KVNamespace,
   record: SessionRecord,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -276,6 +283,7 @@ export async function buildLobbySnapshotFromSessionRecord(
       id: record.id,
       version: record.version,
       mode: record.mode,
+      guildId: record.guildId,
       hostId: record.hostId,
       phase: record.phase,
       steamLobbyLink: record.projectionState.steamLobbyLink,
@@ -284,7 +292,7 @@ export async function buildLobbySnapshotFromSessionRecord(
       lastArrange: record.lastArrange,
       roster: record.roster,
       config: record.config,
-    }),
+    }, rankAssignments),
     balanceSnapshot,
   )
 }
@@ -293,6 +301,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
   kv: KVNamespace,
   session: ActivitySessionDirectoryEntry,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -301,6 +310,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       id: session.sessionId,
       version: session.version,
       mode: session.mode,
+      guildId: session.guildId,
       hostId: session.hostId,
       phase: session.phase,
       steamLobbyLink: session.steamLobbyLink,
@@ -309,7 +319,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       lastArrange: null,
       roster: session.roster,
       config: session.config,
-    }),
+    }, rankAssignments),
     balanceSnapshot,
   )
 }
@@ -396,6 +406,7 @@ async function buildLobbySnapshotFromSessionParts(
     id: string
     version: number
     mode: GameMode
+    guildId: string | null
     hostId: string
     phase: SessionPhase
     steamLobbyLink: string | null
@@ -405,6 +416,7 @@ async function buildLobbySnapshotFromSessionParts(
     roster: SessionRoster
     config: SessionConfig
   },
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
@@ -420,6 +432,14 @@ async function buildLobbySnapshotFromSessionParts(
     }
   })
   const targetSize = session.roster.slots.length
+  const slottedPlayerIds = session.roster.slots.filter((playerId): playerId is string => playerId != null)
+  const lobbyRank = await buildLobbyRankSnapshot(kv, session.guildId, slottedPlayerIds, {
+    mode: session.mode,
+    playerCount: slottedPlayerIds.length,
+    leaderDataVersion: session.config.leaderDataVersion,
+    redDeath: session.config.redDeath,
+    assignments: rankAssignments,
+  })
 
   return {
     id: session.id,
@@ -430,6 +450,7 @@ async function buildLobbySnapshotFromSessionParts(
     steamLobbyLink: session.steamLobbyLink,
     minRole: session.minRole,
     maxRole: session.maxRole,
+    lobbyRank,
     lastArrange: session.lastArrange,
     memberPlayerIds,
     entries,
