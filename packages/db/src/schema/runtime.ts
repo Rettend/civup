@@ -7,7 +7,9 @@ export const matchMessageMappings = sqliteTable('match_message_mappings', {
   createdAt: integer('created_at', { mode: 'number' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'number' }).notNull(),
-})
+}, table => [
+  index('match_message_mappings_match_created_idx').on(table.matchId, table.createdAt, table.messageId),
+])
 
 export const leaderboardMessageStates = sqliteTable('leaderboard_message_states', {
   scope: text('scope').primaryKey(),
