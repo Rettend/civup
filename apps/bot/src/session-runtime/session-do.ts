@@ -11,7 +11,7 @@ import type { Connection, ConnectionContext, WSMessage } from './socket-server.t
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig, buildDraftSeats } from '../services/activity/index.ts'
 import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
@@ -100,6 +100,11 @@ type RepeatDraftSource
       permanentAlly: boolean
       leaderDataVersion: LeaderDataVersion
     }
+
+interface RepeatDraftAvailabilityCache {
+  key: string
+  value: RepeatDraftAvailability | null
+}
 
 interface SessionConnectionState {
   playerId: string | null
@@ -283,6 +288,7 @@ const SESSION_COMMIT_INTENT_STORAGE_KEY = 'session-commit-intent'
 const REPORTED_DISCORD_SYNC_STORAGE_KEY = 'reported-discord-sync'
 const REPORT_CLAIM_STORAGE_KEY = 'report-claim'
 const REPORT_CLAIM_TTL_MS = 10 * 60 * 1000
+const REPEAT_DRAFT_CANDIDATE_LIMIT = 120
 
 interface SessionCommitIntent {
   record: SessionRecord
@@ -328,6 +334,7 @@ class TerminalMatchNotFoundError extends Error {
 
 export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private commandQueue: Promise<void> = Promise.resolve()
+  private repeatDraftAvailabilityCache: RepeatDraftAvailabilityCache | null = null
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -918,8 +925,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private async getRepeatDraftAvailability(record: OpenSessionRecord): Promise<RepeatDraftAvailability | null> {
     try {
       const currentSeats = this.buildCurrentDraftSeats(record)
+      const key = buildRepeatDraftAvailabilityCacheKey(record, currentSeats)
+      if (this.repeatDraftAvailabilityCache?.key === key) return this.repeatDraftAvailabilityCache.value
+
       const source = await this.findRepeatDraftSource(record, currentSeats)
-      return source ? { kind: source.kind, matchId: source.matchId } : null
+      const value = source ? { kind: source.kind, matchId: source.matchId } : null
+      this.repeatDraftAvailabilityCache = { key, value }
+      return value
     }
     catch (error) {
       console.warn('[session-do] failed to resolve repeat draft availability', { sessionId: record.id }, error)
@@ -995,28 +1007,32 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async findCompletedRepeatDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'complete' }> | null> {
     if (!this.env.DB || currentSeats.length === 0) return null
-    const playerIds = currentSeats.map(seat => seat.playerId)
-    const rows = await createDb(this.env.DB)
-      .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData })
-      .from(matchParticipants)
-      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        inArray(matchParticipants.playerId, playerIds),
-        inArray(matches.status, ['active', 'completed']),
-      ))
-      .orderBy(desc(matches.createdAt))
-      .limit(120)
+    const playerIds = [...new Set(currentSeats.map(seat => seat.playerId))]
+    const placeholders = playerIds.map(() => '?').join(', ')
+    const response = await this.env.DB.prepare(`
+      SELECT matches.id AS id, matches.game_mode AS gameMode, matches.draft_data AS draftData
+      FROM match_participants INDEXED BY match_participants_player_id_idx
+      INNER JOIN matches ON match_participants.match_id = matches.id
+      WHERE match_participants.player_id IN (${placeholders})
+        AND matches.status IN ('active', 'completed')
+      ORDER BY matches.created_at DESC
+      LIMIT ?
+    `)
+      .bind(...playerIds, REPEAT_DRAFT_CANDIDATE_LIMIT)
+      .all<{ id?: unknown, gameMode?: unknown, draftData?: unknown }>()
 
     const seen = new Set<string>()
-    for (const row of rows) {
+    for (const row of response.results ?? []) {
+      if (typeof row.id !== 'string' || typeof row.gameMode !== 'string') continue
+      const draftData = typeof row.draftData === 'string' ? row.draftData : null
       if (seen.has(row.id) || row.id === record.id || row.gameMode !== record.mode) continue
       seen.add(row.id)
-      const state = getDraftStateFromDraftData(row.draftData)
+      const state = getDraftStateFromDraftData(draftData)
       if (!state || state.status !== 'complete') continue
       if (!sameRepeatDraftRoster(record.mode, state.seats, currentSeats)) continue
-      const context = getStoredGameModeContext(row.gameMode, row.draftData)
-      const hiddenDraft = getHiddenDraftFromDraftData(row.draftData)
-      const leaderDataVersion = getLeaderDataVersionFromDraftData(row.draftData, record.config.leaderDataVersion)
+      const context = getStoredGameModeContext(row.gameMode, draftData)
+      const hiddenDraft = getHiddenDraftFromDraftData(draftData)
+      const leaderDataVersion = getLeaderDataVersionFromDraftData(draftData, record.config.leaderDataVersion)
       if (!context || !isRepeatDraftDataCompatible(record, state, {
         redDeath: context.redDeath,
         permanentAlly: context.permanentAlly,
@@ -3178,6 +3194,27 @@ function getRepeatDraftStartError(record: OpenSessionRecord, currentSeats: reado
     return 'Session cannot start with the current player count.'
   }
   return getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, currentSeats.length, record.config.leaderDataVersion)
+}
+
+function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, currentSeats: readonly DraftSeat[]): string {
+  return JSON.stringify({
+    mode: record.mode,
+    hostId: record.hostId,
+    targetSize: record.roster.slots.length,
+    seats: currentSeats.map(seat => [seat.playerId, seat.team ?? null]),
+    config: {
+      blindBans: record.config.blindBans,
+      duplicateFactions: record.config.duplicateFactions,
+      hiddenDraft: record.config.hiddenDraft,
+      leaderDataVersion: record.config.leaderDataVersion,
+      leaderPoolSize: record.config.leaderPoolSize,
+      mapVoteEnabled: record.config.mapVoteEnabled,
+      permanentAlly: record.config.permanentAlly,
+      randomDraft: record.config.randomDraft,
+      redDeath: record.config.redDeath,
+      simultaneousPick: record.config.simultaneousPick,
+    },
+  })
 }
 
 function isRepeatDraftDataCompatible(
