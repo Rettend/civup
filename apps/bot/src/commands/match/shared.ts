@@ -12,7 +12,7 @@ import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, ge
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
-import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
 import { buildTournamentReservedSlotLabels, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
@@ -475,7 +475,11 @@ export async function preflightMatchCreateSessionState(
   | { kind: 'reuse-hosted-open-lobby', lobby: LobbyState }
   | { kind: 'block-open-lobby', lobby: LobbyState }
 > {
-  const currentOpenLobby = await getOpenSessionLobbyProjectionForPlayer(db, playerId)
+  const [hostedOpenLobby, currentOpenLobby] = await Promise.all([
+    getOpenSessionLobbyProjectionHostedBy(db, playerId),
+    getOpenSessionLobbyProjectionForPlayer(db, playerId),
+  ])
+  if (hostedOpenLobby?.status === 'open') return { kind: 'reuse-hosted-open-lobby', lobby: hostedOpenLobby }
   if (!currentOpenLobby) return { kind: 'continue' }
   return {
     kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',
