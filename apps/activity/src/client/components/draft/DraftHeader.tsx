@@ -36,7 +36,6 @@ import {
   userId,
 } from '~/client/stores'
 import { Button, HorizontalScroller } from '../ui'
-import { UiScaleMenu } from '../ui/UiScaleMenu'
 import { BanSquare } from './BanSquare'
 import { SteamLobbyButton } from './SteamLobbyButton'
 
@@ -387,9 +386,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
   const hasSteamLobbyButton = () => true
-  const hasScaleButton = () => true
   const hasOverviewButton = () => Boolean(props.onSwitchTarget)
-  const rightHeaderButtonCount = () => Number(hasScaleButton()) + Number(hasOverviewButton())
+  const rightHeaderButtonCount = () => Number(hasOverviewButton())
   const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + rightHeaderButtonCount()
   const desktopRightInsetClass = () => rightHeaderButtonCount() > 1 ? 'pr-24' : 'pr-12'
 
@@ -647,7 +645,6 @@ export function DraftHeader(props: DraftHeaderProps) {
               {renderSteamLobbyButton('h-8 w-8')}
             </div>
             <div class="flex gap-2 items-center right-3 top-1/2 justify-end absolute z-20 -translate-y-1/2">
-              <UiScaleMenu />
               {renderOverviewButton()}
             </div>
           </div>
@@ -677,7 +674,6 @@ export function DraftHeader(props: DraftHeaderProps) {
             {renderSteamLobbyButton('h-8 w-8')}
           </div>
           <div class="flex gap-2 items-center right-4 top-1/2 absolute z-20 -translate-y-1/2">
-            <UiScaleMenu />
             {renderOverviewButton()}
           </div>
 

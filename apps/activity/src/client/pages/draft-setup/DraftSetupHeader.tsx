@@ -2,7 +2,6 @@ import type { useDraftSetupState } from './useDraftSetupState'
 import { Show } from 'solid-js'
 import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { SteamLobbyButton } from '~/client/components/draft/SteamLobbyButton'
-import { UiScaleMenu } from '~/client/components/ui/UiScaleMenu'
 import { cn } from '~/client/lib/css'
 import { buildRolePillStyle } from './helpers'
 
@@ -19,7 +18,6 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
   return (
     <>
       <div class={cn('flex gap-2 items-center z-20 absolute', props.isMobileLayout ? 'top-12 right-4' : 'top-4 right-6')}>
-        <UiScaleMenu buttonClass="border-border-subtle h-9 w-9" />
         <Show when={props.onSwitchTarget}>
           <button
             type="button"

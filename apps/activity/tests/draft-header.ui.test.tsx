@@ -10,10 +10,6 @@ const onSwitchTarget = mock(() => {})
 
 const { DraftHeader } = await import('../src/client/components/draft/DraftHeader')
 
-function queryUiScaleControl() {
-  return document.querySelector('[aria-label="UI Scale"]')
-}
-
 describe('DraftHeader UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -36,7 +32,6 @@ describe('DraftHeader UI', () => {
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
-    expect(queryUiScaleControl()).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Lobby Overview' }))
     expect(onSwitchTarget).toHaveBeenCalledTimes(1)
 
@@ -121,9 +116,13 @@ describe('DraftHeader UI', () => {
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
     const cluster = screen.getByTestId('draft-header-desktop-phase-cluster')
+    const grid = cluster.parentElement as HTMLElement
     const leftCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-left"]') as HTMLElement
     const rightCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-right"]') as HTMLElement
 
+    expect(grid.className).toContain('pl-12')
+    expect(grid.className).toContain('pr-12')
+    expect(grid.className).not.toContain('px-24')
     expect(cluster.className).toContain('items-stretch')
     expect(leftCluster.className).toContain('items-center')
     expect(rightCluster.className).toContain('items-center')

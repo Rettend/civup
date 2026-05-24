@@ -20,7 +20,7 @@ import {
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
-import { UiScaleMenu } from '../ui/UiScaleMenu'
+import { FloatingUiScaleMenu } from '../ui/UiScaleMenu'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
@@ -231,6 +231,7 @@ export function DraftView(props: DraftViewProps) {
 
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
+                <FloatingUiScaleMenu class={gridOpen() ? 'z-5' : 'z-40'} disabled={gridOpen()} />
                 <SlotStrip />
                 <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete()}>
                   <LeaderGridOverlay />
@@ -241,10 +242,11 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Grid toggle button */}
                 <Show when={showOverlayToggle()}>
-                  <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
+                  <div class="flex pointer-events-none inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
+                        'pointer-events-auto',
                         'bg-bg-subtle border border-border text-fg-muted',
                         canToggleOverlay() && 'hover:bg-bg-muted hover:text-fg transition-colors',
                         !canToggleOverlay() && 'cursor-default opacity-50',
@@ -334,7 +336,6 @@ function CancelledDraftScreen(props: {
   return (
     <main class="text-fg font-sans bg-bg h-screen relative overflow-y-auto">
       <div class={cn('flex gap-2 items-center z-20 absolute', isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6')}>
-        <UiScaleMenu buttonClass="border-border-subtle h-9 w-9" />
         <Show when={props.onSwitchTarget}>
           <button
             type="button"
@@ -349,6 +350,7 @@ function CancelledDraftScreen(props: {
           </button>
         </Show>
       </div>
+      <FloatingUiScaleMenu />
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}
