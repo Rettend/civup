@@ -8,7 +8,6 @@ import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isT
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
-import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
@@ -36,17 +35,14 @@ const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
 const MATCH_BUMP_RESPONSE_DELETE_MS = 5_000
 
 type MatchCreateOutcome
-  = | { kind: 'activity' }
-    | { kind: 'clear' }
+  = | { kind: 'clear' }
     | { kind: 'message', message: string, tone: EphemeralResponseTone }
 
 interface CreateMatchLobbyInput {
   env: Env['Bindings']
-  executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   kv: KVNamespace
   mode: GameMode
   steamLobbyLink: string | null
-  autoOpenActivity: boolean
   interactionChannelId: string | null
   draftChannelId: string
   guildId: string | null
@@ -56,10 +52,6 @@ interface CreateMatchLobbyInput {
 interface DeferredMatchCreateContext {
   executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
   followup: (data?: any) => Promise<unknown>
-}
-
-interface ImmediateEphemeralContext {
-  flags: (...flag: any[]) => { res: (data?: any) => Response }
 }
 
 function buildMatchCreateSubCommand() {
@@ -110,93 +102,60 @@ export const command_match = factory.command<MatchVar>(
         const mode = parseGameMode(c.var.mode)
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
         const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+        const guildId = c.interaction.guild_id ?? null
         const identity = getIdentity(c)
-        if (!mode) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
-          })
-        }
-        if (!identity) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
-          })
-        }
-        if (steamLobbyLink === undefined) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(c, STEAM_LOBBY_LINK_ERROR, 'error')
-          })
-        }
-
-        const kv = getKvStore(c.env)
-        const draftChannelId = await getSystemChannel(kv, 'draft')
-        if (!draftChannelId) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            await sendTransientEphemeralResponse(
-              c,
-              'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
-              'error',
-            )
-          })
-        }
-
-        const autoOpenActivity = interactionChannelId === draftChannelId
-        const createInput = {
-          env: c.env,
-          executionCtx: c.executionCtx,
-          kv,
-          mode,
-          steamLobbyLink,
-          autoOpenActivity,
-          interactionChannelId,
-          draftChannelId,
-          guildId: c.interaction.guild_id ?? null,
-          identity,
-        }
-
-        if (!autoOpenActivity) {
-          return c.flags('EPHEMERAL').resDefer(async (c) => {
-            try {
-              const outcome = await createMatchLobby(createInput)
-              await sendDeferredMatchCreateOutcome(c, outcome)
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          try {
+            if (!mode) {
+              await sendTransientEphemeralResponse(c, 'Please provide a valid game mode.', 'error')
+              return
             }
-            catch (error) {
-              console.error('[match:create] unexpected failure', {
-                mode,
-                interactionChannelId,
-                userId: identity.userId,
-              }, error)
-              try {
-                await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
-              }
-              catch (followupError) {
-                console.error('[match:create] failed to send error followup', followupError)
-              }
+            if (!identity) {
+              await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+              return
             }
-          })
-        }
+            if (steamLobbyLink === undefined) {
+              await sendTransientEphemeralResponse(c, STEAM_LOBBY_LINK_ERROR, 'error')
+              return
+            }
 
-        try {
-          const outcome = await createMatchLobby(createInput)
-          if (outcome.kind === 'activity') return c.resActivity()
-          if (outcome.kind === 'clear') {
-            return sendImmediateEphemeralResponse(
-              c,
-              steamLobbyLink !== null
-                ? `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}> with the Steam lobby link set.`
-                : `Created ${formatModeLabel(mode)} lobby in <#${draftChannelId}>.`,
-              'success',
-            )
+            const kv = getKvStore(c.env)
+            const draftChannelId = await getSystemChannel(kv, 'draft')
+            if (!draftChannelId) {
+              await sendTransientEphemeralResponse(
+                c,
+                'Draft channel is not configured. Run `/admin setup target:Draft` to set up this channel.',
+                'error',
+              )
+              return
+            }
+
+            const outcome = await createMatchLobby({
+              env: c.env,
+              kv,
+              mode,
+              steamLobbyLink,
+              interactionChannelId,
+              draftChannelId,
+              guildId,
+              identity,
+            })
+            await sendDeferredMatchCreateOutcome(c, outcome)
           }
-          return sendImmediateEphemeralResponse(c, outcome.message, outcome.tone)
-        }
-        catch (error) {
-          console.error('[match:create] unexpected failure', {
-            mode,
-            interactionChannelId,
-            userId: identity.userId,
-          }, error)
-          return sendImmediateEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
-        }
+          catch (error) {
+            console.error('[match:create] unexpected failure', {
+              mode,
+              interactionChannelId,
+              userId: identity?.userId,
+            }, error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to create lobby. Check bot logs for details.', 'error')
+            }
+            catch (followupError) {
+              console.error('[match:create] failed to send error followup', followupError)
+            }
+          }
+        })
       }
 
       // ── join ────────────────────────────────────────────
@@ -921,30 +880,14 @@ async function sendMatchBumpResponse(
 async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCreateOutcome> {
   const { env, kv, mode, steamLobbyLink, identity, interactionChannelId, draftChannelId } = input
   const db = createDb(env.DB)
-  const currentHostedLobby = await getOpenSessionLobbyProjectionHostedBy(db, identity.userId)
-  if (currentHostedLobby?.status === 'open') {
-    const updatedLobby = steamLobbyLink !== null
-      ? (await setLobbySteamLobbyLink(kv, currentHostedLobby.id, steamLobbyLink, currentHostedLobby, { db, sessionNamespace: env.SessionDO }) ?? currentHostedLobby)
-      : currentHostedLobby
-    const activityOutcome = await createMatchActivityOutcome(input, updatedLobby)
-    if (activityOutcome) return activityOutcome
-
-    return {
-      kind: 'message',
-      message: steamLobbyLink !== null
-        ? `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>. Updated its Steam lobby link.`
-        : `You already have an open ${formatModeLabel(updatedLobby.mode)} lobby in <#${updatedLobby.channelId}>.`,
-      tone: 'info',
-    }
-  }
-
-  const createPreflight = await preflightMatchCreateSessionState(db, identity.userId)
+  const [createPreflight, blockingDraftMatchIdByPlayer] = await Promise.all([
+    preflightMatchCreateSessionState(db, identity.userId),
+    findBlockingDraftMatchIdsForPlayers(db, [identity.userId]),
+  ])
   if (createPreflight.kind === 'reuse-hosted-open-lobby') {
     const updatedLobby = steamLobbyLink !== null
       ? (await setLobbySteamLobbyLink(kv, createPreflight.lobby.id, steamLobbyLink, createPreflight.lobby, { db, sessionNamespace: env.SessionDO }) ?? createPreflight.lobby)
       : createPreflight.lobby
-    const activityOutcome = await createMatchActivityOutcome(input, updatedLobby)
-    if (activityOutcome) return activityOutcome
 
     return {
       kind: 'message',
@@ -963,7 +906,6 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     }
   }
 
-  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
   if (blockingDraftMatchIdByPlayer.has(identity.userId)) {
     return {
       kind: 'message',
@@ -1008,27 +950,14 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
       identity.userId,
       createdLobby,
     )
-    const lobby = steamLobbyLink !== null
+    const lobby = reusedExisting && steamLobbyLink !== null
       ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db, sessionNamespace: env.SessionDO }) ?? reconciledLobby)
       : reconciledLobby
-    if ((lobby.id === createdLobby.id && lobby.revision !== createdLobby.revision)
-      || (lobby.id === reconciledLobby.id && lobby.revision !== reconciledLobby.revision)) { await syncLobbyDerivedState(kv, lobby, { queueEntries: await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry]) }) }
-
-    const activityOutcome = await createMatchActivityOutcome(input, lobby)
-    if (activityOutcome) {
-      if (!reusedExisting) queueMatchCreateLobbyMessageUpdate(input, lobby, [hostEntry])
-      return activityOutcome
-    }
 
     if (!reusedExisting) {
-      const renderPayload = await buildOpenLobbyRenderPayload(
-        kv,
-        lobby,
-        mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(env.SessionDO, lobby, [hostEntry])),
-      )
       await upsertLobbyMessage(kv, env.DISCORD_TOKEN, lobby, {
-        embeds: renderPayload.embeds,
-        components: renderPayload.components,
+        embeds: [embed],
+        components: lobbyComponents(mode, lobby.id),
       }, { db, sessionNamespace: env.SessionDO })
     }
 
@@ -1069,63 +998,13 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
   }
 }
 
-async function createMatchActivityOutcome(input: CreateMatchLobbyInput, lobby: LobbyState): Promise<MatchCreateOutcome | null> {
-  if (!input.autoOpenActivity) return null
-  if (!shouldAutoOpenMatchCreateActivity(input.interactionChannelId, input.draftChannelId, lobby)) return null
-
-  await storeActivityLaunchTargetSelection(input.env.Activity, input.env.CIVUP_SECRET, input.interactionChannelId, input.identity.userId, {
-    kind: 'lobby',
-    id: lobby.id,
-  })
-  return { kind: 'activity' }
-}
-
-function queueMatchCreateLobbyMessageUpdate(input: CreateMatchLobbyInput, lobby: LobbyState, fallbackEntries: QueueEntry[]): void {
-  queueBackgroundTask(input.executionCtx, (async () => {
-    const db = createDb(input.env.DB)
-    const renderPayload = await buildOpenLobbyRenderPayload(
-      input.kv,
-      lobby,
-      mapLobbySlotsToEntries(lobby.slots, await getLobbyRosterEntriesForRender(input.env.SessionDO, lobby, fallbackEntries)),
-    )
-    await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
-      embeds: renderPayload.embeds,
-      components: renderPayload.components,
-    }, { db, sessionNamespace: input.env.SessionDO })
-  })(), '[match:create] failed to update auto-open lobby message')
-}
-
-function queueBackgroundTask(context: { waitUntil: (promise: Promise<unknown>) => void }, task: Promise<unknown>, errorMessage: string): void {
-  const loggedTask = task.catch((error) => {
-    console.error(errorMessage, error)
-  })
-  try {
-    context.waitUntil(loggedTask)
-  }
-  catch {
-    void loggedTask
-  }
-}
-
-export function shouldAutoOpenMatchCreateActivity(
-  interactionChannelId: string | null,
-  draftChannelId: string,
-  lobby: Pick<LobbyState, 'channelId'>,
-): boolean {
-  return interactionChannelId === draftChannelId && lobby.channelId === draftChannelId
-}
-
 async function sendDeferredMatchCreateOutcome(c: DeferredMatchCreateContext, outcome: MatchCreateOutcome): Promise<void> {
-  if (outcome.kind === 'clear' || outcome.kind === 'activity') {
+  if (outcome.kind === 'clear') {
     await clearDeferredEphemeralResponse(c)
     return
   }
 
   await sendTransientEphemeralResponse(c, outcome.message, outcome.tone)
-}
-
-function sendImmediateEphemeralResponse(c: ImmediateEphemeralContext, message: string, tone: EphemeralResponseTone): Response {
-  return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(message, tone)] })
 }
 
 async function getLobbyRosterEntriesForRender(
