@@ -9,7 +9,7 @@ export function DraftSetupActions(props: { actions: DraftSetupActionsState, stat
   const status = () => props.status
 
   return (
-    <div class="flex w-full shrink-0 justify-center">
+    <div class="flex w-full shrink-0 justify-center lg:mt-auto">
       <Show when={actions().isHost()} fallback={<GuestActions actions={actions()} status={status()} />}>
         <Show when={!actions().isLobbyMode()} fallback={<HostLobbyActions actions={actions()} />}>
           <div class="flex flex-col gap-2 items-center">

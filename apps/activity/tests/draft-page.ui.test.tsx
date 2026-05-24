@@ -30,22 +30,6 @@ describe('DraftPage UI', () => {
     expect(queryUiScaleControl()).toBeTruthy()
   })
 
-  test('closes the UI scale panel when clicking outside', async () => {
-    uiMockState.connectionStatus = 'connecting'
-
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
-
-    const details = queryUiScaleControl()?.closest('details') as HTMLDetailsElement | null
-    expect(details).toBeTruthy()
-
-    await Promise.resolve()
-
-    details!.open = true
-    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-
-    expect(details!.open).toBe(false)
-  })
-
   test('keeps the joining shell after socket connect until draft state hydrates', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = null
@@ -148,7 +132,7 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
-    expect(queryUiScaleControl()).toBeTruthy()
+    expect((queryUiScaleControl() as HTMLButtonElement | null)?.disabled).toBe(true)
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
     expect(screen.getByText('Reconnecting...')).toBeTruthy()

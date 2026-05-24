@@ -1,9 +1,8 @@
 import type { JSX } from 'solid-js'
 import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
-import { UiScaleMenu } from '~/client/components/ui/UiScaleMenu'
-import { cn } from '~/client/lib/css'
-import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, isMobileLayout, sendStart, userId } from '~/client/stores'
+import { FloatingUiScaleMenu } from '~/client/components/ui/UiScaleMenu'
+import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
 
 type ReportResultStatus = 'idle' | 'submitting' | 'done'
 
@@ -207,9 +206,7 @@ function DraftStatusShell(props: { children: JSX.Element }) {
   return (
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center relative">
       <Show when={!isMiniView()}>
-        <div class={cn('absolute z-20', isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6')}>
-          <UiScaleMenu buttonClass="border-border-subtle h-9 w-9" />
-        </div>
+        <FloatingUiScaleMenu />
       </Show>
       {props.children}
     </main>
