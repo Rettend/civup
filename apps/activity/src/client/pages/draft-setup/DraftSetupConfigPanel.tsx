@@ -70,7 +70,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
     renderReadonly: state => (
       <ReadonlyTimerRow
-        label="BBG Beta"
+        label="BBG"
         value={state.derived.formattedBbgVersion()}
         valueClass={normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
       />
