@@ -217,7 +217,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Theresian Reforms',
-      description: 'Established :governor: Governors provide +1 :influenceperturn: Influence point per turn and +20% :production: Production towards districts in their city. Specialty districts provide +1 :housing: Housing when a District of that type already exists in the :capital: Capital.',
+      description: 'Established :governor: Governors provide +1 :influenceperturn: Influence point per turn and +20% :production: Production towards districts and civilian units in their city. Specialty districts provide +1 :housing: Housing when a District of that type already exists in the :capital: Capital.',
     },
     uniqueUnits: [
       {
@@ -645,7 +645,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -675,7 +675,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -705,7 +705,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -883,7 +883,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Black%20Queen).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Catherine\'s Flying Squadron',
@@ -914,11 +914,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Magnificence).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Catherine’s Magnificences',
-      description: 'Improved resources receive +1 :culture: Culture after unlocking Craftsmanship. Improved resources adjacent to a Theater Square receive +1 :culture: Culture. Chateau adjacent to a luxury resource receive +1 :amenities: Amenity. Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in any city with a Theater Square district.',
+      description: 'Improved resources provide additional bonus yields: - +1 :culture: Culture at Craftsmanship - +1 :culture: Culture if adjacent to a Theater Square. - +1 :amenities: Amenity if adjacent to a Chateau(luxury resources only) Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in cities with a Theater Square.',
     },
     uniqueUnits: [
       {
@@ -945,7 +945,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Eleanor%20of%20Aquitaine%20(France).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Court of Love',
@@ -1076,41 +1076,6 @@ export const leaders: Leader[] = [
     tags: [],
   },
   {
-    id: 'goths-theodoric',
-    name: 'Theodoric',
-    civilization: 'Goths',
-    portraitUrl: '/assets/bbg/leaders/Goths%20Theodoric.webp',
-    civilizationAbility: {
-      name: 'Gothic Migration',
-      description: 'When settling or conquering a city for the first time receive +1 :citizen: Population in every Gothic city within 6 tiles with at least one free :housing: Housing.',
-    },
-    ability: {
-      name: 'Gothorum Romanorumque',
-      description: '+50% :production: Production towards districts in conquered cities, reduced by 10% for each specialty district already present in the city. Gain the Militond unique unit at Iron Working.',
-    },
-    uniqueUnits: [
-      {
-        name: 'Gadrauht',
-        description: 'Replaces the Pikeman. Higher Strength (+3 :strength:) and way cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built.',
-        replaces: 'Pikeman',
-      },
-      {
-        name: 'Militōnd',
-        description: 'Replaces the Swordsman. Doesn\'t require Iron. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
-        replaces: 'Swordsman',
-      },
-    ],
-    uniqueBuildings: [
-      {
-        name: 'Hlaiw',
-        description: 'Replaces the Shrine. +1 :faith: Faith and +1 :culture: Culture. Additional +0.25 :faith: Faith and +0.25 :culture: Culture per :citizen: Citizen in this city.',
-        replaces: 'Shrine',
-      },
-    ],
-    uniqueImprovements: [],
-    tags: [],
-  },
-  {
     id: 'germany-frederick-barbarossa',
     name: 'Frederick Barbarossa',
     civilization: 'Germany',
@@ -1169,6 +1134,41 @@ export const leaders: Leader[] = [
         description: 'A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.',
         replaces: 'Industrial Zone district',
         iconUrl: '/assets/bbg/items/Hansa.webp',
+      },
+    ],
+    uniqueImprovements: [],
+    tags: [],
+  },
+  {
+    id: 'goths-theodoric',
+    name: 'Theodoric',
+    civilization: 'Goths',
+    portraitUrl: '/assets/bbg/leaders/Goths%20Theodoric.webp',
+    civilizationAbility: {
+      name: 'Gothic Migration',
+      description: 'When settling or conquering a city for the first time receive +1 :citizen: Population in every Gothic city within 6 tiles with at least one free :housing: Housing.',
+    },
+    ability: {
+      name: 'Gothorum Romanorumque',
+      description: ':movement: PM +1 for non cavalry land military units in a 6 tiles radius from a Hlaiw.',
+    },
+    uniqueUnits: [
+      {
+        name: 'Gadrauht',
+        description: 'Replaces the Pikeman. Higher Strength (+5 :strength: ) and cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built if the city has no Temple. Gain a :promotion: promotion.',
+        replaces: 'Pikeman',
+      },
+      {
+        name: 'Militōnd',
+        description: 'Replaces the Swordsman. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
+        replaces: 'Swordsman',
+      },
+    ],
+    uniqueBuildings: [
+      {
+        name: 'Hlaiw',
+        description: 'Replaces the Shrine. +1 :faith: Faith and +1 :culture: Culture. Additional +0.25 :faith: Faith and +0.25 :culture: Culture per :citizen: Citizen in this city.',
+        replaces: 'Shrine',
       },
     ],
     uniqueImprovements: [],
@@ -2358,7 +2358,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Commission for National Education',
-      description: 'Ressources and improved tiles gains bonus yields next to Encampment and its buildings (do not stacks) : - District : +1 :food: Food - Barracks and Stable : +1 :culture: Culture - Armory : +1 :science: Science - Military Academy : +1 :production: Production. Start the game with the Bronze Working boost. Gain the Uhlan unique unit when they research the Metal Casting technology.',
+      description: 'Ressources and improved tiles gains bonus yields next to Encampment and its buildings (do not stacks) : - District : +1 :food: Food - Barracks and Stable : +1 :culture: Culture - Armory : +1 :science: Science - Military Academy : +1 :production: Production. Gain the Uhlan unique unit when they research the Metal Casting technology.',
     },
     uniqueUnits: [
       {
@@ -2723,14 +2723,14 @@ export const leaders: Leader[] = [
       {
         name: 'Macana',
         description: 'A recon unit unique to Taíno. Replaces the warrior and retains its earned Recon :promotion: Promotions on upgrade. Upon eliminating an enemy unit, earns :faith: Faith equal to half the :strength: Combat Strength of the defeated unit. Movement and Sight Range +1.',
-        replaces: 'Warrior',
+        replaces: 'warrior',
       },
     ],
     uniqueBuildings: [
       {
         name: 'Batéy',
         description: 'An Entertainment Complex replacement unique to Taíno. Buildings within this district provide +1 :amenities: Amenity. Allows the city to start the Areyto Ceremony city project, which provides :faith: while doing, and :greatperson: Great Person points for Great :greatwriter: Writers, :greatartist: Artists and :greatmusician: Musicians upon completion. Production :production: +2 for each Commercial hub or Harbor adjacent.',
-        replaces: 'Entertainment Complex district',
+        replaces: 'Entertainment Complex',
       },
     ],
     uniqueImprovements: [
