@@ -126,15 +126,14 @@ describe('PlayerSlot UI', () => {
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
       uiMockState.draftState.status = 'waiting'
       uiMockState.mapVotePhase = 'voting'
-      uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
-      uiMockState.mapVoteSelectedTypes = []
-      uiMockState.mapVoteSelectedScripts = []
+      uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
+      uiMockState.mapVoteSelectedMaps = []
 
       const firstRender = render(() => <PlayerSlot seatIndex={0} />)
       const firstDelay = firstRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
 
       firstRender.unmount()
-      uiMockState.mapVoteSelectedScripts = ['lakes']
+      uiMockState.mapVoteSelectedMaps = ['lakes']
 
       const secondRender = render(() => <PlayerSlot seatIndex={0} />)
       const secondDelay = secondRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
@@ -157,7 +156,7 @@ describe('PlayerSlot UI', () => {
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
       uiMockState.draftState.status = 'waiting'
       uiMockState.mapVotePhase = 'voting'
-      uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+      uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
       const firstRender = render(() => <PlayerSlot seatIndex={0} />)
       const secondRender = render(() => <PlayerSlot seatIndex={1} />)
@@ -178,34 +177,35 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
-      { seatIndex: 1, confirmed: false, mapTypes: ['east-vs-west'], mapScripts: [] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
+      { seatIndex: 1, confirmed: false, maps: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     const { container } = render(() => <PlayerSlot seatIndex={0} />)
     const revealLayout = screen.getByTestId('map-vote-reveal-layout')
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
     expect(screen.queryByText('Lakes')).toBeNull()
-    expect(screen.getByText('Seven Seas').className).toContain('text-accent')
+    expect(screen.getByText('Inland Sea').className).toContain('text-accent')
+    expect(screen.getByText('EvW').className).toContain('text-accent/80')
     expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
     expect(revealLayout.className).toContain('justify-center')
     expect(container.querySelectorAll('.i-ph-map-trifold-fill')).toHaveLength(0)
   })
 
-  test('highlights a supporting ballot that only ranked the winning script', () => {
+  test('highlights a supporting ballot that ranked the winning map', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: [], mapScripts: ['seven-seas'] },
+      { seatIndex: 0, confirmed: true, maps: ['seven-seas'] },
     ]
     uiMockState.mapVoteWinningType = 'standard'
     uiMockState.mapVoteWinningScript = 'seven-seas'
@@ -225,18 +225,18 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} compact />)
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
   })
 
   test('shows a non-supporting ballot\'s first-ranked map instead of the final winner', () => {
@@ -245,19 +245,19 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes'] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} />)
 
     expect(screen.getByText('Lakes')).toBeTruthy()
     expect(screen.getByAltText('Lakes')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
-    expect(screen.queryByText('Seven Seas')).toBeNull()
+    expect(screen.queryByText('Inland Sea')).toBeNull()
+    expect(screen.queryByText('EvW')).toBeNull()
     expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
   })
 
@@ -267,18 +267,18 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: false, mapTypes: [], mapScripts: [] },
+      { seatIndex: 0, confirmed: false, maps: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} />)
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
     expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
   })
 })

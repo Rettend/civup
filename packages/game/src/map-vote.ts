@@ -14,9 +14,28 @@ export const MAP_SCRIPT_IDS = [
   'tilted-axis',
   'primordial',
   'inland-sea',
+  'continents',
   'random',
 ] as const
 export type MapScriptId = (typeof MAP_SCRIPT_IDS)[number]
+
+export const MAP_VOTE_MAP_IDS = [
+  'random',
+  'pangaea-ultima',
+  'pangaea-ultima-no-wrap',
+  'pangaea-ultima-east-vs-west',
+  'pangaea-ultima-no-wrap-east-vs-west',
+  'seven-seas',
+  'rich-highlands',
+  'lakes',
+  'tilted-axis',
+  'primordial',
+  'inland-sea',
+  'inland-sea-east-vs-west',
+  'continents',
+  'continents-east-vs-west',
+] as const
+export type MapVoteMapId = (typeof MAP_VOTE_MAP_IDS)[number]
 
 export interface MapTypeOption {
   id: MapTypeId
@@ -32,9 +51,19 @@ export interface MapScriptOption {
   icon?: string
 }
 
+export interface MapVoteMapOption {
+  id: MapVoteMapId
+  name: string
+  mapType: MapTypeId
+  mapScript: MapScriptId
+  badgeLeft?: string
+  badgeRight?: string
+  imageUrl?: string
+  icon?: string
+}
+
 export interface MapVoteSelection {
-  mapTypes: MapTypeId[]
-  mapScripts: MapScriptId[]
+  maps: MapVoteMapId[]
 }
 
 export interface RevealedMapVoteSeatBallot extends MapVoteSelection {
@@ -94,6 +123,7 @@ interface LegacyMapVoteSelection {
   mapType?: unknown
   mapTypes?: unknown
   mapScripts?: unknown
+  maps?: unknown
 }
 
 interface RankedChoiceResolution<T extends string> {
@@ -102,12 +132,13 @@ interface RankedChoiceResolution<T extends string> {
   finalVotes: number
 }
 
-export const MAP_VOTE_VOTING_DURATION_MS = 60_000
-export const MAP_VOTE_REVEAL_DURATION_MS = 5_000
+export const MAP_VOTE_VOTING_DURATION_MS = 90_000
+export const MAP_VOTE_REVEAL_DURATION_MS = 10_000
 export const MAP_VOTE_VOTING_DURATION_SECONDS = MAP_VOTE_VOTING_DURATION_MS / 1000
 export const MAP_VOTE_REVEAL_DURATION_SECONDS = MAP_VOTE_REVEAL_DURATION_MS / 1000
+export const MAX_MAP_VOTE_MAP_PICKS = 3
 export const MAX_MAP_VOTE_MAP_TYPE_PICKS = MAP_TYPE_IDS.length
-export const MAX_MAP_VOTE_MAP_SCRIPT_PICKS = 3
+export const MAX_MAP_VOTE_MAP_SCRIPT_PICKS = MAX_MAP_VOTE_MAP_PICKS
 
 export const MAP_TYPES: readonly MapTypeOption[] = [
   { id: 'standard', name: 'Standard', description: 'Teams scattered across the map' },
@@ -124,7 +155,25 @@ export const MAP_SCRIPTS: readonly MapScriptOption[] = [
   { id: 'tilted-axis', name: 'Tilted Axis', imageUrl: '/assets/maps/Map_Tilted_Axis.webp' },
   { id: 'primordial', name: 'Primordial', imageUrl: '/assets/maps/Map_Primodial.webp' },
   { id: 'inland-sea', name: 'Inland Sea', imageUrl: '/assets/maps/Map_Inland_Sea.webp' },
+  { id: 'continents', name: 'Continents', imageUrl: '/assets/maps/Map_Continents.webp' },
   { id: 'random', name: 'Random', icon: 'i-ph-dice-five-bold' },
+]
+
+export const MAP_VOTE_MAPS: readonly MapVoteMapOption[] = [
+  { id: 'random', name: 'Random', mapType: 'random', mapScript: 'random', icon: 'i-ph-dice-five-bold' },
+  { id: 'pangaea-ultima', name: 'Pangaea Ultima', mapType: 'standard', mapScript: 'pangaea-ultima', badgeLeft: 'Wrap', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'pangaea-ultima-no-wrap', name: 'Pangaea Ultima', mapType: 'standard', mapScript: 'pangaea-ultima-no-wrap', badgeLeft: 'No Wrap', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'pangaea-ultima-east-vs-west', name: 'Pangaea Ultima', mapType: 'east-vs-west', mapScript: 'pangaea-ultima', badgeLeft: 'Wrap', badgeRight: 'EvW', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'pangaea-ultima-no-wrap-east-vs-west', name: 'Pangaea Ultima', mapType: 'east-vs-west', mapScript: 'pangaea-ultima-no-wrap', badgeLeft: 'No Wrap', badgeRight: 'EvW', imageUrl: '/assets/maps/Map_Pangaea.webp' },
+  { id: 'seven-seas', name: 'Seven Seas', mapType: 'standard', mapScript: 'seven-seas', imageUrl: '/assets/maps/Map_Seven_Seas.webp' },
+  { id: 'rich-highlands', name: 'Rich Highlands', mapType: 'standard', mapScript: 'rich-highlands', imageUrl: '/assets/maps/Map_4_Leaf.webp' },
+  { id: 'lakes', name: 'Lakes', mapType: 'standard', mapScript: 'lakes', imageUrl: '/assets/maps/Map_Lakes.webp' },
+  { id: 'tilted-axis', name: 'Tilted Axis', mapType: 'standard', mapScript: 'tilted-axis', imageUrl: '/assets/maps/Map_Tilted_Axis.webp' },
+  { id: 'primordial', name: 'Primordial', mapType: 'standard', mapScript: 'primordial', imageUrl: '/assets/maps/Map_Primodial.webp' },
+  { id: 'inland-sea', name: 'Inland Sea', mapType: 'standard', mapScript: 'inland-sea', imageUrl: '/assets/maps/Map_Inland_Sea.webp' },
+  { id: 'inland-sea-east-vs-west', name: 'Inland Sea', mapType: 'east-vs-west', mapScript: 'inland-sea', badgeRight: 'EvW', imageUrl: '/assets/maps/Map_Inland_Sea.webp' },
+  { id: 'continents', name: 'Continents', mapType: 'standard', mapScript: 'continents', imageUrl: '/assets/maps/Map_Continents.webp' },
+  { id: 'continents-east-vs-west', name: 'Continents', mapType: 'east-vs-west', mapScript: 'continents', badgeRight: 'EvW', imageUrl: '/assets/maps/Map_Continents.webp' },
 ]
 
 export const MAP_TYPE_BY_ID: Record<MapTypeId, MapTypeOption> = Object.fromEntries(
@@ -135,9 +184,16 @@ export const MAP_SCRIPT_BY_ID: Record<MapScriptId, MapScriptOption> = Object.fro
   MAP_SCRIPTS.map(option => [option.id, option]),
 ) as Record<MapScriptId, MapScriptOption>
 
+export const MAP_VOTE_MAP_BY_ID: Record<MapVoteMapId, MapVoteMapOption> = Object.fromEntries(
+  MAP_VOTE_MAPS.map(option => [option.id, option]),
+) as Record<MapVoteMapId, MapVoteMapOption>
+
+const MAP_VOTE_MAP_ID_BY_RESULT = Object.fromEntries(
+  MAP_VOTE_MAPS.map(option => [`${option.mapType}:${option.mapScript}`, option.id]),
+) as Record<string, MapVoteMapId>
+
 export const DEFAULT_MAP_VOTE_SELECTION: MapVoteSelection = {
-  mapTypes: [],
-  mapScripts: [],
+  maps: [],
 }
 
 export const EMPTY_MAP_VOTE_SNAPSHOT: MapVoteSnapshot = {
@@ -160,6 +216,10 @@ export function isMapScriptId(value: string | null | undefined): value is MapScr
   return value != null && MAP_SCRIPT_IDS.includes(value as MapScriptId)
 }
 
+export function isMapVoteMapId(value: string | null | undefined): value is MapVoteMapId {
+  return value != null && MAP_VOTE_MAP_IDS.includes(value as MapVoteMapId)
+}
+
 export function isMapVoteSupportedForMode(mode: GameMode, options: { redDeath?: boolean } = {}): boolean {
   if (options.redDeath) return false
   return mode === 'ffa' || mode === '1v1' || isTeamMode(mode)
@@ -170,14 +230,12 @@ export function normalizeMapVoteEnabled(mode: GameMode, enabled: boolean, option
 }
 
 export function formatMapVoteResultLabel(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
-  const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
-  const scriptName = scriptOption?.name ?? ''
-  if (!scriptName) {
+  const scriptLabel = formatMapScriptLabel(mapScript)
+  if (!scriptLabel) {
     if (mapType === 'standard') return 'Stnd'
     if (mapType === 'east-vs-west') return 'EvW'
     return mapTypeLabel(mapType)
   }
-  const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
   if (mapType === 'east-vs-west') return `${scriptLabel} EvW`
   if (mapType === 'standard') return `${scriptLabel} Stnd`
   const typeLabel = mapTypeLabel(mapType)
@@ -185,10 +243,7 @@ export function formatMapVoteResultLabel(mapType: MapTypeId | null | undefined, 
 }
 
 export function formatMapVoteResultTitle(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): string {
-  const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
-  const scriptName = scriptOption?.name ?? ''
-  const scriptLabel = scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
-
+  const scriptLabel = formatMapScriptLabel(mapScript)
   const typeLabel = mapTypeLabel(mapType)
   if (!scriptLabel) return typeLabel
   if (!typeLabel) return scriptLabel
@@ -197,6 +252,17 @@ export function formatMapVoteResultTitle(mapType: MapTypeId | null | undefined, 
 
 export function createMapVoteRng(seed: string): () => number {
   return createSeededRandom(seed)
+}
+
+export function getMapVoteMapIdForResult(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): MapVoteMapId | null {
+  if (mapType === 'random' || mapScript === 'random') return 'random'
+  if (!mapType || !mapScript) return null
+  return MAP_VOTE_MAP_ID_BY_RESULT[`${mapType}:${mapScript}`] ?? null
+}
+
+export function getMapVoteMapOptionForResult(mapType: MapTypeId | null | undefined, mapScript: MapScriptId | null | undefined): MapVoteMapOption | null {
+  const id = getMapVoteMapIdForResult(mapType, mapScript)
+  return id ? MAP_VOTE_MAP_BY_ID[id] ?? null : null
 }
 
 export function pickRandomMapType(rng: () => number, exclude: readonly MapTypeId[] = []): Exclude<MapTypeId, 'random'> {
@@ -216,61 +282,87 @@ export function pickRandomMapScript(rng: () => number, exclude: readonly MapScri
 }
 
 export function normalizeMapVoteSelection(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): MapVoteSelection {
-  return {
-    mapTypes: normalizeRankedIds(extractMapTypes(selection), isMapTypeId, MAX_MAP_VOTE_MAP_TYPE_PICKS),
-    mapScripts: normalizeRankedIds(extractMapScripts(selection), isMapScriptId, MAX_MAP_VOTE_MAP_SCRIPT_PICKS),
-  }
+  const maps = normalizeRankedIds(extractMaps(selection), isMapVoteMapId, MAX_MAP_VOTE_MAP_PICKS)
+  if (maps.length > 0) return { maps }
+  return { maps: normalizeLegacyMapVoteMapIds(selection) }
 }
 
 export function isMapVoteSelectionConfirmable(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): boolean {
   if (selection == null) return false
   const normalizedSelection = normalizeMapVoteSelection(selection)
-  return normalizedSelection.mapTypes.length > 0 || normalizedSelection.mapScripts.length > 0
+  return normalizedSelection.maps.length > 0
 }
 
-export function resolveMapVoteWinner(votes: readonly MapVoteSelection[], rng: () => number, seed = ''): ResolvedMapVoteResult {
+export function resolveMapVoteWinner(votes: readonly (MapVoteSelection | LegacyMapVoteSelection)[], rng: () => number, seed = ''): ResolvedMapVoteResult {
   const normalizedVotes = votes.map(vote => normalizeMapVoteSelection(vote))
-  const mapTypeResult = resolveRankedChoiceElection(
-    normalizedVotes.map(vote => vote.mapTypes),
-    MAP_TYPES.map(option => option.id),
-    'standard',
-    rng,
-  )
-  const mapScriptResult = resolveRankedChoiceElection(
-    normalizedVotes.map(vote => vote.mapScripts),
-    MAP_SCRIPTS.map(option => option.id),
+  const mapResult = resolveRankedChoiceElection(
+    normalizedVotes.map(vote => vote.maps),
+    MAP_VOTE_MAPS.map(option => option.id),
     'pangaea-ultima',
     rng,
   )
 
-  const resolvedRandomMapType = mapTypeResult.winnerId === 'random' ? pickRandomMapType(rng) : null
-  const resolvedRandomMapScript = mapScriptResult.winnerId === 'random' ? pickRandomMapScript(rng) : null
-  const resolvedMapType = resolvedRandomMapType ?? (mapTypeResult.winnerId as Exclude<MapTypeId, 'random'>)
-  const resolvedMapScript = resolvedRandomMapScript ?? (mapScriptResult.winnerId as Exclude<MapScriptId, 'random'>)
+  const resolvedRandomMapId = mapResult.winnerId === 'random' ? pickRandomMapVoteMap(rng) : null
+  const resolvedMapId = resolvedRandomMapId ?? (mapResult.winnerId === 'random' ? 'pangaea-ultima' : mapResult.winnerId)
+  const resolvedOption = MAP_VOTE_MAP_BY_ID[resolvedMapId]
+  const winnerOption = MAP_VOTE_MAP_BY_ID[mapResult.winnerId]
 
   return {
-    mapType: resolvedMapType,
-    mapScript: resolvedMapScript,
-    winningSeatCount: mapScriptResult.finalVotes,
+    mapType: resolvedOption.mapType as Exclude<MapTypeId, 'random'>,
+    mapScript: resolvedOption.mapScript as Exclude<MapScriptId, 'random'>,
+    winningSeatCount: mapResult.finalVotes,
     seed,
-    mapTypeWinner: mapTypeResult.winnerId,
-    mapScriptWinner: mapScriptResult.winnerId,
-    mapTypeRounds: mapTypeResult.rounds,
-    mapScriptRounds: mapScriptResult.rounds,
-    resolvedRandomMapType,
-    resolvedRandomMapScript,
+    mapTypeWinner: winnerOption.mapType,
+    mapScriptWinner: winnerOption.mapScript,
+    mapTypeRounds: [],
+    mapScriptRounds: [],
+    resolvedRandomMapType: resolvedRandomMapId ? resolvedOption.mapType as Exclude<MapTypeId, 'random'> : null,
+    resolvedRandomMapScript: resolvedRandomMapId ? resolvedOption.mapScript as Exclude<MapScriptId, 'random'> : null,
   }
 }
 
+function extractMaps(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): readonly unknown[] {
+  return Array.isArray(selection?.maps) ? selection.maps : []
+}
+
 function extractMapTypes(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): readonly unknown[] {
-  if (Array.isArray(selection?.mapTypes)) return selection.mapTypes
   const legacySelection = selection as LegacyMapVoteSelection | null | undefined
+  if (Array.isArray(legacySelection?.mapTypes)) return legacySelection.mapTypes
   const legacyMapType = typeof legacySelection?.mapType === 'string' ? legacySelection.mapType : null
   return legacyMapType != null ? [legacyMapType] : []
 }
 
 function extractMapScripts(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): readonly unknown[] {
-  return Array.isArray(selection?.mapScripts) ? selection.mapScripts : []
+  const legacySelection = selection as LegacyMapVoteSelection | null | undefined
+  return Array.isArray(legacySelection?.mapScripts) ? legacySelection.mapScripts : []
+}
+
+function normalizeLegacyMapVoteMapIds(selection: MapVoteSelection | LegacyMapVoteSelection | null | undefined): MapVoteMapId[] {
+  const mapTypes = normalizeRankedIds(extractMapTypes(selection), isMapTypeId, MAX_MAP_VOTE_MAP_TYPE_PICKS)
+  const mapScripts = normalizeRankedIds(extractMapScripts(selection), isMapScriptId, MAX_MAP_VOTE_MAP_PICKS)
+  if (mapTypes.length === 0 && mapScripts.length === 0) return []
+  const primaryType = mapTypes.find(mapType => mapType !== 'random') ?? 'standard'
+
+  if (mapScripts.length === 0) {
+    if (mapTypes[0] === 'random') return ['random']
+    if (primaryType === 'east-vs-west') return ['pangaea-ultima-east-vs-west']
+    if (primaryType === 'standard') return ['pangaea-ultima']
+    return []
+  }
+
+  const maps: MapVoteMapId[] = []
+  for (const mapScript of mapScripts) {
+    const mapId = getLegacyMapVoteMapId(primaryType, mapScript)
+    if (mapId != null && !maps.includes(mapId)) maps.push(mapId)
+    if (maps.length >= MAX_MAP_VOTE_MAP_PICKS) break
+  }
+  return maps
+}
+
+function getLegacyMapVoteMapId(mapType: Exclude<MapTypeId, 'random'>, mapScript: MapScriptId): MapVoteMapId | null {
+  if (mapScript === 'random') return 'random'
+  return getMapVoteMapIdForResult(mapType, mapScript)
+    ?? getMapVoteMapIdForResult('standard', mapScript)
 }
 
 function normalizeRankedIds<T extends string>(values: readonly unknown[], isValid: (value: string | null | undefined) => value is T, limit: number): T[] {
@@ -458,9 +550,24 @@ function chooseRankedChoiceCandidates<T extends string>(
   return candidateIds.filter(candidateId => metric(candidateId) === targetMetric)
 }
 
+function formatMapScriptLabel(mapScript: MapScriptId | null | undefined): string {
+  const scriptOption = mapScript ? MAP_SCRIPT_BY_ID[mapScript] : null
+  const scriptName = scriptOption?.name ?? ''
+  if (!scriptName) return ''
+  return scriptOption?.hint ? `${scriptName} (${scriptOption.hint})` : scriptName
+}
+
 function mapTypeLabel(mapType: MapTypeId | null | undefined): string {
   if (!mapType) return ''
   return MAP_TYPE_BY_ID[mapType]?.name ?? mapType
+}
+
+function pickRandomMapVoteMap(rng: () => number, exclude: readonly MapVoteMapId[] = []): Exclude<MapVoteMapId, 'random'> {
+  return pickRandomId<Exclude<MapVoteMapId, 'random'>>(
+    MAP_VOTE_MAPS.map(option => option.id).filter((id): id is Exclude<MapVoteMapId, 'random'> => id !== 'random' && !exclude.includes(id)),
+    'pangaea-ultima',
+    rng,
+  )
 }
 
 function pickRandomId<T extends string>(pool: readonly T[], fallback: T, rng: () => number): T {

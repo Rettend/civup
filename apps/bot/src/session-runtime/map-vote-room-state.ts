@@ -3,11 +3,9 @@ import type { DraftRuntimeConfig } from '@civup/session'
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
-  isMapScriptId,
-  isMapTypeId,
+  isMapVoteMapId,
   isMapVoteSelectionConfirmable,
-  MAX_MAP_VOTE_MAP_SCRIPT_PICKS,
-  MAX_MAP_VOTE_MAP_TYPE_PICKS,
+  MAX_MAP_VOTE_MAP_PICKS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
 } from '@civup/game'
@@ -42,15 +40,11 @@ export function isMapVoteInProgress(mapVoteState: StoredMapVoteState): boolean {
   return mapVoteState.enabled && (mapVoteState.phase === 'voting' || mapVoteState.phase === 'reveal')
 }
 
-export function isValidMapVoteSelectionInput(selection: { mapTypes?: unknown, mapScripts?: unknown } | null | undefined): selection is MapVoteSelection {
-  return Array.isArray(selection?.mapTypes)
-    && selection.mapTypes.length <= MAX_MAP_VOTE_MAP_TYPE_PICKS
-    && selection.mapTypes.every(mapType => typeof mapType === 'string' && isMapTypeId(mapType))
-    && new Set(selection.mapTypes).size === selection.mapTypes.length
-    && Array.isArray(selection?.mapScripts)
-    && selection.mapScripts.length <= MAX_MAP_VOTE_MAP_SCRIPT_PICKS
-    && selection.mapScripts.every(mapScript => typeof mapScript === 'string' && isMapScriptId(mapScript))
-    && new Set(selection.mapScripts).size === selection.mapScripts.length
+export function isValidMapVoteSelectionInput(selection: { maps?: unknown } | null | undefined): selection is MapVoteSelection {
+  return Array.isArray(selection?.maps)
+    && selection.maps.length <= MAX_MAP_VOTE_MAP_PICKS
+    && selection.maps.every(map => typeof map === 'string' && isMapVoteMapId(map))
+    && new Set(selection.maps).size === selection.maps.length
 }
 
 export function applyMapVoteSelectionUpdate(
@@ -67,8 +61,7 @@ export function applyMapVoteSelectionUpdate(
     selections: {
       ...mapVoteState.selections,
       [seatIndex]: {
-        mapTypes: [...normalizedSelection.mapTypes],
-        mapScripts: [...normalizedSelection.mapScripts],
+        maps: [...normalizedSelection.maps],
       },
     },
   }
@@ -84,8 +77,7 @@ export function createInitialMapVoteState(state: DraftState, config: DraftRuntim
   const confirmations: Record<number, boolean> = {}
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
     selections[seatIndex] = {
-      mapTypes: [...DEFAULT_MAP_VOTE_SELECTION.mapTypes],
-      mapScripts: [...DEFAULT_MAP_VOTE_SELECTION.mapScripts],
+      maps: [...DEFAULT_MAP_VOTE_SELECTION.maps],
     }
     confirmations[seatIndex] = false
   }

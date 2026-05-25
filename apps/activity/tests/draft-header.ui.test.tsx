@@ -94,7 +94,7 @@ describe('DraftHeader UI', () => {
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
@@ -138,7 +138,7 @@ describe('DraftHeader UI', () => {
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
-    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 

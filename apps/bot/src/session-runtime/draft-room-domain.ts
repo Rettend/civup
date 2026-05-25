@@ -634,8 +634,7 @@ function buildMapVoteRevealTransition(room: RoomRecord, state: DraftState, now: 
     return {
       seatIndex,
       confirmed: room.mapVote.confirmations[seatIndex] === true,
-      mapTypes: [...normalizedSelection.mapTypes],
-      mapScripts: [...normalizedSelection.mapScripts],
+      maps: [...normalizedSelection.maps],
     } satisfies RevealedMapVoteSeatBallot
   })
   const seed = buildMapVoteSeed(state.matchId, revealedVotes)
@@ -847,7 +846,7 @@ function clearSwapWindowState(room: RoomRecord): RoomRecord {
 
 function buildMapVoteSeed(matchId: string, ballots: readonly RevealedMapVoteSeatBallot[]): string {
   const serialized = ballots
-    .map(ballot => `${ballot.seatIndex}:${ballot.confirmed ? 1 : 0}:${ballot.mapTypes.join(',')}:${ballot.mapScripts.join(',')}`)
+    .map(ballot => `${ballot.seatIndex}:${ballot.confirmed ? 1 : 0}:${ballot.maps.join(',')}`)
     .join('|')
 
   let hash = 2166136261
