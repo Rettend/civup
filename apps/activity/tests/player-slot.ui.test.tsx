@@ -86,6 +86,69 @@ describe('PlayerSlot UI', () => {
     expect(image.className).toContain('anim-portrait-in')
   })
 
+  test('stacks ban preview portraits vertically in captain slots on desktop', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+      TEST_LEADER_IDS.montezuma,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getAllByTestId('slot-ban-preview')).toHaveLength(3)
+    expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBeTruthy()
+    expect(screen.getByAltText('Ban preview: John Curtin')).toBeTruthy()
+    expect(screen.getByAltText('Ban preview: Montezuma')).toBeTruthy()
+    expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('flex-col')
+    expect(screen.queryByText('BAN 1')).toBeNull()
+    expect(screen.queryByText('Abraham Lincoln')).toBeNull()
+  })
+
+  test('lays out ban preview portraits horizontally on mobile slots', () => {
+    uiMockState.isMobileLayout = true
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getAllByTestId('slot-ban-preview')).toHaveLength(2)
+    expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('flex-row')
+  })
+
+  test('keeps ban preview images mounted when another seat submits bans', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+    const firstImage = screen.getByAltText('Ban preview: Abraham Lincoln')
+
+    uiMockState.draftState = {
+      ...uiMockState.draftState!,
+      submissions: {
+        ...uiMockState.draftState!.submissions,
+        1: [TEST_LEADER_IDS.montezuma, TEST_LEADER_IDS.hammurabi, TEST_LEADER_IDS.saladinVizier],
+      },
+    }
+
+    expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBe(firstImage)
+  })
+
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })

@@ -129,9 +129,23 @@ export function censorDraftPreviews(
     }
   }
 
-  const ownBans = sanitized.bans[seatIndex]
+  const visibleBans: DraftPreviewState['bans'] = {}
+  if (step.action === 'ban') {
+    for (const [rawSeatIndex, civIds] of Object.entries(sanitized.bans)) {
+      const previewSeatIndex = Number(rawSeatIndex)
+      const previewSeat = state.seats[previewSeatIndex]
+      if (!previewSeat) continue
+      if (previewSeatIndex === seatIndex) {
+        visibleBans[previewSeatIndex] = [...civIds]
+        continue
+      }
+      if (ownTeam == null || previewSeat.team == null || previewSeat.team !== ownTeam) continue
+      visibleBans[previewSeatIndex] = [...civIds]
+    }
+  }
+
   return {
-    bans: ownBans ? { [seatIndex]: [...ownBans] } : {},
+    bans: visibleBans,
     picks: visiblePicks,
   }
 }
