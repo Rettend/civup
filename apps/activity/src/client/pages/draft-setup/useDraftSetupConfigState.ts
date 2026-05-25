@@ -90,6 +90,8 @@ export function useDraftSetupConfigState(input: {
   let fillTestPlayersAvailabilityKey: string | null = null
   let rankedRoleOptionsFetchKey: string | null = null
   let clampedField: EditableConfigField | null = null
+  let configPersistQueue: Promise<void> = Promise.resolve()
+  let editingFocusVersion = 0
 
   createEffect(() => {
     const lobby = input.currentLobby()
@@ -284,12 +286,23 @@ export function useDraftSetupConfigState(input: {
   const canToggleRedDeath = () => !isTournamentLobby() && !redDeathExtraFfaSeatsOccupied()
   const supportsMapVoteToggle = () => input.isLobbyMode() && !isTournamentLobby() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
   const supportsBlindBansToggle = () => input.isLobbyMode() && !isTournamentLobby() && supportsBlindBansControl(input.lobbyMode(), { redDeath: isRedDeathLobbyMode(), targetSize: input.currentLobby()?.targetSize })
+  const focusedTextInputField = (): EditableConfigField | null => {
+    if (typeof document === 'undefined') return null
+    const activeElement = document.activeElement
+    if (!(activeElement instanceof HTMLInputElement)) return null
+    const ariaLabel = activeElement.getAttribute('aria-label')
+    if (ariaLabel === 'Ban Timer (minutes)') return 'ban'
+    if (ariaLabel === 'Pick Timer (minutes)') return 'pick'
+    if (ariaLabel === poolInputLabel()) return 'leaderPool'
+    return null
+  }
 
   createEffect(() => {
     const config = optimisticTimerConfig.value()
-    if (editingField() !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
-    if (editingField() !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
-    if (editingField() !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(isRedDeathLobbyMode() ? config.dealOptionsSize : config.leaderPoolSize))
+    const activeField = editingField() ?? focusedTextInputField()
+    if (activeField !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
+    if (activeField !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
+    if (activeField !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(isRedDeathLobbyMode() ? config.dealOptionsSize : config.leaderPoolSize))
   })
   createEffect(() => {
     if (optimisticTimerConfig.status() === 'error') input.showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
@@ -299,6 +312,16 @@ export function useDraftSetupConfigState(input: {
     if (override == null) return
     if (draftConfig().closed === override) setClosedOverride(null)
   })
+  const enqueueConfigPersist = (persist: () => Promise<void>) => {
+    const queued = configPersistQueue.catch(() => {}).then(persist)
+    configPersistQueue = queued.catch(() => {})
+    return queued
+  }
+  const handleEditingFieldFocus = (field: EditableConfigField) => {
+    editingFocusVersion += 1
+    setEditingField(field)
+  }
+
   const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig, options: { preserveConfigMessage?: boolean, targetSize?: number } = {}) => {
     const currentUserId = userId()
     if (!currentUserId) {
@@ -307,7 +330,7 @@ export function useDraftSetupConfigState(input: {
       return false
     }
     if (!options.preserveConfigMessage) input.clearConfigMessage()
-    const committed = await optimisticTimerConfig.commit(nextConfig, async () => {
+    const committed = await optimisticTimerConfig.commit(nextConfig, () => enqueueConfigPersist(async () => {
       const lobby = input.currentLobby()
       if (lobby) {
         const payload = isTournamentLobby()
@@ -340,11 +363,12 @@ export function useDraftSetupConfigState(input: {
           ...payload,
         })
         if (!result.ok) throw new Error(result.error)
-        setLobbyTimerConfig(buildEditableLobbyDraftConfig(result.lobby))
+        const savedConfig = buildEditableLobbyDraftConfig(result.lobby)
+        if (sameLobbyDraftConfig(optimisticTimerConfig.value(), nextConfig)) setLobbyTimerConfig(savedConfig)
         return
       }
       await sendConfig(nextConfig.banTimerSeconds, nextConfig.pickTimerSeconds)
-    }, {
+    }), {
       syncTimeoutMs: input.currentLobby() ? 9000 : 5000,
       syncTimeoutMessage: 'Save not confirmed. Please try again.',
     })
@@ -353,6 +377,7 @@ export function useDraftSetupConfigState(input: {
 
   const saveConfigOnBlur = async () => {
     const activeField = editingField()
+    const activeFocusVersion = editingFocusVersion
     try {
       if (!input.amHost()) return
 
@@ -400,7 +425,7 @@ export function useDraftSetupConfigState(input: {
     }
     finally {
       if (activeField != null && clampedField === activeField) clampedField = null
-      setEditingField(current => current === activeField ? null : current)
+      setEditingField(current => current === activeField && editingFocusVersion === activeFocusVersion ? null : current)
     }
   }
 
@@ -409,7 +434,8 @@ export function useDraftSetupConfigState(input: {
     if (nextValue === currentValue) return
     setPending(true)
     try {
-      await commitDraftConfig(mapConfig(optimisticDraftConfig()))
+      const mapped = mapConfig(optimisticDraftConfig())
+      await commitDraftConfig(mapped)
     }
     finally {
       setPending(false)
@@ -687,7 +713,7 @@ export function useDraftSetupConfigState(input: {
   }
 
   const actions = {
-    setEditingField,
+    setEditingField: handleEditingFieldFocus,
     saveOnBlur: saveConfigOnBlur,
     clampField: handleClampedField,
     inputLeaderPool: handleLeaderPoolInput,
