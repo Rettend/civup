@@ -375,11 +375,11 @@ export function useDraftSetupConfigState(input: {
     return committed
   }
 
-  const saveConfigOnBlur = async () => {
+  const saveConfigEdits = async () => {
     const activeField = editingField()
     const activeFocusVersion = editingFocusVersion
     try {
-      if (!input.amHost()) return
+      if (!input.amHost()) return true
 
       const parsedBan = parseTimerMinutesInput(banMinutes())
       const parsedPick = parseTimerMinutesInput(pickMinutes())
@@ -392,7 +392,7 @@ export function useDraftSetupConfigState(input: {
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
         setLeaderPoolInput(leaderPoolSizeToInput(isRedDeathLobbyMode() ? current.dealOptionsSize : current.leaderPoolSize))
-        return
+        return false
       }
 
       const current = optimisticTimerConfig.value()
@@ -403,10 +403,10 @@ export function useDraftSetupConfigState(input: {
 
       if (banTimerSeconds === current.banTimerSeconds && pickTimerSeconds === current.pickTimerSeconds && leaderPoolSize === current.leaderPoolSize && dealOptionsSize === current.dealOptionsSize) {
         optimisticTimerConfig.clearError()
-        return
+        return true
       }
 
-      await commitDraftConfig({
+      return await commitDraftConfig({
         banTimerSeconds,
         pickTimerSeconds,
         leaderPoolSize,
@@ -427,6 +427,13 @@ export function useDraftSetupConfigState(input: {
       if (activeField != null && clampedField === activeField) clampedField = null
       setEditingField(current => current === activeField && editingFocusVersion === activeFocusVersion ? null : current)
     }
+  }
+  const saveConfigOnBlur = () => saveConfigEdits()
+  const flushPendingConfigEdits = async () => {
+    const saved = await saveConfigEdits()
+    if (!saved) return false
+    await configPersistQueue
+    return optimisticTimerConfig.status() !== 'error'
   }
 
   async function commitToggleConfigChange<T>(nextValue: T, currentValue: T, setPending: (value: boolean) => void, mapConfig: (current: LobbyEditableDraftConfig) => LobbyEditableDraftConfig) {
@@ -715,6 +722,7 @@ export function useDraftSetupConfigState(input: {
   const actions = {
     setEditingField: handleEditingFieldFocus,
     saveOnBlur: saveConfigOnBlur,
+    flushPendingEdits: flushPendingConfigEdits,
     clampField: handleClampedField,
     inputLeaderPool: handleLeaderPoolInput,
     inputBanMinutes: handleBanMinutesInput,
