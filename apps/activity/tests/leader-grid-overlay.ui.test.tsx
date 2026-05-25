@@ -26,6 +26,10 @@ function setViewportWidth(width: number) {
   })
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 describe('LeaderGridOverlay UI', () => {
   beforeEach(() => {
     cleanup()
@@ -169,9 +173,12 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
     expect(screen.getByRole('button', { name: 'Confirm Bans (2/2)' })).toBeTruthy()
 
+    storeSpies.sendPreview.mockClear()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (2/2)' }))
+    await wait(80)
 
     expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
+    expect(storeSpies.sendPreview.mock.calls.some(call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0)).toBe(false)
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.banSelections).toEqual([])
   })

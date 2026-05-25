@@ -207,6 +207,7 @@ export function LeaderGridOverlay() {
   const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
   const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
   const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
+  let suppressNextPreviewClear: 'ban' | 'pick' | null = null
   let tooltipRef: HTMLDivElement | undefined
   let wideWangAudio: HTMLAudioElement | null = null
   let wideWangRevealTimeouts: Array<ReturnType<typeof setTimeout>> = []
@@ -417,12 +418,22 @@ export function LeaderGridOverlay() {
 
     if (currentStep.action === 'ban') {
       sendThrottledPickPreview.clear()
-      sendThrottledBanPreview(isMyTurn() && !hasSubmitted() ? banSelections() : [])
+      const nextPreview = isMyTurn() && !hasSubmitted() ? banSelections() : []
+      if (shouldSuppressPreviewClear('ban', nextPreview)) {
+        sendThrottledBanPreview.clear()
+        return
+      }
+      sendThrottledBanPreview(nextPreview)
       return
     }
 
     sendThrottledBanPreview.clear()
-    sendThrottledPickPreview(canSendPickPreview() ? pickSelections() : [])
+    const nextPreview = canSendPickPreview() ? pickSelections() : []
+    if (shouldSuppressPreviewClear('pick', nextPreview)) {
+      sendThrottledPickPreview.clear()
+      return
+    }
+    sendThrottledPickPreview(nextPreview)
   })
 
   const draftLeaderPoolIds = createMemo(() => {
@@ -545,6 +556,17 @@ export function LeaderGridOverlay() {
     setIsRandomSelected(true)
   }
 
+  const shouldSuppressPreviewClear = (action: 'ban' | 'pick', civIds: string[]) => {
+    if (suppressNextPreviewClear !== action) return false
+    if (civIds.length > 0) {
+      suppressNextPreviewClear = null
+      return false
+    }
+
+    suppressNextPreviewClear = null
+    return true
+  }
+
   const handleConfirmPick = () => {
     if (isRandomSelected()) {
       const pool = randomLeaderPool()
@@ -558,6 +580,7 @@ export function LeaderGridOverlay() {
       if (!civId) return
       sendPick(civId)
     }
+    suppressNextPreviewClear = 'pick'
     clearSelections()
     clearHoverTooltip()
     setFiltersOpen(false)
@@ -578,6 +601,7 @@ export function LeaderGridOverlay() {
       if (civIds.length === 0) return
       sendBan(civIds)
     }
+    suppressNextPreviewClear = 'ban'
     clearSelections()
     clearHoverTooltip()
     setFiltersOpen(false)
