@@ -3,7 +3,7 @@ import type { TestSessionNamespace } from '../helpers/session-runtime.ts'
 import { matches } from '@civup/db'
 import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { setSystemChannel } from '../../src/services/system/channels.ts'
 import { createTournament, createTournamentMatchLink, importTournamentPlayersCsv } from '../../src/services/tournament/index.ts'
@@ -13,6 +13,22 @@ import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftA
 import { createSystemWorld } from './helpers/world.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
+
+const originalConsole = {
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+}
+
+const NOISY_SYSTEM_SCENARIO_LOG_PREFIXES = [
+  '[draft-lifecycle] received',
+  '[draft-room] transition',
+  '[idempotency] activity report request deduplicated',
+  '[idempotency] duplicate lobby start request',
+  '[session-do] ignoring stale draft completion',
+  '[session-do] ignoring stale draft cancellation',
+  '[session-do] reported Discord sync retry scheduled',
+]
 
 const CORE_MODE_CASES = [
   { mode: '1v1', playerCount: 2 },
@@ -34,9 +50,40 @@ const MAP_VOTE_RESULT: ResolvedMapVoteResult = {
   resolvedRandomMapScript: null,
 }
 
+beforeAll(() => {
+  console.log = (...args: unknown[]) => {
+    if (!isNoisySystemScenarioLog(args)) originalConsole.log(...args)
+  }
+  console.warn = (...args: unknown[]) => {
+    if (!isNoisySystemScenarioLog(args)) originalConsole.warn(...args)
+  }
+  console.error = (...args: unknown[]) => {
+    if (!isNoisySystemScenarioLog(args)) originalConsole.error(...args)
+  }
+})
+
+afterAll(() => {
+  console.log = originalConsole.log
+  console.warn = originalConsole.warn
+  console.error = originalConsole.error
+})
+
 afterEach(async () => {
   await Promise.all(worlds.splice(0).map(world => world.dispose()))
 })
+
+function isNoisySystemScenarioLog(args: unknown[]): boolean {
+  const message = typeof args[0] === 'string' ? args[0] : ''
+  if (NOISY_SYSTEM_SCENARIO_LOG_PREFIXES.some(prefix => message.startsWith(prefix))) return true
+  return message.startsWith('Failed to post archive result for match') && args.some(isInjectedMessageCreateFailure)
+}
+
+function isInjectedMessageCreateFailure(value: unknown): boolean {
+  if (value instanceof Error && value.message.includes('Injected message create failure')) return true
+  if (!value || typeof value !== 'object') return false
+  const detail = (value as { detail?: unknown }).detail
+  return typeof detail === 'string' && detail.includes('Injected message create failure')
+}
 
 describe('system scenarios', () => {
   for (const { mode, playerCount } of CORE_MODE_CASES) {
@@ -1621,6 +1668,7 @@ describe('system scenarios', () => {
       reporterId: 'p1',
       placements: 'A',
     })).ok).toBe(true)
+    await world.flushBackgroundTasks()
 
     const messageIds = await world.match.getMessageIds(started.matchId)
     const reboundMessageId = messageIds.find(messageId => messageId !== staleMessageId) ?? null
@@ -1647,6 +1695,7 @@ describe('system scenarios', () => {
       reporterId: 'p1',
       placements: 'A',
     })).ok).toBe(true)
+    await world.flushBackgroundTasks()
 
     const messageIds = await world.match.getMessageIds(started.matchId)
     expect(messageIds.length).toBeGreaterThanOrEqual(2)
@@ -1660,6 +1709,7 @@ describe('system scenarios', () => {
       reporterId: 'p1',
       placements: 'A',
     })).ok).toBe(true)
+    await world.flushBackgroundTasks()
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(messageIds[1]!))).toBe(true)
   })

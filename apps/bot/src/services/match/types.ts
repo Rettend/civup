@@ -44,7 +44,7 @@ export interface ReportProcessingClaim {
   claimId: string
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim } | { error: string }
+export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean } | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
