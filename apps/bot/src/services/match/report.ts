@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
+import type { DbBatchItem } from '../db/batch.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, ReportResult } from './types.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
@@ -8,6 +9,7 @@ import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -191,7 +193,9 @@ export async function reportMatch(
 
   let reportCompleted = false
   try {
-    if (!tournamentLinked && gameContext.leaderboardMode != null && hasPreparedRatedReportParticipantMarkers(participantRows)) {
+    const hasPreparedRatedReport = !tournamentLinked && gameContext.leaderboardMode != null
+      && (hasPreparedRatedReportParticipantMarkers(participantRows) || await hasPreparedRatedReportEvents(db, match.id, participantRows, gameContext.leaderboardMode))
+    if (hasPreparedRatedReport && gameContext.leaderboardMode != null) {
       const preparedReport = await buildPreparedRatedReportResultIfRatingEventsExist(
         db,
         kv,
@@ -202,6 +206,10 @@ export async function reportMatch(
         gameContext.leaderboardMode,
       )
       if (preparedReport) return preparedReport
+      participantRows = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, input.matchId))
     }
 
     const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
@@ -675,7 +683,7 @@ async function applyIncrementalRatedReport(
 ): Promise<string | null> {
   const opponentTierByPlayerId = await loadCurrentRankedRoleTierByPlayerId(kv, rankedRoleGuildId)
   const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld, opponentTierByPlayerId, permanentAlly)
-  const modeResult = await applyRatingScopeUpdate(db, {
+  const modeQueries = buildRatingScopeUpdateQueries(db, {
     scope: leaderboardMode,
     match,
     gameMode,
@@ -686,9 +694,9 @@ async function applyIncrementalRatedReport(
     now,
     writeParticipantSnapshots: true,
   })
-  if (modeResult) return modeResult
+  if (typeof modeQueries === 'string') return modeQueries
 
-  return applyRatingScopeUpdate(db, {
+  const globalQueries = buildRatingScopeUpdateQueries(db, {
     scope: GLOBAL_RATING_SCOPE,
     match,
     gameMode,
@@ -699,12 +707,16 @@ async function applyIncrementalRatedReport(
     now,
     writeParticipantSnapshots: false,
   })
+  if (typeof globalQueries === 'string') return globalQueries
+
+  await runDbBatch(db, [...modeQueries, ...globalQueries])
+  return null
 }
 
-async function applyRatingScopeUpdate(
+function buildRatingScopeUpdateQueries(
   db: Database,
   input: RatingScopeUpdateInput,
-): Promise<string | null> {
+): DbBatchItem[] | string {
   const placementByPlayerId = input.permanentAlly && input.gameMode === 'ffa'
     ? buildPermanentAllyFfaPlacementByPlayerId(input.participantRows)
     : new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
@@ -768,6 +780,8 @@ async function applyRatingScopeUpdate(
     ratingUpdates = calculateRatings({ type: 'ffa', entries: ffaEntries })
   }
 
+  const queries: DbBatchItem[] = []
+
   for (const update of ratingUpdates) {
     const ratingBeforeMu = update.before.mu
     const ratingAfter = scaleRatingAfterForSource(update, input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1)
@@ -775,7 +789,7 @@ async function applyRatingScopeUpdate(
     const ratingAfterSigma = ratingAfter.sigma
 
     if (input.writeParticipantSnapshots) {
-      await db
+      queries.push(db
         .update(matchParticipants)
         .set({
           ratingBeforeMu,
@@ -787,6 +801,7 @@ async function applyRatingScopeUpdate(
           eq(matchParticipants.matchId, input.match.id),
           eq(matchParticipants.playerId, update.playerId),
         ))
+      )
     }
 
     const existing = input.existingRatingsByPlayerId.get(update.playerId)
@@ -833,17 +848,17 @@ async function applyRatingScopeUpdate(
       updatedAt: input.now,
     }
 
-    await db.insert(playerRatings).values(row).onConflictDoUpdate({
+    queries.push(db.insert(playerRatings).values(row).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: row,
-    })
-    await db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
+    }))
+    queries.push(db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
       target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
       set: eventRow,
-    })
+    }))
   }
 
-  return null
+  return queries
 }
 
 type PreparedRatedReportState = 'none' | 'complete' | 'partial'
@@ -858,6 +873,26 @@ function hasPreparedRatedReportParticipantMarkers(participantRows: ParticipantRo
   ))
 }
 
+async function hasPreparedRatedReportEvents(
+  db: Database,
+  matchId: string,
+  participantRows: ParticipantRow[],
+  leaderboardMode: LeaderboardMode,
+): Promise<boolean> {
+  const playerIds = [...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0))]
+  if (playerIds.length === 0) return false
+  const [event] = await db
+    .select({ matchId: playerRatingEvents.matchId })
+    .from(playerRatingEvents)
+    .where(and(
+      eq(playerRatingEvents.matchId, matchId),
+      inArray(playerRatingEvents.playerId, playerIds),
+      inArray(playerRatingEvents.mode, [leaderboardMode, GLOBAL_RATING_SCOPE]),
+    ))
+    .limit(1)
+  return event != null
+}
+
 async function buildPreparedRatedReportResultIfRatingEventsExist(
   db: Database,
   kv: KVNamespace,
@@ -868,9 +903,16 @@ async function buildPreparedRatedReportResultIfRatingEventsExist(
   leaderboardMode: LeaderboardMode,
 ): Promise<ReportResult | null> {
   const preparedState = await getPreparedRatedReportState(db, match.id, participantRows, leaderboardMode)
-  if (preparedState === 'none') return null
-  if (preparedState === 'partial') {
-    return { error: `Match **${match.id}** has a partially prepared rating report. Try again after cleanup finishes or ask an admin to repair it.` }
+  if (preparedState !== 'complete') {
+    const rollbackError = await rollbackReportedRatedMatch(db, kv, {
+      match,
+      leaderboardMode,
+      rankedRoleGuildId: options.rankedRoleGuildId,
+    })
+    if (rollbackError) {
+      return { error: `Match **${match.id}** has a partially prepared rating report. Automatic cleanup failed: ${rollbackError}` }
+    }
+    return null
   }
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), reporterId, true)
@@ -1027,11 +1069,12 @@ async function repairCompletedReportedMatch(
   participantRows: ParticipantRow[],
   options: ReportMatchOptions = {},
 ): Promise<ReportResult | null> {
-  if (!hasMissingRatingSnapshots(participantRows)) return null
-
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return { error: `Match **${match.id}** has unsupported game mode: ${match.gameMode}.` }
   if (gameContext.leaderboardMode == null) return null
+
+  const preparedState = await getPreparedRatedReportState(db, match.id, participantRows, gameContext.leaderboardMode)
+  if (!hasMissingRatingSnapshots(participantRows) && preparedState === 'complete') return null
 
   console.error(`Repairing incomplete reported match ${match.id}.`)
 
