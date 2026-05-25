@@ -1136,8 +1136,8 @@ export function LeaderGridOverlay() {
             role="tooltip"
             class="px-2 py-1 border border-border rounded bg-bg/95 max-w-56 pointer-events-none shadow-black/40 shadow-lg fixed z-60"
             style={{
-              left: `${tooltipPosition().left}px`,
-              top: `${tooltipPosition().top}px`,
+              left: `calc(${tooltipPosition().left}px / var(--civup-ui-scale, 1))`,
+              top: `calc(${tooltipPosition().top}px / var(--civup-ui-scale, 1))`,
             }}
           >
             <div class="text-xs text-fg font-semibold truncate">{tooltip().name}</div>
