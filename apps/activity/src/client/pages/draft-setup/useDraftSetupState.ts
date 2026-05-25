@@ -488,9 +488,16 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     setStartPending(true)
     clearConfigMessage()
     try {
-      const result = await startLobbyDraft(lobby.mode, lobby.id, currentUserId)
+      const configSaved = await configState.actions.flushPendingEdits()
+      if (!configSaved) return
+
+      const latestLobby = currentLobby()
+      const latestUserId = userId()
+      if (!latestLobby || !latestUserId || !amHost() || !configState.derived.canStartLobby() || lobbyActionPending()) return
+
+      const result = await startLobbyDraft(latestLobby.mode, latestLobby.id, latestUserId)
       if (!result.ok) return showErrorMessage(result.error)
-      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.sessionAccessToken)
+      props.onLobbyStarted?.(result.matchId, latestLobby.steamLobbyLink, result.sessionAccessToken)
       showInfoMessage('Draft created. Opening draft...')
     }
     finally {
@@ -599,7 +606,19 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     if (slot == null) return
     await handleRemoveFromSlot(slot)
   }
-  const sendStartAction = () => sendStart()
+  const sendStartAction = async () => {
+    if (!amHost() || isLobbyMode() || startPending()) return
+    setStartPending(true)
+    clearConfigMessage()
+    try {
+      const configSaved = await configState.actions.flushPendingEdits()
+      if (!configSaved) return
+      sendStart()
+    }
+    finally {
+      setStartPending(false)
+    }
+  }
 
   const pending = {
     lobbyAction: lobbyActionPending,

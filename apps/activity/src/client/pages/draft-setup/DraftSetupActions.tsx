@@ -15,8 +15,12 @@ export function DraftSetupActions(props: { actions: DraftSetupActionsState, stat
           <div class="flex flex-col gap-2 items-center">
             <span class="text-sm text-fg-subtle">{status().text()}</span>
             <div class="flex max-w-full flex-wrap gap-3 items-center justify-center">
-              <button class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors hover:brightness-110 shrink-0 whitespace-nowrap" onClick={() => void actions().sendStart()}>
-                Start Draft
+              <button
+                class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110 shrink-0 whitespace-nowrap"
+                disabled={actions().pending.start()}
+                onClick={() => void actions().sendStart()}
+              >
+                {actions().pending.start() ? 'Starting' : 'Start Draft'}
               </button>
               <button class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 shrink-0 whitespace-nowrap" onClick={() => void actions().cancel()}>
                 Cancel Draft
