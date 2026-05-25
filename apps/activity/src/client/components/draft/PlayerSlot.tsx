@@ -1,6 +1,6 @@
 import type { Leader, MapVoteMapOption } from '@civup/game'
 import { getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
-import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
@@ -19,10 +19,13 @@ interface PlayerSlotProps {
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
+const BAN_PREVIEW_HORIZONTAL_RATIO = 0.92
 
 function SlotPortraitImage(props: {
   src: string
   alt: string
+  title?: string
+  'data-testid'?: string
   class?: string
   animate?: boolean
   waitForDecode?: boolean
@@ -42,6 +45,8 @@ function SlotPortraitImage(props: {
       }}
       src={props.src}
       alt={props.alt}
+      title={props.title}
+      data-testid={props['data-testid']}
       class={cn(
         props.class,
         props.animate && props.waitForDecode && !ready() && 'opacity-0',
@@ -55,6 +60,7 @@ function SlotPortraitImage(props: {
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
+  let slotElement: HTMLDivElement | undefined
   const state = () => draftStore.state
   const seat = () => state()?.seats[props.seatIndex]
 
@@ -109,6 +115,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const accent = () => phaseAccent()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
   const seatPlayerId = () => seat()?.playerId ?? null
+  const seatTeam = () => seat()?.team ?? null
   const isComplete = () => state()?.status === 'complete'
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
   const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
@@ -144,6 +151,22 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
     return submittedCount < step.count
   }
+  const banPreviewCivIds = createMemo<string[]>(() => {
+    const s = state()
+    if (!s || s.status !== 'active' || filled() || seatTeam() == null) return []
+
+    const step = s.steps[s.currentStepIndex]
+    if (!step || step.action !== 'ban') return []
+    if (step.seats !== 'all' && !step.seats.includes(props.seatIndex)) return []
+    if ((s.submissions[props.seatIndex]?.length ?? 0) >= step.count) return []
+
+    return (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, 3).filter((civId) => {
+      try { return getLeader(civId, draftStore.leaderDataVersion) != null }
+      catch { return false }
+    })
+  })
+  const hasBanPreview = (): boolean => banPreviewCivIds().length > 0
+  const [banPreviewHorizontal, setBanPreviewHorizontal] = createSignal(isMobileLayout())
   const activeStepDurationSeconds = () => {
     const s = state()
     if (!s || s.status !== 'active') return 0
@@ -163,6 +186,31 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const [wasEverActive, setWasEverActive] = createSignal(false)
   createEffect(() => { if (isActive()) setWasEverActive(true) })
+
+  onMount(() => {
+    const element = slotElement
+    if (!element) return
+
+    const updateOrientation = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) {
+        setBanPreviewHorizontal(isMobileLayout())
+        return
+      }
+      setBanPreviewHorizontal(width >= height * BAN_PREVIEW_HORIZONTAL_RATIO)
+    }
+
+    const rect = element.getBoundingClientRect()
+    updateOrientation(rect.width, rect.height)
+
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      updateOrientation(entry.contentRect.width, entry.contentRect.height)
+    })
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
 
   // ── FFA Placement ────────────────────────────────────────
   const placementRank = () => {
@@ -246,7 +294,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (rank < 0) return 0
     return draftStore.permanentAlly ? Math.floor(rank / 2) + 1 : rank + 1
   }
-  const seatTeam = () => seat()?.team ?? null
 
   const showCornerSwapButton = () => !resultSelectionsLocked() && canSwapLeadersWith(props.seatIndex)
   const swapButtonClass = 'rounded-full border-2 bg-transparent text-[#e2c68b] border-[#e8d4ab]/72 shadow-[0_6px_18px_rgba(0,0,0,0.38),0_0_0_1px_rgba(200,170,110,0.08)] transition-[color,border-color,box-shadow,transform] duration-200 hover:text-[#f4dca8] hover:border-[#f4dca8]/92 hover:shadow-[0_8px_24px_rgba(0,0,0,0.46),0_0_18px_rgba(200,170,110,0.24)] active:scale-95'
@@ -270,6 +317,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   return (
     <div
+      ref={slotElement}
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
         canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
@@ -423,8 +471,45 @@ export function PlayerSlot(props: PlayerSlotProps) {
         }}
       </Show>
 
+      <Show when={!filled() && hasBanPreview()}>
+        <div
+          data-testid="slot-ban-preview-stack"
+          class={cn(
+            'pointer-events-none absolute inset-0 flex opacity-50 saturate-85',
+            banPreviewHorizontal() ? 'flex-row' : 'flex-col',
+          )}
+        >
+          <For each={banPreviewCivIds()}>
+            {civId => {
+              const entryLeader = () => {
+                try { return getLeader(civId, draftStore.leaderDataVersion) }
+                catch { return null }
+              }
+
+              return (
+                <Show when={entryLeader()}>
+                  {entry => (
+                    <SlotPortraitImage
+                      data-testid="slot-ban-preview"
+                      src={getLeaderFullPortraitUrl(entry())}
+                      alt={`Ban preview: ${entry().name}`}
+                      title={`${entry().name} - ${entry().civilization}`}
+                      class={cn(
+                        'h-full min-h-0 min-w-0 flex-1 object-cover',
+                        props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                      )}
+                      animate
+                    />
+                  )}
+                </Show>
+              )
+            }}
+          </For>
+        </div>
+      </Show>
+
       {/* Empty state icon */}
-      <Show when={!filled() && !hasPreview()}>
+      <Show when={!filled() && !hasPreview() && !hasBanPreview()}>
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
             isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
@@ -437,7 +522,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
-        filled() || hasPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
+        filled() || hasPreview() || hasBanPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
         {/* Leader name (when picked) */}
