@@ -936,7 +936,16 @@ export async function reportMatchResult(
   leaderAssignments?: Record<string, string>,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await activityApiPost(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
+    const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
+    if (data.reportProcessing) {
+      return {
+        ok: false,
+        error: data.reportFinalizing
+          ? 'Match is finalizing leader swaps. Try again in a moment.'
+          : 'Match is already being reported.',
+      }
+    }
+    if (data.ok === false) return { ok: false, error: data.error ?? 'Failed to report result' }
     return { ok: true }
   }
   catch (err) {
