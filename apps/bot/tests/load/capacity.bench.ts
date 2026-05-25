@@ -1101,7 +1101,7 @@ function buildCompletedDraftState(
         if (state.submissions[seatIndex]) continue
         const civIds = pickAvailableCivs(state.availableCivIds, step.count, reserved)
         for (const civId of civIds) reserved.add(civId)
-        selectionPreviewInputCount += 1
+        selectionPreviewInputCount += civIds.length
         state = applyDraftInput(state, { type: 'BAN', seatIndex, civIds }, format.blindBans)
         inputCount += 1
       }

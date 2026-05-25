@@ -107,7 +107,14 @@ export function censorDraftPreviews(
   previews: DraftPreviewState,
   seatIndex: number,
 ): DraftPreviewState {
-  const sanitized = sanitizeDraftPreviews(state, previews)
+  return censorSanitizedDraftPreviews(state, sanitizeDraftPreviews(state, previews), seatIndex)
+}
+
+export function censorSanitizedDraftPreviews(
+  state: DraftState,
+  sanitized: DraftPreviewState,
+  seatIndex: number,
+): DraftPreviewState {
   if (state.status !== 'active' || seatIndex < 0) return createEmptyDraftPreviews()
 
   const step = getCurrentStep(state)

@@ -36,6 +36,7 @@ import {
 import {
   applyDraftPreview,
   censorDraftPreviews,
+  censorSanitizedDraftPreviews,
   createEmptyDraftPreviews,
   draftPreviewsEqual,
   resolvePickSubmissionWithPreviews,
@@ -574,11 +575,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         }
         if (draftPreviewsEqual(previews, nextPreviews)) return
 
-        await this.updateRoomRecord(current => ({
-          ...current,
+        await this.setRoomRecord({
+          ...room,
           previews: nextPreviews,
-        }))
-        this.broadcastPreviewUpdate(state, nextPreviews)
+        })
+        this.broadcastPreviewUpdate(state, nextPreviews, previews)
         break
       }
 
@@ -1240,12 +1241,13 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     steamLobbyLink: string | null,
     permanentAlly: boolean,
   ) {
+    const sanitizedPreviews = sanitizeDraftPreviews(state, previews)
+    const previewCache = new Map<number, DraftPreviewState>()
+    const seatIndexCache = new Map<string, number>()
+
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
-      const playerId = connState?.playerId
-      const seatIndex = playerId
-        ? state.seats.findIndex(s => s.playerId === playerId)
-        : -1
+      const seatIndex = getCachedSeatIndex(state, seatIndexCache, connState?.playerId)
 
       this.send(conn, {
         type: 'update',
@@ -1257,7 +1259,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         serverNow: Date.now(),
         timerEndsAt,
         completedAt,
-        previews: censorDraftPreviews(state, previews, seatIndex),
+        previews: getCachedCensoredPreviews(state, sanitizedPreviews, seatIndex, previewCache),
         swapState,
         steamLobbyLink,
         permanentAlly,
@@ -1265,17 +1267,21 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private broadcastPreviewUpdate(state: DraftState, previews: DraftPreviewState) {
+  private broadcastPreviewUpdate(state: DraftState, previews: DraftPreviewState, previousPreviews: DraftPreviewState) {
+    const nextPreviewCache = new Map<number, DraftPreviewState>()
+    const previousPreviewCache = new Map<number, DraftPreviewState>()
+    const seatIndexCache = new Map<string, number>()
+
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
-      const playerId = connState?.playerId
-      const seatIndex = playerId
-        ? state.seats.findIndex(s => s.playerId === playerId)
-        : -1
+      const seatIndex = getCachedSeatIndex(state, seatIndexCache, connState?.playerId)
+      const next = getCachedCensoredPreviews(state, previews, seatIndex, nextPreviewCache)
+      const previous = getCachedCensoredPreviews(state, previousPreviews, seatIndex, previousPreviewCache)
+      if (draftPreviewsEqual(next, previous)) continue
 
       this.send(conn, {
         type: 'preview',
-        previews: censorDraftPreviews(state, previews, seatIndex),
+        previews: next,
       })
     }
   }
@@ -1336,6 +1342,30 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function getCachedSeatIndex(state: DraftState, cache: Map<string, number>, playerId: string | null | undefined): number {
+  if (!playerId) return -1
+  const cached = cache.get(playerId)
+  if (cached != null) return cached
+
+  const seatIndex = state.seats.findIndex(s => s.playerId === playerId)
+  cache.set(playerId, seatIndex)
+  return seatIndex
+}
+
+function getCachedCensoredPreviews(
+  state: DraftState,
+  sanitizedPreviews: DraftPreviewState,
+  seatIndex: number,
+  cache: Map<number, DraftPreviewState>,
+): DraftPreviewState {
+  const cached = cache.get(seatIndex)
+  if (cached) return cached
+
+  const censored = censorSanitizedDraftPreviews(state, sanitizedPreviews, seatIndex)
+  cache.set(seatIndex, censored)
+  return censored
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
