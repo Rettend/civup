@@ -1,12 +1,15 @@
-import { splitProps } from 'solid-js'
+import type { Accessor } from 'solid-js'
+import { createMemo, splitProps } from 'solid-js'
 import { cn } from '~/client/lib/css'
+
+type MaybeAccessor<T> = T | Accessor<T>
 
 interface SwitchProps {
   label?: string
   description?: string
-  ariaLabel?: string
-  checked?: boolean
-  disabled?: boolean
+  ariaLabel?: MaybeAccessor<string | undefined>
+  checked?: MaybeAccessor<boolean | undefined>
+  disabled?: MaybeAccessor<boolean | undefined>
   tone?: 'accent' | 'danger' | 'orange' | 'note'
   inactiveTone?: 'purple'
   onChange?: (checked: boolean) => void
@@ -15,6 +18,10 @@ interface SwitchProps {
 
 export function Switch(props: SwitchProps) {
   const [local, rest] = splitProps(props, ['label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'inactiveTone', 'onChange', 'class'])
+  const resolve = <T,>(value: MaybeAccessor<T> | undefined) => typeof value === 'function' ? (value as Accessor<T>)() : value
+  const checked = createMemo(() => resolve(local.checked) ?? false)
+  const disabled = createMemo(() => resolve(local.disabled) ?? false)
+  const ariaLabel = createMemo(() => resolve(local.ariaLabel))
 
   const activeTrackClass = () => {
     if (local.tone === 'danger') {
@@ -50,13 +57,13 @@ export function Switch(props: SwitchProps) {
     <button
       type="button"
       role="switch"
-      aria-label={local.ariaLabel}
-      aria-checked={local.checked ?? false}
-      disabled={local.disabled}
-      onClick={() => { if (!local.disabled) local.onChange?.(!local.checked) }}
+      aria-label={ariaLabel()}
+      aria-checked={checked()}
+      disabled={disabled()}
+      onClick={() => { if (!disabled()) local.onChange?.(!checked()) }}
       class={cn(
-        'group flex items-center gap-3 w-full text-left cursor-pointer',
-        'disabled:opacity-50',
+        'group flex items-center gap-3 w-full text-left',
+        disabled() ? 'opacity-50 cursor-default' : 'cursor-pointer opacity-100',
         local.class,
       )}
       {...rest}
@@ -82,7 +89,7 @@ export function Switch(props: SwitchProps) {
           'relative flex-shrink-0 w-10 h-5.5 rounded-full',
           'transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
           'border',
-          local.checked
+          checked()
             ? activeTrackClass()
             : inactiveTrackClass(),
         )}
@@ -92,7 +99,7 @@ export function Switch(props: SwitchProps) {
           class={cn(
             'absolute top-1/2 -translate-y-1/2 size-3.5 rounded-full',
             'transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
-            local.checked
+            checked()
               ? activeThumbClass()
               : inactiveThumbClass(),
           )}

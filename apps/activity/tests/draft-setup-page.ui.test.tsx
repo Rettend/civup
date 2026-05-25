@@ -33,6 +33,31 @@ function hasIconClass(container: HTMLElement, iconClass: string) {
   return Array.from(container.querySelectorAll('span')).some(element => element.className.includes(iconClass))
 }
 
+function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patch: Record<string, unknown>) {
+  const lobby = createLobbySnapshot({ mode, revision })
+  return {
+    ...lobby,
+    targetSize: typeof patch.targetSize === 'number' ? patch.targetSize : lobby.targetSize,
+    draftConfig: {
+      ...lobby.draftConfig,
+      banTimerSeconds: typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null ? patch.banTimerSeconds : lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null ? patch.pickTimerSeconds : lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null ? patch.leaderPoolSize : lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : lobby.draftConfig.leaderDataVersion,
+      mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
+      blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : lobby.draftConfig.blindBans,
+      simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
+      permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
+      redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : lobby.draftConfig.redDeath,
+      dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : lobby.draftConfig.dealOptionsSize,
+      randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : lobby.draftConfig.randomDraft,
+      hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : lobby.draftConfig.hiddenDraft,
+      duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : lobby.draftConfig.duplicateFactions,
+      closed: typeof patch.closed === 'boolean' ? patch.closed : lobby.draftConfig.closed,
+    },
+  }
+}
+
 function queryUiScaleControl() {
   return document.querySelector('[aria-label="UI Scale"]')
 }
@@ -345,6 +370,85 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Red Death' }))
 
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
+  })
+
+  test('queues overlapping optimistic config saves with the latest switch state', async () => {
+    let resolveFirstSave: () => void = () => {}
+    const firstSave = new Promise<void>((resolve) => { resolveFirstSave = resolve })
+    let callIndex = 0
+
+    storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
+      callIndex += 1
+      if (callIndex === 1) await firstSave
+      return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, callIndex + 1, patch) }
+    })
+
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Blind Bans' }))
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
+
+    const randomDraftSwitch = screen.getByRole('switch', { name: 'Random draft' })
+    expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.click(randomDraftSwitch)
+    await Promise.resolve()
+
+    expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1)
+
+    resolveFirstSave()
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(2))
+
+    const patches = storeSpies.updateLobbyConfig.mock.calls.map(call => call[3] as Record<string, unknown>)
+    const firstPatch = patches[0]!
+    const secondPatch = patches[1]!
+    expect(firstPatch.blindBans).toBe(false)
+    expect(secondPatch.blindBans).toBe(false)
+    expect(secondPatch.randomDraft).toBe(true)
+    expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false)
+  })
+
+  test('keeps a refocused timer input active when an older blur save finishes', async () => {
+    let resolveSave: () => void = () => {}
+    const save = new Promise<void>((resolve) => { resolveSave = resolve })
+
+    storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
+      await save
+      return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, 2, patch) }
+    })
+
+    render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+
+    const banInput = screen.getByRole('spinbutton', { name: 'Ban Timer (minutes)' }) as HTMLInputElement
+
+    banInput.focus()
+    fireEvent.focus(banInput)
+    fireEvent.input(banInput, { target: { value: '2' } })
+    fireEvent.blur(banInput)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
+
+    banInput.focus()
+    fireEvent.focus(banInput)
+    fireEvent.input(banInput, { target: { value: '2.5' } })
+
+    resolveSave()
+
+    await waitFor(() => expect((document.activeElement as HTMLInputElement | null)?.value).toBe('2.5'))
+    expect(document.activeElement).toBe(banInput)
   })
 
   test('covers the host 2v2 extra-team toggle flow', async () => {
