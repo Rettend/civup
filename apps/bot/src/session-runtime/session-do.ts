@@ -9,7 +9,7 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeMapVoteSelection, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
@@ -3386,13 +3386,13 @@ function remapStoredMapVote(mapVote: StoredMapVoteState, seatIndexMap: ReadonlyM
   return {
     ...mapVote,
     selections: remapSeatValueRecord(mapVote.selections, seatIndexMap, selection => ({
-      mapTypes: [...selection.mapTypes],
-      mapScripts: [...selection.mapScripts],
+      maps: [...normalizeMapVoteSelection(selection).maps],
     })),
     confirmations: remapSeatValueRecord(mapVote.confirmations, seatIndexMap, confirmed => confirmed),
     revealedVotes: mapVote.revealedVotes?.map(ballot => ({
-      ...ballot,
       seatIndex: remapSeatIndex(ballot.seatIndex, seatIndexMap),
+      confirmed: ballot.confirmed,
+      maps: [...normalizeMapVoteSelection(ballot).maps],
     })) ?? null,
   }
 }

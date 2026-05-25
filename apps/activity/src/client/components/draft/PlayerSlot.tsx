@@ -1,5 +1,5 @@
-import type { Leader } from '@civup/game'
-import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
+import type { Leader, MapVoteMapOption } from '@civup/game'
+import { getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
 import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
@@ -520,47 +520,37 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const isRevealing = () => mapVotePhase() === 'reveal'
   const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
   const mapVoteResult = () => draftStore.mapVote.result
-  const winningTypeCandidate = () => mapVoteWinningTypeCandidate()
-  const winningScriptCandidate = () => mapVoteWinningScriptCandidate()
-  const isWinningType = () => {
-    const winningType = winningTypeCandidate()
-    return winningType != null && (vote()?.mapTypes ?? []).includes(winningType)
+  const winningMapCandidate = () => getMapVoteMapIdForResult(mapVoteWinningTypeCandidate(), mapVoteWinningScriptCandidate())
+  const selectedMaps = () => normalizeMapVoteSelection(vote()).maps
+  const isWinningMap = () => {
+    const winningMap = winningMapCandidate()
+    return winningMap != null && selectedMaps().includes(winningMap)
   }
-  const isWinningScript = () => {
-    const winningScript = winningScriptCandidate()
-    return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
-  }
-  const hasTypeVote = () => (vote()?.mapTypes.length ?? 0) > 0
-  const hasScriptVote = () => (vote()?.mapScripts.length ?? 0) > 0
+  const hasMapVote = () => selectedMaps().length > 0
   const isWinningBallot = () => {
     if (!isRevealing()) return false
-    if (!hasTypeVote() && !hasScriptVote()) return false
-    return (!hasTypeVote() || isWinningType())
-      && (!hasScriptVote() || isWinningScript())
+    if (!hasMapVote()) return false
+    return isWinningMap()
   }
 
   const isConfirmedSeat = () => isVoting() && isSeatMapVoteConfirmed(props.seatIndex)
   const showVotingGlow = () => isVoting() && !isConfirmedSeat()
   const displayedMap = () => {
-    const displayedScriptId = isWinningBallot()
-      ? mapVoteResult()?.mapScript
-      : vote()?.mapScripts[0] ?? mapVoteResult()?.mapScript
-    if (!displayedScriptId) return null
-    const script = MAP_SCRIPT_BY_ID[displayedScriptId]
-    if (!script) return null
+    const result = mapVoteResult()
+    const displayedMapId = isWinningBallot()
+      ? getMapVoteMapIdForResult(result?.mapType, result?.mapScript)
+      : selectedMaps()[0] ?? getMapVoteMapIdForResult(result?.mapType, result?.mapScript)
+    if (!displayedMapId) return null
+    const map = MAP_VOTE_MAP_BY_ID[displayedMapId]
+    if (!map) return null
     return {
-      ...script,
-      label: script.hint ? `${script.name} (${script.hint})` : script.name,
-      imageSrc: script.imageUrl ? (resolveAssetUrl(script.imageUrl) ?? script.imageUrl) : null,
-      isRandom: script.id === 'random',
+      ...map,
+      label: formatSlotMapLabel(map),
+      subLabel: formatSlotMapSubLabel(map),
+      imageAlt: formatSlotMapImageAlt(map),
+      imageSrc: map.imageUrl ? (resolveAssetUrl(map.imageUrl) ?? map.imageUrl) : null,
+      isRandom: map.id === 'random',
     }
-  }
-  const displayedMapTypeLabel = () => {
-    const displayedTypeId = isWinningBallot()
-      ? mapVoteResult()?.mapType
-      : vote()?.mapTypes[0] ?? mapVoteResult()?.mapType
-    if (!displayedTypeId) return ''
-    return MAP_TYPE_BY_ID[displayedTypeId]?.name ?? displayedTypeId
   }
   const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
   const winningBallotBackdropStyle = {
@@ -730,7 +720,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                         {src => (
                           <img
                             src={src()}
-                            alt={map().label}
+                            alt={map().imageAlt}
                             class="h-full w-full inset-0 absolute object-contain"
                             style={isWinningBallot()
                               ? {
@@ -751,7 +741,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                       {map().label}
                     </span>
 
-                    <Show when={displayedMapTypeLabel()}>
+                    <Show when={map().subLabel}>
                       {label => (
                         <span class={cn(
                           'mx-auto max-w-full truncate text-center font-semibold leading-none',
@@ -801,6 +791,19 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       </Show>
     </div>
   )
+}
+
+function formatSlotMapLabel(map: MapVoteMapOption): string {
+  return map.name
+}
+
+function formatSlotMapSubLabel(map: MapVoteMapOption): string {
+  return [map.badgeLeft, map.badgeRight].filter(Boolean).join(' ')
+}
+
+function formatSlotMapImageAlt(map: MapVoteMapOption): string {
+  const subLabel = formatSlotMapSubLabel(map)
+  return subLabel ? `${map.name} ${subLabel}` : map.name
 }
 
 interface StableBreatheAnimationStyle {

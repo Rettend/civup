@@ -21,8 +21,7 @@ import {
   isDraftError,
   isMapVoteSupportedForMode,
   isRedDeathFormatId,
-  MAP_SCRIPT_IDS,
-  MAP_TYPE_IDS,
+  MAP_VOTE_MAP_IDS,
   MAX_TIMER_SECONDS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
@@ -962,12 +961,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
     const normalizedSelection = normalizeMapVoteSelection(selection)
     const nextSelection: MapVoteSelection = {
-      mapTypes: normalizedSelection.mapTypes.length > 0
-        ? normalizedSelection.mapTypes
-        : pickRandomDistinct([...MAP_TYPE_IDS], 1 + Math.floor(this.random() * MAP_TYPE_IDS.length), () => this.random()),
-      mapScripts: normalizedSelection.mapScripts.length > 0
-        ? normalizedSelection.mapScripts
-        : pickRandomDistinct([...MAP_SCRIPT_IDS], 1 + Math.floor(this.random() * 3), () => this.random()),
+      maps: normalizedSelection.maps.length > 0
+        ? normalizedSelection.maps
+        : pickRandomDistinct([...MAP_VOTE_MAP_IDS], 1 + Math.floor(this.random() * 3), () => this.random()),
     }
 
     const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
@@ -1209,7 +1205,13 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       selection: resolvedSeatIndex == null ? null : normalizeMapVoteSelection(mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
       hasConfirmed: resolvedSeatIndex == null ? false : mapVoteState.confirmations[resolvedSeatIndex] === true,
       confirmedSeatIndices,
-      revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.revealedVotes : null,
+      revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done'
+        ? mapVoteState.revealedVotes?.map(ballot => ({
+            seatIndex: ballot.seatIndex,
+            confirmed: ballot.confirmed,
+            maps: [...normalizeMapVoteSelection(ballot).maps],
+          })) ?? null
+        : null,
       result: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.result : null,
     }
   }
