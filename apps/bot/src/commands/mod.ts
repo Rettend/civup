@@ -760,12 +760,15 @@ function manualReportPlayerCountOptions(mode: GameMode, permanentAlly: boolean):
 }
 
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
-  const leaders = query.trim().length > 0 ? searchLeaders(query, 'live') : getLeaders('live')
+  const trimmed = query.trim()
+  const leaders = trimmed.length > 0
+    ? [...searchLeaders(trimmed, 'live'), ...searchLeaders(trimmed, 'beta')]
+    : [...getLeaders('live'), ...getLeaders('beta')]
   const seen = new Set<string>()
   const choices: Array<{ name: string, value: string }> = []
 
   for (const leader of leaders) {
-    if (!LIVE_LEADER_ID_SET.has(leader.id) || seen.has(leader.id)) continue
+    if ((!LIVE_LEADER_ID_SET.has(leader.id) && !BETA_LEADER_ID_SET.has(leader.id)) || seen.has(leader.id)) continue
     seen.add(leader.id)
     choices.push({
       name: truncateAutocompleteName(formatLeaderAutocompleteName(leader)),

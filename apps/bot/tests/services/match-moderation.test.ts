@@ -52,6 +52,36 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('creates a manual match with beta-only leaders as beta leader data', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      const liveLeaderIds = new Set(getLeaders('live').map(leader => leader.id))
+      const betaOnlyLeaderId = getLeaders('beta').find(leader => !liveLeaderIds.has(leader.id))?.id
+      expect(typeof betaOnlyLeaderId).toBe('string')
+      if (!betaOnlyLeaderId) return
+
+      const liveLeaderIdsForMatch = getLeaders('live').slice(0, 3).map(leader => leader.id)
+      const result = await createManualReportedMatch(db, kv, {
+        matchId: 'manual-beta-leader',
+        mode: '2v2',
+        reporterId: 'mod',
+        reportedAt: 10_000,
+        players: buildManualPlayers([betaOnlyLeaderId, ...liveLeaderIdsForMatch]),
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      expect(JSON.parse(result.match.draftData ?? '{}').leaderDataVersion).toBe('beta')
+      expect(result.participants.map(participant => participant.civId)).toContain(betaOnlyLeaderId)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('creates a manual odd-player FFA match', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
