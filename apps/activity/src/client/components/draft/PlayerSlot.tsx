@@ -1,6 +1,6 @@
 import type { Leader, MapVoteMapOption } from '@civup/game'
 import { getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
@@ -151,7 +151,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
     return submittedCount < step.count
   }
-  const banPreviewCivIds = createMemo<string[]>(() => {
+  const banPreviewLeaders = createMemo<Leader[]>(() => {
     const s = state()
     if (!s || s.status !== 'active' || filled() || seatTeam() == null) return []
 
@@ -160,12 +160,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (step.seats !== 'all' && !step.seats.includes(props.seatIndex)) return []
     if ((s.submissions[props.seatIndex]?.length ?? 0) >= step.count) return []
 
-    return (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, 3).filter((civId) => {
-      try { return getLeader(civId, draftStore.leaderDataVersion) != null }
-      catch { return false }
-    })
+    const leaders: Leader[] = []
+    for (const civId of (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, 3)) {
+      try { leaders.push(getLeader(civId, draftStore.leaderDataVersion)) }
+      catch { }
+    }
+    return leaders
   })
-  const hasBanPreview = (): boolean => banPreviewCivIds().length > 0
+  const hasBanPreview = (): boolean => banPreviewLeaders().length > 0
   const [banPreviewHorizontal, setBanPreviewHorizontal] = createSignal(isMobileLayout())
   const activeStepDurationSeconds = () => {
     const s = state()
@@ -187,7 +189,12 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const [wasEverActive, setWasEverActive] = createSignal(false)
   createEffect(() => { if (isActive()) setWasEverActive(true) })
 
-  onMount(() => {
+  createEffect(() => {
+    if (!hasBanPreview()) {
+      setBanPreviewHorizontal(isMobileLayout())
+      return
+    }
+
     const element = slotElement
     if (!element) return
 
@@ -479,31 +486,20 @@ export function PlayerSlot(props: PlayerSlotProps) {
             banPreviewHorizontal() ? 'flex-row' : 'flex-col',
           )}
         >
-          <For each={banPreviewCivIds()}>
-            {civId => {
-              const entryLeader = () => {
-                try { return getLeader(civId, draftStore.leaderDataVersion) }
-                catch { return null }
-              }
-
-              return (
-                <Show when={entryLeader()}>
-                  {entry => (
-                    <SlotPortraitImage
-                      data-testid="slot-ban-preview"
-                      src={getLeaderFullPortraitUrl(entry())}
-                      alt={`Ban preview: ${entry().name}`}
-                      title={`${entry().name} - ${entry().civilization}`}
-                      class={cn(
-                        'h-full min-h-0 min-w-0 flex-1 object-cover',
-                        props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
-                      )}
-                      animate
-                    />
-                  )}
-                </Show>
-              )
-            }}
+          <For each={banPreviewLeaders()}>
+            {entry => (
+              <SlotPortraitImage
+                data-testid="slot-ban-preview"
+                src={getLeaderFullPortraitUrl(entry)}
+                alt={`Ban preview: ${entry.name}`}
+                title={`${entry.name} - ${entry.civilization}`}
+                class={cn(
+                  'h-full min-h-0 min-w-0 flex-1 object-cover',
+                  props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                )}
+                animate
+              />
+            )}
           </For>
         </div>
       </Show>
