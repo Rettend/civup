@@ -1,9 +1,9 @@
-import type { JSX } from 'solid-js'
+import type { Accessor, JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Dropdown, Switch, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
@@ -33,8 +33,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Map Vote"
-        active={state.derived.optimisticDraftConfig().mapVoteEnabled}
-        disabled={state.lobbyActionPending() || state.pending.mapVoteEnabled()}
+        active={() => state.derived.optimisticDraftConfig().mapVoteEnabled}
+        disabled={() => state.lobbyActionPending() || state.pending.mapVoteEnabled()}
         onChange={checked => void state.actions.changeMapVoteEnabled(checked)}
       />
     ),
@@ -48,8 +48,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Blind Bans"
-        active={state.derived.optimisticDraftConfig().blindBans}
-        disabled={state.lobbyActionPending() || state.pending.blindBans()}
+        active={() => state.derived.optimisticDraftConfig().blindBans}
+        disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
         onChange={checked => void state.actions.changeBlindBans(checked)}
       />
     ),
@@ -63,8 +63,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="BBG Beta"
-        active={normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
-        disabled={state.lobbyActionPending() || state.pending.leaderDataVersion()}
+        active={() => normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
+        disabled={() => state.lobbyActionPending() || state.pending.leaderDataVersion()}
         onChange={checked => void state.actions.changeLeaderDataVersion(checked)}
       />
     ),
@@ -82,8 +82,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
-        active={state.derived.optimisticDraftConfig().simultaneousPick}
-        disabled={state.lobbyActionPending() || state.pending.simultaneousPick()}
+        active={() => state.derived.optimisticDraftConfig().simultaneousPick}
+        disabled={() => state.lobbyActionPending() || state.pending.simultaneousPick()}
         onChange={checked => void state.actions.changeSimultaneousPick(checked)}
       />
     ),
@@ -97,8 +97,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Permanent Ally"
-        active={state.derived.optimisticDraftConfig().permanentAlly}
-        disabled={state.lobbyActionPending() || state.pending.permanentAlly()}
+        active={() => state.derived.optimisticDraftConfig().permanentAlly}
+        disabled={() => state.lobbyActionPending() || state.pending.permanentAlly()}
         onChange={checked => void state.actions.changePermanentAlly(checked)}
       />
     ),
@@ -227,8 +227,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
-        active={state.derived.optimisticDraftConfig().randomDraft}
-        disabled={state.lobbyActionPending() || state.pending.randomDraft()}
+        active={() => state.derived.optimisticDraftConfig().randomDraft}
+        disabled={() => state.lobbyActionPending() || state.pending.randomDraft()}
         onChange={checked => void state.actions.changeRandomDraft(checked)}
       />
     ),
@@ -242,8 +242,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label="Hidden draft"
-        active={state.derived.optimisticDraftConfig().hiddenDraft}
-        disabled={state.lobbyActionPending() || state.pending.hiddenDraft()}
+        active={() => state.derived.optimisticDraftConfig().hiddenDraft}
+        disabled={() => state.lobbyActionPending() || state.pending.hiddenDraft()}
         onChange={checked => void state.actions.changeHiddenDraft(checked)}
       />
     ),
@@ -257,8 +257,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     renderEditable: state => (
       <SwitchRow
         label={state.derived.duplicateOptionLabel()}
-        active={state.derived.optimisticDuplicateFactions()}
-        disabled={state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
+        active={() => state.derived.optimisticDuplicateFactions()}
+        disabled={() => state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
         onChange={checked => void state.actions.changeDuplicateFactions(checked)}
       />
     ),
@@ -273,10 +273,10 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       <div class="mt-1 pt-3 border-t border-border-subtle">
         <SwitchRow
           label="Red Death"
-          active={state.derived.optimisticDraftConfig().redDeath}
+          active={() => state.derived.optimisticDraftConfig().redDeath}
           activeClass="text-[#f97316]"
           tone="orange"
-          disabled={state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
+          disabled={() => state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
           onChange={checked => void state.actions.changeRedDeath(checked)}
         />
       </div>
@@ -379,21 +379,24 @@ function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, 
 
 function SwitchRow(props: {
   label: string
-  active: boolean
-  disabled: boolean
+  active: Accessor<boolean>
+  disabled: Accessor<boolean>
   tone?: 'orange'
   activeClass?: string
   onChange: (checked: boolean) => void
 }) {
+  const active = createMemo(() => props.active())
+  const disabled = createMemo(() => props.disabled())
+
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
-      <span class={cn('text-sm font-medium', props.active ? (props.activeClass ?? 'text-accent') : 'text-fg-muted')}>
+      <span class={cn('text-sm font-medium', active() ? (props.activeClass ?? 'text-accent') : 'text-fg-muted')}>
         {props.label}
       </span>
       <Switch
         ariaLabel={props.label}
-        checked={props.active}
-        disabled={props.disabled}
+        checked={active}
+        disabled={disabled}
         class="w-auto"
         tone={props.tone}
         onChange={props.onChange}
@@ -419,9 +422,9 @@ function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
         {label()}
       </span>
       <Switch
-        ariaLabel={label()}
-        checked={isOpen()}
-        disabled={state().lobbyActionPending() || state().pending.closed()}
+        ariaLabel={label}
+        checked={isOpen}
+        disabled={() => state().lobbyActionPending() || state().pending.closed()}
         class="w-auto"
         tone="note"
         inactiveTone="purple"
