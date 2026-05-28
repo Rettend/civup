@@ -134,9 +134,24 @@ async function renderBracketLeaderboardSvg(data: TournamentLeaderboardImageData)
   const roundGroups = groupPairingsByRound(data.pairings)
   const firstRoundCount = roundGroups[0]?.pairings.length ?? 0
   const height = getBracketImageHeight(firstRoundCount)
-  const players: AvatarPlayer[] = []
-  const body = renderBracket(roundGroups, height, data.champion)
+  const players = collectBracketPlayers(data)
+  const avatarData = await loadAvatarData(players)
+  const body = renderBracket(roundGroups, height, data.champion, avatarData)
   return leaderboardSvgShell(height, 'PLAYOFFS', body, players)
+}
+
+function collectBracketPlayers(data: TournamentLeaderboardImageData): AvatarPlayer[] {
+  const players: AvatarPlayer[] = []
+  for (const pairing of data.pairings) {
+    if (pairing.playerOneId) {
+      players.push({ playerId: pairing.playerOneId, displayName: pairing.playerOneDisplayName, avatarUrl: pairing.playerOneAvatarUrl })
+    }
+    if (pairing.playerTwoId) {
+      players.push({ playerId: pairing.playerTwoId, displayName: pairing.playerTwoDisplayName, avatarUrl: pairing.playerTwoAvatarUrl })
+    }
+  }
+  if (data.champion) players.push(data.champion)
+  return [...new Map(players.map(player => [avatarKey(player), player])).values()]
 }
 
 interface BracketRoundGroup {
@@ -168,6 +183,7 @@ function renderBracket(
   roundGroups: BracketRoundGroup[],
   imageHeight: number,
   champion: TournamentOpponentCardPlayer | null,
+  avatarData: Map<string, string>,
 ): string {
   if (roundGroups.length === 0) return ''
 
@@ -195,7 +211,7 @@ function renderBracket(
       const pairing = group.pairings[matchIndex]!
       const matchY = startY + matchIndex * (BRACKET_MATCH_H + BRACKET_MATCH_VERTICAL_GAP)
       centers.push(matchY + BRACKET_MATCH_H / 2)
-      svg += renderBracketMatch(pairing, roundX, matchY, matchW, BRACKET_MATCH_R)
+      svg += renderBracketMatch(pairing, roundX, matchY, matchW, BRACKET_MATCH_R, avatarData)
     }
     matchCenters.push(centers)
   }
@@ -242,6 +258,7 @@ function renderBracketMatch(
   y: number,
   width: number,
   r: number,
+  avatarData: Map<string, string>,
 ): string {
   const isDecided = pairing.winnerDisplayName != null
   const p1IsWinner = isDecided && pairing.winnerDisplayName === pairing.playerOneDisplayName
@@ -251,30 +268,53 @@ function renderBracketMatch(
   svg += `<rect x="${x}" y="${y}" width="${width}" height="${BRACKET_MATCH_H}" rx="${r}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="1.5" />`
   svg += `<line x1="${x}" y1="${y + BRACKET_SLOT_H}" x2="${x + width}" y2="${y + BRACKET_SLOT_H}" stroke="${COLORS.borderSubtle}" stroke-width="1" />`
 
-  svg += renderBracketSlot(pairing.seedOne, pairing.playerOneDisplayName, p1IsWinner, isDecided && !p1IsWinner, x, y, width, r, 'top')
-  svg += renderBracketSlot(pairing.seedTwo, pairing.playerTwoDisplayName, p2IsWinner, isDecided && !p2IsWinner, x, y + BRACKET_SLOT_H, width, r, 'bottom')
+  svg += renderBracketSlot({
+    seed: pairing.seedOne,
+    playerId: pairing.playerOneId,
+    displayName: pairing.playerOneDisplayName,
+    avatarUrl: pairing.playerOneAvatarUrl,
+    score: pairing.playerOneScore,
+    isWinner: p1IsWinner,
+    isLoser: isDecided && !p1IsWinner,
+  }, x, y, width, r, 'top', avatarData)
+  svg += renderBracketSlot({
+    seed: pairing.seedTwo,
+    playerId: pairing.playerTwoId,
+    displayName: pairing.playerTwoDisplayName,
+    avatarUrl: pairing.playerTwoAvatarUrl,
+    score: pairing.playerTwoScore,
+    isWinner: p2IsWinner,
+    isLoser: isDecided && !p2IsWinner,
+  }, x, y + BRACKET_SLOT_H, width, r, 'bottom', avatarData)
 
   return svg
 }
 
 function renderBracketSlot(
-  seed: number,
-  displayName: string,
-  isWinner: boolean,
-  isLoser: boolean,
+  slot: {
+    seed: number
+    playerId: string | null
+    displayName: string
+    avatarUrl: string | null
+    score: number
+    isWinner: boolean
+    isLoser: boolean
+  },
   x: number,
   y: number,
   width: number,
   r: number,
   position: 'top' | 'bottom',
+  avatarData: Map<string, string>,
 ): string {
-  const isTbd = displayName === 'TBD'
+  const isTbd = slot.displayName === 'TBD'
   const textY = y + BRACKET_SLOT_H / 2 + 6
-  const nameColor = isTbd ? COLORS.subtle : isLoser ? COLORS.subtle : COLORS.fg
-  const seedColor = isWinner ? COLORS.accent : COLORS.subtle
+  const scoreY = textY + 3
+  const nameColor = isTbd ? COLORS.subtle : slot.isLoser ? COLORS.subtle : COLORS.fg
+  const seedColor = slot.isWinner ? COLORS.accent : COLORS.subtle
   let svg = ''
 
-  if (isWinner) {
+  if (slot.isWinner) {
     const hlPath = position === 'top'
       ? `M${x + r},${y} H${x + width - r} A${r},${r} 0 0 1 ${x + width},${y + r} V${y + BRACKET_SLOT_H} H${x} V${y + r} A${r},${r} 0 0 1 ${x + r},${y}`
       : `M${x},${y} H${x + width} V${y + BRACKET_SLOT_H - r} A${r},${r} 0 0 1 ${x + width - r},${y + BRACKET_SLOT_H} H${x + r} A${r},${r} 0 0 1 ${x},${y + BRACKET_SLOT_H - r} Z`
@@ -286,8 +326,12 @@ function renderBracketSlot(
     svg += `<text x="${x + 44}" y="${textY}" fill="${COLORS.subtle}" font-size="20" font-weight="700" letter-spacing="2">TBD</text>`
   }
   else {
-    svg += `<text x="${x + 16}" y="${textY}" fill="${seedColor}" font-size="18" font-weight="900">${seed}</text>`
-    svg += renderInlineText(displayName, x + 44, textY, width - 60, 22, isWinner ? 900 : 700, nameColor)
+    const player: AvatarPlayer = { playerId: slot.playerId, displayName: slot.displayName, avatarUrl: slot.avatarUrl }
+    const avatarSize = 30
+    svg += `<text x="${x + 14}" y="${textY}" fill="${seedColor}" font-size="17" font-weight="900">${slot.seed}</text>`
+    svg += renderAvatar(player, x + 36, y + 9, avatarSize, avatarClipId(player), avatarData.get(avatarKey(player)), seedColor, false)
+    svg += renderInlineText(slot.displayName, x + 76, textY, width - 124, 21, slot.isWinner ? 900 : 700, nameColor)
+    svg += `<text x="${x + width - 18}" y="${scoreY}" text-anchor="middle" fill="${slot.isWinner ? COLORS.accent : COLORS.fg}" font-size="24" font-weight="900">${slot.score}</text>`
   }
 
   return svg
