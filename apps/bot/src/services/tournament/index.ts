@@ -135,8 +135,15 @@ export interface TournamentLeaderboardImageData {
     round: string
     seedOne: number
     seedTwo: number
+    playerOneId: string | null
+    playerTwoId: string | null
     playerOneDisplayName: string
     playerTwoDisplayName: string
+    playerOneAvatarUrl: string | null
+    playerTwoAvatarUrl: string | null
+    playerOneScore: number
+    playerTwoScore: number
+    requiredWins: number
     winnerDisplayName: string | null
   }>
   champion: TournamentOpponentCardPlayer | null
@@ -507,14 +514,18 @@ export async function createTournamentMatchLink(
   },
 ): Promise<void> {
   const now = Date.now()
+  const cutPairing = input.cutPairingId
+    ? await getTournamentCutPairingById(db, input.cutPairingId)
+    : null
+  const stage = input.stage ?? (cutPairing ? normalizeTournamentStage(cutPairing.round) : 'qualifier')
   await db.insert(tournamentMatches).values({
     sessionId: input.sessionId,
     tournamentId: input.tournamentId,
     matchId: null,
-    stage: input.stage ?? 'qualifier',
+    stage,
     status: 'open',
-    playerOneId: input.playerOneId ?? input.hostId,
-    playerTwoId: input.playerTwoId ?? null,
+    playerOneId: input.playerOneId ?? cutPairing?.playerOneId ?? input.hostId,
+    playerTwoId: input.playerTwoId ?? cutPairing?.playerTwoId ?? null,
     winnerId: null,
     createdAt: now,
     updatedAt: now,
@@ -522,9 +533,9 @@ export async function createTournamentMatchLink(
     target: tournamentMatches.sessionId,
     set: {
       tournamentId: input.tournamentId,
-      stage: input.stage ?? 'qualifier',
-      playerOneId: input.playerOneId ?? input.hostId,
-      playerTwoId: input.playerTwoId ?? null,
+      stage,
+      playerOneId: input.playerOneId ?? cutPairing?.playerOneId ?? input.hostId,
+      playerTwoId: input.playerTwoId ?? cutPairing?.playerTwoId ?? null,
       updatedAt: now,
     },
   })
@@ -535,6 +546,15 @@ export async function createTournamentMatchLink(
       .set({ sessionId: input.sessionId, status: 'open', updatedAt: now })
       .where(eq(tournamentCutPairings.id, input.cutPairingId))
   }
+}
+
+export async function getTournamentCutPairingById(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(tournamentCutPairings)
+    .where(eq(tournamentCutPairings.id, id))
+    .limit(1)
+  return row ?? null
 }
 
 export async function updateTournamentMatchRoster(db: Database, sessionId: string, playerIds: readonly string[]): Promise<void> {
@@ -606,6 +626,26 @@ export async function getTournamentCutPairingBySessionId(db: Database, sessionId
     .select()
     .from(tournamentCutPairings)
     .where(eq(tournamentCutPairings.sessionId, sessionId))
+    .limit(1)
+  return row ?? null
+}
+
+async function getTournamentCutPairingForMatchLink(db: Database, link: typeof tournamentMatches.$inferSelect) {
+  const bySession = await getTournamentCutPairingBySessionId(db, link.sessionId)
+  if (bySession) return bySession
+  if (link.stage === 'qualifier' || !link.playerOneId || !link.playerTwoId) return null
+
+  const [row] = await db
+    .select()
+    .from(tournamentCutPairings)
+    .where(and(
+      eq(tournamentCutPairings.tournamentId, link.tournamentId),
+      eq(tournamentCutPairings.round, link.stage),
+      or(
+        and(eq(tournamentCutPairings.playerOneId, link.playerOneId), eq(tournamentCutPairings.playerTwoId, link.playerTwoId)),
+        and(eq(tournamentCutPairings.playerOneId, link.playerTwoId), eq(tournamentCutPairings.playerTwoId, link.playerOneId)),
+      ),
+    ))
     .limit(1)
   return row ?? null
 }
@@ -755,7 +795,7 @@ export async function syncTournamentMatchAfterReport(db: Database, matchId: stri
   const link = await getTournamentMatchByMatchId(db, matchId)
   if (!link) return
 
-  const cutPairing = await getTournamentCutPairingBySessionId(db, link.sessionId)
+  const cutPairing = await getTournamentCutPairingForMatchLink(db, link)
   const participants = await db
     .select({ playerId: matchParticipants.playerId, placement: matchParticipants.placement })
     .from(matchParticipants)
@@ -776,19 +816,14 @@ export async function syncTournamentMatchAfterReport(db: Database, matchId: stri
     })
     .where(eq(tournamentMatches.sessionId, link.sessionId))
 
-  await db
-    .update(tournamentCutPairings)
-    .set({ matchId, status: 'reported', winnerId: winner, updatedAt: Date.now() })
-    .where(eq(tournamentCutPairings.sessionId, link.sessionId))
-
-  if (cutPairing) await advanceTournamentCutIfRoundComplete(db, link.tournamentId, cutPairing.round)
+  if (cutPairing) await syncTournamentCutPairingAfterReport(db, cutPairing, matchId)
 }
 
 export async function syncTournamentMatchAfterCancel(db: Database, matchId: string): Promise<void> {
   const link = await getTournamentMatchByMatchId(db, matchId)
   if (!link) return
 
-  const cutPairing = await getTournamentCutPairingBySessionId(db, link.sessionId)
+  const cutPairing = await getTournamentCutPairingForMatchLink(db, link)
   const participants = await db
     .select({ playerId: matchParticipants.playerId })
     .from(matchParticipants)
@@ -996,7 +1031,8 @@ export async function buildTournamentLeaderboardImageData(
 
   const standings = standingsInput ?? await buildTournamentStandings(db, tournament.id)
   const pairingRows = pairingsInput ?? await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
-  const sortedPairingRows = [...pairingRows].sort(compareCutPairingsForDisplay)
+  const cutSize = getCutSizeFromPairings(pairingRows)
+  const sortedPairingRows = [...pairingRows].sort((left, right) => compareCutPairingsForDisplay(left, right, cutSize))
   const playersById = await getTournamentDisplayPlayersById(db, tournament.id, [
     ...standings.flatMap(row => row.playerId ? [row.playerId] : []),
     ...sortedPairingRows.flatMap(row => [row.playerOneId, row.playerTwoId, row.winnerId].filter((id): id is string => Boolean(id))),
@@ -1007,6 +1043,7 @@ export async function buildTournamentLeaderboardImageData(
   })))
   const championId = sortedPairingRows.find(row => row.round === 'final' && row.status === 'reported' && row.winnerId)?.winnerId ?? null
   const championStanding = championId ? standings.find(row => row.playerId === championId) : null
+  const scoreByPairingId = new Map(await Promise.all(sortedPairingRows.map(async row => [row.id, await buildTournamentCutSeriesScore(db, row)] as const)))
 
   return {
     tournamentName: tournament.name,
@@ -1017,8 +1054,15 @@ export async function buildTournamentLeaderboardImageData(
       round: row.round,
       seedOne: row.seedOne,
       seedTwo: row.seedTwo,
+      playerOneId: row.playerOneId,
+      playerTwoId: row.playerTwoId,
       playerOneDisplayName: formatTournamentDisplayPlayer(playersById, row.playerOneId),
       playerTwoDisplayName: formatTournamentDisplayPlayer(playersById, row.playerTwoId),
+      playerOneAvatarUrl: row.playerOneId ? playersById.get(row.playerOneId)?.avatarUrl ?? null : null,
+      playerTwoAvatarUrl: row.playerTwoId ? playersById.get(row.playerTwoId)?.avatarUrl ?? null : null,
+      playerOneScore: scoreByPairingId.get(row.id)?.playerOneWins ?? 0,
+      playerTwoScore: scoreByPairingId.get(row.id)?.playerTwoWins ?? 0,
+      requiredWins: getTopCutRoundRequiredWins(row.round),
       winnerDisplayName: row.winnerId ? formatTournamentDisplayPlayer(playersById, row.winnerId) : null,
     })),
     champion: championStanding ? await toOpponentCardPlayer(db, tournament.id, championStanding) : null,
@@ -1064,15 +1108,14 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
   if (!imageData) return false
 
   const hasPairings = pairings.length > 0
-  const standingsData = hasPairings ? { ...imageData, pairings: [], champion: null } : imageData
-  const standingsPng = await renderTournamentLeaderboardPng(standingsData)
-  await upsertLeaderboardMessage(db, token, channelId, 'tournament:active', standingsPng, 'tournament-standings.png')
-
   if (hasPairings) {
+    await deleteLeaderboardMessage(db, token, channelId, tournamentTopCutStandingsScope(tournament.id))
     const bracketPng = await renderTournamentLeaderboardPng(imageData)
-    await upsertLeaderboardMessage(db, token, channelId, 'tournament:active:bracket', bracketPng, 'tournament-bracket.png')
+    await upsertLeaderboardMessage(db, token, channelId, tournamentTopCutBracketScope(tournament.id), bracketPng, 'tournament-bracket.png')
   }
   else {
+    const standingsPng = await renderTournamentLeaderboardPng(imageData)
+    await upsertLeaderboardMessage(db, token, channelId, 'tournament:active', standingsPng, 'tournament-standings.png')
     await deleteLeaderboardMessage(db, token, channelId, 'tournament:active:bracket')
   }
 
@@ -1102,6 +1145,14 @@ async function getTournamentForLeaderboard(db: Database) {
     .orderBy(desc(tournaments.updatedAt))
     .limit(1)
   return completed ?? null
+}
+
+function tournamentTopCutStandingsScope(tournamentId: string): string {
+  return `tournament:${tournamentId}:top-cut`
+}
+
+function tournamentTopCutBracketScope(tournamentId: string): string {
+  return `tournament:${tournamentId}:bracket`
 }
 
 async function deleteStaleTournamentLeaderboardPageMessages(db: Database, token: string, channelId: string): Promise<void> {
@@ -1259,6 +1310,64 @@ function compareCutPairingsForLobbyTarget(left: typeof tournamentCutPairings.$in
 function normalizeTournamentStage(round: string): TournamentStage {
   if (round === 'quarterfinal' || round === 'semifinal' || round === 'final' || round === 'third_place' || round === 'tiebreaker') return round
   return 'top_cut'
+}
+
+async function syncTournamentCutPairingAfterReport(
+  db: Database,
+  pairing: typeof tournamentCutPairings.$inferSelect,
+  matchId: string,
+): Promise<void> {
+  const score = await buildTournamentCutSeriesScore(db, pairing)
+  const requiredWins = getTopCutRoundRequiredWins(pairing.round)
+  const winnerId = score.playerOneWins >= requiredWins
+    ? pairing.playerOneId
+    : score.playerTwoWins >= requiredWins
+      ? pairing.playerTwoId
+      : null
+  const now = Date.now()
+
+  if (!winnerId) {
+    await db
+      .update(tournamentCutPairings)
+      .set({ sessionId: null, matchId: null, status: 'scheduled', winnerId: null, updatedAt: now })
+      .where(eq(tournamentCutPairings.id, pairing.id))
+    return
+  }
+
+  await db
+    .update(tournamentCutPairings)
+    .set({ matchId, status: 'reported', winnerId, updatedAt: now })
+    .where(eq(tournamentCutPairings.id, pairing.id))
+  await advanceTournamentCutIfRoundComplete(db, pairing.tournamentId, pairing.round)
+}
+
+async function buildTournamentCutSeriesScore(
+  db: Database,
+  pairing: typeof tournamentCutPairings.$inferSelect,
+): Promise<{ playerOneWins: number, playerTwoWins: number }> {
+  if (!pairing.playerOneId || !pairing.playerTwoId) return { playerOneWins: 0, playerTwoWins: 0 }
+
+  const rows = await db
+    .select({ winnerId: tournamentMatches.winnerId })
+    .from(tournamentMatches)
+    .where(and(
+      eq(tournamentMatches.tournamentId, pairing.tournamentId),
+      eq(tournamentMatches.stage, pairing.round),
+      eq(tournamentMatches.status, 'reported'),
+      or(
+        and(eq(tournamentMatches.playerOneId, pairing.playerOneId), eq(tournamentMatches.playerTwoId, pairing.playerTwoId)),
+        and(eq(tournamentMatches.playerOneId, pairing.playerTwoId), eq(tournamentMatches.playerTwoId, pairing.playerOneId)),
+      ),
+    ))
+
+  return {
+    playerOneWins: rows.filter(row => row.winnerId === pairing.playerOneId).length,
+    playerTwoWins: rows.filter(row => row.winnerId === pairing.playerTwoId).length,
+  }
+}
+
+function getTopCutRoundRequiredWins(round: string): number {
+  return round === 'quarterfinal' ? 2 : 1
 }
 
 async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: string, round: string): Promise<void> {
@@ -1527,7 +1636,7 @@ function buildTournamentLeaderboardEmbed(
 
   if (pairings.length > 0) {
     const pairingLines = pairings
-      .sort(compareCutPairingsForDisplay)
+      .sort((left, right) => compareCutPairingsForDisplay(left, right, getCutSizeFromPairings(pairings)))
       .slice(0, 8)
       .map(pairing => `#${pairing.seedOne} <@${pairing.playerOneId}> vs #${pairing.seedTwo} <@${pairing.playerTwoId}>`)
     fields.push({ name: 'Pairings', value: pairingLines.join('\n') || 'No pairings.', inline: false })
@@ -1536,11 +1645,16 @@ function buildTournamentLeaderboardEmbed(
   return embed.fields(...fields)
 }
 
-function compareCutPairingsForDisplay(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect): number {
+function compareCutPairingsForDisplay(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect, cutSize: number): number {
   const roundScore = (round: string) => round === 'quarterfinal' ? 0 : round === 'semifinal' ? 1 : round === 'final' ? 2 : 3
   return roundScore(left.round) - roundScore(right.round)
+    || compareCutPairingsByBracketPosition(left, right, cutSize)
     || left.seedOne - right.seedOne
     || left.id.localeCompare(right.id)
+}
+
+function getCutSizeFromPairings(pairings: Array<typeof tournamentCutPairings.$inferSelect>): number {
+  return Math.max(0, ...pairings.flatMap(pairing => [pairing.seedOne, pairing.seedTwo]))
 }
 
 async function upsertTournamentLeaderboardMessageState(
