@@ -257,6 +257,7 @@ function parseSessionConfig(raw: string, mode: SessionDirectoryRow['mode']): Ses
       leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
       mapVoteEnabled: parsed.mapVoteEnabled === true,
       blindBans: parsed.blindBans === true,
+      blindPicks: parsed.blindPicks === true,
       simultaneousPick: parsed.simultaneousPick === true,
       permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,

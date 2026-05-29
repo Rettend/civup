@@ -241,6 +241,7 @@ export function canSendPickPreview(): boolean {
 
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return false
+  if (step.blind || step.reveal) return false
   if (seatHasLockedPick(seat)) return false
   const targetSeat = currentPickTargetSeatIndex()
   if (targetSeat != null && targetSeat !== seat) return false
@@ -292,6 +293,8 @@ export function dealtCivIds(): string[] | null {
 export function canOpenLeaderGrid(): boolean {
   const s = draftStore.state
   if (!s || s.status !== 'active') return false
+  const step = currentStep()
+  if (step?.reveal) return false
   if (!isRedDeathDraft()) return true
   return (s.dealtCivIds?.length ?? 0) > 0
 }
@@ -359,7 +362,10 @@ export function phaseLabel(): string {
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''
 
-  return step.action === 'ban' ? 'BAN PHASE' : 'PICK PHASE'
+  if (step.action === 'ban') return 'BAN PHASE'
+  if (step.reveal) return 'PICK CONFLICT'
+  if (step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLIND REDRAFT' : 'BLIND PICK'
+  return 'PICK PHASE'
 }
 
 /** Get the timer duration for the current step (in seconds) */

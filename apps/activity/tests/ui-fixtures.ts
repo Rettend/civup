@@ -73,6 +73,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       leaderDataVersion: 'live',
       mapVoteEnabled: true,
       blindBans: true,
+      blindPicks: false,
       simultaneousPick: false,
       redDeath: false,
       permanentAlly: true,

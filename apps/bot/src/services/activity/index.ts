@@ -19,6 +19,7 @@ export interface CreateDraftRuntimeOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   blindBans?: boolean
+  blindPicks?: boolean
   simultaneousPick?: boolean
   permanentAlly?: boolean
   redDeath?: boolean
@@ -49,6 +50,7 @@ export function buildDraftRuntimeConfig(
   const redDeathMode = options.redDeath === true
   const seats: DraftSeat[] = buildDraftSeats(mode, entries)
   const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
+  const blindPicks = options.blindPicks === true
   const hiddenDraft = options.hiddenDraft === true
   const randomDraft = !hiddenDraft && options.randomDraft === true
   // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
@@ -56,7 +58,7 @@ export function buildDraftRuntimeConfig(
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
     : (options.duplicateFactions === true)
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, seatCount: seats.length })
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
   const leaderDataVersion = options.leaderDataVersion ?? 'live'
   const civPool = redDeathMode
     ? [...allFactionIds]
@@ -70,6 +72,7 @@ export function buildDraftRuntimeConfig(
     seats,
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
+    blindPicks,
     randomDraft,
     hiddenDraft,
     permanentAlly: mode === 'ffa' && !redDeathMode && options.permanentAlly !== false,

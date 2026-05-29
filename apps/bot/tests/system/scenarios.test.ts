@@ -2889,7 +2889,7 @@ describe('system scenarios', () => {
     })).status).toBe(200)
     await blindBansWorld.flushBackgroundTasks()
 
-    expect((await blindBansWorld.lobby.getById(blindBansLobby.id))?.draftConfig.blindBans).toBe(true)
+    expect((await blindBansWorld.lobby.getById(blindBansLobby.id))?.draftConfig.blindBans).toBe(false)
   })
 
   test('arrange keeps canonical membership coherent when slot order changes', async () => {

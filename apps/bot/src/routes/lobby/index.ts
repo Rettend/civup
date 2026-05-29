@@ -230,7 +230,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -238,6 +238,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       leaderDataVersion?: unknown
       mapVoteEnabled?: unknown
       blindBans?: unknown
+      blindPicks?: unknown
       simultaneousPick?: unknown
       permanentAlly?: unknown
       redDeath?: unknown
@@ -274,6 +275,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
     const hasMapVoteEnabled = Object.prototype.hasOwnProperty.call(body, 'mapVoteEnabled')
     const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
+    const hasBlindPicks = Object.prototype.hasOwnProperty.call(body, 'blindPicks')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasPermanentAlly = Object.prototype.hasOwnProperty.call(body, 'permanentAlly')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
@@ -300,6 +302,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const parsedBlindBans = hasBlindBans
       ? parseLobbyBlindBans(blindBansRaw)
+      : undefined
+    const parsedBlindPicks = hasBlindPicks
+      ? parseLobbyBlindPicks(blindPicksRaw)
       : undefined
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
@@ -333,6 +338,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasBlindBans && parsedBlindBans === undefined) {
       return c.json({ error: 'blindBans must be true or false' }, 400)
+    }
+    if (hasBlindPicks && parsedBlindPicks === undefined) {
+      return c.json({ error: 'blindPicks must be true or false' }, 400)
     }
     if (hasMapVoteEnabled && parsedMapVoteEnabled === undefined) {
       return c.json({ error: 'mapVoteEnabled must be true or false' }, 400)
@@ -420,6 +428,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedBlindBans = hasBlindBans
       ? parsedBlindBans ?? true
       : lobby.draftConfig.blindBans
+    const normalizedBlindPicks = hasBlindPicks
+      ? parsedBlindPicks ?? false
+      : lobby.draftConfig.blindPicks
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
@@ -464,7 +475,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
-    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasBlindPicks || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
     const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
     const currentUserIsHost = lobby.hostId === auth.identity.userId
     const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
@@ -516,6 +527,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         mapVoteEnabled: parsedMapVoteEnabled ?? false,
         hasBlindBans,
         blindBans: parsedBlindBans ?? true,
+        hasBlindPicks,
+        blindPicks: parsedBlindPicks ?? false,
         hasSimultaneousPick,
         simultaneousPick: parsedSimultaneousPick ?? false,
         hasPermanentAlly,
@@ -599,6 +612,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       leaderDataVersion: normalizedLeaderDataVersion,
       mapVoteEnabled: normalizedMapVoteEnabled,
       blindBans: normalizedBlindBans,
+      blindPicks: normalizedBlindPicks,
       simultaneousPick: normalizedSimultaneousPick,
       permanentAlly: normalizedPermanentAlly,
       redDeath: normalizedRedDeath,
@@ -1656,6 +1670,7 @@ function lockTournamentDraftConfig(config: LobbyDraftConfig, locked: boolean): L
     leaderPoolSize: null,
     mapVoteEnabled: false,
     blindBans: true,
+    blindPicks: false,
     simultaneousPick: false,
     permanentAlly: false,
     redDeath: false,
@@ -1677,6 +1692,8 @@ function getTournamentLockedConfigError(
     mapVoteEnabled: boolean
     hasBlindBans: boolean
     blindBans: boolean
+    hasBlindPicks: boolean
+    blindPicks: boolean
     hasSimultaneousPick: boolean
     simultaneousPick: boolean
     hasPermanentAlly: boolean
@@ -1702,6 +1719,7 @@ function getTournamentLockedConfigError(
   if (isLockedValueChange(request.hasLeaderPoolSize, request.leaderPoolSize, lobby.draftConfig.leaderPoolSize, null)) return 'Tournament leader pool is fixed.'
   if (isLockedValueChange(request.hasMapVoteEnabled, request.mapVoteEnabled, lobby.draftConfig.mapVoteEnabled, false)) return 'Tournament lobbies do not use map vote.'
   if (isLockedValueChange(request.hasBlindBans, request.blindBans, lobby.draftConfig.blindBans, true)) return 'Tournament blind-ban settings are locked.'
+  if (isLockedValueChange(request.hasBlindPicks, request.blindPicks, lobby.draftConfig.blindPicks, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasSimultaneousPick, request.simultaneousPick, lobby.draftConfig.simultaneousPick, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasPermanentAlly, request.permanentAlly, lobby.draftConfig.permanentAlly, false)) return 'Tournament ally settings are locked.'
   if (isLockedValueChange(request.hasRedDeath, request.redDeath, lobby.draftConfig.redDeath, false)) return 'Tournament lobbies cannot enable Red Death.'
@@ -1767,6 +1785,10 @@ function parseLobbyPermanentAlly(value: unknown): boolean | undefined {
 }
 
 function parseLobbyBlindBans(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyBlindPicks(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 

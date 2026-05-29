@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2 } from '../src/draft-formats.ts'
+import { default1v1, default1v1BlindPick, default2v2, default2v2BlindPick, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2, redDeath2v2BlindPick } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -290,6 +290,12 @@ function resolveState(result: ReturnType<typeof processDraftInput>): DraftState 
 }
 
 function startDraftBanPhase(state: DraftState): DraftState {
+  let nextState = resolveState(processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true))
+  nextState = resolveState(processDraftInput(nextState, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true))
+  return nextState
+}
+
+function completeDuelBlindBanPhase(state: DraftState): DraftState {
   let nextState = resolveState(processDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true))
   nextState = resolveState(processDraftInput(nextState, { type: 'BAN', seatIndex: 1, civIds: ['civ-4', 'civ-5', 'civ-6'] }, true))
   return nextState
@@ -679,6 +685,170 @@ describe('processDraftInput — PICK (simultaneous FFA)', () => {
     expect(result.state.picks).toContainEqual({ civId: 'civ-20', seatIndex: 0, stepIndex: 1 })
     expect(result.state.submissions[0]).toEqual(['civ-20'])
     expect(result.state.availableCivIds).not.toContain('civ-20')
+  })
+})
+
+describe('processDraftInput — PICK (blind pick)', () => {
+  test('locks unique blind picks once every active seat submits', () => {
+    let state = startDraft(createDraft('match-blind-unique', default2v2BlindPick, create2v2Seats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 3, 2] })
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }))
+    expect(state.submissions[0]).toEqual(['civ-10'])
+    expect(state.picks).toEqual([])
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 2, civId: 'civ-11' }))
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-21' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.picks).toEqual([
+      { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+      { civId: 'civ-20', seatIndex: 1, stepIndex: 1 },
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 1 },
+      { civId: 'civ-21', seatIndex: 3, stepIndex: 1 },
+    ])
+    expect(result.state.availableCivIds).not.toContain('civ-10')
+    expect(result.state.blindPickReveal).toBeNull()
+    expect(result.events).toContainEqual({ type: 'PICK_SUBMITTED', seatIndex: 3, civId: 'civ-21', blind: true })
+    expect(result.events).toContainEqual({ type: 'DRAFT_COMPLETE' })
+  })
+
+  test('reveals duplicate blind picks, removes conflict leaders, and redrafts conflicted seats', () => {
+    let state = startDraft(createDraft('match-blind-conflict', default2v2BlindPick, create2v2Seats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-10' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 2, civId: 'civ-11' }))
+    const revealResult = processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-12' })
+    expect(isDraftError(revealResult)).toBe(false)
+    if (isDraftError(revealResult)) return
+
+    state = revealResult.state
+    expect(state.status).toBe('active')
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 3, 2], redraftTimer: 60 })
+    expect(state.picks).toEqual([
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 1 },
+      { civId: 'civ-12', seatIndex: 3, stepIndex: 1 },
+    ])
+    expect(state.blindPickReveal).toEqual({
+      round: 0,
+      picks: [
+        { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+        { civId: 'civ-10', seatIndex: 1, stepIndex: 1 },
+        { civId: 'civ-11', seatIndex: 2, stepIndex: 1 },
+        { civId: 'civ-12', seatIndex: 3, stepIndex: 1 },
+      ],
+      conflictCivIds: ['civ-10'],
+      conflictedSeatIndexes: [0, 1],
+      maxRedrafts: 2,
+    })
+    expect(state.blindPickBans).toEqual([
+      { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+      { civId: 'civ-10', seatIndex: 1, stepIndex: 1 },
+    ])
+    expect(state.availableCivIds).not.toContain('civ-10')
+    expect(revealResult.events).toContainEqual(expect.objectContaining({ type: 'BLIND_PICKS_REVEALED', conflictCivIds: ['civ-10'], conflictedSeatIndexes: [0, 1], round: 0 }))
+
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }))
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, fallbackPickOrder: [0, 1, 3, 2] })
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-13' }))
+    const completeResult = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-14' })
+    expect(isDraftError(completeResult)).toBe(false)
+    if (isDraftError(completeResult)) return
+
+    expect(completeResult.state.status).toBe('complete')
+    expect(completeResult.state.picks).toEqual([
+      { civId: 'civ-11', seatIndex: 2, stepIndex: 1 },
+      { civId: 'civ-12', seatIndex: 3, stepIndex: 1 },
+      { civId: 'civ-13', seatIndex: 0, stepIndex: 3 },
+      { civId: 'civ-14', seatIndex: 1, stepIndex: 3 },
+    ])
+  })
+
+  test('falls back to visible draft picks after two conflicted redrafts', () => {
+    let state = startDraft(createDraft('match-blind-fallback', default1v1BlindPick, createDuelSeats(), createTestCivPool()))
+    state = completeDuelBlindBanPhase(state)
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-10' }))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }))
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-11' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-11' }))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }))
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-12' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-12' }))
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 2, fallbackPickOrder: [0, 1], redraftTimer: 60 })
+
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }))
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0], count: 1, timer: 60 })
+    expect(state.steps[state.currentStepIndex + 1]).toEqual({ action: 'pick', seats: [1], count: 1, timer: 60 })
+    expect(state.availableCivIds).not.toContain('civ-10')
+    expect(state.availableCivIds).not.toContain('civ-11')
+    expect(state.availableCivIds).not.toContain('civ-12')
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-13' }))
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-14' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.picks).toEqual([
+      { civId: 'civ-13', seatIndex: 0, stepIndex: 7 },
+      { civId: 'civ-14', seatIndex: 1, stepIndex: 8 },
+    ])
+  })
+
+  test('allows duplicate blind picks without redrafting when duplicate factions are enabled', () => {
+    let state = startDraft(createDraft('match-blind-duplicates', default1v1BlindPick, createDuelSeats(), createTestCivPool(), { duplicateFactions: true }))
+    state = completeDuelBlindBanPhase(state)
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }))
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-10' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.picks).toEqual([
+      { civId: 'civ-10', seatIndex: 0, stepIndex: 1 },
+      { civId: 'civ-10', seatIndex: 1, stepIndex: 1 },
+    ])
+    expect(result.state.availableCivIds).toContain('civ-10')
+    expect(result.state.blindPickBans).toEqual([])
+  })
+
+  test('validates Red Death blind picks against per-seat dealt options', () => {
+    let state = startDraft(createDraft('match-rd-blind', redDeath2v2BlindPick, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], { dealOptionsSize: 1 }))
+    state = {
+      ...state,
+      dealtCivIdsBySeat: {
+        0: ['rd-a'],
+        1: ['rd-b'],
+        2: ['rd-c'],
+        3: ['rd-d'],
+      },
+    }
+
+    const invalid = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-b' })
+    expect(isDraftError(invalid)).toBe(true)
+    if (!isDraftError(invalid)) return
+    expect(invalid.error).toBe('Civ rd-b is not in the dealt options')
+
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'rd-a' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'rd-b' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 2, civId: 'rd-c' }))
+    const result = processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'rd-d' })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+    expect(result.state.status).toBe('complete')
   })
 })
 

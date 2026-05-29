@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, redDeath2v2, redDeath4v4, redDeath5v5, redDeath6v6 } from '../src/draft-formats.ts'
+import { default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaBlindPick, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, redDeath2v2, redDeath2v2BlindPick, redDeath4v4, redDeath5v5, redDeath6v6 } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },
@@ -102,6 +102,12 @@ describe('draft formats', () => {
     expect(getDraftFormat('ffa', { simultaneousPick: true })).toBe(defaultFfaSimultaneous)
   })
 
+  test('blind pick supersedes simultaneous FFA picks', () => {
+    const format = getDraftFormat('ffa', { simultaneousPick: true, blindPicks: true })
+    expect(format).toBe(defaultFfaBlindPick)
+    expect(format.getSteps(3)[1]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2] })
+  })
+
   test('keeps blind bans enabled by default for team drafts', () => {
     expect(getDraftFormat('3v3').blindBans).toBe(true)
   })
@@ -110,6 +116,26 @@ describe('draft formats', () => {
     const format = getDraftFormat('3v3', { blindBans: false, seatCount: 6 })
     expect(format.blindBans).toBe(false)
     expect(format.id).toBe('default-3v3-visible-bans')
+  })
+
+  test('resolves blind-ban and draft-ban variants with blind pick enabled', () => {
+    const blindBanBlindPick = getDraftFormat('3v3', { blindPicks: true, seatCount: 6 })
+    const draftBanBlindPick = getDraftFormat('3v3', { blindBans: false, blindPicks: true, seatCount: 6 })
+
+    expect(blindBanBlindPick.blindBans).toBe(true)
+    expect(blindBanBlindPick.getSteps(6)[1]?.blind).toBe(true)
+    expect(draftBanBlindPick.blindBans).toBe(false)
+    expect(draftBanBlindPick.getSteps(6).slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(draftBanBlindPick.getSteps(6)[4]?.blind).toBe(true)
+  })
+
+  test('resolves draft-ban FFA with blind pick enabled', () => {
+    const format = getDraftFormat('ffa', { blindBans: false, blindPicks: true, seatCount: 3 })
+    const steps = format.getSteps(3)
+
+    expect(format.blindBans).toBe(false)
+    expect(steps[0]).toEqual({ action: 'ban', seats: 'all', count: 2, timer: 120 })
+    expect(steps[1]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2] })
   })
 
   test('returns the visible-ban 1v1 format when blind bans are disabled', () => {
@@ -195,6 +221,14 @@ describe('draft formats', () => {
 
   test('resolves the Red Death 2v2 format when requested', () => {
     expect(getDraftFormat('2v2', { redDeath: true })).toBe(redDeath2v2)
+  })
+
+  test('resolves Red Death blind pick formats when requested', () => {
+    const format = getDraftFormat('2v2', { redDeath: true, blindPicks: true })
+    expect(format).toBe(redDeath2v2BlindPick)
+    expect(format.getSteps(4)).toEqual([
+      { action: 'pick', seats: 'all', count: 1, timer: 30, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 3, 2] },
+    ])
   })
 
   test('resolves the Red Death 6v6 format when requested', () => {
@@ -289,5 +323,11 @@ describe('formatDraftStepLabel', () => {
   test('labels the shared simultaneous FFA pick step once', () => {
     const steps = defaultFfaSimultaneous.getSteps(3)
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual(['PICK'])
+  })
+
+  test('labels blind pick and reveal steps distinctly', () => {
+    expect(formatDraftStepLabel({ action: 'pick', seats: 'all', blind: true, blindPickRound: 0 }, ffaSeats)).toBe('BLIND PICK')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], blind: true, blindPickRound: 1 }, ffaSeats)).toBe('REDRAFT')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], reveal: true }, ffaSeats)).toBe('REVEAL')
   })
 })

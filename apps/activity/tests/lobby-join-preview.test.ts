@@ -27,6 +27,7 @@ const baseLobby: LobbySnapshot = {
     leaderDataVersion: 'live',
     mapVoteEnabled: true,
     blindBans: true,
+    blindPicks: false,
     simultaneousPick: false,
     redDeath: false,
     permanentAlly: false,
