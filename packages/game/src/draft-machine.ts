@@ -17,6 +17,10 @@ export interface DraftProcessOptions {
   random?: RandomSource
 }
 
+const BLIND_PICK_MAX_REDRAFTS = 2
+const BLIND_PICK_REVEAL_SECONDS = 5
+const DEFAULT_PICK_TIMER_SECONDS = 60
+
 // ── Create ──────────────────────────────────────────────────
 
 /**
@@ -48,8 +52,11 @@ export function createDraft(
     picks: [],
     availableCivIds: [...civPool],
     dealtCivIds: null,
+    dealtCivIdsBySeat: null,
     dealOptionsSize: options.dealOptionsSize,
     duplicateFactions: options.duplicateFactions === true,
+    blindPickReveal: null,
+    blindPickBans: [],
     status: 'waiting',
     cancelReason: null,
     pendingBlindBans: [],
@@ -166,6 +173,8 @@ function processCancel(
       cancelReason: normalizedReason,
       submissions: {},
       dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
       pendingBlindBans: [],
     },
     events: [{ type: 'DRAFT_CANCELLED', reason: normalizedReason }],
@@ -276,6 +285,10 @@ function processPick(
     return { error: 'Current step is not a pick phase' }
   }
 
+  if (step.reveal) {
+    return { error: 'Current step is resolving blind pick conflicts' }
+  }
+
   if (!isSeatActive(step, seatIndex, state.seats.length)) {
     return { error: `Seat ${seatIndex} is not active in this step` }
   }
@@ -290,18 +303,38 @@ function processPick(
     return { error: `Civ ${civId} is not available` }
   }
 
-  if (state.dealtCivIds && !state.dealtCivIds.includes(civId)) {
+  const dealtCivIds = getDealtCivIdsForSeat(state, seatIndex)
+  if (dealtCivIds && !dealtCivIds.includes(civId)) {
     return { error: `Civ ${civId} is not in the dealt options` }
   }
 
   // Also check not already picked in current submissions by another seat
   const allCurrentSubmissions = Object.values(state.submissions).flat()
-  if (!state.duplicateFactions && allCurrentSubmissions.includes(civId)) {
+  if (!step.blind && !state.duplicateFactions && allCurrentSubmissions.includes(civId)) {
     return { error: `Civ ${civId} was already picked in this step` }
   }
 
   const newSeatPicks = [...existingPicks, civId]
   const newSubmissions = { ...state.submissions, [seatIndex]: newSeatPicks }
+  if (step.blind) {
+    const events: DraftEvent[] = [
+      { type: 'PICK_SUBMITTED', seatIndex, civId, blind: true },
+    ]
+    const activeSeats = getActiveSeats(step, state.seats.length)
+    const fullySubmittedSeats = activeSeats.filter(seat => (newSubmissions[seat]?.length ?? 0) >= step.count).length
+    const stepComplete = fullySubmittedSeats >= activeSeats.length
+
+    if (stepComplete) return completeBlindPickStep(state, step, newSubmissions, events)
+
+    return {
+      state: {
+        ...state,
+        submissions: newSubmissions,
+      },
+      events,
+    }
+  }
+
   const newPicks = [...state.picks, { civId, seatIndex, stepIndex: state.currentStepIndex }]
   const events: DraftEvent[] = [
     { type: 'PICK_SUBMITTED', seatIndex, civId },
@@ -324,6 +357,7 @@ function processPick(
     picks: newPicks,
     availableCivIds: newAvailable,
     dealtCivIds: null,
+    dealtCivIdsBySeat: null,
   }
 
   if (stepComplete) {
@@ -353,6 +387,9 @@ function processTimeout(
   const activeSeats = getActiveSeats(step, state.seats.length)
 
   if (step.action === 'pick') {
+    if (step.reveal) return completeBlindPickReveal(state, step)
+    if (step.blind) return processBlindPickTimeout(state, step, random)
+
     if (state.dealtCivIds && state.dealtCivIds.length > 0) {
       const timedOutSeat = activeSeats.find((seat) => {
         const existing = state.submissions[seat]
@@ -388,6 +425,7 @@ function processTimeout(
           ? state.availableCivIds
           : state.availableCivIds.filter(id => id !== randomPick),
         dealtCivIds: null,
+        dealtCivIdsBySeat: null,
       }
 
       return advanceStep({
@@ -455,6 +493,196 @@ function processTimeout(
     events,
     blindBans,
   )
+}
+
+function processBlindPickTimeout(
+  state: DraftState,
+  step: DraftStep,
+  random: RandomSource,
+): DraftResult | DraftError {
+  const submissions = { ...state.submissions }
+  const events: DraftEvent[] = []
+
+  for (const seatIndex of getActiveSeats(step, state.seats.length)) {
+    const existing = submissions[seatIndex] ?? []
+    const needed = step.count - existing.length
+    if (needed <= 0) continue
+
+    const picks: string[] = []
+    const selected = new Set(existing)
+    for (let index = 0; index < needed; index++) {
+      const pool = getTimeoutPickPool(state, seatIndex).filter(civId => !selected.has(civId))
+      if (pool.length === 0) return { error: 'No leaders available for timeout pick' }
+      const civId = pool[Math.floor(random() * pool.length)]
+      if (!civId) return { error: 'Failed to resolve timeout pick' }
+      picks.push(civId)
+      selected.add(civId)
+    }
+
+    submissions[seatIndex] = [...existing, ...picks]
+    events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: picks })
+  }
+
+  return completeBlindPickStep(state, step, submissions, events)
+}
+
+function completeBlindPickStep(
+  state: DraftState,
+  step: DraftStep,
+  submissions: Record<number, string[]>,
+  events: DraftEvent[],
+): DraftResult {
+  const submittedPicks = getActiveSeats(step, state.seats.length).flatMap((seatIndex) => {
+    return (submissions[seatIndex] ?? []).map(civId => ({ civId, seatIndex, stepIndex: state.currentStepIndex }))
+  })
+
+  if (state.duplicateFactions) {
+    return advanceStep({
+      ...state,
+      submissions: {},
+      picks: [...state.picks, ...submittedPicks],
+      dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
+    }, events)
+  }
+
+  const picksByCivId = new Map<string, DraftSelection[]>()
+  for (const pick of submittedPicks) {
+    const existing = picksByCivId.get(pick.civId)
+    if (existing) existing.push(pick)
+    else picksByCivId.set(pick.civId, [pick])
+  }
+
+  const conflictCivIds = [...picksByCivId.entries()]
+    .filter(([, picks]) => picks.length > 1)
+    .map(([civId]) => civId)
+  const conflictCivIdSet = new Set(conflictCivIds)
+  const lockedPicks = submittedPicks.filter(pick => !conflictCivIdSet.has(pick.civId))
+  const conflictPicks = submittedPicks.filter(pick => conflictCivIdSet.has(pick.civId))
+  const removedCivIds = new Set([...lockedPicks, ...conflictPicks].map(pick => pick.civId))
+  const availableCivIds = state.availableCivIds.filter(civId => !removedCivIds.has(civId))
+
+  if (conflictCivIds.length === 0) {
+    return advanceStep({
+      ...state,
+      submissions: {},
+      picks: [...state.picks, ...lockedPicks],
+      availableCivIds,
+      dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
+    }, events)
+  }
+
+  const conflictedSeatIndexes = Array.from(new Set(conflictPicks.map(pick => pick.seatIndex))).sort((left, right) => left - right)
+  const round = step.blindPickRound ?? 0
+  const revealStep: DraftStep = {
+    action: 'pick',
+    seats: conflictedSeatIndexes,
+    count: 0,
+    timer: BLIND_PICK_REVEAL_SECONDS,
+    reveal: true,
+    blindPickRound: round,
+    fallbackPickOrder: step.fallbackPickOrder,
+    redraftTimer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
+  }
+  const nextStepIndex = state.currentStepIndex + 1
+  const revealEvent: DraftEvent = {
+    type: 'BLIND_PICKS_REVEALED',
+    picks: submittedPicks,
+    conflictCivIds,
+    conflictedSeatIndexes,
+    round,
+  }
+
+  return {
+    state: {
+      ...state,
+      steps: [
+        ...state.steps.slice(0, nextStepIndex),
+        revealStep,
+        ...state.steps.slice(nextStepIndex),
+      ],
+      currentStepIndex: nextStepIndex,
+      submissions: {},
+      picks: [...state.picks, ...lockedPicks],
+      availableCivIds,
+      dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: {
+        round,
+        picks: submittedPicks,
+        conflictCivIds,
+        conflictedSeatIndexes,
+        maxRedrafts: BLIND_PICK_MAX_REDRAFTS,
+      },
+      blindPickBans: [...(state.blindPickBans ?? []), ...conflictPicks],
+    },
+    events: [...events, revealEvent, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
+  }
+}
+
+function completeBlindPickReveal(state: DraftState, step: DraftStep): DraftResult | DraftError {
+  const reveal = state.blindPickReveal
+  if (!reveal) return { error: 'No blind pick reveal to resolve' }
+
+  const nextStepIndex = state.currentStepIndex + 1
+  const redraftTimer = step.redraftTimer ?? DEFAULT_PICK_TIMER_SECONDS
+  const nextSteps = reveal.round < reveal.maxRedrafts
+    ? [createBlindPickRedraftStep(reveal.conflictedSeatIndexes, reveal.round + 1, redraftTimer, step.fallbackPickOrder)]
+    : createDraftPickFallbackSteps(reveal.conflictedSeatIndexes, redraftTimer, step.fallbackPickOrder)
+
+  if (nextSteps.length === 0) {
+    return advanceStep({ ...state, blindPickReveal: null }, [])
+  }
+
+  return {
+    state: {
+      ...state,
+      steps: [
+        ...state.steps.slice(0, nextStepIndex),
+        ...nextSteps,
+        ...state.steps.slice(nextStepIndex),
+      ],
+      currentStepIndex: nextStepIndex,
+      submissions: {},
+      dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
+    },
+    events: [{ type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
+  }
+}
+
+function createBlindPickRedraftStep(seats: number[], round: number, timer: number, fallbackPickOrder: number[] | undefined): DraftStep {
+  return {
+    action: 'pick',
+    seats: [...seats],
+    count: 1,
+    timer,
+    blind: true,
+    blindPickRound: round,
+    fallbackPickOrder,
+  }
+}
+
+function createDraftPickFallbackSteps(seats: number[], timer: number, fallbackPickOrder: number[] | undefined): DraftStep[] {
+  const seatSet = new Set(seats)
+  const orderedSeats = (fallbackPickOrder?.length ? fallbackPickOrder : seats).filter(seat => seatSet.has(seat))
+  return orderedSeats.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer }))
+}
+
+function getTimeoutPickPool(state: DraftState, seatIndex: number): string[] {
+  const dealt = getDealtCivIdsForSeat(state, seatIndex)
+  const source = dealt ?? state.availableCivIds
+  return state.duplicateFactions ? source : source.filter(civId => state.availableCivIds.includes(civId))
+}
+
+function getDealtCivIdsForSeat(state: DraftState, seatIndex: number): string[] | null {
+  const seatOptions = state.dealtCivIdsBySeat?.[seatIndex]
+  if (seatOptions && seatOptions.length > 0) return seatOptions
+  return state.dealtCivIds && state.dealtCivIds.length > 0 ? state.dealtCivIds : null
 }
 
 function normalizeDraftProcessOptions(options: boolean | DraftProcessOptions): { blindBans: boolean, random: RandomSource } {
@@ -542,6 +770,7 @@ function completeStep(
       bans: newBans,
       availableCivIds: newAvailable,
       pendingBlindBans: [],
+      blindPickReveal: null,
     }
 
     return advanceStep(stateAfterBans, events)
@@ -567,6 +796,9 @@ function completeStep(
     submissions: {},
     picks: newPicks,
     availableCivIds: state.availableCivIds,
+    dealtCivIds: null,
+    dealtCivIdsBySeat: null,
+    blindPickReveal: null,
   }
 
   return advanceStep(stateAfterPicks, events)
@@ -590,6 +822,8 @@ function advanceStep(
         status: 'complete',
         cancelReason: null,
         dealtCivIds: null,
+        dealtCivIdsBySeat: null,
+        blindPickReveal: null,
       },
       events: [...events, { type: 'DRAFT_COMPLETE' }],
     }
@@ -602,6 +836,8 @@ function advanceStep(
       currentStepIndex: nextStepIndex,
       submissions: {},
       dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
     },
     events: [...events, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }
@@ -626,6 +862,14 @@ export function getPendingSeats(state: DraftState): number[] {
     if (!submissions) return true
     return submissions.length < step.count
   })
+}
+
+export function isBlindPickStep(step: DraftStep | null | undefined): boolean {
+  return step?.action === 'pick' && step.blind === true && step.reveal !== true
+}
+
+export function isBlindPickRevealStep(step: DraftStep | null | undefined): boolean {
+  return step?.action === 'pick' && step.reveal === true
 }
 
 /** Get which seat this player may currently submit a pick for. */
@@ -702,6 +946,7 @@ function processDoublePickFallbackTimeout(
       currentStepIndex: nextStepIndex,
       submissions: {},
       dealtCivIds: null,
+      dealtCivIdsBySeat: null,
     },
     events: [{ type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }
@@ -709,6 +954,7 @@ function processDoublePickFallbackTimeout(
 
 export function isDoublePickStep(state: DraftState, step: DraftStep): boolean {
   if (step.action !== 'pick') return false
+  if (step.blind || step.reveal) return false
   if (step.seats === 'all' || step.seats.length !== 2) return false
   if (step.count !== 1 || step.fallbackForStepIndex != null) return false
 

@@ -1068,6 +1068,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId: record.hostId,
       leaderDataVersion: record.config.leaderDataVersion,
       blindBans: record.config.blindBans,
+      blindPicks: record.config.blindPicks,
       simultaneousPick: record.config.simultaneousPick,
       permanentAlly: record.config.permanentAlly,
       redDeath: record.config.redDeath,
@@ -1294,6 +1295,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         hostId: record.hostId,
         leaderDataVersion: record.config.leaderDataVersion,
         blindBans: record.config.blindBans,
+        blindPicks: record.config.blindPicks,
         simultaneousPick: record.config.simultaneousPick,
         permanentAlly: record.config.permanentAlly,
         redDeath: record.config.redDeath,
@@ -2724,6 +2726,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       randomDraft: record.config.randomDraft === true,
       redDeath: record.config.redDeath === true,
       blindBans: record.config.blindBans,
+      blindPicks: record.config.blindPicks,
       seatCount: seats.length,
     })
     const steps = format.getSteps(seats.length)
@@ -3204,6 +3207,7 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
     seats: currentSeats.map(seat => [seat.playerId, seat.team ?? null]),
     config: {
       blindBans: record.config.blindBans,
+      blindPicks: record.config.blindPicks,
       duplicateFactions: record.config.duplicateFactions,
       hiddenDraft: record.config.hiddenDraft,
       leaderDataVersion: record.config.leaderDataVersion,
@@ -3246,6 +3250,7 @@ function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftSt
     randomDraft: !hiddenDraft && record.config.randomDraft === true,
     redDeath,
     blindBans: record.config.blindBans,
+    blindPicks: record.config.blindPicks,
     seatCount: state.seats.length,
   })
   return state.formatId === format.id
@@ -3276,6 +3281,9 @@ function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: Dr
     picks: remapDraftSelections(state.picks, seatIndexMap),
     pendingBlindBans: kind === 'complete' ? [] : remapDraftSelections(state.pendingBlindBans, seatIndexMap),
     dealtCivIds: kind === 'complete' ? null : state.dealtCivIds,
+    dealtCivIdsBySeat: kind === 'complete' || !state.dealtCivIdsBySeat ? null : remapSeatSelectionRecord(state.dealtCivIdsBySeat, seatIndexMap),
+    blindPickReveal: kind === 'complete' ? null : remapBlindPickReveal(state.blindPickReveal, seatIndexMap),
+    blindPickBans: remapDraftSelections(state.blindPickBans ?? [], seatIndexMap),
   }
 }
 
@@ -3364,6 +3372,15 @@ function remapDraftSelections(selections: readonly DraftSelection[], seatIndexMa
   }))
 }
 
+function remapBlindPickReveal(reveal: DraftState['blindPickReveal'], seatIndexMap: ReadonlyMap<number, number>): DraftState['blindPickReveal'] {
+  if (!reveal) return null
+  return {
+    ...reveal,
+    picks: remapDraftSelections(reveal.picks, seatIndexMap),
+    conflictedSeatIndexes: reveal.conflictedSeatIndexes.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
+  }
+}
+
 function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap: ReadonlyMap<number, number>): Record<number, string[]> {
   const next: Record<number, string[]> = {}
   for (const [seatIndex, selections] of Object.entries(record)) {
@@ -3374,12 +3391,15 @@ function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap
 }
 
 function remapDraftSteps(steps: DraftState['steps'], seatIndexMap: ReadonlyMap<number, number>): DraftState['steps'] {
-  return steps.map(step => step.seats === 'all'
-    ? step
-    : {
-        ...step,
-        seats: step.seats.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
-      })
+  return steps.map((step) => {
+    const fallbackPickOrder = step.fallbackPickOrder?.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap))
+    if (step.seats === 'all') return fallbackPickOrder ? { ...step, fallbackPickOrder } : step
+    return {
+      ...step,
+      seats: step.seats.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
+      ...(fallbackPickOrder ? { fallbackPickOrder } : {}),
+    }
+  })
 }
 
 function remapStoredMapVote(mapVote: StoredMapVoteState, seatIndexMap: ReadonlyMap<number, number>): StoredMapVoteState {
@@ -3415,8 +3435,11 @@ function buildRepeatCivPool(state: DraftState): string[] {
     ...state.bans.map(selection => selection.civId),
     ...state.picks.map(selection => selection.civId),
     ...state.pendingBlindBans.map(selection => selection.civId),
+    ...(state.blindPickBans ?? []).map(selection => selection.civId),
+    ...(state.blindPickReveal?.picks ?? []).map(selection => selection.civId),
     ...Object.values(state.submissions).flat(),
     ...(state.dealtCivIds ?? []),
+    ...Object.values(state.dealtCivIdsBySeat ?? {}).flat(),
   ])
 }
 

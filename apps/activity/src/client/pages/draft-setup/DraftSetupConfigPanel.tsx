@@ -28,6 +28,36 @@ interface ConfigRowDefinition {
 
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
+    key: 'pickMode',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindPicks(),
+    renderEditable: state => (
+      <ModeTabsRow
+        label="PICK"
+        value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
+        disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
+        onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Pick" value={state.derived.formattedBlindPicks()} valueClass={state.derived.draftConfig().blindPicks ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'banMode',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindBans(),
+    renderEditable: state => (
+      <ModeTabsRow
+        label="BAN"
+        value={() => state.derived.optimisticDraftConfig().blindBans ? 'blind' : 'draft'}
+        disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
+        onChange={value => void state.actions.changeBlindBans(value === 'blind')}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Ban" value={state.derived.formattedBlindBans()} valueClass={state.derived.draftConfig().blindBans ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'mapVote',
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsMapVote(),
     renderEditable: state => (
@@ -40,21 +70,6 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
     renderReadonly: state => (
       <ReadonlyTimerRow label="Map Vote" value={state.derived.formattedMapVote()} valueClass={state.derived.draftConfig().mapVoteEnabled ? 'text-accent' : undefined} />
-    ),
-  },
-  {
-    key: 'blindBans',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindBans(),
-    renderEditable: state => (
-      <SwitchRow
-        label="Blind Bans"
-        active={() => state.derived.optimisticDraftConfig().blindBans}
-        disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
-        onChange={checked => void state.actions.changeBlindBans(checked)}
-      />
-    ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Blind Bans" value={state.derived.formattedBlindBans()} valueClass={state.derived.draftConfig().blindBans ? 'text-accent' : undefined} />
     ),
   },
   {
@@ -78,7 +93,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.optimisticDraftConfig().blindPicks,
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
@@ -373,6 +388,48 @@ function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, 
           </Show>
         )}
       </For>
+    </div>
+  )
+}
+
+function ModeTabsRow(props: {
+  label: string
+  value: Accessor<'blind' | 'draft'>
+  disabled: Accessor<boolean>
+  onChange: (value: 'blind' | 'draft') => void
+}) {
+  const value = createMemo(() => props.value())
+  const disabled = createMemo(() => props.disabled())
+  const options = [
+    { value: 'blind' as const, label: 'BLIND' },
+    { value: 'draft' as const, label: 'DRAFT' },
+  ]
+
+  return (
+    <div class="px-1 flex gap-3 items-center justify-between">
+      <span class="text-[11px] font-bold tracking-widest text-fg-subtle">{props.label}</span>
+      <div class="rounded-md border border-border-subtle bg-bg/50 p-0.5 flex items-center">
+        <For each={options}>
+          {option => {
+            const active = () => value() === option.value
+            return (
+              <button
+                type="button"
+                class={cn(
+                  'px-2.5 py-1 rounded text-[11px] font-bold tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                  active() ? 'bg-accent text-bg' : 'text-fg-muted hover:text-fg',
+                )}
+                disabled={disabled()}
+                aria-label={`${props.label} ${option.label}`}
+                aria-pressed={active()}
+                onClick={() => props.onChange(option.value)}
+              >
+                {option.label}
+              </button>
+            )
+          }}
+        </For>
+      </div>
     </div>
   )
 }

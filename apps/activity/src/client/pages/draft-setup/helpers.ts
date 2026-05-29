@@ -336,7 +336,6 @@ export function getLeaderPoolSizeMaximum(version: LeaderDataVersion): number {
 
 export function supportsBlindBansControl(mode: GameMode, options: { redDeath?: boolean, targetSize?: number } = {}): boolean {
   if (options.redDeath) return false
-  if (mode === 'ffa') return false
   if (mode === '2v2') return options.targetSize === 4
   return true
 }

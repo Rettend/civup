@@ -810,19 +810,45 @@ function getPendingSeats(state: DraftState, step: DraftState['steps'][number]): 
 
 function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null, random: RandomSource = Math.random): DraftState {
   if (!config || !isRedDeathDraftConfig(config)) {
-    if (state.dealtCivIds == null) return state
-    return { ...state, dealtCivIds: null }
+    if (state.dealtCivIds == null && state.dealtCivIdsBySeat == null) return state
+    return { ...state, dealtCivIds: null, dealtCivIdsBySeat: null }
   }
 
   if (state.status !== 'active') {
-    if (state.dealtCivIds == null) return state
-    return { ...state, dealtCivIds: null }
+    if (state.dealtCivIds == null && state.dealtCivIdsBySeat == null) return state
+    return { ...state, dealtCivIds: null, dealtCivIdsBySeat: null }
   }
 
   const step = getCurrentStep(state)
   if (!step || step.action !== 'pick') {
-    if (state.dealtCivIds == null) return state
-    return { ...state, dealtCivIds: null }
+    if (state.dealtCivIds == null && state.dealtCivIdsBySeat == null) return state
+    return { ...state, dealtCivIds: null, dealtCivIdsBySeat: null }
+  }
+
+  if (step.reveal) {
+    if (state.dealtCivIds == null && state.dealtCivIdsBySeat == null) return state
+    return { ...state, dealtCivIds: null, dealtCivIdsBySeat: null }
+  }
+
+  if (step.blind) {
+    const activeSeats = step.seats === 'all'
+      ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex)
+      : step.seats
+    const current = state.dealtCivIdsBySeat ?? {}
+    if (activeSeats.every(seatIndex => (current[seatIndex]?.length ?? 0) > 0)) return state
+
+    const dealSize = normalizeDealOptionsSize(config.dealOptionsSize)
+    const nextBySeat: Record<number, string[]> = { ...current }
+    for (const seatIndex of activeSeats) {
+      if ((nextBySeat[seatIndex]?.length ?? 0) > 0) continue
+      nextBySeat[seatIndex] = pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length), random)
+    }
+
+    return {
+      ...state,
+      dealtCivIds: null,
+      dealtCivIdsBySeat: nextBySeat,
+    }
   }
 
   if (state.dealtCivIds?.length) return state
@@ -830,6 +856,7 @@ function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null,
   const dealSize = normalizeDealOptionsSize(config.dealOptionsSize)
   return {
     ...state,
+    dealtCivIdsBySeat: null,
     dealtCivIds: pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length), random),
   }
 }

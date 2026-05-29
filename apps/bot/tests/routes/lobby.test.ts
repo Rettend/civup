@@ -973,6 +973,7 @@ describe('lobby routes', () => {
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
       blindBans: true,
+      blindPicks: false,
       simultaneousPick: false,
       permanentAlly: false,
       redDeath: false,
@@ -1703,7 +1704,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(false)
   })
 
-  test('mode changes force blind bans back on when the destination mode does not support them', async () => {
+  test('mode changes preserve blind bans off when the destination FFA mode supports them', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1754,9 +1755,9 @@ describe('lobby routes', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
       mode: 'ffa',
-      draftConfig: { blindBans: true },
+      draftConfig: { blindBans: false },
     })
-    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(true)
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
   })
 
   test('mode changes preserve the current team split when expanding team size', async () => {
@@ -1990,7 +1991,7 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
   })
 
-  test('lobby config forces blind bans on for unsupported modes and sizes', async () => {
+  test('lobby config preserves FFA draft bans and forces blind bans on for unsupported modes and sizes', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -2025,9 +2026,9 @@ describe('lobby routes', () => {
 
     expect(ffaResponse.status).toBe(200)
     await expect(ffaResponse.json()).resolves.toMatchObject({
-      draftConfig: { blindBans: true },
+      draftConfig: { blindBans: false },
     })
-    expect((await getLobbyById(kv, ffaLobby.id))?.draftConfig.blindBans).toBe(true)
+    expect((await getLobbyById(kv, ffaLobby.id))?.draftConfig.blindBans).toBe(false)
 
     const redDeathLobby = await createLobby(kv, {
       mode: '3v3',

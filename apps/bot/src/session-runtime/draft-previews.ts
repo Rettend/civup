@@ -22,7 +22,7 @@ export function sanitizeDraftPreviews(state: DraftState, previews: DraftPreviewS
   const sanitizedBans = step.action === 'ban'
     ? sanitizeBanPreviewMap(state, step, previews.bans, available)
     : {}
-  const sanitizedPicks = step.action === 'pick'
+  const sanitizedPicks = step.action === 'pick' && !step.blind && !step.reveal
     ? sanitizePickPreviewMap(state, previews.picks, available)
     : {}
 
@@ -58,7 +58,7 @@ export function applyDraftPreview(
     })
   }
 
-  if (step.action !== 'pick') return { error: 'Current step is not a pick phase' }
+  if (step.action !== 'pick' || step.blind || step.reveal) return { error: 'Current step is not a pick phase' }
 
   const normalized = normalizePreviewSelections(civIds, new Set(state.availableCivIds))
   return sanitizeDraftPreviews(state, {
@@ -75,6 +75,8 @@ export function resolveTimeoutWithPreviews(
 ): DraftResult | DraftError {
   const step = getCurrentStep(state)
   if (!step) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
+
+  if (step.action === 'pick' && (step.blind || step.reveal)) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
 
   return step.action === 'ban'
     ? resolveBanTimeoutWithPreviews(state, step, blindBans, previews.bans, random)
@@ -122,7 +124,7 @@ export function censorSanitizedDraftPreviews(
 
   const ownTeam = state.seats[seatIndex]?.team ?? null
   const visiblePicks: DraftPreviewState['picks'] = {}
-  if (step.action === 'pick') {
+  if (step.action === 'pick' && !step.blind && !step.reveal) {
     for (const [rawSeatIndex, civIds] of Object.entries(sanitized.picks)) {
       const previewSeatIndex = Number(rawSeatIndex)
       const previewSeat = state.seats[previewSeatIndex]

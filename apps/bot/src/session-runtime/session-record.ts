@@ -339,6 +339,7 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     permanentAlly: config.redDeath ? false : config.permanentAlly !== false,
     redDeath: config.redDeath,
     dealOptionsSize: config.dealOptionsSize,
+    blindPicks: config.blindPicks,
     randomDraft: config.randomDraft,
     hiddenDraft: config.hiddenDraft,
     duplicateFactions: config.duplicateFactions,

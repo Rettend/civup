@@ -46,7 +46,7 @@ describe('timer helper formatting', () => {
 
 describe('Blind Bans control visibility', () => {
   test('shows the control for supported lobby setups', () => {
-    expect(supportsBlindBansControl('ffa')).toBe(false)
+    expect(supportsBlindBansControl('ffa')).toBe(true)
     expect(supportsBlindBansControl('1v1', { targetSize: 2 })).toBe(true)
     expect(supportsBlindBansControl('2v2', { targetSize: 4 })).toBe(true)
   })
@@ -160,6 +160,7 @@ function createLobbySnapshot(
       leaderDataVersion: 'live',
       mapVoteEnabled: true,
       blindBans: true,
+      blindPicks: false,
       simultaneousPick: false,
       redDeath: false,
       permanentAlly: false,

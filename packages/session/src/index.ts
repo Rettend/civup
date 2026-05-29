@@ -19,6 +19,7 @@ export interface DraftRuntimeConfig {
   seats: DraftSeat[]
   civPool: string[]
   dealOptionsSize?: number
+  blindPicks?: boolean
   randomDraft?: boolean
   hiddenDraft?: boolean
   permanentAlly?: boolean

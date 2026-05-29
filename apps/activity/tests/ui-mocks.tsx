@@ -160,6 +160,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
       blindBans: true,
+      blindPicks: false,
       simultaneousPick: false,
       redDeath: false,
       permanentAlly: true,
