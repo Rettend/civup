@@ -1,4 +1,4 @@
-import type { Leader, MapVoteMapOption } from '@civup/game'
+import type { DraftState, Leader, MapVoteMapOption } from '@civup/game'
 import { getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -69,9 +69,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (serverPick) return serverPick
 
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
+    const blindSubmittedCivId = getVisibleBlindSubmittedPick(state(), props.seatIndex)
     const visualIndex = getVisualSeatOrder(state()?.seats).indexOf(props.seatIndex)
     const hiddenDraftCivId = visualIndex >= 0 ? hiddenDraftLeaderSelections()[visualIndex] ?? null : null
-    const civId = optimisticCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
+    const civId = optimisticCivId ?? blindSubmittedCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
     if (!civId) return null
 
     return {
@@ -88,6 +89,19 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const filled = () => !!pick()
+  const revealPick = () => state()?.blindPickReveal?.picks.find(p => p.seatIndex === props.seatIndex) ?? null
+  const revealLeader = (): Leader | null => {
+    const p = revealPick()
+    if (!p) return null
+    try { return getLeader(p.civId, draftStore.leaderDataVersion) }
+    catch { return null }
+  }
+  const hasReveal = (): boolean => revealLeader() != null
+  const revealIsConflict = (): boolean => {
+    const p = revealPick()
+    const reveal = state()?.blindPickReveal
+    return !!p && !!reveal && reveal.conflictCivIds.includes(p.civId)
+  }
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -97,13 +111,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const hasPreview = (): boolean => previewLeader() != null
-  const displayLeader = (): Leader | null => leader() ?? previewLeader()
+  const displayLeader = (): Leader | null => leader() ?? revealLeader() ?? previewLeader()
   const leaderKey = () => {
     const l = leader()
     return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
   }
   const previewLeaderKey = () => {
     const l = previewLeader()
+    return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
+  }
+  const revealLeaderKey = () => {
+    const l = revealLeader()
     return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
   }
   const displayLeaderKey = () => {
@@ -331,7 +349,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
-        'slot-accent-red': isActive() && accent() === 'red',
+        'slot-accent-red': (isActive() && accent() === 'red') || revealIsConflict(),
       }}
       onClick={() => {
         if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) return
@@ -457,7 +475,35 @@ export function PlayerSlot(props: PlayerSlotProps) {
         }}
       </Show>
 
-      <Show when={!filled() && previewLeaderKey()} keyed>
+      <Show when={!filled() && revealLeaderKey()} keyed>
+        {(_key) => {
+          const l = revealLeader()
+          return l
+            ? (
+                <div class={cn('inset-0 absolute', revealIsConflict() ? 'saturate-110' : 'opacity-80 saturate-90')}>
+                  <SlotPortraitImage
+                    src={getLeaderFullPortraitUrl(l)}
+                    alt={l.name}
+                    class={cn(
+                      'absolute inset-0 h-full w-full object-cover',
+                      props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                    )}
+                    animate
+                    waitForDecode
+                  />
+                  <Show when={revealIsConflict()}>
+                    <div class="pointer-events-none inset-0 absolute bg-danger/18 ring-2 ring-inset ring-danger/70" />
+                    <div class="right-2 top-2 absolute rounded bg-danger px-2 py-0.5 text-[10px] font-black tracking-wider text-white shadow-lg">
+                      CONFLICT
+                    </div>
+                  </Show>
+                </div>
+              )
+            : null
+        }}
+      </Show>
+
+      <Show when={!filled() && !hasReveal() && previewLeaderKey()} keyed>
         {(_key) => {
           const l = previewLeader()
           return l
@@ -505,7 +551,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
 
       {/* Empty state icon */}
-      <Show when={!filled() && !hasPreview() && !hasBanPreview()}>
+      <Show when={!filled() && !hasReveal() && !hasPreview() && !hasBanPreview()}>
         <div class="flex flex-1 items-center justify-center">
           <div class={cn(
             isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
@@ -518,7 +564,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
-        filled() || hasPreview() || hasBanPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
+        filled() || hasReveal() || hasPreview() || hasBanPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
         {/* Leader name (when picked) */}
@@ -528,12 +574,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
             return l
               ? (
                   <div class="mb-1">
-                    <div class={cn('text-base leading-tight font-semibold truncate', filled() ? 'text-fg' : 'text-fg/72')}>
+                    <div class={cn('text-base leading-tight font-semibold truncate', filled() || hasReveal() ? 'text-fg' : 'text-fg/72')}>
                       {l.name}
                     </div>
-                    <div class={cn('text-sm leading-tight truncate', filled() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
+                    <div class={cn('text-sm leading-tight truncate', filled() || hasReveal() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
                       {l.civilization}
                     </div>
+                    <Show when={revealIsConflict()}>
+                      <div class="mt-1 text-[10px] font-black tracking-widest text-danger">REDRAFT REQUIRED</div>
+                    </Show>
                   </div>
                 )
               : null
@@ -586,6 +635,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
     </div>
   )
+}
+
+function getVisibleBlindSubmittedPick(state: DraftState | null | undefined, seatIndex: number): string | null {
+  if (!state || state.status !== 'active') return null
+  const step = state.steps[state.currentStepIndex]
+  if (!step || step.action !== 'pick' || !step.blind || step.reveal) return null
+  const civId = state.submissions[seatIndex]?.[0]
+  if (!civId || civId === '__blind__') return null
+  return civId
 }
 
 function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {

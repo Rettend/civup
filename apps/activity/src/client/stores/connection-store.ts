@@ -67,6 +67,7 @@ export interface LobbySnapshot {
     leaderDataVersion: LeaderDataVersion
     mapVoteEnabled: boolean
     blindBans: boolean
+    blindPicks: boolean
     simultaneousPick: boolean
     permanentAlly: boolean
     redDeath: boolean
@@ -674,6 +675,7 @@ export async function updateLobbyConfig(
     leaderDataVersion?: LeaderDataVersion
     mapVoteEnabled?: boolean
     blindBans?: boolean
+    blindPicks?: boolean
     simultaneousPick?: boolean
     permanentAlly?: boolean
     redDeath?: boolean
@@ -698,6 +700,7 @@ export async function updateLobbyConfig(
       leaderDataVersion: draftConfig.leaderDataVersion,
       mapVoteEnabled: draftConfig.mapVoteEnabled,
       blindBans: draftConfig.blindBans,
+      blindPicks: draftConfig.blindPicks,
       simultaneousPick: draftConfig.simultaneousPick,
       permanentAlly: draftConfig.permanentAlly,
       redDeath: draftConfig.redDeath,

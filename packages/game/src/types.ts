@@ -149,6 +149,24 @@ export interface DraftStep {
   fallbackTimer?: number
   /** Original grouped pick step that spawned this temporary fallback step. */
   fallbackForStepIndex?: number
+  /** Whether pick submissions in this step stay hidden until everyone submits. */
+  blind?: boolean
+  /** Temporary 5s reveal step for blind-pick conflicts. */
+  reveal?: boolean
+  /** Blind-pick redraft round, starting at 0 for the initial blind pick. */
+  blindPickRound?: number
+  /** Seat order used if blind-pick conflicts fall back to draft pick. */
+  fallbackPickOrder?: number[]
+  /** Pick timer to use after a conflict reveal. */
+  redraftTimer?: number
+}
+
+export interface DraftBlindPickReveal {
+  round: number
+  picks: DraftSelection[]
+  conflictCivIds: string[]
+  conflictedSeatIndexes: number[]
+  maxRedrafts: number
 }
 
 export interface DraftDoublePickMetrics {
@@ -224,10 +242,16 @@ export interface DraftState {
   availableCivIds: string[]
   /** Factions dealt to the active picker this turn (rd modes only). */
   dealtCivIds?: string[] | null
+  /** Per-seat dealt options for simultaneous blind-pick turns, primarily Red Death. */
+  dealtCivIdsBySeat?: Record<number, string[]> | null
   /** How many factions to deal per turn (rd modes only). */
   dealOptionsSize?: number
   /** Whether picks may reuse leaders or factions that were already chosen. */
   duplicateFactions?: boolean
+  /** Current blind-pick conflict reveal, visible to every player. */
+  blindPickReveal?: DraftBlindPickReveal | null
+  /** Leaders removed because multiple players blind-picked them. These are not normal player bans. */
+  blindPickBans?: DraftSelection[]
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
   /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null
@@ -257,7 +281,8 @@ export type DraftEvent
   = | { type: 'DRAFT_STARTED' }
     | { type: 'DRAFT_CANCELLED', reason: DraftCancelReason }
     | { type: 'BAN_SUBMITTED', seatIndex: number, civIds: string[], blind: boolean }
-    | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string }
+    | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string, blind?: boolean }
+    | { type: 'BLIND_PICKS_REVEALED', picks: DraftSelection[], conflictCivIds: string[], conflictedSeatIndexes: number[], round: number }
     | { type: 'BLIND_BANS_REVEALED', bans: DraftSelection[] }
     | { type: 'STEP_ADVANCED', stepIndex: number }
     | { type: 'DRAFT_COMPLETE' }

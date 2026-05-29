@@ -899,7 +899,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const submittedCount = state.submissions[seatIndex]?.length ?? 0
     if (submittedCount >= step.count) return
 
-    const availablePool = [...(state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+    const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
     if (availablePool.length === 0) return
 
     let result:
@@ -1292,6 +1292,21 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
   private censorState(state: DraftState, seatIndex: number): DraftState {
     let nextState = state
 
+    const step = getCurrentStep(state)
+    if (step?.action === 'pick' && step.blind && state.status === 'active') {
+      const submissions: DraftState['submissions'] = {}
+      for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
+        const submittedSeatIndex = Number(rawSeatIndex)
+        submissions[submittedSeatIndex] = submittedSeatIndex === seatIndex
+          ? [...civIds]
+          : Array.from({ length: civIds.length }, () => '__blind__')
+      }
+      nextState = {
+        ...nextState,
+        submissions,
+      }
+    }
+
     if (state.pendingBlindBans.length > 0) {
       nextState = {
         ...nextState,
@@ -1301,12 +1316,22 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       }
     }
 
+    if (nextState.dealtCivIdsBySeat) {
+      const ownDealt = seatIndex >= 0 ? nextState.dealtCivIdsBySeat[seatIndex] ?? null : null
+      nextState = {
+        ...nextState,
+        dealtCivIds: ownDealt,
+        dealtCivIdsBySeat: ownDealt ? { [seatIndex]: ownDealt } : null,
+      }
+    }
+
     if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
-    if (nextState.dealtCivIds == null && !isRedDeathDraftState(nextState)) return nextState
+    if (nextState.dealtCivIds == null && nextState.dealtCivIdsBySeat == null && !isRedDeathDraftState(nextState)) return nextState
 
     return {
       ...nextState,
       dealtCivIds: null,
+      dealtCivIdsBySeat: null,
       availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
     }
   }
@@ -1316,6 +1341,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return events.map((e) => {
       if (e.type === 'BAN_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {
         return { ...e, civIds: [] }
+      }
+      if (e.type === 'PICK_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {
+        return { ...e, civId: '' }
       }
       return e
     })
@@ -1447,7 +1475,9 @@ function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {
   if (seatIndex < 0 || state.status !== 'active') return false
   if (!isRedDeathDraftState(state)) return true
   const step = getCurrentStep(state)
-  if (!step || step.action !== 'pick' || step.seats === 'all') return false
+  if (!step || step.action !== 'pick') return false
+  if (step.blind) return isSeatInStep(step, seatIndex, state.seats.length)
+  if (step.seats === 'all') return false
 
   const activeSeat = step.seats[0]
   if (activeSeat == null) return false

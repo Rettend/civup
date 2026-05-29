@@ -18,6 +18,7 @@ export interface LobbyEditableDraftConfig {
   leaderDataVersion: 'live' | 'beta'
   mapVoteEnabled: boolean
   blindBans: boolean
+  blindPicks: boolean
   simultaneousPick: boolean
   permanentAlly: boolean
   redDeath: boolean

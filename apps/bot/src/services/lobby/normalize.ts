@@ -16,6 +16,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   permanentAlly: true,
   redDeath: false,
   dealOptionsSize: null,
+  blindPicks: false,
   randomDraft: false,
   hiddenDraft: false,
   duplicateFactions: false,
@@ -92,6 +93,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     permanentAlly: normalizePermanentAlly(config?.permanentAlly),
     redDeath: normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
+    blindPicks: normalizeBlindPicks(config?.blindPicks),
     randomDraft: hiddenDraft ? false : randomDraft,
     hiddenDraft,
     duplicateFactions: normalizeDuplicateFactions(config?.duplicateFactions),
@@ -112,10 +114,11 @@ export function normalizeDraftConfigForMode(
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
     blindBans: supportsBlindBans(mode, redDeath, targetSize) ? normalized.blindBans : true,
-    simultaneousPick: mode === 'ffa' && !redDeath ? normalized.simultaneousPick : false,
+    simultaneousPick: mode === 'ffa' && !redDeath && !normalized.blindPicks ? normalized.simultaneousPick : false,
     permanentAlly: mode === 'ffa' && !redDeath ? normalized.permanentAlly : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
+    blindPicks: normalized.blindPicks,
     randomDraft: normalized.hiddenDraft ? false : normalized.randomDraft,
     hiddenDraft: normalized.hiddenDraft,
     duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
@@ -183,6 +186,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
+    && a.blindPicks === b.blindPicks
     && a.randomDraft === b.randomDraft
     && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
@@ -248,6 +252,10 @@ function normalizeRedDeath(value: unknown): boolean {
   return value === true
 }
 
+function normalizeBlindPicks(value: unknown): boolean {
+  return value === true
+}
+
 function normalizeDealOptionsSize(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const rounded = Math.round(value)
@@ -272,7 +280,7 @@ function normalizeClosed(value: unknown): boolean {
 }
 
 function supportsBlindBans(mode: GameMode, redDeath: boolean, targetSize?: number): boolean {
-  if (redDeath || mode === 'ffa') return false
+  if (redDeath) return false
   if (mode === '2v2') return targetSize == null || targetSize === 4
   return true
 }
