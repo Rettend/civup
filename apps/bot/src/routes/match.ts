@@ -291,6 +291,13 @@ function queueActivityReportProjectionTasks(
   },
 ): void {
   queueBackgroundTask(context, async () => {
+    let reportClaimReleased = false
+    const releaseReportClaim = async () => {
+      if (reportClaimReleased) return
+      reportClaimReleased = true
+      await releaseReportedMatchClaimIfNeeded(context.env.SessionDO, { match: { id: input.matchId }, reportClaim: input.reportClaim })
+    }
+
     try {
       let discordSyncErrors: string[] = []
       try {
@@ -316,7 +323,10 @@ function queueActivityReportProjectionTasks(
         console.error(`Failed to sync reported Discord messages after activity report ${input.matchId}:`, error)
         discordSyncErrors = [error instanceof Error ? error.message : String(error)]
       }
-      if (discordSyncErrors.length > 0) await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
+      if (discordSyncErrors.length > 0) {
+        await releaseReportClaim()
+        await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
+      }
 
       if (input.isTournamentMatch) {
         await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN).catch((error) => {
@@ -341,7 +351,7 @@ function queueActivityReportProjectionTasks(
       }
     }
     finally {
-      await releaseReportedMatchClaimIfNeeded(context.env.SessionDO, { match: { id: input.matchId }, reportClaim: input.reportClaim })
+      await releaseReportClaim()
     }
   }, `[match-report] failed to queue activity report projection work for ${input.matchId}:`)
 }
