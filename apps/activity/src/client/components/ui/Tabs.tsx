@@ -7,6 +7,7 @@ type MaybeAccessor<T> = T | Accessor<T>
 interface TabOption<T extends string = string> {
   value: T
   label: string
+  ariaLabel?: string
 }
 
 interface TabsProps<T extends string = string> {
@@ -45,6 +46,7 @@ export function Tabs<T extends string = string>(props: TabsProps<T>) {
               )}
               disabled={disabled()}
               aria-pressed={active()}
+              aria-label={option.ariaLabel ?? option.label}
               onClick={() => local.onChange?.(option.value)}
             >
               {option.label}

@@ -514,7 +514,7 @@ function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
       leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
       leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
       mapVoteEnabled: parsed.mapVoteEnabled === true,
-      blindBans: parsed.blindBans === true,
+      blindBans: parsed.blindBans !== false,
       blindPicks: parsed.blindPicks === true,
       simultaneousPick: parsed.simultaneousPick === true,
       permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
