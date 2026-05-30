@@ -1,7 +1,7 @@
-import type { Leader } from '@civup/game'
+import type { CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader } from '@civup/game'
 import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
-import { factions, getLeaders, searchFactions, searchLeaders } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, factions, getCivBlitzRegistry, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createRenderEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -33,6 +33,7 @@ import {
   hasSubmitted,
   hiddenDraftLeaderSelections,
   isHiddenDraftComplete,
+  isCivBlitzDraft,
   isMyTurn,
   isRandomSelected,
   isRedDeathDraft,
@@ -41,6 +42,7 @@ import {
   searchQuery,
   selectedLeader,
   sendBan,
+  sendCivBlitzSubmit,
   sendPick,
   sendPreview,
   setBanSelections,
@@ -65,6 +67,18 @@ const DOCKED_PANEL_MIN_WIDTH = 1280
 const PREVIEW_THROTTLE_MS = 60
 const RETTEND_QUERY = 'rettend'
 const RETTEND_LEADER_ID = 'ottomans-suleiman-kanuni'
+const CIV_BLITZ_CATEGORY_LABELS: Record<CivBlitzComponentCategory, string> = {
+  civilizationAbility: 'Civilization Ability',
+  leaderAbility: 'Leader Ability',
+  infrastructure: 'Unique Infrastructure',
+  unit: 'Unique Unit',
+}
+const CIV_BLITZ_CATEGORY_ICONS: Record<CivBlitzComponentCategory, string> = {
+  civilizationAbility: 'i-ph:flag-duotone',
+  leaderAbility: 'i-ph:user-duotone',
+  infrastructure: 'i-ph:factory-duotone',
+  unit: 'i-ph:horse-duotone',
+}
 
 interface HoverTooltip {
   name: string
@@ -205,6 +219,7 @@ export function LeaderGridOverlay() {
   const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
   const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
+  const [civBlitzSelections, setCivBlitzSelections] = createSignal<CivBlitzPartialKit>({})
   const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
   const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
   let suppressNextPreviewClear: 'ban' | 'pick' | null = null
@@ -311,6 +326,7 @@ export function LeaderGridOverlay() {
   })
 
   const allLeaders = createMemo(() => getLeaders(leaderDataVersion()))
+  const civBlitzComponentMap = createMemo(() => getCivBlitzRegistry(leaderDataVersion(), { excludeBbgExpanded: state()?.civBlitz?.excludeBbgExpanded !== false }).componentMap)
   const allEntries = createMemo(() => isRedDeathDraft() ? factions : allLeaders())
   const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
 
@@ -436,6 +452,15 @@ export function LeaderGridOverlay() {
     sendThrottledPickPreview(nextPreview)
   })
 
+  createEffect(() => {
+    const current = state()
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
+      if (Object.keys(civBlitzSelections()).length > 0) setCivBlitzSelections({})
+    }
+  })
+
   const draftLeaderPoolIds = createMemo(() => {
     if (reportAssignmentMode()) return new Set(allEntries().map(entry => entry.id))
     if (isRedDeathDraft()) return new Set(dealtCivIds() ?? [])
@@ -517,6 +542,40 @@ export function LeaderGridOverlay() {
     const id = selectedLeader()
     if (!id) return false
     return !isDraftCardUnavailable(state(), id)
+  }
+
+  const civBlitzCategoriesForSeat = (): CivBlitzComponentCategory[] => {
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    if (!currentStep?.civBlitz || seatIndex == null) return []
+    const bySeat = currentStep.civBlitzCategoriesBySeat?.[seatIndex]
+    if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
+    const categories = currentStep.civBlitzCategories
+    return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
+  }
+
+  const civBlitzOptionsForSeat = () => {
+    const seatIndex = ownSeatIndex()
+    return seatIndex == null ? null : state()?.civBlitz?.optionsBySeat[seatIndex] ?? null
+  }
+
+  const canConfirmCivBlitz = () => {
+    if (!step()?.civBlitz || hasSubmitted()) return false
+    const options = civBlitzOptionsForSeat()
+    if (!options) return false
+    const selections = civBlitzSelections()
+    return civBlitzCategoriesForSeat().every(category => !!selections[category] && options[category].includes(selections[category]!))
+  }
+
+  const handleCivBlitzSelect = (category: CivBlitzComponentCategory, componentId: string) => {
+    setCivBlitzSelections(prev => ({ ...prev, [category]: prev[category] === componentId ? undefined : componentId }))
+  }
+
+  const handleConfirmCivBlitz = () => {
+    if (!canConfirmCivBlitz()) return
+    sendCivBlitzSubmit(civBlitzSelections())
+    setCivBlitzSelections({})
+    setGridOpen(false)
   }
 
   const pickConfirmLabel = () => {
@@ -1062,6 +1121,79 @@ export function LeaderGridOverlay() {
     </div>
   )
 
+  const renderCivBlitzPanel = () => {
+    const categories = civBlitzCategoriesForSeat()
+    const options = civBlitzOptionsForSeat()
+
+    return (
+      <div class={cn(overlayEntranceClass(), 'pointer-events-auto grid-panel-glow border border-border rounded-lg bg-bg-subtle flex h-full w-[min(calc(100vw-1rem),76rem)] flex-col shadow-2xl overflow-hidden')}>
+        <div class="px-4 py-3 border-b border-border-subtle flex items-center justify-between">
+          <div>
+            <div class="text-sm text-cyan-200 font-bold tracking-wide">CivBlitz Kit</div>
+            <div class="text-[11px] text-fg-subtle">Pick one option in each category. Choices reveal together.</div>
+          </div>
+          <button class="text-fg-subtle cursor-pointer hover:text-fg-muted" onClick={() => setGridOpen(false)}>
+            <div class="i-ph-x-bold text-sm" />
+          </button>
+        </div>
+
+        <div class="p-3 flex-1 min-h-0 overflow-y-auto">
+          <Show when={options} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
+            {resolvedOptions => (
+              <div class="flex flex-col gap-3">
+                <For each={categories}>
+                  {category => (
+                    <div class="rounded-lg border border-border bg-bg/40 overflow-hidden">
+                      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center">
+                        <span class={cn('text-cyan-200 text-base', CIV_BLITZ_CATEGORY_ICONS[category])} />
+                        <span class="text-xs text-fg font-semibold uppercase tracking-wider">{CIV_BLITZ_CATEGORY_LABELS[category]}</span>
+                      </div>
+                      <div class="p-2 grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                        <For each={resolvedOptions()[category]}>
+                          {componentId => {
+                            const component = () => civBlitzComponentMap().get(componentId)
+                            const selected = () => civBlitzSelections()[category] === componentId
+                            return (
+                              <CivBlitzOptionCard
+                                component={component()}
+                                category={category}
+                                selected={selected()}
+                                onClick={() => handleCivBlitzSelect(category, componentId)}
+                              />
+                            )
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            )}
+          </Show>
+        </div>
+
+        <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
+          <button
+            class={cn(
+              'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+              canConfirmCivBlitz()
+                ? 'bg-cyan-300 text-black cursor-pointer hover:bg-cyan-200'
+                : 'bg-cyan-300/15 text-cyan-200/45 cursor-default',
+            )}
+            disabled={!canConfirmCivBlitz()}
+            onClick={handleConfirmCivBlitz}
+          >
+            Confirm Kit (
+            {categories.filter(category => civBlitzSelections()[category]).length}
+            /
+            {categories.length}
+            )
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Show when={gridOpen()}>
       {/* Backdrop */}
@@ -1070,83 +1202,90 @@ export function LeaderGridOverlay() {
       {/* Centered grid */}
       <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-50', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
         <Show
-          when={showStackedShelf()}
+          when={isCivBlitzDraft()}
           fallback={(
-            <div
-              class={cn(
-                overlayEntranceClass(),
-                'pointer-events-auto relative z-30',
-                panelsDocked()
-                  ? 'flex flex-col max-h-full items-center'
-                  : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
-                panelsDocked() && gridExpanded() && 'h-full',
-              )}
-            >
-              <Show when={showDockedPanels() && filtersOpen()}>
-                <div class="anim-detail-in w-56 bottom-0 right-full top-0 absolute z-10">
-                  {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
-                </div>
-              </Show>
-
-              <Show when={showDockedPanels() && hasDetail()}>
-                <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
-                  <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                    <LeaderDetailPanel />
-                  </div>
-                </div>
-              </Show>
-
-              <Show when={showFocusPanelStrip()}>
-                <div class="pointer-events-none inset-0 absolute z-30 overflow-hidden">
-                  <Show when={filtersOpen()}>
-                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
-                      {renderFilterPanel('h-full')}
+            <Show
+              when={showStackedShelf()}
+              fallback={(
+                <div
+                  class={cn(
+                    overlayEntranceClass(),
+                    'pointer-events-auto relative z-30',
+                    panelsDocked()
+                      ? 'flex flex-col max-h-full items-center'
+                      : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
+                    panelsDocked() && gridExpanded() && 'h-full',
+                  )}
+                >
+                  <Show when={showDockedPanels() && filtersOpen()}>
+                    <div class="anim-detail-in w-56 bottom-0 right-full top-0 absolute z-10">
+                      {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
                     </div>
                   </Show>
-                  <Show when={!filtersOpen() && hasDetail()}>
-                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
-                      <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+
+                  <Show when={showDockedPanels() && hasDetail()}>
+                    <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
+                      <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
                         <LeaderDetailPanel />
                       </div>
                     </div>
                   </Show>
-                </div>
-              </Show>
 
-              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
-            </div>
-          )}
-        >
-          <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
-            <Show when={filtersOpen() || hasDetail()}>
-              <div class="gap-2 grid grid-cols-2 pointer-events-none inset-x-0 top-0 absolute z-30 overflow-hidden" style={{ height: '35%' }}>
-                <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
-                  <Show when={filtersOpen()}>
-                    {renderFilterPanel('h-full')}
-                  </Show>
-                </div>
-
-                <div class={cn('h-full min-h-0 overflow-hidden', hasDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
-                  <Show when={hasDetail()}>
-                    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                      <LeaderDetailPanel />
+                  <Show when={showFocusPanelStrip()}>
+                    <div class="pointer-events-none inset-0 absolute z-30 overflow-hidden">
+                      <Show when={filtersOpen()}>
+                        <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                          {renderFilterPanel('h-full')}
+                        </div>
+                      </Show>
+                      <Show when={!filtersOpen() && hasDetail()}>
+                        <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                          <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                            <LeaderDetailPanel />
+                          </div>
+                        </div>
+                      </Show>
                     </div>
                   </Show>
+
+                  {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
+                </div>
+              )}
+            >
+              <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
+                <Show when={filtersOpen() || hasDetail()}>
+                  <div class="gap-2 grid grid-cols-2 pointer-events-none inset-x-0 top-0 absolute z-30 overflow-hidden" style={{ height: '35%' }}>
+                    <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                      <Show when={filtersOpen()}>
+                        {renderFilterPanel('h-full')}
+                      </Show>
+                    </div>
+
+                    <div class={cn('h-full min-h-0 overflow-hidden', hasDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                      <Show when={hasDetail()}>
+                        <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                          <LeaderDetailPanel />
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
+
+                <div class="flex flex-col gap-2 h-full">
+                  <div class="shrink-0 gap-2 grid grid-cols-2" style={{ height: '35%' }}>
+                    <div />
+                    <div />
+                  </div>
+
+                  <div class="flex-1 min-h-0">
+                    {renderGridPanel('h-full')}
+                  </div>
                 </div>
               </div>
             </Show>
-
-            <div class="flex flex-col gap-2 h-full">
-              <div class="shrink-0 gap-2 grid grid-cols-2" style={{ height: '35%' }}>
-                <div />
-                <div />
-              </div>
-
-              <div class="flex-1 min-h-0">
-                {renderGridPanel('h-full')}
-              </div>
-            </div>
-          </div>
+          )}
+        >
+          {renderCivBlitzPanel()}
         </Show>
       </div>
 
@@ -1177,6 +1316,46 @@ export function LeaderGridOverlay() {
         )}
       </Show>
     </Show>
+  )
+}
+
+function CivBlitzOptionCard(props: {
+  component: CivBlitzComponent | undefined
+  category: CivBlitzComponentCategory
+  selected: boolean
+  onClick: () => void
+}) {
+  const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
+  return (
+    <button
+      class={cn(
+        'rounded-md border p-2 text-left flex gap-2 min-h-24 transition-all group cursor-pointer',
+        props.selected
+          ? 'border-cyan-300 bg-cyan-300/10 shadow-[0_0_12px_rgba(103,232,249,0.18)]'
+          : 'border-border bg-bg/50 hover:bg-bg-muted hover:border-white/20',
+      )}
+      onClick={props.onClick}
+    >
+      <div class={cn(
+        'h-14 w-14 rounded bg-bg-subtle border border-border-subtle flex shrink-0 items-center justify-center overflow-hidden',
+        props.selected && 'border-cyan-300/60',
+      )}
+      >
+        <Show
+          when={imageUrl()}
+          fallback={<span class={cn('text-2xl text-fg-subtle', CIV_BLITZ_CATEGORY_ICONS[props.category])} />}
+        >
+          {url => <img class="h-full w-full object-cover" src={resolveAssetUrl(url()) ?? url()} alt="" loading="lazy" />}
+        </Show>
+      </div>
+      <div class="min-w-0 flex flex-col gap-1">
+        <div class={cn('text-xs font-semibold leading-snug line-clamp-2', props.selected ? 'text-cyan-100' : 'text-fg group-hover:text-fg')}>{props.component?.name ?? 'Unknown component'}</div>
+        <Show when={props.component?.civilization}>
+          {civilization => <div class="text-[10px] text-cyan-200/70 font-medium uppercase tracking-wide truncate">{civilization()}</div>}
+        </Show>
+        <div class="text-[10px] text-fg-subtle leading-snug line-clamp-3">{props.component?.description ?? 'Component data unavailable.'}</div>
+      </div>
+    </button>
   )
 }
 

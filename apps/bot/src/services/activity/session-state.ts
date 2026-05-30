@@ -330,7 +330,7 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   snapshot: LobbySnapshot,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
 ): Promise<LobbySnapshot> {
-  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath })
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath, civBlitz: snapshot.draftConfig.civBlitz })
   if (!leaderboardMode) return snapshot
 
   const leaderboardSnapshot = balanceSnapshot === undefined
@@ -438,6 +438,7 @@ async function buildLobbySnapshotFromSessionParts(
     playerCount: slottedPlayerIds.length,
     leaderDataVersion: session.config.leaderDataVersion,
     redDeath: session.config.redDeath,
+    civBlitz: session.config.civBlitz,
     assignments: rankAssignments,
   })
 
@@ -468,6 +469,9 @@ async function buildLobbySnapshotFromSessionParts(
       permanentAlly: session.config.permanentAlly,
       redDeath: session.config.redDeath,
       dealOptionsSize: session.config.dealOptionsSize,
+      civBlitz: session.config.civBlitz,
+      civBlitzOptionCount: session.config.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: session.config.civBlitzExcludeBbgExpanded,
       randomDraft: session.config.randomDraft,
       hiddenDraft: session.config.hiddenDraft,
       duplicateFactions: session.config.duplicateFactions,
@@ -517,9 +521,12 @@ function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
       blindBans: parsed.blindBans !== false,
       blindPicks: parsed.blindPicks === true,
       simultaneousPick: parsed.simultaneousPick === true,
-      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
+      permanentAlly: mode === 'ffa' && parsed.redDeath !== true && parsed.civBlitz !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
+      civBlitz: parsed.civBlitz === true,
+      civBlitzOptionCount: typeof parsed.civBlitzOptionCount === 'number' ? parsed.civBlitzOptionCount : 4,
+      civBlitzExcludeBbgExpanded: parsed.civBlitzExcludeBbgExpanded !== false,
       randomDraft: parsed.randomDraft === true,
       hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,

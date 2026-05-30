@@ -282,6 +282,28 @@ describe('civ leaderboard command payload', () => {
     }
   })
 
+  test('excludes CivBlitz matches from civ leaderboard stats', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await seedCompletedMatch(db, 'civblitz-match', 'rome-trajan', 'p1', 1, { civBlitz: true })
+
+      await reconcileCivLeaderboardMatchContribution(db, 'civblitz-match', 10)
+
+      const contributionRows = await db.select({ matchId: matchCivStatContributions.matchId }).from(matchCivStatContributions)
+      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 20)
+
+      expect(contributionRows).toEqual([])
+      expect(snapshot.completedMatchCount).toBe(0)
+      expect(snapshot.rows).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('historical backfill is idempotent and matches historical snapshot builder', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -291,6 +313,7 @@ describe('civ leaderboard command payload', () => {
       await seedCompletedMatch(db, 'rome-match', 'rome-trajan', 'p1', 1)
       await seedCompletedMatch(db, 'russia-match', 'russia-peter', 'p1', 2)
       await seedCompletedMatch(db, 'red-death-match', 'rd-aliens', 'p1', 3, { redDeath: true })
+      await seedCompletedMatch(db, 'civblitz-match', 'rome-trajan', 'p1', 4, { civBlitz: true })
 
       const historical = await buildCivLeaderboardSnapshotFromD1(db, 10)
       const first = await backfillCivLeaderboardStatsFromHistory(db, 20)
@@ -322,7 +345,7 @@ async function seedCompletedMatch(
   civId: string,
   playerId: string,
   createdAt: number,
-  options: { redDeath?: boolean } = {},
+  options: { redDeath?: boolean, civBlitz?: boolean } = {},
 ): Promise<void> {
   await db.insert(matches).values({
     id: matchId,
@@ -332,6 +355,7 @@ async function seedCompletedMatch(
     seasonId: null,
     draftData: JSON.stringify({
       ...(options.redDeath ? { redDeath: true } : {}),
+      ...(options.civBlitz ? { civBlitz: true } : {}),
       state: { bans: [{ civId }] },
     }),
     createdAt,

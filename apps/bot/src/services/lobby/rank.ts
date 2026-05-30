@@ -17,10 +17,11 @@ export async function buildLobbyRankSnapshot(
     playerCount: number
     leaderDataVersion: LeaderDataVersion
     redDeath: boolean
+    civBlitz?: boolean
     assignments?: RankedRoleAssignments | null
   },
 ): Promise<LobbyRankSnapshot | null> {
-  if (options.redDeath) return null
+  if (options.redDeath || options.civBlitz) return null
 
   const tier = await resolveLobbyRankTier(kv, guildId, playerIds, options.assignments)
   return {

@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { defaultPlayerCount, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -16,6 +16,9 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   permanentAlly: true,
   redDeath: false,
   dealOptionsSize: null,
+  civBlitz: false,
+  civBlitzOptionCount: CIV_BLITZ_DEFAULT_OPTION_COUNT,
+  civBlitzExcludeBbgExpanded: true,
   blindPicks: false,
   randomDraft: false,
   hiddenDraft: false,
@@ -79,6 +82,7 @@ export function normalizeStoredSlots(mode: GameMode, value: unknown): (string | 
 }
 
 export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined): LobbyDraftConfig {
+  const civBlitz = normalizeCivBlitz(config?.civBlitz)
   const randomDraft = normalizeRandomDraft(config?.randomDraft)
   const hiddenDraft = normalizeHiddenDraft(config?.hiddenDraft)
   const leaderDataVersion = normalizeLeaderDataVersion(config?.leaderDataVersion)
@@ -91,11 +95,14 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     permanentAlly: normalizePermanentAlly(config?.permanentAlly),
-    redDeath: normalizeRedDeath(config?.redDeath),
+    redDeath: civBlitz ? false : normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
+    civBlitz,
+    civBlitzOptionCount: normalizeCivBlitzOptionCount(config?.civBlitzOptionCount),
+    civBlitzExcludeBbgExpanded: normalizeCivBlitzExcludeBbgExpanded(config?.civBlitzExcludeBbgExpanded),
     blindPicks: normalizeBlindPicks(config?.blindPicks),
-    randomDraft: hiddenDraft ? false : randomDraft,
-    hiddenDraft,
+    randomDraft: civBlitz || hiddenDraft ? false : randomDraft,
+    hiddenDraft: civBlitz ? false : hiddenDraft,
     duplicateFactions: normalizeDuplicateFactions(config?.duplicateFactions),
     closed: normalizeClosed(config?.closed),
   }
@@ -108,20 +115,24 @@ export function normalizeDraftConfigForMode(
 ): LobbyDraftConfig {
   const normalized = normalizeDraftConfig(config)
   const redDeath = normalized.redDeath
+  const civBlitz = normalized.civBlitz
   return {
     ...normalized,
-    leaderPoolSize: redDeath ? null : normalized.leaderPoolSize,
+    leaderPoolSize: redDeath || civBlitz ? null : normalized.leaderPoolSize,
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
-    blindBans: supportsBlindBans(mode, redDeath, targetSize) ? normalized.blindBans : true,
-    simultaneousPick: mode === 'ffa' && !redDeath && !normalized.blindPicks ? normalized.simultaneousPick : false,
-    permanentAlly: mode === 'ffa' && !redDeath ? normalized.permanentAlly : false,
+    blindBans: supportsBlindBans(mode, redDeath, targetSize) && !civBlitz ? normalized.blindBans : true,
+    simultaneousPick: mode === 'ffa' && !redDeath && !civBlitz && !normalized.blindPicks ? normalized.simultaneousPick : false,
+    permanentAlly: mode === 'ffa' && !redDeath && !civBlitz ? normalized.permanentAlly : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
-    blindPicks: normalized.blindPicks,
-    randomDraft: normalized.hiddenDraft ? false : normalized.randomDraft,
-    hiddenDraft: normalized.hiddenDraft,
-    duplicateFactions: redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
+    civBlitz,
+    civBlitzOptionCount: civBlitz ? normalized.civBlitzOptionCount : CIV_BLITZ_DEFAULT_OPTION_COUNT,
+    civBlitzExcludeBbgExpanded: normalized.civBlitzExcludeBbgExpanded,
+    blindPicks: civBlitz ? false : normalized.blindPicks,
+    randomDraft: civBlitz || normalized.hiddenDraft ? false : normalized.randomDraft,
+    hiddenDraft: civBlitz ? false : normalized.hiddenDraft,
+    duplicateFactions: civBlitz ? false : redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
     closed: normalized.closed,
   }
 }
@@ -186,6 +197,9 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
+    && a.civBlitz === b.civBlitz
+    && a.civBlitzOptionCount === b.civBlitzOptionCount
+    && a.civBlitzExcludeBbgExpanded === b.civBlitzExcludeBbgExpanded
     && a.blindPicks === b.blindPicks
     && a.randomDraft === b.randomDraft
     && a.hiddenDraft === b.hiddenDraft
@@ -250,6 +264,21 @@ function normalizeMapVoteFlag(value: unknown): boolean {
 
 function normalizeRedDeath(value: unknown): boolean {
   return value === true
+}
+
+function normalizeCivBlitz(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeCivBlitzOptionCount(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return CIV_BLITZ_DEFAULT_OPTION_COUNT
+  const rounded = Math.round(value)
+  if (rounded < CIV_BLITZ_MIN_OPTION_COUNT || rounded > CIV_BLITZ_MAX_OPTION_COUNT) return CIV_BLITZ_DEFAULT_OPTION_COUNT
+  return rounded
+}
+
+function normalizeCivBlitzExcludeBbgExpanded(value: unknown): boolean {
+  return value !== false
 }
 
 function normalizeBlindPicks(value: unknown): boolean {
