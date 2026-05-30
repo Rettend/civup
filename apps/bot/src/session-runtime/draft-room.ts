@@ -1297,9 +1297,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const submissions: DraftState['submissions'] = {}
       for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
         const submittedSeatIndex = Number(rawSeatIndex)
-        submissions[submittedSeatIndex] = submittedSeatIndex === seatIndex
-          ? [...civIds]
-          : Array.from({ length: civIds.length }, () => '__blind__')
+        submissions[submittedSeatIndex] = Array.from({ length: civIds.length }, () => '__blind__')
       }
       nextState = {
         ...nextState,
@@ -1342,7 +1340,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       if (e.type === 'BAN_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {
         return { ...e, civIds: [] }
       }
-      if (e.type === 'PICK_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {
+      if (e.type === 'PICK_SUBMITTED' && e.blind) {
         return { ...e, civId: '' }
       }
       return e

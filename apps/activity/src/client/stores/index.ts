@@ -56,6 +56,7 @@ export {
   canOpenLeaderGrid,
   canSendPickPreview,
   canSwapLeadersWith,
+  BLIND_PICK_SUBMISSION_PLACEHOLDER,
   currentMode,
   currentPickTargetSeatIndex,
   currentStep,

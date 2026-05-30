@@ -84,6 +84,12 @@ describe('inferGameMode', () => {
     expect(inferGameMode('default-6v6')).toBe('6v6')
   })
 
+  test('extracts modes from variant format ids', () => {
+    expect(inferGameMode('default-2v2-blind-pick')).toBe('2v2')
+    expect(inferGameMode('default-3v3-visible-bans-blind-pick')).toBe('3v3')
+    expect(inferGameMode('red-death-ffa-blind-pick')).toBe('ffa')
+  })
+
   test('falls back when no mode can be inferred', () => {
     expect(inferGameMode('custom', '1v1')).toBe('1v1')
     expect(inferGameMode(null)).toBe('ffa')

@@ -193,6 +193,7 @@ function mockLobbySnapshotFromConfigPatch(patch: Record<string, unknown>): Lobby
       leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : snapshot.draftConfig.leaderDataVersion,
       mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : snapshot.draftConfig.mapVoteEnabled,
       blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : snapshot.draftConfig.blindBans,
+      blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : snapshot.draftConfig.blindPicks,
       simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : snapshot.draftConfig.simultaneousPick,
       permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : snapshot.draftConfig.permanentAlly,
       redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : snapshot.draftConfig.redDeath,
@@ -512,6 +513,7 @@ mock.module('~/client/lib/clipboard', () => ({
 }))
 
 mock.module('~/client/stores', () => ({
+  BLIND_PICK_SUBMISSION_PLACEHOLDER: '__blind__',
   MAP_VOTE_REVEAL_DURATION_SECONDS: 10,
   MAP_VOTE_VOTING_DURATION_SECONDS: 90,
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),

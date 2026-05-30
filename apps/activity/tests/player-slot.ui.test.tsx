@@ -149,6 +149,20 @@ describe('PlayerSlot UI', () => {
     expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBe(firstImage)
   })
 
+  test('shows a submitted marker without revealing blind-pick submissions', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'default-ffa-blind-pick',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      submissions: { 0: [TEST_LEADER_IDS.abrahamLincoln] },
+    })
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getByText('Submitted')).toBeTruthy()
+    expect(screen.queryByText('Abraham Lincoln')).toBeNull()
+    expect(screen.queryByAltText('Abraham Lincoln')).toBeNull()
+  })
+
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })

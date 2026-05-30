@@ -299,7 +299,7 @@ function processPick(
     return { error: `Seat ${seatIndex} has already made all picks for this step` }
   }
 
-  if (!state.duplicateFactions && !state.availableCivIds.includes(civId)) {
+  if (!state.availableCivIds.includes(civId)) {
     return { error: `Civ ${civId} is not available` }
   }
 
@@ -401,9 +401,7 @@ function processTimeout(
         return { error: 'No pending picks to timeout' }
       }
 
-      const timedOutPool = state.duplicateFactions
-        ? state.dealtCivIds
-        : state.dealtCivIds.filter(civId => state.availableCivIds.includes(civId))
+      const timedOutPool = getTimeoutPickPool(state, timedOutSeat)
       if (timedOutPool.length === 0) {
         return { error: 'No dealt factions available for timeout pick' }
       }
@@ -676,7 +674,7 @@ function createDraftPickFallbackSteps(seats: number[], timer: number, fallbackPi
 function getTimeoutPickPool(state: DraftState, seatIndex: number): string[] {
   const dealt = getDealtCivIdsForSeat(state, seatIndex)
   const source = dealt ?? state.availableCivIds
-  return state.duplicateFactions ? source : source.filter(civId => state.availableCivIds.includes(civId))
+  return source.filter(civId => state.availableCivIds.includes(civId))
 }
 
 function getDealtCivIdsForSeat(state: DraftState, seatIndex: number): string[] | null {
@@ -855,6 +853,7 @@ export function getCurrentStep(state: DraftState): DraftStep | null {
 export function getPendingSeats(state: DraftState): number[] {
   const step = getCurrentStep(state)
   if (!step) return []
+  if (step.reveal || step.count <= 0) return []
 
   const activeSeats = getActiveSeats(step, state.seats.length)
   return activeSeats.filter((seat) => {
@@ -879,6 +878,7 @@ export function getPickSeatForPlayer(state: DraftState, seatIndex: number): numb
   const step = getCurrentStep(state)
   if (!step || step.action !== 'pick') return null
   if (isSeatPendingForStep(state, step, seatIndex)) return seatIndex
+  if (step.blind || step.reveal) return null
   if (step.seats === 'all') return null
 
   const ownSeat = state.seats[seatIndex]

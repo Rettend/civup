@@ -9,6 +9,7 @@ const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
 }
 
 const SWAP_FLASH_DURATION_MS = 600
+export const BLIND_PICK_SUBMISSION_PLACEHOLDER = '__blind__'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ export function setOptimisticSeatPick(civId: string): void {
   if (!step || step.action !== 'pick') return
   if ((s.submissions[seat]?.length ?? 0) >= step.count) return
 
-  setDraftStore('optimisticSeatPicks', seat, civId)
+  setDraftStore('optimisticSeatPicks', seat, step.blind ? BLIND_PICK_SUBMISSION_PLACEHOLDER : civId)
 }
 
 export function getOptimisticSeatPick(seatIndex: number): string | null {
@@ -335,10 +336,9 @@ export function hasSubmitted(): boolean {
     ? currentPickTargetSeatIndex() ?? seat
     : seat
 
-  const submissions = s.submissions[targetSeat]
-  if (!submissions) return false
-
-  return submissions.length >= step.count
+  const submissionCount = s.submissions[targetSeat]?.length ?? 0
+  const optimisticCount = draftStore.optimisticSeatPicks[targetSeat] ? 1 : 0
+  return Math.max(submissionCount, optimisticCount) >= step.count
 }
 
 /** Whether the client is a spectator (not a participant) */

@@ -401,8 +401,8 @@ function ModeTabsRow(props: {
   const value = createMemo(() => props.value())
   const disabled = createMemo(() => props.disabled())
   const options = [
-    { value: 'blind' as const, label: 'BLIND' },
-    { value: 'draft' as const, label: 'DRAFT' },
+    { value: 'blind' as const, label: 'BLIND', ariaLabel: `${props.label} BLIND` },
+    { value: 'draft' as const, label: 'DRAFT', ariaLabel: `${props.label} DRAFT` },
   ]
 
   return (
