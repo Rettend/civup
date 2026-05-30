@@ -4,7 +4,7 @@ import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
-import { Dropdown, Switch, TextInput } from '~/client/components/ui'
+import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
 
@@ -407,29 +407,15 @@ function ModeTabsRow(props: {
 
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
-      <span class="text-[11px] font-bold tracking-widest text-fg-subtle">{props.label}</span>
-      <div class="rounded-md border border-border-subtle bg-bg/50 p-0.5 flex items-center">
-        <For each={options}>
-          {option => {
-            const active = () => value() === option.value
-            return (
-              <button
-                type="button"
-                class={cn(
-                  'px-2.5 py-1 rounded text-[11px] font-bold tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                  active() ? 'bg-accent text-bg' : 'text-fg-muted hover:text-fg',
-                )}
-                disabled={disabled()}
-                aria-label={`${props.label} ${option.label}`}
-                aria-pressed={active()}
-                onClick={() => props.onChange(option.value)}
-              >
-                {option.label}
-              </button>
-            )
-          }}
-        </For>
-      </div>
+      <span class="text-sm font-medium text-fg-muted">
+        {props.label}
+      </span>
+      <Tabs
+        options={options}
+        value={value}
+        disabled={disabled}
+        onChange={props.onChange}
+      />
     </div>
   )
 }
