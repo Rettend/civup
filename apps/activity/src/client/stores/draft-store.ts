@@ -1,5 +1,5 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
-import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
+import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
 import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 
@@ -257,7 +257,7 @@ export function isSwapWindowOpen(): boolean {
 
 export function isHiddenDraftComplete(): boolean {
   const state = draftStore.state
-  return state?.status === 'complete' && state.picks.length === 0
+  return state?.status === 'complete' && !state.civBlitz && state.picks.length === 0
 }
 
 export function canSwapLeadersWith(seatIndex: number): boolean {
@@ -270,6 +270,10 @@ export function canSwapLeadersWith(seatIndex: number): boolean {
   const targetSeat = state.seats[seatIndex]
   if (!mySeat || !targetSeat) return false
   if (mySeat.team == null || targetSeat.team == null || mySeat.team !== targetSeat.team) return false
+
+  if (state.civBlitz) {
+    return hasCompleteCivBlitzKit(mySeatIndex) && hasCompleteCivBlitzKit(seatIndex)
+  }
 
   return state.picks.some(pick => pick.seatIndex === mySeatIndex)
     && state.picks.some(pick => pick.seatIndex === seatIndex)
@@ -287,6 +291,10 @@ export function isRedDeathDraft(): boolean {
   return isRedDeathFormatId(draftStore.state?.formatId)
 }
 
+export function isCivBlitzDraft(): boolean {
+  return isCivBlitzFormatId(draftStore.state?.formatId)
+}
+
 export function dealtCivIds(): string[] | null {
   return draftStore.state?.dealtCivIds ?? null
 }
@@ -296,6 +304,10 @@ export function canOpenLeaderGrid(): boolean {
   if (!s || s.status !== 'active') return false
   const step = currentStep()
   if (step?.reveal) return false
+  if (step?.civBlitz) {
+    const seat = draftStore.seatIndex
+    return seat != null && !!s.civBlitz?.optionsBySeat[seat]
+  }
   if (!isRedDeathDraft()) return true
   return (s.dealtCivIds?.length ?? 0) > 0
 }
@@ -363,9 +375,20 @@ export function phaseLabel(): string {
   if (!step) return ''
 
   if (step.action === 'ban') return 'BAN PHASE'
+  if (step.civBlitz && step.reveal) return 'BLITZ CONFLICT'
+  if (step.civBlitz) return (step.blindPickRound ?? 0) > 0 ? 'BLITZ REDRAFT' : 'CIVBLITZ'
   if (step.reveal) return 'PICK CONFLICT'
   if (step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLIND REDRAFT' : 'BLIND PICK'
   return 'PICK PHASE'
+}
+
+function hasCompleteCivBlitzKit(seatIndex: number): boolean {
+  const kit = draftStore.state?.civBlitz?.lockedKits[seatIndex]
+  return !!kit
+    && typeof kit.civilizationAbility === 'string'
+    && typeof kit.leaderAbility === 'string'
+    && typeof kit.infrastructure === 'string'
+    && typeof kit.unit === 'string'
 }
 
 /** Get the timer duration for the current step (in seconds) */

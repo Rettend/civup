@@ -1,6 +1,6 @@
-import type { DraftSeat, DraftState } from '../src/types.ts'
+import type { CivBlitzComponentPools, CivBlitzPartialKit, DraftSeat, DraftState } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default1v1BlindPick, default2v2, default2v2BlindPick, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2, redDeath2v2BlindPick } from '../src/draft-formats.ts'
+import { civBlitz2v2, default1v1, default1v1BlindPick, default2v2, default2v2BlindPick, default3v3, default4v4, defaultFfa, defaultFfaSimultaneous, redDeath2v2, redDeath2v2BlindPick } from '../src/draft-formats.ts'
 import {
   createDraft,
   getBansForSeat,
@@ -18,6 +18,37 @@ import {
 
 function createTestCivPool(count = 50): string[] {
   return Array.from({ length: count }, (_, i) => `civ-${i + 1}`)
+}
+
+function createCivBlitzPools(count = 12): CivBlitzComponentPools {
+  const ids = (prefix: string) => Array.from({ length: count }, (_, index) => `${prefix}-${index + 1}`)
+  return {
+    civilizationAbility: ids('ca'),
+    leaderAbility: ids('la'),
+    infrastructure: ids('ui'),
+    unit: ids('uu'),
+  }
+}
+
+function createCivBlitzKit(index: number, overrides: CivBlitzPartialKit = {}): CivBlitzPartialKit {
+  return {
+    civilizationAbility: `ca-${index}`,
+    leaderAbility: `la-${index}`,
+    infrastructure: `ui-${index}`,
+    unit: `uu-${index}`,
+    ...overrides,
+  }
+}
+
+function createCivBlitzDraft(matchId = 'match-civblitz'): DraftState {
+  const pools = createCivBlitzPools()
+  return createDraft(matchId, civBlitz2v2, create2v2Seats(), Object.values(pools).flat(), {
+    civBlitz: {
+      componentPools: pools,
+      optionCount: 4,
+      random: () => 0,
+    },
+  })
 }
 
 function create2v2Seats(): DraftSeat[] {
@@ -880,6 +911,111 @@ describe('processDraftInput — PICK (blind pick)', () => {
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
     expect(result.state.status).toBe('complete')
+  })
+})
+
+describe('processDraftInput — CivBlitz', () => {
+  test('locks unique kits once every active seat submits', () => {
+    let state = startDraft(createCivBlitzDraft('match-civblitz-unique'))
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'] })
+    expect(state.civBlitz?.optionsBySeat[0]?.unit).toEqual(['uu-1', 'uu-2', 'uu-3', 'uu-4'])
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(1) }))
+    expect(state.submissions[0]).toEqual(['__civblitz__'])
+    expect(state.civBlitz?.lockedKits).toEqual({})
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: createCivBlitzKit(2) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 2, kit: createCivBlitzKit(3) }))
+    const result = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.picks).toEqual([])
+    expect(result.state.civBlitz?.lockedKits[0]).toEqual(createCivBlitzKit(1))
+    expect(result.state.civBlitz?.lockedKits[3]).toEqual(createCivBlitzKit(4))
+    expect(result.events).toContainEqual({ type: 'CIV_BLITZ_SUBMITTED', seatIndex: 3, categories: ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'], blind: true })
+    expect(result.events).toContainEqual({ type: 'DRAFT_COMPLETE' })
+  })
+
+  test('redrafts only conflicted component categories', () => {
+    let state = startDraft(createCivBlitzDraft('match-civblitz-conflict'))
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(1) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: createCivBlitzKit(2, { unit: 'uu-1' }) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 2, kit: createCivBlitzKit(3) }))
+    const revealResult = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) })
+    expect(isDraftError(revealResult)).toBe(false)
+    if (isDraftError(revealResult)) return
+
+    state = revealResult.state
+    expect(state.status).toBe('active')
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 0, redraftTimer: 60, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'], 1: ['unit'] } })
+    expect(state.civBlitz?.lockedKits[0]).toEqual({ civilizationAbility: 'ca-1', leaderAbility: 'la-1', infrastructure: 'ui-1' })
+    expect(state.civBlitz?.lockedKits[1]).toEqual({ civilizationAbility: 'ca-2', leaderAbility: 'la-2', infrastructure: 'ui-2' })
+    expect(state.civBlitz?.lockedKits[2]).toEqual(createCivBlitzKit(3))
+    expect(state.civBlitz?.reveal?.conflictComponentIds).toEqual(['uu-1'])
+    expect(state.civBlitz?.conflictBans).toEqual([
+      { componentId: 'uu-1', category: 'unit', seatIndex: 0, stepIndex: 0 },
+      { componentId: 'uu-1', category: 'unit', seatIndex: 1, stepIndex: 0 },
+    ])
+    expect(revealResult.events).toContainEqual(expect.objectContaining({ type: 'CIV_BLITZ_REVEALED', conflictComponentIds: ['uu-1'], conflictedSeatIndexes: [0, 1], categoriesBySeat: { 0: ['unit'], 1: ['unit'] }, round: 0 }))
+
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'], 1: ['unit'] } })
+    expect(state.civBlitz?.optionsBySeat[0]?.unit).toEqual(['uu-2', 'uu-5', 'uu-6', 'uu-7'])
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-2' } }))
+    const result = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-5' } })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+    expect(result.state.status).toBe('complete')
+    expect(result.state.civBlitz?.lockedKits[0]).toEqual(createCivBlitzKit(1, { unit: 'uu-2' }))
+    expect(result.state.civBlitz?.lockedKits[1]).toEqual(createCivBlitzKit(2, { unit: 'uu-5' }))
+  })
+
+  test('timeout auto-selects missing kits from dealt options', () => {
+    let state = startDraft(createCivBlitzDraft('match-civblitz-timeout'))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(4) }))
+
+    const result = processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 1, selections: ['ca-1', 'la-1', 'ui-1', 'uu-1'] })
+    expect(result.state.status).toBe('active')
+    expect(result.state.civBlitz?.lockedKits[0]).toEqual(createCivBlitzKit(4))
+    expect(result.state.civBlitz?.reveal?.conflictedSeatIndexes).toEqual([1, 2, 3])
+  })
+
+  test('auto-locks remaining conflicts after max redrafts', () => {
+    let state = startDraft(createCivBlitzDraft('match-civblitz-max-redrafts'))
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(1) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: createCivBlitzKit(2, { unit: 'uu-1' }) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 2, kit: createCivBlitzKit(3) }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) }))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-2' } }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-2' } }))
+    expect(state.civBlitz?.reveal?.round).toBe(1)
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
+
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-5' } }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-5' } }))
+    expect(state.civBlitz?.reveal?.round).toBe(2)
+
+    const result = processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 })
+    expect(isDraftError(result)).toBe(false)
+    if (isDraftError(result)) return
+
+    expect(result.state.status).toBe('complete')
+    expect(result.state.civBlitz?.lockedKits[0]).toEqual(createCivBlitzKit(1, { unit: 'uu-6' }))
+    expect(result.state.civBlitz?.lockedKits[1]).toEqual(createCivBlitzKit(2, { unit: 'uu-7' }))
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 0, selections: ['uu-6'] })
+    expect(result.events).toContainEqual({ type: 'TIMEOUT_APPLIED', seatIndex: 1, selections: ['uu-7'] })
+    expect(result.events).toContainEqual({ type: 'DRAFT_COMPLETE' })
   })
 })
 

@@ -43,6 +43,7 @@ interface MatchPlayerCivStatContribution {
 
 interface ParsedDraftData {
   redDeath?: unknown
+  civBlitz?: unknown
 }
 
 const EMPTY_SEASON_ID = ''
@@ -345,7 +346,7 @@ function buildMatchPlayerCivStatContribution(
   match: { draftData: string | null, gameMode: string, seasonId: string | null },
   participants: readonly { playerId: string, civId: string | null, placement: number | null }[],
 ): MatchPlayerCivStatContribution {
-  if (isRedDeathMatch(match.draftData)) return { entries: [] }
+  if (isRedDeathMatch(match.draftData) || isCivBlitzMatch(match.draftData)) return { entries: [] }
 
   const aggregateByKey = new Map<string, PlayerCivStatContributionEntry>()
   for (const participant of participants) {
@@ -550,6 +551,10 @@ function isRedDeathFaction(civId: string): boolean {
 
 function isRedDeathMatch(draftData: string | null): boolean {
   return parseDraftData(draftData)?.redDeath === true
+}
+
+function isCivBlitzMatch(draftData: string | null): boolean {
+  return parseDraftData(draftData)?.civBlitz === true
 }
 
 function parseDraftData(draftData: string | null): ParsedDraftData | null {

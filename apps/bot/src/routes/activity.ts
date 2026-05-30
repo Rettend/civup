@@ -679,7 +679,7 @@ async function loadActivityLaunchState(
   const requestedBalanceModes = [...new Set(
     channelSessions
       .filter(session => session.phase === 'open')
-      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath }))
+      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz }))
       .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
   )]
   const requestedGuildIds = [...new Set(channelSessions
@@ -730,7 +730,7 @@ function resolveSessionBalanceSnapshot(
   balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
   session: ActivitySessionDirectoryEntry,
 ): LeaderboardModeSnapshot | null {
-  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath })
+  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz })
   if (!mode) return null
   return balanceSnapshots.get(mode) ?? null
 }

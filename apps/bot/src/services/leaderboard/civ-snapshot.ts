@@ -57,6 +57,7 @@ interface CivAggregate {
 
 interface ParsedDraftData {
   redDeath?: unknown
+  civBlitz?: unknown
   state?: {
     bans?: Array<{
       civId?: unknown
@@ -369,9 +370,9 @@ export async function buildCivLeaderboardSnapshotFromD1(
       .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
     db
       .select({
+        draftData: matches.draftData,
         civId: matchParticipants.civId,
-        picks: sql<number>`count(*)`,
-        wins: sql<number>`sum(case when ${matchParticipants.placement} = 1 then 1 else 0 end)`,
+        placement: matchParticipants.placement,
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
@@ -380,22 +381,22 @@ export async function buildCivLeaderboardSnapshotFromD1(
         sql`${matchParticipants.civId} is not null`,
         excludeTournamentMatchesCondition(),
       ))
-      .groupBy(matchParticipants.civId),
   ])
 
   const aggregates = new Map<string, CivAggregate>()
-  const completedCivMatchCount = matchRows.filter(match => !isRedDeathMatch(match.draftData)).length
+  const completedCivMatchCount = matchRows.filter(match => isCivStatEligibleMatch(match.draftData)).length
 
   for (const row of pickRows) {
+    if (!isCivStatEligibleMatch(row.draftData)) continue
     if (!row.civId) continue
     if (isRedDeathFaction(row.civId)) continue
     const aggregate = getCivAggregate(aggregates, row.civId)
-    aggregate.picks += normalizeCount(row.picks)
-    aggregate.wins += normalizeCount(row.wins)
+    aggregate.picks += 1
+    if (row.placement === 1) aggregate.wins += 1
   }
 
   for (const match of matchRows) {
-    if (isRedDeathMatch(match.draftData)) continue
+    if (!isCivStatEligibleMatch(match.draftData)) continue
     for (const civId of extractDraftDataBanCivIds(match.draftData)) {
       if (isRedDeathFaction(civId)) continue
       const aggregate = getCivAggregate(aggregates, civId)
@@ -587,7 +588,7 @@ function buildMatchCivStatContribution(
   match: { draftData: string | null },
   participants: readonly { civId: string | null, placement: number | null }[],
 ): MatchCivStatContribution {
-  if (isRedDeathMatch(match.draftData)) return { completedMatchCount: 0, entries: [] }
+  if (!isCivStatEligibleMatch(match.draftData)) return { completedMatchCount: 0, entries: [] }
 
   const aggregateByCivId = new Map<string, CivAggregate>()
   for (const participant of participants) {
@@ -801,6 +802,14 @@ function isRedDeathFaction(civId: string): boolean {
 
 function isRedDeathMatch(draftData: string | null): boolean {
   return parseDraftData(draftData)?.redDeath === true
+}
+
+function isCivBlitzMatch(draftData: string | null): boolean {
+  return parseDraftData(draftData)?.civBlitz === true
+}
+
+function isCivStatEligibleMatch(draftData: string | null): boolean {
+  return !isRedDeathMatch(draftData) && !isCivBlitzMatch(draftData)
 }
 
 function normalizeCivLeaderboardSnapshotRow(value: unknown): CivLeaderboardSnapshotRow | null {

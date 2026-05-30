@@ -1,6 +1,8 @@
 export { MAX_TIMER_SECONDS } from './constants.ts'
-export { default1v1, default1v1BlindPick, default2v2, default2v2BlindPick, default3v3, default3v3BlindPick, default4v4, default4v4BlindPick, default5v5, default5v5BlindPick, default6v6, default6v6BlindPick, defaultFfa, defaultFfaBlindPick, defaultFfaSimultaneous, draftFormatMap, draftFormats, formatDraftStepLabel, getDefaultFormat, getDraftFormat, isBlindPickFormatId, isRedDeathFormatId, redDeath1v1, redDeath1v1BlindPick, redDeath2v2, redDeath2v2BlindPick, redDeath3v3, redDeath3v3BlindPick, redDeath4v4, redDeath4v4BlindPick, redDeath5v5, redDeath5v5BlindPick, redDeath6v6, redDeath6v6BlindPick, redDeathFfa, redDeathFfaBlindPick } from './draft-formats.ts'
-export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPickSeatForPlayer, getPicksForSeat, isBlindPickRevealStep, isBlindPickStep, isDoublePickStep, isDraftError, isPlayerTurn, processDraftInput, swapSeatPicks } from './draft-machine.ts'
+export { CIV_BLITZ_CATEGORIES, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, getCivBlitzComponent, getCivBlitzComponentIds, getCivBlitzRegistry, normalizeCivBlitzOptionCount } from './civblitz.ts'
+export type { CivBlitzRegistry } from './civblitz.ts'
+export { civBlitz1v1, civBlitz2v2, civBlitz3v3, civBlitz4v4, civBlitz5v5, civBlitz6v6, civBlitzFfa, default1v1, default1v1BlindPick, default2v2, default2v2BlindPick, default3v3, default3v3BlindPick, default4v4, default4v4BlindPick, default5v5, default5v5BlindPick, default6v6, default6v6BlindPick, defaultFfa, defaultFfaBlindPick, defaultFfaSimultaneous, draftFormatMap, draftFormats, formatDraftStepLabel, getDefaultFormat, getDraftFormat, isBlindPickFormatId, isCivBlitzFormatId, isRedDeathFormatId, redDeath1v1, redDeath1v1BlindPick, redDeath2v2, redDeath2v2BlindPick, redDeath3v3, redDeath3v3BlindPick, redDeath4v4, redDeath4v4BlindPick, redDeath5v5, redDeath5v5BlindPick, redDeath6v6, redDeath6v6BlindPick, redDeathFfa, redDeathFfaBlindPick } from './draft-formats.ts'
+export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPickSeatForPlayer, getPicksForSeat, isBlindPickRevealStep, isBlindPickStep, isDoublePickStep, isDraftError, isPlayerTurn, processDraftInput, swapSeatDraftChoices, swapSeatPicks } from './draft-machine.ts'
 export type { DraftProcessOptions } from './draft-machine.ts'
 export { allFactionIds, factionMap, factions, getFaction, searchFactions } from './factions.ts'
 export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
@@ -90,6 +92,16 @@ export { createSeededRandom } from './random.ts'
 export type { RandomSource } from './random.ts'
 export type {
   CompetitiveTier,
+  CivBlitzCategoryOptions,
+  CivBlitzComponent,
+  CivBlitzComponentCategory,
+  CivBlitzComponentPools,
+  CivBlitzKit,
+  CivBlitzPartialKit,
+  CivBlitzReveal,
+  CivBlitzSeatSubmission,
+  CivBlitzSelection,
+  CivBlitzState,
   DraftAction,
   DraftCancelReason,
   DraftDoublePickMetrics,

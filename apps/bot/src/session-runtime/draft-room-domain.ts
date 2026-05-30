@@ -678,6 +678,7 @@ function createCompleteLifecycleSync(
     finalized: options.finalized === true ? true : undefined,
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    civBlitz: room.config.civBlitz === true ? true : undefined,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
     doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
   }
@@ -704,6 +705,7 @@ function createCancelledLifecycleSync(
     reason: room.state.cancelReason ?? 'scrub',
     state: room.state,
     mapVoteResult: room.mapVote.result ?? null,
+    civBlitz: room.config.civBlitz === true ? true : undefined,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
     doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
   }

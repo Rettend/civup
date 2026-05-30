@@ -29,7 +29,7 @@ interface ConfigRowDefinition {
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
     key: 'pickMode',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindPicks(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
     renderEditable: state => (
       <ModeTabsRow
         label="PICK"
@@ -44,7 +44,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'banMode',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindBans(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
     renderEditable: state => (
       <ModeTabsRow
         label="BAN"
@@ -93,7 +93,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.optimisticDraftConfig().blindPicks,
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && !state.derived.optimisticDraftConfig().blindPicks,
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
@@ -108,7 +108,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'permanentAlly',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Permanent Ally"
@@ -173,8 +173,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         type="number"
         label={state.derived.poolInputLabel()}
         ariaLabel={state.derived.poolInputLabel()}
-        min={state.derived.isRedDeath() ? '2' : String(state.derived.leaderPoolMinimum())}
-        max={state.derived.isRedDeath() ? '10' : String(state.derived.leaderPoolMaximum())}
+        min={String(state.derived.leaderPoolMinimum())}
+        max={String(state.derived.leaderPoolMaximum())}
         step="1"
         value={state.fields.leaderPoolInput()}
         placeholder={state.derived.leaderPoolPlaceholder()}
@@ -190,7 +190,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'banTimer',
-    when: state => !state.derived.isRedDeath(),
+    when: state => !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -238,7 +238,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'randomDraft',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
@@ -253,7 +253,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'hiddenDraft',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Hidden draft"
@@ -268,7 +268,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'duplicateFactions',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label={state.derived.duplicateOptionLabel()}
@@ -279,6 +279,40 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
     renderReadonly: state => (
       <ReadonlyTimerRow label={state.derived.duplicateOptionLabel()} value={state.derived.formattedDuplicateFactions()} valueClass={state.derived.draftDuplicateFactions() ? 'text-accent' : undefined} />
+    ),
+  },
+  {
+    key: 'civBlitz',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    renderEditable: state => (
+      <div class="mt-1 pt-3 border-t border-border-subtle">
+        <SwitchRow
+          label="CivBlitz"
+          active={() => state.derived.optimisticDraftConfig().civBlitz}
+          activeClass="text-cyan-300"
+          disabled={() => state.lobbyActionPending() || state.pending.civBlitz()}
+          onChange={checked => void state.actions.changeCivBlitz(checked)}
+        />
+      </div>
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="CivBlitz" value={state.derived.formattedCivBlitz()} valueClass={state.derived.draftConfig().civBlitz ? 'text-cyan-300' : undefined} />
+    ),
+  },
+  {
+    key: 'civBlitzExcludeBbgExpanded',
+    when: () => false,
+    renderEditable: state => (
+      <SwitchRow
+        label="Exclude BBG Expanded"
+        active={() => state.derived.optimisticDraftConfig().civBlitzExcludeBbgExpanded}
+        activeClass="text-cyan-300"
+        disabled={() => state.lobbyActionPending() || state.pending.civBlitzExcludeBbgExpanded()}
+        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Exclude Expanded" value={state.derived.formattedCivBlitzExcludeBbgExpanded()} valueClass={state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-cyan-300' : undefined} />
     ),
   },
   {
