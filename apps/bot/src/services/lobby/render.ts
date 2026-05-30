@@ -14,6 +14,7 @@ export async function buildOpenLobbyRenderPayload(
   return {
     embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, {
       closed: lobby.draftConfig.closed === true,
+      draftConfig: lobby.draftConfig,
       reservedSlotLabels: options.reservedSlotLabels,
     })],
     components: lobbyComponents(lobby.mode, lobby.id),

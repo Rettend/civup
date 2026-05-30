@@ -92,7 +92,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
   if (!normalized) return fallback
 
   for (const mode of GAME_MODES) {
-    if (normalized.endsWith(`-${mode}`)) return mode
+    if (normalized.startsWith(`${mode}-`) || normalized.endsWith(`-${mode}`) || normalized.includes(`-${mode}-`)) return mode
   }
 
   return fallback

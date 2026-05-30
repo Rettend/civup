@@ -1,4 +1,4 @@
-import type { DraftState, Leader, MapVoteMapOption } from '@civup/game'
+import type { Leader, MapVoteMapOption } from '@civup/game'
 import { getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -7,7 +7,7 @@ import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
-import { canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { BLIND_PICK_SUBMISSION_PLACEHOLDER, canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -69,10 +69,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (serverPick) return serverPick
 
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
-    const blindSubmittedCivId = getVisibleBlindSubmittedPick(state(), props.seatIndex)
+    const visibleOptimisticCivId = optimisticCivId === BLIND_PICK_SUBMISSION_PLACEHOLDER ? null : optimisticCivId
     const visualIndex = getVisualSeatOrder(state()?.seats).indexOf(props.seatIndex)
     const hiddenDraftCivId = visualIndex >= 0 ? hiddenDraftLeaderSelections()[visualIndex] ?? null : null
-    const civId = optimisticCivId ?? blindSubmittedCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
+    const civId = visibleOptimisticCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
     if (!civId) return null
 
     return {
@@ -89,6 +89,16 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const filled = () => !!pick()
+  const blindSubmittedCount = (): number => {
+    const s = state()
+    if (!s || s.status !== 'active') return 0
+    const step = s.steps[s.currentStepIndex]
+    if (!step || step.action !== 'pick' || !step.blind || step.reveal) return 0
+    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
+    const optimisticCount = getOptimisticSeatPick(props.seatIndex) === BLIND_PICK_SUBMISSION_PLACEHOLDER ? 1 : 0
+    return Math.max(submittedCount, optimisticCount)
+  }
+  const hasBlindSubmission = () => blindSubmittedCount() > 0
   const revealPick = () => state()?.blindPickReveal?.picks.find(p => p.seatIndex === props.seatIndex) ?? null
   const revealLeader = (): Leader | null => {
     const p = revealPick()
@@ -166,7 +176,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       : step.seats.includes(props.seatIndex)
     if (!seatIsInStep) return false
 
-    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
+    const submittedCount = Math.max(s.submissions[props.seatIndex]?.length ?? 0, getOptimisticSeatPick(props.seatIndex) ? 1 : 0)
     return submittedCount < step.count
   }
   const banPreviewLeaders = createMemo<Leader[]>(() => {
@@ -552,12 +562,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Empty state icon */}
       <Show when={!filled() && !hasReveal() && !hasPreview() && !hasBanPreview()}>
-        <div class="flex flex-1 items-center justify-center">
+        <div class="flex flex-1 flex-col items-center justify-center">
           <div class={cn(
-            isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
+            hasBlindSubmission() ? 'i-ph-check-circle-bold text-4xl' : isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
             isActive() ? (accent() === 'red' ? 'text-danger/80' : 'text-accent/80') : 'text-fg-muted/40',
           )}
           />
+          <Show when={hasBlindSubmission()}>
+            <div class="mt-2 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-accent">
+              Submitted
+            </div>
+          </Show>
         </div>
       </Show>
 
@@ -635,15 +650,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
     </div>
   )
-}
-
-function getVisibleBlindSubmittedPick(state: DraftState | null | undefined, seatIndex: number): string | null {
-  if (!state || state.status !== 'active') return null
-  const step = state.steps[state.currentStepIndex]
-  if (!step || step.action !== 'pick' || !step.blind || step.reveal) return null
-  const civId = state.submissions[seatIndex]?.[0]
-  if (!civId || civId === '__blind__') return null
-  return civId
 }
 
 function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {

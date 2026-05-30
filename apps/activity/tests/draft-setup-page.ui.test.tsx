@@ -46,6 +46,7 @@ function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patc
       leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : lobby.draftConfig.leaderDataVersion,
       mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
       blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : lobby.draftConfig.blindBans,
+      blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : lobby.draftConfig.blindPicks,
       simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
       permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
       redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : lobby.draftConfig.redDeath,

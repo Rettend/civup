@@ -209,6 +209,22 @@ describe('getPickSeatForPlayer', () => {
     expect(getPickSeatForPlayer(state, 0)).toBe(1)
     expect(getPickSeatForPlayer(state, 1)).toBe(1)
   })
+
+  test('does not let captains proxy-pick during blind redrafts', () => {
+    let state = startDraft(createDraft('match-blind-redraft-proxy', default2v2BlindPick, create2v2Seats(), createTestCivPool()))
+    state = startDraftBanPhase(state)
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-10' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 1, civId: 'civ-20' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 2, civId: 'civ-30' }))
+    state = resolveState(processDraftInput(state, { type: 'PICK', seatIndex: 3, civId: 'civ-30' }))
+    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }))
+
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [2, 3], count: 1, timer: 60, blind: true, blindPickRound: 1, fallbackPickOrder: [0, 1, 3, 2] })
+    expect(getPickSeatForPlayer(state, 0)).toBeNull()
+    expect(getPickSeatForPlayer(state, 1)).toBeNull()
+    expect(getPickSeatForPlayer(state, 2)).toBe(2)
+    expect(getPickSeatForPlayer(state, 3)).toBe(3)
+  })
 })
 
 describe('processDraftInput — CANCEL', () => {
@@ -732,6 +748,7 @@ describe('processDraftInput — PICK (blind pick)', () => {
     state = revealResult.state
     expect(state.status).toBe('active')
     expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 3, 2], redraftTimer: 60 })
+    expect(getPendingSeats(state)).toEqual([])
     expect(state.picks).toEqual([
       { civId: 'civ-11', seatIndex: 2, stepIndex: 1 },
       { civId: 'civ-12', seatIndex: 3, stepIndex: 1 },
@@ -823,6 +840,20 @@ describe('processDraftInput — PICK (blind pick)', () => {
     ])
     expect(result.state.availableCivIds).toContain('civ-10')
     expect(result.state.blindPickBans).toEqual([])
+  })
+
+  test('duplicate factions still reject unavailable blind picks', () => {
+    const state = completeDuelBlindBanPhase(startDraft(createDraft('match-blind-duplicates-availability', default1v1BlindPick, createDuelSeats(), createTestCivPool(), { duplicateFactions: true })))
+
+    const bannedPick = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'civ-1' })
+    expect(isDraftError(bannedPick)).toBe(true)
+    if (!isDraftError(bannedPick)) return
+    expect(bannedPick.error).toBe('Civ civ-1 is not available')
+
+    const missingPick = processDraftInput(state, { type: 'PICK', seatIndex: 0, civId: 'missing-civ' })
+    expect(isDraftError(missingPick)).toBe(true)
+    if (!isDraftError(missingPick)) return
+    expect(missingPick.error).toBe('Civ missing-civ is not available')
   })
 
   test('validates Red Death blind picks against per-seat dealt options', () => {
@@ -1185,6 +1216,21 @@ describe('processDraftInput — TIMEOUT', () => {
     expect(timedOut.state.picks).toHaveLength(1)
     expect(['rd-a', 'rd-b']).toContain(timedOut.state.picks[0]?.civId)
     expect(timedOut.state.availableCivIds).toContain(timedOut.state.picks[0]!.civId)
+  })
+
+  test('timeout on duplicate-faction Red Death pick skips unavailable dealt factions', () => {
+    let state = startDraft(createDraft('match-rd-timeout-dup-filtered', redDeath2v2, createRdSeats(4), ['rd-a', 'rd-b', 'rd-c', 'rd-d'], {
+      dealOptionsSize: 2,
+      duplicateFactions: true,
+    }))
+    state = { ...state, availableCivIds: ['rd-b', 'rd-c', 'rd-d'], dealtCivIds: ['rd-a', 'rd-b'] }
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, { blindBans: false, random: () => 0 })
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    expect(timedOut.state.picks).toEqual([{ civId: 'rd-b', seatIndex: 0, stepIndex: 0 }])
+    expect(timedOut.state.availableCivIds).toContain('rd-b')
   })
 })
 
