@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js'
 import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -47,6 +47,9 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath
     && a.dealOptionsSize === b.dealOptionsSize
+    && a.civBlitz === b.civBlitz
+    && a.civBlitzOptionCount === b.civBlitzOptionCount
+    && a.civBlitzExcludeBbgExpanded === b.civBlitzExcludeBbgExpanded
     && a.randomDraft === b.randomDraft
     && a.hiddenDraft === b.hiddenDraft
     && a.duplicateFactions === b.duplicateFactions
@@ -81,6 +84,8 @@ export function useDraftSetupConfigState(input: {
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [permanentAllyPending, setPermanentAllyPending] = createSignal(false)
   const [redDeathPending, setRedDeathPending] = createSignal(false)
+  const [civBlitzPending, setCivBlitzPending] = createSignal(false)
+  const [civBlitzExcludeBbgExpandedPending, setCivBlitzExcludeBbgExpandedPending] = createSignal(false)
   const [randomDraftPending, setRandomDraftPending] = createSignal(false)
   const [hiddenDraftPending, setHiddenDraftPending] = createSignal(false)
   const [duplicateFactionsPending, setDuplicateFactionsPending] = createSignal(false)
@@ -187,6 +192,9 @@ export function useDraftSetupConfigState(input: {
       permanentAlly: true,
       redDeath: isRedDeathDraft(),
       dealOptionsSize: null,
+      civBlitz: false,
+      civBlitzOptionCount: CIV_BLITZ_DEFAULT_OPTION_COUNT,
+      civBlitzExcludeBbgExpanded: true,
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
@@ -208,11 +216,13 @@ export function useDraftSetupConfigState(input: {
 
   const leaderPoolPlayerCount = () => input.currentLobby()?.entries.filter(entry => entry != null).length ?? state()?.seats.length ?? 0
   const leaderPoolValidationCount = () => input.currentLobby()?.targetSize ?? state()?.seats.length ?? leaderPoolPlayerCount()
-  const leaderPoolMinimumValue = () => getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
-  const leaderPoolMaximumValue = () => getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
+  const leaderPoolMinimumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MIN_OPTION_COUNT : getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
+  const leaderPoolMaximumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MAX_OPTION_COUNT : getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
   const lobbyLeaderPoolDefaultSize = () => input.currentLobby()?.lobbyRank?.leaderPoolSize ?? null
   const isRedDeathLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().redDeath : isRedDeathDraft()
+  const isCivBlitzLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().civBlitz : false
   const leaderPoolPlaceholderValue = () => {
+    if (isCivBlitzLobbyMode()) return String(draftConfig().civBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT)
     if (isRedDeathLobbyMode()) return String(draftConfig().dealOptionsSize ?? 2)
     const defaultSize = lobbyLeaderPoolDefaultSize()
     return defaultSize == null ? leaderPoolSizePlaceholder(input.lobbyMode(), leaderPoolPlayerCount(), input.currentLobby()?.targetSize) : String(defaultSize)
@@ -223,6 +233,7 @@ export function useDraftSetupConfigState(input: {
     return new Set([...draftState.availableCivIds, ...draftState.bans.map(selection => selection.civId), ...draftState.picks.map(selection => selection.civId)]).size
   }
   const formattedLeaderPool = () => {
+    if (isCivBlitzLobbyMode()) return String(draftConfig().civBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT)
     if (isRedDeathLobbyMode()) return String(draftConfig().dealOptionsSize ?? 2)
     const lobby = input.currentLobby()
     if (lobby) {
@@ -254,17 +265,19 @@ export function useDraftSetupConfigState(input: {
   const formattedPermanentAlly = () => draftConfig().permanentAlly ? 'On' : 'Off'
   const formattedRandomDraft = () => draftConfig().randomDraft ? 'On' : 'Off'
   const formattedHiddenDraft = () => draftConfig().hiddenDraft ? 'On' : 'Off'
+  const formattedCivBlitz = () => draftConfig().civBlitz ? 'On' : 'Off'
+  const formattedCivBlitzExcludeBbgExpanded = () => draftConfig().civBlitzExcludeBbgExpanded ? 'On' : 'Off'
   const duplicateFactionsLocked = () => isRedDeathLobbyMode() && requiresRedDeathDuplicateFactions(input.lobbyMode())
   const draftDuplicateFactions = () => duplicateFactionsLocked() ? true : draftConfig().duplicateFactions
   const optimisticDuplicateFactions = () => duplicateFactionsLocked() ? true : optimisticDraftConfig().duplicateFactions
   const duplicateOptionLabel = () => isRedDeathLobbyMode() ? 'Duplicate factions' : 'Duplicate leaders'
   const formattedDuplicateFactions = () => draftDuplicateFactions() ? 'On' : 'Off'
-  const poolInputLabel = () => isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
-  const modeLabelClass = () => isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
+  const poolInputLabel = () => isCivBlitzLobbyMode() ? 'Options' : isRedDeathLobbyMode() ? 'Factions' : 'Leaders'
+  const modeLabelClass = () => isCivBlitzLobbyMode() ? 'text-cyan-300' : isRedDeathLobbyMode() ? 'text-[#f97316]' : 'text-accent'
   const formattedBanTimer = () => formatTimerValue(timerConfig().banTimerSeconds, serverDefaultTimerConfig().banTimerSeconds)
   const formattedPickTimer = () => formatTimerValue(timerConfig().pickTimerSeconds, serverDefaultTimerConfig().pickTimerSeconds)
   const isTournamentLobby = () => input.currentLobby()?.tournament?.configLocked === true
-  const isUnrankedLobbyMode = () => isUnrankedMode(input.lobbyMode())
+  const isUnrankedLobbyMode = () => isUnrankedMode(input.lobbyMode()) || optimisticDraftConfig().civBlitz
   const canStartLobby = () => {
     const lobby = input.currentLobby()
     if (!lobby) return false
@@ -307,7 +320,7 @@ export function useDraftSetupConfigState(input: {
     const activeField = editingField() ?? focusedTextInputField()
     if (activeField !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
     if (activeField !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
-    if (activeField !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(isRedDeathLobbyMode() ? config.dealOptionsSize : config.leaderPoolSize))
+    if (activeField !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(isCivBlitzLobbyMode() ? config.civBlitzOptionCount : isRedDeathLobbyMode() ? config.dealOptionsSize : config.leaderPoolSize))
   })
   createEffect(() => {
     if (optimisticTimerConfig.status() === 'error') input.showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
@@ -357,13 +370,16 @@ export function useDraftSetupConfigState(input: {
               permanentAlly: nextConfig.permanentAlly,
               redDeath: nextConfig.redDeath,
               dealOptionsSize: nextConfig.dealOptionsSize,
+              civBlitz: nextConfig.civBlitz,
+              civBlitzOptionCount: nextConfig.civBlitzOptionCount,
+              civBlitzExcludeBbgExpanded: nextConfig.civBlitzExcludeBbgExpanded,
               randomDraft: nextConfig.randomDraft,
               hiddenDraft: nextConfig.hiddenDraft,
               duplicateFactions: nextConfig.duplicateFactions,
               closed: nextConfig.closed,
               targetSize: options.targetSize,
-              minRole: lobby.minRole,
-              maxRole: lobby.maxRole,
+              minRole: nextConfig.civBlitz ? null : lobby.minRole,
+              maxRole: nextConfig.civBlitz ? null : lobby.maxRole,
             }
         const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, {
           ...payload,
@@ -389,25 +405,26 @@ export function useDraftSetupConfigState(input: {
 
       const parsedBan = parseTimerMinutesInput(banMinutes())
       const parsedPick = parseTimerMinutesInput(pickMinutes())
-      const parsedLeaderPool = isRedDeathLobbyMode() ? parseLeaderPoolSizeInput(leaderPoolInput(), 2, 10) : parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimumValue(), leaderPoolMaximumValue())
+      const parsedLeaderPool = isRedDeathLobbyMode() || isCivBlitzLobbyMode() ? parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimumValue(), leaderPoolMaximumValue()) : parseLeaderPoolSizeInput(leaderPoolInput(), leaderPoolMinimumValue(), leaderPoolMaximumValue())
       const preserveClampMessage = activeField != null && clampedField === activeField
       if (parsedBan === undefined || parsedPick === undefined || parsedLeaderPool === undefined) {
         optimisticTimerConfig.clearError()
-        input.showErrorMessage(resolveConfigFieldRangeMessage(activeField, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode()))
+        input.showErrorMessage(resolveConfigFieldRangeMessage(activeField, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode(), isCivBlitzLobbyMode()))
         const current = optimisticTimerConfig.value()
         setBanMinutes(timerSecondsToMinutesInput(current.banTimerSeconds))
         setPickMinutes(timerSecondsToMinutesInput(current.pickTimerSeconds))
-        setLeaderPoolInput(leaderPoolSizeToInput(isRedDeathLobbyMode() ? current.dealOptionsSize : current.leaderPoolSize))
+        setLeaderPoolInput(leaderPoolSizeToInput(isCivBlitzLobbyMode() ? current.civBlitzOptionCount : isRedDeathLobbyMode() ? current.dealOptionsSize : current.leaderPoolSize))
         return false
       }
 
       const current = optimisticTimerConfig.value()
       const banTimerSeconds = parsedBan == null ? null : Math.round(parsedBan * 60)
       const pickTimerSeconds = parsedPick == null ? null : Math.round(parsedPick * 60)
-      const leaderPoolSize = isRedDeathLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
+      const leaderPoolSize = isRedDeathLobbyMode() || isCivBlitzLobbyMode() ? current.leaderPoolSize : parsedLeaderPool
       const dealOptionsSize = isRedDeathLobbyMode() ? parsedLeaderPool : current.dealOptionsSize
+      const civBlitzOptionCount = isCivBlitzLobbyMode() ? parsedLeaderPool : current.civBlitzOptionCount
 
-      if (banTimerSeconds === current.banTimerSeconds && pickTimerSeconds === current.pickTimerSeconds && leaderPoolSize === current.leaderPoolSize && dealOptionsSize === current.dealOptionsSize) {
+      if (banTimerSeconds === current.banTimerSeconds && pickTimerSeconds === current.pickTimerSeconds && leaderPoolSize === current.leaderPoolSize && dealOptionsSize === current.dealOptionsSize && civBlitzOptionCount === current.civBlitzOptionCount) {
         optimisticTimerConfig.clearError()
         return true
       }
@@ -424,6 +441,9 @@ export function useDraftSetupConfigState(input: {
         permanentAlly: current.permanentAlly,
         redDeath: current.redDeath,
         dealOptionsSize,
+        civBlitz: current.civBlitz,
+        civBlitzOptionCount,
+        civBlitzExcludeBbgExpanded: current.civBlitzExcludeBbgExpanded,
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: current.duplicateFactions,
@@ -503,6 +523,9 @@ export function useDraftSetupConfigState(input: {
         permanentAlly: checked ? false : current.permanentAlly,
         redDeath: checked,
         dealOptionsSize: checked ? current.dealOptionsSize : null,
+        civBlitz: checked ? false : current.civBlitz,
+        civBlitzOptionCount: current.civBlitzOptionCount,
+        civBlitzExcludeBbgExpanded: current.civBlitzExcludeBbgExpanded,
         randomDraft: current.randomDraft,
         hiddenDraft: current.hiddenDraft,
         duplicateFactions: checked && requiresRedDeathDuplicateFactions(input.lobbyMode()) ? true : current.duplicateFactions,
@@ -514,13 +537,43 @@ export function useDraftSetupConfigState(input: {
       setRedDeathPending(false)
     }
   }
+  const handleCivBlitzChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || civBlitzPending()) return
+    const current = optimisticDraftConfig()
+    if (checked === current.civBlitz) return
+    setCivBlitzPending(true)
+    try {
+      await commitDraftConfig({
+        ...current,
+        leaderPoolSize: checked ? null : current.leaderPoolSize,
+        blindPicks: checked ? false : current.blindPicks,
+        simultaneousPick: checked ? false : current.simultaneousPick,
+        permanentAlly: checked ? false : current.permanentAlly,
+        redDeath: checked ? false : current.redDeath,
+        dealOptionsSize: checked ? null : current.dealOptionsSize,
+        civBlitz: checked,
+        civBlitzOptionCount: current.civBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT,
+        randomDraft: checked ? false : current.randomDraft,
+        hiddenDraft: checked ? false : current.hiddenDraft,
+        duplicateFactions: checked ? false : current.duplicateFactions,
+      })
+      input.showInfoMessage(checked ? 'CivBlitz enabled.' : 'CivBlitz disabled.')
+    }
+    finally {
+      setCivBlitzPending(false)
+    }
+  }
+  const handleCivBlitzExcludeBbgExpandedChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || civBlitzExcludeBbgExpandedPending() || !optimisticDraftConfig().civBlitz) return
+    await commitToggleConfigChange(checked, optimisticDraftConfig().civBlitzExcludeBbgExpanded, setCivBlitzExcludeBbgExpandedPending, current => ({ ...current, civBlitzExcludeBbgExpanded: checked }))
+  }
   const handleRandomDraftChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || randomDraftPending()) return
-    await commitToggleConfigChange(checked, optimisticDraftConfig().randomDraft, setRandomDraftPending, current => ({ ...current, randomDraft: checked, hiddenDraft: checked ? false : current.hiddenDraft }))
+    await commitToggleConfigChange(checked, optimisticDraftConfig().randomDraft, setRandomDraftPending, current => ({ ...current, randomDraft: checked, hiddenDraft: checked ? false : current.hiddenDraft, civBlitz: checked ? false : current.civBlitz }))
   }
   const handleHiddenDraftChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || hiddenDraftPending()) return
-    await commitToggleConfigChange(checked, optimisticDraftConfig().hiddenDraft, setHiddenDraftPending, current => ({ ...current, hiddenDraft: checked, randomDraft: checked ? false : current.randomDraft }))
+    await commitToggleConfigChange(checked, optimisticDraftConfig().hiddenDraft, setHiddenDraftPending, current => ({ ...current, hiddenDraft: checked, randomDraft: checked ? false : current.randomDraft, civBlitz: checked ? false : current.civBlitz }))
   }
   const handleDuplicateFactionsChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || duplicateFactionsPending() || duplicateFactionsLocked()) return
@@ -644,7 +697,7 @@ export function useDraftSetupConfigState(input: {
   const handleClampedField = (field: EditableConfigField) => {
     clampedField = field
     optimisticTimerConfig.clearError()
-    input.showErrorMessage(resolveConfigFieldRangeMessage(field, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode()))
+    input.showErrorMessage(resolveConfigFieldRangeMessage(field, leaderPoolMinimumValue(), leaderPoolMaximumValue(), isRedDeathLobbyMode(), isCivBlitzLobbyMode()))
   }
   const clearConfigInputError = () => {
     optimisticTimerConfig.clearError()
@@ -680,6 +733,8 @@ export function useDraftSetupConfigState(input: {
     simultaneousPick: simultaneousPickPending,
     permanentAlly: permanentAllyPending,
     redDeath: redDeathPending,
+    civBlitz: civBlitzPending,
+    civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedPending,
     randomDraft: randomDraftPending,
     hiddenDraft: hiddenDraftPending,
     duplicateFactions: duplicateFactionsPending,
@@ -693,6 +748,7 @@ export function useDraftSetupConfigState(input: {
     optimisticDraftConfig,
     optimisticLobbyClosed: () => closedOverride() ?? optimisticDraftConfig().closed,
     isRedDeath: isRedDeathLobbyMode,
+    isCivBlitz: isCivBlitzLobbyMode,
     isTournamentLobby,
     isUnranked: isUnrankedLobbyMode,
     canStartLobby,
@@ -719,6 +775,8 @@ export function useDraftSetupConfigState(input: {
     formattedBlindPicks,
     formattedPermanentAlly,
     formattedDuplicateFactions,
+    formattedCivBlitz,
+    formattedCivBlitzExcludeBbgExpanded,
     formattedHiddenDraft,
     formattedLeaderPool,
     formattedLobbyMinRole,
@@ -749,6 +807,8 @@ export function useDraftSetupConfigState(input: {
     changeSimultaneousPick: handleSimultaneousPickChange,
     changePermanentAlly: handlePermanentAllyChange,
     changeRedDeath: handleRedDeathChange,
+    changeCivBlitz: handleCivBlitzChange,
+    changeCivBlitzExcludeBbgExpanded: handleCivBlitzExcludeBbgExpandedChange,
     changeRandomDraft: handleRandomDraftChange,
     changeHiddenDraft: handleHiddenDraftChange,
     changeDuplicateFactions: handleDuplicateFactionsChange,
@@ -781,6 +841,9 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     permanentAlly: inferGameMode(lobby.mode) === 'ffa' && !lobby.draftConfig.redDeath ? lobby.draftConfig.permanentAlly !== false : false,
     redDeath: lobby.draftConfig.redDeath,
     dealOptionsSize: lobby.draftConfig.dealOptionsSize,
+    civBlitz: lobby.draftConfig.civBlitz,
+    civBlitzOptionCount: lobby.draftConfig.civBlitzOptionCount,
+    civBlitzExcludeBbgExpanded: lobby.draftConfig.civBlitzExcludeBbgExpanded,
     randomDraft: lobby.draftConfig.randomDraft,
     hiddenDraft: lobby.draftConfig.hiddenDraft,
     duplicateFactions: lobby.draftConfig.duplicateFactions,
@@ -788,13 +851,14 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
   }
 }
 
-export function resolveConfigFieldRangeMessage(field: EditableConfigField | null, leaderPoolMinimum: number, leaderPoolMaximum: number, isRedDeathLobbyMode: boolean): string {
+export function resolveConfigFieldRangeMessage(field: EditableConfigField | null, leaderPoolMinimum: number, leaderPoolMaximum: number, isRedDeathLobbyMode: boolean, isCivBlitzLobbyMode = false): string {
   switch (field) {
     case 'ban':
       return `Ban timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
     case 'pick':
       return `Pick timer can be 0-${MAX_TIMER_MINUTES} minutes, or blank for the server default.`
     case 'leaderPool':
+      if (isCivBlitzLobbyMode) return `Options can be ${leaderPoolMinimum}-${leaderPoolMaximum}, or blank for the default.`
       return isRedDeathLobbyMode ? 'Factions can be 2-10, or blank for the default.' : `Leaders can be ${leaderPoolMinimum}-${leaderPoolMaximum}, or blank for the default.`
     default:
       return 'Value is out of range.'

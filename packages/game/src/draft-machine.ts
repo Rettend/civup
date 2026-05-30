@@ -1,5 +1,13 @@
 import type { RandomSource } from './random.ts'
 import type {
+  CivBlitzCategoryOptions,
+  CivBlitzComponentCategory,
+  CivBlitzComponentPools,
+  CivBlitzPartialKit,
+  CivBlitzReveal,
+  CivBlitzSeatSubmission,
+  CivBlitzSelection,
+  CivBlitzState,
   DraftCancelReason,
   DraftError,
   DraftEvent,
@@ -11,6 +19,7 @@ import type {
   DraftState,
   DraftStep,
 } from './types.ts'
+import { CIV_BLITZ_CATEGORIES } from './types.ts'
 
 export interface DraftProcessOptions {
   blindBans?: boolean
@@ -20,6 +29,14 @@ export interface DraftProcessOptions {
 const BLIND_PICK_MAX_REDRAFTS = 2
 const BLIND_PICK_REVEAL_SECONDS = 5
 const DEFAULT_PICK_TIMER_SECONDS = 60
+const CIV_BLITZ_MAX_REDRAFTS = 2
+
+interface CivBlitzCreateOptions {
+  componentPools: CivBlitzComponentPools
+  optionCount: number
+  excludeBbgExpanded?: boolean
+  random?: RandomSource
+}
 
 // ── Create ──────────────────────────────────────────────────
 
@@ -36,6 +53,7 @@ export function createDraft(
   options: {
     dealOptionsSize?: number
     duplicateFactions?: boolean
+    civBlitz?: CivBlitzCreateOptions
   } = {},
 ): DraftState {
   const seatCount = seats.length
@@ -57,6 +75,7 @@ export function createDraft(
     duplicateFactions: options.duplicateFactions === true,
     blindPickReveal: null,
     blindPickBans: [],
+    civBlitz: options.civBlitz ? createCivBlitzState(seatCount, options.civBlitz) : null,
     status: 'waiting',
     cancelReason: null,
     pendingBlindBans: [],
@@ -86,6 +105,8 @@ export function processDraftInput(
       return processBan(state, input.seatIndex, input.civIds, blindBans)
     case 'PICK':
       return processPick(state, input.seatIndex, input.civId)
+    case 'CIV_BLITZ_SUBMIT':
+      return processCivBlitzSubmit(state, input.seatIndex, input.kit)
     case 'TIMEOUT':
       return processTimeout(state, blindBans, random)
   }
@@ -120,6 +141,50 @@ export function swapSeatPicks(
     if (pick.seatIndex === seatB) return { ...pick, civId: leftPick.civId }
     return pick
   })
+}
+
+/** Swap the completed draft choices between two teammate seats. */
+export function swapSeatDraftChoices(
+  state: DraftState,
+  seatA: number,
+  seatB: number,
+): DraftState | DraftError {
+  if (state.civBlitz) {
+    const validation = validateSeatSwap(state, seatA, seatB)
+    if (validation) return validation
+    const leftKit = state.civBlitz.lockedKits[seatA]
+    const rightKit = state.civBlitz.lockedKits[seatB]
+    if (!isCompleteCivBlitzKit(leftKit) || !isCompleteCivBlitzKit(rightKit)) {
+      return { error: 'Both seats need a locked CivBlitz kit before swapping' }
+    }
+    return {
+      ...state,
+      civBlitz: {
+        ...state.civBlitz,
+        lockedKits: {
+          ...state.civBlitz.lockedKits,
+          [seatA]: { ...rightKit },
+          [seatB]: { ...leftKit },
+        },
+      },
+    }
+  }
+
+  const picks = swapSeatPicks(state, seatA, seatB)
+  if ('error' in picks) return picks
+  return { ...state, picks }
+}
+
+function validateSeatSwap(state: DraftState, seatA: number, seatB: number): DraftError | null {
+  if (seatA === seatB) return { error: 'Cannot swap a seat with itself' }
+  if (state.status !== 'complete') return { error: 'Draft is not complete' }
+
+  const leftSeat = state.seats[seatA]
+  const rightSeat = state.seats[seatB]
+  if (!leftSeat || !rightSeat) return { error: 'Invalid seat index' }
+  if (leftSeat.team == null || rightSeat.team == null) return { error: 'Only team seats can swap picks' }
+  if (leftSeat.team !== rightSeat.team) return { error: 'Only teammates can swap picks' }
+  return null
 }
 
 // ── Start ───────────────────────────────────────────────────
@@ -175,6 +240,7 @@ function processCancel(
       dealtCivIds: null,
       dealtCivIdsBySeat: null,
       blindPickReveal: null,
+      civBlitz: state.civBlitz ? { ...state.civBlitz, submissions: {}, reveal: null } : state.civBlitz,
       pendingBlindBans: [],
     },
     events: [{ type: 'DRAFT_CANCELLED', reason: normalizedReason }],
@@ -285,6 +351,10 @@ function processPick(
     return { error: 'Current step is not a pick phase' }
   }
 
+  if (step.civBlitz) {
+    return { error: 'Current step is a CivBlitz pick phase' }
+  }
+
   if (step.reveal) {
     return { error: 'Current step is resolving blind pick conflicts' }
   }
@@ -370,6 +440,248 @@ function processPick(
   return { state: stateAfterPick, events }
 }
 
+// -- CivBlitz ---------------------------------------------------------------
+
+function processCivBlitzSubmit(
+  state: DraftState,
+  seatIndex: number,
+  kit: CivBlitzPartialKit,
+): DraftResult | DraftError {
+  if (state.status !== 'active') {
+    return { error: 'Draft is not active' }
+  }
+
+  const step = state.steps[state.currentStepIndex]
+  if (!step) return { error: 'No current step' }
+  if (step.action !== 'pick' || !step.civBlitz) return { error: 'Current step is not a CivBlitz pick phase' }
+  if (step.reveal) return { error: 'Current step is resolving CivBlitz conflicts' }
+  if (!state.civBlitz) return { error: 'CivBlitz state is missing' }
+  if (!isSeatActive(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+  if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
+
+  const categories = getCivBlitzStepCategories(step, seatIndex)
+  const normalizedKit = normalizeCivBlitzSubmission(state.civBlitz, seatIndex, categories, kit)
+  if ('error' in normalizedKit) return normalizedKit
+
+  const nextCivBlitz: CivBlitzState = {
+    ...state.civBlitz,
+    submissions: {
+      ...state.civBlitz.submissions,
+      [seatIndex]: normalizedKit,
+    },
+  }
+  const nextState: DraftState = {
+    ...state,
+    submissions: {
+      ...state.submissions,
+      [seatIndex]: ['__civblitz__'],
+    },
+    civBlitz: nextCivBlitz,
+  }
+  const events: DraftEvent[] = [{ type: 'CIV_BLITZ_SUBMITTED', seatIndex, categories, blind: true }]
+
+  if (isCivBlitzStepComplete(nextState, step)) {
+    return completeCivBlitzStep(nextState, step, events)
+  }
+
+  return { state: nextState, events }
+}
+
+function processCivBlitzTimeout(
+  state: DraftState,
+  step: DraftStep,
+  random: RandomSource,
+): DraftResult | DraftError {
+  if (!state.civBlitz) return { error: 'CivBlitz state is missing' }
+
+  let nextCivBlitz = state.civBlitz
+  const nextSubmissions = { ...state.submissions }
+  const events: DraftEvent[] = []
+
+  for (const seatIndex of getActiveSeats(step, state.seats.length)) {
+    if (nextSubmissions[seatIndex]) continue
+
+    const categories = getCivBlitzStepCategories(step, seatIndex)
+    const autoKit = buildRandomCivBlitzKit(nextCivBlitz, seatIndex, categories, random)
+    if ('error' in autoKit) return autoKit
+
+    nextCivBlitz = {
+      ...nextCivBlitz,
+      submissions: {
+        ...nextCivBlitz.submissions,
+        [seatIndex]: autoKit,
+      },
+    }
+    nextSubmissions[seatIndex] = ['__civblitz__']
+    events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: categories.map(category => autoKit[category]).filter(isString) })
+  }
+
+  return completeCivBlitzStep({ ...state, submissions: nextSubmissions, civBlitz: nextCivBlitz }, step, events)
+}
+
+function completeCivBlitzStep(
+  state: DraftState,
+  step: DraftStep,
+  events: DraftEvent[],
+): DraftResult | DraftError {
+  const civBlitz = state.civBlitz
+  if (!civBlitz) return { error: 'CivBlitz state is missing' }
+
+  const submitted = getActiveSeats(step, state.seats.length).map((seatIndex) => {
+    return {
+      seatIndex,
+      stepIndex: state.currentStepIndex,
+      kit: civBlitz.submissions[seatIndex] ?? {},
+    } satisfies CivBlitzSeatSubmission
+  })
+  const lockedKits = cloneCivBlitzKits(civBlitz.lockedKits)
+  const conflicts = resolveCivBlitzSubmissionConflicts(submitted)
+
+  for (const submission of submitted) {
+    for (const category of CIV_BLITZ_CATEGORIES) {
+      const componentId = submission.kit[category]
+      if (!componentId) continue
+      const conflictIds = conflicts.conflictComponentIdsByCategory[category]
+      if (conflictIds?.has(componentId)) continue
+      lockedKits[submission.seatIndex] = {
+        ...(lockedKits[submission.seatIndex] ?? {}),
+        [category]: componentId,
+      }
+    }
+  }
+
+  if (conflicts.conflictComponentIds.length === 0) {
+    const nextState: DraftState = {
+      ...state,
+      submissions: {},
+      civBlitz: {
+        ...civBlitz,
+        submissions: {},
+        lockedKits,
+        reveal: null,
+      },
+    }
+    return advanceStep(nextState, events)
+  }
+
+  const round = step.blindPickRound ?? 0
+  const revealStep: DraftStep = {
+    action: 'pick',
+    seats: conflicts.conflictedSeatIndexes,
+    count: 0,
+    timer: BLIND_PICK_REVEAL_SECONDS,
+    reveal: true,
+    blindPickRound: round,
+    redraftTimer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
+    civBlitz: true,
+    civBlitzCategoriesBySeat: conflicts.categoriesBySeat,
+  }
+  const nextStepIndex = state.currentStepIndex + 1
+  const reveal: CivBlitzReveal = {
+    round,
+    submissions: submitted,
+    conflictComponentIds: conflicts.conflictComponentIds,
+    conflictedSeatIndexes: conflicts.conflictedSeatIndexes,
+    categoriesBySeat: conflicts.categoriesBySeat,
+    maxRedrafts: civBlitz.maxRedrafts,
+  }
+  const conflictBans: CivBlitzSelection[] = [
+    ...civBlitz.conflictBans,
+    ...conflicts.conflictSelections,
+  ]
+
+  return {
+    state: {
+      ...state,
+      steps: [
+        ...state.steps.slice(0, nextStepIndex),
+        revealStep,
+        ...state.steps.slice(nextStepIndex),
+      ],
+      currentStepIndex: nextStepIndex,
+      submissions: {},
+      civBlitz: {
+        ...civBlitz,
+        submissions: {},
+        lockedKits,
+        reveal,
+        conflictBans,
+      },
+    },
+    events: [
+      ...events,
+      {
+        type: 'CIV_BLITZ_REVEALED',
+        submissions: submitted,
+        conflictComponentIds: conflicts.conflictComponentIds,
+        conflictedSeatIndexes: conflicts.conflictedSeatIndexes,
+        categoriesBySeat: conflicts.categoriesBySeat,
+        round,
+      },
+      { type: 'STEP_ADVANCED', stepIndex: nextStepIndex },
+    ],
+  }
+}
+
+function completeCivBlitzReveal(
+  state: DraftState,
+  step: DraftStep,
+  random: RandomSource,
+): DraftResult | DraftError {
+  const civBlitz = state.civBlitz
+  const reveal = civBlitz?.reveal
+  if (!civBlitz || !reveal) return { error: 'No CivBlitz reveal to resolve' }
+
+  const nextStepIndex = state.currentStepIndex + 1
+  const redraftTimer = step.redraftTimer ?? DEFAULT_PICK_TIMER_SECONDS
+  if (reveal.round >= reveal.maxRedrafts) {
+    const autoLocked = autoLockCivBlitzConflicts(civBlitz, reveal.categoriesBySeat, random)
+    if ('error' in autoLocked) return autoLocked
+    return advanceStep({
+      ...state,
+      submissions: {},
+      civBlitz: {
+        ...civBlitz,
+        submissions: {},
+        lockedKits: autoLocked.lockedKits,
+        reveal: null,
+      },
+    }, autoLocked.events)
+  }
+
+  const optionsBySeat = dealCivBlitzRedraftOptions(civBlitz, reveal.categoriesBySeat, random)
+  const redraftStep: DraftStep = {
+    action: 'pick',
+    seats: reveal.conflictedSeatIndexes,
+    count: 1,
+    timer: redraftTimer,
+    blind: true,
+    blindPickRound: reveal.round + 1,
+    civBlitz: true,
+    civBlitzCategoriesBySeat: reveal.categoriesBySeat,
+  }
+
+  return {
+    state: {
+      ...state,
+      steps: [
+        ...state.steps.slice(0, nextStepIndex),
+        redraftStep,
+        ...state.steps.slice(nextStepIndex),
+      ],
+      currentStepIndex: nextStepIndex,
+      submissions: {},
+      civBlitz: {
+        ...civBlitz,
+        optionsBySeat,
+        submissions: {},
+        reveal: null,
+      },
+    },
+    events: [{ type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
+  }
+}
+
 // ── Timeout ─────────────────────────────────────────────────
 
 function processTimeout(
@@ -387,6 +699,10 @@ function processTimeout(
   const activeSeats = getActiveSeats(step, state.seats.length)
 
   if (step.action === 'pick') {
+    if (step.civBlitz) {
+      if (step.reveal) return completeCivBlitzReveal(state, step, random)
+      return processCivBlitzTimeout(state, step, random)
+    }
     if (step.reveal) return completeBlindPickReveal(state, step)
     if (step.blind) return processBlindPickTimeout(state, step, random)
 
@@ -683,6 +999,329 @@ function getDealtCivIdsForSeat(state: DraftState, seatIndex: number): string[] |
   return state.dealtCivIds && state.dealtCivIds.length > 0 ? state.dealtCivIds : null
 }
 
+function createCivBlitzState(seatCount: number, options: CivBlitzCreateOptions): CivBlitzState {
+  const optionCount = Math.max(1, Math.round(options.optionCount))
+  const random = options.random ?? Math.random
+  const optionsBySeat: Record<number, CivBlitzCategoryOptions> = {}
+  for (let seatIndex = 0; seatIndex < seatCount; seatIndex++) {
+    optionsBySeat[seatIndex] = dealCivBlitzCategoryOptions(options.componentPools, optionCount, random)
+  }
+
+  return {
+    optionCount,
+    excludeBbgExpanded: options.excludeBbgExpanded !== false,
+    componentPools: cloneCivBlitzPools(options.componentPools),
+    optionsBySeat,
+    submissions: {},
+    lockedKits: {},
+    reveal: null,
+    conflictBans: [],
+    maxRedrafts: CIV_BLITZ_MAX_REDRAFTS,
+  }
+}
+
+function getCivBlitzStepCategories(step: DraftStep, seatIndex: number): CivBlitzComponentCategory[] {
+  const seatCategories = step.civBlitzCategoriesBySeat?.[seatIndex]
+  if (seatCategories && seatCategories.length > 0) return normalizeCivBlitzCategories(seatCategories)
+  if (step.civBlitzCategories && step.civBlitzCategories.length > 0) return normalizeCivBlitzCategories(step.civBlitzCategories)
+  return [...CIV_BLITZ_CATEGORIES]
+}
+
+function normalizeCivBlitzCategories(categories: readonly CivBlitzComponentCategory[]): CivBlitzComponentCategory[] {
+  const seen = new Set<CivBlitzComponentCategory>()
+  const normalized: CivBlitzComponentCategory[] = []
+  for (const category of categories) {
+    if (!CIV_BLITZ_CATEGORIES.includes(category)) continue
+    if (seen.has(category)) continue
+    seen.add(category)
+    normalized.push(category)
+  }
+  return normalized
+}
+
+function normalizeCivBlitzSubmission(
+  civBlitz: CivBlitzState,
+  seatIndex: number,
+  categories: readonly CivBlitzComponentCategory[],
+  kit: CivBlitzPartialKit,
+): CivBlitzPartialKit | DraftError {
+  const options = civBlitz.optionsBySeat[seatIndex]
+  if (!options) return { error: `No CivBlitz options dealt for seat ${seatIndex}` }
+
+  const normalized: CivBlitzPartialKit = {}
+  for (const category of categories) {
+    const componentId = kit[category]
+    if (typeof componentId !== 'string' || componentId.length === 0) {
+      return { error: `Missing CivBlitz ${formatCivBlitzCategory(category)} selection` }
+    }
+    if (!options[category].includes(componentId)) {
+      return { error: `CivBlitz ${formatCivBlitzCategory(category)} ${componentId} is not in the dealt options` }
+    }
+    if (isCivBlitzComponentConflictBanned(civBlitz, category, componentId)) {
+      return { error: `CivBlitz ${formatCivBlitzCategory(category)} ${componentId} is no longer available` }
+    }
+    if (isCivBlitzComponentLockedByOtherSeat(civBlitz, category, componentId, seatIndex)) {
+      return { error: `CivBlitz ${formatCivBlitzCategory(category)} ${componentId} was already locked` }
+    }
+    normalized[category] = componentId
+  }
+
+  return normalized
+}
+
+function isCivBlitzStepComplete(state: DraftState, step: DraftStep): boolean {
+  const civBlitz = state.civBlitz
+  if (!civBlitz) return false
+  return getActiveSeats(step, state.seats.length).every((seatIndex) => {
+    const submission = civBlitz.submissions[seatIndex]
+    if (!submission) return false
+    return getCivBlitzStepCategories(step, seatIndex).every(category => typeof submission[category] === 'string')
+  })
+}
+
+function buildRandomCivBlitzKit(
+  civBlitz: CivBlitzState,
+  seatIndex: number,
+  categories: readonly CivBlitzComponentCategory[],
+  random: RandomSource,
+): CivBlitzPartialKit | DraftError {
+  const options = civBlitz.optionsBySeat[seatIndex]
+  if (!options) return { error: `No CivBlitz options dealt for seat ${seatIndex}` }
+
+  const kit: CivBlitzPartialKit = {}
+  for (const category of categories) {
+    const pool = options[category].filter(componentId => !isCivBlitzComponentConflictBanned(civBlitz, category, componentId))
+    if (pool.length === 0) return { error: `No CivBlitz ${formatCivBlitzCategory(category)} options available` }
+    const componentId = pool[Math.floor(random() * pool.length)]
+    if (!componentId) return { error: `Failed to resolve CivBlitz ${formatCivBlitzCategory(category)} timeout` }
+    kit[category] = componentId
+  }
+  return kit
+}
+
+function resolveCivBlitzSubmissionConflicts(submissions: CivBlitzSeatSubmission[]): {
+  conflictComponentIds: string[]
+  conflictComponentIdsByCategory: Partial<Record<CivBlitzComponentCategory, Set<string>>>
+  conflictedSeatIndexes: number[]
+  categoriesBySeat: Record<number, CivBlitzComponentCategory[]>
+  conflictSelections: CivBlitzSelection[]
+} {
+  const conflictComponentIds: string[] = []
+  const conflictComponentIdsByCategory: Partial<Record<CivBlitzComponentCategory, Set<string>>> = {}
+  const conflictedSeatIndexes = new Set<number>()
+  const categoriesBySeat: Record<number, CivBlitzComponentCategory[]> = {}
+  const conflictSelections: CivBlitzSelection[] = []
+
+  for (const category of CIV_BLITZ_CATEGORIES) {
+    const selectionsByComponent = new Map<string, CivBlitzSeatSubmission[]>()
+    for (const submission of submissions) {
+      const componentId = submission.kit[category]
+      if (!componentId) continue
+      const existing = selectionsByComponent.get(componentId)
+      if (existing) existing.push(submission)
+      else selectionsByComponent.set(componentId, [submission])
+    }
+
+    for (const [componentId, componentSubmissions] of selectionsByComponent) {
+      if (componentSubmissions.length <= 1) continue
+      conflictComponentIds.push(componentId)
+      ;(conflictComponentIdsByCategory[category] ??= new Set()).add(componentId)
+      for (const submission of componentSubmissions) {
+        conflictedSeatIndexes.add(submission.seatIndex)
+        categoriesBySeat[submission.seatIndex] = addCivBlitzCategory(categoriesBySeat[submission.seatIndex], category)
+        conflictSelections.push({
+          componentId,
+          category,
+          seatIndex: submission.seatIndex,
+          stepIndex: submission.stepIndex,
+        })
+      }
+    }
+  }
+
+  return {
+    conflictComponentIds,
+    conflictComponentIdsByCategory,
+    conflictedSeatIndexes: Array.from(conflictedSeatIndexes).sort((left, right) => left - right),
+    categoriesBySeat: sortCivBlitzCategoriesBySeat(categoriesBySeat),
+    conflictSelections,
+  }
+}
+
+function dealCivBlitzRedraftOptions(
+  civBlitz: CivBlitzState,
+  categoriesBySeat: Record<number, CivBlitzComponentCategory[]>,
+  random: RandomSource,
+): Record<number, CivBlitzCategoryOptions> {
+  const nextOptionsBySeat = cloneCivBlitzOptionsBySeat(civBlitz.optionsBySeat)
+  for (const [rawSeatIndex, categories] of Object.entries(categoriesBySeat)) {
+    const seatIndex = Number(rawSeatIndex)
+    const currentOptions = nextOptionsBySeat[seatIndex]
+    if (!currentOptions) continue
+    for (const category of categories) {
+      currentOptions[category] = pickRandomDistinct(
+        getAvailableCivBlitzPool(civBlitz, category),
+        Math.min(civBlitz.optionCount, getAvailableCivBlitzPool(civBlitz, category).length),
+        random,
+      )
+    }
+  }
+  return nextOptionsBySeat
+}
+
+function autoLockCivBlitzConflicts(
+  civBlitz: CivBlitzState,
+  categoriesBySeat: Record<number, CivBlitzComponentCategory[]>,
+  random: RandomSource,
+): { lockedKits: Record<number, CivBlitzPartialKit>, events: DraftEvent[] } | DraftError {
+  const lockedKits = cloneCivBlitzKits(civBlitz.lockedKits)
+  const events: DraftEvent[] = []
+  const reservedByCategory = buildLockedCivBlitzComponentsByCategory(civBlitz)
+
+  for (const [rawSeatIndex, categories] of Object.entries(categoriesBySeat)) {
+    const seatIndex = Number(rawSeatIndex)
+    const selections: string[] = []
+    for (const category of categories) {
+      const reserved = reservedByCategory[category] ?? new Set<string>()
+      const pool = getAvailableCivBlitzPool(civBlitz, category).filter(componentId => !reserved.has(componentId))
+      if (pool.length === 0) return { error: `No CivBlitz ${formatCivBlitzCategory(category)} options available` }
+      const componentId = pool[Math.floor(random() * pool.length)]
+      if (!componentId) return { error: `Failed to resolve CivBlitz ${formatCivBlitzCategory(category)} conflict` }
+      ;(reservedByCategory[category] ??= new Set()).add(componentId)
+      lockedKits[seatIndex] = {
+        ...(lockedKits[seatIndex] ?? {}),
+        [category]: componentId,
+      }
+      selections.push(componentId)
+    }
+    events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections })
+  }
+
+  return { lockedKits, events }
+}
+
+function getAvailableCivBlitzPool(civBlitz: CivBlitzState, category: CivBlitzComponentCategory): string[] {
+  const conflictBanned = new Set(civBlitz.conflictBans.filter(selection => selection.category === category).map(selection => selection.componentId))
+  const locked = buildLockedCivBlitzComponentsByCategory(civBlitz)[category] ?? new Set<string>()
+  return civBlitz.componentPools[category].filter(componentId => !conflictBanned.has(componentId) && !locked.has(componentId))
+}
+
+function buildLockedCivBlitzComponentsByCategory(civBlitz: CivBlitzState): Record<CivBlitzComponentCategory, Set<string>> {
+  const result = {
+    civilizationAbility: new Set<string>(),
+    leaderAbility: new Set<string>(),
+    infrastructure: new Set<string>(),
+    unit: new Set<string>(),
+  }
+  for (const kit of Object.values(civBlitz.lockedKits)) {
+    for (const category of CIV_BLITZ_CATEGORIES) {
+      const componentId = kit[category]
+      if (componentId) result[category].add(componentId)
+    }
+  }
+  return result
+}
+
+function isCivBlitzComponentLockedByOtherSeat(civBlitz: CivBlitzState, category: CivBlitzComponentCategory, componentId: string, seatIndex: number): boolean {
+  for (const [rawSeatIndex, kit] of Object.entries(civBlitz.lockedKits)) {
+    if (Number(rawSeatIndex) === seatIndex) continue
+    if (kit[category] === componentId) return true
+  }
+  return false
+}
+
+function isCivBlitzComponentConflictBanned(civBlitz: CivBlitzState, category: CivBlitzComponentCategory, componentId: string): boolean {
+  return civBlitz.conflictBans.some(selection => selection.category === category && selection.componentId === componentId)
+}
+
+function dealCivBlitzCategoryOptions(
+  componentPools: CivBlitzComponentPools,
+  optionCount: number,
+  random: RandomSource,
+): CivBlitzCategoryOptions {
+  return {
+    civilizationAbility: pickRandomDistinct(componentPools.civilizationAbility, Math.min(optionCount, componentPools.civilizationAbility.length), random),
+    leaderAbility: pickRandomDistinct(componentPools.leaderAbility, Math.min(optionCount, componentPools.leaderAbility.length), random),
+    infrastructure: pickRandomDistinct(componentPools.infrastructure, Math.min(optionCount, componentPools.infrastructure.length), random),
+    unit: pickRandomDistinct(componentPools.unit, Math.min(optionCount, componentPools.unit.length), random),
+  }
+}
+
+function pickRandomDistinct(values: readonly string[], count: number, random: RandomSource): string[] {
+  const pool = [...values]
+  const picked: string[] = []
+  while (picked.length < count && pool.length > 0) {
+    const index = Math.floor(random() * pool.length)
+    const [value] = pool.splice(index, 1)
+    if (value) picked.push(value)
+  }
+  return picked
+}
+
+function cloneCivBlitzPools(pools: CivBlitzComponentPools): CivBlitzComponentPools {
+  return {
+    civilizationAbility: [...pools.civilizationAbility],
+    leaderAbility: [...pools.leaderAbility],
+    infrastructure: [...pools.infrastructure],
+    unit: [...pools.unit],
+  }
+}
+
+function cloneCivBlitzOptionsBySeat(optionsBySeat: Record<number, CivBlitzCategoryOptions>): Record<number, CivBlitzCategoryOptions> {
+  const cloned: Record<number, CivBlitzCategoryOptions> = {}
+  for (const [rawSeatIndex, options] of Object.entries(optionsBySeat)) {
+    cloned[Number(rawSeatIndex)] = {
+      civilizationAbility: [...options.civilizationAbility],
+      leaderAbility: [...options.leaderAbility],
+      infrastructure: [...options.infrastructure],
+      unit: [...options.unit],
+    }
+  }
+  return cloned
+}
+
+function cloneCivBlitzKits(kits: Record<number, CivBlitzPartialKit>): Record<number, CivBlitzPartialKit> {
+  const cloned: Record<number, CivBlitzPartialKit> = {}
+  for (const [rawSeatIndex, kit] of Object.entries(kits)) {
+    cloned[Number(rawSeatIndex)] = { ...kit }
+  }
+  return cloned
+}
+
+function isCompleteCivBlitzKit(kit: CivBlitzPartialKit | undefined): boolean {
+  return !!kit && CIV_BLITZ_CATEGORIES.every(category => typeof kit[category] === 'string')
+}
+
+function addCivBlitzCategory(existing: CivBlitzComponentCategory[] | undefined, category: CivBlitzComponentCategory): CivBlitzComponentCategory[] {
+  if (!existing) return [category]
+  return existing.includes(category) ? existing : [...existing, category]
+}
+
+function sortCivBlitzCategoriesBySeat(categoriesBySeat: Record<number, CivBlitzComponentCategory[]>): Record<number, CivBlitzComponentCategory[]> {
+  const sorted: Record<number, CivBlitzComponentCategory[]> = {}
+  for (const [rawSeatIndex, categories] of Object.entries(categoriesBySeat)) {
+    sorted[Number(rawSeatIndex)] = CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category))
+  }
+  return sorted
+}
+
+function formatCivBlitzCategory(category: CivBlitzComponentCategory): string {
+  switch (category) {
+    case 'civilizationAbility':
+      return 'civilization ability'
+    case 'leaderAbility':
+      return 'leader ability'
+    case 'infrastructure':
+      return 'infrastructure'
+    case 'unit':
+      return 'unit'
+  }
+}
+
+function isString(value: string | undefined): value is string {
+  return typeof value === 'string'
+}
+
 function normalizeDraftProcessOptions(options: boolean | DraftProcessOptions): { blindBans: boolean, random: RandomSource } {
   if (typeof options === 'boolean') {
     return {
@@ -822,6 +1461,7 @@ function advanceStep(
         dealtCivIds: null,
         dealtCivIdsBySeat: null,
         blindPickReveal: null,
+        civBlitz: state.civBlitz ? { ...state.civBlitz, submissions: {}, reveal: null } : state.civBlitz,
       },
       events: [...events, { type: 'DRAFT_COMPLETE' }],
     }
@@ -836,6 +1476,7 @@ function advanceStep(
       dealtCivIds: null,
       dealtCivIdsBySeat: null,
       blindPickReveal: null,
+      civBlitz: state.civBlitz ? { ...state.civBlitz, submissions: {}, reveal: null } : state.civBlitz,
     },
     events: [...events, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }

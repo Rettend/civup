@@ -1,6 +1,6 @@
 import type { DraftSeat } from '../src/types.ts'
 import { describe, expect, test } from 'bun:test'
-import { default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaBlindPick, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, redDeath2v2, redDeath2v2BlindPick, redDeath4v4, redDeath5v5, redDeath6v6 } from '../src/draft-formats.ts'
+import { civBlitz2v2, civBlitzFfa, default1v1, default2v2, default3v3, default4v4, default5v5, default6v6, defaultFfa, defaultFfaBlindPick, defaultFfaSimultaneous, formatDraftStepLabel, getDraftFormat, isCivBlitzFormatId, redDeath2v2, redDeath2v2BlindPick, redDeath4v4, redDeath5v5, redDeath6v6 } from '../src/draft-formats.ts'
 
 const duelSeats: DraftSeat[] = [
   { playerId: 'p1', displayName: 'Player 1', team: 0 },
@@ -234,6 +234,14 @@ describe('draft formats', () => {
   test('resolves the Red Death 6v6 format when requested', () => {
     expect(getDraftFormat('6v6', { redDeath: true })).toBe(redDeath6v6)
   })
+
+  test('resolves CivBlitz formats with one hidden kit step', () => {
+    expect(getDraftFormat('2v2', { civBlitz: true })).toBe(civBlitz2v2)
+    expect(getDraftFormat('ffa', { civBlitz: true })).toBe(civBlitzFfa)
+    expect(isCivBlitzFormatId(civBlitz2v2.id)).toBe(true)
+    expect(civBlitz2v2.blindBans).toBe(false)
+    expect(civBlitz2v2.getSteps(4)).toEqual([{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'] }])
+  })
 })
 
 describe('formatDraftStepLabel', () => {
@@ -329,5 +337,11 @@ describe('formatDraftStepLabel', () => {
     expect(formatDraftStepLabel({ action: 'pick', seats: 'all', blind: true, blindPickRound: 0 }, ffaSeats)).toBe('BLIND PICK')
     expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], blind: true, blindPickRound: 1 }, ffaSeats)).toBe('REDRAFT')
     expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], reveal: true }, ffaSeats)).toBe('REVEAL')
+  })
+
+  test('labels CivBlitz steps distinctly', () => {
+    expect(formatDraftStepLabel(civBlitz2v2.getSteps(4)[0]!, teamerSeats)).toBe('CIVBLITZ')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, civBlitz: true }, teamerSeats)).toBe('BLITZ REVEAL')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true }, teamerSeats)).toBe('BLITZ REDRAFT')
   })
 })

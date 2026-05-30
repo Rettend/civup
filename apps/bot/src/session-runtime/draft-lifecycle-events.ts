@@ -20,6 +20,7 @@ export interface DraftLifecycleCompletePayload {
   finalized?: boolean
   state: DraftState
   mapVoteResult?: ResolvedMapVoteResult | null
+  civBlitz?: boolean
   hiddenDraft?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
 }
@@ -36,6 +37,7 @@ export interface DraftLifecycleCancelledPayload {
   reason: DraftCancelReason
   state: DraftState
   mapVoteResult?: ResolvedMapVoteResult | null
+  civBlitz?: boolean
   hiddenDraft?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
 }

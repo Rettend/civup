@@ -1,5 +1,6 @@
 import type {
   DraftAction,
+  CivBlitzPartialKit,
   DraftEvent,
   DraftPreviewState,
   DraftSeat,
@@ -19,6 +20,9 @@ export interface DraftRuntimeConfig {
   seats: DraftSeat[]
   civPool: string[]
   dealOptionsSize?: number
+  civBlitz?: boolean
+  civBlitzOptionCount?: number
+  civBlitzExcludeBbgExpanded?: boolean
   blindPicks?: boolean
   randomDraft?: boolean
   hiddenDraft?: boolean
@@ -36,6 +40,7 @@ export type SessionClientMessage
     | { type: 'map-vote-confirm' }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
+    | { type: 'civ-blitz-submit', kit: CivBlitzPartialKit }
     | { type: 'preview', action: DraftAction, civIds: string[] }
     | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
     | { type: 'leader-swap', toSeat: number }

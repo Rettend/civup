@@ -743,6 +743,40 @@ describe('lobby routes', () => {
     expect(configuredLobby.maxRole).toBe('tier2')
   })
 
+  test('config route clears matchmaking rank bounds when enabling CivBlitz', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: 'guild-1',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const withMinRole = await setLobbyMinRole(kv, lobby.id, 'tier3', lobby)
+    const withMaxRole = await setLobbyMaxRole(kv, lobby.id, 'tier2', withMinRole ?? lobby)
+    expect(withMaxRole).not.toBeNull()
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        civBlitz: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const configuredLobby = await response.json()
+    expect(configuredLobby.minRole).toBeNull()
+    expect(configuredLobby.maxRole).toBeNull()
+    expect(configuredLobby.lobbyRank).toBeNull()
+    expect(configuredLobby.draftConfig.civBlitz).toBe(true)
+  })
+
   test('config route reopens closed lobbies in the activity overview', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -978,6 +1012,9 @@ describe('lobby routes', () => {
       permanentAlly: false,
       redDeath: false,
       dealOptionsSize: null,
+      civBlitz: false,
+      civBlitzOptionCount: 4,
+      civBlitzExcludeBbgExpanded: true,
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,

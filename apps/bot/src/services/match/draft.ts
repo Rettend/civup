@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftDoublePickMetrics, DraftState, GameMode } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
+import { isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
@@ -150,6 +150,7 @@ export async function activateDraftMatch(
     leaderDataVersion: normalizeAvailableLeaderDataVersion(input.leaderDataVersion),
     mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
+    civBlitz: isCivBlitzFormatId(input.state.formatId),
     permanentAlly,
     hiddenDraft: input.hiddenDraft === true,
     ...(doublePickMetrics ? { doublePickMetrics } : {}),
@@ -305,6 +306,7 @@ export async function cancelDraftMatch(
         leaderDataVersion: normalizeAvailableLeaderDataVersion(input.leaderDataVersion),
         mapVoteResult: input.mapVoteResult ?? null,
         redDeath: isRedDeathFormatId(input.state.formatId),
+        civBlitz: isCivBlitzFormatId(input.state.formatId),
         permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly),
         hiddenDraft: input.hiddenDraft === true,
         ...(doublePickMetrics ? { doublePickMetrics } : {}),

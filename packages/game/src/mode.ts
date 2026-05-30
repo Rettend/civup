@@ -154,14 +154,16 @@ export function requiresRedDeathDuplicateFactions(mode: GameMode): boolean {
 }
 
 /** Map game mode to its leaderboard track. */
-export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean, civBlitz?: boolean } = {}): LeaderboardMode | null {
   if (isUnrankedMode(mode)) return null
+  if (options.civBlitz) return null
   if (options.redDeath) return 'red-death'
   return GAME_MODE_DEFINITIONS[mode].leaderboardMode
 }
 
 /** Map a mode to the rating track used when balancing lobbies. */
-export function toBalanceLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+export function toBalanceLeaderboardMode(mode: GameMode, options: { redDeath?: boolean, civBlitz?: boolean } = {}): LeaderboardMode | null {
+  if (options.civBlitz) return null
   if (options.redDeath && !isUnrankedMode(mode)) return 'red-death'
   const definition = GAME_MODE_DEFINITIONS[mode]
   return definition.balanceLeaderboardMode ?? definition.leaderboardMode

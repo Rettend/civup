@@ -1,4 +1,5 @@
 import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
+import { CIV_BLITZ_CATEGORIES } from './types.ts'
 
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
@@ -32,6 +33,19 @@ function createBlindPickStep(fallbackPickOrder: readonly number[]): DraftStep {
     blind: true,
     blindPickRound: 0,
     fallbackPickOrder: [...fallbackPickOrder],
+  }
+}
+
+function createCivBlitzStep(): DraftStep {
+  return {
+    action: 'pick',
+    seats: 'all',
+    count: 1,
+    timer: PICK_STEP_TIMER,
+    blind: true,
+    blindPickRound: 0,
+    civBlitz: true,
+    civBlitzCategories: [...CIV_BLITZ_CATEGORIES],
   }
 }
 
@@ -148,6 +162,21 @@ function createRedDeathFormat(config: {
       const pickOrder = config.getPickOrder(seatCount)
       if (config.blindPicks) return [{ ...createBlindPickStep(pickOrder), timer: 30 }]
       return pickOrder.map(seat => ({ action: 'pick', seats: [seat], count: 1, timer: 30 }))
+    },
+  }
+}
+
+function createCivBlitzFormat(gameMode: GameMode): DraftFormat {
+  const label = gameMode === 'ffa' ? 'FFA' : gameMode
+  return {
+    id: `civblitz-${gameMode}`,
+    name: `CivBlitz ${label}`,
+    gameMode,
+    redDeath: false,
+    civBlitz: true,
+    blindBans: false,
+    getSteps(): DraftStep[] {
+      return [createCivBlitzStep()]
     },
   }
 }
@@ -569,6 +598,24 @@ const redDeathBlindPickFormats: Record<BlindPickGameMode, DraftFormat> = {
   'ffa': redDeathFfaBlindPick,
 }
 
+export const civBlitzFfa = createCivBlitzFormat('ffa')
+export const civBlitz1v1 = createCivBlitzFormat('1v1')
+export const civBlitz2v2 = createCivBlitzFormat('2v2')
+export const civBlitz3v3 = createCivBlitzFormat('3v3')
+export const civBlitz4v4 = createCivBlitzFormat('4v4')
+export const civBlitz5v5 = createCivBlitzFormat('5v5')
+export const civBlitz6v6 = createCivBlitzFormat('6v6')
+
+const civBlitzFormats: Record<GameMode, DraftFormat> = {
+  'ffa': civBlitzFfa,
+  '1v1': civBlitz1v1,
+  '2v2': civBlitz2v2,
+  '3v3': civBlitz3v3,
+  '4v4': civBlitz4v4,
+  '5v5': civBlitz5v5,
+  '6v6': civBlitz6v6,
+}
+
 // ── Format Registry ──────────────────────────────────────
 
 /** All available draft formats */
@@ -612,6 +659,13 @@ export const draftFormats: DraftFormat[] = [
   redDeath4v4BlindPick,
   redDeath5v5BlindPick,
   redDeath6v6BlindPick,
+  civBlitzFfa,
+  civBlitz1v1,
+  civBlitz2v2,
+  civBlitz3v3,
+  civBlitz4v4,
+  civBlitz5v5,
+  civBlitz6v6,
 ]
 
 /** Map of format ID to format */
@@ -626,7 +680,12 @@ export function getDefaultFormat(gameMode: string): DraftFormat {
   return format
 }
 
-export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean, redDeath?: boolean, blindBans?: boolean, blindPicks?: boolean, seatCount?: number } = {}): DraftFormat {
+export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean, redDeath?: boolean, civBlitz?: boolean, blindBans?: boolean, blindPicks?: boolean, seatCount?: number } = {}): DraftFormat {
+  if (options.civBlitz) {
+    const format = civBlitzFormats[gameMode as GameMode]
+    if (!format) throw new Error(`No CivBlitz format found for game mode: ${gameMode}`)
+    return format
+  }
   if (options.redDeath) {
     const format = options.blindPicks
       ? redDeathBlindPickFormats[gameMode as BlindPickGameMode]
@@ -658,14 +717,21 @@ export function isRedDeathFormatId(formatId: string | null | undefined): boolean
   return draftFormatMap.get(formatId)?.redDeath === true
 }
 
+export function isCivBlitzFormatId(formatId: string | null | undefined): boolean {
+  if (!formatId) return false
+  return draftFormatMap.get(formatId)?.civBlitz === true
+}
+
 function formatUsesBlindPicks(format: DraftFormat): boolean {
   return format.getSteps(2).some(step => step.action === 'pick' && step.blind === true)
 }
 
 export function formatDraftStepLabel(
-  step: Pick<DraftStep, 'action' | 'seats' | 'blind' | 'reveal' | 'blindPickRound'>,
+  step: Pick<DraftStep, 'action' | 'seats' | 'blind' | 'reveal' | 'blindPickRound' | 'civBlitz'>,
   seats: DraftSeat[],
 ): string {
+  if (step.action === 'pick' && step.civBlitz && step.reveal) return 'BLITZ REVEAL'
+  if (step.action === 'pick' && step.civBlitz && step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLITZ REDRAFT' : 'CIVBLITZ'
   if (step.action === 'pick' && step.reveal) return 'REVEAL'
   if (step.action === 'pick' && step.blind) return (step.blindPickRound ?? 0) > 0 ? 'REDRAFT' : 'BLIND PICK'
   const actionLabel = step.action.toUpperCase()

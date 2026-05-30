@@ -9,6 +9,7 @@ interface ParsedDraftData {
   reportedById?: unknown
   mapVoteResult?: unknown
   redDeath?: unknown
+  civBlitz?: unknown
   permanentAlly?: unknown
   hiddenDraft?: unknown
   leaderDataVersion?: unknown
@@ -85,6 +86,11 @@ export function getRedDeathFromDraftData(draftData: string | null): boolean {
   return parsed?.redDeath === true
 }
 
+export function getCivBlitzFromDraftData(draftData: string | null): boolean {
+  const parsed = parseDraftData(draftData)
+  return parsed?.civBlitz === true
+}
+
 export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
   const parsed = parseDraftData(draftData)
   return parsed?.hiddenDraft === true
@@ -98,7 +104,7 @@ export function getLeaderDataVersionFromDraftData(draftData: string | null, fall
 export function getPermanentAllyFromDraftData(gameMode: string, draftData: string | null): boolean {
   const mode = parseGameMode(gameMode)
   const parsed = parseDraftData(draftData)
-  if (mode !== 'ffa' || parsed?.redDeath === true) return false
+  if (mode !== 'ffa' || parsed?.redDeath === true || parsed?.civBlitz === true) return false
   if (typeof parsed?.permanentAlly === 'boolean') return parsed.permanentAlly
   if (parsed?.manualReport === true) return false
   if (Array.isArray(parsed?.state?.seats) && parsed.state.seats.some(seat => seat?.team != null)) return true
@@ -152,18 +158,19 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
 
   const parsed = parseDraftData(draftData)
   const redDeath = parsed?.redDeath === true
+  const civBlitz = parsed?.civBlitz === true
   const permanentAlly = getPermanentAllyFromDraftData(mode, draftData)
   const leaderDataVersion = normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion)
   const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
-  const leaderboardMode = toLeaderboardMode(mode, { redDeath })
+  const leaderboardMode = civBlitz ? null : toLeaderboardMode(mode, { redDeath })
   return {
     mode,
     redDeath,
-    permanentAlly,
+    permanentAlly: civBlitz ? false : permanentAlly,
     leaderDataVersion,
     leaderboardMode,
     ranked: leaderboardMode != null,
-    label: formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
+    label: civBlitz ? `${formatModeLabel(mode, mode, { redDeath, targetSize: seatCount })} CivBlitz` : formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
   }
 }
 

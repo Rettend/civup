@@ -3,6 +3,16 @@ import type { DraftState } from '@civup/game'
 export function canOpenSwapWindowForState(state: DraftState): boolean {
   if (state.status !== 'complete') return false
   if (!state.seats.some(seat => seat.team != null)) return false
+  if (state.civBlitz) {
+    return state.seats.every((_, seatIndex) => {
+      const kit = state.civBlitz?.lockedKits[seatIndex]
+      return !!kit
+        && typeof kit.civilizationAbility === 'string'
+        && typeof kit.leaderAbility === 'string'
+        && typeof kit.infrastructure === 'string'
+        && typeof kit.unit === 'string'
+    })
+  }
   const pickedSeats = new Set(state.picks.map(pick => pick.seatIndex))
   return state.seats.every((_, seatIndex) => pickedSeats.has(seatIndex))
 }

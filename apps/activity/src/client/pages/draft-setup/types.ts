@@ -23,6 +23,9 @@ export interface LobbyEditableDraftConfig {
   permanentAlly: boolean
   redDeath: boolean
   dealOptionsSize: number | null
+  civBlitz: boolean
+  civBlitzOptionCount: number | null
+  civBlitzExcludeBbgExpanded: boolean
   randomDraft: boolean
   hiddenDraft: boolean
   duplicateFactions: boolean

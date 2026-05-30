@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
@@ -72,6 +72,9 @@ export interface LobbySnapshot {
     permanentAlly: boolean
     redDeath: boolean
     dealOptionsSize: number | null
+    civBlitz: boolean
+    civBlitzOptionCount: number | null
+    civBlitzExcludeBbgExpanded: boolean
     randomDraft: boolean
     hiddenDraft: boolean
     duplicateFactions: boolean
@@ -552,6 +555,10 @@ export function sendPick(civId: string) {
   }
 }
 
+export function sendCivBlitzSubmit(kit: CivBlitzPartialKit) {
+  return sendMessage({ type: 'civ-blitz-submit', kit })
+}
+
 export function sendPreview(action: DraftAction, civIds: string[]) {
   const key = `${action}:${civIds.join(',')}`
   if (lastSentPreviewKeys[action] === key) return true
@@ -680,6 +687,9 @@ export async function updateLobbyConfig(
     permanentAlly?: boolean
     redDeath?: boolean
     dealOptionsSize?: number | null
+    civBlitz?: boolean
+    civBlitzOptionCount?: number | null
+    civBlitzExcludeBbgExpanded?: boolean
     randomDraft?: boolean
     hiddenDraft?: boolean
     duplicateFactions?: boolean
@@ -705,6 +715,9 @@ export async function updateLobbyConfig(
       permanentAlly: draftConfig.permanentAlly,
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
+      civBlitz: draftConfig.civBlitz,
+      civBlitzOptionCount: draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: draftConfig.civBlitzExcludeBbgExpanded,
       randomDraft: draftConfig.randomDraft,
       hiddenDraft: draftConfig.hiddenDraft,
       duplicateFactions: draftConfig.duplicateFactions,

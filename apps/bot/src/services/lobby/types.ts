@@ -19,6 +19,9 @@ export interface LobbyDraftConfig {
   permanentAlly: boolean
   redDeath: boolean
   dealOptionsSize: number | null
+  civBlitz: boolean
+  civBlitzOptionCount: number | null
+  civBlitzExcludeBbgExpanded: boolean
   blindPicks: boolean
   randomDraft: boolean
   hiddenDraft: boolean

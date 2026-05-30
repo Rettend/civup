@@ -872,6 +872,54 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
+  test('excludes CivBlitz matches from player leader stats', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID, 'Hero')
+    await seedPlayerIdentity(db, '100010000000000098', 'Opponent')
+    await db.insert(matches).values({
+      id: 'leader-civblitz-1',
+      gameMode: '1v1',
+      status: 'completed',
+      isOld: false,
+      seasonId: null,
+      draftData: JSON.stringify({ civBlitz: true }),
+      createdAt: NOW - 10_000,
+      completedAt: NOW,
+    })
+    await db.insert(matchParticipants).values([
+      {
+        matchId: 'leader-civblitz-1',
+        playerId: HERO_ID,
+        team: 0,
+        civId: 'china-yongle',
+        placement: 1,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      },
+      {
+        matchId: 'leader-civblitz-1',
+        playerId: '100010000000000098',
+        team: 1,
+        civId: 'rome-trajan',
+        placement: 2,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      },
+    ])
+
+    await reconcilePlayerCivStatMatchContribution(db, 'leader-civblitz-1', NOW)
+    await backfillPlayerCivStatsFromHistory(db, NOW + 1)
+
+    expect(await listPlayerCivStats(db, {}, HERO_ID)).toEqual([])
+
+    sqlite.close()
+  })
+
   test('keeps top played leader names untruncated in stats', async () => {
     const { db, sqlite } = await createTestDatabase()
 

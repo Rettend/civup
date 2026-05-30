@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getDraftFormat, getLeaderIds, isTeamMode, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getCivBlitzComponentIds, getDraftFormat, getLeaderIds, isTeamMode, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -23,6 +23,9 @@ export interface CreateDraftRuntimeOptions {
   simultaneousPick?: boolean
   permanentAlly?: boolean
   redDeath?: boolean
+  civBlitz?: boolean
+  civBlitzOptionCount?: number | null
+  civBlitzExcludeBbgExpanded?: boolean
   mapVoteEnabled?: boolean
   randomDraft?: boolean
   hiddenDraft?: boolean
@@ -47,20 +50,23 @@ export function buildDraftRuntimeConfig(
   options: CreateDraftRuntimeOptions,
 ): DraftRuntimeConfigResult {
   const matchId = options.matchId
-  const redDeathMode = options.redDeath === true
+  const civBlitz = options.civBlitz === true
+  const redDeathMode = !civBlitz && options.redDeath === true
   const seats: DraftSeat[] = buildDraftSeats(mode, entries)
-  const simultaneousPick = mode === 'ffa' && !redDeathMode && options.simultaneousPick === true
-  const blindPicks = options.blindPicks === true
-  const hiddenDraft = options.hiddenDraft === true
-  const randomDraft = !hiddenDraft && options.randomDraft === true
+  const simultaneousPick = mode === 'ffa' && !redDeathMode && !civBlitz && options.simultaneousPick === true
+  const blindPicks = !civBlitz && options.blindPicks === true
+  const hiddenDraft = !civBlitz && options.hiddenDraft === true
+  const randomDraft = !civBlitz && !hiddenDraft && options.randomDraft === true
   // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
   const duplicateFactions = redDeathMode
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
-    : (options.duplicateFactions === true)
+    : (!civBlitz && options.duplicateFactions === true)
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
+  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, civBlitz, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
   const leaderDataVersion = options.leaderDataVersion ?? 'live'
-  const civPool = redDeathMode
+  const civPool = civBlitz
+    ? getCivBlitzComponentIds(leaderDataVersion, { excludeBbgExpanded: options.civBlitzExcludeBbgExpanded !== false })
+    : redDeathMode
     ? [...allFactionIds]
     : hiddenDraft
       ? getLeaderIds(leaderDataVersion)
@@ -72,10 +78,13 @@ export function buildDraftRuntimeConfig(
     seats,
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
+    civBlitz,
+    civBlitzOptionCount: civBlitz ? normalizeCivBlitzOptionCount(options.civBlitzOptionCount ?? undefined) : undefined,
+    civBlitzExcludeBbgExpanded: civBlitz ? options.civBlitzExcludeBbgExpanded !== false : undefined,
     blindPicks,
     randomDraft,
     hiddenDraft,
-    permanentAlly: mode === 'ffa' && !redDeathMode && options.permanentAlly !== false,
+    permanentAlly: mode === 'ffa' && !redDeathMode && !civBlitz && options.permanentAlly !== false,
     duplicateFactions,
     mapVoteEnabled,
     leaderDataVersion,

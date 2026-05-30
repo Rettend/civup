@@ -16,8 +16,10 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   EMPTY_MAP_VOTE_SNAPSHOT,
+  getCivBlitzRegistry,
   getCurrentStep,
   getPickSeatForPlayer,
+  isCivBlitzFormatId,
   isDraftError,
   isMapVoteSupportedForMode,
   isRedDeathFormatId,
@@ -26,7 +28,7 @@ import {
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   processDraftInput,
-  swapSeatPicks,
+  swapSeatDraftChoices,
 } from '@civup/game'
 import {
   CIVUP_ACTIVITY_USER_ID_HEADER,
@@ -176,9 +178,20 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       throw new Error('Empty civ pool')
     }
 
+    const civBlitzRegistry = config.civBlitz === true || isCivBlitzFormatId(config.formatId)
+      ? getCivBlitzRegistry(config.leaderDataVersion ?? 'live', { excludeBbgExpanded: config.civBlitzExcludeBbgExpanded !== false })
+      : null
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
       dealOptionsSize: config.dealOptionsSize,
       duplicateFactions: config.duplicateFactions,
+      civBlitz: civBlitzRegistry
+        ? {
+            componentPools: civBlitzRegistry.componentPools,
+            optionCount: config.civBlitzOptionCount ?? 4,
+            excludeBbgExpanded: config.civBlitzExcludeBbgExpanded !== false,
+            random: () => this.random(),
+          }
+        : undefined,
     })
     const mapVoteEnabled = normalizeMapVoteEnabled(format.gameMode, config.mapVoteEnabled === true, { redDeath: format.redDeath })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
@@ -558,6 +571,28 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         break
       }
 
+      case 'civ-blitz-submit': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (!msg.kit || typeof msg.kit !== 'object') {
+          this.send(sender, { type: 'error', message: 'kit must be an object' })
+          return
+        }
+        const result = processDraftInput(
+          state,
+          { type: 'CIV_BLITZ_SUBMIT', seatIndex, kit: msg.kit },
+          { blindBans: format.blindBans, random: () => this.random() },
+        )
+        if (isDraftError(result)) {
+          this.send(sender, { type: 'error', message: result.error })
+          return
+        }
+        await this.applyResult(result.state, result.events)
+        break
+      }
+
       case 'preview': {
         if (seatIndex < 0) {
           this.send(sender, { type: 'error', message: 'Not a participant' })
@@ -626,24 +661,20 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           return
         }
 
-        const swappedPicks = swapSeatPicks(state, seatIndex, msg.toSeat)
-        if ('error' in swappedPicks) {
-          this.send(sender, { type: 'error', message: swappedPicks.error })
+        const swappedState = swapSeatDraftChoices(state, seatIndex, msg.toSeat)
+        if ('error' in swappedState) {
+          this.send(sender, { type: 'error', message: swappedState.error })
           return
         }
 
         const swapState = await this.getSwapState()
-        const nextState: DraftState = {
-          ...state,
-          picks: swappedPicks,
-        }
         const nextSwapState: LeaderSwapState = {
           completedSwaps: [...swapState.completedSwaps, { fromSeat: seatIndex, toSeat: msg.toSeat }],
         }
 
         await this.applyRoomTransition(applyLeaderSwapCommand(room, {
           type: 'apply-leader-swap',
-          nextState,
+          nextState: swappedState,
           swapState: nextSwapState,
         }), 'leader-swap', {
           fromSeat: seatIndex,
@@ -1305,6 +1336,21 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       }
     }
 
+    if (state.civBlitz && state.status === 'active') {
+      const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
+      nextState = {
+        ...nextState,
+        civBlitz: {
+          ...state.civBlitz,
+          optionsBySeat: ownOptions ? { [seatIndex]: ownOptions } : {},
+          submissions: Object.fromEntries(Object.entries(state.civBlitz.submissions).map(([rawSeatIndex, kit]) => [
+            rawSeatIndex,
+            Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
+          ])),
+        },
+      }
+    }
+
     if (state.pendingBlindBans.length > 0) {
       nextState = {
         ...nextState,
@@ -1342,6 +1388,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       }
       if (e.type === 'PICK_SUBMITTED' && e.blind) {
         return { ...e, civId: '' }
+      }
+      if (e.type === 'CIV_BLITZ_SUBMITTED' && e.blind) {
+        return { ...e, categories: [] }
       }
       return e
     })

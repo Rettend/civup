@@ -1072,6 +1072,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       simultaneousPick: record.config.simultaneousPick,
       permanentAlly: record.config.permanentAlly,
       redDeath: record.config.redDeath,
+      civBlitz: record.config.civBlitz,
+      civBlitzOptionCount: record.config.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
       mapVoteEnabled: record.config.mapVoteEnabled,
       randomDraft: record.config.randomDraft,
       hiddenDraft: record.config.hiddenDraft,
@@ -1287,7 +1290,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     else {
       const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
       const slotEntries = buildSessionRosterSlotEntries(record)
-      const leaderPoolRankTier = record.config.leaderPoolSize == null && !record.config.redDeath && !record.config.hiddenDraft && this.env.KV
+      const leaderPoolRankTier = record.config.leaderPoolSize == null && !record.config.redDeath && !record.config.civBlitz && !record.config.hiddenDraft && this.env.KV
         ? await resolveLobbyRankTier(this.env.KV, record.guildId, slotEntries.map(entry => entry.playerId))
         : null
       const runtime = buildDraftRuntimeConfig(record.mode, slotEntries, {
@@ -1299,6 +1302,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         simultaneousPick: record.config.simultaneousPick,
         permanentAlly: record.config.permanentAlly,
         redDeath: record.config.redDeath,
+        civBlitz: record.config.civBlitz,
+        civBlitzOptionCount: record.config.civBlitzOptionCount,
+        civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
         mapVoteEnabled: record.config.mapVoteEnabled,
         randomDraft: record.config.randomDraft,
         hiddenDraft: record.config.hiddenDraft,
@@ -3208,6 +3214,9 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
     config: {
       blindBans: record.config.blindBans,
       blindPicks: record.config.blindPicks,
+      civBlitz: record.config.civBlitz,
+      civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
+      civBlitzOptionCount: record.config.civBlitzOptionCount,
       duplicateFactions: record.config.duplicateFactions,
       hiddenDraft: record.config.hiddenDraft,
       leaderDataVersion: record.config.leaderDataVersion,
@@ -3228,6 +3237,8 @@ function isRepeatDraftDataCompatible(
 ): boolean {
   return isRepeatDraftFormatCompatible(record, state)
     && source.redDeath === record.config.redDeath
+    && (record.config.civBlitz !== true || state.civBlitz?.optionCount === record.config.civBlitzOptionCount)
+    && (record.config.civBlitz !== true || state.civBlitz?.excludeBbgExpanded === record.config.civBlitzExcludeBbgExpanded)
     && source.permanentAlly === isPermanentAllyFfaConfig(record)
     && source.hiddenDraft === record.config.hiddenDraft
     && source.leaderDataVersion === (record.config.leaderDataVersion ?? 'live')
@@ -3237,6 +3248,9 @@ function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: Draft
   return isRepeatDraftFormatCompatible(record, state)
     && (sourceConfig.leaderDataVersion ?? 'live') === record.config.leaderDataVersion
     && (sourceConfig.hiddenDraft === true) === record.config.hiddenDraft
+    && (sourceConfig.civBlitz === true) === record.config.civBlitz
+    && (!record.config.civBlitz || (sourceConfig.civBlitzOptionCount ?? undefined) === record.config.civBlitzOptionCount)
+    && (!record.config.civBlitz || (sourceConfig.civBlitzExcludeBbgExpanded !== false) === record.config.civBlitzExcludeBbgExpanded)
     && (sourceConfig.permanentAlly === true) === isPermanentAllyFfaConfig(record)
     && (sourceConfig.mapVoteEnabled === true) === record.config.mapVoteEnabled
     && (sourceConfig.randomDraft === true) === (!record.config.hiddenDraft && record.config.randomDraft)
@@ -3249,6 +3263,7 @@ function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftSt
     simultaneousPick: record.mode === 'ffa' && !redDeath && record.config.simultaneousPick === true,
     randomDraft: !hiddenDraft && record.config.randomDraft === true,
     redDeath,
+    civBlitz: record.config.civBlitz,
     blindBans: record.config.blindBans,
     blindPicks: record.config.blindPicks,
     seatCount: state.seats.length,
@@ -3257,7 +3272,7 @@ function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftSt
 }
 
 function isPermanentAllyFfaConfig(record: OpenSessionRecord): boolean {
-  return record.mode === 'ffa' && record.config.redDeath !== true && record.config.permanentAlly === true
+  return record.mode === 'ffa' && record.config.redDeath !== true && record.config.civBlitz !== true && record.config.permanentAlly === true
 }
 
 function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: DraftSeat[], kind: 'resume' | 'complete', seatIndexMap: ReadonlyMap<number, number>): DraftState {
@@ -3284,6 +3299,7 @@ function prepareRepeatedDraftState(state: DraftState, matchId: string, seats: Dr
     dealtCivIdsBySeat: kind === 'complete' || !state.dealtCivIdsBySeat ? null : remapSeatSelectionRecord(state.dealtCivIdsBySeat, seatIndexMap),
     blindPickReveal: kind === 'complete' ? null : remapBlindPickReveal(state.blindPickReveal, seatIndexMap),
     blindPickBans: remapDraftSelections(state.blindPickBans ?? [], seatIndexMap),
+    civBlitz: remapCivBlitzState(state.civBlitz, kind, seatIndexMap),
   }
 }
 
@@ -3381,6 +3397,43 @@ function remapBlindPickReveal(reveal: DraftState['blindPickReveal'], seatIndexMa
   }
 }
 
+function remapCivBlitzState(civBlitz: DraftState['civBlitz'], kind: 'resume' | 'complete', seatIndexMap: ReadonlyMap<number, number>): DraftState['civBlitz'] {
+  if (!civBlitz) return civBlitz ?? null
+  return {
+    ...civBlitz,
+    optionsBySeat: remapSeatValueRecord(civBlitz.optionsBySeat, seatIndexMap, cloneCivBlitzCategoryOptions),
+    submissions: kind === 'complete' ? {} : remapSeatValueRecord(civBlitz.submissions, seatIndexMap, kit => ({ ...kit })),
+    lockedKits: remapSeatValueRecord(civBlitz.lockedKits, seatIndexMap, kit => ({ ...kit })),
+    reveal: kind === 'complete' ? null : remapCivBlitzReveal(civBlitz.reveal, seatIndexMap),
+    conflictBans: civBlitz.conflictBans.map(selection => ({
+      ...selection,
+      seatIndex: remapSeatIndex(selection.seatIndex, seatIndexMap),
+    })),
+  }
+}
+
+function remapCivBlitzReveal(reveal: NonNullable<DraftState['civBlitz']>['reveal'], seatIndexMap: ReadonlyMap<number, number>): NonNullable<DraftState['civBlitz']>['reveal'] {
+  if (!reveal) return null
+  return {
+    ...reveal,
+    submissions: reveal.submissions.map(submission => ({
+      ...submission,
+      seatIndex: remapSeatIndex(submission.seatIndex, seatIndexMap),
+    })),
+    conflictedSeatIndexes: reveal.conflictedSeatIndexes.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
+    categoriesBySeat: remapSeatValueRecord(reveal.categoriesBySeat, seatIndexMap, categories => [...categories]),
+  }
+}
+
+function cloneCivBlitzCategoryOptions(options: NonNullable<DraftState['civBlitz']>['optionsBySeat'][number]): NonNullable<DraftState['civBlitz']>['optionsBySeat'][number] {
+  return {
+    civilizationAbility: [...options.civilizationAbility],
+    leaderAbility: [...options.leaderAbility],
+    infrastructure: [...options.infrastructure],
+    unit: [...options.unit],
+  }
+}
+
 function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap: ReadonlyMap<number, number>): Record<number, string[]> {
   const next: Record<number, string[]> = {}
   for (const [seatIndex, selections] of Object.entries(record)) {
@@ -3393,11 +3446,18 @@ function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap
 function remapDraftSteps(steps: DraftState['steps'], seatIndexMap: ReadonlyMap<number, number>): DraftState['steps'] {
   return steps.map((step) => {
     const fallbackPickOrder = step.fallbackPickOrder?.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap))
-    if (step.seats === 'all') return fallbackPickOrder ? { ...step, fallbackPickOrder } : step
+    const civBlitzCategoriesBySeat = step.civBlitzCategoriesBySeat
+      ? remapSeatValueRecord(step.civBlitzCategoriesBySeat, seatIndexMap, categories => [...categories])
+      : undefined
+    const remappedMetadata = {
+      ...(fallbackPickOrder ? { fallbackPickOrder } : {}),
+      ...(civBlitzCategoriesBySeat ? { civBlitzCategoriesBySeat } : {}),
+    }
+    if (step.seats === 'all') return Object.keys(remappedMetadata).length > 0 ? { ...step, ...remappedMetadata } : step
     return {
       ...step,
       seats: step.seats.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
-      ...(fallbackPickOrder ? { fallbackPickOrder } : {}),
+      ...remappedMetadata,
     }
   })
 }
