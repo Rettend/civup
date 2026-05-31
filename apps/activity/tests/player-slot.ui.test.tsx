@@ -149,18 +149,34 @@ describe('PlayerSlot UI', () => {
     expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBe(firstImage)
   })
 
-  test('shows a submitted marker without revealing blind-pick submissions', () => {
+  test('shows the inactive user icon without revealing blind-pick submissions', () => {
     uiMockState.draftState = createActiveDraftState({
       formatId: 'default-ffa-blind-pick',
       steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
-      submissions: { 0: [TEST_LEADER_IDS.abrahamLincoln] },
+      submissions: { 0: ['__blind__'] },
     })
 
-    render(() => <PlayerSlot seatIndex={0} />)
+    const { container } = render(() => <PlayerSlot seatIndex={0} />)
 
-    expect(screen.getByText('Submitted')).toBeTruthy()
+    expect(screen.queryByText('Submitted')).toBeNull()
+    expect(container.querySelector('.i-ph-user-bold')).toBeTruthy()
+    expect(container.querySelector('.i-ph-check-circle-bold')).toBeNull()
     expect(screen.queryByText('Abraham Lincoln')).toBeNull()
     expect(screen.queryByAltText('Abraham Lincoln')).toBeNull()
+  })
+
+  test('shows visible blind-pick submissions as locked teammate portraits', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      submissions: { 2: [TEST_LEADER_IDS.johnCurtin] },
+    })
+
+    render(() => <PlayerSlot seatIndex={2} />)
+
+    expect(screen.getByAltText('John Curtin')).toBeTruthy()
+    expect(screen.getByText('John Curtin')).toBeTruthy()
+    expect(screen.queryByText('Submitted')).toBeNull()
   })
 
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {

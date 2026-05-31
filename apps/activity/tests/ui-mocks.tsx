@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 
-import type { DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
+import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { getPickSeatForPlayer } from '@civup/game'
@@ -15,6 +15,7 @@ export const storeSpies = {
   sendRevert: mock(() => true),
   sendBan: mock((_civIds: string[]) => {}),
   sendPick: mock((_civId: string) => {}),
+  sendCivBlitzSubmit: mock((_kit: CivBlitzPartialKit) => {}),
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
   sendMapVoteConfirm: mock(() => true),
   sendMapVoteSelection: mock((_selection: { maps: MapVoteMapId[] }) => true),
@@ -66,6 +67,7 @@ interface MockState {
   avatarUrl: string | null
   isMiniView: boolean
   isMobileLayout: boolean
+  isCivBlitzDraft: boolean
   isRedDeathDraft: boolean
   isSpectator: boolean
   connectionStatus: ConnectionStatus
@@ -218,6 +220,7 @@ function defaults(): MockState {
     avatarUrl: null,
     isMiniView: false,
     isMobileLayout: false,
+    isCivBlitzDraft: false,
     isRedDeathDraft: false,
     isSpectator: false,
     connectionStatus: 'connected',
@@ -621,6 +624,7 @@ mock.module('~/client/stores', () => ({
   hasSubmitted,
   hiddenDraftLeaderSelections: () => uiMockState.hiddenDraftLeaderSelections,
   isHiddenDraftComplete: () => false,
+  isCivBlitzDraft: () => uiMockState.isCivBlitzDraft,
   isMiniView: () => uiMockState.isMiniView,
   isMapVotePhase,
   isSeatMapVoteConfirmed: (seatIndex: number) => uiMockState.mapVoteConfirmedSeatIndices.includes(seatIndex),
@@ -665,6 +669,7 @@ mock.module('~/client/stores', () => ({
   selectedLeader: () => uiMockState.selectedLeaderId,
   sendCancel: (...args: Parameters<typeof storeSpies.sendCancel>) => storeSpies.sendCancel(...args),
   sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
+  sendCivBlitzSubmit: (...args: Parameters<typeof storeSpies.sendCivBlitzSubmit>) => storeSpies.sendCivBlitzSubmit(...args),
   confirmMapVote,
   sendConfig: async () => {},
   sendMapVoteConfirm: (...args: Parameters<typeof storeSpies.sendMapVoteConfirm>) => storeSpies.sendMapVoteConfirm(...args),

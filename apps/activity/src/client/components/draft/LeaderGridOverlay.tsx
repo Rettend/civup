@@ -330,14 +330,6 @@ export function LeaderGridOverlay() {
   const allEntries = createMemo(() => isRedDeathDraft() ? factions : allLeaders())
   const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
 
-  // Auto-open grid when it's your turn
-  createEffect(() => {
-    const currentStep = step()
-    if (!currentStep || hasSubmitted()) return
-    if (currentStep.action === 'pick' && currentPickTargetSeatIndex() == null) return
-    if (isMyTurn()) setGridOpen(true)
-  })
-
   createEffect(() => {
     searchQuery()
     tagFilters()

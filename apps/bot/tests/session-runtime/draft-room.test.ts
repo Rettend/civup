@@ -4,7 +4,7 @@ import type { DraftRuntimeEnv } from '../../src/session-runtime/draft-room.ts'
 import { createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { createRoomRecord, ROOM_RECORD_KEY } from '../../src/session-runtime/draft-room-domain.ts'
-import { SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
+import { censorDraftStateForSeat, SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 
@@ -64,6 +64,48 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
 }
 
 describe('draft runtime alarm recovery', () => {
+  test('censors blind-pick submissions to opponents but not teammates', () => {
+    const state: DraftState = {
+      matchId: 'blind-pick-censor-test',
+      formatId: 'default-2v2-blind-pick',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      seats: [
+        { playerId: 'a1', displayName: 'A1', team: 0 },
+        { playerId: 'b1', displayName: 'B1', team: 1 },
+        { playerId: 'a2', displayName: 'A2', team: 0 },
+        { playerId: 'b2', displayName: 'B2', team: 1 },
+      ],
+      submissions: {
+        0: ['civ-a1'],
+        1: ['civ-b1'],
+        2: ['civ-a2'],
+      },
+      bans: [],
+      picks: [],
+      availableCivIds: ['civ-a1', 'civ-b1', 'civ-a2', 'civ-b2'],
+      status: 'active',
+      cancelReason: null,
+      pendingBlindBans: [],
+    }
+
+    expect(censorDraftStateForSeat(state, 0).submissions).toEqual({
+      0: ['civ-a1'],
+      1: ['__blind__'],
+      2: ['civ-a2'],
+    })
+    expect(censorDraftStateForSeat(state, 1).submissions).toEqual({
+      0: ['__blind__'],
+      1: ['civ-b1'],
+      2: ['__blind__'],
+    })
+    expect(censorDraftStateForSeat(state, -1).submissions).toEqual({
+      0: ['__blind__'],
+      1: ['__blind__'],
+      2: ['__blind__'],
+    })
+  })
+
   test('debug active bot timers can use the lobby fill debug flag', () => {
     const runtime = new TestSessionDraftRuntime(new TestStorage(null), { ENABLE_DEBUG_LOBBY_FILL: '1' })
 

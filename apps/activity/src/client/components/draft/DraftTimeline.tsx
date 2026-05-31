@@ -86,8 +86,16 @@ function getDraftStepTimelineLabels(
   step: DraftStep,
   seats: DraftState['seats'],
 ): string[] {
-  if (!isFusedPickStep(step, seats)) return [formatDraftStepLabel(step, seats)]
-  return step.seats.map(seatIndex => formatDraftStepLabel({ ...step, seats: [seatIndex] }, seats))
+  if (!isFusedPickStep(step, seats)) return [formatDraftTimelineStepLabel(step, seats)]
+  return step.seats.map(seatIndex => formatDraftTimelineStepLabel({ ...step, seats: [seatIndex] }, seats))
+}
+
+function formatDraftTimelineStepLabel(
+  step: DraftStep,
+  seats: DraftState['seats'],
+): string {
+  if (step.action === 'pick' && step.blind && !step.reveal && !step.civBlitz && (step.blindPickRound ?? 0) === 0) return 'PICK'
+  return formatDraftStepLabel(step, seats)
 }
 
 function isFusedPickStep(

@@ -22,8 +22,8 @@ export function sanitizeDraftPreviews(state: DraftState, previews: DraftPreviewS
   const sanitizedBans = step.action === 'ban'
     ? sanitizeBanPreviewMap(state, step, previews.bans, available)
     : {}
-  const sanitizedPicks = step.action === 'pick' && !step.blind && !step.reveal
-    ? sanitizePickPreviewMap(state, previews.picks, available)
+  const sanitizedPicks = step.action === 'pick' && !step.reveal && !step.civBlitz
+    ? sanitizePickPreviewMap(state, step, previews.picks, available)
     : {}
 
   return {
@@ -58,7 +58,7 @@ export function applyDraftPreview(
     })
   }
 
-  if (step.action !== 'pick' || step.blind || step.reveal) return { error: 'Current step is not a pick phase' }
+  if (step.action !== 'pick' || step.reveal || step.civBlitz) return { error: 'Current step is not a pick phase' }
 
   const normalized = normalizePreviewSelections(civIds, new Set(state.availableCivIds))
   return sanitizeDraftPreviews(state, {
@@ -124,7 +124,7 @@ export function censorSanitizedDraftPreviews(
 
   const ownTeam = state.seats[seatIndex]?.team ?? null
   const visiblePicks: DraftPreviewState['picks'] = {}
-  if (step.action === 'pick' && !step.blind && !step.reveal) {
+  if (step.action === 'pick' && !step.reveal && !step.civBlitz) {
     for (const [rawSeatIndex, civIds] of Object.entries(sanitized.picks)) {
       const previewSeatIndex = Number(rawSeatIndex)
       const previewSeat = state.seats[previewSeatIndex]
@@ -187,6 +187,7 @@ function sanitizeBanPreviewMap(
 
 function sanitizePickPreviewMap(
   state: DraftState,
+  step: DraftStep,
   previews: DraftPreviewState['picks'],
   available: Set<string>,
 ): DraftPreviewState['picks'] {
@@ -194,6 +195,7 @@ function sanitizePickPreviewMap(
 
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
     if (seatHasLockedPick(state, seatIndex)) continue
+    if (seatHasCompletedSubmission(state, step, seatIndex)) continue
 
     const civIds = normalizePreviewSelections(previews[seatIndex] ?? [], available)
     if (civIds.length === 0) continue
@@ -341,6 +343,10 @@ function isSeatInStep(step: DraftStep, seatIndex: number, seatCount: number): bo
 
 function seatHasLockedPick(state: DraftState, seatIndex: number): boolean {
   return state.picks.some(pick => pick.seatIndex === seatIndex)
+}
+
+function seatHasCompletedSubmission(state: DraftState, step: DraftStep, seatIndex: number): boolean {
+  return (state.submissions[seatIndex]?.length ?? 0) >= step.count
 }
 
 function normalizePreviewSelections(

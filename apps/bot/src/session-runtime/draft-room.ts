@@ -1317,67 +1317,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  // ── Internal: Censoring for blind bans ─────────────────────
+  // ── Internal: Censoring for blind draft data ────────────────
 
-  /** Filters state for blind bans: players only see their own pending bans */
+  /** Filters state for blind picks/bans and private dealt options. */
   private censorState(state: DraftState, seatIndex: number): DraftState {
-    let nextState = state
-
-    const step = getCurrentStep(state)
-    if (step?.action === 'pick' && step.blind && state.status === 'active') {
-      const submissions: DraftState['submissions'] = {}
-      for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
-        const submittedSeatIndex = Number(rawSeatIndex)
-        submissions[submittedSeatIndex] = Array.from({ length: civIds.length }, () => '__blind__')
-      }
-      nextState = {
-        ...nextState,
-        submissions,
-      }
-    }
-
-    if (state.civBlitz && state.status === 'active') {
-      const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
-      nextState = {
-        ...nextState,
-        civBlitz: {
-          ...state.civBlitz,
-          optionsBySeat: ownOptions ? { [seatIndex]: ownOptions } : {},
-          submissions: Object.fromEntries(Object.entries(state.civBlitz.submissions).map(([rawSeatIndex, kit]) => [
-            rawSeatIndex,
-            Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
-          ])),
-        },
-      }
-    }
-
-    if (state.pendingBlindBans.length > 0) {
-      nextState = {
-        ...nextState,
-        pendingBlindBans: state.pendingBlindBans.filter(
-          b => b.seatIndex === seatIndex,
-        ),
-      }
-    }
-
-    if (nextState.dealtCivIdsBySeat) {
-      const ownDealt = seatIndex >= 0 ? nextState.dealtCivIdsBySeat[seatIndex] ?? null : null
-      nextState = {
-        ...nextState,
-        dealtCivIds: ownDealt,
-        dealtCivIdsBySeat: ownDealt ? { [seatIndex]: ownDealt } : null,
-      }
-    }
-
-    if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
-    if (nextState.dealtCivIds == null && nextState.dealtCivIdsBySeat == null && !isRedDeathDraftState(nextState)) return nextState
-
-    return {
-      ...nextState,
-      dealtCivIds: null,
-      dealtCivIdsBySeat: null,
-      availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
-    }
+    return censorDraftStateForSeat(state, seatIndex)
   }
 
   /** Censors events for blind bans: hides other players' selections */
@@ -1516,6 +1460,78 @@ function isSeatInStep(step: DraftState['steps'][number], seatIndex: number, tota
 
 function isRedDeathDraftState(state: DraftState): boolean {
   return isRedDeathFormatId(state.formatId)
+}
+
+export function censorDraftStateForSeat(state: DraftState, seatIndex: number): DraftState {
+  let nextState = state
+
+  const step = getCurrentStep(state)
+  if (step?.action === 'pick' && step.blind && state.status === 'active') {
+    const submissions: DraftState['submissions'] = {}
+    for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
+      const submittedSeatIndex = Number(rawSeatIndex)
+      submissions[submittedSeatIndex] = canViewBlindPickSubmission(state, seatIndex, submittedSeatIndex)
+        ? [...civIds]
+        : Array.from({ length: civIds.length }, () => '__blind__')
+    }
+    nextState = {
+      ...nextState,
+      submissions,
+    }
+  }
+
+  if (state.civBlitz && state.status === 'active') {
+    const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
+    nextState = {
+      ...nextState,
+      civBlitz: {
+        ...state.civBlitz,
+        optionsBySeat: ownOptions ? { [seatIndex]: ownOptions } : {},
+        submissions: Object.fromEntries(Object.entries(state.civBlitz.submissions).map(([rawSeatIndex, kit]) => [
+          rawSeatIndex,
+          Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
+        ])),
+      },
+    }
+  }
+
+  if (state.pendingBlindBans.length > 0) {
+    nextState = {
+      ...nextState,
+      pendingBlindBans: state.pendingBlindBans.filter(
+        b => b.seatIndex === seatIndex,
+      ),
+    }
+  }
+
+  if (nextState.dealtCivIdsBySeat) {
+    const ownDealt = seatIndex >= 0 ? nextState.dealtCivIdsBySeat[seatIndex] ?? null : null
+    nextState = {
+      ...nextState,
+      dealtCivIds: ownDealt,
+      dealtCivIdsBySeat: ownDealt ? { [seatIndex]: ownDealt } : null,
+    }
+  }
+
+  if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
+  if (nextState.dealtCivIds == null && nextState.dealtCivIdsBySeat == null && !isRedDeathDraftState(nextState)) return nextState
+
+  return {
+    ...nextState,
+    dealtCivIds: null,
+    dealtCivIdsBySeat: null,
+    availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
+  }
+}
+
+function canViewBlindPickSubmission(state: DraftState, viewerSeatIndex: number, submittedSeatIndex: number): boolean {
+  if (viewerSeatIndex === submittedSeatIndex) return true
+
+  const viewerSeat = state.seats[viewerSeatIndex]
+  const submittedSeat = state.seats[submittedSeatIndex]
+  if (!viewerSeat || !submittedSeat) return false
+  if (viewerSeat.team == null || submittedSeat.team == null) return false
+  return viewerSeat.team === submittedSeat.team
 }
 
 function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {
