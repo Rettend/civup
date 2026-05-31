@@ -23,6 +23,7 @@ import {
   sameLobbySlots,
   setLobbyArranged,
   setLobbyDraftConfig,
+  setLobbyHost,
   setLobbyLastActivityAt,
   setLobbyMaxRole,
   setLobbyMinRole,
@@ -1170,7 +1171,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const targetPlayerId = slots[slot]
@@ -1187,6 +1187,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!isHost && auth.identity.userId !== targetPlayerId) {
       return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
     }
+
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
 
     slots[slot] = null
 
@@ -1217,6 +1219,92 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }, `Failed to update lobby embed after slot removal in ${mode}:`)
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
+  })
+
+  app.post('/api/lobby/:mode/transfer-host', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mode = parseGameMode(c.req.param('mode'))
+    const kv = getKvStore(c.env)
+    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    }
+    catch {
+      return c.json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'Invalid request body' }, 400)
+    }
+
+    const { userId, targetPlayerId, lobbyId } = body as { userId?: string, targetPlayerId?: unknown, lobbyId?: unknown }
+
+    if (typeof userId !== 'string' || userId.length === 0) {
+      return c.json({ error: 'userId is required' }, 400)
+    }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    if (typeof targetPlayerId !== 'string' || targetPlayerId.length === 0) {
+      return c.json({ error: 'targetPlayerId is required' }, 400)
+    }
+
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    if (!lobby) {
+      return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+
+    if (lobby.hostId !== auth.identity.userId) {
+      return c.json({ error: 'Only the lobby host can transfer host' }, 403)
+    }
+
+    const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
+    const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+
+    if (targetPlayerId === lobby.hostId) {
+      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots))
+    }
+
+    if (!slots.includes(targetPlayerId)) {
+      return c.json({ error: 'New host must be in a lobby slot.' }, 400)
+    }
+
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+
+    let nextLobby: LobbyState
+    try {
+      nextLobby = await setLobbyHost(kv, lobby.id, targetPlayerId, lobby, lobbySessionMutationOptions(c, lobbyQueueEntries)) ?? lobby
+    }
+    catch (error) {
+      if (isSessionVersionStaleError(error)) return c.json({ error: 'Lobby changed; please retry.' }, 409)
+      throw error
+    }
+
+    const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
+    const nextSlots = normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntries)
+    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+      queueEntries: nextLobbyQueueEntries,
+      slots: nextSlots,
+      balanceSnapshot,
+    })
+    const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
+
+    queueBackgroundTask(c, async () => {
+      const currentLobby = nextLobby
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+        embeds: renderPayload.embeds,
+        components: renderPayload.components,
+      }, lobbySessionMutationOptions(c))
+    }, `Failed to update lobby embed after host transfer in ${mode}:`)
+
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, nextSlots))
   })
 
   app.post('/api/lobby/:mode/arrange', async (c) => {

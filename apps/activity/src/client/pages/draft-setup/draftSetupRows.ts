@@ -15,6 +15,7 @@ interface BuildRowsInput {
 }
 
 function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot['entries'][number] | null, key: string): PlayerRow {
+  const team = input.lobby ? slotToTeamIndex(inferGameMode(input.lobby.mode), slot, input.lobby.targetSize) : null
   const pendingSelf = input.pendingSelfJoinSlot === slot
   if (pendingSelf && input.currentUserId) {
     return {
@@ -23,9 +24,12 @@ function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot
       name: input.currentUserDisplayName || 'You',
       playerId: input.currentUserId,
       avatarUrl: input.currentUserAvatarUrl,
+      team,
       isHost: false,
       empty: false,
       pendingSelf: true,
+      balanceRating: null,
+      rankedRole: null,
     }
   }
 
@@ -35,9 +39,12 @@ function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot
     name: entry?.displayName ?? '[empty]',
     playerId: entry?.playerId ?? null,
     avatarUrl: entry?.avatarUrl ?? null,
+    team,
     isHost: entry?.playerId === input.hostId,
     empty: entry == null,
     pendingSelf: false,
+    balanceRating: entry?.balanceRating ?? null,
+    rankedRole: entry?.rankedRole ?? null,
   }
 }
 
@@ -60,9 +67,12 @@ export function buildTeamRows(input: BuildRowsInput, team: number): PlayerRow[] 
         name: seat.displayName,
         playerId: seat.playerId,
         avatarUrl: seat.avatarUrl ?? null,
+        team,
         isHost: seat.playerId === input.hostId,
         empty: false,
         pendingSelf: false,
+        balanceRating: null,
+        rankedRole: null,
       }])
 }
 
@@ -77,9 +87,12 @@ export function buildFfaRows(input: BuildRowsInput): PlayerRow[] {
     name: seat.displayName,
     playerId: seat.playerId,
     avatarUrl: seat.avatarUrl ?? null,
+    team: null,
     isHost: seat.playerId === input.hostId,
     empty: false,
     pendingSelf: false,
+    balanceRating: null,
+    rankedRole: null,
   }))
 }
 

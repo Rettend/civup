@@ -339,7 +339,7 @@ describe('DraftSetupPage UI', () => {
       />
     ))
 
-    fireEvent.click(screen.getByRole('button', { name: 'BAN DRAFT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Random draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Duplicate leaders' }))
 
@@ -398,7 +398,7 @@ describe('DraftSetupPage UI', () => {
       />
     ))
 
-    fireEvent.click(screen.getByRole('button', { name: 'BAN DRAFT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
 
     const randomDraftSwitch = screen.getByRole('switch', { name: 'Random draft' })
@@ -694,7 +694,7 @@ describe('DraftSetupPage UI', () => {
     expect(readonlyLobbyAccess.className).toContain('text-note')
     expect(screen.queryByRole('switch', { name: 'Lobby Open' })).toBeNull()
     expect(screen.queryByRole('switch', { name: 'Blind Bans' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'BAN DRAFT' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ban Draft' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start Draft' })).toBeNull()
     expect(screen.getByText('Pick')).toBeTruthy()
     expect(screen.getByText('Ban')).toBeTruthy()

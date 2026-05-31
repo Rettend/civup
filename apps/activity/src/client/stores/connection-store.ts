@@ -56,7 +56,14 @@ export interface LobbySnapshot {
       mu: number
       sigma: number
       gamesPlayed: number
+      wins?: number
+      rank?: number | null
+      lastPlayedAt?: number | null
     }
+    rankedRole?: {
+      tier: CompetitiveTier
+      sourceMode: string | null
+    } | null
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -808,6 +815,26 @@ export async function removeLobbySlot(
     console.error('Failed to remove lobby slot:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while removing lobby slot' }
+  }
+}
+
+/** Transfer open lobby host ownership to another slotted player (host-only). */
+export async function transferLobbyHost(
+  mode: string,
+  payload: {
+    lobbyId: string
+    userId: string
+    targetPlayerId: string
+  },
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/transfer-host`, payload)
+    return { ok: true, lobby }
+  }
+  catch (err) {
+    console.error('Failed to transfer lobby host:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while transferring host' }
   }
 }
 

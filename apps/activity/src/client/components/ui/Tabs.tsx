@@ -27,7 +27,7 @@ export function Tabs<T extends string = string>(props: TabsProps<T>) {
   return (
     <div
       class={cn(
-        'rounded-lg border border-border-subtle bg-bg/50 p-0.5 flex items-center',
+        'rounded-md border border-border-subtle bg-bg/50 p-0.5 flex items-center',
         local.class,
       )}
     >
@@ -38,7 +38,7 @@ export function Tabs<T extends string = string>(props: TabsProps<T>) {
             <button
               type="button"
               class={cn(
-                'flex-1 px-3 py-1.5 rounded-md text-[11px] font-bold tracking-wider transition-all duration-200 cursor-pointer',
+                'flex-1 px-2.5 py-1 rounded-[5px] text-[10px] font-bold tracking-wide transition-all duration-200 cursor-pointer',
                 'disabled:cursor-not-allowed disabled:opacity-60',
                 active()
                   ? 'bg-accent/20 text-accent border border-accent/30 shadow-[0_0_8px_var(--accent-subtle)]'

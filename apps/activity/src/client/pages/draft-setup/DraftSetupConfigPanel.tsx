@@ -32,7 +32,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
     renderEditable: state => (
       <ModeTabsRow
-        label="PICK"
+        label="Pick"
         value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
         disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
         onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
@@ -47,7 +47,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
     renderEditable: state => (
       <ModeTabsRow
-        label="BAN"
+        label="Ban"
         value={() => state.derived.optimisticDraftConfig().blindBans ? 'blind' : 'draft'}
         disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
         onChange={value => void state.actions.changeBlindBans(value === 'blind')}
@@ -435,8 +435,8 @@ function ModeTabsRow(props: {
   const value = createMemo(() => props.value())
   const disabled = createMemo(() => props.disabled())
   const options = [
-    { value: 'blind' as const, label: 'BLIND', ariaLabel: `${props.label} BLIND` },
-    { value: 'draft' as const, label: 'DRAFT', ariaLabel: `${props.label} DRAFT` },
+    { value: 'blind' as const, label: 'Blind', ariaLabel: `${props.label} Blind` },
+    { value: 'draft' as const, label: 'Draft', ariaLabel: `${props.label} Draft` },
   ]
 
   return (

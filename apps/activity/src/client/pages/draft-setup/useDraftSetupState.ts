@@ -19,6 +19,7 @@ import {
   sendCancel,
   sendStart,
   startLobbyDraft,
+  transferLobbyHost,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
@@ -362,6 +363,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     if (!id) return false
     return amHost() || row.playerId === id
   }
+  const canTransferHostToRow = (row: PlayerRow) => isLobbyMode() && amHost() && !row.empty && !row.pendingSelf && !!row.playerId && !row.isHost
   const canDragRow = (row: PlayerRow) => {
     if (!isLobbyMode() || lobbyActionPending() || row.empty || !row.playerId || row.pendingSelf) return false
     const id = userId()
@@ -476,6 +478,23 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
         if (optimisticAction) clearOptimisticLobbyAction()
         showErrorMessage(result.error)
       }
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
+  const handleTransferHost = async (targetPlayerId: string) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending()) return
+    if (targetPlayerId === lobby.hostId) return
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await transferLobbyHost(lobby.mode, { lobbyId: lobby.id, userId: currentUserId, targetPlayerId })
+      if (!result.ok) return showErrorMessage(result.error)
+      const targetName = lobby.entries.find(entry => entry?.playerId === targetPlayerId)?.displayName ?? 'Player'
+      showInfoMessage(`${targetName} is now host.`)
     }
     finally {
       setLobbyActionPending(false)
@@ -657,15 +676,18 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     arrangeEvent: () => currentLobby()?.lastArrange ?? null,
     pendingArrangeStrategy,
     clearPendingArrangeStrategy,
+    rankedRoles: configState.options.rankedRoles,
     permissions: {
       canDragRow,
       canDropOnRow,
       canJoinSlot,
       canRemoveSlot,
+      canTransferHostToRow,
     },
     actions: {
       join: handlePlaceSelf,
       remove: handleRemoveFromSlot,
+      transferHost: handleTransferHost,
       dragStart: handleDragStart,
       dragEnd: handleDragEnd,
       dragEnter: setDragOverSlot,

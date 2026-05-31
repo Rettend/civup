@@ -435,6 +435,68 @@ describe('lobby routes', () => {
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, 'player-2', null])
   })
 
+  test('host can transfer an open lobby to another slotted player', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'guest',
+      displayName: 'Guest',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
+    await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/transfer-host', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'guest' }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      hostId: 'guest',
+      memberPlayerIds: ['host', 'guest'],
+    })
+    expect((await getLobbyById(kv, lobby.id))?.hostId).toBe('guest')
+
+    const nonHostResponse = await app.request('/api/lobby/2v2/transfer-host', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'host' }),
+    }, buildEnv(kv))
+    expect(nonHostResponse.status).toBe(403)
+
+    const unslottedResponse = await app.request('/api/lobby/2v2/transfer-host', {
+      method: 'POST',
+      headers: buildAuthHeaders('guest', 'Guest'),
+      body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, targetPlayerId: 'missing' }),
+    }, buildEnv(kv))
+    expect(unslottedResponse.status).toBe(400)
+    await expect(unslottedResponse.json()).resolves.toEqual({ error: 'New host must be in a lobby slot.' })
+  })
+
   test('arrange route accepts shuffle-teams', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()

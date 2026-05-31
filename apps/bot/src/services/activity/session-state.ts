@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { CompetitiveTier, GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, LeaderboardMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
@@ -7,11 +7,16 @@ import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { buildLobbyRankSnapshot } from '../lobby/rank.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
+
+const LEADERBOARD_RANK_CACHE_MAX_ENTRIES = 16
+const leaderboardRankCache = new Map<string, Map<string, number>>()
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -66,7 +71,14 @@ export interface LobbySnapshot {
       mu: number
       sigma: number
       gamesPlayed: number
+      wins?: number
+      rank?: number | null
+      lastPlayedAt?: number | null
     }
+    rankedRole?: {
+      tier: CompetitiveTier
+      sourceMode: LeaderboardMode | null
+    } | null
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -338,12 +350,16 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     : balanceSnapshot
   if (!leaderboardSnapshot) return snapshot
 
+  const rankByPlayerId = getLeaderboardRankByPlayer(leaderboardSnapshot, leaderboardMode)
   const balanceRatingByPlayerId = new Map(leaderboardSnapshot.rows.map(row => [
     row.playerId,
     {
       mu: row.mu,
       sigma: row.sigma,
       gamesPlayed: row.gamesPlayed,
+      wins: row.wins,
+      rank: rankByPlayerId.get(row.playerId) ?? null,
+      lastPlayedAt: row.lastPlayedAt ?? null,
     },
   ]))
 
@@ -366,6 +382,39 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     ...snapshot,
     entries,
   }
+}
+
+function getLeaderboardRankByPlayer(
+  snapshot: LeaderboardModeSnapshot,
+  mode: LeaderboardMode,
+): Map<string, number> {
+  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}`
+  const cached = leaderboardRankCache.get(cacheKey)
+  if (cached) return cached
+
+  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode)
+  leaderboardRankCache.set(cacheKey, rankByPlayerId)
+  while (leaderboardRankCache.size > LEADERBOARD_RANK_CACHE_MAX_ENTRIES) {
+    const oldestKey = leaderboardRankCache.keys().next().value
+    if (!oldestKey) break
+    leaderboardRankCache.delete(oldestKey)
+  }
+  return rankByPlayerId
+}
+
+function buildLeaderboardRankByPlayer(
+  rows: LeaderboardModeSnapshot['rows'],
+  mode: LeaderboardMode,
+): Map<string, number> {
+  const ranked = rows
+    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
+    .map(row => ({
+      playerId: row.playerId,
+      display: displayRating(row.mu, row.sigma),
+    }))
+    .sort((left, right) => right.display - left.display)
+
+  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
 
 export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {
@@ -419,16 +468,23 @@ async function buildLobbySnapshotFromSessionParts(
   rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const resolvedRankAssignments = rankAssignments === undefined && session.guildId && !session.config.redDeath && !session.config.civBlitz
+    ? await getCurrentRankAssignments(kv, session.guildId)
+    : rankAssignments ?? null
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
   const memberPlayerIds = session.roster.participants.map(member => member.playerId)
   const entries = session.roster.slots.map((playerId) => {
     if (!playerId) return null
     const member = memberByPlayerId.get(playerId)
     if (!member) return null
+    const rankedRole = resolvedRankAssignments?.byPlayerId[playerId] ?? null
     return {
       playerId,
       displayName: member.displayName ?? playerId,
       avatarUrl: member.avatarUrl ?? null,
+      rankedRole: rankedRole
+        ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode }
+        : null,
     }
   })
   const targetSize = session.roster.slots.length
@@ -439,7 +495,7 @@ async function buildLobbySnapshotFromSessionParts(
     leaderDataVersion: session.config.leaderDataVersion,
     redDeath: session.config.redDeath,
     civBlitz: session.config.civBlitz,
-    assignments: rankAssignments,
+    assignments: resolvedRankAssignments,
   })
 
   return {
