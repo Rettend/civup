@@ -114,12 +114,17 @@ describe('match result embed', () => {
     expect(embed.color).toBe(0x8B5CF6)
   })
 
-  test('shows pick and ban visibility in open lobby embeds', () => {
-    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, {
+  test('does not show pick and ban visibility in open lobby embeds', () => {
+    const options = {
+      closed: false,
       draftConfig: { blindBans: false, blindPicks: true },
-    }).toJSON()
+    }
+    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, options).toJSON()
+    const fields = JSON.stringify(embed.fields ?? [])
 
-    expect(embed.fields?.[0]).toEqual({ name: 'Draft Settings', value: 'Pick: Blind\nBan: Draft', inline: true })
+    expect(embed.fields?.map(field => field.name)).not.toContain('Draft Settings')
+    expect(fields).not.toContain('Pick:')
+    expect(fields).not.toContain('Ban:')
   })
 
   test('pads four-team cancelled lobbies into a 2x2 inline field layout', () => {
