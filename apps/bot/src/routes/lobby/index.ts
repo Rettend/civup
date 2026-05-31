@@ -611,6 +611,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, normalizedRedDeath, normalizedCivBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    const renderSlotsBeforeConfigChange = [...slots]
     const requestedTargetSize = (() => {
       if (mode !== 'ffa') {
         return hasTargetSize ? parsedTargetSize ?? slots.length : slots.length
@@ -715,14 +716,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
 
-    queueBackgroundTask(c, async () => {
-      const currentLobby = updated
-      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, updated, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-        embeds: renderPayload.embeds,
-        components: renderPayload.components,
-      }, lobbySessionMutationOptions(c))
-    }, `Failed to update lobby embed after config change in ${mode}:`)
+    if (openLobbyMessageRenderStateChanged(resolvedLobby, updated, renderSlotsBeforeConfigChange, normalizedSlots)) {
+      queueBackgroundTask(c, async () => {
+        const currentLobby = updated
+        const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, updated, slottedEntries)
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+          embeds: renderPayload.embeds,
+          components: renderPayload.components,
+        }, lobbySessionMutationOptions(c))
+      }, `Failed to update lobby embed after config change in ${mode}:`)
+    }
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots))
   })
@@ -1926,6 +1929,21 @@ function getResizeShrinkErrorMessage(mode: GameMode, currentSize: number, target
   }
 
   return 'Clear the extra seats before shrinking the lobby.'
+}
+
+function openLobbyMessageRenderStateChanged(
+  before: LobbyState,
+  after: LobbyState,
+  beforeSlots: (string | null)[],
+  afterSlots: (string | null)[],
+): boolean {
+  return before.mode !== after.mode
+    || !sameLobbySlots(beforeSlots, afterSlots)
+    || before.minRole !== after.minRole
+    || before.maxRole !== after.maxRole
+    || before.draftConfig.leaderDataVersion !== after.draftConfig.leaderDataVersion
+    || before.draftConfig.redDeath !== after.draftConfig.redDeath
+    || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 
 function isDebugLobbyFillEnabled(
