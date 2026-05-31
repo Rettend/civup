@@ -73,7 +73,6 @@ export interface LobbySnapshot {
       gamesPlayed: number
       wins?: number
       rank?: number | null
-      lastPlayedAt?: number | null
     }
     rankedRole?: {
       tier: CompetitiveTier
@@ -359,7 +358,6 @@ export async function attachLobbyBalanceRatingsToSnapshot(
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       rank: rankByPlayerId.get(row.playerId) ?? null,
-      lastPlayedAt: row.lastPlayedAt ?? null,
     },
   ]))
 
