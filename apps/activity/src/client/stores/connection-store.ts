@@ -58,7 +58,6 @@ export interface LobbySnapshot {
       gamesPlayed: number
       wins?: number
       rank?: number | null
-      lastPlayedAt?: number | null
     }
     rankedRole?: {
       tier: CompetitiveTier

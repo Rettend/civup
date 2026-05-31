@@ -705,8 +705,8 @@ describe('DraftSetupPage UI', () => {
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
     expectTextInOrder(configCard, [
       'Lobby Open',
-      'Pick',
       'Ban',
+      'Pick',
       'Map Vote',
       'Min rank',
       'Max rank',
@@ -717,6 +717,8 @@ describe('DraftSetupPage UI', () => {
       'Hidden draft',
       'Duplicate leaders',
     ])
+    expect((screen.getByText('BLIND') as HTMLElement).className).toContain('text-accent')
+    expect((screen.getByText('DRAFT') as HTMLElement).className).toContain('text-accent')
     expect(configCard.textContent?.includes('Game Mode')).toBe(false)
     expect(configCard.textContent?.includes('Red Death')).toBe(false)
   })

@@ -28,21 +28,6 @@ interface ConfigRowDefinition {
 
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
-    key: 'pickMode',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
-    renderEditable: state => (
-      <ModeTabsRow
-        label="Pick"
-        value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
-        disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
-        onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
-      />
-    ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Pick" value={state.derived.formattedBlindPicks()} valueClass={state.derived.draftConfig().blindPicks ? 'text-accent' : undefined} />
-    ),
-  },
-  {
     key: 'banMode',
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
     renderEditable: state => (
@@ -54,7 +39,22 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Ban" value={state.derived.formattedBlindBans()} valueClass={state.derived.draftConfig().blindBans ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow label="Ban" value={state.derived.formattedBlindBans().toUpperCase()} valueClass="text-accent" />
+    ),
+  },
+  {
+    key: 'pickMode',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
+    renderEditable: state => (
+      <ModeTabsRow
+        label="Pick"
+        value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
+        disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
+        onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Pick" value={state.derived.formattedBlindPicks().toUpperCase()} valueClass="text-accent" />
     ),
   },
   {
