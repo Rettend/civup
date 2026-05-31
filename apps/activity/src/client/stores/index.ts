@@ -49,6 +49,7 @@ export {
   sendStart,
   type SessionSocketTarget,
   startLobbyDraft,
+  transferLobbyHost,
   updateLobbyConfig,
   updateLobbyMode,
   watchLobbyState,

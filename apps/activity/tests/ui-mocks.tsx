@@ -41,6 +41,7 @@ export const storeSpies = {
   fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
   placeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
   removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
+  transferLobbyHost: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetPlayerId: string }) => uiMockState.transferLobbyHostResult),
   repeatLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
   startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
   updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Record<string, unknown>) => {
@@ -123,6 +124,7 @@ interface MockState {
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
   placeLobbySlotResult: { ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }
   removeLobbySlotResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
+  transferLobbyHostResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
   repeatLobbyDraftResult: { ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   startLobbyDraftResult: { ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
@@ -274,6 +276,7 @@ function defaults(): MockState {
     fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
     placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
     removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
+    transferLobbyHostResult: { ok: true, lobby: mockLobbySnapshot() },
     repeatLobbyDraftResult: { ok: true, kind: 'complete', matchId: 'match-1', sessionAccessToken: 'session-token' },
     startLobbyDraftResult: { ok: true, matchId: 'match-1', sessionAccessToken: 'session-token' },
     updateLobbyConfigResult: { ok: true },
@@ -650,6 +653,7 @@ mock.module('~/client/stores', () => ({
   pickSelections: () => uiMockState.pickSelections,
   placeLobbySlot: (...args: Parameters<typeof storeSpies.placeLobbySlot>) => storeSpies.placeLobbySlot(...args),
   removeLobbySlot: (...args: Parameters<typeof storeSpies.removeLobbySlot>) => storeSpies.removeLobbySlot(...args),
+  transferLobbyHost: (...args: Parameters<typeof storeSpies.transferLobbyHost>) => storeSpies.transferLobbyHost(...args),
   repeatLobbyDraft: (...args: Parameters<typeof storeSpies.repeatLobbyDraft>) => storeSpies.repeatLobbyDraft(...args),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
   resetMapVote,
