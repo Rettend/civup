@@ -75,6 +75,9 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const serverPick = state()?.picks.find(p => p.seatIndex === props.seatIndex)
     if (serverPick) return serverPick
 
+    const currentSubmissionPick = visibleBlindPickSubmission()
+    if (currentSubmissionPick) return currentSubmissionPick
+
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
     const visibleOptimisticCivId = optimisticCivId === BLIND_PICK_SUBMISSION_PLACEHOLDER ? null : optimisticCivId
     const visualIndex = getVisualSeatOrder(state()?.seats).indexOf(props.seatIndex)
@@ -95,17 +98,21 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
 
-  const filled = () => !!pick()
-  const blindSubmittedCount = (): number => {
+  const visibleBlindPickSubmission = () => {
     const s = state()
-    if (!s || s.status !== 'active') return 0
+    if (!s || s.status !== 'active') return null
     const step = s.steps[s.currentStepIndex]
-    if (!step || step.action !== 'pick' || !step.blind || step.reveal) return 0
-    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
-    const optimisticCount = getOptimisticSeatPick(props.seatIndex) === BLIND_PICK_SUBMISSION_PLACEHOLDER ? 1 : 0
-    return Math.max(submittedCount, optimisticCount)
+    if (!step || step.action !== 'pick' || !step.blind || step.reveal || step.civBlitz) return null
+
+    const civId = s.submissions[props.seatIndex]?.[0]
+    if (!civId || civId === BLIND_PICK_SUBMISSION_PLACEHOLDER) return null
+    return {
+      seatIndex: props.seatIndex,
+      civId,
+    }
   }
-  const hasBlindSubmission = () => blindSubmittedCount() > 0
+
+  const filled = () => !!pick()
   const revealPick = () => state()?.blindPickReveal?.picks.find(p => p.seatIndex === props.seatIndex) ?? null
   const revealLeader = (): Leader | null => {
     const p = revealPick()
@@ -601,15 +608,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <Show when={!hasCivBlitzDisplay() && !filled() && !hasReveal() && !hasPreview() && !hasBanPreview()}>
         <div class="flex flex-1 flex-col items-center justify-center">
           <div class={cn(
-            hasBlindSubmission() ? 'i-ph-check-circle-bold text-4xl' : isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
+            isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
             isActive() ? (accent() === 'red' ? 'text-danger/80' : 'text-accent/80') : 'text-fg-muted/40',
           )}
           />
-          <Show when={hasBlindSubmission()}>
-            <div class="mt-2 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-accent">
-              Submitted
-            </div>
-          </Show>
         </div>
       </Show>
 

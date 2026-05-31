@@ -13,6 +13,7 @@ import {
   isMapVotePhase,
   isMiniView,
   isMobileLayout,
+  isMyTurn,
   isSpectator,
   mapVotePhase,
   setGridOpen,
@@ -166,9 +167,13 @@ export function DraftView(props: DraftViewProps) {
     if (isMiniView()) return
     if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
-    if (currentStep()?.action === 'pick' && currentPickTargetSeatIndex() == null) return
+    if (!isMyTurn() || hasSubmitted()) return
 
-    const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
+    const step = currentStep()
+    const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
+    if (step?.action === 'pick' && targetSeatIndex == null) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
     if (autoOpenedGridToken() === nextToken) return
 
     setGridOpen(true)
