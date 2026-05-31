@@ -15,9 +15,12 @@ export interface PlayerRow {
   name: string
   playerId: string | null
   avatarUrl: string | null
+  team: number | null
   isHost: boolean
   empty: boolean
   pendingSelf: boolean
+  balanceRating: NonNullable<LobbySnapshot['entries'][number]>['balanceRating'] | null
+  rankedRole: NonNullable<LobbySnapshot['entries'][number]>['rankedRole'] | null
 }
 
 export interface DraftTimerConfig {

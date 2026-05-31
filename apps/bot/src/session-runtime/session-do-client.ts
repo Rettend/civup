@@ -37,6 +37,13 @@ export type SessionOpenLobbyCommand
     now?: number
   }
   | {
+    type: 'set-host'
+    expectedVersion?: number
+    hostId: string
+    lastActivityAt?: number
+    now?: number
+  }
+  | {
     type: 'set-slots'
     expectedVersion?: number
     slots: (string | null)[]

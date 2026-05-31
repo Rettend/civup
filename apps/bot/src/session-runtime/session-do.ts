@@ -144,6 +144,13 @@ type OpenLobbyCommandRequest
     now?: number
   }
   | {
+    type: 'set-host'
+    expectedVersion?: number
+    hostId: string
+    lastActivityAt?: number
+    now?: number
+  }
+  | {
     type: 'set-slots'
     expectedVersion?: number
     slots: (string | null)[]
@@ -272,6 +279,7 @@ interface OpenSessionPatch {
   channelId?: string
   messageId?: string
   steamLobbyLink?: string | null
+  hostId?: string
   minRole?: CompetitiveTier | null
   maxRole?: CompetitiveTier | null
   draftConfig?: LobbyDraftConfig
@@ -568,6 +576,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       case 'set-steam-lobby-link':
         record = applyOpenSessionPatch(existing, {
           steamLobbyLink: body.steamLobbyLink,
+          updatedAt: body.now,
+        })
+        break
+      case 'set-host':
+        record = applyOpenSessionPatch(existing, {
+          hostId: body.hostId,
+          lastActivityAt: body.lastActivityAt,
           updatedAt: body.now,
         })
         break
@@ -3112,6 +3127,7 @@ function applyOpenSessionPatch(record: OpenSessionRecord, patch: OpenSessionPatc
 
   const next = {
     ...record,
+    hostId: typeof patch.hostId === 'string' && patch.hostId.length > 0 ? patch.hostId : record.hostId,
     mode,
     config,
     roster,
@@ -3518,7 +3534,8 @@ function buildNextRoster(
 }
 
 function sameOpenSessionRecord(left: OpenSessionRecord, right: OpenSessionRecord): boolean {
-  return left.mode === right.mode
+  return left.hostId === right.hostId
+    && left.mode === right.mode
     && sameSessionConfig(left.config, right.config)
     && sameSessionRoster(left.roster, right.roster)
     && sameProjectionState(left.projectionState, right.projectionState)
