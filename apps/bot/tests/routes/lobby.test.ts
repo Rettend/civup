@@ -1174,6 +1174,103 @@ describe('lobby routes', () => {
     expect(updatedLobby?.draftConfig.simultaneousPick).toBe(true)
   })
 
+  test('config route does not edit the lobby message for pick and ban visibility changes', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    let discordMessageEdits = 0
+    globalThis.fetch = (async (input) => {
+      if (String(input).includes('/channels/channel-1/messages/message-1')) discordMessageEdits += 1
+      return new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        ...lobby.draftConfig,
+        blindBans: false,
+        blindPicks: true,
+        minRole: null,
+        maxRole: null,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await flushBackgroundTasks()
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.blindBans).toBe(false)
+    expect(updatedLobby?.draftConfig.blindPicks).toBe(true)
+    expect(discordMessageEdits).toBe(0)
+  })
+
+  test('config route still edits the lobby message for rendered config changes', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    let discordMessageEdits = 0
+    globalThis.fetch = (async (input) => {
+      if (String(input).includes('/channels/channel-1/messages/message-1')) discordMessageEdits += 1
+      return new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        closed: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await flushBackgroundTasks()
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.closed).toBe(true)
+    expect(discordMessageEdits).toBe(1)
+  })
+
   test('config route expands and preserves regular FFA target size', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -2194,4 +2291,8 @@ function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
     'X-CivUp-Activity-User-Id': userId,
     'X-CivUp-Activity-Display-Name': displayName,
   }
+}
+
+async function flushBackgroundTasks(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 0))
 }

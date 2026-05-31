@@ -63,7 +63,7 @@ export function lobbyOpenEmbed(
   maxRoleId?: string | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
-  options: { reservedSlotLabels?: (string | null)[], closed?: boolean, draftConfig?: { blindBans?: boolean, blindPicks?: boolean } } = {},
+  options: { reservedSlotLabels?: (string | null)[], closed?: boolean } = {},
 ): Embed {
   const reservedSlotLabels = options.reservedSlotLabels ?? []
   const embed = baseLobbyEmbed(mode, options.closed ? 'closed' : 'open', leaderDataVersion, redDeath, targetSize)
@@ -71,10 +71,9 @@ export function lobbyOpenEmbed(
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
   ].flatMap(field => field ? [field] : [])
-  const configFields = buildDraftSettingsFields(options.draftConfig)
 
   while (rankFields.length > 0 && rankFields.length % 3 !== 0) rankFields.push(blankInlineField())
-  const infoFields = [...rankFields, ...configFields]
+  const infoFields = rankFields
 
   if (mode === '1v1') {
     const p1 = entries[0]?.playerId
@@ -129,18 +128,6 @@ export function lobbyOpenEmbed(
     { name: 'Slots', value: secondColumn || '\u200B', inline: true },
   ]
   return infoFields.length > 0 ? embed.fields(...infoFields, ...fields) : embed.fields(...fields)
-}
-
-function buildDraftSettingsFields(config: { blindBans?: boolean, blindPicks?: boolean } | undefined): Array<{ name: string, value: string, inline: true }> {
-  if (!config) return []
-  return [{
-    name: 'Draft Settings',
-    value: [
-      `Pick: ${config.blindPicks === true ? 'Blind' : 'Draft'}`,
-      `Ban: ${config.blindBans === false ? 'Draft' : 'Blind'}`,
-    ].join('\n'),
-    inline: true,
-  }]
 }
 
 function formatOpenSlot(playerId: string | null | undefined, reservedLabel?: string | null): string {
