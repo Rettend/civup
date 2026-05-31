@@ -1,4 +1,4 @@
-import type { LobbyBalanceTeamSummary, PlayerRow } from './helpers'
+import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
@@ -20,7 +20,7 @@ const ARRANGE_OVERLAY_LEAD_MS = 360
 const ARRANGE_OVERLAY_TAIL_MS = 180
 const ARRANGE_OVERLAY_VISIBLE_MS = ARRANGE_OVERLAY_LEAD_MS + FLIP_DURATION_MS + ARRANGE_OVERLAY_TAIL_MS
 const PLAYER_POPOVER_WIDTH = 288
-const PLAYER_POPOVER_HEIGHT_ESTIMATE = 332
+const PLAYER_POPOVER_HEIGHT_ESTIMATE = 160
 const PLAYER_POPOVER_GAP = 8
 const PLAYER_POPOVER_VIEWPORT_PADDING = 8
 
@@ -88,12 +88,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
 
   const openPlayerPopover = (row: PlayerRow, anchor: HTMLElement) => {
     if (row.empty || !row.playerId) return
-    if (openPlayerId() === row.playerId) {
-      closePlayerPopover()
-      return
-    }
     playerPopoverAnchor = anchor
-    setOpenPlayerId(row.playerId)
+    if (openPlayerId() !== row.playerId) setOpenPlayerId(row.playerId)
     updatePlayerPopoverPosition(anchor)
     queueMicrotask(() => updatePlayerPopoverPosition(anchor))
   }
@@ -307,20 +303,9 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
           <Portal>
             <PlayerStatsPopover
               row={row()}
-              pending={state().pending.lobbyAction()}
               rankedRoles={state().rankedRoles()}
               style={playerPopoverStyle()}
-              canUseHostActions={state().permissions.canTransferHostToRow(row())}
               setRef={(element) => { playerPopoverRef = element }}
-              onTransferHost={() => {
-                const playerId = row().playerId
-                if (playerId) void state().actions.transferHost(playerId)
-                closePlayerPopover()
-              }}
-              onRemove={() => {
-                void state().actions.remove(row().slot)
-                closePlayerPopover()
-              }}
             />
           </Portal>
         )}
@@ -425,12 +410,15 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
             allowDrop={props.canDropOnRow(row)}
             dropActive={props.canDropOnRow(row) && props.dragOverSlot === row.slot}
             showJoin={props.canJoinSlot(row)}
+            showTransferHost={props.canTransferHostToRow(row)}
             showRemove={props.canRemoveSlot(row)}
             flip={props.flip}
             popoverOpen={props.openPlayerId === row.playerId}
             onJoin={() => props.onJoin(row.slot)}
+            onTransferHost={() => { if (row.playerId) props.onTransferHost(row.playerId) }}
             onRemove={() => props.onRemove(row.slot)}
             onOpenPlayer={anchor => props.onOpenPlayer(row, anchor)}
+            onClosePlayer={props.onClosePlayer}
             onDragStart={() => props.onDragStart(row.playerId)}
             onDragEnd={props.onDragEnd}
             onDragEnter={() => props.onDragEnter(row.slot)}
@@ -449,12 +437,15 @@ function PlayerChip(props: {
   allowDrop: boolean
   dropActive: boolean
   showJoin: boolean
+  showTransferHost: boolean
   showRemove: boolean
   flip: PlayerFlipApi
   popoverOpen: boolean
   onJoin?: () => void
+  onTransferHost?: () => void
   onRemove?: () => void
   onOpenPlayer?: (anchor: HTMLElement) => void
+  onClosePlayer?: () => void
   onDragStart?: () => void
   onDragEnd?: () => void
   onDragEnter?: () => void
@@ -463,13 +454,17 @@ function PlayerChip(props: {
   let chipEl: HTMLDivElement | undefined
   let suppressNextClick = false
 
-  const handlePrimaryAction = (anchor: HTMLElement) => {
+  const openPlayer = (anchor: HTMLElement) => {
+    if (!props.row.empty && !props.row.pendingSelf && !props.pending) props.onOpenPlayer?.(anchor)
+  }
+
+  const handlePrimaryAction = (anchor: HTMLElement, openOnPlayer: boolean) => {
     if (props.row.empty) {
       if (props.showJoin && !props.pending) props.onJoin?.()
       return
     }
 
-    if (!props.row.pendingSelf) props.onOpenPlayer?.(anchor)
+    if (openOnPlayer) openPlayer(anchor)
   }
 
   createEffect(() => {
@@ -490,6 +485,7 @@ function PlayerChip(props: {
         props.row.pendingSelf && 'opacity-45',
         props.row.empty && props.showJoin && !props.pending && 'hover:bg-white/8 cursor-pointer',
         !props.row.empty && !props.draggable && !props.row.pendingSelf && 'hover:bg-white/10 cursor-pointer',
+        !props.row.empty && !props.draggable && !props.showRemove && !props.row.pendingSelf && 'cursor-default',
         props.draggable && !props.pending && 'cursor-grab active:cursor-grabbing',
         props.dropActive && 'border-accent/65 border-dashed bg-accent/8',
       )}
@@ -497,18 +493,22 @@ function PlayerChip(props: {
       tabIndex={(props.row.empty && !props.showJoin) || props.pending ? undefined : 0}
       aria-haspopup={!props.row.empty ? 'dialog' : undefined}
       aria-expanded={!props.row.empty ? props.popoverOpen : undefined}
+      onPointerEnter={(event) => openPlayer(event.currentTarget)}
+      onPointerLeave={() => props.onClosePlayer?.()}
+      onFocus={(event) => openPlayer(event.currentTarget)}
+      onBlur={() => props.onClosePlayer?.()}
       onClick={(event) => {
         if (suppressNextClick) {
           suppressNextClick = false
           event.preventDefault()
           return
         }
-        handlePrimaryAction(event.currentTarget)
+        handlePrimaryAction(event.currentTarget, false)
       }}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
-        handlePrimaryAction(event.currentTarget)
+        handlePrimaryAction(event.currentTarget, true)
       }}
       draggable={props.draggable && !props.pending}
       onDragStart={(event) => {
@@ -556,7 +556,9 @@ function PlayerChip(props: {
 
       <Show when={props.showJoin && !props.pending}>
         <button
-          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100"
+          type="button"
+          title="Join lobby"
+          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100"
           onClick={(event) => {
             event.stopPropagation()
             props.onJoin?.()
@@ -566,16 +568,36 @@ function PlayerChip(props: {
         </button>
       </Show>
 
-      <Show when={props.showRemove && !props.pending}>
-        <button
-          class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            props.onRemove?.()
-          }}
-        >
-          <span class="i-ph-x-bold text-xs" />
-        </button>
+      <Show when={(props.showTransferHost || props.showRemove) && !props.pending}>
+        <span class="flex items-center gap-0.5">
+          <Show when={props.showTransferHost}>
+            <button
+              type="button"
+              title="Make host"
+              class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-accent hover:bg-white/8 group-hover:opacity-100"
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onTransferHost?.()
+              }}
+            >
+              <span class="i-ph:crown-simple-bold text-xs" />
+            </button>
+          </Show>
+
+          <Show when={props.showRemove}>
+            <button
+              type="button"
+              title="Remove player"
+              class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100"
+              onClick={(event) => {
+                event.stopPropagation()
+                props.onRemove?.()
+              }}
+            >
+              <span class="i-ph-x-bold text-xs" />
+            </button>
+          </Show>
+        </span>
       </Show>
     </div>
   )
@@ -583,16 +605,11 @@ function PlayerChip(props: {
 
 function PlayerStatsPopover(props: {
   row: PlayerRow
-  pending: boolean
   rankedRoles: RankedRoleOptionSnapshot[]
   style: { left: string, top: string } | undefined
-  canUseHostActions: boolean
   setRef: (element: HTMLDivElement) => void
-  onTransferHost: () => void
-  onRemove: () => void
 }) {
   const ratingValue = () => formatRating(props.row.balanceRating)
-  const gamesValue = () => props.row.balanceRating ? String(props.row.balanceRating.gamesPlayed) : 'No data'
   const recordValue = () => formatRecord(props.row.balanceRating)
   const winRateValue = () => formatWinRate(props.row.balanceRating)
   const rankValue = () => props.row.balanceRating?.rank ? `#${props.row.balanceRating.rank}` : 'Unranked'
@@ -603,7 +620,7 @@ function PlayerStatsPopover(props: {
       ref={props.setRef}
       role="dialog"
       aria-label={`${props.row.name} stats`}
-      class="fixed z-50 w-72 rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
+      class="pointer-events-none fixed z-50 w-72 rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
       style={props.style}
     >
       <div class="flex items-start gap-3">
@@ -613,72 +630,44 @@ function PlayerStatsPopover(props: {
           </Show>
         </div>
         <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <div class="truncate text-sm font-semibold text-fg">{props.row.name}</div>
-            <Show when={props.row.isHost}>
-              <span class="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent">Host</span>
+          <div class="flex items-start gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm font-semibold text-fg">{props.row.name}</div>
+              <Show when={role().label !== 'Unassigned'}>
+                <span
+                  class="mt-1 text-[11px] leading-none font-semibold px-2 py-1 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center justify-center max-w-full"
+                  style={buildRolePillStyle(role().color)}
+                >
+                  {role().label}
+                </span>
+              </Show>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-3 flex rounded-lg bg-white/5 divide-x divide-white/8">
+        <div class="flex-1 py-2 text-center">
+          <div class="text-sm font-semibold text-fg">{ratingValue()}</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Elo</div>
+        </div>
+        <div class="flex-1 py-2 text-center">
+          <div class="text-sm font-semibold text-fg">{rankValue()}</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Rank</div>
+        </div>
+        <div class="flex-1 py-2 text-center">
+          <div class="text-sm font-semibold text-fg">
+            {recordValue()}
+            <Show when={winRateValue() !== 'No data'}>
+              <span class="text-fg-subtle font-normal text-xs ml-1">({winRateValue()})</span>
             </Show>
           </div>
-          <div class="mt-1 text-xs text-fg-subtle">{formatSeatLabel(props.row)}</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">W-L (WR)</div>
         </div>
       </div>
-
-      <div class="mt-3 grid grid-cols-2 gap-2">
-        <PlayerStatTile icon="i-ph:gauge-bold" label="Elo" value={ratingValue()} />
-        <PlayerStatTile icon="i-ph:trophy-bold" label="Rank" value={rankValue()} />
-        <PlayerStatTile icon="i-ph:game-controller-bold" label="Games" value={gamesValue()} />
-        <PlayerStatTile icon="i-ph:percent-bold" label="Win rate" value={winRateValue()} />
-        <PlayerStatTile icon="i-ph:list-numbers-bold" label="Record" value={recordValue()} />
-        <PlayerStatTile icon="i-ph:medal-bold" label="Role" value={role().label} color={role().color} />
-      </div>
-
-      <div class="mt-3 flex items-center gap-2 rounded-lg bg-white/5 px-2.5 py-2 text-xs text-fg-subtle">
-        <span class="i-ph:calendar-blank-bold text-sm text-fg-muted" />
-        <span>{formatLastPlayedAt(props.row.balanceRating?.lastPlayedAt ?? null)}</span>
-      </div>
-
-      <Show when={props.canUseHostActions}>
-        <div class="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
-          <button
-            type="button"
-            class="rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/16 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={props.pending}
-            onClick={props.onTransferHost}
-          >
-            <span class="i-ph:crown-simple-bold mr-1 align-[-2px]" />
-            Make host
-          </button>
-          <button
-            type="button"
-            class="rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-2 text-xs font-semibold text-danger transition-colors hover:bg-danger/16 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={props.pending}
-            onClick={props.onRemove}
-          >
-            <span class="i-ph:user-minus-bold mr-1 align-[-2px]" />
-            Remove
-          </button>
-        </div>
-      </Show>
     </div>
   )
-}
-
-function PlayerStatTile(props: { icon: string, label: string, value: string, color?: string | null }) {
-  return (
-    <div class="rounded-lg bg-white/5 px-2.5 py-2">
-      <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-        <span class={cn(props.icon, 'text-xs')} />
-        <span>{props.label}</span>
-      </div>
-      <div class="mt-1 truncate text-sm font-semibold text-fg" style={props.color ? { color: props.color } : undefined}>{props.value}</div>
-    </div>
-  )
-}
-
-function formatSeatLabel(row: PlayerRow): string {
-  const seatLabel = `Seat ${row.slot + 1}`
-  if (row.team == null) return seatLabel
-  return `Team ${String.fromCharCode(65 + row.team)} · ${seatLabel}`
 }
 
 function formatRating(rating: PlayerRow['balanceRating']): string {
@@ -706,11 +695,6 @@ function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: Rank
   }
 }
 
-function formatLastPlayedAt(lastPlayedAt: number | null): string {
-  if (!lastPlayedAt) return 'No completed games yet'
-  return `Last played ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(lastPlayedAt))}`
-}
-
 function createPlayerColumnProps(
   state: DraftSetupPlayersPanelState,
   rows: PlayerRow[],
@@ -728,10 +712,13 @@ function createPlayerColumnProps(
     canDragRow: state.permissions.canDragRow,
     canDropOnRow: state.permissions.canDropOnRow,
     canJoinSlot: state.permissions.canJoinSlot,
+    canTransferHostToRow: state.permissions.canTransferHostToRow,
     canRemoveSlot: state.permissions.canRemoveSlot,
     onJoin: state.actions.join,
+    onTransferHost: state.actions.transferHost,
     onRemove: state.actions.remove,
     onOpenPlayer: openPlayerPopover,
+    onClosePlayer: closePlayerPopover,
     onDragStart: (playerId: string | null) => {
       closePlayerPopover()
       state.actions.dragStart(playerId)
