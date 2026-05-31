@@ -242,7 +242,11 @@ export function canSendPickPreview(): boolean {
 
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return false
-  if (step.blind || step.reveal) return false
+  if (step.reveal || step.civBlitz) return false
+  if (step.blind) {
+    const submittedCount = Math.max(s.submissions[seat]?.length ?? 0, draftStore.optimisticSeatPicks[seat] ? 1 : 0)
+    if (submittedCount >= step.count) return false
+  }
   if (seatHasLockedPick(seat)) return false
   const targetSeat = currentPickTargetSeatIndex()
   if (targetSeat != null && targetSeat !== seat) return false
