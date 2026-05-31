@@ -678,6 +678,9 @@ export async function resolveTournamentOpenLobbyTarget(
     return { error: `Tournament is ${tournament.status} and is not accepting new lobbies.` }
   }
 
+  await advanceTournamentCutIfRoundComplete(db, tournament.id, 'quarterfinal')
+  await advanceTournamentCutIfRoundComplete(db, tournament.id, 'semifinal')
+
   const pairing = await getOpenTournamentCutPairingForPlayer(db, tournament.id, identity.userId)
   if (!pairing) return { error: 'No open playoff pairing found for you.' }
 
@@ -864,7 +867,7 @@ export async function buildTournamentStandings(db: Database, tournamentId: strin
   const matchRows = await db
     .select()
     .from(tournamentMatches)
-    .where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.status, 'reported')))
+    .where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.stage, 'qualifier'), eq(tournamentMatches.status, 'reported')))
 
   const statsByPlayerId = new Map<string, { games: number, wins: number, opponentIds: string[] }>()
   for (const row of playerRows) {
@@ -1379,13 +1382,13 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
   const currentPairings = await db
     .select()
     .from(tournamentCutPairings)
-    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, round)))
+      .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, round)))
   if (currentPairings.length === 0) return
-  if (currentPairings.some(pairing => pairing.status !== 'reported' || !pairing.winnerId)) return
 
   const nextRound = getNextTopCutRound(round)
   const now = Date.now()
   if (!nextRound) {
+    if (currentPairings.some(pairing => pairing.status !== 'reported' || !pairing.winnerId)) return
     await db
       .update(tournaments)
       .set({ status: 'completed', updatedAt: now })
@@ -1395,15 +1398,25 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
 
   const cutSize = await getTournamentCutSize(db, tournamentId)
   const sortedPairings = [...currentPairings].sort((left, right) => compareCutPairingsByBracketPosition(left, right, cutSize))
-  const nextPairings: Array<typeof tournamentCutPairings.$inferInsert> = []
+  const existingNextPairings = await db
+    .select()
+    .from(tournamentCutPairings)
+    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
+  const branchWidth = getNextRoundBranchWidth(cutSize, sortedPairings.length)
+  let changed = false
+
   for (let index = 0; index < sortedPairings.length; index += 2) {
-    const leftWinner = getPairingWinner(sortedPairings[index]!)
-    const rightWinner = getPairingWinner(sortedPairings[index + 1]!)
-    if (!leftWinner || !rightWinner) return
-    nextPairings.push({
-      id: nanoid(10),
-      tournamentId,
-      round: nextRound,
+    const leftPairing = sortedPairings[index]
+    const rightPairing = sortedPairings[index + 1]
+    if (!leftPairing || !rightPairing) continue
+
+    const leftWinner = getPairingWinner(leftPairing)
+    const rightWinner = getPairingWinner(rightPairing)
+    if (!leftWinner || !rightWinner) continue
+
+    const branchIndex = getPairingBranchIndex(leftPairing, cutSize, branchWidth)
+    const existingNextPairing = existingNextPairings.find(pairing => getPairingBranchIndex(pairing, cutSize, branchWidth) === branchIndex)
+    const nextPairing = {
       seedOne: leftWinner.seed,
       seedTwo: rightWinner.seed,
       playerOneId: leftWinner.playerId,
@@ -1411,40 +1424,40 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
       sessionId: null,
       matchId: null,
       winnerId: null,
-      status: 'scheduled',
-      createdAt: now,
+      status: 'scheduled' as const,
       updatedAt: now,
-    })
-  }
-  if (nextPairings.length === 0) return
+    }
 
-  const existingNextPairings = await db
-    .select()
-    .from(tournamentCutPairings)
-    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
-  if (existingNextPairings.length > 0) {
-    const canReplace = existingNextPairings.every(pairing => pairing.status === 'scheduled' && !pairing.sessionId && !pairing.matchId)
-    if (!canReplace) return
-    await db
-      .delete(tournamentCutPairings)
-      .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, nextRound)))
+    if (existingNextPairing) {
+      if (!canReplaceUnstartedCutPairing(existingNextPairing)) continue
+      await db
+        .update(tournamentCutPairings)
+        .set(nextPairing)
+        .where(eq(tournamentCutPairings.id, existingNextPairing.id))
+    }
+    else {
+      await db.insert(tournamentCutPairings).values({
+        id: nanoid(10),
+        tournamentId,
+        round: nextRound,
+        ...nextPairing,
+        createdAt: now,
+      })
+    }
+    changed = true
   }
 
-  await db.insert(tournamentCutPairings).values(nextPairings)
-  await db.update(tournaments).set({ updatedAt: now }).where(eq(tournaments.id, tournamentId))
+  if (changed) await db.update(tournaments).set({ updatedAt: now }).where(eq(tournaments.id, tournamentId))
 }
 
 async function resetTournamentCutPairingAfterCancel(db: Database, pairing: typeof tournamentCutPairings.$inferSelect): Promise<void> {
   const now = Date.now()
   const nextRound = getNextTopCutRound(pairing.round)
   const downstreamPairings = nextRound
-    ? await db
-        .select()
-        .from(tournamentCutPairings)
-        .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, nextRound)))
+    ? await getDirectDownstreamCutPairings(db, pairing, nextRound)
     : []
 
-  const canReset = downstreamPairings.every(row => row.status === 'scheduled' && !row.sessionId && !row.matchId)
+  const canReset = downstreamPairings.every(canReplaceUnstartedCutPairing)
   if (!canReset) {
     await db
       .update(tournamentCutPairings)
@@ -1456,7 +1469,7 @@ async function resetTournamentCutPairingAfterCancel(db: Database, pairing: typeo
   if (downstreamPairings.length > 0 && nextRound) {
     await db
       .delete(tournamentCutPairings)
-      .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, nextRound)))
+      .where(inArray(tournamentCutPairings.id, downstreamPairings.map(row => row.id)))
   }
 
   await db
@@ -1484,6 +1497,46 @@ function getPairingWinner(pairing: typeof tournamentCutPairings.$inferSelect): {
   if (pairing.winnerId === pairing.playerOneId && pairing.playerOneId) return { playerId: pairing.playerOneId, seed: pairing.seedOne }
   if (pairing.winnerId === pairing.playerTwoId && pairing.playerTwoId) return { playerId: pairing.playerTwoId, seed: pairing.seedTwo }
   return null
+}
+
+function canReplaceUnstartedCutPairing(pairing: typeof tournamentCutPairings.$inferSelect): boolean {
+  return pairing.status === 'scheduled' && !pairing.sessionId && !pairing.matchId
+}
+
+async function getDirectDownstreamCutPairings(
+  db: Database,
+  pairing: typeof tournamentCutPairings.$inferSelect,
+  nextRound: 'semifinal' | 'final',
+): Promise<Array<typeof tournamentCutPairings.$inferSelect>> {
+  const [currentPairings, nextPairings, cutSize] = await Promise.all([
+    db
+      .select()
+      .from(tournamentCutPairings)
+      .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, pairing.round))),
+    db
+      .select()
+      .from(tournamentCutPairings)
+      .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, nextRound))),
+    getTournamentCutSize(db, pairing.tournamentId),
+  ])
+  if (currentPairings.length === 0 || nextPairings.length === 0) return []
+
+  const branchWidth = getNextRoundBranchWidth(cutSize, currentPairings.length)
+  const branchIndex = getPairingBranchIndex(pairing, cutSize, branchWidth)
+  return nextPairings.filter(row => getPairingBranchIndex(row, cutSize, branchWidth) === branchIndex)
+}
+
+function getNextRoundBranchWidth(cutSize: number, currentPairingCount: number): number {
+  const nextPairingCount = Math.ceil(currentPairingCount / 2)
+  return nextPairingCount > 0 ? Math.max(1, cutSize / nextPairingCount) : Math.max(1, cutSize)
+}
+
+function getPairingBranchIndex(pairing: Pick<typeof tournamentCutPairings.$inferSelect, 'seedOne' | 'seedTwo'>, cutSize: number, branchWidth: number): number {
+  const seedOrder = getInitialBracketSeedOrder(cutSize)
+  const seedPosition = new Map(seedOrder.map((seed, index) => [seed, index]))
+  const firstPosition = seedPosition.get(pairing.seedOne) ?? pairing.seedOne
+  const secondPosition = seedPosition.get(pairing.seedTwo) ?? pairing.seedTwo
+  return Math.floor(Math.min(firstPosition, secondPosition) / Math.max(1, branchWidth))
 }
 
 async function getTournamentCutSize(db: Database, tournamentId: string): Promise<number> {
