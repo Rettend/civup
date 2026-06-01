@@ -604,7 +604,7 @@ export function useDraftSetupConfigState(input: {
     try {
       const result = await updateLobbyMode(lobby.mode, lobby.id, currentUserId, nextMode)
       if (!result.ok) return input.showErrorMessage(result.error)
-      input.showInfoMessage(`Game mode changed to ${formatModeLabel(nextMode, nextMode, { redDeath: draftConfig().redDeath })}.`)
+      input.showInfoMessage(`Game mode changed to ${formatModeLabel(nextMode, nextMode, { redDeath: draftConfig().redDeath, civBlitz: draftConfig().civBlitz })}.`)
     }
     finally {
       input.setLobbyActionPending(false)

@@ -211,7 +211,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
           avatarUrl: auth.identity.avatarUrl,
         }
         const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, scrubber)],
+          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, scrubber, lobby.draftConfig.civBlitz)],
           components: [],
         }, { db, sessionNamespace: c.env.SessionDO })
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -309,6 +309,7 @@ function queueActivityReportProjectionTasks(
           matchId: input.matchId,
           reportedMode: input.reportedContext.mode,
           reportedRedDeath: input.reportedContext.redDeath,
+          reportedCivBlitz: input.reportedContext.civBlitz,
           participants,
           matchDraftData: input.matchDraftData,
           lobby: input.lobby,

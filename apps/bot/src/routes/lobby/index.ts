@@ -951,7 +951,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         if (movingPlayerId !== auth.identity.userId) {
           return c.json({ error: 'That player is already in another lobby.' }, 400)
         }
-        transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
+        transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath, civBlitz: blockingLobbyForPlayer.draftConfig.civBlitz })} lobby.`
       }
     }
 
@@ -1601,7 +1601,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         queueBackgroundTask(c, async () => {
           const currentLobby = lobbyForMessage
           const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath, lobbyForMessage.draftConfig.civBlitz)],
             components: lobbyComponents(mode, currentLobby.id),
           }, lobbySessionMutationOptions(c))
           await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -1681,7 +1681,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       if (repeated.kind === 'resume') {
         queueBackgroundTask(c, async () => {
           const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
-            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath, lobbyForMessage.draftConfig.civBlitz)],
             components: lobbyComponents(mode, lobbyForMessage.id),
           }, lobbySessionMutationOptions(c))
           await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -1761,7 +1761,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     queueBackgroundTask(c, async () => {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
         embeds: [{
-          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
+          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath, civBlitz: lobby.draftConfig.civBlitz })}`,
           description: 'Host cancelled this lobby before draft start.',
           color: 0x6B7280,
         }],
@@ -2031,6 +2031,7 @@ function openLobbyMessageRenderStateChanged(
     || before.maxRole !== after.maxRole
     || before.draftConfig.leaderDataVersion !== after.draftConfig.leaderDataVersion
     || before.draftConfig.redDeath !== after.draftConfig.redDeath
+    || before.draftConfig.civBlitz !== after.draftConfig.civBlitz
     || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 

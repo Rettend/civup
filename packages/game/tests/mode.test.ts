@@ -44,6 +44,8 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 6 })).toBe('Red Death 2v2v2')
     expect(formatModeLabel('2v2', '', { targetSize: 8 })).toBe('2v2v2v2')
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 8 })).toBe('Red Death 2v2v2v2')
+    expect(formatModeLabel('2v2', '', { civBlitz: true })).toBe('CivBlitz 2v2')
+    expect(formatModeLabel('2v2', '', { civBlitz: true, targetSize: 8 })).toBe('CivBlitz 2v2v2v2')
     expect(formatModeLabel('4V4', '', { redDeath: true })).toBe('Red Death 4v4')
     expect(formatModeLabel('3V3', '', { redDeath: true, compactRedDeath: true })).toBe('RD 3v3')
   })

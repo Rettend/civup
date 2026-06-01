@@ -1333,6 +1333,57 @@ describe('lobby routes', () => {
     expect(discordMessageEdits).toBe(1)
   })
 
+  test('config route edits the lobby message when CivBlitz changes the rendered title', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+
+    let discordMessageEdits = 0
+    let editPayload = ''
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/channels/channel-1/messages/message-1')) {
+        discordMessageEdits += 1
+        editPayload = String(init?.body ?? '')
+      }
+      return new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        civBlitz: true,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    await flushBackgroundTasks()
+
+    const updatedLobby = await getLobbyById(kv, lobby.id)
+    expect(updatedLobby?.draftConfig.civBlitz).toBe(true)
+    expect(discordMessageEdits).toBe(1)
+    expect(editPayload).toContain('CivBlitz 2v2')
+  })
+
   test('config route expands and preserves regular FFA target size', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()

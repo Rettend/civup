@@ -114,6 +114,14 @@ describe('match result embed', () => {
     expect(embed.color).toBe(0x8B5CF6)
   })
 
+  test('labels CivBlitz embeds before the game mode', () => {
+    const openEmbed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, { civBlitz: true }).toJSON()
+    const resultEmbed = lobbyResultEmbed('2v2', [], undefined, { civBlitz: true }).toJSON()
+
+    expect(openEmbed.title).toBe('LOBBY OPEN  -  CivBlitz 2v2')
+    expect(resultEmbed.title).toBe('RESULT REPORTED  -  CivBlitz 2v2')
+  })
+
   test('does not show pick and ban visibility in open lobby embeds', () => {
     const options = {
       closed: false,

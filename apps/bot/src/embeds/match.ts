@@ -33,6 +33,12 @@ interface ReporterContext {
 
 export type LobbyStage = 'open' | 'closed' | 'drafting' | 'draft-complete' | 'reported' | 'cancelled' | 'scrubbed' | 'timeout'
 
+interface LobbyModeDisplayOptions {
+  redDeath?: boolean
+  civBlitz?: boolean
+  targetSize?: number
+}
+
 const STAGE_LABELS: Record<LobbyStage, string> = {
   'open': 'LOBBY OPEN',
   'closed': 'LOBBY CLOSED',
@@ -63,10 +69,10 @@ export function lobbyOpenEmbed(
   maxRoleId?: string | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
-  options: { reservedSlotLabels?: (string | null)[], closed?: boolean } = {},
+  options: { reservedSlotLabels?: (string | null)[], closed?: boolean, civBlitz?: boolean } = {},
 ): Embed {
   const reservedSlotLabels = options.reservedSlotLabels ?? []
-  const embed = baseLobbyEmbed(mode, options.closed ? 'closed' : 'open', leaderDataVersion, redDeath, targetSize)
+  const embed = baseLobbyEmbed(mode, options.closed ? 'closed' : 'open', leaderDataVersion, { redDeath, civBlitz: options.civBlitz, targetSize })
   const rankFields = [
     minRoleId ? { name: 'Min Rank', value: `<@&${minRoleId}>`, inline: true } : null,
     maxRoleId ? { name: 'Max Rank', value: `<@&${maxRoleId}>`, inline: true } : null,
@@ -143,8 +149,8 @@ function escapeDiscordFieldText(value: string): string {
     .slice(0, 80)
 }
 
-export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null, redDeath = false): Embed {
-  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion, redDeath, seats.length)
+export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDataVersion?: LeaderDataVersion | null, redDeath = false, civBlitz = false): Embed {
+  const embed = baseLobbyEmbed(mode, 'drafting', leaderDataVersion, { redDeath, civBlitz, targetSize: seats.length })
   const hasTeams = seats.some(seat => seat.team != null)
 
   if (hasTeams) {
@@ -166,8 +172,9 @@ export function lobbyDraftCompleteEmbed(
   mapVoteResult?: ResolvedMapVoteResult | null,
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
+  civBlitz = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, mapVoteResult, leaderDataVersion, redDeath, participants.length)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'draft-complete', undefined, mapVoteResult, leaderDataVersion, redDeath, participants.length, undefined, undefined, civBlitz)
 }
 
 export function lobbyCancelledEmbed(
@@ -178,6 +185,7 @@ export function lobbyCancelledEmbed(
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
   footerUser?: ReporterContext | null,
+  civBlitz = false,
 ): Embed {
   const stage: 'cancelled' | 'scrubbed' = reason === 'cancel' ? 'cancelled' : 'scrubbed'
   return lobbyDraftCompleteLeaderEmbed(
@@ -191,6 +199,7 @@ export function lobbyCancelledEmbed(
     participants.length,
     footerUser,
     leaderDataVersion,
+    civBlitz,
   )
 }
 
@@ -199,18 +208,19 @@ export function lobbyTimeoutEmbed(
   participants: LobbyParticipant[],
   leaderDataVersion?: LeaderDataVersion | null,
   redDeath = false,
+  civBlitz = false,
 ): Embed {
-  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, undefined, leaderDataVersion, redDeath, participants.length)
+  return lobbyDraftCompleteLeaderEmbed(mode, participants, 'timeout', undefined, undefined, leaderDataVersion, redDeath, participants.length, undefined, undefined, civBlitz)
 }
 
 export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null, civBlitz?: boolean } = {},
   redDeath = false,
 ): Embed {
-  return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length)
+  return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length, options.civBlitz === true)
 }
 
 export function lobbyComponents(mode: GameMode, lobbyId: string): Components {
@@ -225,14 +235,13 @@ function baseLobbyEmbed(
   mode: GameMode,
   stage: LobbyStage,
   leaderDataVersion?: LeaderDataVersion | null,
-  redDeath = false,
-  targetSize?: number,
+  options: LobbyModeDisplayOptions = {},
 ): Embed {
   const embed = new Embed()
-    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath, targetSize })}`)
+    .title(`${STAGE_LABELS[stage]}  -  ${formatModeLabel(mode, mode, { redDeath: options.redDeath, civBlitz: options.civBlitz, targetSize: options.targetSize })}`)
     .color(STAGE_COLORS[stage])
 
-  const footerText = formatLeaderDataVersionFooter(leaderDataVersion, redDeath)
+  const footerText = formatLeaderDataVersionFooter(leaderDataVersion, options.redDeath)
   return footerText ? embed.footer({ text: footerText }) : embed
 }
 
@@ -247,8 +256,9 @@ function lobbyDraftCompleteLeaderEmbed(
   targetSize?: number,
   footerUser?: ReporterContext | null,
   leaderNameDataVersion?: LeaderDataVersion | null,
+  civBlitz = false,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, redDeath, targetSize)
+  const embed = baseLobbyEmbed(mode, stage, leaderDataVersion, { redDeath, civBlitz, targetSize })
   const resolvedLeaderDataVersion = leaderNameDataVersion ?? leaderDataVersion
   const hasTeams = participants.some(participant => participant.team != null)
   const moderationField = buildModerationField(moderation)
@@ -298,8 +308,9 @@ function lobbyReportedEmbed(
   options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null } = {},
   redDeath = false,
   targetSize?: number,
+  civBlitz = false,
 ): Embed {
-  const embed = baseLobbyEmbed(mode, 'reported', options.leaderDataVersion, redDeath, targetSize)
+  const embed = baseLobbyEmbed(mode, 'reported', options.leaderDataVersion, { redDeath, civBlitz, targetSize })
   const usesTeamRows = isTeamMode(mode) || participants.some(participant => participant.team != null)
   const description = usesTeamRows
     ? formatReportedTeamRows(participants, options.leaderDataVersion)
