@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js'
 import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -217,7 +217,9 @@ export function useDraftSetupConfigState(input: {
   const leaderPoolPlayerCount = () => input.currentLobby()?.entries.filter(entry => entry != null).length ?? state()?.seats.length ?? 0
   const leaderPoolValidationCount = () => input.currentLobby()?.targetSize ?? state()?.seats.length ?? leaderPoolPlayerCount()
   const leaderPoolMinimumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MIN_OPTION_COUNT : getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
-  const leaderPoolMaximumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MAX_OPTION_COUNT : getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
+  const leaderPoolMaximumValue = () => isCivBlitzLobbyMode()
+    ? getCivBlitzOptionCountMaximum(optimisticDraftConfig().leaderDataVersion, { excludeBbgExpanded: optimisticDraftConfig().civBlitzExcludeBbgExpanded })
+    : getLeaderPoolSizeMaximum(optimisticDraftConfig().leaderDataVersion)
   const lobbyLeaderPoolDefaultSize = () => input.currentLobby()?.lobbyRank?.leaderPoolSize ?? null
   const isRedDeathLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().redDeath : isRedDeathDraft()
   const isCivBlitzLobbyMode = () => input.currentLobby() ? optimisticDraftConfig().civBlitz : false

@@ -38,6 +38,13 @@ const SLIGHTLY_ZOOMED_LEADERS = [
   'Theodoric',
 ]
 
+export function getLeaderPortraitScaleClass(leaderName: string | null | undefined): string | undefined {
+  if (!leaderName) return undefined
+  if (ZOOMED_LEADERS.includes(leaderName)) return 'scale-90'
+  if (SLIGHTLY_ZOOMED_LEADERS.includes(leaderName)) return 'scale-95'
+  return undefined
+}
+
 interface LeaderCardProps {
   leader: Leader
   singleClickShowsDetail?: boolean
@@ -305,8 +312,7 @@ export function LeaderCard(props: LeaderCardProps) {
                 'h-full w-full object-cover',
                 isBanned() && 'grayscale',
                 isUnavailable() && 'opacity-25',
-                ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
-                SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
+                getLeaderPortraitScaleClass(props.leader.name),
               )}
             />
           )}
@@ -394,8 +400,7 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
                   'h-full w-full object-cover',
                   isBanned() && 'grayscale',
                   isUnavailable() && 'opacity-25',
-                  ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
-                  SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
+                  getLeaderPortraitScaleClass(props.leader.name),
                 )}
               />
             )}

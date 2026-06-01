@@ -944,13 +944,13 @@ describe('processDraftInput — CivBlitz', () => {
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(1) }))
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: createCivBlitzKit(2, { unit: 'uu-1' }) }))
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 2, kit: createCivBlitzKit(3) }))
-    const revealResult = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) })
+    const revealResult = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) }, { random: () => 0 })
     expect(isDraftError(revealResult)).toBe(false)
     if (isDraftError(revealResult)) return
 
     state = revealResult.state
     expect(state.status).toBe('active')
-    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 0, redraftTimer: 60, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'], 1: ['unit'] } })
+    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'], 1: ['unit'] } })
     expect(state.civBlitz?.lockedKits[0]).toEqual({ civilizationAbility: 'ca-1', leaderAbility: 'la-1', infrastructure: 'ui-1' })
     expect(state.civBlitz?.lockedKits[1]).toEqual({ civilizationAbility: 'ca-2', leaderAbility: 'la-2', infrastructure: 'ui-2' })
     expect(state.civBlitz?.lockedKits[2]).toEqual(createCivBlitzKit(3))
@@ -960,9 +960,6 @@ describe('processDraftInput — CivBlitz', () => {
       { componentId: 'uu-1', category: 'unit', seatIndex: 1, stepIndex: 0 },
     ])
     expect(revealResult.events).toContainEqual(expect.objectContaining({ type: 'CIV_BLITZ_REVEALED', conflictComponentIds: ['uu-1'], conflictedSeatIndexes: [0, 1], categoriesBySeat: { 0: ['unit'], 1: ['unit'] }, round: 0 }))
-
-    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
-    expect(state.steps[state.currentStepIndex]).toEqual({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'], 1: ['unit'] } })
     expect(state.civBlitz?.optionsBySeat[0]?.unit).toEqual(['uu-2', 'uu-5', 'uu-6', 'uu-7'])
 
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-2' } }))
@@ -994,19 +991,14 @@ describe('processDraftInput — CivBlitz', () => {
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: createCivBlitzKit(1) }))
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: createCivBlitzKit(2, { unit: 'uu-1' }) }))
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 2, kit: createCivBlitzKit(3) }))
-    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) }))
-    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 3, kit: createCivBlitzKit(4) }, { random: () => 0 }))
 
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-2' } }))
-    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-2' } }))
+    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-2' } }, { random: () => 0 }))
     expect(state.civBlitz?.reveal?.round).toBe(1)
-    state = resolveState(processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 }))
 
     state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 0, kit: { unit: 'uu-5' } }))
-    state = resolveState(processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-5' } }))
-    expect(state.civBlitz?.reveal?.round).toBe(2)
-
-    const result = processDraftInput(state, { type: 'TIMEOUT' }, { random: () => 0 })
+    const result = processDraftInput(state, { type: 'CIV_BLITZ_SUBMIT', seatIndex: 1, kit: { unit: 'uu-5' } }, { random: () => 0 })
     expect(isDraftError(result)).toBe(false)
     if (isDraftError(result)) return
 

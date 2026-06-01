@@ -74,7 +74,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'leaderDataVersion',
-    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && hasBetaLeaderData,
+    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && hasBetaLeaderData,
     renderEditable: state => (
       <SwitchRow
         label="BBG Beta"
@@ -89,6 +89,21 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         value={state.derived.formattedBbgVersion()}
         valueClass={normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
       />
+    ),
+  },
+  {
+    key: 'civBlitzExcludeBbgExpanded',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.isCivBlitz(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Exclude BBG Expanded"
+        active={() => state.derived.optimisticDraftConfig().civBlitzExcludeBbgExpanded}
+        disabled={() => state.lobbyActionPending() || state.pending.civBlitzExcludeBbgExpanded()}
+        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Exclude Expanded" value={state.derived.formattedCivBlitzExcludeBbgExpanded()} valueClass={state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined} />
     ),
   },
   {
@@ -295,22 +310,6 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
           onChange={checked => void state.actions.changeCivBlitz(checked)}
         />
       </div>
-    ),
-  },
-  {
-    key: 'civBlitzExcludeBbgExpanded',
-    when: () => false,
-    renderEditable: state => (
-      <SwitchRow
-        label="Exclude BBG Expanded"
-        active={() => state.derived.optimisticDraftConfig().civBlitzExcludeBbgExpanded}
-        activeClass="text-cyan-300"
-        disabled={() => state.lobbyActionPending() || state.pending.civBlitzExcludeBbgExpanded()}
-        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(checked)}
-      />
-    ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Exclude Expanded" value={state.derived.formattedCivBlitzExcludeBbgExpanded()} valueClass={state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-cyan-300' : undefined} />
     ),
   },
   {
