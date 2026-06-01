@@ -730,8 +730,8 @@ export function formatDraftStepLabel(
   step: Pick<DraftStep, 'action' | 'seats' | 'blind' | 'reveal' | 'blindPickRound' | 'civBlitz'>,
   seats: DraftSeat[],
 ): string {
-  if (step.action === 'pick' && step.civBlitz && step.reveal) return 'BLITZ REVEAL'
-  if (step.action === 'pick' && step.civBlitz && step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLITZ REDRAFT' : 'CIVBLITZ'
+  if (step.action === 'pick' && step.civBlitz && step.reveal) return 'CONFLICT'
+  if (step.action === 'pick' && step.civBlitz) return 'PICK'
   if (step.action === 'pick' && step.reveal) return 'REVEAL'
   if (step.action === 'pick' && step.blind) return (step.blindPickRound ?? 0) > 0 ? 'REDRAFT' : 'BLIND PICK'
   const actionLabel = step.action.toUpperCase()

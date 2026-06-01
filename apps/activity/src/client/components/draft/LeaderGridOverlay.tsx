@@ -295,9 +295,11 @@ export function LeaderGridOverlay() {
   let skipNextOverlayAnimation = false
 
   const hasDetail = () => detailLeaderId() != null
+  const hasGridDetail = () => isCivBlitzDraft() ? civBlitzDetailComponent() != null : hasDetail()
+  const showFiltersPanel = () => !isCivBlitzDraft() && filtersOpen()
   const showDockedPanels = () => panelsDocked()
   const showStackedShelf = () => !panelsDocked() && !gridExpanded()
-  const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (filtersOpen() || hasDetail())
+  const showFocusPanelStrip = () => !panelsDocked() && gridExpanded() && (showFiltersPanel() || hasGridDetail())
   const showWideWangTranscript = () => !reportAssignmentMode() && !isRedDeathDraft() && wideWangVisibleLineCount() > 0
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
@@ -564,6 +566,8 @@ export function LeaderGridOverlay() {
     return componentId ? civBlitzComponentMap().get(componentId) ?? null : null
   })
 
+  const civBlitzHeaderCount = () => state()?.civBlitz?.optionCount ?? civBlitzOptionsForSeat()?.[civBlitzCategoriesForSeat()[0]!]?.length ?? 0
+
   createEffect(() => {
     const componentId = civBlitzDetailComponentId()
     if (componentId && !civBlitzOptionIdsForSeat().includes(componentId)) setCivBlitzDetailComponentId(null)
@@ -595,6 +599,10 @@ export function LeaderGridOverlay() {
     setCivBlitzDetailComponentId(null)
     setGridOpen(false)
   }
+
+  const renderDetailPanelContent = () => isCivBlitzDraft()
+    ? <LeaderDetailPanel civBlitzComponent={civBlitzDetailComponent()} onClose={() => setCivBlitzDetailComponentId(null)} />
+    : <LeaderDetailPanel />
 
   const pickConfirmLabel = () => {
     const targetSeat = currentPickTargetSeatIndex()
@@ -764,7 +772,7 @@ export function LeaderGridOverlay() {
 
   createEffect(() => {
     if (panelsDocked() || !gridExpanded()) return
-    if (!filtersOpen() || !hasDetail()) return
+    if (!filtersOpen() || !hasGridDetail()) return
     setFiltersOpen(false)
   })
 
@@ -842,13 +850,13 @@ export function LeaderGridOverlay() {
     <div
       class={cn(
         'flex flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
-        gridViewMode() === 'list'
+        gridViewMode() === 'list' && !isCivBlitzDraft()
           ? 'w-80 mx-auto'
           : showDockedPanels()
             ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
             : 'w-full',
         showDockedPanels() && filtersOpen() && 'rounded-l-none',
-        showDockedPanels() && hasDetail() && 'rounded-r-none',
+        showDockedPanels() && hasGridDetail() && 'rounded-r-none',
         className,
       )}
     >
@@ -864,7 +872,7 @@ export function LeaderGridOverlay() {
           </Show>
         </button>
 
-        <Show when={!isRedDeathDraft()} fallback={<div class="flex-1" />}>
+        <Show when={!isRedDeathDraft() && !isCivBlitzDraft()} fallback={<div class="flex-1" />}>
           <>
             <div class="flex-1 max-w-72 min-w-0 relative">
               <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
@@ -914,57 +922,59 @@ export function LeaderGridOverlay() {
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
-          <div class="border border-border rounded flex overflow-hidden">
-            <button
-              class={cn(
-                'px-1 py-0 transition-all duration-150 cursor-pointer',
-                gridViewMode() === 'grid'
-                  ? 'bg-bg-muted text-fg'
-                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-              )}
-              title="Grid view"
-              aria-label="Grid view"
-              onClick={() => setGridViewMode('grid')}
-            >
-              <div class="i-ph-grid-four-bold text-xs" />
-            </button>
-            <button
-              class={cn(
-                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
-                gridViewMode() === 'multi-list'
-                  ? 'bg-bg-muted text-fg'
-                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-              )}
-              title="Multi-column list"
-              aria-label="Multi-column list"
-              onClick={() => setGridViewMode('multi-list')}
-            >
-              <div class="i-ph:grid-nine-bold text-xs" />
-            </button>
-            <button
-              class={cn(
-                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
-                gridViewMode() === 'list'
-                  ? 'bg-bg-muted text-fg'
-                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-              )}
-              title="List view"
-              aria-label="List view"
-              onClick={() => setGridViewMode('list')}
-            >
-              <div class="i-ph-list-bullets-bold text-xs" />
-            </button>
-          </div>
+          <Show when={!isCivBlitzDraft()}>
+            <div class="border border-border rounded flex overflow-hidden">
+              <button
+                class={cn(
+                  'px-1 py-0 transition-all duration-150 cursor-pointer',
+                  gridViewMode() === 'grid'
+                    ? 'bg-bg-muted text-fg'
+                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+                )}
+                title="Grid view"
+                aria-label="Grid view"
+                onClick={() => setGridViewMode('grid')}
+              >
+                <div class="i-ph-grid-four-bold text-xs" />
+              </button>
+              <button
+                class={cn(
+                  'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                  gridViewMode() === 'multi-list'
+                    ? 'bg-bg-muted text-fg'
+                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+                )}
+                title="Multi-column list"
+                aria-label="Multi-column list"
+                onClick={() => setGridViewMode('multi-list')}
+              >
+                <div class="i-ph:grid-nine-bold text-xs" />
+              </button>
+              <button
+                class={cn(
+                  'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                  gridViewMode() === 'list'
+                    ? 'bg-bg-muted text-fg'
+                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+                )}
+                title="List view"
+                aria-label="List view"
+                onClick={() => setGridViewMode('list')}
+              >
+                <div class="i-ph-list-bullets-bold text-xs" />
+              </button>
+            </div>
+          </Show>
 
           <div class="text-[11px] text-fg-subtle">
-            {filteredLeaders().length}
-            /
-            {draftLeaderPoolIds().size}
+            <Show when={isCivBlitzDraft()} fallback={<>{filteredLeaders().length}/{draftLeaderPoolIds().size}</>}>
+              {civBlitzHeaderCount()}
+            </Show>
           </div>
 
           <button
             class="text-fg-subtle cursor-pointer hover:text-fg-muted"
-            onClick={() => { setGridOpen(false); setFiltersOpen(false) }}
+            onClick={() => { setGridOpen(false); setFiltersOpen(false); setCivBlitzDetailComponentId(null) }}
           >
             <div class="i-ph-x-bold text-sm" />
           </button>
@@ -983,125 +993,173 @@ export function LeaderGridOverlay() {
           />
         </Show>
 
-        <Switch>
-          <Match when={gridViewMode() === 'multi-list'}>
-            <div
-              ref={(el) => {
-                const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-                const colWidth = 11 * remPx
-                const update = () => {
-                  if (!el.isConnected) return
-                  setMultiListColumns(Math.max(1, Math.floor(el.clientWidth / colWidth)))
-                }
-                update()
-                const observer = new ResizeObserver(update)
-                observer.observe(el)
-                onCleanup(() => {
-                  observer.disconnect()
-                  setMultiListColumns(1)
-                })
-              }}
-              class="columns-[11rem]"
-              style={{ 'column-gap': '0' }}
-              onMouseLeave={() => setHoveredListIndex(null)}
-            >
-              <Show when={showRandomInList()}>
-                <div
-                  style={{ 'break-inside': 'avoid-column' }}
-                  onMouseEnter={() => setHoveredListIndex(0)}
-                >
-                  <RandomLeaderListItem
-                    disabled={!canUseRandom()}
-                    active={isRandomSelected()}
-                    accent={accent()}
-                    neighborState={listNeighborMap().get('__random__')}
-                    onClick={handleToggleRandom}
-                  />
-                </div>
-              </Show>
-              <For each={filteredLeaders()}>
-                {(leader, index) => (
+        <Show when={isCivBlitzDraft()} fallback={(
+          <Switch>
+            <Match when={gridViewMode() === 'multi-list'}>
+              <div
+                ref={(el) => {
+                  const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+                  const colWidth = 11 * remPx
+                  const update = () => {
+                    if (!el.isConnected) return
+                    setMultiListColumns(Math.max(1, Math.floor(el.clientWidth / colWidth)))
+                  }
+                  update()
+                  const observer = new ResizeObserver(update)
+                  observer.observe(el)
+                  onCleanup(() => {
+                    observer.disconnect()
+                    setMultiListColumns(1)
+                  })
+                }}
+                class="columns-[11rem]"
+                style={{ 'column-gap': '0' }}
+                onMouseLeave={() => setHoveredListIndex(null)}
+              >
+                <Show when={showRandomInList()}>
                   <div
                     style={{ 'break-inside': 'avoid-column' }}
-                    onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}
+                    onMouseEnter={() => setHoveredListIndex(0)}
                   >
-                    <LeaderListItem
-                      leader={leader}
-                      singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
-                      selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
-                      onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
-                      neighborState={listNeighborMap().get(leader.id)}
-                      onHoverMove={handleLeaderHoverMove}
-                      onHoverLeave={handleLeaderHoverLeave}
+                    <RandomLeaderListItem
+                      disabled={!canUseRandom()}
+                      active={isRandomSelected()}
+                      accent={accent()}
+                      neighborState={listNeighborMap().get('__random__')}
+                      onClick={handleToggleRandom}
                     />
                   </div>
-                )}
-              </For>
-            </div>
-          </Match>
-          <Match when={gridViewMode() === 'list'}>
-            <div class="flex flex-col" onMouseLeave={() => setHoveredListIndex(null)}>
-              <Show when={showRandomInList()}>
-                <div onMouseEnter={() => setHoveredListIndex(0)}>
-                  <RandomLeaderListItem
+                </Show>
+                <For each={filteredLeaders()}>
+                  {(leader, index) => (
+                    <div
+                      style={{ 'break-inside': 'avoid-column' }}
+                      onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}
+                    >
+                      <LeaderListItem
+                        leader={leader}
+                        singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                        selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                        onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
+                        neighborState={listNeighborMap().get(leader.id)}
+                        onHoverMove={handleLeaderHoverMove}
+                        onHoverLeave={handleLeaderHoverLeave}
+                      />
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Match>
+            <Match when={gridViewMode() === 'list'}>
+              <div class="flex flex-col" onMouseLeave={() => setHoveredListIndex(null)}>
+                <Show when={showRandomInList()}>
+                  <div onMouseEnter={() => setHoveredListIndex(0)}>
+                    <RandomLeaderListItem
+                      disabled={!canUseRandom()}
+                      active={isRandomSelected()}
+                      accent={accent()}
+                      neighborState={listNeighborMap().get('__random__')}
+                      onClick={handleToggleRandom}
+                    />
+                  </div>
+                </Show>
+                <For each={filteredLeaders()}>
+                  {(leader, index) => (
+                    <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
+                      <LeaderListItem
+                        leader={leader}
+                        singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
+                        selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
+                        onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
+                        neighborState={listNeighborMap().get(leader.id)}
+                        onHoverMove={handleLeaderHoverMove}
+                        onHoverLeave={handleLeaderHoverLeave}
+                      />
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Match>
+            <Match when={gridViewMode() === 'grid'}>
+              <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+                <Show when={!reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()}>
+                  <RandomLeaderCard
                     disabled={!canUseRandom()}
                     active={isRandomSelected()}
                     accent={accent()}
-                    neighborState={listNeighborMap().get('__random__')}
                     onClick={handleToggleRandom}
                   />
-                </div>
-              </Show>
-              <For each={filteredLeaders()}>
-                {(leader, index) => (
-                  <div onMouseEnter={() => setHoveredListIndex(index() + (showRandomInList() ? 1 : 0))}>
-                    <LeaderListItem
+                </Show>
+                <For each={filteredLeaders()}>
+                  {leader => (
+                    <LeaderCard
                       leader={leader}
                       singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
                       selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
                       onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
-                      neighborState={listNeighborMap().get(leader.id)}
                       onHoverMove={handleLeaderHoverMove}
                       onHoverLeave={handleLeaderHoverLeave}
                     />
-                  </div>
-                )}
-              </For>
-            </div>
-          </Match>
-          <Match when={gridViewMode() === 'grid'}>
-            <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-              <Show when={!reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()}>
-                <RandomLeaderCard
-                  disabled={!canUseRandom()}
-                  active={isRandomSelected()}
-                  accent={accent()}
-                  onClick={handleToggleRandom}
-                />
-              </Show>
-              <For each={filteredLeaders()}>
-                {leader => (
-                  <LeaderCard
-                    leader={leader}
-                    singleClickShowsDetail={!reportAssignmentMode() && singleClickShowsDetail()}
-                    selected={reportAssignmentMode() && isReportLeaderSelected(leader.id)}
-                    onSelect={reportAssignmentMode() ? handleReportLeaderSelect : undefined}
-                    onHoverMove={handleLeaderHoverMove}
-                    onHoverLeave={handleLeaderHoverLeave}
-                  />
-                )}
-              </For>
-              <For each={Array.from({ length: ghostCount() })}>
-                {() => <div class="aspect-square" />}
-              </For>
-            </div>
-          </Match>
-        </Switch>
+                  )}
+                </For>
+                <For each={Array.from({ length: ghostCount() })}>
+                  {() => <div class="aspect-square" />}
+                </For>
+              </div>
+            </Match>
+          </Switch>
+        )}
+        >
+          <Show when={civBlitzOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
+            {resolvedOptions => (
+              <div class="flex flex-col gap-2">
+                <For each={civBlitzCategoriesForSeat()}>
+                  {category => (
+                    <div>
+                      <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
+                      <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+                        <For each={resolvedOptions()[category] ?? []}>
+                          {componentId => (
+                            <CivBlitzOptionCard
+                              component={civBlitzComponentMap().get(componentId)}
+                              category={category}
+                              selected={civBlitzSelections()[category] === componentId}
+                              onClick={() => handleCivBlitzSelect(category, componentId)}
+                            />
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            )}
+          </Show>
+        </Show>
       </div>
 
       <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
         <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
-          <Show when={step()?.action === 'ban'}>
+          <Show when={isCivBlitzDraft()}>
+            <button
+              class={cn(
+                'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                canConfirmCivBlitz()
+                  ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
+                  : 'bg-accent/20 text-accent/50 cursor-default',
+              )}
+              disabled={!canConfirmCivBlitz()}
+              onClick={handleConfirmCivBlitz}
+            >
+              Confirm (
+              {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
+              /
+              {civBlitzCategoriesForSeat().length}
+              )
+            </button>
+          </Show>
+
+          <Show when={!isCivBlitzDraft() && step()?.action === 'ban'}>
             <button
               class={cn(
                 'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
@@ -1120,7 +1178,7 @@ export function LeaderGridOverlay() {
             </button>
           </Show>
 
-          <Show when={step()?.action === 'pick'}>
+          <Show when={!isCivBlitzDraft() && step()?.action === 'pick'}>
             <button
               class={cn(
                 'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
@@ -1139,121 +1197,6 @@ export function LeaderGridOverlay() {
     </div>
   )
 
-  const renderCivBlitzPanel = () => {
-    return (
-      <div
-        class={cn(
-          overlayEntranceClass(),
-          'pointer-events-auto relative z-30',
-          panelsDocked()
-            ? 'flex flex-col max-h-full items-center'
-            : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
-          panelsDocked() && gridExpanded() && 'h-full',
-        )}
-      >
-        <Show when={showDockedPanels() && civBlitzDetailComponent()}>
-          {component => (
-            <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
-              <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                <LeaderDetailPanel civBlitzComponent={component()} onClose={() => setCivBlitzDetailComponentId(null)} />
-              </div>
-            </div>
-          )}
-        </Show>
-
-        <div
-          class={cn(
-            'flex min-w-0 flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
-            showDockedPanels()
-              ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
-              : 'w-full',
-            showDockedPanels() && civBlitzDetailComponent() && 'rounded-r-none',
-            gridExpanded() && 'h-full',
-          )}
-        >
-          <div class="px-3 py-2 border-b border-border-subtle flex gap-2 min-w-0 items-center">
-            <button
-              class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
-              title={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
-              aria-label={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
-              onClick={handleToggleGridExpanded}
-            >
-              <Show when={gridExpanded()} fallback={<div class="i-ph-caret-line-up-bold text-sm" />}>
-                <div class="i-ph-caret-line-down-bold text-sm" />
-              </Show>
-            </button>
-
-            <div class="flex-1" />
-
-            <div class="ml-auto flex shrink-0 gap-2 items-center">
-              <div class="text-[11px] text-fg-subtle">
-                {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
-                /
-                {civBlitzCategoriesForSeat().length}
-              </div>
-
-              <button
-                class="text-fg-subtle cursor-pointer hover:text-fg-muted"
-                onClick={() => { setCivBlitzDetailComponentId(null); setGridOpen(false) }}
-              >
-                <div class="i-ph-x-bold text-sm" />
-              </button>
-            </div>
-          </div>
-
-          <div class="p-1.5 flex-1 min-h-0 overflow-y-auto">
-            <Show when={civBlitzOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
-              {resolvedOptions => (
-                <div class="flex flex-col gap-2">
-                  <For each={civBlitzCategoriesForSeat()}>
-                    {category => (
-                      <div>
-                        <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
-                        <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-                          <For each={resolvedOptions()[category] ?? []}>
-                            {componentId => (
-                              <CivBlitzOptionCard
-                                component={civBlitzComponentMap().get(componentId)}
-                                category={category}
-                                selected={civBlitzSelections()[category] === componentId}
-                                onClick={() => handleCivBlitzSelect(category, componentId)}
-                              />
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              )}
-            </Show>
-          </div>
-
-          <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
-            <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
-              <button
-                class={cn(
-                  'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-                  canConfirmCivBlitz()
-                    ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
-                    : 'bg-accent/20 text-accent/50 cursor-default',
-                )}
-                disabled={!canConfirmCivBlitz()}
-                onClick={handleConfirmCivBlitz}
-              >
-                Confirm (
-                {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
-                /
-                {civBlitzCategoriesForSeat().length}
-                )
-              </button>
-            </div>
-          </Show>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <Show when={gridOpen()}>
       {/* Backdrop */}
@@ -1262,90 +1205,83 @@ export function LeaderGridOverlay() {
       {/* Centered grid */}
       <div class={cn('flex pointer-events-none inset-x-0 bottom-14 justify-center absolute z-50', gridExpanded() || showStackedShelf() ? 'items-stretch top-3' : 'items-end top-6')}>
         <Show
-          when={isCivBlitzDraft()}
+          when={showStackedShelf()}
           fallback={(
-            <Show
-              when={showStackedShelf()}
-              fallback={(
-                <div
-                  class={cn(
-                    overlayEntranceClass(),
-                    'pointer-events-auto relative z-30',
-                    panelsDocked()
-                      ? 'flex flex-col max-h-full items-center'
-                      : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
-                    panelsDocked() && gridExpanded() && 'h-full',
-                  )}
-                >
-                  <Show when={showDockedPanels() && filtersOpen()}>
-                    <div class="anim-detail-in w-56 bottom-0 right-full top-0 absolute z-10">
-                      {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
+            <div
+              class={cn(
+                overlayEntranceClass(),
+                'pointer-events-auto relative z-30',
+                panelsDocked()
+                  ? 'flex flex-col max-h-full items-center'
+                  : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
+                panelsDocked() && gridExpanded() && 'h-full',
+              )}
+            >
+              <Show when={showDockedPanels() && showFiltersPanel()}>
+                <div class="anim-detail-in w-56 bottom-0 right-full top-0 absolute z-10">
+                  {renderFilterPanel('h-full rounded-l-lg rounded-r-none border-r-0')}
+                </div>
+              </Show>
+
+              <Show when={showDockedPanels() && hasGridDetail()}>
+                <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
+                  <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                    {renderDetailPanelContent()}
+                  </div>
+                </div>
+              </Show>
+
+              <Show when={showFocusPanelStrip()}>
+                <div class="pointer-events-none inset-0 absolute z-30 overflow-hidden">
+                  <Show when={showFiltersPanel()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                      {renderFilterPanel('h-full')}
                     </div>
                   </Show>
-
-                  <Show when={showDockedPanels() && hasDetail()}>
-                    <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
-                      <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                        <LeaderDetailPanel />
+                  <Show when={!showFiltersPanel() && hasGridDetail()}>
+                    <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
+                      <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                        {renderDetailPanelContent()}
                       </div>
                     </div>
                   </Show>
+                </div>
+              </Show>
 
-                  <Show when={showFocusPanelStrip()}>
-                    <div class="pointer-events-none inset-0 absolute z-30 overflow-hidden">
-                      <Show when={filtersOpen()}>
-                        <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
-                          {renderFilterPanel('h-full')}
-                        </div>
-                      </Show>
-                      <Show when={!filtersOpen() && hasDetail()}>
-                        <div class="h-full min-h-0 w-full pointer-events-auto overflow-hidden">
-                          <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                            <LeaderDetailPanel />
-                          </div>
-                        </div>
-                      </Show>
+              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' && !isCivBlitzDraft() ? 'max-h-[60vh]' : '')}
+            </div>
+          )}
+        >
+          <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
+            <Show when={showFiltersPanel() || hasGridDetail()}>
+              <div class="gap-2 grid grid-cols-2 pointer-events-none inset-x-0 top-0 absolute z-30 overflow-hidden" style={{ height: '35%' }}>
+                <div class={cn('h-full min-h-0 overflow-hidden', showFiltersPanel() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={showFiltersPanel()}>
+                    {renderFilterPanel('h-full')}
+                  </Show>
+                </div>
+
+                <div class={cn('h-full min-h-0 overflow-hidden', hasGridDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
+                  <Show when={hasGridDetail()}>
+                    <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                      {renderDetailPanelContent()}
                     </div>
                   </Show>
-
-                  {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
-                </div>
-              )}
-            >
-              <div class={cn(overlayEntranceClass(), 'pointer-events-auto relative z-30 h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]')}>
-                <Show when={filtersOpen() || hasDetail()}>
-                  <div class="gap-2 grid grid-cols-2 pointer-events-none inset-x-0 top-0 absolute z-30 overflow-hidden" style={{ height: '35%' }}>
-                    <div class={cn('h-full min-h-0 overflow-hidden', filtersOpen() ? 'pointer-events-auto' : 'pointer-events-none')}>
-                      <Show when={filtersOpen()}>
-                        {renderFilterPanel('h-full')}
-                      </Show>
-                    </div>
-
-                    <div class={cn('h-full min-h-0 overflow-hidden', hasDetail() ? 'pointer-events-auto' : 'pointer-events-none')}>
-                      <Show when={hasDetail()}>
-                        <div class="grid-panel-glow border border-border rounded-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
-                          <LeaderDetailPanel />
-                        </div>
-                      </Show>
-                    </div>
-                  </div>
-                </Show>
-
-                <div class="flex flex-col gap-2 h-full">
-                  <div class="shrink-0 gap-2 grid grid-cols-2" style={{ height: '35%' }}>
-                    <div />
-                    <div />
-                  </div>
-
-                  <div class="flex-1 min-h-0">
-                    {renderGridPanel('h-full')}
-                  </div>
                 </div>
               </div>
             </Show>
-          )}
-        >
-          {renderCivBlitzPanel()}
+
+            <div class="flex flex-col gap-2 h-full">
+              <div class="shrink-0 gap-2 grid grid-cols-2" style={{ height: '35%' }}>
+                <div />
+                <div />
+              </div>
+
+              <div class="flex-1 min-h-0">
+                {renderGridPanel('h-full')}
+              </div>
+            </div>
+          </div>
         </Show>
       </div>
 
