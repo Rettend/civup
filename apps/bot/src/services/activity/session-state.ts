@@ -30,6 +30,7 @@ export interface ActivityOverviewOptionSnapshot {
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   hostId: string
   memberPlayerIds: string[]
   players?: ActivityOverviewPlayerSnapshot[]
@@ -217,6 +218,7 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     participantCount: countFilledSlots(session.roster.slots),
     targetSize: session.roster.slots.length,
     redDeath: session.config.redDeath,
+    civBlitz: session.config.civBlitz,
     hostId: session.hostId,
     memberPlayerIds: session.roster.participants.map(member => member.playerId),
     players: buildActivityOverviewPlayers(session.mode, session.roster),
@@ -242,6 +244,7 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     participantCount: countFilledSlots(record.roster.slots),
     targetSize: record.roster.slots.length,
     redDeath: record.config.redDeath,
+    civBlitz: record.config.civBlitz,
     hostId: record.hostId,
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
     players: buildActivityOverviewPlayers(record.mode, record.roster),

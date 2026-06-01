@@ -6,6 +6,7 @@ import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } f
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
+const { formatRating, formatRecord, formatWinRate } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
 const onLobbyStarted = mock(() => {})
 
@@ -373,6 +374,26 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
   })
 
+  test('renders CivBlitz setup labeling and cyan switch styling like the Red Death mode row', async () => {
+    const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
+    render(() => (
+      <DraftSetupPage lobby={{
+        ...lobby,
+        draftConfig: { ...lobby.draftConfig, civBlitz: true },
+      }} />
+    ))
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    const civBlitzSwitch = screen.getByRole('switch', { name: 'CivBlitz' })
+    const civBlitzTrack = civBlitzSwitch.querySelector('div') as HTMLElement
+
+    expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
+    expectTextInOrder(configCard, ['CivBlitz', 'Red Death'])
+    expect(civBlitzSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(civBlitzTrack.className).toContain('bg-cyan-300/18')
+
+  })
+
   test('queues overlapping optimistic config saves with the latest switch state', async () => {
     let resolveFirstSave: () => void = () => {}
     const firstSave = new Promise<void>((resolve) => { resolveFirstSave = resolve })
@@ -624,6 +645,13 @@ describe('DraftSetupPage UI', () => {
 
     expect(hostBadge.className).toContain('text-[10px]')
     expect(arrangeOverlay.className).toContain('pointer-events-none')
+  })
+
+  test('formats missing player popover stats as default baseline values', () => {
+    expect(formatRating(null)).toBe('1000')
+    expect(formatRating(null, true)).toBe('Unranked')
+    expect(formatRecord(null)).toBe('0-0')
+    expect(formatWinRate(null)).toBe('0%')
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {

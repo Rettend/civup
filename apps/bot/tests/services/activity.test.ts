@@ -1,7 +1,7 @@
 import type { QueueEntry } from '@civup/game'
 import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { buildLobbySnapshotFromSessionRecord } from '../../src/services/activity/session-state.ts'
+import { buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromSessionRecord } from '../../src/services/activity/session-state.ts'
 import type { LobbyState } from '../../src/services/lobby/types.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import {
@@ -239,6 +239,54 @@ describe('draft runtime config', () => {
 })
 
 describe('lobby activity snapshots', () => {
+  test('serializes CivBlitz on activity overview options', () => {
+    const lobby: LobbyState = {
+      id: 'civblitz-lobby',
+      mode: '2v2',
+      status: 'open',
+      guildId: 'guild-1',
+      hostId: 'p1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      matchId: null,
+      steamLobbyLink: null,
+      minRole: null,
+      maxRole: null,
+      lastArrange: null,
+      lastActivityAt: 1,
+      memberPlayerIds: ['p1'],
+      slots: ['p1', null, null, null],
+      draftConfig: {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        mapVoteEnabled: false,
+        blindBans: true,
+        blindPicks: false,
+        simultaneousPick: false,
+        permanentAlly: false,
+        redDeath: false,
+        dealOptionsSize: null,
+        civBlitz: true,
+        civBlitzOptionCount: 4,
+        civBlitzExcludeBbgExpanded: true,
+        randomDraft: false,
+        hiddenDraft: false,
+        duplicateFactions: false,
+        closed: false,
+      },
+      createdAt: 1,
+      updatedAt: 1,
+      revision: 1,
+    }
+
+    const [option] = buildActivityOverviewOptionsFromSessionRecord(buildOpenSessionRecordFromLobby(lobby, [{ playerId: 'p1', displayName: 'P1', joinedAt: 1 }]))
+
+    expect(option?.redDeath).toBe(false)
+    expect(option?.civBlitz).toBe(true)
+  })
+
   test('serializes average lobby rank and rank-adjusted default leader pool', async () => {
     const { kv } = createTrackedKv()
     await setRankedRoleCurrentRoles(kv, 'guild-1', {

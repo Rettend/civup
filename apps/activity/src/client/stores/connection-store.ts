@@ -159,6 +159,7 @@ export interface ActivityTargetOption {
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   isMember: boolean
   isHost: boolean
   players?: ActivityOverviewPlayerSnapshot[]
@@ -184,6 +185,7 @@ export interface ActivityOverviewOptionSnapshot {
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   hostId: string
   memberPlayerIds: string[]
   players?: ActivityOverviewPlayerSnapshot[]

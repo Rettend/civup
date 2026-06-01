@@ -22,6 +22,7 @@ interface ParsedDraftData {
 export interface StoredGameModeContext {
   mode: GameMode
   redDeath: boolean
+  civBlitz: boolean
   permanentAlly: boolean
   leaderDataVersion: LeaderDataVersion
   leaderboardMode: LeaderboardMode | null
@@ -166,11 +167,12 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
   return {
     mode,
     redDeath,
+    civBlitz,
     permanentAlly: civBlitz ? false : permanentAlly,
     leaderDataVersion,
     leaderboardMode,
     ranked: leaderboardMode != null,
-    label: civBlitz ? `${formatModeLabel(mode, mode, { redDeath, targetSize: seatCount })} CivBlitz` : formatModeLabel(mode, mode, { redDeath, targetSize: seatCount }),
+    label: formatModeLabel(mode, mode, { redDeath, civBlitz, targetSize: seatCount }),
   }
 }
 

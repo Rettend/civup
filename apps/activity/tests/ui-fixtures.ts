@@ -26,6 +26,7 @@ export function createActivityTargetOption(overrides: Partial<ActivityTargetOpti
     participantCount: 2,
     targetSize: 4,
     redDeath: false,
+    civBlitz: false,
     isMember: false,
     isHost: false,
     players: [

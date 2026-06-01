@@ -9,7 +9,7 @@ import { setLobbyMessage, upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentResultPng } from '../tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked } from '../tournament/index.ts'
-import { getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
+import { getCivBlitzFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
@@ -22,6 +22,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   matchId: string
   reportedMode: GameMode
   reportedRedDeath: boolean
+  reportedCivBlitz?: boolean
   participants: ParticipantRow[]
   lobby?: LobbyState | null
   sessionNamespace?: DurableObjectNamespace | null
@@ -45,6 +46,7 @@ export async function syncReportedMatchDiscordMessages({
   matchId,
   reportedMode,
   reportedRedDeath,
+  reportedCivBlitz,
   participants,
   lobby = null,
   sessionNamespace = null,
@@ -67,6 +69,7 @@ export async function syncReportedMatchDiscordMessages({
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
   const leaderDataVersion = getLeaderDataVersionFromDraftData(matchDraftData, lobby?.draftConfig.leaderDataVersion ?? 'live')
+  const civBlitz = reportedCivBlitz ?? lobby?.draftConfig.civBlitz ?? getCivBlitzFromDraftData(matchDraftData)
   const tournamentLinked = await isMatchTournamentLinked(db, matchId)
   let tournamentResultPng: Uint8Array | null = null
   let tournamentImageFailed = false
@@ -108,6 +111,7 @@ export async function syncReportedMatchDiscordMessages({
             rankedRoleLines,
             reporter: resolvedReporter,
             leaderDataVersion,
+            civBlitz,
           }, lobby.draftConfig.redDeath)],
           components: [],
         }, { db, sessionNamespace })
@@ -172,6 +176,7 @@ export async function syncReportedMatchDiscordMessages({
                 rankedRoleLines,
                 reporter: resolvedReporter,
                 leaderDataVersion,
+                civBlitz,
               }, reportedRedDeath)],
               components: [],
               allowed_mentions: { parse: [] },
@@ -230,6 +235,7 @@ export async function syncReportedMatchDiscordMessages({
             rankedRoleLines,
             reporter: resolvedReporter,
             leaderDataVersion,
+            civBlitz,
           }, reportedRedDeath)],
           allowed_mentions: { parse: [] },
         })

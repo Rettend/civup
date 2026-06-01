@@ -13,6 +13,7 @@ export async function buildOpenLobbyRenderPayload(
 
   return {
     embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, {
+      civBlitz: lobby.draftConfig.civBlitz,
       closed: lobby.draftConfig.closed === true,
       reservedSlotLabels: options.reservedSlotLabels,
     })],

@@ -90,6 +90,18 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Closed Host')).toBeTruthy()
   })
 
+  test('labels CivBlitz lobby cards like other mode variants', () => {
+    render(() => (
+      <LobbyOverviewPage
+        options={[createActivityTargetOption({ mode: '2v2', civBlitz: true })]}
+        onSelect={onSelect}
+      />
+    ))
+
+    expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /CivBlitz 2v2 Open 2\/4/i })).toBeTruthy()
+  })
+
   test('shows six player names before switching larger lobbies to avatar-only columns', () => {
     const sixPlayers = Array.from({ length: 6 }, (_, index) => ({
       playerId: `p${index + 1}`,

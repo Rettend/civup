@@ -40,6 +40,7 @@ interface ActivityTargetOption {
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   isMember: boolean
   isHost: boolean
   players?: {
@@ -502,7 +503,7 @@ export async function resolveLobbyJoinEligibility(
           ? 'You are hosting another open lobby with other players. Cancel it first.'
           : blockingLobby.mode === lobby.mode
             ? 'You are already in another open lobby.'
-            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
+            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath, civBlitz: blockingLobby.draftConfig.civBlitz })} lobby.`
         : 'You are already in a live match.',
       pendingSlot: null,
     }
@@ -600,7 +601,7 @@ async function resolveSessionJoinEligibility(
         ? 'You are hosting another open lobby with other players. Cancel it first.'
         : blockingLobby.mode === session.mode
           ? 'You are already in another open lobby.'
-          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath })} lobby.`,
+          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath, civBlitz: blockingLobby.config.civBlitz })} lobby.`,
       pendingSlot: null,
     }
   }

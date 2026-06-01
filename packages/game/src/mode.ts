@@ -102,7 +102,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 export function formatModeLabel(
   mode: string | null | undefined,
   fallback = '',
-  options: { redDeath?: boolean, compactRedDeath?: boolean, targetSize?: number } = {},
+  options: { redDeath?: boolean, compactRedDeath?: boolean, civBlitz?: boolean, targetSize?: number } = {},
 ): string {
   if (!mode) return fallback
 
@@ -120,8 +120,9 @@ export function formatModeLabel(
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
   })()
 
-  if (!options.redDeath) return baseLabel
-  return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
+  if (options.civBlitz) return `CivBlitz ${baseLabel}`
+  if (options.redDeath) return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
+  return baseLabel
 }
 
 /** Whether a string matches a supported leaderboard mode. */

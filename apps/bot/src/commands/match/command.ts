@@ -309,7 +309,7 @@ export const command_match = factory.command<MatchVar>(
 
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+                embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, undefined, lobby.draftConfig.civBlitz)],
                 components: [],
               }, { db, sessionNamespace: c.env.SessionDO })
               await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -786,6 +786,7 @@ export const command_match = factory.command<MatchVar>(
                 matchId: result.match.id,
                 reportedMode: reportedContext.mode,
                 reportedRedDeath: reportedContext.redDeath,
+                reportedCivBlitz: reportedContext.civBlitz,
                 participants: result.participants,
                 matchDraftData: result.match.draftData,
                 lobby,
@@ -805,6 +806,7 @@ export const command_match = factory.command<MatchVar>(
               matchId: result.match.id,
               reportedMode: reportedContext.mode,
               reportedRedDeath: reportedContext.redDeath,
+              reportedCivBlitz: reportedContext.civBlitz,
               participants: result.participants,
               matchDraftData: result.match.draftData,
               lobby,
@@ -1032,7 +1034,7 @@ async function buildLobbyBumpRenderPayload(
   if (lobby.status === 'drafting') {
     const draftRoster = await getLobbyRosterEntriesForRender(sessionNamespace, lobby)
     return {
-      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      embeds: [lobbyDraftingEmbed(lobby.mode, buildDraftSeatsFromLobby(lobby, draftRoster), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -1056,7 +1058,7 @@ async function buildLobbyBumpRenderPayload(
     }
 
     return {
-      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), getMapVoteResultFromDraftData(match?.draftData ?? null), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      embeds: [lobbyDraftCompleteEmbed(lobby.mode, orderLobbyParticipantsBySlots(lobby, participants), getMapVoteResultFromDraftData(match?.draftData ?? null), lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)],
       components: lobbyComponents(lobby.mode, lobby.id),
     }
   }
@@ -1272,7 +1274,7 @@ async function cancelHostedOpenLobby(
   }) ?? lobby
   try {
     await upsertLobbyMessage(kv, token, cancelledLobby, {
-      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath)],
+      embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, undefined, lobby.draftConfig.civBlitz)],
       components: [],
     }, options)
   }
