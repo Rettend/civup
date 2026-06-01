@@ -1,4 +1,4 @@
-import type { Leader, LeaderUnique } from '@civup/game'
+import type { CivBlitzComponent, CivBlitzComponentCategory, Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -6,8 +6,15 @@ import { cn } from '~/client/lib/css'
 import { detailLeaderId, draftStore, isLeaderFavorited, setDetailLeaderId, toggleLeaderFavorite } from '~/client/stores'
 import { RichLeaderText } from './RichLeaderText'
 
+const CIV_BLITZ_CATEGORY_LABELS: Record<CivBlitzComponentCategory, string> = {
+  civilizationAbility: 'Civilization Ability',
+  leaderAbility: 'Leader Ability',
+  infrastructure: 'Unique Infrastructure',
+  unit: 'Unique Unit',
+}
+
 /** Click-to-open detail panel beside the grid */
-export function LeaderDetailPanel() {
+export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent | null, onClose?: () => void } = {}) {
   const leader = (): Leader | null => {
     const id = detailLeaderId()
     if (!id) return null
@@ -30,6 +37,46 @@ export function LeaderDetailPanel() {
     const id = detailLeaderId()
     return id ? isLeaderFavorited(id) : false
   }
+  const closeDetails = () => props.onClose ? props.onClose() : setDetailLeaderId(null)
+  const componentImageUrl = () => props.civBlitzComponent?.iconUrl ?? props.civBlitzComponent?.portraitUrl ?? null
+
+  if (props.civBlitzComponent) {
+    return (
+      <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
+        <div class="flex flex-col gap-1 items-end right-4 top-2 absolute z-10">
+          <button
+            class="text-fg-subtle rounded-full flex h-8 w-8 cursor-pointer items-center justify-center hover:text-fg-muted hover:bg-bg-muted"
+            title="Close leader details"
+            aria-label="Close leader details"
+            onClick={closeDetails}
+          >
+            <div class="i-ph-x-bold text-base" />
+          </button>
+        </div>
+
+        <div class="mb-3 pr-12 flex gap-3 items-center">
+          <Show when={componentImageUrl()}>
+            {url => (
+              <img
+                src={resolveAssetUrl(url()) ?? url()}
+                alt={props.civBlitzComponent!.name}
+                class={cn('rounded shrink-0 h-12 w-12 bg-bg-subtle', props.civBlitzComponent!.iconUrl ? 'object-contain p-1.5' : 'object-cover')}
+              />
+            )}
+          </Show>
+          <div class="min-w-0">
+            <h3 class="text-base text-fg font-bold truncate">{props.civBlitzComponent.name}</h3>
+            <span class="text-sm text-fg-muted">{props.civBlitzComponent.civilization ?? CIV_BLITZ_CATEGORY_LABELS[props.civBlitzComponent.category]}</span>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">{CIV_BLITZ_CATEGORY_LABELS[props.civBlitzComponent.category]}</div>
+          <RichLeaderText text={props.civBlitzComponent.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <Show when={leader()}>
@@ -40,7 +87,7 @@ export function LeaderDetailPanel() {
               class="text-fg-subtle rounded-full flex h-8 w-8 cursor-pointer items-center justify-center hover:text-fg-muted hover:bg-bg-muted"
               title="Close leader details"
               aria-label="Close leader details"
-              onClick={() => setDetailLeaderId(null)}
+              onClick={closeDetails}
             >
               <div class="i-ph-x-bold text-base" />
             </button>
