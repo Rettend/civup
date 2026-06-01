@@ -220,6 +220,7 @@ export function LeaderGridOverlay() {
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
   const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
   const [civBlitzSelections, setCivBlitzSelections] = createSignal<CivBlitzPartialKit>({})
+  const [civBlitzDetailComponentId, setCivBlitzDetailComponentId] = createSignal<string | null>(null)
   const sendThrottledBanPreview = throttle((civIds: string[]) => sendPreview('ban', civIds), PREVIEW_THROTTLE_MS)
   const sendThrottledPickPreview = throttle((civIds: string[]) => sendPreview('pick', civIds), PREVIEW_THROTTLE_MS)
   let suppressNextPreviewClear: 'ban' | 'pick' | null = null
@@ -450,6 +451,7 @@ export function LeaderGridOverlay() {
     const seatIndex = ownSeatIndex()
     if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
       if (Object.keys(civBlitzSelections()).length > 0) setCivBlitzSelections({})
+      if (civBlitzDetailComponentId() != null) setCivBlitzDetailComponentId(null)
     }
   })
 
@@ -551,6 +553,22 @@ export function LeaderGridOverlay() {
     return seatIndex == null ? null : state()?.civBlitz?.optionsBySeat[seatIndex] ?? null
   }
 
+  const civBlitzOptionIdsForSeat = createMemo(() => {
+    const options = civBlitzOptionsForSeat()
+    if (!options) return []
+    return civBlitzCategoriesForSeat().flatMap(category => options[category] ?? [])
+  })
+
+  const civBlitzDetailComponent = createMemo<CivBlitzComponent | null>(() => {
+    const componentId = civBlitzDetailComponentId()
+    return componentId ? civBlitzComponentMap().get(componentId) ?? null : null
+  })
+
+  createEffect(() => {
+    const componentId = civBlitzDetailComponentId()
+    if (componentId && !civBlitzOptionIdsForSeat().includes(componentId)) setCivBlitzDetailComponentId(null)
+  })
+
   const canConfirmCivBlitz = () => {
     if (!step()?.civBlitz || hasSubmitted()) return false
     const options = civBlitzOptionsForSeat()
@@ -560,13 +578,21 @@ export function LeaderGridOverlay() {
   }
 
   const handleCivBlitzSelect = (category: CivBlitzComponentCategory, componentId: string) => {
-    setCivBlitzSelections(prev => ({ ...prev, [category]: prev[category] === componentId ? undefined : componentId }))
+    setCivBlitzSelections((prev) => {
+      const next = { ...prev }
+      if (next[category] === componentId) delete next[category]
+      else next[category] = componentId
+      return next
+    })
+    setDetailLeaderId(null)
+    setCivBlitzDetailComponentId(componentId)
   }
 
   const handleConfirmCivBlitz = () => {
     if (!canConfirmCivBlitz()) return
     sendCivBlitzSubmit(civBlitzSelections())
     setCivBlitzSelections({})
+    setCivBlitzDetailComponentId(null)
     setGridOpen(false)
   }
 
@@ -1114,73 +1140,115 @@ export function LeaderGridOverlay() {
   )
 
   const renderCivBlitzPanel = () => {
-    const categories = civBlitzCategoriesForSeat()
-    const options = civBlitzOptionsForSeat()
-
     return (
-      <div class={cn(overlayEntranceClass(), 'pointer-events-auto grid-panel-glow border border-border rounded-lg bg-bg-subtle flex h-full w-[min(calc(100vw-1rem),76rem)] flex-col shadow-2xl overflow-hidden')}>
-        <div class="px-4 py-3 border-b border-border-subtle flex items-center justify-between">
-          <div>
-            <div class="text-sm text-cyan-200 font-bold tracking-wide">CivBlitz Kit</div>
-            <div class="text-[11px] text-fg-subtle">Pick one option in each category. Choices reveal together.</div>
-          </div>
-          <button class="text-fg-subtle cursor-pointer hover:text-fg-muted" onClick={() => setGridOpen(false)}>
-            <div class="i-ph-x-bold text-sm" />
-          </button>
-        </div>
+      <div
+        class={cn(
+          overlayEntranceClass(),
+          'pointer-events-auto relative z-30',
+          panelsDocked()
+            ? 'flex flex-col max-h-full items-center'
+            : 'h-full w-[min(calc(100vw-1rem),90rem)] sm:w-[min(calc(100vw-1.5rem),90rem)]',
+          panelsDocked() && gridExpanded() && 'h-full',
+        )}
+      >
+        <Show when={showDockedPanels() && civBlitzDetailComponent()}>
+          {component => (
+            <div class="anim-detail-in-right w-64 bottom-0 left-full top-0 absolute z-10 2xl:w-80 xl:w-72">
+              <div class="grid-panel-glow border border-l-0 border-border rounded-r-lg bg-bg-subtle h-full shadow-2xl overflow-hidden">
+                <LeaderDetailPanel civBlitzComponent={component()} onClose={() => setCivBlitzDetailComponentId(null)} />
+              </div>
+            </div>
+          )}
+        </Show>
 
-        <div class="p-3 flex-1 min-h-0 overflow-y-auto">
-          <Show when={options} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
-            {resolvedOptions => (
-              <div class="flex flex-col gap-3">
-                <For each={categories}>
-                  {category => (
-                    <div class="rounded-lg border border-border bg-bg/40 overflow-hidden">
-                      <div class="px-3 py-2 border-b border-border-subtle flex gap-2 items-center">
-                        <span class={cn('text-cyan-200 text-base', CIV_BLITZ_CATEGORY_ICONS[category])} />
-                        <span class="text-xs text-fg font-semibold uppercase tracking-wider">{CIV_BLITZ_CATEGORY_LABELS[category]}</span>
-                      </div>
-                      <div class="p-2 grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-                        <For each={resolvedOptions()[category]}>
-                          {componentId => {
-                            const component = () => civBlitzComponentMap().get(componentId)
-                            const selected = () => civBlitzSelections()[category] === componentId
-                            return (
+        <div
+          class={cn(
+            'flex min-w-0 flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
+            showDockedPanels()
+              ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
+              : 'w-full',
+            showDockedPanels() && civBlitzDetailComponent() && 'rounded-r-none',
+            gridExpanded() && 'h-full',
+          )}
+        >
+          <div class="px-3 py-2 border-b border-border-subtle flex gap-2 min-w-0 items-center">
+            <button
+              class="text-fg-subtle shrink-0 cursor-pointer hover:text-fg-muted"
+              title={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
+              aria-label={gridExpanded() ? 'Restore side panels' : 'Expand leader grid'}
+              onClick={handleToggleGridExpanded}
+            >
+              <Show when={gridExpanded()} fallback={<div class="i-ph-caret-line-up-bold text-sm" />}>
+                <div class="i-ph-caret-line-down-bold text-sm" />
+              </Show>
+            </button>
+
+            <div class="flex-1" />
+
+            <div class="ml-auto flex shrink-0 gap-2 items-center">
+              <div class="text-[11px] text-fg-subtle">
+                {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
+                /
+                {civBlitzCategoriesForSeat().length}
+              </div>
+
+              <button
+                class="text-fg-subtle cursor-pointer hover:text-fg-muted"
+                onClick={() => { setCivBlitzDetailComponentId(null); setGridOpen(false) }}
+              >
+                <div class="i-ph-x-bold text-sm" />
+              </button>
+            </div>
+          </div>
+
+          <div class="p-1.5 flex-1 min-h-0 overflow-y-auto">
+            <Show when={civBlitzOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
+              {resolvedOptions => (
+                <div class="flex flex-col gap-2">
+                  <For each={civBlitzCategoriesForSeat()}>
+                    {category => (
+                      <div>
+                        <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
+                        <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+                          <For each={resolvedOptions()[category] ?? []}>
+                            {componentId => (
                               <CivBlitzOptionCard
-                                component={component()}
+                                component={civBlitzComponentMap().get(componentId)}
                                 category={category}
-                                selected={selected()}
+                                selected={civBlitzSelections()[category] === componentId}
                                 onClick={() => handleCivBlitzSelect(category, componentId)}
                               />
-                            )
-                          }}
-                        </For>
+                            )}
+                          </For>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            )}
-          </Show>
-        </div>
+                    )}
+                  </For>
+                </div>
+              )}
+            </Show>
+          </div>
 
-        <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
-          <button
-            class={cn(
-              'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
-              canConfirmCivBlitz()
-                ? 'bg-cyan-300 text-black cursor-pointer hover:bg-cyan-200'
-                : 'bg-cyan-300/15 text-cyan-200/45 cursor-default',
-            )}
-            disabled={!canConfirmCivBlitz()}
-            onClick={handleConfirmCivBlitz}
-          >
-            Confirm Kit (
-            {categories.filter(category => civBlitzSelections()[category]).length}
-            /
-            {categories.length}
-            )
-          </button>
+          <Show when={state()?.status === 'active' && isMyTurn() && !hasSubmitted()}>
+            <div class="px-4 py-3 border-t border-border-subtle flex items-center justify-center">
+              <button
+                class={cn(
+                  'rounded px-4 py-1.5 text-sm font-semibold transition-colors',
+                  canConfirmCivBlitz()
+                    ? 'bg-accent text-black cursor-pointer hover:bg-accent/80'
+                    : 'bg-accent/20 text-accent/50 cursor-default',
+                )}
+                disabled={!canConfirmCivBlitz()}
+                onClick={handleConfirmCivBlitz}
+              >
+                Confirm (
+                {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
+                /
+                {civBlitzCategoriesForSeat().length}
+                )
+              </button>
+            </div>
+          </Show>
         </div>
       </div>
     )
@@ -1318,34 +1386,51 @@ function CivBlitzOptionCard(props: {
   onClick: () => void
 }) {
   const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
+  const label = () => props.component?.name ?? 'Unknown component'
+
   return (
     <button
+      aria-label={label()}
+      title={label()}
       class={cn(
-        'rounded-md border p-2 text-left flex gap-2 min-h-24 transition-all group cursor-pointer',
-        props.selected
-          ? 'border-cyan-300 bg-cyan-300/10 shadow-[0_0_12px_rgba(103,232,249,0.18)]'
-          : 'border-border bg-bg/50 hover:bg-bg-muted hover:border-white/20',
+        'relative aspect-square p-0.5 group focus:outline-none',
+        props.component ? 'cursor-pointer' : 'cursor-default',
       )}
-      onClick={props.onClick}
+      disabled={!props.component}
+      onClick={() => props.onClick()}
     >
-      <div class={cn(
-        'h-14 w-14 rounded bg-bg-subtle border border-border-subtle flex shrink-0 items-center justify-center overflow-hidden',
-        props.selected && 'border-cyan-300/60',
-      )}
+      <div
+        class={cn(
+          'relative w-full h-full rounded-full overflow-hidden transition-all duration-150',
+          'ring-2 ring-inset',
+
+          !props.selected && 'ring-transparent',
+
+          // Hover
+          !props.selected && props.component && 'group-hover:ring-white/30 group-hover:brightness-115',
+
+          // Selected pick
+          props.selected && 'ring-accent shadow-[0_0_10px_var(--accent-muted)]',
+          props.selected && 'group-hover:ring-accent group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--accent-muted)]',
+        )}
       >
         <Show
           when={imageUrl()}
-          fallback={<span class={cn('text-2xl text-fg-subtle', CIV_BLITZ_CATEGORY_ICONS[props.category])} />}
+          fallback={(
+            <div class="bg-bg-subtle flex h-full w-full items-center justify-center rounded-full">
+              <span class={cn('text-lg text-accent/40', CIV_BLITZ_CATEGORY_ICONS[props.category])} />
+            </div>
+          )}
         >
-          {url => <img class="h-full w-full object-cover" src={resolveAssetUrl(url()) ?? url()} alt="" loading="lazy" />}
+          {url => (
+            <img
+              class="h-full w-full object-cover"
+              src={resolveAssetUrl(url()) ?? url()}
+              alt={label()}
+              loading="lazy"
+            />
+          )}
         </Show>
-      </div>
-      <div class="min-w-0 flex flex-col gap-1">
-        <div class={cn('text-xs font-semibold leading-snug line-clamp-2', props.selected ? 'text-cyan-100' : 'text-fg group-hover:text-fg')}>{props.component?.name ?? 'Unknown component'}</div>
-        <Show when={props.component?.civilization}>
-          {civilization => <div class="text-[10px] text-cyan-200/70 font-medium uppercase tracking-wide truncate">{civilization()}</div>}
-        </Show>
-        <div class="text-[10px] text-fg-subtle leading-snug line-clamp-3">{props.component?.description ?? 'Component data unavailable.'}</div>
       </div>
     </button>
   )
