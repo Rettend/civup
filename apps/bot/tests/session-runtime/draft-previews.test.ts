@@ -1,5 +1,5 @@
 import type { DraftState } from '@civup/game'
-import { allLeaderIds } from '@civup/game'
+import { allLeaderIds, CIV_BLITZ_CATEGORIES } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { applyDraftPreview, censorDraftPreviews } from '../../src/session-runtime/draft-previews.ts'
 
@@ -52,6 +52,26 @@ describe('draft previews', () => {
     const submittedState = createBlindPickState({ 0: [previewPick] })
     expect(censorDraftPreviews(submittedState, applied, 0).picks).toEqual({})
   })
+
+  test('shows CivBlitz component previews to teammates but not opponents', () => {
+    const state = createCivBlitzPreviewState()
+    const applied = applyDraftPreview(state, { bans: {}, picks: {} }, 0, 'pick', ['uu-1', 'ca-1', 'uu-2'])
+
+    expect('error' in applied).toBe(false)
+    if ('error' in applied) return
+    expect(applied.picks).toEqual({ 0: ['uu-1', 'ca-1'] })
+
+    const previews = {
+      bans: {},
+      picks: {
+        0: ['uu-1'],
+        1: ['ui-1'],
+        2: ['la-2'],
+      },
+    }
+    expect(censorDraftPreviews(state, previews, 0).picks).toEqual({ 0: ['uu-1'], 2: ['la-2'] })
+    expect(censorDraftPreviews(state, previews, 1).picks).toEqual({ 1: ['ui-1'] })
+  })
 })
 
 function createTeamBanState(): DraftState {
@@ -83,5 +103,36 @@ function createBlindPickState(submissions: DraftState['submissions'] = {}): Draf
     formatId: 'default-2v2-blind-pick',
     steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
     submissions,
+  }
+}
+
+function createCivBlitzPreviewState(): DraftState {
+  const options = {
+    civilizationAbility: ['ca-1', 'ca-2'],
+    leaderAbility: ['la-1', 'la-2'],
+    infrastructure: ['ui-1', 'ui-2'],
+    unit: ['uu-1', 'uu-2'],
+  }
+  return {
+    ...createTeamBanState(),
+    matchId: 'match-civblitz-preview',
+    formatId: 'civblitz-2v2',
+    steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+    civBlitz: {
+      optionCount: 2,
+      excludeBbgExpanded: true,
+      componentPools: options,
+      optionsBySeat: {
+        0: options,
+        1: options,
+        2: options,
+        3: options,
+      },
+      submissions: {},
+      lockedKits: {},
+      reveal: null,
+      conflictBans: [],
+      maxRedrafts: 2,
+    },
   }
 }

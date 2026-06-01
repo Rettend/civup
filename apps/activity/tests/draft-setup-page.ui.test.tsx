@@ -374,7 +374,7 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
   })
 
-  test('renders CivBlitz setup labeling and cyan switch styling like the Red Death mode row', async () => {
+  test('renders CivBlitz setup options without the BBG Beta row', async () => {
     const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
     render(() => (
       <DraftSetupPage lobby={{
@@ -385,12 +385,20 @@ describe('DraftSetupPage UI', () => {
 
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
     const civBlitzSwitch = screen.getByRole('switch', { name: 'CivBlitz' })
+    const excludeExpandedSwitch = screen.getByRole('switch', { name: 'Exclude BBG Expanded' })
+    const excludeExpandedLabel = screen.getByText('Exclude BBG Expanded')
     const civBlitzTrack = civBlitzSwitch.querySelector('div') as HTMLElement
+    const excludeExpandedTrack = excludeExpandedSwitch.querySelector('div') as HTMLElement
 
     expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'BBG Beta' })).toBeNull()
+    expectTextInOrder(configCard, ['Map Vote', 'Exclude BBG Expanded', 'Game Mode'])
     expectTextInOrder(configCard, ['CivBlitz', 'Red Death'])
     expect(civBlitzSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(excludeExpandedSwitch.getAttribute('aria-checked')).toBe('true')
     expect(civBlitzTrack.className).toContain('bg-cyan-300/18')
+    expect(excludeExpandedLabel.className).not.toContain('cyan')
+    expect(excludeExpandedTrack.className).not.toContain('cyan')
 
   })
 

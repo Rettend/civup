@@ -1,5 +1,5 @@
-import type { DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
-import { getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
+import type { CivBlitzComponentCategory, DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
 
 export function createEmptyDraftPreviews(): DraftPreviewState {
   return {
@@ -22,8 +22,10 @@ export function sanitizeDraftPreviews(state: DraftState, previews: DraftPreviewS
   const sanitizedBans = step.action === 'ban'
     ? sanitizeBanPreviewMap(state, step, previews.bans, available)
     : {}
-  const sanitizedPicks = step.action === 'pick' && !step.reveal && !step.civBlitz
-    ? sanitizePickPreviewMap(state, step, previews.picks, available)
+  const sanitizedPicks = step.action === 'pick' && !step.reveal
+    ? step.civBlitz
+      ? sanitizeCivBlitzPreviewMap(state, step, previews.picks)
+      : sanitizePickPreviewMap(state, step, previews.picks, available)
     : {}
 
   return {
@@ -58,7 +60,17 @@ export function applyDraftPreview(
     })
   }
 
-  if (step.action !== 'pick' || step.reveal || step.civBlitz) return { error: 'Current step is not a pick phase' }
+  if (step.action !== 'pick' || step.reveal) return { error: 'Current step is not a pick phase' }
+
+  if (step.civBlitz) {
+    if (!isSeatInStep(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+    if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
+
+    return sanitizeDraftPreviews(state, {
+      bans: previews.bans,
+      picks: setPreviewSelections(previews.picks, seatIndex, civIds),
+    })
+  }
 
   const normalized = normalizePreviewSelections(civIds, new Set(state.availableCivIds))
   return sanitizeDraftPreviews(state, {
@@ -124,7 +136,7 @@ export function censorSanitizedDraftPreviews(
 
   const ownTeam = state.seats[seatIndex]?.team ?? null
   const visiblePicks: DraftPreviewState['picks'] = {}
-  if (step.action === 'pick' && !step.reveal && !step.civBlitz) {
+  if (step.action === 'pick' && !step.reveal) {
     for (const [rawSeatIndex, civIds] of Object.entries(sanitized.picks)) {
       const previewSeatIndex = Number(rawSeatIndex)
       const previewSeat = state.seats[previewSeatIndex]
@@ -202,6 +214,35 @@ function sanitizePickPreviewMap(
     sanitized[seatIndex] = civIds
   }
 
+  return sanitized
+}
+
+function sanitizeCivBlitzPreviewMap(
+  state: DraftState,
+  step: DraftStep,
+  previews: DraftPreviewState['picks'],
+): DraftPreviewState['picks'] {
+  const civBlitz = state.civBlitz
+  if (!civBlitz) return {}
+
+  const sanitized: DraftPreviewState['picks'] = {}
+  for (const seatIndex of getActiveSeats(step, state.seats.length)) {
+    if (state.submissions[seatIndex]) continue
+
+    const options = civBlitz.optionsBySeat[seatIndex]
+    if (!options) continue
+
+    const categories = getCivBlitzStepCategories(step, seatIndex)
+    const selectedCategories = new Set<CivBlitzComponentCategory>()
+    const selections: string[] = []
+    for (const componentId of previews[seatIndex] ?? []) {
+      const category = categories.find(candidate => options[candidate]?.includes(componentId))
+      if (!category || selectedCategories.has(category)) continue
+      selectedCategories.add(category)
+      selections.push(componentId)
+    }
+    if (selections.length > 0) sanitized[seatIndex] = selections
+  }
   return sanitized
 }
 
@@ -322,6 +363,13 @@ function buildTimeoutBanSelections(
   }
 
   return selected
+}
+
+function getCivBlitzStepCategories(step: DraftStep, seatIndex: number): CivBlitzComponentCategory[] {
+  const bySeat = step.civBlitzCategoriesBySeat?.[seatIndex]
+  if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
+  const categories = step.civBlitzCategories
+  return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
 }
 
 function getActiveSeats(step: DraftStep, seatCount: number): number[] {

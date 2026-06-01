@@ -10,10 +10,75 @@ import { CIV_BLITZ_CATEGORIES } from './types.ts'
 import { getLeaders } from './leader-registry.ts'
 
 export const CIV_BLITZ_DEFAULT_OPTION_COUNT = 4
-export const CIV_BLITZ_MIN_OPTION_COUNT = 4
-export const CIV_BLITZ_MAX_OPTION_COUNT = 8
+export const CIV_BLITZ_MIN_OPTION_COUNT = 2
 
-const BBG_EXPANDED_CIV_BLITZ_SOURCE_LEADER_IDS = [] as const satisfies readonly string[]
+const BBG_EXPANDED_CIV_BLITZ_SOURCE_LEADER_IDS = [
+  'austria-maria-theresa',
+  'gaul-vercingetorix',
+  'goths-theodoric',
+  'macedon-olympias',
+  'maya-te-k-inich-ii',
+  'phoenicia-ahiram',
+  'poland-stanislaw-ii',
+  'swahili-al-hasan-ibn-sulaiman',
+  'taino-anacaona',
+  'teotihuacan-spearthrower-owl',
+  'thule-kiviuq',
+  'tibet-trisong-detsen',
+] as const satisfies readonly string[]
+
+const CIVILIZATION_ICON_FILES: Record<string, string> = {
+  America: 'American.png',
+  Arabia: 'Arabian.png',
+  Australia: 'Australian.png',
+  Aztec: 'Aztec.png',
+  Babylon: 'Babylonian.png',
+  Brazil: 'Brazilian.png',
+  Byzantium: 'Byzantine.png',
+  Canada: 'Canadian.png',
+  China: 'Chinese.png',
+  Cree: 'Cree.png',
+  Egypt: 'Egyptian.png',
+  England: 'English.png',
+  Ethiopia: 'Ethiopian.png',
+  France: 'French.png',
+  Gaul: 'Gallic.png',
+  Georgia: 'Georgian.png',
+  Germany: 'German.png',
+  'Gran Colombia': 'Gran_Colombian.png',
+  Greece: 'Greek.png',
+  Hungary: 'Hungarian.png',
+  Inca: 'Incan.png',
+  India: 'Indian.png',
+  Indonesia: 'Indonesian.png',
+  Japan: 'Japanese.png',
+  Khmer: 'Khmer.png',
+  Kongo: 'Kongolese.png',
+  Korea: 'Korean.png',
+  Macedon: 'Macedonian.png',
+  Mali: 'Malian.png',
+  Māori: 'Maori.png',
+  Mapuche: 'Mapuche.png',
+  Maya: 'Mayan.png',
+  Mongolia: 'Mongolian.png',
+  Netherlands: 'Dutch.png',
+  Norway: 'Norwegian.png',
+  Nubia: 'Nubian.png',
+  Ottomans: 'Ottoman.png',
+  Persia: 'Persian.png',
+  Phoenicia: 'Phoenician.png',
+  Poland: 'Polish.png',
+  Portugal: 'Portuguese.png',
+  Rome: 'Roman.png',
+  Russia: 'Russian.png',
+  Scotland: 'Scottish.png',
+  Scythia: 'Scythian.png',
+  Spain: 'Spanish.png',
+  Sumeria: 'Sumerian.png',
+  Sweden: 'Swedish.png',
+  Vietnam: 'Vietnamese.png',
+  Zulu: 'Zulu.png',
+}
 
 export interface CivBlitzRegistry {
   components: CivBlitzComponent[]
@@ -27,6 +92,8 @@ export function normalizeCivBlitzOptionCount(value: unknown, fallback = CIV_BLIT
   if (rounded < CIV_BLITZ_MIN_OPTION_COUNT || rounded > CIV_BLITZ_MAX_OPTION_COUNT) return fallback
   return rounded
 }
+
+export const CIV_BLITZ_MAX_OPTION_COUNT = getCivBlitzOptionCountMaximum('live', { excludeBbgExpanded: false })
 
 export function getCivBlitzRegistry(
   version: LeaderDataVersion = 'live',
@@ -54,10 +121,11 @@ export function getCivBlitzRegistry(
       addComponent({
         id: createComponentId('civilizationAbility', leader.civilization),
         category: 'civilizationAbility',
-        name: `${leader.civilization}: ${leader.civilizationAbility.name}`,
+        name: leader.civilizationAbility.name,
         description: leader.civilizationAbility.description,
         sourceLeaderId: leader.id,
         civilization: leader.civilization,
+        iconUrl: getCivilizationIconUrl(leader.civilization),
         portraitUrl: leader.portraitUrl,
       })
     }
@@ -65,7 +133,7 @@ export function getCivBlitzRegistry(
     addComponent({
       id: createComponentId('leaderAbility', leader.id),
       category: 'leaderAbility',
-      name: `${leader.name}: ${leader.ability.name}`,
+      name: leader.ability.name,
       description: leader.ability.description,
       sourceLeaderId: leader.id,
       civilization: leader.civilization,
@@ -81,6 +149,14 @@ export function getCivBlitzRegistry(
   }
 
   return { components, componentMap, componentPools: pools }
+}
+
+export function getCivBlitzOptionCountMaximum(
+  version: LeaderDataVersion = 'live',
+  options: { excludeBbgExpanded?: boolean } = {},
+): number {
+  const pools = getCivBlitzRegistry(version, options).componentPools
+  return Math.max(CIV_BLITZ_MIN_OPTION_COUNT, ...CIV_BLITZ_CATEGORIES.map(category => pools[category].length))
 }
 
 export function getCivBlitzComponent(
@@ -124,6 +200,11 @@ function createEmptyComponentPools(): CivBlitzComponentPools {
     infrastructure: [],
     unit: [],
   }
+}
+
+function getCivilizationIconUrl(civilization: string): string | undefined {
+  const file = CIVILIZATION_ICON_FILES[civilization]
+  return file ? `/assets/bbg/civilizations/${file}` : undefined
 }
 
 function createComponentId(category: CivBlitzComponentCategory, value: string): string {

@@ -39,6 +39,10 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
   }
   const closeDetails = () => props.onClose ? props.onClose() : setDetailLeaderId(null)
   const componentImageUrl = () => props.civBlitzComponent?.iconUrl ?? props.civBlitzComponent?.portraitUrl ?? null
+  const componentImageClass = () => {
+    if (!props.civBlitzComponent?.iconUrl) return 'rounded object-cover'
+    return cn('object-contain p-1.5', props.civBlitzComponent.category === 'civilizationAbility' ? 'rounded-full' : 'rounded')
+  }
 
   if (props.civBlitzComponent) {
     return (
@@ -60,7 +64,7 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
               <img
                 src={resolveAssetUrl(url()) ?? url()}
                 alt={props.civBlitzComponent!.name}
-                class={cn('rounded shrink-0 h-12 w-12 bg-bg-subtle', props.civBlitzComponent!.iconUrl ? 'object-contain p-1.5' : 'object-cover')}
+                class={cn('shrink-0 h-12 w-12 bg-bg-subtle', componentImageClass())}
               />
             )}
           </Show>

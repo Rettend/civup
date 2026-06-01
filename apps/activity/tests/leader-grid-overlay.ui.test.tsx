@@ -1,8 +1,8 @@
 /** @jsxImportSource solid-js */
 
-import type { DraftStep } from '@civup/game'
-import { getLeader } from '@civup/game'
-import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
+import type { CivBlitzCategoryOptions, DraftStep } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
@@ -28,6 +28,11 @@ function setViewportWidth(width: number) {
 
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function createCivBlitzOptions(): CivBlitzCategoryOptions {
+  const pools = getCivBlitzRegistry().componentPools
+  return Object.fromEntries(CIV_BLITZ_CATEGORIES.map(category => [category, pools[category].slice(0, 4)])) as CivBlitzCategoryOptions
 }
 
 describe('LeaderGridOverlay UI', () => {
@@ -202,6 +207,45 @@ describe('LeaderGridOverlay UI', () => {
 
     expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
     expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('hydrates CivBlitz selections from pick previews after remount', async () => {
+    const options = createCivBlitzOptions()
+    const previewIds = CIV_BLITZ_CATEGORIES.map(category => options[category][0]!)
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.draftPreviewPicks[0] = previewIds
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: getCivBlitzRegistry().componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    await waitFor(() => {
+      const confirmButton = screen.getByRole('button', { name: /Confirm/ })
+      expect(confirmButton.textContent?.replace(/\s+/g, '')).toBe('Confirm(4/4)')
+      expect(confirmButton.hasAttribute('disabled')).toBe(false)
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/ }))
+
+    expect(storeSpies.sendCivBlitzSubmit).toHaveBeenCalledWith({
+      civilizationAbility: previewIds[0],
+      leaderAbility: previewIds[1],
+      infrastructure: previewIds[2],
+      unit: previewIds[3],
+    })
   })
 
   test('toggles the expanded overlay layout through the shared grid controls', async () => {

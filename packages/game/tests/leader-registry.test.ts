@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { allLeaderIds, getFaction, getLeader, getLeaders } from '../src/index.ts'
+import { allLeaderIds, getCivBlitzRegistry, getFaction, getLeader, getLeaders } from '../src/index.ts'
 import { leaders as betaLeaders } from '../src/leaders-beta.ts'
 import { leaders as liveLeaders } from '../src/leaders.ts'
 
@@ -8,6 +8,21 @@ const betaOnlyLeaderIds = [
   'goths-theodoric',
   'poland-stanislaw-ii',
   'taino-anacaona',
+]
+
+const bbgExpandedLeaderIds = [
+  'austria-maria-theresa',
+  'gaul-vercingetorix',
+  'goths-theodoric',
+  'macedon-olympias',
+  'maya-te-k-inich-ii',
+  'phoenicia-ahiram',
+  'poland-stanislaw-ii',
+  'swahili-al-hasan-ibn-sulaiman',
+  'taino-anacaona',
+  'teotihuacan-spearthrower-owl',
+  'thule-kiviuq',
+  'tibet-trisong-detsen',
 ]
 
 describe('leader registry', () => {
@@ -34,6 +49,31 @@ describe('leader registry', () => {
 
     expect(hammurabi.civilizationAbility.name).toBe('Enuma Anu Enlil')
     expect(pedro.uniqueBuildings.map(unique => unique.name)).toEqual(['Street Carnival', 'Copacabana'])
+  })
+
+  test('CivBlitz leader ability components use ability names without leader prefixes', () => {
+    const lincoln = getLeader('america-abraham-lincoln')
+    const component = getCivBlitzRegistry().componentMap.get('civblitz:leaderAbility:america-abraham-lincoln')
+
+    expect(component?.name).toBe(lincoln.ability.name)
+    expect(component?.name).not.toContain(lincoln.name)
+  })
+
+  test('CivBlitz civilization ability components use civilization icons', () => {
+    const registry = getCivBlitzRegistry()
+
+    expect(registry.componentMap.get('civblitz:civilizationAbility:america')?.iconUrl).toBe('/assets/bbg/civilizations/American.png')
+    expect(registry.componentMap.get('civblitz:civilizationAbility:netherlands')?.iconUrl).toBe('/assets/bbg/civilizations/Dutch.png')
+  })
+
+  test('CivBlitz excludes BBG Expanded source leaders by default', () => {
+    const excludedRegistry = getCivBlitzRegistry('beta')
+    const includedRegistry = getCivBlitzRegistry('beta', { excludeBbgExpanded: false })
+
+    for (const leaderId of bbgExpandedLeaderIds) {
+      expect(includedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(true)
+      expect(excludedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(false)
+    }
   })
 
   test('expanded leaders use BBG-updated descriptions', () => {
