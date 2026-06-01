@@ -379,8 +379,8 @@ export function phaseLabel(): string {
   if (!step) return ''
 
   if (step.action === 'ban') return 'BAN PHASE'
-  if (step.civBlitz && step.reveal) return 'BLITZ CONFLICT'
-  if (step.civBlitz) return (step.blindPickRound ?? 0) > 0 ? 'BLITZ REDRAFT' : 'CIVBLITZ'
+  if (step.civBlitz && step.reveal) return 'PICK CONFLICT'
+  if (step.civBlitz) return 'PICK PHASE'
   if (step.reveal) return 'PICK CONFLICT'
   if (step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLIND REDRAFT' : 'BLIND PICK'
   return 'PICK PHASE'

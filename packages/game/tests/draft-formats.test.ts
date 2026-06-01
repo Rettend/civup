@@ -340,8 +340,8 @@ describe('formatDraftStepLabel', () => {
   })
 
   test('labels CivBlitz steps distinctly', () => {
-    expect(formatDraftStepLabel(civBlitz2v2.getSteps(4)[0]!, teamerSeats)).toBe('CIVBLITZ')
-    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, civBlitz: true }, teamerSeats)).toBe('BLITZ REVEAL')
-    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true }, teamerSeats)).toBe('BLITZ REDRAFT')
+    expect(formatDraftStepLabel(civBlitz2v2.getSteps(4)[0]!, teamerSeats)).toBe('PICK')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, civBlitz: true }, teamerSeats)).toBe('CONFLICT')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true }, teamerSeats)).toBe('PICK')
   })
 })

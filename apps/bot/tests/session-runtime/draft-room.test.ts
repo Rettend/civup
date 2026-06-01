@@ -1,7 +1,7 @@
 import type { DraftState } from '@civup/game'
 import type { RoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
 import type { DraftRuntimeEnv } from '../../src/session-runtime/draft-room.ts'
-import { createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, createDraft, draftFormatMap, getCivBlitzRegistry, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { createRoomRecord, ROOM_RECORD_KEY } from '../../src/session-runtime/draft-room-domain.ts'
 import { censorDraftStateForSeat, SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
@@ -32,6 +32,7 @@ class TestStorage {
 
 class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
   readonly waitUntilPromises: Promise<unknown>[]
+  readonly sleepDelays: number[] = []
 
   constructor(storage: TestStorage, env: DraftRuntimeEnv = {}) {
     const waitUntilPromises: Promise<unknown>[] = []
@@ -60,6 +61,11 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
 
   protected override random(): number {
     return 0
+  }
+
+  protected override sleep(ms: number): Promise<void> {
+    this.sleepDelays.push(ms)
+    return Promise.resolve()
   }
 }
 
@@ -137,6 +143,47 @@ describe('draft runtime alarm recovery', () => {
     await runtime.webSocketMessage(socket.connection, JSON.stringify({ type: 'start' }))
 
     expect(runtime.waitUntilPromises).toHaveLength(0)
+  })
+
+  test('debug active bot timers submit CivBlitz kits after the bot delay', async () => {
+    const format = draftFormatMap.get('civblitz-1v1')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    const seats = [
+      { playerId: 'p1', displayName: 'Player One', team: 0 },
+      { playerId: 'bot:p2', displayName: 'Debug Bot', team: 1 },
+    ]
+    const registry = getCivBlitzRegistry('live', { excludeBbgExpanded: true })
+    const state = createDraft('debug-civblitz-bot-match', format, seats, ['rome-trajan'], {
+      civBlitz: {
+        componentPools: registry.componentPools,
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        random: () => 0,
+      },
+    })
+    const room = createRoomRecord({
+      matchId: 'debug-civblitz-bot-match',
+      hostId: 'p1',
+      formatId: format.id,
+      seats,
+      civPool: ['rome-trajan'],
+      civBlitz: true,
+      civBlitzOptionCount: 4,
+      civBlitzExcludeBbgExpanded: true,
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const runtime = new TestSessionDraftRuntime(new TestStorage(room), { ENABLE_DEBUG_LOBBY_FILL: '1' })
+    const socket = createFakeSessionWebSocket({ id: 'conn-p1', sessionId: 'debug-civblitz-bot-match', playerId: 'p1', kind: 'draft', connectedAt: 1 })
+
+    await runtime.webSocketMessage(socket.connection, JSON.stringify({ type: 'start' }))
+    await Promise.all(runtime.waitUntilPromises)
+
+    const nextRoom = await runtime.readRoom()
+    const botKit = nextRoom?.state.civBlitz?.submissions[1]
+    expect(runtime.sleepDelays).toContain(5_000)
+    expect(nextRoom?.state.submissions[1]).toEqual(['__civblitz__'])
+    expect(CIV_BLITZ_CATEGORIES.every(category => typeof botKit?.[category] === 'string')).toBe(true)
   })
 
   test('timeout-cancels active drafts when timeout resolution cannot recover the step', async () => {
