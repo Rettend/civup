@@ -841,13 +841,20 @@ describe('tournament service', () => {
       let pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       const semifinals = pairings.filter(pairing => pairing.round === 'semifinal').sort((left, right) => left.seedOne - right.seedOne)
       expect(semifinals).toHaveLength(2)
+      const semifinalImageData = await buildTournamentLeaderboardImageData(db, tournament.id)
+      expect(semifinalImageData?.pairings.filter(pairing => pairing.round === 'semifinal').every(pairing => pairing.requiredWins === 2)).toBe(true)
 
-      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'advance-semi-session-1', 'advance-semi-match-1', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'advance-semi-session-1a', 'advance-semi-match-1a', PLAYER_1)
+      pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      expect(pairings.filter(pairing => pairing.round === 'final')).toHaveLength(0)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'advance-semi-session-1b', 'advance-semi-match-1b', PLAYER_1)
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       expect(pairings.filter(pairing => pairing.round === 'final')).toHaveLength(0)
 
-      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'advance-semi-session-2', 'advance-semi-match-2', PLAYER_3)
-      await syncTournamentMatchAfterReport(db, 'advance-semi-match-2')
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'advance-semi-session-2a', 'advance-semi-match-2a', PLAYER_3)
+      pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      expect(pairings.filter(pairing => pairing.round === 'final')).toHaveLength(0)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'advance-semi-session-2b', 'advance-semi-match-2b', PLAYER_3)
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       let finals = pairings.filter(pairing => pairing.round === 'final')
       expect(finals).toHaveLength(1)
@@ -863,8 +870,14 @@ describe('tournament service', () => {
       expect(finalTarget.stage).toBe('final')
       expect(finalTarget.opponentId).toBe(PLAYER_1)
       expect(finalTarget.opponentDisplayName).toBe('Alice')
+      const finalImageData = await buildTournamentLeaderboardImageData(db, tournament.id)
+      expect(finalImageData?.pairings.find(pairing => pairing.round === 'final')?.requiredWins).toBe(2)
 
-      await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session', 'advance-final-match', PLAYER_3)
+      await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session-1', 'advance-final-match-1', PLAYER_3)
+      const [pendingTournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournament.id))
+      expect(pendingTournament?.status).toBe('top_cut')
+
+      await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session-2', 'advance-final-match-2', PLAYER_3)
       const [completedTournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournament.id))
       expect(completedTournament?.status).toBe('completed')
 
@@ -896,21 +909,25 @@ describe('tournament service', () => {
 
       let pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       const semifinals = pairings.filter(pairing => pairing.round === 'semifinal').sort((left, right) => left.seedOne - right.seedOne)
-      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'correct-semi-session-1', 'correct-semi-match-1', PLAYER_1)
-      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'correct-semi-session-2', 'correct-semi-match-2', PLAYER_3)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'correct-semi-session-1a', 'correct-semi-match-1a', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'correct-semi-session-1b', 'correct-semi-match-1b', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'correct-semi-session-2a', 'correct-semi-match-2a', PLAYER_3)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'correct-semi-session-2b', 'correct-semi-match-2b', PLAYER_3)
 
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       let finals = pairings.filter(pairing => pairing.round === 'final')
       expect(finals).toHaveLength(1)
       expect(finals[0]?.playerTwoId).toBe(PLAYER_3)
 
-      await db.update(matchParticipants)
-        .set({ placement: 1 })
-        .where(and(eq(matchParticipants.matchId, 'correct-semi-match-2'), eq(matchParticipants.playerId, PLAYER_2)))
-      await db.update(matchParticipants)
-        .set({ placement: 2 })
-        .where(and(eq(matchParticipants.matchId, 'correct-semi-match-2'), eq(matchParticipants.playerId, PLAYER_3)))
-      await syncTournamentMatchAfterReport(db, 'correct-semi-match-2')
+      for (const matchId of ['correct-semi-match-2a', 'correct-semi-match-2b']) {
+        await db.update(matchParticipants)
+          .set({ placement: 1 })
+          .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, PLAYER_2)))
+        await db.update(matchParticipants)
+          .set({ placement: 2 })
+          .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, PLAYER_3)))
+        await syncTournamentMatchAfterReport(db, matchId)
+      }
 
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       finals = pairings.filter(pairing => pairing.round === 'final')
@@ -944,13 +961,15 @@ describe('tournament service', () => {
 
       let pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       const semifinals = pairings.filter(pairing => pairing.round === 'semifinal').sort((left, right) => left.seedOne - right.seedOne)
-      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'reset-semi-session-1', 'reset-semi-match-1', PLAYER_1)
-      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'reset-semi-session-2', 'reset-semi-match-2', PLAYER_3)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'reset-semi-session-1a', 'reset-semi-match-1a', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[0]!, 'reset-semi-session-1b', 'reset-semi-match-1b', PLAYER_1)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'reset-semi-session-2a', 'reset-semi-match-2a', PLAYER_3)
+      await reportTopCutPairing(db, tournament.id, semifinals[1]!, 'reset-semi-session-2b', 'reset-semi-match-2b', PLAYER_3)
 
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       expect(pairings.filter(pairing => pairing.round === 'final')).toHaveLength(1)
 
-      await syncTournamentMatchAfterCancel(db, 'reset-semi-match-2')
+      await syncTournamentMatchAfterCancel(db, 'reset-semi-match-2b')
 
       pairings = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
       expect(pairings.filter(pairing => pairing.round === 'final')).toHaveLength(0)
