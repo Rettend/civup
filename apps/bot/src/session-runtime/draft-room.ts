@@ -1,4 +1,6 @@
 import type {
+  CivBlitzComponentCategory,
+  CivBlitzPartialKit,
   DraftEvent,
   DraftPreviewState,
   DraftState,
@@ -12,6 +14,7 @@ import type { RoomEffect, RoomRecord } from './draft-room-domain.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
+  CIV_BLITZ_CATEGORIES,
   createDraft,
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
@@ -115,6 +118,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   protected random(): number {
     return Math.random()
+  }
+
+  protected sleep(ms: number): Promise<void> {
+    return wait(ms)
   }
 
   protected async runBackgroundRoomOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -888,7 +895,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const scheduledDelayMs = delayMs
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-      this.ctx.waitUntil(wait(scheduledDelayMs)
+      this.ctx.waitUntil(this.sleep(scheduledDelayMs)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
@@ -907,7 +914,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const scheduledDelayMs = delayMs
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-      this.ctx.waitUntil(wait(scheduledDelayMs)
+      this.ctx.waitUntil(this.sleep(scheduledDelayMs)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugMapVoteBotAction(seatIndex, config)))
         .catch((error) => {
           console.error(`Debug map vote bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
@@ -930,14 +937,22 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const submittedCount = state.submissions[seatIndex]?.length ?? 0
     if (submittedCount >= step.count) return
 
-    const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
-    if (availablePool.length === 0) return
-
     let result:
       | { state: DraftState, events: DraftEvent[] }
       | { error: string }
 
-    if (step.action === 'ban') {
+    if (step.civBlitz) {
+      const kit = buildDebugCivBlitzKit(state, seatIndex, () => this.random())
+      if (!kit) return
+      result = processDraftInput(
+        state,
+        { type: 'CIV_BLITZ_SUBMIT', seatIndex, kit },
+        { blindBans, random: () => this.random() },
+      )
+    }
+    else if (step.action === 'ban') {
+      const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+      if (availablePool.length === 0) return
       const remainingCount = Math.min(step.count - submittedCount, availablePool.length)
       if (remainingCount <= 0) return
 
@@ -949,6 +964,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       )
     }
     else {
+      const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+      if (availablePool.length === 0) return
       const [civId] = pickRandomDistinct(availablePool, 1, () => this.random())
       if (!civId) return
       result = processDraftInput(
@@ -971,7 +988,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       && nextSubmittedCount < nextStep.count
 
     if (needsFollowUpOnSameStep) {
-      this.ctx.waitUntil(wait(DEBUG_ACTIVE_BOT_DELAY_MS)
+      this.ctx.waitUntil(this.sleep(DEBUG_ACTIVE_BOT_DELAY_MS)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
@@ -1361,6 +1378,35 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function buildDebugCivBlitzKit(
+  state: DraftState,
+  seatIndex: number,
+  random: () => number,
+): CivBlitzPartialKit | null {
+  const step = getCurrentStep(state)
+  const options = state.civBlitz?.optionsBySeat[seatIndex]
+  if (!step?.civBlitz || !options) return null
+
+  const categories = getDebugCivBlitzCategories(step, seatIndex)
+  const kit: CivBlitzPartialKit = {}
+  for (const category of categories) {
+    const choices = options[category] ?? []
+    if (choices.length === 0) return null
+    kit[category] = choices[Math.floor(random() * choices.length)]
+  }
+  return kit
+}
+
+function getDebugCivBlitzCategories(
+  step: NonNullable<ReturnType<typeof getCurrentStep>>,
+  seatIndex: number,
+): CivBlitzComponentCategory[] {
+  const bySeat = step.civBlitzCategoriesBySeat?.[seatIndex]
+  if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
+  const categories = step.civBlitzCategories
+  return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
 }
 
 function getCachedSeatIndex(state: DraftState, cache: Map<string, number>, playerId: string | null | undefined): number {

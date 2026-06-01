@@ -491,7 +491,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Portrait */}
       <Show when={hasCivBlitzDisplay()}>
-        <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border-subtle">
+        <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-black/35">
           <For each={CIV_BLITZ_CATEGORIES}>
             {category => {
               const componentId = () => civBlitzKit()?.[category] ?? null
@@ -621,16 +621,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
         filled() || hasCivBlitzDisplay() || hasReveal() || hasPreview() || hasBanPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
-        <Show when={hasCivBlitzDisplay()}>
-          <div class="mb-1">
-            <div class="text-base leading-tight font-semibold text-fg truncate">CivBlitz Kit</div>
-            <div class="text-sm leading-tight text-fg-muted/80 truncate">
-              {CIV_BLITZ_CATEGORIES.filter(category => civBlitzKit()?.[category]).length}
-              /4 components
-            </div>
-          </div>
-        </Show>
-
         {/* Leader name (when picked) */}
         <Show when={displayLeaderKey()} keyed>
           {(_key) => {
@@ -728,9 +718,13 @@ function CivBlitzSlotTile(props: {
           />
         )}
       </Show>
-      <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1 pb-1 pt-4">
-        <div class="text-[9px] leading-tight text-white font-semibold truncate">{props.component?.name ?? 'Pending'}</div>
-      </div>
+      <Show when={props.component}>
+        {component => (
+          <div class="absolute left-1 top-1 max-w-[calc(100%-0.5rem)] rounded-sm bg-black/45 px-1 py-0.5 backdrop-blur-[1px]">
+            <div class="text-[8px] leading-none text-white/90 font-semibold truncate">{component().name}</div>
+          </div>
+        )}
+      </Show>
       <Show when={props.conflict}>
         <div class="pointer-events-none inset-0 absolute ring-2 ring-inset ring-danger/75 bg-danger/16" />
       </Show>
