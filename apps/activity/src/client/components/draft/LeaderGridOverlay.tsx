@@ -1,4 +1,4 @@
-import type { CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader } from '@civup/game'
+import type { CivBlitzCategoryOptions, CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader } from '@civup/game'
 import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { CIV_BLITZ_CATEGORIES, factions, getCivBlitzRegistry, getLeaders, searchFactions, searchLeaders } from '@civup/game'
@@ -30,6 +30,7 @@ import {
   gridExpanded,
   gridOpen,
   gridViewMode,
+  getPreviewPicksForSeat,
   hasSubmitted,
   hiddenDraftLeaderSelections,
   isHiddenDraftComplete,
@@ -60,7 +61,7 @@ import {
   toggleTagFilter,
 } from '~/client/stores'
 import { allowsDuplicateDraftPicks, isDraftCardUnavailable } from './draftAvailability'
-import { computeListItemBorderRadius, computeListItemBoxShadow, LeaderCard, LeaderListItem } from './LeaderCard'
+import { computeListItemBorderRadius, computeListItemBoxShadow, getLeaderPortraitScaleClass, LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
@@ -79,6 +80,7 @@ const CIV_BLITZ_CATEGORY_ICONS: Record<CivBlitzComponentCategory, string> = {
   infrastructure: 'i-ph:factory-duotone',
   unit: 'i-ph:horse-duotone',
 }
+const CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM = 56
 
 interface HoverTooltip {
   name: string
@@ -128,6 +130,47 @@ function parseHydrationSeatIndex(token: string | null): number | null {
 
   const seatIndex = Number(rawSeatIndex)
   return Number.isInteger(seatIndex) ? seatIndex : null
+}
+
+function createCivBlitzEntryKey(category: CivBlitzComponentCategory, componentId: string): string {
+  return `${category}:${componentId}`
+}
+
+function hasCivBlitzKitEntries(kit: CivBlitzPartialKit): boolean {
+  return CIV_BLITZ_CATEGORIES.some(category => kit[category] != null)
+}
+
+function sameCivBlitzKit(a: CivBlitzPartialKit, b: CivBlitzPartialKit): boolean {
+  return CIV_BLITZ_CATEGORIES.every(category => a[category] === b[category])
+}
+
+function pruneCivBlitzKit(
+  kit: CivBlitzPartialKit,
+  categories: CivBlitzComponentCategory[],
+  options: CivBlitzCategoryOptions,
+): CivBlitzPartialKit {
+  const next: CivBlitzPartialKit = {}
+  for (const category of categories) {
+    const componentId = kit[category]
+    if (componentId && options[category].includes(componentId)) next[category] = componentId
+  }
+  return next
+}
+
+function buildCivBlitzPreviewKit(
+  componentIds: string[],
+  categories: CivBlitzComponentCategory[],
+  options: CivBlitzCategoryOptions,
+): CivBlitzPartialKit {
+  const kit: CivBlitzPartialKit = {}
+  for (const componentId of componentIds) {
+    for (const category of categories) {
+      if (kit[category] || !options[category].includes(componentId)) continue
+      kit[category] = componentId
+      break
+    }
+  }
+  return kit
 }
 
 function computeListNeighborMap(
@@ -218,6 +261,8 @@ export function LeaderGridOverlay() {
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
   const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
+  const [civBlitzSelectionContextToken, setCivBlitzSelectionContextToken] = createSignal<string | null>(null)
+  const [hydratedCivBlitzPreviewToken, setHydratedCivBlitzPreviewToken] = createSignal<string | null>(null)
   const [wideWangVisibleLineCount, setWideWangVisibleLineCount] = createSignal(0)
   const [civBlitzSelections, setCivBlitzSelections] = createSignal<CivBlitzPartialKit>({})
   const [civBlitzDetailComponentId, setCivBlitzDetailComponentId] = createSignal<string | null>(null)
@@ -227,6 +272,8 @@ export function LeaderGridOverlay() {
   let tooltipRef: HTMLDivElement | undefined
   let wideWangAudio: HTMLAudioElement | null = null
   let wideWangRevealTimeouts: Array<ReturnType<typeof setTimeout>> = []
+  let civBlitzScrollTop = 0
+  let civBlitzScrollDraftVersion = draftStore.initVersion
 
   const clearWideWangRevealTimeouts = () => {
     for (const timeout of wideWangRevealTimeouts) clearTimeout(timeout)
@@ -262,6 +309,28 @@ export function LeaderGridOverlay() {
     })
   }
 
+  const syncCivBlitzScrollDraftVersion = () => {
+    const initVersion = draftStore.initVersion
+    if (civBlitzScrollDraftVersion === initVersion) return
+    civBlitzScrollDraftVersion = initVersion
+    civBlitzScrollTop = 0
+  }
+
+  const restoreCivBlitzScroll = (element: HTMLDivElement) => {
+    if (!isCivBlitzDraft()) return
+    syncCivBlitzScrollDraftVersion()
+    if (civBlitzScrollTop <= 0) return
+    queueMicrotask(() => {
+      if (element.isConnected) element.scrollTop = civBlitzScrollTop
+    })
+  }
+
+  const handleGridScroll = (event: Event) => {
+    if (!isCivBlitzDraft()) return
+    syncCivBlitzScrollDraftVersion()
+    civBlitzScrollTop = (event.currentTarget as HTMLDivElement).scrollTop
+  }
+
   const clearHoverTooltip = () => {
     setHoverTooltip(null)
     setHoveredListIndex(null)
@@ -288,6 +357,13 @@ export function LeaderGridOverlay() {
     sendThrottledBanPreview.clear()
     sendThrottledPickPreview.clear()
     stopWideWangEasterEgg()
+  })
+
+  createEffect(() => {
+    const initVersion = draftStore.initVersion
+    if (civBlitzScrollDraftVersion === initVersion) return
+    civBlitzScrollDraftVersion = initVersion
+    civBlitzScrollTop = 0
   })
   let restoreFiltersAfterCollapse = false
   let restoreDetailLeaderId: string | null = null
@@ -329,6 +405,7 @@ export function LeaderGridOverlay() {
   })
 
   const allLeaders = createMemo(() => getLeaders(leaderDataVersion()))
+  const leaderById = createMemo(() => new Map(allLeaders().map(leader => [leader.id, leader])))
   const civBlitzComponentMap = createMemo(() => getCivBlitzRegistry(leaderDataVersion(), { excludeBbgExpanded: state()?.civBlitz?.excludeBbgExpanded !== false }).componentMap)
   const allEntries = createMemo(() => isRedDeathDraft() ? factions : allLeaders())
   const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
@@ -438,6 +515,32 @@ export function LeaderGridOverlay() {
       return
     }
 
+    if (currentStep.action === 'pick' && currentStep.civBlitz) {
+      sendThrottledBanPreview.clear()
+      const seatIndex = ownSeatIndex()
+      const selections = civBlitzSelections()
+      const hydrationToken = currentCivBlitzSelectionToken()
+      if (seatIndex != null && civBlitzSelectionContextToken() !== hydrationToken && !hasCivBlitzKitEntries(selections) && getPreviewPicksForSeat(seatIndex).length > 0) {
+        sendThrottledPickPreview.clear()
+        return
+      }
+      const bySeat = seatIndex == null ? undefined : currentStep.civBlitzCategoriesBySeat?.[seatIndex]
+      const categories = bySeat && bySeat.length > 0
+        ? CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
+        : currentStep.civBlitzCategories && currentStep.civBlitzCategories.length > 0
+          ? CIV_BLITZ_CATEGORIES.filter(category => currentStep.civBlitzCategories!.includes(category))
+          : [...CIV_BLITZ_CATEGORIES]
+      const nextPreview = isMyTurn() && !hasSubmitted()
+        ? categories.flatMap(category => selections[category] ? [selections[category]!] : [])
+        : []
+      if (shouldSuppressPreviewClear('pick', nextPreview)) {
+        sendThrottledPickPreview.clear()
+        return
+      }
+      sendThrottledPickPreview(nextPreview)
+      return
+    }
+
     sendThrottledBanPreview.clear()
     const nextPreview = canSendPickPreview() ? pickSelections() : []
     if (shouldSuppressPreviewClear('pick', nextPreview)) {
@@ -445,16 +548,6 @@ export function LeaderGridOverlay() {
       return
     }
     sendThrottledPickPreview(nextPreview)
-  })
-
-  createEffect(() => {
-    const current = state()
-    const currentStep = step()
-    const seatIndex = ownSeatIndex()
-    if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
-      if (Object.keys(civBlitzSelections()).length > 0) setCivBlitzSelections({})
-      if (civBlitzDetailComponentId() != null) setCivBlitzDetailComponentId(null)
-    }
   })
 
   const draftLeaderPoolIds = createMemo(() => {
@@ -555,10 +648,45 @@ export function LeaderGridOverlay() {
     return seatIndex == null ? null : state()?.civBlitz?.optionsBySeat[seatIndex] ?? null
   }
 
+  function currentCivBlitzSelectionToken(): string | null {
+    const current = state()
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    if (!current || current.status !== 'active' || !currentStep?.civBlitz || seatIndex == null) return null
+    return `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}:${civBlitzCategoriesForSeat().join('|')}`
+  }
+
   const civBlitzOptionIdsForSeat = createMemo(() => {
     const options = civBlitzOptionsForSeat()
     if (!options) return []
     return civBlitzCategoriesForSeat().flatMap(category => options[category] ?? [])
+  })
+
+  const civBlitzOptionEntries = createMemo(() => {
+    const options = civBlitzOptionsForSeat()
+    if (!options) return []
+    return civBlitzCategoriesForSeat().flatMap(category => (options[category] ?? []).map(componentId => ({
+      key: createCivBlitzEntryKey(category, componentId),
+      category,
+      componentId,
+    })))
+  })
+
+  const civBlitzEntryIndexMap = createMemo(() => new Map(civBlitzOptionEntries().map((entry, index) => [entry.key, index])))
+
+  const civBlitzListNeighborMap = createMemo((): Map<string, LeaderListNeighborState> => {
+    const viewMode = gridViewMode()
+    if (viewMode === 'grid') return new Map()
+    const cols = viewMode === 'multi-list' ? multiListColumns() : 1
+    return computeListNeighborMap(
+      civBlitzOptionEntries().map(entry => entry.key),
+      cols,
+      (key) => {
+        const entry = civBlitzOptionEntries().find(candidate => candidate.key === key)
+        return !!entry && civBlitzSelections()[entry.category] === entry.componentId
+      },
+      hoveredListIndex(),
+    )
   })
 
   const civBlitzDetailComponent = createMemo<CivBlitzComponent | null>(() => {
@@ -567,6 +695,52 @@ export function LeaderGridOverlay() {
   })
 
   const civBlitzHeaderCount = () => state()?.civBlitz?.optionCount ?? civBlitzOptionsForSeat()?.[civBlitzCategoriesForSeat()[0]!]?.length ?? 0
+
+  createRenderEffect(() => {
+    const current = state()
+    const currentStep = step()
+    const seatIndex = ownSeatIndex()
+    const clearCivBlitzState = () => {
+      if (hasCivBlitzKitEntries(civBlitzSelections())) setCivBlitzSelections({})
+      if (civBlitzSelectionContextToken() !== null) setCivBlitzSelectionContextToken(null)
+      if (hydratedCivBlitzPreviewToken() !== null) setHydratedCivBlitzPreviewToken(null)
+      if (civBlitzDetailComponentId() != null) setCivBlitzDetailComponentId(null)
+    }
+
+    if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
+      clearCivBlitzState()
+      return
+    }
+
+    const options = civBlitzOptionsForSeat()
+    const categories = civBlitzCategoriesForSeat()
+    if (!options || categories.length === 0) {
+      clearCivBlitzState()
+      return
+    }
+
+    const hydrationToken = currentCivBlitzSelectionToken()
+    const localSelections = civBlitzSelections()
+    const prunedLocalSelections = pruneCivBlitzKit(localSelections, categories, options)
+    const serverPreviewSelections = buildCivBlitzPreviewKit(getPreviewPicksForSeat(seatIndex), categories, options)
+
+    if (civBlitzSelectionContextToken() !== hydrationToken) {
+      if (!sameCivBlitzKit(localSelections, serverPreviewSelections)) setCivBlitzSelections(serverPreviewSelections)
+      setCivBlitzSelectionContextToken(hydrationToken)
+      setHydratedCivBlitzPreviewToken(hasCivBlitzKitEntries(serverPreviewSelections) ? hydrationToken : null)
+      return
+    }
+
+    if (!sameCivBlitzKit(localSelections, prunedLocalSelections)) {
+      setCivBlitzSelections(prunedLocalSelections)
+      return
+    }
+
+    if (!hasCivBlitzKitEntries(localSelections) && hasCivBlitzKitEntries(serverPreviewSelections) && hydratedCivBlitzPreviewToken() !== hydrationToken) {
+      setCivBlitzSelections(serverPreviewSelections)
+      setHydratedCivBlitzPreviewToken(hydrationToken)
+    }
+  })
 
   createEffect(() => {
     const componentId = civBlitzDetailComponentId()
@@ -580,8 +754,18 @@ export function LeaderGridOverlay() {
     const selections = civBlitzSelections()
     return civBlitzCategoriesForSeat().every(category => !!selections[category] && options[category].includes(selections[category]!))
   }
+  const civBlitzSelectedCategoryCount = createMemo(() => {
+    const selections = civBlitzSelections()
+    return civBlitzCategoriesForSeat().filter(category => selections[category]).length
+  })
 
   const handleCivBlitzSelect = (category: CivBlitzComponentCategory, componentId: string) => {
+    const wasSelected = civBlitzSelections()[category] === componentId
+    const hydrationToken = currentCivBlitzSelectionToken()
+    if (hydrationToken) {
+      setCivBlitzSelectionContextToken(hydrationToken)
+      setHydratedCivBlitzPreviewToken(hydrationToken)
+    }
     setCivBlitzSelections((prev) => {
       const next = { ...prev }
       if (next[category] === componentId) delete next[category]
@@ -589,7 +773,22 @@ export function LeaderGridOverlay() {
       return next
     })
     setDetailLeaderId(null)
-    setCivBlitzDetailComponentId(componentId)
+    if (singleClickShowsDetail() && !wasSelected) setCivBlitzDetailComponentId(componentId)
+  }
+
+  const toggleCivBlitzDetail = (componentId: string) => {
+    setDetailLeaderId(null)
+    setCivBlitzDetailComponentId(current => current === componentId ? null : componentId)
+  }
+
+  const handleCivBlitzHoverMove = (component: CivBlitzComponent, x: number, y: number) => {
+    setHoverTooltip({
+      name: component.name,
+      civ: component.civilization ?? CIV_BLITZ_CATEGORY_LABELS[component.category],
+      tags: [],
+      x,
+      y,
+    })
   }
 
   const handleConfirmCivBlitz = () => {
@@ -846,11 +1045,49 @@ export function LeaderGridOverlay() {
     </div>
   )
 
+  const renderCivBlitzListOption = (category: CivBlitzComponentCategory, componentId: string) => {
+    const key = createCivBlitzEntryKey(category, componentId)
+    const component = () => civBlitzComponentMap().get(componentId)
+    return (
+      <div onMouseEnter={() => setHoveredListIndex(civBlitzEntryIndexMap().get(key) ?? null)}>
+        <CivBlitzOptionListItem
+          component={component()}
+          category={category}
+          sourceLeaderName={leaderById().get(component()?.sourceLeaderId ?? '')?.name}
+          selected={civBlitzSelections()[category] === componentId}
+          neighborState={civBlitzListNeighborMap().get(key)}
+          select={() => handleCivBlitzSelect(category, componentId)}
+          openDetails={() => toggleCivBlitzDetail(componentId)}
+          onHoverMove={handleCivBlitzHoverMove}
+          onHoverLeave={handleLeaderHoverLeave}
+        />
+      </div>
+    )
+  }
+
+  const renderCivBlitzListSection = (category: CivBlitzComponentCategory, componentIds: string[], stickyHeader: boolean) => (
+    <section class="min-w-0">
+      <div
+        class={cn(
+          'px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase',
+          stickyHeader && 'sticky top-0 z-10 bg-bg-subtle/95 backdrop-blur-sm',
+        )}
+      >
+        {CIV_BLITZ_CATEGORY_LABELS[category]}
+      </div>
+      <div class="flex flex-col">
+        <For each={componentIds}>
+          {componentId => renderCivBlitzListOption(category, componentId)}
+        </For>
+      </div>
+    </section>
+  )
+
   const renderGridPanel = (className: string) => (
     <div
       class={cn(
         'flex flex-col max-h-full overflow-hidden rounded-lg bg-bg-subtle shadow-2xl grid-panel-glow relative z-20 border border-border',
-        gridViewMode() === 'list' && !isCivBlitzDraft()
+        gridViewMode() === 'list'
           ? 'w-80 mx-auto'
           : showDockedPanels()
             ? 'w-[min(calc(100vw-32rem),68rem)] xl:w-[min(calc(100vw-36rem),68rem)] 2xl:w-[min(calc(100vw-40rem),68rem)]'
@@ -922,49 +1159,47 @@ export function LeaderGridOverlay() {
         </Show>
 
         <div class="ml-auto flex shrink-0 gap-2 items-center">
-          <Show when={!isCivBlitzDraft()}>
-            <div class="border border-border rounded flex overflow-hidden">
-              <button
-                class={cn(
-                  'px-1 py-0 transition-all duration-150 cursor-pointer',
-                  gridViewMode() === 'grid'
-                    ? 'bg-bg-muted text-fg'
-                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-                )}
-                title="Grid view"
-                aria-label="Grid view"
-                onClick={() => setGridViewMode('grid')}
-              >
-                <div class="i-ph-grid-four-bold text-xs" />
-              </button>
-              <button
-                class={cn(
-                  'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
-                  gridViewMode() === 'multi-list'
-                    ? 'bg-bg-muted text-fg'
-                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-                )}
-                title="Multi-column list"
-                aria-label="Multi-column list"
-                onClick={() => setGridViewMode('multi-list')}
-              >
-                <div class="i-ph:grid-nine-bold text-xs" />
-              </button>
-              <button
-                class={cn(
-                  'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
-                  gridViewMode() === 'list'
-                    ? 'bg-bg-muted text-fg'
-                    : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
-                )}
-                title="List view"
-                aria-label="List view"
-                onClick={() => setGridViewMode('list')}
-              >
-                <div class="i-ph-list-bullets-bold text-xs" />
-              </button>
-            </div>
-          </Show>
+          <div class="border border-border rounded flex overflow-hidden">
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer',
+                gridViewMode() === 'grid'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Grid view"
+              aria-label="Grid view"
+              onClick={() => setGridViewMode('grid')}
+            >
+              <div class="i-ph-grid-four-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'multi-list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="Multi-column list"
+              aria-label="Multi-column list"
+              onClick={() => setGridViewMode('multi-list')}
+            >
+              <div class="i-ph:grid-nine-bold text-xs" />
+            </button>
+            <button
+              class={cn(
+                'px-1 py-0 transition-all duration-150 cursor-pointer border-l border-border',
+                gridViewMode() === 'list'
+                  ? 'bg-bg-muted text-fg'
+                  : 'bg-bg/60 text-fg-muted hover:text-fg-muted hover:bg-bg-muted',
+              )}
+              title="List view"
+              aria-label="List view"
+              onClick={() => setGridViewMode('list')}
+            >
+              <div class="i-ph-list-bullets-bold text-xs" />
+            </button>
+          </div>
 
           <div class="text-[11px] text-fg-subtle">
             <Show when={isCivBlitzDraft()} fallback={<>{filteredLeaders().length}/{draftLeaderPoolIds().size}</>}>
@@ -981,7 +1216,11 @@ export function LeaderGridOverlay() {
         </div>
       </div>
 
-      <div class="p-1.5 flex-1 min-h-0 relative overflow-y-auto">
+      <div
+        ref={restoreCivBlitzScroll}
+        class="p-1.5 flex-1 min-h-0 relative overflow-y-auto"
+        onScroll={handleGridScroll}
+      >
         <Show when={showWideWangTranscript()}>
           <WideWangTranscriptBanner
             mode={gridViewMode() === 'grid' ? 'grid' : 'list'}
@@ -1112,27 +1351,69 @@ export function LeaderGridOverlay() {
         >
           <Show when={civBlitzOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
             {resolvedOptions => (
-              <div class="flex flex-col gap-2">
-                <For each={civBlitzCategoriesForSeat()}>
-                  {category => (
-                    <div>
-                      <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
-                      <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
-                        <For each={resolvedOptions()[category] ?? []}>
-                          {componentId => (
-                            <CivBlitzOptionCard
-                              component={civBlitzComponentMap().get(componentId)}
-                              category={category}
-                              selected={civBlitzSelections()[category] === componentId}
-                              onClick={() => handleCivBlitzSelect(category, componentId)}
-                            />
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <Switch>
+                <Match when={gridViewMode() === 'multi-list'}>
+                  <div
+                    ref={(el) => {
+                      const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
+                      const update = () => {
+                        if (!el.isConnected) return
+                        setMultiListColumns(el.clientWidth >= CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM * remPx ? 4 : 2)
+                      }
+                      update()
+                      const observer = new ResizeObserver(update)
+                      observer.observe(el)
+                      onCleanup(() => {
+                        observer.disconnect()
+                        setMultiListColumns(1)
+                      })
+                    }}
+                    class={cn('grid gap-x-2 gap-y-3', multiListColumns() >= 4 ? 'grid-cols-4' : 'grid-cols-2')}
+                    onMouseLeave={() => setHoveredListIndex(null)}
+                  >
+                    <For each={civBlitzCategoriesForSeat()}>
+                      {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], false)}
+                    </For>
+                  </div>
+                </Match>
+                <Match when={gridViewMode() === 'list'}>
+                  <div class="flex flex-col gap-2" onMouseLeave={() => setHoveredListIndex(null)}>
+                    <For each={civBlitzCategoriesForSeat()}>
+                      {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], true)}
+                    </For>
+                  </div>
+                </Match>
+                <Match when={gridViewMode() === 'grid'}>
+                  <div class="flex flex-col gap-2">
+                    <For each={civBlitzCategoriesForSeat()}>
+                      {category => (
+                        <div>
+                          <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
+                          <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
+                            <For each={resolvedOptions()[category] ?? []}>
+                              {componentId => {
+                                const component = () => civBlitzComponentMap().get(componentId)
+                                return (
+                                  <CivBlitzOptionCard
+                                    component={component()}
+                                    category={category}
+                                    sourceLeaderName={leaderById().get(component()?.sourceLeaderId ?? '')?.name}
+                                    selected={civBlitzSelections()[category] === componentId}
+                                    select={() => handleCivBlitzSelect(category, componentId)}
+                                    openDetails={() => toggleCivBlitzDetail(componentId)}
+                                    onHoverMove={handleCivBlitzHoverMove}
+                                    onHoverLeave={handleLeaderHoverLeave}
+                                  />
+                                )
+                              }}
+                            </For>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Match>
+              </Switch>
             )}
           </Show>
         </Show>
@@ -1152,7 +1433,7 @@ export function LeaderGridOverlay() {
               onClick={handleConfirmCivBlitz}
             >
               Confirm (
-              {civBlitzCategoriesForSeat().filter(category => civBlitzSelections()[category]).length}
+              {civBlitzSelectedCategoryCount()}
               /
               {civBlitzCategoriesForSeat().length}
               )
@@ -1248,7 +1529,7 @@ export function LeaderGridOverlay() {
                 </div>
               </Show>
 
-              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' && !isCivBlitzDraft() ? 'max-h-[60vh]' : '')}
+              {renderGridPanel(gridExpanded() ? 'h-full' : gridViewMode() === 'list' ? 'max-h-[60vh]' : '')}
             </div>
           )}
         >
@@ -1318,22 +1599,45 @@ export function LeaderGridOverlay() {
 function CivBlitzOptionCard(props: {
   component: CivBlitzComponent | undefined
   category: CivBlitzComponentCategory
+  sourceLeaderName?: string | null
   selected: boolean
-  onClick: () => void
+  select: () => void
+  openDetails: () => void
+  onHoverMove: (component: CivBlitzComponent, x: number, y: number) => void
+  onHoverLeave: () => void
 }) {
   const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
   const label = () => props.component?.name ?? 'Unknown component'
+  const isCivilizationIcon = () => props.category === 'civilizationAbility' && props.component?.iconUrl != null
+  const imageClass = () => props.component?.iconUrl
+    ? cn('object-contain p-1.5', isCivilizationIcon() && 'rounded-full')
+    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
+  const handleHoverMove = (event: MouseEvent) => {
+    if (!props.component) return
+    props.onHoverMove(props.component, event.clientX, event.clientY)
+  }
+  const handleClick = () => {
+    props.select()
+  }
+  const handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault()
+    props.onHoverLeave()
+    if (props.component) props.openDetails()
+  }
 
   return (
     <button
       aria-label={label()}
-      title={label()}
       class={cn(
         'relative aspect-square p-0.5 group focus:outline-none',
         props.component ? 'cursor-pointer' : 'cursor-default',
       )}
       disabled={!props.component}
-      onClick={() => props.onClick()}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={handleHoverMove}
+      onMouseMove={handleHoverMove}
+      onMouseLeave={props.onHoverLeave}
     >
       <div
         class={cn(
@@ -1360,7 +1664,7 @@ function CivBlitzOptionCard(props: {
         >
           {url => (
             <img
-              class="h-full w-full object-cover"
+              class={cn('h-full w-full', imageClass())}
               src={resolveAssetUrl(url()) ?? url()}
               alt={label()}
               loading="lazy"
@@ -1368,6 +1672,80 @@ function CivBlitzOptionCard(props: {
           )}
         </Show>
       </div>
+    </button>
+  )
+}
+
+function CivBlitzOptionListItem(props: {
+  component: CivBlitzComponent | undefined
+  category: CivBlitzComponentCategory
+  sourceLeaderName?: string | null
+  selected: boolean
+  neighborState?: LeaderListNeighborState
+  select: () => void
+  openDetails: () => void
+  onHoverMove: (component: CivBlitzComponent, x: number, y: number) => void
+  onHoverLeave: () => void
+}) {
+  const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
+  const label = () => props.component?.name ?? 'Unknown component'
+  const subLabel = () => props.component?.civilization ?? CIV_BLITZ_CATEGORY_LABELS[props.category]
+  const isCivilizationIcon = () => props.category === 'civilizationAbility' && props.component?.iconUrl != null
+  const imageClass = () => props.component?.iconUrl
+    ? cn('object-contain p-1', isCivilizationIcon() && 'rounded-full')
+    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
+  const handleHoverMove = (event: MouseEvent) => {
+    if (!props.component) return
+    props.onHoverMove(props.component, event.clientX, event.clientY)
+  }
+  const handleClick = () => {
+    props.select()
+  }
+  const handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault()
+    props.onHoverLeave()
+    if (props.component) props.openDetails()
+  }
+
+  return (
+    <button
+      class={cn(
+        'relative flex w-full items-center gap-2 px-1.5 py-1 text-left group min-w-0 transition-all duration-150 focus:outline-none',
+        props.component ? 'cursor-pointer' : 'cursor-default',
+        !props.selected && props.component && 'hover:bg-white/6',
+        props.selected && 'bg-accent/8 hover:bg-accent/14',
+      )}
+      style={{
+        'border-radius': computeListItemBorderRadius(props.selected, props.neighborState),
+        'box-shadow': computeListItemBoxShadow(props.selected, 'accent', props.neighborState),
+      }}
+      disabled={!props.component}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={handleHoverMove}
+      onMouseMove={handleHoverMove}
+      onMouseLeave={props.onHoverLeave}
+    >
+      <div class="shrink-0 h-7 w-7 rounded-full bg-bg-subtle relative overflow-hidden">
+        <Show
+          when={imageUrl()}
+          fallback={<span class={cn('absolute inset-0 m-auto h-4 w-4 text-accent/40', CIV_BLITZ_CATEGORY_ICONS[props.category])} />}
+        >
+          {url => (
+            <img
+              class={cn('h-full w-full', imageClass())}
+              src={resolveAssetUrl(url()) ?? url()}
+              alt={label()}
+              loading="lazy"
+            />
+          )}
+        </Show>
+      </div>
+
+      <span class="min-w-0 flex-1">
+        <span class={cn('block text-xs truncate transition-colors', props.selected ? 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]' : 'text-fg-muted group-hover:text-fg')}>{label()}</span>
+        <span class="block text-[10px] text-fg-subtle truncate">{subLabel()}</span>
+      </span>
     </button>
   )
 }

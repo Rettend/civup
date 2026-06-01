@@ -618,6 +618,7 @@ mock.module('~/client/stores', () => ({
   getSeatMapVote,
   getOptimisticSeatPick: () => null,
   getPreviewPickForSeat: (seatIndex: number) => uiMockState.previewPicks[seatIndex] ?? null,
+  getPreviewPicksForSeat: (seatIndex: number) => uiMockState.draftPreviewPicks[seatIndex] ?? (uiMockState.previewPicks[seatIndex] ? [uiMockState.previewPicks[seatIndex]!] : []),
   gridOpen: () => uiMockState.gridOpen,
   gridExpanded: () => uiMockState.gridExpanded,
   gridViewMode: () => uiMockState.gridViewMode,

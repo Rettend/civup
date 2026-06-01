@@ -7,7 +7,8 @@ import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
-import { BLIND_PICK_SUBMISSION_PLACEHOLDER, canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { BLIND_PICK_SUBMISSION_PLACEHOLDER, canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getPreviewPicksForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { getLeaderPortraitScaleClass } from './LeaderCard'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -121,14 +122,27 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
   const hasReveal = (): boolean => revealLeader() != null
-  const civBlitzKit = (): CivBlitzPartialKit | null => {
+  const civBlitzLockedKit = (): CivBlitzPartialKit | null => state()?.civBlitz?.lockedKits[props.seatIndex] ?? null
+  const civBlitzRevealedKit = (): CivBlitzPartialKit | null => {
     const blitz = state()?.civBlitz
     if (!blitz) return null
-    const revealed = blitz.reveal?.submissions.find(submission => submission.seatIndex === props.seatIndex)?.kit ?? null
-    return {
-      ...(blitz.lockedKits[props.seatIndex] ?? {}),
-      ...(revealed ?? {}),
+    return blitz.reveal?.submissions.find(submission => submission.seatIndex === props.seatIndex)?.kit ?? null
+  }
+  const civBlitzPreviewKit = (): CivBlitzPartialKit | null => {
+    const blitz = state()?.civBlitz
+    if (!blitz) return null
+    const options = blitz.optionsBySeat[props.seatIndex]
+    if (!options) return null
+
+    const kit: CivBlitzPartialKit = {}
+    for (const componentId of getPreviewPicksForSeat(props.seatIndex)) {
+      for (const category of CIV_BLITZ_CATEGORIES) {
+        if (kit[category] || !options[category].includes(componentId)) continue
+        kit[category] = componentId
+        break
+      }
     }
+    return Object.keys(kit).length > 0 ? kit : null
   }
   const hasCivBlitzDisplay = () => state()?.civBlitz != null
   const civBlitzConflictIds = () => new Set(state()?.civBlitz?.reveal?.conflictComponentIds ?? [])
@@ -491,16 +505,21 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
       {/* Portrait */}
       <Show when={hasCivBlitzDisplay()}>
-        <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-black/35">
+        <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-black/20">
           <For each={CIV_BLITZ_CATEGORIES}>
             {category => {
-              const componentId = () => civBlitzKit()?.[category] ?? null
+              const lockedComponentId = () => civBlitzLockedKit()?.[category] ?? null
+              const revealedComponentId = () => civBlitzRevealedKit()?.[category] ?? null
+              const previewComponentId = () => lockedComponentId() ? null : civBlitzPreviewKit()?.[category] ?? null
+              const componentId = () => lockedComponentId() ?? previewComponentId() ?? revealedComponentId()
               const component = () => componentId() ? civBlitzComponentMap().get(componentId()!) ?? null : null
               return (
                 <CivBlitzSlotTile
                   category={category}
                   component={component()}
-                  conflict={componentId() ? civBlitzConflictIds().has(componentId()!) : false}
+                  sourceLeaderName={getCivBlitzSourceLeaderName(component())}
+                  conflict={!previewComponentId() && revealedComponentId() ? civBlitzConflictIds().has(revealedComponentId()!) : false}
+                  preview={previewComponentId() != null}
                   compact={props.compact}
                 />
               )
@@ -694,42 +713,62 @@ export function PlayerSlot(props: PlayerSlotProps) {
 function CivBlitzSlotTile(props: {
   category: CivBlitzComponentCategory
   component: CivBlitzComponent | null
+  sourceLeaderName?: string | null
   conflict: boolean
+  preview: boolean
   compact?: boolean
 }) {
   const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
+  const hasIcon = () => props.component?.iconUrl != null
+  const isCivilizationIcon = () => props.category === 'civilizationAbility' && hasIcon()
+  const imageFrameClass = () => hasIcon()
+    ? cn(props.compact ? 'h-[58%] w-[58%]' : 'h-[66%] w-[66%]', isCivilizationIcon() ? 'rounded-full' : 'rounded-md')
+    : (props.compact ? 'h-[48%] w-[48%] rounded-full' : 'h-[56%] w-[56%] rounded-full')
+  const imageClass = () => hasIcon()
+    ? cn('object-contain', isCivilizationIcon() && 'rounded-full')
+    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
   return (
-    <div class={cn('relative min-h-0 min-w-0 bg-bg overflow-hidden', props.conflict && 'saturate-110')}>
-      <Show
-        when={imageUrl()}
-        fallback={(
-          <div class="absolute inset-0 flex items-center justify-center bg-bg-subtle">
-            <span class={cn('text-3xl text-fg-muted/45', CIV_BLITZ_SLOT_ICONS[props.category])} />
-          </div>
-        )}
-      >
-        {url => (
-          <img
-            src={resolveAssetUrl(url()) ?? url()}
-            alt={props.component?.name ?? ''}
-            title={props.component?.name}
-            class={cn('absolute inset-0 h-full w-full object-cover', props.compact ? 'object-center' : 'object-center')}
-            loading="lazy"
-          />
-        )}
-      </Show>
-      <Show when={props.component}>
-        {component => (
-          <div class="absolute left-1 top-1 max-w-[calc(100%-0.5rem)] rounded-sm bg-black/45 px-1 py-0.5 backdrop-blur-[1px]">
-            <div class="text-[8px] leading-none text-white/90 font-semibold truncate">{component().name}</div>
-          </div>
-        )}
-      </Show>
+    <div class={cn('relative min-h-0 min-w-0 bg-bg overflow-hidden', props.conflict && 'saturate-110', props.preview && 'opacity-50 saturate-85')}>
+      <div class="absolute inset-0 flex flex-col items-center justify-center px-2 pb-2 pt-4">
+        <Show when={props.component}>
+          {component => (
+            <div class="mb-1.5 max-w-full text-center text-sm leading-tight text-white/90 font-semibold truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
+              {component().name}
+            </div>
+          )}
+        </Show>
+        <div class={cn('relative shrink-0 overflow-hidden bg-bg-subtle/45', imageFrameClass())}>
+          <Show
+            when={imageUrl()}
+            keyed
+            fallback={(
+              <div class="absolute inset-0 flex items-center justify-center">
+                <span class={cn('text-3xl text-fg-muted/45', CIV_BLITZ_SLOT_ICONS[props.category])} />
+              </div>
+            )}
+          >
+            {url => (
+              <SlotPortraitImage
+                src={resolveAssetUrl(url) ?? url}
+                alt={props.component?.name ?? ''}
+                class={cn('absolute inset-0 h-full w-full object-center', imageClass())}
+                animate={props.preview}
+              />
+            )}
+          </Show>
+        </div>
+      </div>
       <Show when={props.conflict}>
         <div class="pointer-events-none inset-0 absolute ring-2 ring-inset ring-danger/75 bg-danger/16" />
       </Show>
     </div>
   )
+}
+
+function getCivBlitzSourceLeaderName(component: CivBlitzComponent | null): string | null {
+  if (!component) return null
+  try { return getLeader(component.sourceLeaderId, draftStore.leaderDataVersion).name }
+  catch { return null }
 }
 
 function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {

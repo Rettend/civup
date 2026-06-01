@@ -106,7 +106,7 @@ export function processDraftInput(
     case 'PICK':
       return processPick(state, input.seatIndex, input.civId)
     case 'CIV_BLITZ_SUBMIT':
-      return processCivBlitzSubmit(state, input.seatIndex, input.kit)
+      return processCivBlitzSubmit(state, input.seatIndex, input.kit, random ?? Math.random)
     case 'TIMEOUT':
       return processTimeout(state, blindBans, random)
   }
@@ -446,6 +446,7 @@ function processCivBlitzSubmit(
   state: DraftState,
   seatIndex: number,
   kit: CivBlitzPartialKit,
+  random: RandomSource,
 ): DraftResult | DraftError {
   if (state.status !== 'active') {
     return { error: 'Draft is not active' }
@@ -481,7 +482,7 @@ function processCivBlitzSubmit(
   const events: DraftEvent[] = [{ type: 'CIV_BLITZ_SUBMITTED', seatIndex, categories, blind: true }]
 
   if (isCivBlitzStepComplete(nextState, step)) {
-    return completeCivBlitzStep(nextState, step, events)
+    return completeCivBlitzStep(nextState, step, events, random)
   }
 
   return { state: nextState, events }
@@ -516,13 +517,14 @@ function processCivBlitzTimeout(
     events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: categories.map(category => autoKit[category]).filter(isString) })
   }
 
-  return completeCivBlitzStep({ ...state, submissions: nextSubmissions, civBlitz: nextCivBlitz }, step, events)
+  return completeCivBlitzStep({ ...state, submissions: nextSubmissions, civBlitz: nextCivBlitz }, step, events, random)
 }
 
 function completeCivBlitzStep(
   state: DraftState,
   step: DraftStep,
   events: DraftEvent[],
+  random: RandomSource,
 ): DraftResult | DraftError {
   const civBlitz = state.civBlitz
   if (!civBlitz) return { error: 'CivBlitz state is missing' }
@@ -565,17 +567,6 @@ function completeCivBlitzStep(
   }
 
   const round = step.blindPickRound ?? 0
-  const revealStep: DraftStep = {
-    action: 'pick',
-    seats: conflicts.conflictedSeatIndexes,
-    count: 0,
-    timer: BLIND_PICK_REVEAL_SECONDS,
-    reveal: true,
-    blindPickRound: round,
-    redraftTimer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
-    civBlitz: true,
-    civBlitzCategoriesBySeat: conflicts.categoriesBySeat,
-  }
   const nextStepIndex = state.currentStepIndex + 1
   const reveal: CivBlitzReveal = {
     round,
@@ -589,35 +580,66 @@ function completeCivBlitzStep(
     ...civBlitz.conflictBans,
     ...conflicts.conflictSelections,
   ]
+  const revealedEvent: DraftEvent = {
+    type: 'CIV_BLITZ_REVEALED',
+    submissions: submitted,
+    conflictComponentIds: conflicts.conflictComponentIds,
+    conflictedSeatIndexes: conflicts.conflictedSeatIndexes,
+    categoriesBySeat: conflicts.categoriesBySeat,
+    round,
+  }
+  const nextCivBlitz: CivBlitzState = {
+    ...civBlitz,
+    submissions: {},
+    lockedKits,
+    reveal,
+    conflictBans,
+  }
+
+  if (round >= civBlitz.maxRedrafts) {
+    const autoLocked = autoLockCivBlitzConflicts(nextCivBlitz, reveal.categoriesBySeat, random)
+    if ('error' in autoLocked) return autoLocked
+    return advanceStep({
+      ...state,
+      submissions: {},
+      civBlitz: {
+        ...nextCivBlitz,
+        lockedKits: autoLocked.lockedKits,
+        reveal: null,
+      },
+    }, [...events, revealedEvent, ...autoLocked.events])
+  }
+
+  const optionsBySeat = dealCivBlitzRedraftOptions(nextCivBlitz, reveal.categoriesBySeat, random)
+  const redraftStep: DraftStep = {
+    action: 'pick',
+    seats: conflicts.conflictedSeatIndexes,
+    count: 1,
+    timer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
+    blind: true,
+    blindPickRound: round + 1,
+    civBlitz: true,
+    civBlitzCategoriesBySeat: conflicts.categoriesBySeat,
+  }
 
   return {
     state: {
       ...state,
       steps: [
         ...state.steps.slice(0, nextStepIndex),
-        revealStep,
+        redraftStep,
         ...state.steps.slice(nextStepIndex),
       ],
       currentStepIndex: nextStepIndex,
       submissions: {},
       civBlitz: {
-        ...civBlitz,
-        submissions: {},
-        lockedKits,
-        reveal,
-        conflictBans,
+        ...nextCivBlitz,
+        optionsBySeat,
       },
     },
     events: [
       ...events,
-      {
-        type: 'CIV_BLITZ_REVEALED',
-        submissions: submitted,
-        conflictComponentIds: conflicts.conflictComponentIds,
-        conflictedSeatIndexes: conflicts.conflictedSeatIndexes,
-        categoriesBySeat: conflicts.categoriesBySeat,
-        round,
-      },
+      revealedEvent,
       { type: 'STEP_ADVANCED', stepIndex: nextStepIndex },
     ],
   }
