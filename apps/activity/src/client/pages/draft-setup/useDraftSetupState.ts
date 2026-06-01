@@ -171,13 +171,24 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const lobbyMode = () => inferGameMode(currentLobby()?.mode ?? state()?.formatId)
   const formatLabel = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, targetSize: lobby.targetSize })
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, civBlitz: configState.derived.draftConfig().civBlitz, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: configState.derived.isRedDeath(), targetSize: state()?.seats.length })
   }
   const miniFormatLabel = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, compactRedDeath: true, targetSize: lobby.targetSize })
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, compactRedDeath: true, civBlitz: configState.derived.draftConfig().civBlitz, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: configState.derived.isRedDeath(), compactRedDeath: true, targetSize: state()?.seats.length })
+  }
+  const statsLabel = () => {
+    const config = configState.derived.draftConfig()
+    if (config.civBlitz) return 'CivBlitz'
+    if (config.redDeath) return 'Red Death'
+
+    const lobby = currentLobby()
+    const baseLabel = lobby
+      ? formatModeLabel(lobby.mode, 'DRAFT', { targetSize: lobby.targetSize })
+      : formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { targetSize: state()?.seats.length })
+    return `${baseLabel} Stats`
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -677,6 +688,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     pendingArrangeStrategy,
     clearPendingArrangeStrategy,
     rankedRoles: configState.options.rankedRoles,
+    statsLabel,
+    unranked: configState.derived.isUnranked,
     permissions: {
       canDragRow,
       canDropOnRow,
@@ -754,7 +767,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   const mini = {
     formatLabel: miniFormatLabel,
-    titleAccent: () => configState.derived.isRedDeath() ? 'orange' : 'gold',
+    titleAccent: () => configState.derived.isCivBlitz() ? 'cyan' : configState.derived.isRedDeath() ? 'orange' : 'gold',
     rightLabel: () => currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null,
     columns: miniColumns,
   }

@@ -2,7 +2,7 @@ import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { DISPLAY_RATING_BASE, displayRating } from '@civup/rating'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { cn } from '~/client/lib/css'
@@ -304,6 +304,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
             <PlayerStatsPopover
               row={row()}
               rankedRoles={state().rankedRoles()}
+              statsLabel={state().statsLabel()}
+              unranked={state().unranked()}
               style={playerPopoverStyle()}
               setRef={(element) => { playerPopoverRef = element }}
             />
@@ -606,10 +608,12 @@ function PlayerChip(props: {
 function PlayerStatsPopover(props: {
   row: PlayerRow
   rankedRoles: RankedRoleOptionSnapshot[]
+  statsLabel: string
+  unranked: boolean
   style: { left: string, top: string } | undefined
   setRef: (element: HTMLDivElement) => void
 }) {
-  const ratingValue = () => formatRating(props.row.balanceRating)
+  const ratingValue = () => formatRating(props.row.balanceRating, props.unranked)
   const recordValue = () => formatRecord(props.row.balanceRating)
   const winRateValue = () => formatWinRate(props.row.balanceRating)
   const rankValue = () => props.row.balanceRating?.rank ? `#${props.row.balanceRating.rank}` : 'Unranked'
@@ -642,7 +646,9 @@ function PlayerStatsPopover(props: {
                 </span>
               </Show>
             </div>
-
+            <div class="shrink-0 text-right text-[10px] text-fg-subtle font-semibold tracking-wide whitespace-nowrap" title={props.statsLabel}>
+              {props.statsLabel}
+            </div>
           </div>
         </div>
       </div>
@@ -670,20 +676,22 @@ function PlayerStatsPopover(props: {
   )
 }
 
-function formatRating(rating: PlayerRow['balanceRating']): string {
-  if (!rating) return 'No data'
+export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
+  if (unranked) return 'Unranked'
+  if (!rating) return String(DISPLAY_RATING_BASE)
   return String(Math.round(displayRating(rating.mu, rating.sigma)))
 }
 
-function formatRecord(rating: PlayerRow['balanceRating']): string {
-  if (!rating || rating.wins == null || rating.gamesPlayed <= 0) return 'No data'
-  const wins = Math.max(0, Math.min(rating.gamesPlayed, rating.wins))
-  return `${wins}-${Math.max(0, rating.gamesPlayed - wins)}`
+export function formatRecord(rating: PlayerRow['balanceRating']): string {
+  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
+  const wins = Math.max(0, Math.min(gamesPlayed, rating?.wins ?? 0))
+  return `${wins}-${gamesPlayed - wins}`
 }
 
-function formatWinRate(rating: PlayerRow['balanceRating']): string {
-  if (!rating || rating.wins == null || rating.gamesPlayed <= 0) return 'No data'
-  return `${Math.round((rating.wins / rating.gamesPlayed) * 100)}%`
+export function formatWinRate(rating: PlayerRow['balanceRating']): string {
+  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
+  if (gamesPlayed === 0) return '0%'
+  return `${Math.round(((rating?.wins ?? 0) / gamesPlayed) * 100)}%`
 }
 
 function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {

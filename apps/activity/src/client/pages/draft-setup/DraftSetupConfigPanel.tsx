@@ -290,13 +290,11 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
           label="CivBlitz"
           active={() => state.derived.optimisticDraftConfig().civBlitz}
           activeClass="text-cyan-300"
+          tone="cyan"
           disabled={() => state.lobbyActionPending() || state.pending.civBlitz()}
           onChange={checked => void state.actions.changeCivBlitz(checked)}
         />
       </div>
-    ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="CivBlitz" value={state.derived.formattedCivBlitz()} valueClass={state.derived.draftConfig().civBlitz ? 'text-cyan-300' : undefined} />
     ),
   },
   {
@@ -319,16 +317,14 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     key: 'redDeath',
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
-      <div class="mt-1 pt-3 border-t border-border-subtle">
-        <SwitchRow
-          label="Red Death"
-          active={() => state.derived.optimisticDraftConfig().redDeath}
-          activeClass="text-[#f97316]"
-          tone="orange"
-          disabled={() => state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
-          onChange={checked => void state.actions.changeRedDeath(checked)}
-        />
-      </div>
+      <SwitchRow
+        label="Red Death"
+        active={() => state.derived.optimisticDraftConfig().redDeath}
+        activeClass="text-[#f97316]"
+        tone="orange"
+        disabled={() => state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
+        onChange={checked => void state.actions.changeRedDeath(checked)}
+      />
     ),
   },
 ]
@@ -458,7 +454,7 @@ function SwitchRow(props: {
   label: string
   active: Accessor<boolean>
   disabled: Accessor<boolean>
-  tone?: 'orange'
+  tone?: 'orange' | 'cyan'
   activeClass?: string
   onChange: (checked: boolean) => void
 }) {

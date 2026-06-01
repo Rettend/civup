@@ -64,7 +64,7 @@ async function expireOpenLobby(
   if (token) {
     try {
       await upsertLobbyMessage(kv, token, cancelledLobby, {
-        embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath)],
+        embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)],
         components: [],
       }, options)
     }

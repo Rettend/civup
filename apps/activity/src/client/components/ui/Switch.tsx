@@ -10,7 +10,7 @@ interface SwitchProps {
   ariaLabel?: MaybeAccessor<string | undefined>
   checked?: MaybeAccessor<boolean | undefined>
   disabled?: MaybeAccessor<boolean | undefined>
-  tone?: 'accent' | 'danger' | 'orange' | 'note'
+  tone?: 'accent' | 'danger' | 'orange' | 'cyan' | 'note'
   inactiveTone?: 'purple'
   onChange?: (checked: boolean) => void
   class?: string
@@ -30,6 +30,9 @@ export function Switch(props: SwitchProps) {
     if (local.tone === 'orange') {
       return 'border-[#f97316]/60 bg-[#f97316]/18 shadow-[0_0_8px_rgba(249,115,22,0.24),inset_0_1px_0_rgba(251,146,60,0.28)]'
     }
+    if (local.tone === 'cyan') {
+      return 'border-cyan-300/60 bg-cyan-300/18 shadow-[0_0_8px_rgba(103,232,249,0.24),inset_0_1px_0_rgba(165,243,252,0.28)]'
+    }
     if (local.tone === 'note') {
       return 'bg-note-muted border-note/60 shadow-[0_0_8px_var(--note-muted),inset_0_1px_0_var(--note-muted)]'
     }
@@ -44,6 +47,7 @@ export function Switch(props: SwitchProps) {
   const activeThumbClass = () => {
     if (local.tone === 'danger') return 'left-[calc(100%-18px)] bg-danger shadow-[0_0_6px_var(--danger-muted)]'
     if (local.tone === 'orange') return 'left-[calc(100%-18px)] bg-[#f97316] shadow-[0_0_6px_rgba(249,115,22,0.35)]'
+    if (local.tone === 'cyan') return 'left-[calc(100%-18px)] bg-cyan-300 shadow-[0_0_6px_rgba(103,232,249,0.35)]'
     if (local.tone === 'note') return 'left-[calc(100%-18px)] bg-note shadow-[0_0_6px_var(--note-muted)]'
     return 'left-[calc(100%-18px)] bg-accent shadow-[0_0_6px_var(--accent-muted)]'
   }

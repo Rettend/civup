@@ -127,7 +127,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
+                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath, undefined, directLobby.draftConfig.civBlitz)],
                 components: [],
               }, { db, sessionNamespace: c.env.SessionDO })
             }
@@ -172,7 +172,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath, undefined, existingLobby.draftConfig.civBlitz)],
                 components: [],
               }, { db, sessionNamespace: c.env.SessionDO })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -187,7 +187,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath, undefined, matchContext.civBlitz)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -221,7 +221,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
-            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath })} matches.`,
+            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath, civBlitz: matchContext.civBlitz })} matches.`,
             'success',
           )
         })
@@ -360,6 +360,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                   matchId: result.match.id,
                   reportedMode: mode,
                   reportedRedDeath: matchContext.redDeath,
+                  reportedCivBlitz: matchContext.civBlitz,
                   participants: result.participants,
                   lobby: existingLobby,
                   sessionNamespace: c.env.SessionDO,
@@ -379,6 +380,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
                       leaderDataVersion,
+                      civBlitz: existingLobby.draftConfig.civBlitz,
                     }, existingLobby.draftConfig.redDeath)],
                     components: [],
                   }, { db, sessionNamespace: c.env.SessionDO })
@@ -396,6 +398,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
                       leaderDataVersion,
+                      civBlitz: matchContext.civBlitz,
                     }, matchContext.redDeath)],
                   })
                   await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
@@ -520,6 +523,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchId: result.match.id,
                 reportedMode: matchContext.mode,
                 reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
                 participants: result.participants,
                 rankedRoleLines,
                 matchDraftData: result.match.draftData,
@@ -625,6 +629,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchId: result.match.id,
                 reportedMode: matchContext.mode,
                 reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
                 participants: result.participants,
                 lobby: existingLobby,
                 sessionNamespace: c.env.SessionDO,

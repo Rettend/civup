@@ -1524,6 +1524,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const context = getStoredGameModeContext(match.gameMode, match.draftData)
     const reportedMode = context?.mode ?? record.mode
     const reportedRedDeath = context?.redDeath ?? record.config.redDeath
+    const reportedCivBlitz = context?.civBlitz ?? record.config.civBlitz
     const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
     const participants = await db
       .select()
@@ -1539,6 +1540,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           mapVoteResult: getMapVoteResultFromDraftData(match.draftData),
           reporter: getReporterIdentityFromDraftData(match.draftData),
           leaderDataVersion,
+          civBlitz: reportedCivBlitz,
         }, reportedRedDeath)
 
     const messageIds = await listMatchMessageIds(db, matchId)
@@ -1884,7 +1886,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const activeLobby = buildLobbyProjectionFromSessionRecord(record)
     const payload = projection.payload
     const updatedLobby = await upsertLobbyMessage(kv, token, activeLobby, {
-      embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, projection.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath)],
+      embeds: [lobbyDraftCompleteEmbed(activeLobby.mode, projection.participants, payload.mapVoteResult ?? null, activeLobby.draftConfig.leaderDataVersion, activeLobby.draftConfig.redDeath, activeLobby.draftConfig.civBlitz)],
       components: lobbyComponents(activeLobby.mode, activeLobby.id),
     })
     await this.updateMessageProjection(record, updatedLobby.messageId)
@@ -1911,7 +1913,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     const updatedLobby = await upsertLobbyMessage(kv, token, lifecycleLobby, {
-      embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, projection.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath)],
+      embeds: [lobbyCancelledEmbed(lifecycleLobby.mode, projection.participants, payload.reason, undefined, lifecycleLobby.draftConfig.leaderDataVersion, lifecycleLobby.draftConfig.redDeath, undefined, lifecycleLobby.draftConfig.civBlitz)],
       components: [],
     })
     await this.updateMessageProjection(record, updatedLobby.messageId)
