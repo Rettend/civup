@@ -1369,8 +1369,8 @@ async function buildTournamentCutSeriesScore(
   }
 }
 
-function getTopCutRoundRequiredWins(round: string): number {
-  return round === 'quarterfinal' ? 2 : 1
+function getTopCutRoundRequiredWins(_round: string): number {
+  return 2
 }
 
 async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: string, round: string): Promise<void> {
