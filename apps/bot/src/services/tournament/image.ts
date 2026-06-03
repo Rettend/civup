@@ -4,6 +4,7 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { LEADER_EMOJI_IDS } from '../../constants/leader-emojis.ts'
 import { TOURNAMENT_EMOJI_ICONS, type TournamentEmojiIcon } from '../../constants/tournament-emoji-icons.ts'
+import { avatarKey, fetchDiscordImageDataUri, loadAvatarDataUris as loadAvatarData } from '../image/avatar.ts'
 
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
@@ -605,24 +606,13 @@ function buildAvatarClipDefs(players: AvatarPlayer[]): string {
     .join('')
 }
 
-async function loadAvatarData(players: readonly AvatarPlayer[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>()
-  await Promise.all(players.map(async (player) => {
-    const key = avatarKey(player)
-    if (!key || !player.avatarUrl || result.has(key)) return
-    const uri = await fetchAvatarDataUri(player.avatarUrl).catch(() => null)
-    if (uri) result.set(key, uri)
-  }))
-  return result
-}
-
 async function loadLeaderIconData(players: readonly { civId: string | null }[]): Promise<Map<string, string>> {
   const result = new Map<string, string>()
   await Promise.all(players.map(async (player) => {
     if (!player.civId || result.has(player.civId)) return
     const url = getLeaderEmojiUrl(player.civId)
     if (!url) return
-    const uri = await fetchAvatarDataUri(url).catch(() => null)
+    const uri = await fetchDiscordImageDataUri(url).catch(() => null)
     if (uri) result.set(player.civId, uri)
   }))
   return result
@@ -631,19 +621,6 @@ async function loadLeaderIconData(players: readonly { civId: string | null }[]):
 function getLeaderEmojiUrl(civId: string): string | null {
   const emojiId = LEADER_EMOJI_IDS[civId]
   return emojiId ? `https://cdn.discordapp.com/emojis/${emojiId}.png?size=128&quality=lossless` : null
-}
-
-async function fetchAvatarDataUri(url: string): Promise<string | null> {
-  const response = await fetch(normalizeAvatarImageUrl(url))
-  if (!response.ok) return null
-  const contentType = response.headers.get('content-type')?.split(';')[0] ?? 'image/png'
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.length === 0 || bytes.length > 512_000) return null
-  return `data:${contentType};base64,${base64Encode(bytes)}`
-}
-
-function normalizeAvatarImageUrl(url: string): string {
-  return url.replace(/\.gif($|\?)/, '.png$1')
 }
 
 async function ensureResvgReady(): Promise<unknown> {
@@ -737,10 +714,6 @@ function getBunFileApi(): { file: (path: string | URL) => { arrayBuffer: () => P
 function avatarClipId(player: AvatarPlayer): string {
   const id = avatarKey(player) || player.displayName || 'player'
   return `avatar-${id.replace(/[^\w-]/g, '')}`
-}
-
-function avatarKey(player: AvatarPlayer): string {
-  return player.playerId ?? player.displayName
 }
 
 function formatLeader(civId: string | null): string {
@@ -920,10 +893,4 @@ function escapeXml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-function base64Encode(bytes: Uint8Array): string {
-  let binary = ''
-  for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]!)
-  return btoa(binary)
 }

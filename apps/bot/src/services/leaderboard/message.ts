@@ -6,11 +6,12 @@ import { LEADERBOARD_MODES } from '@civup/game'
 import { eq, inArray } from 'drizzle-orm'
 import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
 import { createChannelMessage, createChannelMessageWithFile, deleteChannelMessage, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
+import { loadAvatarDataUris } from '../image/avatar.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
 import { getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
-import { buildPlayerLeaderboardImageData, renderPlayerLeaderboardPng } from './image.ts'
+import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from './image.ts'
 import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const LEGACY_PLAYER_LEADERBOARD_SCOPE = 'global'
@@ -263,18 +264,22 @@ async function buildPlayerLeaderboardImages(
   const snapshots = options.useCachedSnapshots
     ? await getStoredLeaderboardModeSnapshots(kv, modes)
     : await ensureLeaderboardModeSnapshots(db, kv, modes)
-  const images: Array<{ scope: string, filename: string, data: Uint8Array }> = []
-  for (const mode of modes) {
+  const imageData = await buildPlayerLeaderboardImageDataBatch(db, modes.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
-    if (!snapshot && options.useCachedSnapshots) continue
-
-    const imageData = await buildPlayerLeaderboardImageData(db, mode, snapshot?.rows ?? [], {
-      titlePrefix: options.titlePrefix,
-    })
+    if (!snapshot && options.useCachedSnapshots) return []
+    return [{
+      mode,
+      rows: snapshot?.rows ?? [],
+      options: { titlePrefix: options.titlePrefix },
+    }]
+  }))
+  const avatarData = await loadAvatarDataUris(imageData.flatMap(data => data.rows))
+  const images: Array<{ scope: string, filename: string, data: Uint8Array }> = []
+  for (const data of imageData) {
     images.push({
-      scope: playerLeaderboardMessageScope(mode),
-      filename: `leaderboard-${mode}.png`,
-      data: await renderPlayerLeaderboardPng(imageData),
+      scope: playerLeaderboardMessageScope(data.mode),
+      filename: `leaderboard-${data.mode}.png`,
+      data: await renderPlayerLeaderboardPng(data, { avatarData }),
     })
   }
   return images
