@@ -51,12 +51,12 @@ describe('leaderboard message service', () => {
       const url = String(input)
       if (init?.method === 'POST' && url.includes('/channels/channel-1/messages')) {
         messageCounter += 1
-        const payload = JSON.parse(String(init.body))
+        const payload = await readDiscordMultipartPayload(init)
         postPayloads.push(payload)
         return new Response(JSON.stringify({ id: `message-${messageCounter}` }), { status: 200 })
       }
       if (init?.method === 'PATCH' && url.includes('/channels/channel-1/messages/')) {
-        const payload = JSON.parse(String(init.body))
+        const payload = await readDiscordMultipartPayload(init)
         patchPayloads.push(payload)
         return new Response('{}', { status: 200 })
       }
@@ -64,18 +64,16 @@ describe('leaderboard message service', () => {
       return new Response('not found', { status: 404 })
     }) as typeof fetch
 
-    await upsertLeaderboardMessagesForChannel(db, kv, 'token', 'channel-1')
+    await upsertLeaderboardMessagesForChannel(db, kv, 'token', 'channel-1', { modes: ['ffa'] })
     await db.update(seasons).set({ active: false, endsAt: NOW + 1 }).where(eq(seasons.id, 'season-9'))
-    await archiveSeasonLeaderboards(db, kv, 'token', 'Season 9')
+    await archiveSeasonLeaderboards(db, kv, 'token', 'Season 9', { modes: ['ffa'] })
 
     expect(postPayloads).toHaveLength(2)
     expect(patchPayloads).toHaveLength(1)
-    expect(JSON.stringify(patchPayloads[0].embeds)).toContain('Season 9 FFA Leaderboard')
-    expect(JSON.stringify(postPayloads[1].embeds)).toContain('FFA Leaderboard')
-    expect(JSON.stringify(postPayloads[1].embeds)).not.toContain('Season 9 FFA Leaderboard')
-    expect(JSON.stringify(postPayloads[1].embeds)).toContain('<@100010000000000001>')
+    expect(patchPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-ffa.png')
+    expect(postPayloads[1].attachments?.[0]?.filename).toBe('leaderboard-ffa.png')
 
-    const [state] = await db.select().from(leaderboardMessageStates).limit(1)
+    const [state] = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, 'player:ffa')).limit(1)
     expect(state?.messageId).toBe('message-2')
 
     sqlite.close()
@@ -117,7 +115,7 @@ describe('leaderboard message service', () => {
     globalThis.fetch = (async (input, init) => {
       const url = String(input)
       if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
-        const payload = JSON.parse(String(init.body))
+        const payload = await readDiscordMultipartPayload(init)
         postPayloads.push(payload)
         return new Response(JSON.stringify({ id: 'leaderboard-message-1' }), { status: 200 })
       }
@@ -145,6 +143,7 @@ describe('leaderboard message service', () => {
       expect(refreshed).toBe(true)
       expect(snapshot?.rows.find(row => row.playerId === '100010000000000003')?.gamesPlayed).toBe(10)
       expect(postPayloads).toHaveLength(1)
+      expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
       expect(dirtyRows).toHaveLength(0)
     }
     finally {
@@ -240,6 +239,12 @@ describe('leaderboard message service', () => {
     }
   })
 })
+
+async function readDiscordMultipartPayload(init: RequestInit): Promise<any> {
+  if (!(init.body instanceof FormData)) return JSON.parse(String(init.body))
+  const payload = init.body.get('payload_json')
+  return JSON.parse(String(payload))
+}
 
 async function seedDuelRating(db: Database, playerId: string, gamesPlayed: number): Promise<void> {
   await db.insert(players).values({

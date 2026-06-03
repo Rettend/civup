@@ -1,57 +1,138 @@
 import type { LeaderboardMode } from '@civup/game'
-import type { Embed } from 'discord-hono'
-import { LEADERBOARD_MODE_CHOICES, LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
+import type { Database } from '@civup/db'
+import type { LeaderboardSnapshotRow } from '../services/leaderboard/snapshot.ts'
+import { createDb } from '@civup/db'
+import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { getLeaderboardMinGames } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
-import { leaderboardEmbed } from '../embeds/leaderboard.ts'
+import { createChannelMessageWithFile, createInteractionFollowupMessageWithFile, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
+import { buildPlayerLeaderboardImageData, renderPlayerLeaderboardPng } from '../services/leaderboard/image.ts'
 import { getStoredLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
-import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
+import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
+import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
   mode?: string
 }
 
+interface LeaderboardCommandImage {
+  mode: LeaderboardMode
+  filename: string
+  data: Uint8Array
+}
+
+type LeaderboardCommandResult = { content: string } | { images: LeaderboardCommandImage[] }
+
+const LEADERBOARD_COMMAND_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
+
 export const command_leaderboard = factory.command<Var>(
   new Command('leaderboard', 'Show the top players').options(
     new Option('mode', 'Leaderboard track')
       .choices(...LEADERBOARD_MODE_CHOICES),
   ),
-  (c) => {
+  async (c) => {
     const requestedMode = c.var.mode ? parseLeaderboardMode(c.var.mode) : null
+    const kv = getKvStore(c.env)
+    const commandsChannelId = await getSystemChannel(kv, 'commands')
+    const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+    const shouldRedirect = !!c.interaction.guild_id
+      && !!commandsChannelId
+      && !!interactionChannelId
+      && interactionChannelId !== commandsChannelId
+    const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
-      const kv = getKvStore(c.env)
-      return buildLeaderboardCommandPayload(kv, requestedMode)
+    return responder.resDefer(async (c) => {
+      const result = await buildLeaderboardCommandImages(createDb(c.env.DB), kv, requestedMode)
+
+      if ('content' in result) {
+        await c.followup({ content: result.content, allowed_mentions: { parse: [] } })
+        return
+      }
+
+      if (shouldRedirect && commandsChannelId) {
+        try {
+          for (const image of result.images) {
+            await createChannelMessageWithFile({
+              token: c.env.DISCORD_TOKEN,
+              channelId: commandsChannelId,
+              filename: image.filename,
+              contentType: 'image/png',
+              data: image.data,
+            })
+          }
+        }
+        catch (error) {
+          console.error(`Failed to post redirected leaderboard output to ${commandsChannelId}:`, error)
+          await sendTransientEphemeralResponse(c, `Failed to post in <#${commandsChannelId}>.`, 'error')
+          return
+        }
+
+        await sendTransientEphemeralResponse(c, `Posted in <#${commandsChannelId}>.`, 'info')
+        return
+      }
+
+      const [firstImage, ...additionalImages] = result.images
+      if (!firstImage) return
+      await editOriginalInteractionResponseWithFile({
+        applicationId: c.env.DISCORD_APPLICATION_ID,
+        interactionToken: c.interaction.token,
+        filename: firstImage.filename,
+        contentType: 'image/png',
+        data: firstImage.data,
+      })
+
+      for (const image of additionalImages) {
+        await createInteractionFollowupMessageWithFile({
+          applicationId: c.env.DISCORD_APPLICATION_ID,
+          interactionToken: c.interaction.token,
+          filename: image.filename,
+          contentType: 'image/png',
+          data: image.data,
+        })
+      }
     })
   },
 )
 
-export async function buildLeaderboardCommandPayload(
+export async function buildLeaderboardCommandImages(
+  db: Database,
   kv: KVNamespace,
   requestedMode: LeaderboardMode | null,
-): Promise<{ embeds?: Embed[], content?: string }> {
+): Promise<LeaderboardCommandResult> {
   if (requestedMode) {
     const snapshot = await getStoredLeaderboardModeSnapshot(kv, requestedMode)
     if (!snapshot) return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
-    return { embeds: [leaderboardEmbed(requestedMode, snapshot.rows)] }
+    return { images: [await buildLeaderboardCommandImage(db, requestedMode, snapshot.rows)] }
   }
 
-  const snapshots = await getStoredLeaderboardModeSnapshots(kv, LEADERBOARD_MODES)
+  const snapshots = await getStoredLeaderboardModeSnapshots(kv, LEADERBOARD_COMMAND_MODES)
   if (snapshots.size === 0) {
     return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
   }
 
-  const embeds = LEADERBOARD_MODES.flatMap((mode) => {
+  const modes = LEADERBOARD_COMMAND_MODES.flatMap((mode) => {
     const snapshot = snapshots.get(mode)
     if (!snapshot || !snapshot.rows.some(row => row.gamesPlayed >= getLeaderboardMinGames(mode))) return []
-    return [leaderboardEmbed(mode, snapshot.rows)]
+    return [mode]
   })
 
-  if (embeds.length === 0) {
+  if (modes.length === 0) {
     return { content: 'No players with enough games to rank yet.' }
   }
 
-  return { embeds }
+  return { images: await Promise.all(modes.map(mode => buildLeaderboardCommandImage(db, mode, snapshots.get(mode)!.rows))) }
+}
+
+async function buildLeaderboardCommandImage(
+  db: Database,
+  mode: LeaderboardMode,
+  rows: readonly LeaderboardSnapshotRow[],
+): Promise<LeaderboardCommandImage> {
+  return {
+    mode,
+    filename: `leaderboard-${mode}.png`,
+    data: await renderPlayerLeaderboardPng(await buildPlayerLeaderboardImageData(db, mode, rows)),
+  }
 }
