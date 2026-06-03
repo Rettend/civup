@@ -224,6 +224,7 @@ export const leaders: Leader[] = [
         name: 'Grenzer',
         description: 'Austrian unique industrial era unit replace Ranger. Higher :ranged: Ranged Strength. +5 :strength: Strength within 3 tiles of the borders of friendly territory. Exerts Zone-of-Control.',
         replaces: 'Ranger',
+        iconUrl: '/assets/bbg/items/Grenzer.webp',
       },
     ],
     uniqueBuildings: [
@@ -231,6 +232,7 @@ export const leaders: Leader[] = [
         name: 'Coffee House',
         description: 'Austrian unique entertainment building, replacing the Zoo. Cheaper to build (290 vs. 360) and available earlier at The Enlightenment. Districts in this city yield +1 :science: Science and +1 :culture: Culture. +2 :amenities: Amenity to each city within 6 tiles of this Entertainment Complex. Has 3 slots for Great Works of any type. Theming Bonus: Doubles output when displaying Great Works of any type from different :greatperson: Great People.',
         replaces: 'Zoo',
+        iconUrl: '/assets/bbg/items/Coffee%20House.webp',
       },
     ],
     uniqueImprovements: [],
@@ -997,13 +999,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -1034,13 +1030,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -1157,11 +1147,13 @@ export const leaders: Leader[] = [
         name: 'Gadrauht',
         description: 'Replaces the Pikeman. Higher Strength (+5 :strength: ) and cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built if the city has no Temple. Gain a :promotion: promotion.',
         replaces: 'Pikeman',
+        iconUrl: '/assets/bbg/items/Gadrauht.webp',
       },
       {
         name: 'Militōnd',
         description: 'Replaces the Swordsman. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
         replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Milit%C5%8Dnd.webp',
       },
     ],
     uniqueBuildings: [
@@ -1169,6 +1161,7 @@ export const leaders: Leader[] = [
         name: 'Hlaiw',
         description: 'Replaces the Shrine. +1 :faith: Faith and +1 :culture: Culture. Additional +0.25 :faith: Faith and +0.25 :culture: Culture per :citizen: Citizen in this city.',
         replaces: 'Shrine',
+        iconUrl: '/assets/bbg/items/Hlaiw.webp',
       },
     ],
     uniqueImprovements: [],
@@ -2371,6 +2364,7 @@ export const leaders: Leader[] = [
         name: 'Uhlan',
         description: 'Polish unique Renaissance era unit that replaces the Cavalry when Stanislaw II is their leader. Receives a combat bonus when flanking.',
         replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Uhlan.webp',
       },
     ],
     uniqueBuildings: [
@@ -2724,6 +2718,7 @@ export const leaders: Leader[] = [
         name: 'Macana',
         description: 'A recon unit unique to Taíno. Replaces the warrior and retains its earned Recon :promotion: Promotions on upgrade. Upon eliminating an enemy unit, earns :faith: Faith equal to half the :strength: Combat Strength of the defeated unit. Movement and Sight Range +1.',
         replaces: 'warrior',
+        iconUrl: '/assets/bbg/items/Macana.webp',
       },
     ],
     uniqueBuildings: [
@@ -2731,12 +2726,14 @@ export const leaders: Leader[] = [
         name: 'Batéy',
         description: 'An Entertainment Complex replacement unique to Taíno. Buildings within this district provide +1 :amenities: Amenity. Allows the city to start the Areyto Ceremony city project, which provides :faith: while doing, and :greatperson: Great Person points for Great :greatwriter: Writers, :greatartist: Artists and :greatmusician: Musicians upon completion. Production :production: +2 for each Commercial hub or Harbor adjacent.',
         replaces: 'Entertainment Complex',
+        iconUrl: '/assets/bbg/items/Bat%C3%A9y.webp',
       },
     ],
     uniqueImprovements: [
       {
         name: 'Conuco',
         description: 'Unlocks the Builder ability to construct a Conuco, unique to Taino. Doubles the base terrain yield of the plot. Yields an additional +1 :culture: Culture, with further yields unlocking with progression. Requires an adjacent Luxury or Bonus resource and may not be built on hills, desert or snow.',
+        iconUrl: '/assets/bbg/items/Conuco.webp',
       },
     ],
     tags: [],

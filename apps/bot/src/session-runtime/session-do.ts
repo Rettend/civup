@@ -1541,6 +1541,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           reporter: getReporterIdentityFromDraftData(match.draftData),
           leaderDataVersion,
           civBlitz: reportedCivBlitz,
+          unranked: reportedCivBlitz || (context ? context.leaderboardMode == null : false),
         }, reportedRedDeath)
 
     const messageIds = await listMatchMessageIds(db, matchId)

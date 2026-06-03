@@ -95,6 +95,7 @@ interface RecalculateLeaderboardModeOptions {
   fromMatchId?: string
   includeFromMatch?: boolean
   includeActiveBoundary?: boolean
+  extraAffectedPlayerIds?: readonly string[]
 }
 
 interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOptions {
@@ -143,6 +144,8 @@ export async function recalculateLeaderboardMode(
       options.fromMatchId,
       options.includeFromMatch ?? true,
       options.includeActiveBoundary ?? false,
+      [],
+      options.extraAffectedPlayerIds ?? [],
     )
   }
 
@@ -170,6 +173,8 @@ export async function recalculateGlobalRatings(
       options.includeFromMatch ?? true,
       options.includeActiveBoundary ?? false,
       options.opponentTierByPlayerId ?? new Map(),
+      [],
+      options.extraAffectedPlayerIds ?? [],
     )
   }
 
@@ -250,6 +255,7 @@ async function recalculateGlobalRatingsFromBoundary(
   includeActiveBoundary: boolean,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
   extraReplayMatches: StoredMatchRow[] = [],
+  extraAffectedPlayerIds: readonly string[] = [],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const [boundaryMatch] = await db
     .select({
@@ -315,6 +321,7 @@ async function recalculateGlobalRatingsFromBoundary(
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
+    ...extraAffectedPlayerIds,
   ])].sort((a, b) => a.localeCompare(b))
 
   const earlierEventRows = await listEarlierGlobalRatingEventRows(db, affectedPlayerIds, boundaryMatch)
@@ -339,6 +346,7 @@ async function recalculateGlobalRatingsFromBoundary(
       false,
       opponentTierByPlayerId,
       includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
+      extraAffectedPlayerIds,
     )
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
@@ -436,6 +444,7 @@ async function recalculateLeaderboardModeFromBoundary(
   includeFromMatch: boolean,
   includeActiveBoundary: boolean,
   extraReplayMatches: StoredMatchRow[] = [],
+  extraAffectedPlayerIds: readonly string[] = [],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const [boundaryMatch] = await db
     .select({
@@ -503,6 +512,7 @@ async function recalculateLeaderboardModeFromBoundary(
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
+    ...extraAffectedPlayerIds,
   ])].sort((a, b) => a.localeCompare(b))
 
   const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, gameModes, affectedPlayerIds, boundaryMatch)
@@ -528,6 +538,7 @@ async function recalculateLeaderboardModeFromBoundary(
       true,
       false,
       includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
+      extraAffectedPlayerIds,
     )
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }

@@ -2,7 +2,7 @@ import type { Accessor, JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
+import { CIV_BLITZ_MAX_OPTION_COUNT, hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
@@ -96,14 +96,14 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
-        label="Exclude BBG Expanded"
-        active={() => state.derived.optimisticDraftConfig().civBlitzExcludeBbgExpanded}
+        label="BBG Expanded"
+        active={() => !state.derived.effectiveCivBlitzExcludeBbgExpanded()}
         disabled={() => state.lobbyActionPending() || state.pending.civBlitzExcludeBbgExpanded()}
-        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(checked)}
+        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(!checked)}
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Exclude Expanded" value={state.derived.formattedCivBlitzExcludeBbgExpanded()} valueClass={state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow label="BBG Expanded" value={state.derived.formattedCivBlitzBbgExpanded()} valueClass={!state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined} />
     ),
   },
   {
@@ -189,7 +189,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         label={state.derived.poolInputLabel()}
         ariaLabel={state.derived.poolInputLabel()}
         min={String(state.derived.leaderPoolMinimum())}
-        max={String(state.derived.leaderPoolMaximum())}
+        max={() => String(state.derived.isCivBlitz() ? CIV_BLITZ_MAX_OPTION_COUNT : state.derived.leaderPoolMaximum())}
         step="1"
         value={state.fields.leaderPoolInput()}
         placeholder={state.derived.leaderPoolPlaceholder()}

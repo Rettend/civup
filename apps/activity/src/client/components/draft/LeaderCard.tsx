@@ -23,18 +23,29 @@ import { isDraftCardUnavailable } from './draftAvailability'
 
 const ZOOMED_LEADERS = [
   'Ahiram',
-  'Al-Hasan ibn Sulaiman',
-  'Kiviuq',
-  'Spearthrower Owl',
-  'Trisong Detsen',
-  'Vercingetorix',
 ]
 
 const SLIGHTLY_ZOOMED_LEADERS = [
+  'Spearthrower Owl',
+]
+
+const VERY_SLIGHTLY_ZOOMED_LEADERS = [
+  'Theodora',
+  'Tokugawa',
+  'Julius Caesar',
+  'Olympias',
+  'Kiviuq',
+  'Nader Shah',
+  'Ludwig II',
+  'Ramses II',
+  'Abraham Lincoln',
+  'Te\' K\'inich II',
+  'Victoria (Age of Steam)',
+]
+
+const SHIFTED_UP_LEADERS = [
   'Anacaona',
   'Maria Theresa',
-  'Stanislaw II',
-  'Te\' K\'inich II',
   'Theodoric',
 ]
 
@@ -42,6 +53,8 @@ export function getLeaderPortraitScaleClass(leaderName: string | null | undefine
   if (!leaderName) return undefined
   if (ZOOMED_LEADERS.includes(leaderName)) return 'scale-90'
   if (SLIGHTLY_ZOOMED_LEADERS.includes(leaderName)) return 'scale-95'
+  if (VERY_SLIGHTLY_ZOOMED_LEADERS.includes(leaderName)) return 'scale-99 -translate-y-[1%]'
+  if (SHIFTED_UP_LEADERS.includes(leaderName)) return '-translate-y-[3%]'
   return undefined
 }
 

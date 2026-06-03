@@ -32,7 +32,6 @@ import {
   watchLobbyState,
 } from '../stores'
 import { ActivityControllerContext } from './activity-context'
-import { preloadLobbyOverviewRoute, preloadPracticePage } from './route-preloads'
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
@@ -515,7 +514,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const openOverview = (options: { replace?: boolean } = {}) => {
     const current = state()
     const replace = options.replace ?? false
-    void preloadLobbyOverviewRoute()
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = '/overview'
     selectionRequestVersion += 1
@@ -543,7 +541,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openPractice = () => {
-    void preloadPracticePage()
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = null
     selectionRequestVersion += 1

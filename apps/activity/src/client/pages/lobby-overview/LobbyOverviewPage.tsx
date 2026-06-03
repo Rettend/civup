@@ -1,6 +1,5 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { Show } from 'solid-js'
-import { preloadPracticePage } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import { isMiniView, isMobileLayout } from '~/client/stores'
 import { LobbyOverviewTargetPicker } from './LobbyOverviewTargetPicker'
@@ -42,8 +41,6 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
             <button
               type="button"
               class="text-sm text-accent font-bold px-4 py-2 border border-accent/30 rounded-full bg-accent/12 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(250,204,21,0.16)] transition items-center bottom-6 left-1/2 absolute z-20 hover:text-accent hover:border-accent/60 hover:bg-accent/18 -translate-x-1/2"
-              onPointerEnter={() => { void preloadPracticePage() }}
-              onFocus={() => { void preloadPracticePage() }}
               onClick={() => props.onPractice?.()}
             >
               <span class="i-ph-game-controller-bold text-lg" />
