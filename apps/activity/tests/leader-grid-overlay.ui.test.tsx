@@ -248,6 +248,55 @@ describe('LeaderGridOverlay UI', () => {
     })
   })
 
+  test('orders CivBlitz civilization and leader options like normal draft cards', () => {
+    const registry = getCivBlitzRegistry()
+    const options: CivBlitzCategoryOptions = {
+      civilizationAbility: [
+        'civblitz:civilizationAbility:babylon',
+        'civblitz:civilizationAbility:australia',
+        'civblitz:civilizationAbility:america',
+      ],
+      leaderAbility: [
+        'civblitz:leaderAbility:australia-john-curtin',
+        'civblitz:leaderAbility:babylon-hammurabi',
+        'civblitz:leaderAbility:america-abraham-lincoln',
+      ],
+      infrastructure: [],
+      unit: [],
+    }
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.gridViewMode = 'list'
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility'] }],
+      civBlitz: {
+        optionCount: 3,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    expect(getCivBlitzSectionLabels('Civilization Ability')).toEqual([
+      registry.componentMap.get('civblitz:civilizationAbility:america')?.name,
+      registry.componentMap.get('civblitz:civilizationAbility:australia')?.name,
+      registry.componentMap.get('civblitz:civilizationAbility:babylon')?.name,
+    ])
+    expect(getCivBlitzSectionLabels('Leader Ability')).toEqual([
+      registry.componentMap.get('civblitz:leaderAbility:america-abraham-lincoln')?.name,
+      registry.componentMap.get('civblitz:leaderAbility:babylon-hammurabi')?.name,
+      registry.componentMap.get('civblitz:leaderAbility:australia-john-curtin')?.name,
+    ])
+  })
+
   test('toggles the expanded overlay layout through the shared grid controls', async () => {
     const mount = createMount()
 
@@ -461,3 +510,9 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.hammurabi])
   })
 })
+
+function getCivBlitzSectionLabels(sectionLabel: string): Array<string | undefined> {
+  const section = screen.getByText(sectionLabel).closest('section')
+  expect(section).toBeTruthy()
+  return Array.from(section!.querySelectorAll('button')).map(button => button.querySelector('span span')?.textContent ?? undefined)
+}

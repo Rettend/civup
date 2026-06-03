@@ -4,9 +4,13 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'
+import { createGenerator } from 'unocss'
 import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
+import unoConfig from './uno.config'
+
+type UnoGenerator = Awaited<ReturnType<typeof createGenerator>>
 
 function loadDevVars(): Record<string, string> {
   try {
@@ -27,19 +31,9 @@ function loadDevVars(): Record<string, string> {
   }
 }
 
-function extractCssFromJsModule(js: string): string | null {
-  const match = js.match(/__vite__css\s*=\s*"([\s\S]*?)"/)
-  if (match?.[1]) {
-    return match[1]
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t')
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, '\\')
-  }
-  return null
-}
-
 function devUnoCssLink(): Plugin {
+  let generator: UnoGenerator | null = null
+
   return {
     name: 'dev-unocss-link',
     apply: 'serve',
@@ -47,12 +41,12 @@ function devUnoCssLink(): Plugin {
     configureServer(server) {
       server.middlewares.use('/__dev/uno.css', async (_req, res) => {
         try {
-          const result = await server.transformRequest('virtual:uno.css')
-          const css = result?.code ? extractCssFromJsModule(result.code) : null
+          generator ??= await createGenerator(unoConfig)
+          const { css } = await generator.generate(await collectDevUnoTokens(generator), { preflights: true })
 
           res.setHeader('Content-Type', 'text/css')
           res.setHeader('Cache-Control', 'no-store')
-          res.end(css ?? '/* UnoCSS: no styles extracted */')
+          res.end(css)
         }
         catch (error) {
           console.error('[dev-unocss-link] Failed to serve UnoCSS:', error)
@@ -72,6 +66,32 @@ function devUnoCssLink(): Plugin {
         },
       ]
     },
+  }
+}
+
+async function collectDevUnoTokens(generator: UnoGenerator): Promise<Set<string>> {
+  const tokens = new Set<string>()
+  const files = [resolve(import.meta.dirname, 'index.html')]
+
+  collectUnoSourceFiles(resolve(import.meta.dirname, 'src'), files)
+  for (const file of files) {
+    const extracted = await generator.applyExtractors(readFileSync(file, 'utf-8'), file)
+    for (const token of extracted) tokens.add(token)
+  }
+  return tokens
+}
+
+function collectUnoSourceFiles(path: string, files: string[]) {
+  const entries = readdirSync(path, { withFileTypes: true })
+  for (const entry of entries) {
+    const absolutePath = resolve(path, entry.name)
+    if (entry.isDirectory()) {
+      collectUnoSourceFiles(absolutePath, files)
+      continue
+    }
+
+    if (!entry.isFile() || !/\.(?:[cm]?[jt]sx?|html|css)$/.test(entry.name)) continue
+    files.push(absolutePath)
   }
 }
 
@@ -117,9 +137,12 @@ const assetRevisionMap = buildAssetRevisionMap()
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '~': resolve(import.meta.dirname, 'src'),
-    },
+    alias: [
+      { find: /^solid-js$/, replacement: 'solid-js/dist/solid.js' },
+      { find: /^solid-js\/web$/, replacement: 'solid-js/web/dist/web.js' },
+      { find: /^solid-js\/store$/, replacement: 'solid-js/store/dist/store.js' },
+      { find: '~', replacement: resolve(import.meta.dirname, 'src') },
+    ],
   },
   server: {
     allowedHosts: [
@@ -132,6 +155,9 @@ export default defineConfig({
       'Surrogate-Control': 'no-store',
     },
   },
+  optimizeDeps: {
+    exclude: ['solid-js', 'solid-js/web', 'solid-js/store', '@solidjs/router'],
+  },
   define: {
     '__ASSET_REVISION_MAP__': JSON.stringify(assetRevisionMap),
     'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(viteDiscordClientId),
@@ -140,7 +166,7 @@ export default defineConfig({
   plugins: [
     UnoCSS(),
     devUnoCssLink(),
-    solid(),
+    solid({ dev: false, hot: false }),
     cloudflare(),
   ],
 })

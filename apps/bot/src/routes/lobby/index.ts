@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -471,12 +471,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : lobby.draftConfig.civBlitz
     if (hasRedDeath && parsedRedDeath === true) normalizedCivBlitz = false
     if (normalizedCivBlitz) normalizedRedDeath = false
-    const normalizedCivBlitzOptionCount = hasCivBlitzOptionCount
+    let normalizedCivBlitzOptionCount = hasCivBlitzOptionCount
       ? parsedCivBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT
       : lobby.draftConfig.civBlitzOptionCount
     const normalizedCivBlitzExcludeBbgExpanded = hasCivBlitzExcludeBbgExpanded
       ? parsedCivBlitzExcludeBbgExpanded ?? true
       : lobby.draftConfig.civBlitzExcludeBbgExpanded
+    if (normalizedCivBlitz) {
+      normalizedCivBlitzOptionCount = Math.min(
+        normalizedCivBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT,
+        getCivBlitzOptionCountMaximum(normalizedLeaderDataVersion, { excludeBbgExpanded: normalizedCivBlitzExcludeBbgExpanded }),
+      )
+    }
     let normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
       : lobby.draftConfig.randomDraft

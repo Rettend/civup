@@ -52,6 +52,9 @@ function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patc
       permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
       redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : lobby.draftConfig.redDeath,
       dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : lobby.draftConfig.dealOptionsSize,
+      civBlitz: typeof patch.civBlitz === 'boolean' ? patch.civBlitz : lobby.draftConfig.civBlitz,
+      civBlitzOptionCount: typeof patch.civBlitzOptionCount === 'number' || patch.civBlitzOptionCount === null ? patch.civBlitzOptionCount : lobby.draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: typeof patch.civBlitzExcludeBbgExpanded === 'boolean' ? patch.civBlitzExcludeBbgExpanded : lobby.draftConfig.civBlitzExcludeBbgExpanded,
       randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : lobby.draftConfig.randomDraft,
       hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : lobby.draftConfig.hiddenDraft,
       duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : lobby.draftConfig.duplicateFactions,
@@ -385,20 +388,24 @@ describe('DraftSetupPage UI', () => {
 
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
     const civBlitzSwitch = screen.getByRole('switch', { name: 'CivBlitz' })
-    const excludeExpandedSwitch = screen.getByRole('switch', { name: 'Exclude BBG Expanded' })
-    const excludeExpandedLabel = screen.getByText('Exclude BBG Expanded')
+    const bbgExpandedSwitch = screen.getByRole('switch', { name: 'BBG Expanded' })
+    const bbgExpandedLabel = screen.getByText('BBG Expanded')
     const civBlitzTrack = civBlitzSwitch.querySelector('div') as HTMLElement
-    const excludeExpandedTrack = excludeExpandedSwitch.querySelector('div') as HTMLElement
+    const bbgExpandedTrack = bbgExpandedSwitch.querySelector('div') as HTMLElement
 
     expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
     expect(screen.queryByRole('switch', { name: 'BBG Beta' })).toBeNull()
-    expectTextInOrder(configCard, ['Map Vote', 'Exclude BBG Expanded', 'Game Mode'])
+    expectTextInOrder(configCard, ['Map Vote', 'BBG Expanded', 'Game Mode'])
     expectTextInOrder(configCard, ['CivBlitz', 'Red Death'])
     expect(civBlitzSwitch.getAttribute('aria-checked')).toBe('true')
-    expect(excludeExpandedSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(bbgExpandedSwitch.getAttribute('aria-checked')).toBe('false')
     expect(civBlitzTrack.className).toContain('bg-cyan-300/18')
-    expect(excludeExpandedLabel.className).not.toContain('cyan')
-    expect(excludeExpandedTrack.className).not.toContain('cyan')
+    expect(bbgExpandedLabel.className).not.toContain('cyan')
+    expect(bbgExpandedTrack.className).not.toContain('cyan')
+
+    fireEvent.click(bbgExpandedSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).civBlitzExcludeBbgExpanded === false)).toBe(true))
 
   })
 

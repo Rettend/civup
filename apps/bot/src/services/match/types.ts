@@ -65,10 +65,30 @@ export interface CorrectMatchLeadersInput {
   correctedAt: number
 }
 
+export interface SubstituteMatchPlayerInput {
+  matchId: string
+  playerId: string
+  subPlayer: {
+    playerId: string
+    displayName: string
+    avatarUrl?: string | null
+  }
+  correctedAt: number
+}
+
 export interface MatchLeaderCorrection {
   playerId: string
   previousCivId: string | null
   nextCivId: string | null
+}
+
+export interface MatchPlayerSubstitution {
+  seatIndex: number
+  previousPlayerId: string
+  nextPlayerId: string
+  team: number | null
+  civId: string | null
+  placement: number | null
 }
 
 export interface ModeratedMatchResult {
@@ -82,9 +102,14 @@ export interface MatchLeaderCorrectionResult extends ModeratedMatchResult {
   corrections: MatchLeaderCorrection[]
 }
 
+export interface MatchPlayerSubstitutionResult extends ModeratedMatchResult {
+  substitutions: MatchPlayerSubstitution[]
+}
+
 export type ResolveMatchResult = ModeratedMatchResult | { error: string }
 export type CancelMatchResult = ModeratedMatchResult | { error: string }
 export type CorrectMatchLeadersResult = MatchLeaderCorrectionResult | { error: string }
+export type SubstituteMatchPlayerResult = MatchPlayerSubstitutionResult | { error: string }
 
 export interface ManualReportedMatchPlayerInput {
   playerId: string

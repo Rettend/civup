@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 
 import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { getCivBlitzRegistry } from '@civup/game'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
@@ -177,6 +178,53 @@ describe('PlayerSlot UI', () => {
     expect(screen.getByAltText('John Curtin')).toBeTruthy()
     expect(screen.getByText('John Curtin')).toBeTruthy()
     expect(screen.queryByText('Submitted')).toBeNull()
+  })
+
+  test('keeps CivBlitz slot icons square and unique icon backgrounds transparent', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = {
+      civilizationAbility: 'civblitz:civilizationAbility:america',
+      leaderAbility: 'civblitz:leaderAbility:america-abraham-lincoln',
+      infrastructure: 'civblitz:infrastructure:oppidum',
+      unit: 'civblitz:unit:gaesatae',
+    }
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: {
+          0: {
+            civilizationAbility: [kit.civilizationAbility],
+            leaderAbility: [kit.leaderAbility],
+            infrastructure: [kit.infrastructure],
+            unit: [kit.unit],
+          },
+        },
+        submissions: {},
+        lockedKits: { 0: kit },
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    const civImage = screen.getByAltText(registry.componentMap.get(kit.civilizationAbility)!.name)
+    const leaderImage = screen.getByAltText(registry.componentMap.get(kit.leaderAbility)!.name)
+    const infrastructureImage = screen.getByAltText(registry.componentMap.get(kit.infrastructure)!.name)
+    const unitImage = screen.getByAltText(registry.componentMap.get(kit.unit)!.name)
+
+    expect(civImage.className).toContain('rounded-full')
+    expect(civImage.parentElement?.className).toContain('aspect-square')
+    expect(leaderImage.parentElement?.className).toContain('rounded-full')
+    expect(leaderImage.parentElement?.className).toContain('aspect-square')
+    expect(infrastructureImage.parentElement?.className).toContain('aspect-square')
+    expect(unitImage.parentElement?.className).toContain('aspect-square')
+    expect(infrastructureImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
+    expect(unitImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
   })
 
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {

@@ -15,6 +15,8 @@ import {
 } from '../../services/ranked/roles.ts'
 import { buildResolvedRoleDisplayById, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
+const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 8
+
 export function handleRankedRoles(c: AdminCommandContext) {
   const guildId = c.interaction.guild_id
   if (!guildId) {
@@ -117,6 +119,7 @@ export function handleRankedSync(c: AdminCommandContext) {
         guildId,
         token: c.env.DISCORD_TOKEN,
         applyDiscord: true,
+        maxDiscordRoleSyncPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,
       })
       if (result.pendingDiscordChanges === 0) await clearRankedRolesDirtyState(kv)
       const config = await getRankedRoleConfig(kv, guildId)

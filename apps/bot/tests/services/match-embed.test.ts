@@ -122,6 +122,20 @@ describe('match result embed', () => {
     expect(resultEmbed.title).toBe('RESULT REPORTED  -  CivBlitz 2v2')
   })
 
+  test('shows unranked result markers without rating fallbacks', () => {
+    const embed = lobbyResultEmbed('2v2', [
+      { playerId: '100010000000000001', team: 0, civId: 'america-abraham-lincoln', placement: 1 },
+      { playerId: '100010000000000002', team: 1, civId: 'arabia-saladin-vizier', placement: 2 },
+      { playerId: '100010000000000003', team: 0, civId: 'australia-john-curtin', placement: 1 },
+      { playerId: '100010000000000004', team: 1, civId: 'aztec-montezuma', placement: 2 },
+    ], undefined, { civBlitz: true, unranked: true }).toJSON()
+
+    expect(embed.description).toContain('`  +` 📈 <@100010000000000001>')
+    expect(embed.description).toContain('`  -` 📉 <@100010000000000002>')
+    expect(embed.description).not.toContain('❔')
+    expect(embed.description).not.toContain('(   ?)')
+  })
+
   test('does not show pick and ban visibility in open lobby embeds', () => {
     const options = {
       closed: false,

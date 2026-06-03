@@ -6,7 +6,7 @@ import type {
   LeaderDataVersion,
   LeaderUnique,
 } from './types.ts'
-import { CIV_BLITZ_CATEGORIES } from './types.ts'
+import { CIV_BLITZ_CATEGORIES, LEADER_DATA_VERSIONS } from './types.ts'
 import { getLeaders } from './leader-registry.ts'
 
 export const CIV_BLITZ_DEFAULT_OPTION_COUNT = 4
@@ -31,6 +31,7 @@ const CIVILIZATION_ICON_FILES: Record<string, string> = {
   America: 'American.png',
   Arabia: 'Arabian.png',
   Australia: 'Australian.png',
+  Austria: 'Austria.webp',
   Aztec: 'Aztec.png',
   Babylon: 'Babylonian.png',
   Brazil: 'Brazilian.png',
@@ -45,6 +46,7 @@ const CIVILIZATION_ICON_FILES: Record<string, string> = {
   Gaul: 'Gallic.png',
   Georgia: 'Georgian.png',
   Germany: 'German.png',
+  Goths: 'Goths.webp',
   'Gran Colombia': 'Gran_Colombian.png',
   Greece: 'Greek.png',
   Hungary: 'Hungarian.png',
@@ -75,7 +77,12 @@ const CIVILIZATION_ICON_FILES: Record<string, string> = {
   Scythia: 'Scythian.png',
   Spain: 'Spanish.png',
   Sumeria: 'Sumerian.png',
+  Swahili: 'Swahili.webp',
   Sweden: 'Swedish.png',
+  Taíno: 'Taino.webp',
+  Teotihuacán: 'Teotihuacan.webp',
+  Thule: 'Thule.webp',
+  Tibet: 'Tibet.webp',
   Vietnam: 'Vietnamese.png',
   Zulu: 'Zulu.png',
 }
@@ -93,7 +100,9 @@ export function normalizeCivBlitzOptionCount(value: unknown, fallback = CIV_BLIT
   return rounded
 }
 
-export const CIV_BLITZ_MAX_OPTION_COUNT = getCivBlitzOptionCountMaximum('live', { excludeBbgExpanded: false })
+export const CIV_BLITZ_MAX_OPTION_COUNT = Math.max(
+  ...LEADER_DATA_VERSIONS.map(version => getCivBlitzOptionCountMaximum(version, { excludeBbgExpanded: false })),
+)
 
 export function getCivBlitzRegistry(
   version: LeaderDataVersion = 'live',

@@ -1,7 +1,8 @@
 import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const DAY_MS = 86_400_000
@@ -571,7 +572,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('sync skips Discord fetches for unchanged assignments', async () => {
+  test('sync skips Discord fetches for already-applied assignments', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
@@ -584,7 +585,7 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    installMemberRoleFetchMock()
+    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock()
 
     await syncRankedRoles({
       db,
@@ -595,14 +596,9 @@ describe('ranked role sync service', () => {
       applyDiscord: true,
     })
 
-    let writeCalls = 0
-    globalThis.fetch = (async (_input, init) => {
-      if (init?.method === 'PUT' || init?.method === 'DELETE') {
-        writeCalls += 1
-        return new Response(null, { status: 204 })
-      }
-      return new Response('not found', { status: 404 })
-    }) as typeof fetch
+    getCalls.length = 0
+    deleteCalls.length = 0
+    putCalls.length = 0
 
     const result = await syncRankedRoles({
       db,
@@ -614,7 +610,166 @@ describe('ranked role sync service', () => {
     })
 
     expect(result.appliedDiscordChanges).toBe(0)
-    expect(writeCalls).toBe(0)
+    expect(getCalls).toHaveLength(0)
+    expect(deleteCalls).toHaveLength(0)
+    expect(putCalls).toHaveLength(0)
+
+    sqlite.close()
+  })
+
+  test('pending Discord retry is read-only when nothing is pending', async () => {
+    const { kv, operations, runWithoutTracking } = createTrackedKv()
+    const playerId = playerIdFor('ffa', 1)
+
+    await runWithoutTracking(async () => {
+      await setRankedRoleCurrentRoles(kv, 'guild-1', {
+        tier5: '11111111111111111',
+        tier4: '22222222222222222',
+        tier3: '33333333333333333',
+        tier2: '44444444444444444',
+        tier1: '55555555555555555',
+      })
+      await seedPreviousAssignment(kv, 'guild-1', playerId, {
+        tier: TIER_3,
+        sourceMode: null,
+        appliedRoleId: '33333333333333333',
+      })
+    })
+    globalThis.fetch = (async () => {
+      throw new Error('Discord should not be called when no rank roles are pending.')
+    }) as typeof fetch
+
+    const result = await applyPendingRankedRoleDiscordChanges({
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      maxPlayers: 8,
+    })
+
+    expect(result).toEqual({ appliedChanges: 0, pendingChanges: 0 })
+    expect(operations).toEqual([])
+  })
+
+  test('sync applies Discord role changes in bounded persisted batches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    installMemberRoleFetchMock()
+
+    const firstResult = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+      maxDiscordRoleSyncPlayers: 2,
+    })
+
+    expect(firstResult.appliedDiscordChanges).toBe(2)
+    expect(firstResult.pendingDiscordChanges).toBe(6)
+    let assignments = await getCurrentRankAssignments(kv, 'guild-1')
+    expect(countAppliedRoleIds(assignments)).toBe(2)
+
+    const secondResult = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW + 1,
+      applyDiscord: true,
+      maxDiscordRoleSyncPlayers: 2,
+    })
+
+    expect(secondResult.appliedDiscordChanges).toBe(2)
+    expect(secondResult.pendingDiscordChanges).toBe(4)
+    assignments = await getCurrentRankAssignments(kv, 'guild-1')
+    expect(countAppliedRoleIds(assignments)).toBe(4)
+
+    sqlite.close()
+  })
+
+  test('sync persists desired assignments when Discord apply has pending failures', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    const playerId = playerIdFor('ffa', 1)
+    await seedPreviousAssignment(kv, 'guild-1', playerId, {
+      tier: TIER_4,
+      sourceMode: null,
+      appliedRoleId: '22222222222222222',
+    })
+    globalThis.fetch = (async () => new Response('discord unavailable', { status: 500 })) as typeof fetch
+
+    const result = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+      playerIds: [playerId],
+    })
+
+    expect(result.pendingDiscordChanges).toBe(1)
+    const assignments = await getCurrentRankAssignments(kv, 'guild-1')
+    expect(assignments.byPlayerId[playerId]?.tier).toBe(TIER_3)
+    expect(assignments.byPlayerId[playerId]?.appliedRoleId).toBe('22222222222222222')
+
+    sqlite.close()
+  })
+
+  test('sync repairs stale Discord roles for unchanged assignments', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+
+    const playerId = playerIdFor('ffa', 1)
+    await seedPreviousAssignment(kv, 'guild-1', playerId, { tier: TIER_3, sourceMode: null })
+    const { memberRoles, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
+      [playerId, new Set(['22222222222222222'])],
+    ]))
+
+    const result = await syncRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      now: NOW,
+      applyDiscord: true,
+      playerIds: [playerId],
+    })
+
+    expect(result.appliedDiscordChanges).toBe(1)
+    expect(deleteCalls).toEqual([{ userId: playerId, roleId: '22222222222222222' }])
+    expect(putCalls).toEqual([{ userId: playerId, roleId: '33333333333333333' }])
+    expect(memberRoles.get(playerId)?.has('22222222222222222')).toBe(false)
+    expect(memberRoles.get(playerId)?.has('33333333333333333')).toBe(true)
 
     sqlite.close()
   })
@@ -904,7 +1059,7 @@ async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null },
+  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null, appliedRoleId?: string },
 ): Promise<void> {
   await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
     byPlayerId: {
@@ -951,6 +1106,10 @@ function installMemberRoleFetchMock(memberRoles = new Map<string, Set<string>>()
   }) as typeof fetch
 
   return { memberRoles, getCalls, deleteCalls, putCalls }
+}
+
+function countAppliedRoleIds(assignments: Awaited<ReturnType<typeof getCurrentRankAssignments>>): number {
+  return Object.values(assignments.byPlayerId).filter(assignment => assignment.appliedRoleId != null).length
 }
 
 function playerIdFor(prefix: string, index: number): string {
