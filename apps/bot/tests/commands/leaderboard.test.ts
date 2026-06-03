@@ -1,6 +1,6 @@
 import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { buildLeaderboardCommandPayload } from '../../src/commands/leaderboard.ts'
+import { buildLeaderboardCommandImages } from '../../src/commands/leaderboard.ts'
 import { rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -24,11 +24,14 @@ describe('leaderboard command payload', () => {
       await rebuildLeaderboardModeSnapshot(db, kv, 'duo')
       await rebuildLeaderboardModeSnapshot(db, kv, 'duel')
 
-      const payload = await buildLeaderboardCommandPayload(kv, null)
-      const titles = payload.embeds?.map(embed => embed.toJSON().title) ?? []
+      const payload = await buildLeaderboardCommandImages(db, kv, null)
+      const modes = 'images' in payload ? payload.images.map(image => image.mode) : []
 
-      expect(titles).toEqual(['Duo Leaderboard', 'FFA Leaderboard'])
-      expect(payload.content).toBeUndefined()
+      expect(modes).toEqual(['duo', 'ffa'])
+      expect('content' in payload ? payload.content : undefined).toBeUndefined()
+      if ('images' in payload) {
+        expect(payload.images.every(image => isPng(image.data))).toBe(true)
+      }
     }
     finally {
       sqlite.close()
@@ -52,10 +55,10 @@ describe('leaderboard command payload', () => {
       })
       await rebuildLeaderboardModeSnapshot(db, kv, 'ffa')
 
-      const payload = await buildLeaderboardCommandPayload(kv, null)
+      const payload = await buildLeaderboardCommandImages(db, kv, null)
 
-      expect(payload.embeds).toBeUndefined()
-      expect(payload.content).toBe('No players with enough games to rank yet.')
+      expect('images' in payload ? payload.images : undefined).toBeUndefined()
+      expect('content' in payload ? payload.content : undefined).toBe('No players with enough games to rank yet.')
     }
     finally {
       sqlite.close()
@@ -79,13 +82,14 @@ describe('leaderboard command payload', () => {
       })
       await rebuildLeaderboardModeSnapshot(db, kv, 'ffa')
 
-      const payload = await buildLeaderboardCommandPayload(kv, 'ffa')
-      const embed = payload.embeds?.[0]?.toJSON()
+      const payload = await buildLeaderboardCommandImages(db, kv, 'ffa')
 
-      expect(payload.content).toBeUndefined()
-      expect(payload.embeds).toHaveLength(1)
-      expect(embed?.title).toBe('FFA Leaderboard')
-      expect(embed?.description).toBe('No players with enough games to rank yet.')
+      expect('content' in payload ? payload.content : undefined).toBeUndefined()
+      expect('images' in payload ? payload.images : []).toHaveLength(1)
+      if ('images' in payload) {
+        expect(payload.images[0]?.mode).toBe('ffa')
+        expect(isPng(payload.images[0]!.data)).toBe(true)
+      }
     }
     finally {
       sqlite.close()
@@ -95,9 +99,15 @@ describe('leaderboard command payload', () => {
   test('does not rebuild when no cached snapshot exists', async () => {
     const kv = createTestKv()
 
-    const payload = await buildLeaderboardCommandPayload(kv, 'ffa')
+    const { db, sqlite } = await createTestDatabase()
+    const payload = await buildLeaderboardCommandImages(db, kv, 'ffa')
 
-    expect(payload.embeds).toBeUndefined()
-    expect(payload.content).toBe('Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.')
+    expect('images' in payload ? payload.images : undefined).toBeUndefined()
+    expect('content' in payload ? payload.content : undefined).toBe('Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.')
+    sqlite.close()
   })
 })
+
+function isPng(bytes: Uint8Array): boolean {
+  return Array.from(bytes.slice(0, 8)).join(',') === '137,80,78,71,13,10,26,10'
+}
