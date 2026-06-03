@@ -1,10 +1,10 @@
-import { matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, tournamentMatches, tournaments } from '@civup/db'
+import { matchBans, matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, getLeaders } from '@civup/game'
 import { buildLeaderboard, displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../../src/services/match/index.ts'
 import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -229,6 +229,134 @@ describe('match moderation recalculation', () => {
       expect(p2?.civId).toBe('rome')
       expect(p1?.ratingAfterMu).toBe(27)
       expect(p2?.ratingAfterMu).toBe(23)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('mod player sub replaces a reported participant and removes stale ratings for the old player', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedCompletedDuelWithRatingEvents(db)
+
+      const result = await substituteMatchPlayerByModerator(db, kv, {
+        matchId: 'sub-duel',
+        playerId: 'p1',
+        subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
+        correctedAt: 3_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.recalculatedMatchIds).toEqual(['sub-duel'])
+      expect(result.substitutions).toEqual([{ seatIndex: 0, previousPlayerId: 'p1', nextPlayerId: 'p3', team: 0, civId: 'rome', placement: 1 }])
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'sub-duel'))
+      expect(participants.find(participant => participant.playerId === 'p1')).toBeUndefined()
+      const p3 = participants.find(participant => participant.playerId === 'p3')
+      expect(p3?.team).toBe(0)
+      expect(p3?.civId).toBe('rome')
+      expect(p3?.placement).toBe(1)
+      expect(p3?.ratingBeforeMu).not.toBeNull()
+      expect(p3?.ratingAfterMu).not.toBeNull()
+
+      const [match] = await db.select().from(matches).where(eq(matches.id, 'sub-duel')).limit(1)
+      const draftData = JSON.parse(match?.draftData ?? '{}')
+      expect(draftData.hostId).toBe('p3')
+      expect(draftData.state.seats.map((seat: any) => seat.playerId)).toEqual(['p3', 'p2'])
+
+      const bans = await db.select().from(matchBans).where(eq(matchBans.matchId, 'sub-duel'))
+      expect(bans).toEqual([{ matchId: 'sub-duel', civId: 'aztec', bannedBy: 'p3', phase: 0 }])
+
+      const duelRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+      expect(duelRatings.find(row => row.playerId === 'p1')).toBeUndefined()
+      expect(duelRatings.find(row => row.playerId === 'p3')?.gamesPlayed).toBe(1)
+
+      const p1Events = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.playerId, 'p1'))
+      expect(p1Events).toEqual([])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('mod player sub swaps existing participants across teams by draft seat', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedCompletedDuoForSub(db)
+
+      const result = await substituteMatchPlayerByModerator(db, kv, {
+        matchId: 'sub-duo',
+        playerId: 'p1',
+        subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
+        correctedAt: 3_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.substitutions).toEqual([
+        { seatIndex: 0, previousPlayerId: 'p1', nextPlayerId: 'p3', team: 0, civId: 'rome', placement: 1 },
+        { seatIndex: 1, previousPlayerId: 'p3', nextPlayerId: 'p1', team: 1, civId: 'india', placement: 2 },
+      ])
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'sub-duo'))
+      const p1 = participants.find(participant => participant.playerId === 'p1')
+      const p3 = participants.find(participant => participant.playerId === 'p3')
+      expect(p3?.team).toBe(0)
+      expect(p3?.civId).toBe('rome')
+      expect(p3?.placement).toBe(1)
+      expect(p1?.team).toBe(1)
+      expect(p1?.civId).toBe('india')
+      expect(p1?.placement).toBe(2)
+
+      const [match] = await db.select().from(matches).where(eq(matches.id, 'sub-duo')).limit(1)
+      const draftData = JSON.parse(match?.draftData ?? '{}')
+      expect(draftData.hostId).toBe('p1')
+      expect(draftData.state.seats.map((seat: any) => [seat.playerId, seat.team])).toEqual([
+        ['p3', 0],
+        ['p1', 1],
+        ['p2', 0],
+        ['p4', 1],
+      ])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('mod player sub updates a draft-complete active match without replaying ratings', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedActiveDraftCompleteDuelForSub(db)
+
+      const result = await substituteMatchPlayerByModerator(db, kv, {
+        matchId: 'sub-active',
+        playerId: 'p1',
+        subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
+        correctedAt: 3_000,
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.match.status).toBe('active')
+      expect(result.recalculatedMatchIds).toEqual([])
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'sub-active'))
+      expect(participants.find(participant => participant.playerId === 'p1')).toBeUndefined()
+      const p3 = participants.find(participant => participant.playerId === 'p3')
+      expect(p3?.civId).toBe('rome')
+      expect(p3?.placement).toBeNull()
+      expect(p3?.ratingBeforeMu).toBeNull()
+
+      const ratings = await db.select().from(playerRatings)
+      expect(ratings).toEqual([])
     }
     finally {
       sqlite.close()
@@ -1249,6 +1377,149 @@ async function seedThreeCompletedDuels(db: any): Promise<void> {
     { playerId: 'p1', mode: 'duel', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
     { playerId: 'p2', mode: 'duel', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
   ])
+}
+
+async function seedCompletedDuelWithRatingEvents(db: any): Promise<void> {
+  const seats = [
+    { playerId: 'p1', displayName: 'P1', avatarUrl: null, team: 0 },
+    { playerId: 'p2', displayName: 'P2', avatarUrl: null, team: 1 },
+  ]
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+  ])
+  await db.insert(matches).values({
+    id: 'sub-duel',
+    gameMode: '1v1',
+    status: 'completed',
+    createdAt: 1_000,
+    completedAt: 2_000,
+    seasonId: null,
+    draftData: buildStoredDraftData('sub-duel', seats, ['rome', 'greece'], [{ civId: 'aztec', seatIndex: 0, stepIndex: 0 }]),
+  })
+  await db.insert(matchParticipants).values([
+    { matchId: 'sub-duel', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9 },
+    { matchId: 'sub-duel', playerId: 'p2', team: 1, civId: 'greece', placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9 },
+  ])
+  await db.insert(matchBans).values({ matchId: 'sub-duel', civId: 'aztec', bannedBy: 'p1', phase: 0 })
+  await db.insert(playerRatings).values([
+    { playerId: 'p1', mode: 'duel', mu: 27, sigma: 7.9, gamesPlayed: 1, wins: 1, lastPlayedAt: 2_000 },
+    { playerId: 'p2', mode: 'duel', mu: 23, sigma: 7.9, gamesPlayed: 1, wins: 0, lastPlayedAt: 2_000 },
+    { playerId: 'p1', mode: 'global', mu: 27, sigma: 7.9, gamesPlayed: 1, wins: 1, lastPlayedAt: 2_000 },
+    { playerId: 'p2', mode: 'global', mu: 23, sigma: 7.9, gamesPlayed: 1, wins: 0, lastPlayedAt: 2_000 },
+  ])
+  await db.insert(playerRatingEvents).values([
+    ratingEvent('sub-duel', 'p1', 'duel', 1),
+    ratingEvent('sub-duel', 'p2', 'duel', 0),
+    ratingEvent('sub-duel', 'p1', 'global', 1),
+    ratingEvent('sub-duel', 'p2', 'global', 0),
+  ])
+}
+
+async function seedCompletedDuoForSub(db: any): Promise<void> {
+  const seats = [
+    { playerId: 'p1', displayName: 'P1', avatarUrl: null, team: 0 },
+    { playerId: 'p3', displayName: 'P3', avatarUrl: null, team: 1 },
+    { playerId: 'p2', displayName: 'P2', avatarUrl: null, team: 0 },
+    { playerId: 'p4', displayName: 'P4', avatarUrl: null, team: 1 },
+  ]
+  await db.insert(players).values(['p1', 'p2', 'p3', 'p4'].map(playerId => ({ id: playerId, displayName: playerId.toUpperCase(), avatarUrl: null, createdAt: 1 })))
+  await db.insert(matches).values({
+    id: 'sub-duo',
+    gameMode: '2v2',
+    status: 'completed',
+    createdAt: 1_000,
+    completedAt: 2_000,
+    seasonId: null,
+    draftData: buildStoredDraftData('sub-duo', seats, ['rome', 'india', 'greece', 'china']),
+  })
+  await db.insert(matchParticipants).values([
+    { matchId: 'sub-duo', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'sub-duo', playerId: 'p3', team: 1, civId: 'india', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'sub-duo', playerId: 'p2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'sub-duo', playerId: 'p4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+}
+
+async function seedActiveDraftCompleteDuelForSub(db: any): Promise<void> {
+  const seats = [
+    { playerId: 'p1', displayName: 'P1', avatarUrl: null, team: 0 },
+    { playerId: 'p2', displayName: 'P2', avatarUrl: null, team: 1 },
+  ]
+  await db.insert(players).values([
+    { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
+    { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
+  ])
+  await db.insert(matches).values({
+    id: 'sub-active',
+    gameMode: '1v1',
+    status: 'active',
+    createdAt: 1_000,
+    completedAt: null,
+    seasonId: null,
+    draftData: buildStoredDraftData('sub-active', seats, ['rome', 'greece']),
+  })
+  await db.insert(matchParticipants).values([
+    { matchId: 'sub-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    { matchId: 'sub-active', playerId: 'p2', team: 1, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+  ])
+}
+
+function buildStoredDraftData(
+  matchId: string,
+  seats: Array<{ playerId: string, displayName: string, avatarUrl: string | null, team?: number }>,
+  civIds: string[],
+  bans: Array<{ civId: string, seatIndex: number, stepIndex: number }> = [],
+): string {
+  return JSON.stringify({
+    completedAt: 2_000,
+    hostId: seats[0]?.playerId,
+    leaderDataVersion: 'live',
+    mapVoteResult: null,
+    redDeath: false,
+    civBlitz: false,
+    permanentAlly: false,
+    hiddenDraft: false,
+    state: {
+      matchId,
+      formatId: 'test-draft',
+      seats,
+      steps: [],
+      currentStepIndex: -1,
+      submissions: {},
+      bans,
+      picks: civIds.map((civId, seatIndex) => ({ civId, seatIndex, stepIndex: seatIndex })),
+      availableCivIds: [],
+      duplicateFactions: false,
+      status: 'complete',
+      cancelReason: null,
+      pendingBlindBans: [],
+    },
+  })
+}
+
+function ratingEvent(matchId: string, playerId: string, mode: 'duel' | 'global', winsDelta: number) {
+  return {
+    matchId,
+    playerId,
+    mode,
+    gameMode: '1v1',
+    ratingBeforeMu: 25,
+    ratingBeforeSigma: 8.333,
+    ratingAfterMu: winsDelta > 0 ? 27 : 23,
+    ratingAfterSigma: 7.9,
+    gamesDelta: 1,
+    winsDelta,
+    importedGamesDelta: 0,
+    effectiveGamesDelta: 1,
+    winsVsTier1Delta: 0,
+    winsVsTier2PlusDelta: 0,
+    effectiveWinsVsTier1Delta: 0,
+    effectiveWinsVsTier2PlusDelta: 0,
+    matchCreatedAt: 1_000,
+    matchCompletedAt: 2_000,
+    updatedAt: 2_000,
+  }
 }
 
 function buildManualPlayers(leaderIds: string[]) {

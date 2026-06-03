@@ -1,14 +1,10 @@
 import { useParams } from '@solidjs/router'
-import { onMount } from 'solid-js'
 import { DraftPage } from '../../pages/draft'
 import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
-import { preloadLobbyOverviewRoute } from '../route-preloads'
 
 export default function DraftActivityRoute() {
   const activity = useActivityController()
   const params = useParams<{ matchId: string }>()
-
-  onMount(() => { void preloadLobbyOverviewRoute() })
 
   const renderRoute = () => {
     const state = activity.state()

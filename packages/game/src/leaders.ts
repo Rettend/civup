@@ -967,13 +967,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -1004,13 +998,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {

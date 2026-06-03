@@ -1,5 +1,5 @@
 import { matches, players, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
-import { getMaxLeaderPoolSize } from '@civup/game'
+import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -837,6 +837,40 @@ describe('lobby routes', () => {
     expect(configuredLobby.maxRole).toBeNull()
     expect(configuredLobby.lobbyRank).toBeNull()
     expect(configuredLobby.draftConfig.civBlitz).toBe(true)
+  })
+
+  test('config route accepts the beta BBG Expanded CivBlitz option maximum', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const expandedMax = getCivBlitzOptionCountMaximum('beta', { excludeBbgExpanded: false })
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({
+        userId: 'host',
+        lobbyId: lobby.id,
+        leaderDataVersion: 'beta',
+        civBlitz: true,
+        civBlitzExcludeBbgExpanded: false,
+        civBlitzOptionCount: expandedMax,
+      }),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const configuredLobby = await response.json()
+    expect(configuredLobby.draftConfig.leaderDataVersion).toBe('beta')
+    expect(configuredLobby.draftConfig.civBlitz).toBe(true)
+    expect(configuredLobby.draftConfig.civBlitzExcludeBbgExpanded).toBe(false)
+    expect(configuredLobby.draftConfig.civBlitzOptionCount).toBe(expandedMax)
   })
 
   test('config route reopens closed lobbies in the activity overview', async () => {

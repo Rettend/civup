@@ -217,7 +217,7 @@ export function lobbyResultEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null, civBlitz?: boolean } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null, civBlitz?: boolean, unranked?: boolean } = {},
   redDeath = false,
 ): Embed {
   return lobbyReportedEmbed(mode, participants, moderation, options, redDeath, participants.length, options.civBlitz === true)
@@ -305,7 +305,7 @@ function lobbyReportedEmbed(
   mode: GameMode,
   participants: LobbyParticipant[],
   moderation?: ModerationContext,
-  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null } = {},
+  options: { rankedRoleLines?: string[], reporter?: ReporterContext | null, mapVoteResult?: ResolvedMapVoteResult | null, leaderDataVersion?: LeaderDataVersion | null, unranked?: boolean } = {},
   redDeath = false,
   targetSize?: number,
   civBlitz = false,
@@ -313,8 +313,8 @@ function lobbyReportedEmbed(
   const embed = baseLobbyEmbed(mode, 'reported', options.leaderDataVersion, { redDeath, civBlitz, targetSize })
   const usesTeamRows = isTeamMode(mode) || participants.some(participant => participant.team != null)
   const description = usesTeamRows
-    ? formatReportedTeamRows(participants, options.leaderDataVersion)
-    : formatReportedFlatRows(participants, options.leaderDataVersion)
+    ? formatReportedTeamRows(participants, options.leaderDataVersion, options.unranked === true)
+    : formatReportedFlatRows(participants, options.leaderDataVersion, options.unranked === true)
   const leaderboardUpdate = formatLeaderboardUpdate(participants)
   const rankedRoleUpdate = formatRankedRoleUpdate(options.rankedRoleLines)
   const moderationField = buildModerationField(moderation)
@@ -341,7 +341,7 @@ function formatLeaderDataVersionFooter(leaderDataVersion?: LeaderDataVersion | n
   return normalizeAvailableLeaderDataVersion(leaderDataVersion) === 'beta' ? 'BBG Beta' : 'BBG Live'
 }
 
-function formatReportedTeamRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null): string {
+function formatReportedTeamRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null, unranked = false): string {
   const byTeam = new Map<number, LobbyParticipant[]>()
 
   for (const participant of participants) {
@@ -371,7 +371,7 @@ function formatReportedTeamRows(participants: LobbyParticipant[], leaderDataVers
     lines.push(`${formatPlacementCode(teamEntry.placement)} **${formatTeamName(teamEntry.team)}**`)
 
     for (const participant of teamEntry.participants) {
-      lines.push(`\u00A0\u00A0\u00A0${formatReportedPlayerDetails(participant, leaderDataVersion)}`)
+      lines.push(`\u00A0\u00A0\u00A0${formatReportedPlayerDetails(participant, leaderDataVersion, unranked)}`)
     }
 
     if (index < teams.length - 1) lines.push('')
@@ -380,7 +380,7 @@ function formatReportedTeamRows(participants: LobbyParticipant[], leaderDataVers
   return lines.join('\n')
 }
 
-function formatReportedFlatRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null): string {
+function formatReportedFlatRows(participants: LobbyParticipant[], leaderDataVersion?: LeaderDataVersion | null, unranked = false): string {
   const ordered = [...participants].sort((a, b) => {
     const placementOrder = (a.placement ?? 99) - (b.placement ?? 99)
     if (placementOrder !== 0) return placementOrder
@@ -389,7 +389,7 @@ function formatReportedFlatRows(participants: LobbyParticipant[], leaderDataVers
 
   return ordered
     .map((participant) => {
-      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant, leaderDataVersion)}`
+      return `${formatPlacementCode(participant.placement)} ${formatReportedPlayerDetails(participant, leaderDataVersion, unranked)}`
     })
     .join('\n')
 }
@@ -414,12 +414,14 @@ function formatPlacementCode(placement: number | null | undefined): string {
   return `\`${`#${placement}`.padEnd(3, ' ')}\``
 }
 
-function formatReportedPlayerDetails(participant: LobbyParticipant, leaderDataVersion?: LeaderDataVersion | null): string {
-  const rating = formatReportedRating(participant)
+function formatReportedPlayerDetails(participant: LobbyParticipant, leaderDataVersion?: LeaderDataVersion | null, unranked = false): string {
+  const rating = formatReportedRating(participant, unranked)
   return `${rating} <@${participant.playerId}> - ${formatLeaderName(participant.civId, leaderDataVersion)}`
 }
 
-function formatReportedRating(participant: LobbyParticipant): string {
+function formatReportedRating(participant: LobbyParticipant, unranked = false): string {
+  if (unranked) return formatUnrankedResultMarker(participant.placement)
+
   if (
     participant.ratingBeforeMu == null
     || participant.ratingBeforeSigma == null
@@ -433,6 +435,10 @@ function formatReportedRating(participant: LobbyParticipant): string {
   const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
 
   return formatDisplayRatingChange(before, after)
+}
+
+function formatUnrankedResultMarker(placement: number | null | undefined): string {
+  return placement === 1 ? '`  +` 📈' : '`  -` 📉'
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {

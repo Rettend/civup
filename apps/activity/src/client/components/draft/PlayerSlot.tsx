@@ -721,9 +721,14 @@ function CivBlitzSlotTile(props: {
   const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
   const hasIcon = () => props.component?.iconUrl != null
   const isCivilizationIcon = () => props.category === 'civilizationAbility' && hasIcon()
-  const imageFrameClass = () => hasIcon()
-    ? cn(props.compact ? 'h-[58%] w-[58%]' : 'h-[66%] w-[66%]', isCivilizationIcon() ? 'rounded-full' : 'rounded-md')
-    : (props.compact ? 'h-[48%] w-[48%] rounded-full' : 'h-[56%] w-[56%] rounded-full')
+  const imageFrameClass = () => cn(
+    'aspect-square',
+    hasIcon()
+      ? (props.compact ? 'w-[58%]' : 'w-[66%]')
+      : (props.compact ? 'w-[58%]' : 'w-[66%]'),
+    isCivilizationIcon() || !hasIcon() ? 'rounded-full' : 'rounded-md',
+    !hasIcon() && 'bg-bg-subtle/45',
+  )
   const imageClass = () => hasIcon()
     ? cn('object-contain', isCivilizationIcon() && 'rounded-full')
     : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
@@ -737,7 +742,7 @@ function CivBlitzSlotTile(props: {
             </div>
           )}
         </Show>
-        <div class={cn('relative shrink-0 overflow-hidden bg-bg-subtle/45', imageFrameClass())}>
+        <div class={cn('relative shrink-0 overflow-hidden', imageFrameClass())}>
           <Show
             when={imageUrl()}
             keyed

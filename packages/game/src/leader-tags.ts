@@ -26,7 +26,7 @@ export const leaderTagsById = {
   'egypt-ramses-ii': ['econ:gold', 'econ:faith', 'econ:production', 'win:culture', 'spike:mid', 'role:backline'],
   'england-eleanor-of-aquitaine-england': ['econ:gold', 'win:culture', 'spike:late', 'role:backline', 'other:naval', 'other:greatpeople', 'other:greatworks'],
   'england-elizabeth-i': ['econ:gold', 'win:domination', 'spike:mid', 'role:flex', 'other:naval'],
-  'england-victoria-age-of-empire': ['econ:gold', 'win:domination', 'spike:mid', 'role:frontline', 'other:naval', 'other:greatpeople'],
+  'england-victoria-age-of-empire': ['econ:gold', 'win:domination', 'spike:mid', 'role:backline', 'other:naval', 'other:greatpeople'],
   'england-victoria-age-of-steam': ['econ:production', 'econ:gold', 'spike:late', 'role:backline', 'other:naval', 'other:greatpeople'],
   'ethiopia-menelik-ii': ['econ:faith', 'econ:gold', 'win:science', 'win:culture', 'spike:mid', 'role:backline'],
   'france-catherine-de-medici-black-queen': ['econ:gold', 'win:domination', 'win:culture', 'spike:mid', 'role:flex', 'other:defense', 'other:greatpeople'],

@@ -81,10 +81,10 @@ const LEADER_DATA_META_OUTPUT_PATH = resolve(import.meta.dir, '../src/leader-dat
 const ITEM_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/items')
 const LEADER_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/leaders')
 const NON_SCENARIO_RULESETS = ['RULESET_STANDARD', 'RULESET_EXPANSION_1', 'RULESET_EXPANSION_2']
-const TEXT_OVERRIDES: Record<string, string> = {
-  LOC_IMPROVEMENT_SUK_DUNON_NAME: 'Dūnon',
-  LOC_IMPROVEMENT_SUK_DUNON_REWORK_DESCRIPTION: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-}
+const TEXT_OVERRIDES: Record<string, string> = {}
+const EXCLUDED_ITEM_TYPES = new Set([
+  'IMPROVEMENT_SUK_DUNON',
+])
 const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type'], string>> = {
   UNIT_LIME_THULE_DOGSLED: 'Dogsled Hunter',
   UNIT_MACEDONIAN_HETAIROI: 'Hetairoi',
@@ -545,6 +545,8 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
   let improvementIndex = 0
 
   for (const item of row.items) {
+    if (EXCLUDED_ITEM_TYPES.has(item.Type)) continue
+
     const categoryIndex = item.Type.startsWith('UNIT_')
       ? unitIndex
       : item.Type.startsWith('IMPROVEMENT_')

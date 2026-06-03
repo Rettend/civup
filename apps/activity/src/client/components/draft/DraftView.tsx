@@ -1,5 +1,4 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
-import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
@@ -347,8 +346,6 @@ function CancelledDraftScreen(props: {
             class="text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
             title="Lobby Overview"
             aria-label="Lobby Overview"
-            onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
-            onFocus={() => { void preloadLobbyOverviewRoute() }}
             onClick={() => props.onSwitchTarget?.()}
           >
             <span class="i-ph-squares-four-bold text-base" />

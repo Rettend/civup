@@ -63,6 +63,7 @@
     "crons": [
       "0 * * * *", // every hour
       "*/30 * * * *", // every 30 minutes
+      "12 0,2,4,6,8,10,12,14,16,18 * * *", // 10/day, offset
       "0 0 * * *" // every day at 0:00 UTC
     ]
   },

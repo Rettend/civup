@@ -23,7 +23,7 @@ const rebuildActivity = process.argv.includes('--rebuild-activity')
 const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
-  ? ['bun', 'x', 'vite', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
+  ? ['bun', 'x', 'vite', '--force', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
   : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [

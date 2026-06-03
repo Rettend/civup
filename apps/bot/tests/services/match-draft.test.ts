@@ -1,6 +1,6 @@
 import type { DraftInput, DraftSeat, DraftState } from '@civup/game'
 import { matchBans, matches, matchParticipants } from '@civup/db'
-import { createDraft, default2v2, isDraftError, processDraftInput, swapSeatPicks } from '@civup/game'
+import { civBlitz2v2, createDraft, default2v2, getCivBlitzRegistry, isDraftError, processDraftInput, swapSeatPicks } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { splitValuesForD1InsertLimit } from '../../src/services/match/draft.ts'
@@ -96,6 +96,87 @@ describe('draft match activation', () => {
       const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { doublePickMetrics?: typeof metrics } : null
 
       expect(storedDraftData?.doublePickMetrics).toEqual(metrics)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('stores CivBlitz leader ability source leaders on activation', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const matchId = 'match-draft-civblitz-leaders'
+      const seats = create2v2Seats()
+      const registry = getCivBlitzRegistry('live')
+      const leaderAbilityComponents = registry.components
+        .filter(component => component.category === 'leaderAbility')
+        .slice(0, seats.length)
+      const lockedKits: NonNullable<DraftState['civBlitz']>['lockedKits'] = {}
+      expect(leaderAbilityComponents).toHaveLength(seats.length)
+
+      leaderAbilityComponents.forEach((component, index) => {
+        lockedKits[index] = { leaderAbility: component.id }
+      })
+
+      await createDraftMatch(db, {
+        matchId,
+        mode: '2v2',
+        seats,
+      })
+
+      const result = await activateDraftMatch(db, {
+        state: {
+          matchId,
+          formatId: civBlitz2v2.id,
+          seats,
+          steps: civBlitz2v2.getSteps(seats.length),
+          currentStepIndex: 0,
+          submissions: {},
+          bans: [],
+          picks: [],
+          availableCivIds: [],
+          civBlitz: {
+            optionCount: 4,
+            excludeBbgExpanded: true,
+            componentPools: registry.componentPools,
+            optionsBySeat: {},
+            submissions: {},
+            lockedKits,
+            reveal: null,
+            conflictBans: [],
+            maxRedrafts: 1,
+          },
+          status: 'complete',
+          cancelReason: null,
+          pendingBlindBans: [],
+        },
+        completedAt: 1_700_000_000_000,
+        hostId: seats[0]?.playerId ?? 'p1',
+        leaderDataVersion: 'live',
+      })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+
+      const expectedLeaderByPlayer = new Map(leaderAbilityComponents.map((component, index) => [
+        seats[index]!.playerId,
+        component.sourceLeaderId,
+      ]))
+      const civByPlayer = new Map(result.participants.map(participant => [participant.playerId, participant.civId]))
+      for (const seat of seats) {
+        expect(civByPlayer.get(seat.playerId)).toBe(expectedLeaderByPlayer.get(seat.playerId))
+      }
+
+      const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      const storedCivByPlayer = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
+      for (const seat of seats) {
+        expect(storedCivByPlayer.get(seat.playerId)).toBe(expectedLeaderByPlayer.get(seat.playerId))
+      }
+
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { civBlitz?: boolean } : null
+      expect(storedDraftData?.civBlitz).toBe(true)
     }
     finally {
       sqlite.close()

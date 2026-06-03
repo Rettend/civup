@@ -1,7 +1,6 @@
 import type { ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
 import { createMemo, createSignal, For, Show } from 'solid-js'
-import { preloadActivityTargetRoute } from '~/client/activity/route-preloads'
 import { MiniFrame } from '~/client/components/draft/MiniLayout'
 import { activityTargetOptionKey } from '~/client/lib/activity-targets'
 import { cn } from '~/client/lib/css'
@@ -209,8 +208,6 @@ function OverviewTargetCard(props: {
       aria-label={formatTargetAriaLabel(props.option)}
       aria-pressed={props.selected}
       disabled={props.busy}
-      onPointerEnter={() => preloadActivityTargetRoute(props.option)}
-      onFocus={() => preloadActivityTargetRoute(props.option)}
       onClick={() => props.onSelect(props.option)}
       class={cn(
         'group relative flex min-h-[156px] flex-col overflow-visible rounded-xl border p-3 text-left transition-all duration-150 cursor-pointer',

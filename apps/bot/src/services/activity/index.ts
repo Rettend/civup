@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getCivBlitzComponentIds, getDraftFormat, getLeaderIds, isTeamMode, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getLeaderIds, isTeamMode, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -64,8 +64,15 @@ export function buildDraftRuntimeConfig(
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, civBlitz, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
   const leaderDataVersion = options.leaderDataVersion ?? 'live'
+  const civBlitzExcludeBbgExpanded = options.civBlitzExcludeBbgExpanded !== false
+  const civBlitzOptionCount = civBlitz
+    ? Math.min(
+        normalizeCivBlitzOptionCount(options.civBlitzOptionCount ?? undefined),
+        getCivBlitzOptionCountMaximum(leaderDataVersion, { excludeBbgExpanded: civBlitzExcludeBbgExpanded }),
+      )
+    : undefined
   const civPool = civBlitz
-    ? getCivBlitzComponentIds(leaderDataVersion, { excludeBbgExpanded: options.civBlitzExcludeBbgExpanded !== false })
+    ? getCivBlitzComponentIds(leaderDataVersion, { excludeBbgExpanded: civBlitzExcludeBbgExpanded })
     : redDeathMode
     ? [...allFactionIds]
     : hiddenDraft
@@ -79,8 +86,8 @@ export function buildDraftRuntimeConfig(
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     civBlitz,
-    civBlitzOptionCount: civBlitz ? normalizeCivBlitzOptionCount(options.civBlitzOptionCount ?? undefined) : undefined,
-    civBlitzExcludeBbgExpanded: civBlitz ? options.civBlitzExcludeBbgExpanded !== false : undefined,
+    civBlitzOptionCount,
+    civBlitzExcludeBbgExpanded: civBlitz ? civBlitzExcludeBbgExpanded : undefined,
     blindPicks,
     randomDraft,
     hiddenDraft,

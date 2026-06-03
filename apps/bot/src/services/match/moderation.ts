@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
 import type { DraftState, LeaderboardMode } from '@civup/game'
 import type { DbBatchItem } from '../db/batch.ts'
-import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatingEvents } from '@civup/db'
+import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchPlayerSubstitution, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult, SubstituteMatchPlayerInput, SubstituteMatchPlayerResult } from './types.ts'
+import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
@@ -13,8 +13,11 @@ import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
 import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
+import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+
+const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 
 interface MatchSessionLifecycleOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -315,6 +318,146 @@ export async function correctMatchLeadersByModerator(
   }
 }
 
+export async function substituteMatchPlayerByModerator(
+  db: Database,
+  kv: KVNamespace,
+  input: SubstituteMatchPlayerInput,
+  options: MatchSessionLifecycleOptions = {},
+): Promise<SubstituteMatchPlayerResult> {
+  const playerId = input.playerId.trim()
+  const subPlayer = {
+    playerId: input.subPlayer.playerId.trim(),
+    displayName: input.subPlayer.displayName.trim() || input.subPlayer.playerId.trim(),
+    avatarUrl: input.subPlayer.avatarUrl ?? null,
+  }
+  if (!playerId) return { error: 'Provide a player to substitute.' }
+  if (!subPlayer.playerId) return { error: 'Provide a substitute player.' }
+  if (playerId === subPlayer.playerId) return { error: '`sub` must be a different player.' }
+
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+
+  if (!match) return { error: `Match **${input.matchId}** not found.` }
+  if (match.status !== 'active' && match.status !== 'completed') {
+    return { error: `Match **${input.matchId}** must be draft-complete or reported before players can be substituted.` }
+  }
+
+  const participants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
+  const participant = participants.find(candidate => candidate.playerId === playerId)
+  if (!participant) return { error: `<@${playerId}> is not a participant in match **${input.matchId}**.` }
+
+  const draftSubstitution = buildDraftPlayerSubstitution(match.draftData, {
+    matchId: input.matchId,
+    playerId,
+    subPlayer,
+  })
+  if ('error' in draftSubstitution) return draftSubstitution
+
+  const participantRows = buildSubstitutedParticipantRows(input.matchId, participants, draftSubstitution)
+  if ('error' in participantRows) return participantRows
+
+  const substitutions = buildPlayerSubstitutionSummaries(draftSubstitution, participantRows.rows)
+  const nextBanRows = buildMatchBanRowsFromDraftState(draftSubstitution.nextState)
+  const originalBans = await db
+    .select()
+    .from(matchBans)
+    .where(eq(matchBans.matchId, input.matchId))
+  const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  const gameContext = getStoredGameModeContext(match.gameMode, draftSubstitution.nextDraftData)
+  if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
+
+  await upsertSubstitutePlayer(db, subPlayer, input.correctedAt)
+  await replaceMatchParticipantRows(db, input.matchId, participantRows.rows)
+  await replaceMatchBanRows(db, input.matchId, nextBanRows)
+  await db
+    .update(matches)
+    .set({ draftData: draftSubstitution.nextDraftData })
+    .where(eq(matches.id, input.matchId))
+
+  let recalculatedMatchIds: string[] = []
+  const extraAffectedPlayerIds = draftSubstitution.removedPlayerIds
+  if (match.status === 'completed' && gameContext.leaderboardMode != null && !tournamentLinked) {
+    const recalculated = await recalculateLeaderboardMode(db, gameContext.leaderboardMode, {
+      fromMatchId: input.matchId,
+      includeFromMatch: true,
+      extraAffectedPlayerIds,
+    })
+    if ('error' in recalculated) {
+      const rollbackError = await rollbackMatchPlayerSubstitution(db, kv, {
+        match,
+        participants,
+        bans: originalBans,
+        leaderboardMode: gameContext.leaderboardMode,
+        rankedRoleGuildId: options.rankedRoleGuildId,
+        extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
+        tournamentLinked,
+      })
+      if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
+      return recalculated
+    }
+
+    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      fromMatchId: input.matchId,
+      includeFromMatch: true,
+      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+      extraAffectedPlayerIds,
+    })
+    if ('error' in recalculatedGlobal) {
+      const rollbackError = await rollbackMatchPlayerSubstitution(db, kv, {
+        match,
+        participants,
+        bans: originalBans,
+        leaderboardMode: gameContext.leaderboardMode,
+        rankedRoleGuildId: options.rankedRoleGuildId,
+        extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
+        tournamentLinked,
+      })
+      if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
+      return recalculatedGlobal
+    }
+
+    await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
+    recalculatedMatchIds = recalculated.matchIds
+  }
+
+  const [updatedMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, input.matchId))
+    .limit(1)
+  if (!updatedMatch) return { error: `Match **${input.matchId}** not found after substituting player.` }
+
+  const updatedParticipants = await db
+    .select()
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+
+  if (tournamentLinked) {
+    await removeCivLeaderboardMatchContribution(db, input.matchId)
+    await removePlayerCivStatMatchContribution(db, input.matchId)
+  }
+  else {
+    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
+    await reconcilePlayerCivStatMatchContribution(db, input.matchId)
+  }
+
+  return {
+    match: updatedMatch,
+    participants: updatedParticipants,
+    previousStatus: match.status,
+    recalculatedMatchIds,
+    substitutions,
+  }
+}
+
 async function rollbackResolvedMatchModeration(
   db: Database,
   kv: KVNamespace,
@@ -506,6 +649,318 @@ function applyLeaderCorrectionsToDraftData(
   }
 
   return changed ? JSON.stringify({ ...parsed, state: nextState }) : draftData
+}
+
+interface DraftPlayerSubstitutionUpdate {
+  previousState: DraftState
+  nextState: DraftState
+  nextDraftData: string
+  changedSeatIndexes: number[]
+  removedPlayerIds: string[]
+}
+
+interface SubstitutePlayerIdentity {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
+}
+
+function buildDraftPlayerSubstitution(
+  draftData: string | null,
+  input: {
+    matchId: string
+    playerId: string
+    subPlayer: SubstitutePlayerIdentity
+  },
+): DraftPlayerSubstitutionUpdate | { error: string } {
+  if (!draftData) return { error: `Match **${input.matchId}** has no stored draft data to substitute.` }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(draftData)
+  }
+  catch {
+    return { error: `Match **${input.matchId}** has invalid stored draft data.` }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { error: `Match **${input.matchId}** has invalid stored draft data.` }
+  }
+
+  const parsedRecord = parsed as Record<string, unknown>
+  const state = parsedRecord.state
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return { error: `Match **${input.matchId}** has no stored draft state to substitute.` }
+  }
+
+  const draftState = state as DraftState
+  if (!Array.isArray(draftState.seats)) {
+    return { error: `Match **${input.matchId}** has invalid stored draft seats.` }
+  }
+
+  const sourceSeatIndex = draftState.seats.findIndex(seat => seat.playerId === input.playerId)
+  if (sourceSeatIndex < 0) return { error: `<@${input.playerId}> is not in the stored draft for match **${input.matchId}**.` }
+
+  const subSeatIndex = draftState.seats.findIndex(seat => seat.playerId === input.subPlayer.playerId)
+  if (subSeatIndex === sourceSeatIndex) return { error: '`sub` must be a different player.' }
+
+  const nextSeats = draftState.seats.map(seat => ({ ...seat }))
+  const sourceSeat = nextSeats[sourceSeatIndex]!
+  const changedSeatIndexes = [sourceSeatIndex]
+  const removedPlayerIds: string[] = []
+
+  if (subSeatIndex >= 0) {
+    const subSeat = nextSeats[subSeatIndex]!
+    nextSeats[sourceSeatIndex] = withSeatPlayer(sourceSeat, subSeat)
+    nextSeats[subSeatIndex] = withSeatPlayer(subSeat, sourceSeat)
+    changedSeatIndexes.push(subSeatIndex)
+  }
+  else {
+    nextSeats[sourceSeatIndex] = withSeatPlayer(sourceSeat, input.subPlayer)
+    removedPlayerIds.push(input.playerId)
+  }
+
+  const duplicatePlayerId = findDuplicateSeatPlayerId(nextSeats)
+  if (duplicatePlayerId) return { error: `<@${duplicatePlayerId}> would appear in the draft more than once.` }
+
+  const nextState: DraftState = {
+    ...draftState,
+    seats: nextSeats,
+  }
+  const nextRecord: Record<string, unknown> = {
+    ...parsedRecord,
+    state: nextState,
+  }
+  if (parsedRecord.hostId === input.playerId && subSeatIndex < 0) {
+    nextRecord.hostId = input.subPlayer.playerId
+  }
+
+  return {
+    previousState: draftState,
+    nextState,
+    nextDraftData: JSON.stringify(nextRecord),
+    changedSeatIndexes,
+    removedPlayerIds,
+  }
+}
+
+function buildSubstitutedParticipantRows(
+  matchId: string,
+  participants: ParticipantRow[],
+  substitution: DraftPlayerSubstitutionUpdate,
+): { rows: ParticipantRow[] } | { error: string } {
+  const previousSeatPlayerIds = new Set(substitution.previousState.seats.map(seat => seat.playerId))
+  for (const participant of participants) {
+    if (!previousSeatPlayerIds.has(participant.playerId)) {
+      return { error: `<@${participant.playerId}> is a match participant but is missing from the stored draft.` }
+    }
+  }
+
+  const participantByPlayerId = new Map<string, ParticipantRow>()
+  for (const participant of participants) {
+    if (participantByPlayerId.has(participant.playerId)) return { error: `<@${participant.playerId}> appears in match **${matchId}** more than once.` }
+    participantByPlayerId.set(participant.playerId, participant)
+  }
+
+  const rows: ParticipantRow[] = []
+  for (let seatIndex = 0; seatIndex < substitution.previousState.seats.length; seatIndex++) {
+    const previousSeat = substitution.previousState.seats[seatIndex]!
+    const nextSeat = substitution.nextState.seats[seatIndex]!
+    const participant = participantByPlayerId.get(previousSeat.playerId)
+    if (!participant) return { error: `<@${previousSeat.playerId}> is in the stored draft but is missing from match participants.` }
+
+    rows.push({
+      matchId,
+      playerId: nextSeat.playerId,
+      team: nextSeat.team ?? null,
+      civId: participant.civId,
+      placement: participant.placement,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    })
+  }
+
+  const duplicatePlayerId = findDuplicateParticipantPlayerId(rows)
+  if (duplicatePlayerId) return { error: `<@${duplicatePlayerId}> would appear in match **${matchId}** more than once.` }
+
+  return { rows }
+}
+
+function buildPlayerSubstitutionSummaries(
+  substitution: DraftPlayerSubstitutionUpdate,
+  rows: ParticipantRow[],
+): MatchPlayerSubstitution[] {
+  const uniqueSeatIndexes = [...new Set(substitution.changedSeatIndexes)]
+  return uniqueSeatIndexes.map((seatIndex) => {
+    const previousSeat = substitution.previousState.seats[seatIndex]!
+    const nextSeat = substitution.nextState.seats[seatIndex]!
+    const row = rows[seatIndex]!
+    return {
+      seatIndex,
+      previousPlayerId: previousSeat.playerId,
+      nextPlayerId: nextSeat.playerId,
+      team: row.team,
+      civId: row.civId,
+      placement: row.placement,
+    }
+  })
+}
+
+function buildMatchBanRowsFromDraftState(state: DraftState): MatchBanRow[] {
+  return state.bans
+    .map((ban) => {
+      const seat = state.seats[ban.seatIndex]
+      if (!seat) return null
+      return {
+        matchId: state.matchId,
+        civId: ban.civId,
+        bannedBy: seat.playerId,
+        phase: ban.stepIndex,
+      }
+    })
+    .filter((row): row is MatchBanRow => row != null)
+}
+
+function withSeatPlayer(
+  seat: DraftState['seats'][number],
+  player: SubstitutePlayerIdentity,
+): DraftState['seats'][number] {
+  return {
+    ...seat,
+    playerId: player.playerId,
+    displayName: player.displayName,
+    avatarUrl: player.avatarUrl ?? null,
+  }
+}
+
+function findDuplicateSeatPlayerId(seats: DraftState['seats']): string | null {
+  const seen = new Set<string>()
+  for (const seat of seats) {
+    if (seen.has(seat.playerId)) return seat.playerId
+    seen.add(seat.playerId)
+  }
+  return null
+}
+
+function findDuplicateParticipantPlayerId(participants: ParticipantRow[]): string | null {
+  const seen = new Set<string>()
+  for (const participant of participants) {
+    if (seen.has(participant.playerId)) return participant.playerId
+    seen.add(participant.playerId)
+  }
+  return null
+}
+
+async function upsertSubstitutePlayer(
+  db: Database,
+  player: SubstitutePlayerIdentity,
+  at: number,
+): Promise<void> {
+  await db.insert(players)
+    .values({
+      id: player.playerId,
+      displayName: player.displayName,
+      avatarUrl: player.avatarUrl ?? null,
+      createdAt: at,
+    })
+    .onConflictDoUpdate({
+      target: players.id,
+      set: {
+        displayName: player.displayName,
+        avatarUrl: player.avatarUrl ?? null,
+      },
+    })
+}
+
+async function replaceMatchParticipantRows(
+  db: Database,
+  matchId: string,
+  rows: ParticipantRow[],
+): Promise<void> {
+  await db.delete(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+  for (const chunk of splitValuesForD1InsertLimit(rows.map(toParticipantInsertRow), MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
+    await db.insert(matchParticipants).values(chunk)
+  }
+}
+
+async function replaceMatchBanRows(
+  db: Database,
+  matchId: string,
+  rows: MatchBanRow[],
+): Promise<void> {
+  await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
+  for (const chunk of splitValuesForD1InsertLimit(rows, 4)) {
+    await db.insert(matchBans).values(chunk)
+  }
+}
+
+function toParticipantInsertRow(participant: ParticipantRow): typeof matchParticipants.$inferInsert {
+  return {
+    matchId: participant.matchId,
+    playerId: participant.playerId,
+    team: participant.team,
+    civId: participant.civId,
+    placement: participant.placement,
+    ratingBeforeMu: participant.ratingBeforeMu,
+    ratingBeforeSigma: participant.ratingBeforeSigma,
+    ratingAfterMu: participant.ratingAfterMu,
+    ratingAfterSigma: participant.ratingAfterSigma,
+  }
+}
+
+async function rollbackMatchPlayerSubstitution(
+  db: Database,
+  kv: KVNamespace,
+  options: {
+    match: MatchRow
+    participants: ParticipantRow[]
+    bans: MatchBanRow[]
+    leaderboardMode: LeaderboardMode
+    rankedRoleGuildId?: string | null
+    extraAffectedPlayerIds: readonly string[]
+    tournamentLinked: boolean
+  },
+): Promise<string | null> {
+  try {
+    await db
+      .update(matches)
+      .set({ draftData: options.match.draftData })
+      .where(eq(matches.id, options.match.id))
+    await replaceMatchParticipantRows(db, options.match.id, options.participants)
+    await replaceMatchBanRows(db, options.match.id, options.bans)
+
+    if (!options.tournamentLinked && options.match.status === 'completed') {
+      const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+        fromMatchId: options.match.id,
+        includeFromMatch: true,
+        extraAffectedPlayerIds: options.extraAffectedPlayerIds,
+      })
+      if ('error' in recalculated) return recalculated.error
+      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+        fromMatchId: options.match.id,
+        includeFromMatch: true,
+        opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+        extraAffectedPlayerIds: options.extraAffectedPlayerIds,
+      })
+      if ('error' in recalculatedGlobal) return recalculatedGlobal.error
+      await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+    }
+
+    if (options.tournamentLinked) {
+      await removeCivLeaderboardMatchContribution(db, options.match.id)
+      await removePlayerCivStatMatchContribution(db, options.match.id)
+    }
+    else {
+      await reconcileCivLeaderboardMatchContribution(db, options.match.id)
+      await reconcilePlayerCivStatMatchContribution(db, options.match.id)
+    }
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
 }
 
 async function prepareReportedMatchForRecalculation(

@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -86,6 +86,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
   const randomDraft = normalizeRandomDraft(config?.randomDraft)
   const hiddenDraft = normalizeHiddenDraft(config?.hiddenDraft)
   const leaderDataVersion = normalizeLeaderDataVersion(config?.leaderDataVersion)
+  const civBlitzExcludeBbgExpanded = normalizeCivBlitzExcludeBbgExpanded(config?.civBlitzExcludeBbgExpanded)
   return {
     banTimerSeconds: normalizeTimerSeconds(config?.banTimerSeconds),
     pickTimerSeconds: normalizeTimerSeconds(config?.pickTimerSeconds),
@@ -98,8 +99,8 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     redDeath: civBlitz ? false : normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
     civBlitz,
-    civBlitzOptionCount: normalizeCivBlitzOptionCount(config?.civBlitzOptionCount),
-    civBlitzExcludeBbgExpanded: normalizeCivBlitzExcludeBbgExpanded(config?.civBlitzExcludeBbgExpanded),
+    civBlitzOptionCount: normalizeCivBlitzOptionCount(config?.civBlitzOptionCount, leaderDataVersion, civBlitzExcludeBbgExpanded),
+    civBlitzExcludeBbgExpanded,
     blindPicks: normalizeBlindPicks(config?.blindPicks),
     randomDraft: civBlitz || hiddenDraft ? false : randomDraft,
     hiddenDraft: civBlitz ? false : hiddenDraft,
@@ -270,11 +271,11 @@ function normalizeCivBlitz(value: unknown): boolean {
   return value === true
 }
 
-function normalizeCivBlitzOptionCount(value: unknown): number | null {
+function normalizeCivBlitzOptionCount(value: unknown, version: LeaderDataVersion, excludeBbgExpanded: boolean): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return CIV_BLITZ_DEFAULT_OPTION_COUNT
   const rounded = Math.round(value)
   if (rounded < CIV_BLITZ_MIN_OPTION_COUNT || rounded > CIV_BLITZ_MAX_OPTION_COUNT) return CIV_BLITZ_DEFAULT_OPTION_COUNT
-  return rounded
+  return Math.min(rounded, getCivBlitzOptionCountMaximum(version, { excludeBbgExpanded }))
 }
 
 function normalizeCivBlitzExcludeBbgExpanded(value: unknown): boolean {

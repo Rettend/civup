@@ -81,6 +81,7 @@ const CIV_BLITZ_CATEGORY_ICONS: Record<CivBlitzComponentCategory, string> = {
   unit: 'i-ph:horse-duotone',
 }
 const CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM = 56
+const CIV_BLITZ_SECTION_HEADER_CLASS = 'px-1.5 py-1 text-[10px] leading-none text-fg-subtle tracking-widest font-semibold uppercase'
 
 interface HoverTooltip {
   name: string
@@ -171,6 +172,51 @@ function buildCivBlitzPreviewKit(
     }
   }
   return kit
+}
+
+function sortCivBlitzDisplayOptions(
+  options: CivBlitzCategoryOptions,
+  componentMap: Map<string, CivBlitzComponent>,
+  leaderMap: Map<string, Leader>,
+): CivBlitzCategoryOptions {
+  return {
+    civilizationAbility: sortCivBlitzComponentIds('civilizationAbility', options.civilizationAbility, componentMap, leaderMap),
+    leaderAbility: sortCivBlitzComponentIds('leaderAbility', options.leaderAbility, componentMap, leaderMap),
+    infrastructure: [...options.infrastructure],
+    unit: [...options.unit],
+  }
+}
+
+function sortCivBlitzComponentIds(
+  category: CivBlitzComponentCategory,
+  componentIds: readonly string[],
+  componentMap: Map<string, CivBlitzComponent>,
+  leaderMap: Map<string, Leader>,
+): string[] {
+  if (category !== 'civilizationAbility' && category !== 'leaderAbility') return [...componentIds]
+
+  const originalIndex = new Map(componentIds.map((componentId, index) => [componentId, index]))
+  return [...componentIds].sort((leftId, rightId) => {
+    const left = componentMap.get(leftId)
+    const right = componentMap.get(rightId)
+    const labelCompare = getCivBlitzDisplaySortLabel(category, left, leaderMap).localeCompare(getCivBlitzDisplaySortLabel(category, right, leaderMap))
+    if (labelCompare !== 0) return labelCompare
+
+    const componentCompare = (left?.name ?? leftId).localeCompare(right?.name ?? rightId)
+    if (componentCompare !== 0) return componentCompare
+
+    return (originalIndex.get(leftId) ?? 0) - (originalIndex.get(rightId) ?? 0)
+  })
+}
+
+function getCivBlitzDisplaySortLabel(
+  category: CivBlitzComponentCategory,
+  component: CivBlitzComponent | undefined,
+  leaderMap: Map<string, Leader>,
+): string {
+  if (!component) return ''
+  if (category === 'civilizationAbility') return component.civilization ?? component.name
+  return leaderMap.get(component.sourceLeaderId)?.name ?? component.name
 }
 
 function computeListNeighborMap(
@@ -648,6 +694,11 @@ export function LeaderGridOverlay() {
     return seatIndex == null ? null : state()?.civBlitz?.optionsBySeat[seatIndex] ?? null
   }
 
+  const civBlitzDisplayOptionsForSeat = createMemo(() => {
+    const options = civBlitzOptionsForSeat()
+    return options ? sortCivBlitzDisplayOptions(options, civBlitzComponentMap(), leaderById()) : null
+  })
+
   function currentCivBlitzSelectionToken(): string | null {
     const current = state()
     const currentStep = step()
@@ -657,13 +708,13 @@ export function LeaderGridOverlay() {
   }
 
   const civBlitzOptionIdsForSeat = createMemo(() => {
-    const options = civBlitzOptionsForSeat()
+    const options = civBlitzDisplayOptionsForSeat()
     if (!options) return []
     return civBlitzCategoriesForSeat().flatMap(category => options[category] ?? [])
   })
 
   const civBlitzOptionEntries = createMemo(() => {
-    const options = civBlitzOptionsForSeat()
+    const options = civBlitzDisplayOptionsForSeat()
     if (!options) return []
     return civBlitzCategoriesForSeat().flatMap(category => (options[category] ?? []).map(componentId => ({
       key: createCivBlitzEntryKey(category, componentId),
@@ -1069,7 +1120,7 @@ export function LeaderGridOverlay() {
     <section class="min-w-0">
       <div
         class={cn(
-          'px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase',
+          CIV_BLITZ_SECTION_HEADER_CLASS,
           stickyHeader && 'sticky top-0 z-10 bg-bg-subtle/95 backdrop-blur-sm',
         )}
       >
@@ -1349,7 +1400,7 @@ export function LeaderGridOverlay() {
           </Switch>
         )}
         >
-          <Show when={civBlitzOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
+          <Show when={civBlitzDisplayOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
             {resolvedOptions => (
               <Switch>
                 <Match when={gridViewMode() === 'multi-list'}>
@@ -1368,7 +1419,7 @@ export function LeaderGridOverlay() {
                         setMultiListColumns(1)
                       })
                     }}
-                    class={cn('grid gap-x-2 gap-y-3', multiListColumns() >= 4 ? 'grid-cols-4' : 'grid-cols-2')}
+                    class={cn('grid', multiListColumns() >= 4 ? 'grid-cols-4' : 'grid-cols-2')}
                     onMouseLeave={() => setHoveredListIndex(null)}
                   >
                     <For each={civBlitzCategoriesForSeat()}>
@@ -1388,7 +1439,7 @@ export function LeaderGridOverlay() {
                     <For each={civBlitzCategoriesForSeat()}>
                       {category => (
                         <div>
-                          <div class="px-1.5 py-1 text-[10px] text-fg-subtle tracking-widest font-semibold uppercase">{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
+                          <div class={CIV_BLITZ_SECTION_HEADER_CLASS}>{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
                           <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
                             <For each={resolvedOptions()[category] ?? []}>
                               {componentId => {
