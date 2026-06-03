@@ -7,6 +7,7 @@ import { buildLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { inArray } from 'drizzle-orm'
+import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
 
 const IMAGE_WIDTH = 1200
 const ROW_LIMIT = 20
@@ -67,6 +68,21 @@ export interface PlayerLeaderboardImageData {
   rows: PlayerLeaderboardImageRow[]
 }
 
+export interface PlayerLeaderboardImageDataOptions {
+  titlePrefix?: string
+  rowLimit?: number
+}
+
+export interface PlayerLeaderboardImageDataInput {
+  mode: LeaderboardMode
+  rows: readonly LeaderboardSnapshotRow[]
+  options?: PlayerLeaderboardImageDataOptions
+}
+
+interface RenderPlayerLeaderboardOptions {
+  avatarData?: Map<string, string>
+}
+
 let wasmReady: Promise<unknown> | null = null
 let fontBuffersReady: Promise<Uint8Array[]> | null = null
 
@@ -74,18 +90,28 @@ export async function buildPlayerLeaderboardImageData(
   db: Database,
   mode: LeaderboardMode,
   rows: readonly LeaderboardSnapshotRow[],
-  options: {
-    titlePrefix?: string
-    rowLimit?: number
-  } = {},
+  options: PlayerLeaderboardImageDataOptions = {},
 ): Promise<PlayerLeaderboardImageData> {
-  const limit = Math.max(0, Math.round(options.rowLimit ?? ROW_LIMIT))
-  const entries = buildLeaderboard([...rows], getLeaderboardMinGames(mode)).slice(0, limit)
-  const profiles = await getLeaderboardPlayerProfiles(db, entries.map(entry => entry.playerId))
+  const [data] = await buildPlayerLeaderboardImageDataBatch(db, [{ mode, rows, options }])
+  return data ?? { mode, titlePrefix: options.titlePrefix, rows: [] }
+}
 
-  return {
-    mode,
-    titlePrefix: options.titlePrefix,
+export async function buildPlayerLeaderboardImageDataBatch(
+  db: Database,
+  inputs: readonly PlayerLeaderboardImageDataInput[],
+): Promise<PlayerLeaderboardImageData[]> {
+  const prepared = inputs.map((input) => {
+    const limit = Math.max(0, Math.round(input.options?.rowLimit ?? ROW_LIMIT))
+    return {
+      input,
+      entries: buildLeaderboard([...input.rows], getLeaderboardMinGames(input.mode)).slice(0, limit),
+    }
+  })
+  const profiles = await getLeaderboardPlayerProfiles(db, prepared.flatMap(item => item.entries.map(entry => entry.playerId)))
+
+  return prepared.map(({ input, entries }) => ({
+    mode: input.mode,
+    titlePrefix: input.options?.titlePrefix,
     rows: entries.map((entry, index) => {
       const profile = profiles.get(entry.playerId)
       return {
@@ -99,15 +125,15 @@ export async function buildPlayerLeaderboardImageData(
         winRate: entry.winRate,
       }
     }),
-  }
+  }))
 }
 
-export async function renderPlayerLeaderboardPng(data: PlayerLeaderboardImageData): Promise<Uint8Array> {
-  return renderSvgToPng(await renderPlayerLeaderboardSvg(data))
+export async function renderPlayerLeaderboardPng(data: PlayerLeaderboardImageData, options: RenderPlayerLeaderboardOptions = {}): Promise<Uint8Array> {
+  return renderSvgToPng(await renderPlayerLeaderboardSvg(data, options))
 }
 
-export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageData): Promise<string> {
-  const avatarData = await loadAvatarData(data.rows)
+export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageData, options: RenderPlayerLeaderboardOptions = {}): Promise<string> {
+  const avatarData = options.avatarData ?? await loadAvatarDataUris(data.rows)
   const height = getImageHeight(data.rows.length)
   const accent = MODE_ACCENTS[data.mode]
   const title = formatLeaderboardTitle(data.mode, data.titlePrefix)
@@ -235,30 +261,6 @@ function buildAvatarClipDefs(players: readonly AvatarPlayer[]): string {
     .join('')
 }
 
-async function loadAvatarData(players: readonly AvatarPlayer[]): Promise<Map<string, string>> {
-  const result = new Map<string, string>()
-  await Promise.all(players.map(async (player) => {
-    const key = avatarKey(player)
-    if (!key || !player.avatarUrl || result.has(key)) return
-    const uri = await fetchAvatarDataUri(player.avatarUrl).catch(() => null)
-    if (uri) result.set(key, uri)
-  }))
-  return result
-}
-
-async function fetchAvatarDataUri(url: string): Promise<string | null> {
-  const response = await fetch(normalizeAvatarImageUrl(url))
-  if (!response.ok) return null
-  const contentType = response.headers.get('content-type')?.split(';')[0] ?? 'image/png'
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  if (bytes.length === 0 || bytes.length > 512_000) return null
-  return `data:${contentType};base64,${base64Encode(bytes)}`
-}
-
-function normalizeAvatarImageUrl(url: string): string {
-  return url.replace(/\.gif($|\?)/, '.png$1')
-}
-
 async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   await ensureResvgReady()
   const fontBuffers = await ensureFontBuffersReady()
@@ -363,10 +365,6 @@ function avatarClipId(player: AvatarPlayer): string {
   return `player-avatar-${id.replace(/[^\w-]/g, '')}`
 }
 
-function avatarKey(player: AvatarPlayer): string {
-  return player.playerId ?? player.displayName
-}
-
 function formatLeaderboardTitle(mode: LeaderboardMode, titlePrefix?: string): string {
   const baseTitle = `${formatLeaderboardModeLabel(mode, mode)} Leaderboard`
   return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
@@ -421,10 +419,4 @@ function escapeXml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-function base64Encode(bytes: Uint8Array): string {
-  let binary = ''
-  for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]!)
-  return btoa(binary)
 }

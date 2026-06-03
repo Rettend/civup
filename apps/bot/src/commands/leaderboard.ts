@@ -6,8 +6,9 @@ import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { getLeaderboardMinGames } from '@civup/rating'
 import { Command, Option } from 'discord-hono'
 import { createChannelMessageWithFile, createInteractionFollowupMessageWithFile, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
+import { loadAvatarDataUris } from '../services/image/avatar.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { buildPlayerLeaderboardImageData, renderPlayerLeaderboardPng } from '../services/leaderboard/image.ts'
+import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from '../services/leaderboard/image.ts'
 import { getStoredLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshots } from '../services/leaderboard/snapshot.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
@@ -104,7 +105,7 @@ export async function buildLeaderboardCommandImages(
   if (requestedMode) {
     const snapshot = await getStoredLeaderboardModeSnapshot(kv, requestedMode)
     if (!snapshot) return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
-    return { images: [await buildLeaderboardCommandImage(db, requestedMode, snapshot.rows)] }
+    return { images: await buildLeaderboardCommandImagesForModes(db, [{ mode: requestedMode, rows: snapshot.rows }]) }
   }
 
   const snapshots = await getStoredLeaderboardModeSnapshots(kv, LEADERBOARD_COMMAND_MODES)
@@ -122,17 +123,24 @@ export async function buildLeaderboardCommandImages(
     return { content: 'No players with enough games to rank yet.' }
   }
 
-  return { images: await Promise.all(modes.map(mode => buildLeaderboardCommandImage(db, mode, snapshots.get(mode)!.rows))) }
+  return { images: await buildLeaderboardCommandImagesForModes(db, modes.map(mode => ({ mode, rows: snapshots.get(mode)!.rows }))) }
 }
 
-async function buildLeaderboardCommandImage(
+async function buildLeaderboardCommandImagesForModes(
   db: Database,
-  mode: LeaderboardMode,
-  rows: readonly LeaderboardSnapshotRow[],
-): Promise<LeaderboardCommandImage> {
-  return {
-    mode,
-    filename: `leaderboard-${mode}.png`,
-    data: await renderPlayerLeaderboardPng(await buildPlayerLeaderboardImageData(db, mode, rows)),
+  inputs: readonly { mode: LeaderboardMode, rows: readonly LeaderboardSnapshotRow[] }[],
+): Promise<LeaderboardCommandImage[]> {
+  const imageData = await buildPlayerLeaderboardImageDataBatch(db, inputs)
+  const avatarData = await loadAvatarDataUris(imageData.flatMap(data => data.rows))
+  const images: LeaderboardCommandImage[] = []
+
+  for (const data of imageData) {
+    images.push({
+      mode: data.mode,
+      filename: `leaderboard-${data.mode}.png`,
+      data: await renderPlayerLeaderboardPng(data, { avatarData }),
+    })
   }
+
+  return images
 }
