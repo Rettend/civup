@@ -431,10 +431,11 @@ function renderStandingRows(rows: Array<TournamentOpponentCardPlayer & { eligibl
     return `<text x="64" y="220" fill="${COLORS.muted}" font-size="34" font-weight="900">No standings yet</text>`
   }
 
+  const rowCountPerColumn = Math.ceil(rows.length / 2)
   return rows.map((row, index) => {
     const rank = rankOffset + index + 1
-    const column = index % 2
-    const rowIndex = Math.floor(index / 2)
+    const column = index >= rowCountPerColumn ? 1 : 0
+    const rowIndex = index % rowCountPerColumn
     const x = 64 + (column * (LEADERBOARD_COLUMN_WIDTH + LEADERBOARD_COLUMN_GAP))
     const y = LEADERBOARD_START_Y + (rowIndex * LEADERBOARD_ROW_STEP)
     return renderStandingStyleRow(row, rank, x, y, LEADERBOARD_COLUMN_WIDTH, rank <= 8 && row.eligible === true, avatarData, index)
@@ -646,8 +647,18 @@ function normalizeAvatarImageUrl(url: string): string {
 }
 
 async function ensureResvgReady(): Promise<unknown> {
-  wasmReady ??= initWasm(await resolveWasmInput(resvgWasm))
+  wasmReady ??= initializeResvgWasm()
   return wasmReady
+}
+
+async function initializeResvgWasm(): Promise<unknown> {
+  try {
+    return await initWasm(await resolveWasmInput(resvgWasm))
+  }
+  catch (error) {
+    if (error instanceof Error && error.message.includes('Already initialized')) return null
+    throw error
+  }
 }
 
 async function ensureFontBuffersReady(): Promise<Uint8Array[]> {
@@ -675,11 +686,11 @@ async function resolveBundledFontAsset(specifier: typeof FONT_ASSET_SPECIFIERS[n
 }
 
 function resolveImportAsset(specifier: string): string | URL {
-  const resolver = (import.meta as ImportMeta & { resolve?: (specifier: string) => string }).resolve
-  if (typeof resolver !== 'function') return specifier
+  const meta = import.meta as ImportMeta & { resolve?: (specifier: string) => string }
+  if (typeof meta.resolve !== 'function') return specifier
 
   try {
-    const resolved = resolver(specifier)
+    const resolved = meta.resolve(specifier)
     return /^(https?:|file:)/.test(resolved) ? new URL(resolved) : resolved
   }
   catch {
