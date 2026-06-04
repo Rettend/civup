@@ -4,7 +4,7 @@ import type { CivBlitzCategoryOptions, DraftStep } from '@civup/game'
 import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
@@ -295,6 +295,39 @@ describe('LeaderGridOverlay UI', () => {
       registry.componentMap.get('civblitz:leaderAbility:babylon-hammurabi')?.name,
       registry.componentMap.get('civblitz:leaderAbility:australia-john-curtin')?.name,
     ])
+  })
+
+  test('shows locked CivBlitz picks in the completed review grid', () => {
+    const registry = getCivBlitzRegistry()
+    const options = createCivBlitzOptions()
+    const extraLeaderAbilityId = registry.componentPools.leaderAbility.find(componentId => !options.leaderAbility.includes(componentId))!
+    const extraLeaderAbility = registry.componentMap.get(extraLeaderAbilityId)!
+
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.gridViewMode = 'list'
+    uiMockState.draftState = createCompleteDraftState({
+      formatId: 'civblitz-2v2',
+      picks: [],
+      availableCivIds: [],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {
+          1: { leaderAbility: extraLeaderAbilityId },
+        },
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    expect(getCivBlitzSectionLabels('Leader Ability')).toContain(extraLeaderAbility.name)
+    expect(screen.queryByRole('button', { name: /Confirm/ })).toBeNull()
   })
 
   test('toggles the expanded overlay layout through the shared grid controls', async () => {
