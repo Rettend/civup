@@ -6,7 +6,7 @@ import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../servic
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { factory } from '../setup.ts'
 
-const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 30 * 60 * 1000
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
 const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 8
 
 export const cron_cleanup = factory.cron(
@@ -42,13 +42,14 @@ export const cron_cleanup = factory.cron(
 )
 
 export const cron_leaderboards = factory.cron(
-  '*/30 * * * *', // every 30 minutes
+  '*/15 * * * *', // every 15 minutes
   async (c) => {
     const db = createDb(c.env.DB)
     const kv = getKvStore(c.env)
     try {
       const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
         minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
+        playerModeLimit: 1,
       })
       if (refreshed) {
         // eslint-disable-next-line no-console

@@ -20,7 +20,7 @@ const CIV_LEADERBOARD_MESSAGE_SCOPES = [CIV_LEADERBOARD_SCOPE, 'civ:2', 'civ:3']
 const LEGACY_LEADERBOARD_DIRTY_SCOPE = 'global'
 const CIV_LEADERBOARD_DIRTY_SCOPE = 'civ'
 const PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX = 'player:'
-const PLAYER_LEADERBOARD_MESSAGE_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
+export const PLAYER_LEADERBOARD_MESSAGE_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
 
 interface ScopedLeaderboardDirtyState extends LeaderboardDirtyState {
   scope: string
@@ -65,7 +65,11 @@ export async function refreshConfiguredLeaderboards(
   const leaderboardChannelId = await getSystemChannel(kv, 'leaderboard')
   if (!leaderboardChannelId) return false
 
-  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes: options.modes })
+  const [initialMode, ...queuedModes] = getPlayerLeaderboardMessageModes(options.modes)
+  if (!initialMode) return false
+
+  await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes: [initialMode] })
+  if (queuedModes.length > 0) await markLeaderboardsDirty(db, 'refresh-configured:leaderboard', { modes: queuedModes })
   return true
 }
 
@@ -140,6 +144,7 @@ export async function refreshDirtyLeaderboards(
     modes?: readonly LeaderboardMode[]
     minDirtyAgeMs?: number
     now?: number
+    playerModeLimit?: number
   } = {},
 ): Promise<boolean> {
   const now = options.now ?? Date.now()
@@ -147,9 +152,11 @@ export async function refreshDirtyLeaderboards(
   const dueDirtyStates = dirtyStates.filter(state => options.minDirtyAgeMs == null || now - state.dirtyAt >= options.minDirtyAgeMs)
   if (dueDirtyStates.length === 0) return false
 
-  const modes = [...new Set(options.modes ?? LEADERBOARD_MODES)]
+  const modes = getPlayerLeaderboardMessageModes(options.modes)
   const legacyDirtyState = dueDirtyStates.find(state => state.scope === LEGACY_LEADERBOARD_DIRTY_SCOPE) ?? null
-  const dirtyPlayerModes = getDirtyPlayerModes(dueDirtyStates, modes, legacyDirtyState)
+  const allDirtyPlayerModes = getDirtyPlayerModes(dueDirtyStates, modes, legacyDirtyState)
+  const playerModeLimit = normalizePlayerModeLimit(options.playerModeLimit)
+  const dirtyPlayerModes = playerModeLimit == null ? allDirtyPlayerModes : allDirtyPlayerModes.slice(0, playerModeLimit)
   const civDirtyState = legacyDirtyState ?? dueDirtyStates.find(state => state.scope === CIV_LEADERBOARD_DIRTY_SCOPE) ?? null
   const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
     getSystemChannel(kv, 'leaderboard'),
@@ -168,7 +175,7 @@ export async function refreshDirtyLeaderboards(
     playerSnapshotsUpdated = true
 
     if (leaderboardChannelId) {
-      leaderboardStates = await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes, useCachedSnapshots: true })
+      leaderboardStates = await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes: dirtyPlayerModes, useCachedSnapshots: true })
     }
   }
 
@@ -186,13 +193,23 @@ export async function refreshDirtyLeaderboards(
     for (const mode of dirtyPlayerModes) scopesToClear.add(playerDirtyScope(mode))
   }
   if (civSnapshotUpdated) scopesToClear.add(CIV_LEADERBOARD_DIRTY_SCOPE)
-  if (legacyDirtyState && playerSnapshotsUpdated && civDirtyState && !civSnapshotUpdated) {
+  if (legacyDirtyState) {
+    const processedModes = new Set(dirtyPlayerModes)
+    const remainingModes = allDirtyPlayerModes.filter(mode => !processedModes.has(mode))
+    if (remainingModes.length > 0) {
+      await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-player-dirty', {
+        modes: remainingModes,
+        now: legacyDirtyState.dirtyAt,
+      })
+    }
+    scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
+  }
+  if (legacyDirtyState && civDirtyState && !civSnapshotUpdated) {
     await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-civ-dirty', {
       civ: true,
       now: legacyDirtyState.dirtyAt,
     })
   }
-  if (legacyDirtyState && playerSnapshotsUpdated && (!civDirtyState || civSnapshotUpdated || !civSnapshotReady)) scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
 
   await clearLeaderboardDirtyStates(db, [...scopesToClear])
   return Boolean(leaderboardStates.length > 0 || civLeaderboardState || civSnapshotUpdated || playerSnapshotsUpdated)
@@ -439,13 +456,19 @@ function getDirtyPlayerModes(
   modes: readonly LeaderboardMode[],
   legacyDirtyState: ScopedLeaderboardDirtyState | null,
 ): LeaderboardMode[] {
-  const requestedModes = new Set(modes)
-  if (legacyDirtyState) return [...requestedModes]
+  if (legacyDirtyState) return [...modes]
 
-  return dirtyStates.flatMap((state) => {
+  const dirtyModes = new Set(dirtyStates.flatMap((state) => {
     const mode = parsePlayerDirtyScope(state.scope)
-    return mode && requestedModes.has(mode) ? [mode] : []
-  })
+    return mode ? [mode] : []
+  }))
+  return modes.filter(mode => dirtyModes.has(mode))
+}
+
+function normalizePlayerModeLimit(value: number | undefined): number | null {
+  if (value == null) return null
+  if (!Number.isFinite(value)) return null
+  return Math.max(0, Math.floor(value))
 }
 
 function playerDirtyScope(mode: LeaderboardMode): string {

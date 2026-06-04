@@ -151,6 +151,108 @@ describe('leaderboard message service', () => {
     }
   })
 
+  test('dirty refresh processes one player mode when limited', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
+        const payload = await readDiscordMultipartPayload(init)
+        postPayloads.push(payload)
+        return new Response(JSON.stringify({ id: `leaderboard-message-${postPayloads.length}` }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await db.insert(players).values([
+        { id: '100010000000000030', displayName: 'Duel Player', avatarUrl: null, createdAt: NOW },
+        { id: '100010000000000031', displayName: 'Duo Player', avatarUrl: null, createdAt: NOW },
+      ])
+      await db.insert(playerRatings).values([
+        { playerId: '100010000000000030', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { playerId: '100010000000000031', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+      ])
+      await markLeaderboardsDirty(db, 'test-batch', { modes: ['duel', 'duo'], now: NOW })
+
+      const firstRefresh = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel', 'duo'],
+        now: NOW,
+        playerModeLimit: 1,
+      })
+      const firstDirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(firstRefresh).toBe(true)
+      expect(postPayloads).toHaveLength(1)
+      expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
+      expect(firstDirtyRows.map(row => row.scope)).toEqual(['player:duo'])
+
+      const secondRefresh = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel', 'duo'],
+        now: NOW,
+        playerModeLimit: 1,
+      })
+      const secondDirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(secondRefresh).toBe(true)
+      expect(postPayloads).toHaveLength(2)
+      expect(postPayloads[1].attachments?.[0]?.filename).toBe('leaderboard-duo.png')
+      expect(secondDirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('limited legacy dirty refresh keeps unprocessed player modes queued', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
+        const payload = await readDiscordMultipartPayload(init)
+        postPayloads.push(payload)
+        return new Response(JSON.stringify({ id: `leaderboard-message-${postPayloads.length}` }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await db.insert(players).values([
+        { id: '100010000000000032', displayName: 'Legacy Duel Player', avatarUrl: null, createdAt: NOW },
+        { id: '100010000000000033', displayName: 'Legacy Duo Player', avatarUrl: null, createdAt: NOW },
+      ])
+      await db.insert(playerRatings).values([
+        { playerId: '100010000000000032', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { playerId: '100010000000000033', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+      ])
+      await markLeaderboardsDirty(db, 'legacy-test')
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel', 'duo'],
+        now: NOW,
+        playerModeLimit: 1,
+      })
+      const dirtyScopes = (await db.select().from(leaderboardDirtyStates)).map(row => row.scope).sort()
+
+      expect(refreshed).toBe(true)
+      expect(postPayloads).toHaveLength(1)
+      expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
+      expect(dirtyScopes).toEqual(['civ', 'player:duo'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('dirty refresh rebuilds and updates configured civ leaderboards', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
