@@ -171,6 +171,7 @@ describe('DraftPage UI', () => {
 
     expect(screen.getByText('You can close the activity!')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Confirm Result' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open leader grid' })).toBeTruthy()
   })
 
   test('supports selecting the winning team from the completed draft page slot strip', () => {
