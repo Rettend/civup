@@ -540,11 +540,13 @@ describe('activity target selection', () => {
 
     expect(hostEntry).toEqual(expect.objectContaining({
       playerId: 'host-1',
-      balanceRating: {
+      balanceRating: expect.objectContaining({
         mu: 31,
         sigma: 3,
         gamesPlayed: 12,
-      },
+        wins: 7,
+        rank: 1,
+      }),
     }))
   })
 

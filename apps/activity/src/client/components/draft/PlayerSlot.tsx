@@ -168,11 +168,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
     const step = s?.steps[s.currentStepIndex]
     return !!step?.civBlitz && isActive() && !civBlitzActiveCategorySet().has(category)
   }
-  const revealIsConflict = (): boolean => {
-    const p = revealPick()
-    const reveal = state()?.blindPickReveal
-    return !!p && !!reveal && reveal.conflictCivIds.includes(p.civId)
-  }
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -420,7 +415,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       )}
       classList={{
         'slot-accent-gold': isActive() && accent() === 'gold',
-        'slot-accent-red': (isActive() && accent() === 'red') || revealIsConflict(),
+        'slot-accent-red': isActive() && accent() === 'red',
       }}
       onClick={() => {
         if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) return
@@ -578,7 +573,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
           const l = revealLeader()
           return l
             ? (
-                <div class={cn('inset-0 absolute', revealIsConflict() ? 'saturate-110' : 'opacity-80 saturate-90')}>
+                <div class="opacity-80 inset-0 absolute saturate-90">
                   <SlotPortraitImage
                     src={getLeaderFullPortraitUrl(l)}
                     alt={l.name}
@@ -589,12 +584,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
                     animate
                     waitForDecode
                   />
-                  <Show when={revealIsConflict()}>
-                    <div class="pointer-events-none inset-0 absolute bg-danger/18 ring-2 ring-inset ring-danger/70" />
-                    <div class="right-2 top-2 absolute rounded bg-danger px-2 py-0.5 text-[10px] font-black tracking-wider text-white shadow-lg">
-                      CONFLICT
-                    </div>
-                  </Show>
                 </div>
               )
             : null
@@ -678,9 +667,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
                     <div class={cn('text-sm leading-tight truncate', filled() || hasReveal() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
                       {l.civilization}
                     </div>
-                    <Show when={revealIsConflict()}>
-                      <div class="mt-1 text-[10px] font-black tracking-widest text-danger">REDRAFT REQUIRED</div>
-                    </Show>
                   </div>
                 )
               : null
