@@ -105,6 +105,7 @@ interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOpti
 const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 const GLOBAL_RATING_SCOPE = 'global'
 const D1_SAFE_IN_LIST_CHUNK_SIZE = 80
+const REPLAY_WRITE_BATCH_SIZE = 100
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
@@ -228,6 +229,7 @@ async function recalculateGlobalRatingsFromScratch(
   const { ratingStateByPlayer } = createReplayStates()
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
+  const replayWriteQueries: DbBatchItem[] = []
   await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE))
 
   for (const match of completedMatches) {
@@ -237,11 +239,13 @@ async function recalculateGlobalRatingsFromScratch(
     const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
       writeParticipantSnapshots: false,
       opponentTierByPlayerId,
+      writeQueries: replayWriteQueries,
     })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
 
   return { matchIds: completedMatches.map(match => match.id) }
@@ -354,6 +358,7 @@ async function recalculateGlobalRatingsFromBoundary(
   await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
 
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
+  const replayWriteQueries: DbBatchItem[] = []
   for (const match of replayMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
@@ -361,11 +366,13 @@ async function recalculateGlobalRatingsFromBoundary(
     const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
       writeParticipantSnapshots: false,
       opponentTierByPlayerId,
+      writeQueries: replayWriteQueries,
     })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
@@ -419,17 +426,21 @@ async function recalculateLeaderboardModeFromScratch(
   const { ratingStateByPlayer } = createReplayStates()
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
+  const replayWriteQueries: DbBatchItem[] = []
   await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, leaderboardMode))
 
   for (const match of completedMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, {
+      writeQueries: replayWriteQueries,
+    })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer)
 
   return { matchIds: completedMatches.map(match => match.id) }
@@ -546,15 +557,19 @@ async function recalculateLeaderboardModeFromBoundary(
   await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
 
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
+  const replayWriteQueries: DbBatchItem[] = []
   for (const match of replayMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer)
+    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, {
+      writeQueries: replayWriteQueries,
+    })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
@@ -827,7 +842,7 @@ async function replayCompletedMatch(
   match: StoredMatchRow,
   participantRows: StoredParticipantRow[],
   ratingStateByPlayer: Map<string, RatingState>,
-  options: { writeParticipantSnapshots?: boolean, opponentTierByPlayerId?: ReadonlyMap<string, string> } = {},
+  options: { writeParticipantSnapshots?: boolean, opponentTierByPlayerId?: ReadonlyMap<string, string>, writeQueries?: DbBatchItem[] } = {},
 ): Promise<string | null> {
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return `Completed match **${match.id}** has unsupported game mode: ${match.gameMode}.`
@@ -854,7 +869,8 @@ async function replayCompletedMatch(
     : participantRows
   if ('error' in effectiveRows) return effectiveRows.error
   const effectiveRowByPlayerId = new Map(effectiveRows.map(row => [row.playerId, row]))
-  const participantUpdateQueries: DbBatchItem[] = []
+  const deferredWriteQueries = options.writeQueries
+  const participantUpdateQueries = deferredWriteQueries ?? []
   const isImportedGame = match.isOld
   const writeParticipantSnapshots = options.writeParticipantSnapshots ?? true
   const ratingScope = leaderboardMode ?? GLOBAL_RATING_SCOPE
@@ -936,8 +952,14 @@ async function replayCompletedMatch(
     )
   }
 
-  if (participantUpdateQueries.length > 0) await runDbBatch(db, participantUpdateQueries)
+  if (!deferredWriteQueries && participantUpdateQueries.length > 0) await runDbBatch(db, participantUpdateQueries)
   return null
+}
+
+async function flushReplayWriteQueries(db: Database, queries: DbBatchItem[]): Promise<void> {
+  for (const chunk of chunkArray(queries, REPLAY_WRITE_BATCH_SIZE)) {
+    await runDbBatch(db, chunk)
+  }
 }
 
 function scaleRatingAfterForSource(update: RatingUpdate, sourceWeight: number): { mu: number, sigma: number } {
