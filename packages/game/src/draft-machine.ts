@@ -19,6 +19,7 @@ import type {
   DraftState,
   DraftStep,
 } from './types.ts'
+import { getCivBlitzStepCategories, normalizeCivBlitzCategories } from './civblitz.ts'
 import { CIV_BLITZ_CATEGORIES } from './types.ts'
 
 export interface DraftProcessOptions {
@@ -1042,25 +1043,6 @@ function createCivBlitzState(seatCount: number, options: CivBlitzCreateOptions):
   }
 }
 
-function getCivBlitzStepCategories(step: DraftStep, seatIndex: number): CivBlitzComponentCategory[] {
-  const seatCategories = step.civBlitzCategoriesBySeat?.[seatIndex]
-  if (seatCategories && seatCategories.length > 0) return normalizeCivBlitzCategories(seatCategories)
-  if (step.civBlitzCategories && step.civBlitzCategories.length > 0) return normalizeCivBlitzCategories(step.civBlitzCategories)
-  return [...CIV_BLITZ_CATEGORIES]
-}
-
-function normalizeCivBlitzCategories(categories: readonly CivBlitzComponentCategory[]): CivBlitzComponentCategory[] {
-  const seen = new Set<CivBlitzComponentCategory>()
-  const normalized: CivBlitzComponentCategory[] = []
-  for (const category of categories) {
-    if (!CIV_BLITZ_CATEGORIES.includes(category)) continue
-    if (seen.has(category)) continue
-    seen.add(category)
-    normalized.push(category)
-  }
-  return normalized
-}
-
 function normalizeCivBlitzSubmission(
   civBlitz: CivBlitzState,
   seatIndex: number,
@@ -1322,7 +1304,7 @@ function addCivBlitzCategory(existing: CivBlitzComponentCategory[] | undefined, 
 function sortCivBlitzCategoriesBySeat(categoriesBySeat: Record<number, CivBlitzComponentCategory[]>): Record<number, CivBlitzComponentCategory[]> {
   const sorted: Record<number, CivBlitzComponentCategory[]> = {}
   for (const [rawSeatIndex, categories] of Object.entries(categoriesBySeat)) {
-    sorted[Number(rawSeatIndex)] = CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category))
+    sorted[Number(rawSeatIndex)] = normalizeCivBlitzCategories(categories)
   }
   return sorted
 }
