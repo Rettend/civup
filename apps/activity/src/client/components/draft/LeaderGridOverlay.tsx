@@ -1,7 +1,7 @@
 import type { CivBlitzCategoryOptions, CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader } from '@civup/game'
 import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
-import { CIV_BLITZ_CATEGORIES, factions, getCivBlitzRegistry, getLeaders, searchFactions, searchLeaders } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, factions, getCivBlitzRegistry, getCivBlitzStepCategories, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
 import { createEffect, createMemo, createRenderEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -61,7 +61,7 @@ import {
   toggleTagFilter,
 } from '~/client/stores'
 import { allowsDuplicateDraftPicks, isDraftCardUnavailable } from './draftAvailability'
-import { computeListItemBorderRadius, computeListItemBoxShadow, getLeaderPortraitScaleClass, LeaderCard, LeaderListItem } from './LeaderCard'
+import { computeListItemBorderRadius, computeListItemBoxShadow, LeaderCard, LeaderListItem } from './LeaderCard'
 import { LeaderDetailPanel } from './LeaderDetailPanel'
 
 const DOCKED_PANEL_MIN_WIDTH = 1280
@@ -81,7 +81,8 @@ const CIV_BLITZ_CATEGORY_ICONS: Record<CivBlitzComponentCategory, string> = {
   unit: 'i-ph:horse-duotone',
 }
 const CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM = 56
-const CIV_BLITZ_SECTION_HEADER_CLASS = 'px-1.5 py-1 text-[10px] leading-none text-fg-subtle tracking-widest font-semibold uppercase'
+const CIV_BLITZ_SECTION_HEADER_CLASS = 'px-1.5 py-1 leading-none text-fg-subtle tracking-widest font-semibold uppercase'
+const CIV_BLITZ_SECTION_HEADER_STYLE = { 'font-size': '10px' }
 
 interface HoverTooltip {
   name: string
@@ -280,6 +281,52 @@ function computeListNeighborMap(
       hoveredLeft: hovAt(leftIdx),
       hoveredRight: hovAt(rightIdx),
     })
+  }
+
+  return map
+}
+
+function computeCivBlitzListNeighborMap(
+  categories: CivBlitzComponentCategory[],
+  options: CivBlitzCategoryOptions,
+  columns: number,
+  isSelected: (category: CivBlitzComponentCategory, componentId: string) => boolean,
+  hoveredKey: string | null,
+): Map<string, LeaderListNeighborState> {
+  const map = new Map<string, LeaderListNeighborState>()
+  const sectionColumns = Math.max(1, Math.min(columns, categories.length || 1))
+
+  const selectedAt = (category: CivBlitzComponentCategory | undefined, row: number) => {
+    if (!category) return false
+    const componentId = options[category]?.[row]
+    return componentId != null && isSelected(category, componentId)
+  }
+  const hoveredAt = (category: CivBlitzComponentCategory | undefined, row: number) => {
+    if (!category) return false
+    const componentId = options[category]?.[row]
+    return componentId != null && hoveredKey === createCivBlitzEntryKey(category, componentId)
+  }
+
+  for (let sectionIndex = 0; sectionIndex < categories.length; sectionIndex++) {
+    const category = categories[sectionIndex]!
+    const sectionColumn = sectionIndex % sectionColumns
+    const sectionRow = Math.floor(sectionIndex / sectionColumns)
+    const leftCategory = sectionColumn > 0 && Math.floor((sectionIndex - 1) / sectionColumns) === sectionRow ? categories[sectionIndex - 1] : undefined
+    const rightCategory = sectionColumn < sectionColumns - 1 && Math.floor((sectionIndex + 1) / sectionColumns) === sectionRow ? categories[sectionIndex + 1] : undefined
+
+    for (let row = 0; row < (options[category] ?? []).length; row++) {
+      const componentId = options[category]![row]!
+      map.set(createCivBlitzEntryKey(category, componentId), {
+        selectedAbove: selectedAt(category, row - 1),
+        selectedBelow: selectedAt(category, row + 1),
+        selectedLeft: selectedAt(leftCategory, row),
+        selectedRight: selectedAt(rightCategory, row),
+        hoveredAbove: hoveredAt(category, row - 1),
+        hoveredBelow: hoveredAt(category, row + 1),
+        hoveredLeft: hoveredAt(leftCategory, row),
+        hoveredRight: hoveredAt(rightCategory, row),
+      })
+    }
   }
 
   return map
@@ -570,12 +617,7 @@ export function LeaderGridOverlay() {
         sendThrottledPickPreview.clear()
         return
       }
-      const bySeat = seatIndex == null ? undefined : currentStep.civBlitzCategoriesBySeat?.[seatIndex]
-      const categories = bySeat && bySeat.length > 0
-        ? CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
-        : currentStep.civBlitzCategories && currentStep.civBlitzCategories.length > 0
-          ? CIV_BLITZ_CATEGORIES.filter(category => currentStep.civBlitzCategories!.includes(category))
-          : [...CIV_BLITZ_CATEGORIES]
+      const categories = seatIndex == null ? [] : getCivBlitzStepCategories(currentStep, seatIndex)
       const nextPreview = isMyTurn() && !hasSubmitted()
         ? categories.flatMap(category => selections[category] ? [selections[category]!] : [])
         : []
@@ -683,10 +725,7 @@ export function LeaderGridOverlay() {
     const currentStep = step()
     const seatIndex = ownSeatIndex()
     if (!currentStep?.civBlitz || seatIndex == null) return []
-    const bySeat = currentStep.civBlitzCategoriesBySeat?.[seatIndex]
-    if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
-    const categories = currentStep.civBlitzCategories
-    return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
+    return getCivBlitzStepCategories(currentStep, seatIndex)
   }
 
   const civBlitzOptionsForSeat = () => {
@@ -724,19 +763,28 @@ export function LeaderGridOverlay() {
   })
 
   const civBlitzEntryIndexMap = createMemo(() => new Map(civBlitzOptionEntries().map((entry, index) => [entry.key, index])))
+  const civBlitzMultiListColumnCount = () => Math.max(1, Math.min(multiListColumns() >= 4 ? 4 : 2, civBlitzCategoriesForSeat().length || 1))
+  const civBlitzMultiListGridClass = () => {
+    const columns = civBlitzMultiListColumnCount()
+    if (columns >= 4) return 'grid-cols-4'
+    if (columns === 3) return 'grid-cols-3'
+    if (columns === 2) return 'grid-cols-2'
+    return 'grid-cols-1'
+  }
 
   const civBlitzListNeighborMap = createMemo((): Map<string, LeaderListNeighborState> => {
     const viewMode = gridViewMode()
     if (viewMode === 'grid') return new Map()
-    const cols = viewMode === 'multi-list' ? multiListColumns() : 1
-    return computeListNeighborMap(
-      civBlitzOptionEntries().map(entry => entry.key),
+    const options = civBlitzDisplayOptionsForSeat()
+    if (!options) return new Map()
+    const hoveredIndex = hoveredListIndex()
+    const cols = viewMode === 'multi-list' ? civBlitzMultiListColumnCount() : 1
+    return computeCivBlitzListNeighborMap(
+      civBlitzCategoriesForSeat(),
+      options,
       cols,
-      (key) => {
-        const entry = civBlitzOptionEntries().find(candidate => candidate.key === key)
-        return !!entry && civBlitzSelections()[entry.category] === entry.componentId
-      },
-      hoveredListIndex(),
+      (category, componentId) => civBlitzSelections()[category] === componentId,
+      hoveredIndex == null ? null : civBlitzOptionEntries()[hoveredIndex]?.key ?? null,
     )
   })
 
@@ -1121,8 +1169,9 @@ export function LeaderGridOverlay() {
       <div
         class={cn(
           CIV_BLITZ_SECTION_HEADER_CLASS,
-          stickyHeader && 'sticky top-0 z-10 bg-bg-subtle/95 backdrop-blur-sm',
+          stickyHeader && 'sticky -top-1.5 z-10 -mx-1.5 px-3 pt-2.5 pb-1 bg-bg-subtle/95 backdrop-blur-sm',
         )}
+        style={CIV_BLITZ_SECTION_HEADER_STYLE}
       >
         {CIV_BLITZ_CATEGORY_LABELS[category]}
       </div>
@@ -1419,7 +1468,7 @@ export function LeaderGridOverlay() {
                         setMultiListColumns(1)
                       })
                     }}
-                    class={cn('grid', multiListColumns() >= 4 ? 'grid-cols-4' : 'grid-cols-2')}
+                    class={cn('grid gap-0', civBlitzMultiListGridClass())}
                     onMouseLeave={() => setHoveredListIndex(null)}
                   >
                     <For each={civBlitzCategoriesForSeat()}>
@@ -1439,7 +1488,7 @@ export function LeaderGridOverlay() {
                     <For each={civBlitzCategoriesForSeat()}>
                       {category => (
                         <div>
-                          <div class={CIV_BLITZ_SECTION_HEADER_CLASS}>{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
+                          <div class={CIV_BLITZ_SECTION_HEADER_CLASS} style={CIV_BLITZ_SECTION_HEADER_STYLE}>{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
                           <div class="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]">
                             <For each={resolvedOptions()[category] ?? []}>
                               {componentId => {
@@ -1662,7 +1711,7 @@ function CivBlitzOptionCard(props: {
   const isCivilizationIcon = () => props.category === 'civilizationAbility' && props.component?.iconUrl != null
   const imageClass = () => props.component?.iconUrl
     ? cn('object-contain p-1.5', isCivilizationIcon() && 'rounded-full')
-    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
+    : 'object-cover'
   const handleHoverMove = (event: MouseEvent) => {
     if (!props.component) return
     props.onHoverMove(props.component, event.clientX, event.clientY)
@@ -1744,7 +1793,7 @@ function CivBlitzOptionListItem(props: {
   const isCivilizationIcon = () => props.category === 'civilizationAbility' && props.component?.iconUrl != null
   const imageClass = () => props.component?.iconUrl
     ? cn('object-contain p-1', isCivilizationIcon() && 'rounded-full')
-    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
+    : 'object-cover'
   const handleHoverMove = (event: MouseEvent) => {
     if (!props.component) return
     props.onHoverMove(props.component, event.clientX, event.clientY)

@@ -2,6 +2,7 @@ import type {
   CivBlitzComponent,
   CivBlitzComponentCategory,
   CivBlitzComponentPools,
+  DraftStep,
   Leader,
   LeaderDataVersion,
   LeaderUnique,
@@ -181,6 +182,25 @@ export function getCivBlitzComponentIds(
   options: { excludeBbgExpanded?: boolean } = {},
 ): string[] {
   return getCivBlitzRegistry(version, options).components.map(component => component.id)
+}
+
+export function getCivBlitzStepCategories(step: Pick<DraftStep, 'civBlitzCategories' | 'civBlitzCategoriesBySeat'>, seatIndex: number): CivBlitzComponentCategory[] {
+  const seatCategories = step.civBlitzCategoriesBySeat?.[seatIndex]
+  if (seatCategories && seatCategories.length > 0) return normalizeCivBlitzCategories(seatCategories)
+  if (step.civBlitzCategories && step.civBlitzCategories.length > 0) return normalizeCivBlitzCategories(step.civBlitzCategories)
+  return [...CIV_BLITZ_CATEGORIES]
+}
+
+export function normalizeCivBlitzCategories(categories: readonly CivBlitzComponentCategory[]): CivBlitzComponentCategory[] {
+  const seen = new Set<CivBlitzComponentCategory>()
+  const normalized: CivBlitzComponentCategory[] = []
+  for (const category of categories) {
+    if (!CIV_BLITZ_CATEGORIES.includes(category)) continue
+    if (seen.has(category)) continue
+    seen.add(category)
+    normalized.push(category)
+  }
+  return normalized
 }
 
 function addUniqueComponent(
