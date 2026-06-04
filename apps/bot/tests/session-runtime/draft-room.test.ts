@@ -249,6 +249,39 @@ describe('draft runtime alarm recovery', () => {
     expect(CIV_BLITZ_CATEGORIES.every(category => typeof botKit?.[category] === 'string')).toBe(true)
   })
 
+  test('debug active bots avoid leaders already blind-picked by teammates', async () => {
+    const format = draftFormatMap.get('default-2v2-blind-pick')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    const seats = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'bot:a2', displayName: 'Debug Bot', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const state: DraftState = {
+      ...createDraft('debug-blind-team-pick-match', format, seats, ['civ-1', 'civ-2', 'civ-3']),
+      status: 'active',
+      currentStepIndex: 1,
+      submissions: { 0: ['civ-1'] },
+    }
+    const room = createRoomRecord({
+      matchId: 'debug-blind-team-pick-match',
+      hostId: 'a1',
+      formatId: format.id,
+      seats,
+      civPool: ['civ-1', 'civ-2', 'civ-3'],
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const runtime = new TestSessionDraftRuntime(new TestStorage(room), { ENABLE_DEBUG_LOBBY_FILL: '1' })
+
+    await (runtime as unknown as { runDebugActiveBotAction: (stepIndex: number, seatIndex: number, blindBans: boolean) => Promise<void> })
+      .runDebugActiveBotAction(1, 2, format.blindBans)
+
+    const nextRoom = await runtime.readRoom()
+    expect(nextRoom?.state.submissions[2]).toEqual(['civ-2'])
+  })
+
   test('timeout-cancels active drafts when timeout resolution cannot recover the step', async () => {
     const seats = [
       { playerId: 'p1', displayName: 'Player One' },

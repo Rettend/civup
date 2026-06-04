@@ -13,18 +13,31 @@ export function DraftTimeline() {
   const steps = () => state()?.steps ?? []
   const hasMapStep = () => mapVotePhase() !== 'idle'
   const timelineSteps = (): TimelineEntry[] => {
-    const draftSteps = steps().map((step, stepIndex) => ({ kind: 'draft' as const, stepIndex, step }))
+    const draftSteps = steps()
+      .map((step, stepIndex) => ({ kind: 'draft' as const, stepIndex, step }))
+      .filter(entry => !entry.step.reveal)
     return hasMapStep()
       ? [{ kind: 'map' as const }, ...draftSteps]
       : draftSteps
   }
+  const visibleCurrentStepIndex = () => {
+    const current = state()
+    if (!current) return -1
+    const step = current.steps[current.currentStepIndex]
+    if (!step?.reveal) return current.currentStepIndex
+
+    for (let stepIndex = current.currentStepIndex - 1; stepIndex >= 0; stepIndex--) {
+      if (!current.steps[stepIndex]?.reveal) return stepIndex
+    }
+    return current.currentStepIndex
+  }
   const isCurrentEntry = (entry: TimelineEntry) => {
     if (entry.kind === 'map') return isMapVotePhase()
-    return !isMapVotePhase() && entry.stepIndex === (state()?.currentStepIndex ?? -1)
+    return !isMapVotePhase() && entry.stepIndex === visibleCurrentStepIndex()
   }
   const isPastEntry = (entry: TimelineEntry) => {
     if (entry.kind === 'map') return hasMapStep() && !isMapVotePhase()
-    return entry.stepIndex < (state()?.currentStepIndex ?? -1)
+    return entry.stepIndex < visibleCurrentStepIndex()
   }
   let currentStepRef: HTMLSpanElement | undefined
 

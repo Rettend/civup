@@ -963,7 +963,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       )
     }
     else {
-      const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+      const availablePool = getDebugPickPool(state, step, seatIndex)
       if (availablePool.length === 0) return
       const [civId] = pickRandomDistinct(availablePool, 1, () => this.random())
       if (!civId) return
@@ -1377,6 +1377,25 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function getDebugPickPool(state: DraftState, step: DraftState['steps'][number], seatIndex: number): string[] {
+  const pool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+  if (!step.blind || state.duplicateFactions) return pool
+  return pool.filter(civId => !hasSameTeamPickSubmission(state, seatIndex, civId))
+}
+
+function hasSameTeamPickSubmission(state: DraftState, seatIndex: number, civId: string): boolean {
+  const team = state.seats[seatIndex]?.team
+
+  for (const [rawSubmittedSeatIndex, civIds] of Object.entries(state.submissions)) {
+    const submittedSeatIndex = Number(rawSubmittedSeatIndex)
+    if (!civIds.includes(civId)) continue
+    if (submittedSeatIndex === seatIndex) return true
+    if (team != null && state.seats[submittedSeatIndex]?.team === team) return true
+  }
+
+  return false
 }
 
 function buildDebugCivBlitzKit(
