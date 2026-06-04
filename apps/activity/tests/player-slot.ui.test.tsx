@@ -8,6 +8,26 @@ import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { PlayerSlot } = await import('../src/client/components/draft/PlayerSlot')
 
+function createTestCivBlitzKit() {
+  return {
+    civilizationAbility: 'civblitz:civilizationAbility:america',
+    leaderAbility: 'civblitz:leaderAbility:america-abraham-lincoln',
+    infrastructure: 'civblitz:infrastructure:oppidum',
+    unit: 'civblitz:unit:gaesatae',
+  }
+}
+
+function createSingleSeatCivBlitzOptions(kit: ReturnType<typeof createTestCivBlitzKit>) {
+  return {
+    0: {
+      civilizationAbility: [kit.civilizationAbility],
+      leaderAbility: [kit.leaderAbility],
+      infrastructure: [kit.infrastructure],
+      unit: [kit.unit],
+    },
+  }
+}
+
 describe('PlayerSlot UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -182,26 +202,14 @@ describe('PlayerSlot UI', () => {
 
   test('keeps CivBlitz slot icons square and unique icon backgrounds transparent', () => {
     const registry = getCivBlitzRegistry()
-    const kit = {
-      civilizationAbility: 'civblitz:civilizationAbility:america',
-      leaderAbility: 'civblitz:leaderAbility:america-abraham-lincoln',
-      infrastructure: 'civblitz:infrastructure:oppidum',
-      unit: 'civblitz:unit:gaesatae',
-    }
+    const kit = createTestCivBlitzKit()
     uiMockState.draftState = createActiveDraftState({
       formatId: 'civblitz-2v2',
       civBlitz: {
         optionCount: 4,
         excludeBbgExpanded: true,
         componentPools: registry.componentPools,
-        optionsBySeat: {
-          0: {
-            civilizationAbility: [kit.civilizationAbility],
-            leaderAbility: [kit.leaderAbility],
-            infrastructure: [kit.infrastructure],
-            unit: [kit.unit],
-          },
-        },
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
         submissions: {},
         lockedKits: { 0: kit },
         reveal: null,
@@ -225,6 +233,74 @@ describe('PlayerSlot UI', () => {
     expect(unitImage.parentElement?.className).toContain('aspect-square')
     expect(infrastructureImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
     expect(unitImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
+  })
+
+  test('shows visible submitted CivBlitz kits in the player slot', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = createTestCivBlitzKit()
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true }],
+      submissions: { 0: ['__civblitz__'] },
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
+        submissions: { 0: kit },
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    const leaderImage = screen.getByAltText(registry.componentMap.get(kit.leaderAbility)!.name)
+    expect(leaderImage).toBeTruthy()
+    expect(leaderImage.parentElement?.parentElement?.parentElement?.className).not.toContain('opacity-50')
+  })
+
+  test('fades locked CivBlitz components while a conflicted seat reselects', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = createTestCivBlitzKit()
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      steps: [{ action: 'pick', seats: [0], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'] } }],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
+        submissions: {},
+        lockedKits: {
+          0: {
+            civilizationAbility: kit.civilizationAbility,
+            leaderAbility: kit.leaderAbility,
+            infrastructure: kit.infrastructure,
+          },
+        },
+        reveal: {
+          round: 0,
+          submissions: [{ seatIndex: 0, stepIndex: 0, kit }],
+          conflictComponentIds: [kit.unit],
+          conflictedSeatIndexes: [0],
+          categoriesBySeat: { 0: ['unit'] },
+          maxRedrafts: 2,
+        },
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    const { container } = render(() => <PlayerSlot seatIndex={0} />)
+
+    const infrastructureImage = screen.getByAltText(registry.componentMap.get(kit.infrastructure)!.name)
+    const unitImage = screen.getByAltText(registry.componentMap.get(kit.unit)!.name)
+    expect(infrastructureImage.parentElement?.parentElement?.parentElement?.className).toContain('opacity-50')
+    expect(unitImage.parentElement?.parentElement?.parentElement?.className).toContain('opacity-80')
+    expect(container.innerHTML).toContain('box-border border border-danger/55 bg-danger/14')
   })
 
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {

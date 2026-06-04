@@ -2,7 +2,7 @@ import type { Accessor, JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import { CIV_BLITZ_MAX_OPTION_COUNT, hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
+import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
@@ -189,7 +189,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         label={state.derived.poolInputLabel()}
         ariaLabel={state.derived.poolInputLabel()}
         min={String(state.derived.leaderPoolMinimum())}
-        max={() => String(state.derived.isCivBlitz() ? CIV_BLITZ_MAX_OPTION_COUNT : state.derived.leaderPoolMaximum())}
+        max={() => String(state.derived.leaderPoolMaximum())}
         step="1"
         value={state.fields.leaderPoolInput()}
         placeholder={state.derived.leaderPoolPlaceholder()}

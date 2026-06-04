@@ -1,5 +1,5 @@
 import type { CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader, MapVoteMapOption } from '@civup/game'
-import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getCivBlitzStepCategories, getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
@@ -8,7 +8,6 @@ import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import { BLIND_PICK_SUBMISSION_PLACEHOLDER, canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getPreviewPicksForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
-import { getLeaderPortraitScaleClass } from './LeaderCard'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -128,6 +127,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (!blitz) return null
     return blitz.reveal?.submissions.find(submission => submission.seatIndex === props.seatIndex)?.kit ?? null
   }
+  const civBlitzSubmittedKit = (): CivBlitzPartialKit | null => {
+    const kit = state()?.civBlitz?.submissions[props.seatIndex]
+    if (!kit) return null
+
+    const visible: CivBlitzPartialKit = {}
+    for (const category of CIV_BLITZ_CATEGORIES) {
+      const componentId = kit[category]
+      if (typeof componentId === 'string' && componentId.length > 0 && componentId !== BLIND_PICK_SUBMISSION_PLACEHOLDER) visible[category] = componentId
+    }
+    return Object.keys(visible).length > 0 ? visible : null
+  }
   const civBlitzPreviewKit = (): CivBlitzPartialKit | null => {
     const blitz = state()?.civBlitz
     if (!blitz) return null
@@ -146,6 +156,18 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
   const hasCivBlitzDisplay = () => state()?.civBlitz != null
   const civBlitzConflictIds = () => new Set(state()?.civBlitz?.reveal?.conflictComponentIds ?? [])
+  const civBlitzStepCategories = (): CivBlitzComponentCategory[] => {
+    const s = state()
+    const step = s?.steps[s.currentStepIndex]
+    if (!step?.civBlitz) return []
+    return getCivBlitzStepCategories(step, props.seatIndex)
+  }
+  const civBlitzActiveCategorySet = createMemo(() => new Set(civBlitzStepCategories()))
+  const shouldFadeLockedCivBlitzCategory = (category: CivBlitzComponentCategory): boolean => {
+    const s = state()
+    const step = s?.steps[s.currentStepIndex]
+    return !!step?.civBlitz && isActive() && !civBlitzActiveCategorySet().has(category)
+  }
   const revealIsConflict = (): boolean => {
     const p = revealPick()
     const reveal = state()?.blindPickReveal
@@ -509,17 +531,20 @@ export function PlayerSlot(props: PlayerSlotProps) {
           <For each={CIV_BLITZ_CATEGORIES}>
             {category => {
               const lockedComponentId = () => civBlitzLockedKit()?.[category] ?? null
+              const submittedComponentId = () => civBlitzSubmittedKit()?.[category] ?? null
               const revealedComponentId = () => civBlitzRevealedKit()?.[category] ?? null
-              const previewComponentId = () => lockedComponentId() ? null : civBlitzPreviewKit()?.[category] ?? null
-              const componentId = () => lockedComponentId() ?? previewComponentId() ?? revealedComponentId()
+              const previewComponentId = () => lockedComponentId() || submittedComponentId() ? null : civBlitzPreviewKit()?.[category] ?? null
+              const componentId = () => submittedComponentId() ?? lockedComponentId() ?? previewComponentId() ?? revealedComponentId()
               const component = () => componentId() ? civBlitzComponentMap().get(componentId()!) ?? null : null
+              const muted = () => previewComponentId() != null || (lockedComponentId() != null && submittedComponentId() == null && shouldFadeLockedCivBlitzCategory(category))
               return (
                 <CivBlitzSlotTile
                   category={category}
                   component={component()}
                   sourceLeaderName={getCivBlitzSourceLeaderName(component())}
                   conflict={!previewComponentId() && revealedComponentId() ? civBlitzConflictIds().has(revealedComponentId()!) : false}
-                  preview={previewComponentId() != null}
+                  muted={muted()}
+                  animate={previewComponentId() != null}
                   compact={props.compact}
                 />
               )
@@ -715,7 +740,8 @@ function CivBlitzSlotTile(props: {
   component: CivBlitzComponent | null
   sourceLeaderName?: string | null
   conflict: boolean
-  preview: boolean
+  muted: boolean
+  animate: boolean
   compact?: boolean
 }) {
   const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
@@ -731,9 +757,9 @@ function CivBlitzSlotTile(props: {
   )
   const imageClass = () => hasIcon()
     ? cn('object-contain', isCivilizationIcon() && 'rounded-full')
-    : cn('object-cover', getLeaderPortraitScaleClass(props.sourceLeaderName))
+    : 'object-cover'
   return (
-    <div class={cn('relative min-h-0 min-w-0 bg-bg overflow-hidden', props.conflict && 'saturate-110', props.preview && 'opacity-50 saturate-85')}>
+    <div class={cn('relative min-h-0 min-w-0 box-border bg-bg overflow-hidden', props.conflict && 'opacity-80 saturate-90', props.muted && 'opacity-50 saturate-85')}>
       <div class="absolute inset-0 flex flex-col items-center justify-center px-2 pb-2 pt-4">
         <Show when={props.component}>
           {component => (
@@ -757,14 +783,14 @@ function CivBlitzSlotTile(props: {
                 src={resolveAssetUrl(url) ?? url}
                 alt={props.component?.name ?? ''}
                 class={cn('absolute inset-0 h-full w-full object-center', imageClass())}
-                animate={props.preview}
+                animate={props.animate}
               />
             )}
           </Show>
         </div>
       </div>
       <Show when={props.conflict}>
-        <div class="pointer-events-none inset-0 absolute ring-2 ring-inset ring-danger/75 bg-danger/16" />
+        <div class="pointer-events-none inset-0 absolute box-border border border-danger/55 bg-danger/14" />
       </Show>
     </div>
   )

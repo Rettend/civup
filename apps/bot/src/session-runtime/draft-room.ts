@@ -1,5 +1,4 @@
 import type {
-  CivBlitzComponentCategory,
   CivBlitzPartialKit,
   DraftEvent,
   DraftPreviewState,
@@ -14,12 +13,12 @@ import type { RoomEffect, RoomRecord } from './draft-room-domain.ts'
 import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
-  CIV_BLITZ_CATEGORIES,
   createDraft,
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   EMPTY_MAP_VOTE_SNAPSHOT,
   getCivBlitzRegistry,
+  getCivBlitzStepCategories,
   getCurrentStep,
   getPickSeatForPlayer,
   isCivBlitzFormatId,
@@ -1389,7 +1388,7 @@ function buildDebugCivBlitzKit(
   const options = state.civBlitz?.optionsBySeat[seatIndex]
   if (!step?.civBlitz || !options) return null
 
-  const categories = getDebugCivBlitzCategories(step, seatIndex)
+  const categories = getCivBlitzStepCategories(step, seatIndex)
   const kit: CivBlitzPartialKit = {}
   for (const category of categories) {
     const choices = options[category] ?? []
@@ -1397,16 +1396,6 @@ function buildDebugCivBlitzKit(
     kit[category] = choices[Math.floor(random() * choices.length)]
   }
   return kit
-}
-
-function getDebugCivBlitzCategories(
-  step: NonNullable<ReturnType<typeof getCurrentStep>>,
-  seatIndex: number,
-): CivBlitzComponentCategory[] {
-  const bySeat = step.civBlitzCategoriesBySeat?.[seatIndex]
-  if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
-  const categories = step.civBlitzCategories
-  return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
 }
 
 function getCachedSeatIndex(state: DraftState, cache: Map<string, number>, playerId: string | null | undefined): number {
@@ -1535,7 +1524,9 @@ export function censorDraftStateForSeat(state: DraftState, seatIndex: number): D
         optionsBySeat: ownOptions ? { [seatIndex]: ownOptions } : {},
         submissions: Object.fromEntries(Object.entries(state.civBlitz.submissions).map(([rawSeatIndex, kit]) => [
           rawSeatIndex,
-          Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
+          canViewBlindPickSubmission(state, seatIndex, Number(rawSeatIndex))
+            ? { ...kit }
+            : Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
         ])),
       },
     }

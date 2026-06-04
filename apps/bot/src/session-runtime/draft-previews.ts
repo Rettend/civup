@@ -1,5 +1,5 @@
 import type { CivBlitzComponentCategory, DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
-import { CIV_BLITZ_CATEGORIES, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
+import { getCivBlitzStepCategories, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
 
 export function createEmptyDraftPreviews(): DraftPreviewState {
   return {
@@ -363,13 +363,6 @@ function buildTimeoutBanSelections(
   }
 
   return selected
-}
-
-function getCivBlitzStepCategories(step: DraftStep, seatIndex: number): CivBlitzComponentCategory[] {
-  const bySeat = step.civBlitzCategoriesBySeat?.[seatIndex]
-  if (bySeat && bySeat.length > 0) return CIV_BLITZ_CATEGORIES.filter(category => bySeat.includes(category))
-  const categories = step.civBlitzCategories
-  return categories && categories.length > 0 ? CIV_BLITZ_CATEGORIES.filter(category => categories.includes(category)) : [...CIV_BLITZ_CATEGORIES]
 }
 
 function getActiveSeats(step: DraftStep, seatCount: number): number[] {

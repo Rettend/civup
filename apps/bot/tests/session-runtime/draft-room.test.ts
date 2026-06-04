@@ -112,6 +112,69 @@ describe('draft runtime alarm recovery', () => {
     })
   })
 
+  test('censors CivBlitz submissions to opponents but not teammates', () => {
+    const registry = getCivBlitzRegistry()
+    const kitA1 = { unit: registry.componentPools.unit[0] ?? 'unit-a1' }
+    const kitB1 = { unit: registry.componentPools.unit[1] ?? 'unit-b1' }
+    const kitA2 = { unit: registry.componentPools.unit[2] ?? 'unit-a2' }
+    const options = {
+      civilizationAbility: [],
+      leaderAbility: [],
+      infrastructure: [],
+      unit: [kitA1.unit, kitB1.unit, kitA2.unit],
+    }
+    const state: DraftState = {
+      matchId: 'civblitz-censor-test',
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['unit'] }],
+      seats: [
+        { playerId: 'a1', displayName: 'A1', team: 0 },
+        { playerId: 'b1', displayName: 'B1', team: 1 },
+        { playerId: 'a2', displayName: 'A2', team: 0 },
+        { playerId: 'b2', displayName: 'B2', team: 1 },
+      ],
+      submissions: {
+        0: ['__civblitz__'],
+        1: ['__civblitz__'],
+        2: ['__civblitz__'],
+      },
+      bans: [],
+      picks: [],
+      availableCivIds: [],
+      status: 'active',
+      cancelReason: null,
+      pendingBlindBans: [],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: { 0: options, 1: options, 2: options, 3: options },
+        submissions: { 0: kitA1, 1: kitB1, 2: kitA2 },
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    }
+
+    expect(censorDraftStateForSeat(state, 0).civBlitz?.submissions).toEqual({
+      0: kitA1,
+      1: { unit: '__blind__' },
+      2: kitA2,
+    })
+    expect(censorDraftStateForSeat(state, 1).civBlitz?.submissions).toEqual({
+      0: { unit: '__blind__' },
+      1: kitB1,
+      2: { unit: '__blind__' },
+    })
+    expect(censorDraftStateForSeat(state, -1).civBlitz?.submissions).toEqual({
+      0: { unit: '__blind__' },
+      1: { unit: '__blind__' },
+      2: { unit: '__blind__' },
+    })
+  })
+
   test('debug active bot timers can use the lobby fill debug flag', () => {
     const runtime = new TestSessionDraftRuntime(new TestStorage(null), { ENABLE_DEBUG_LOBBY_FILL: '1' })
 
