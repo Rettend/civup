@@ -21,7 +21,7 @@ function isVisibleCurrentSubmission(state: DraftState, civId: string): boolean {
     if (isBlindBanStep(state, step)) return false
     return Object.values(state.submissions).some(civIds => civIds.includes(civId))
   }
-  if (step.action === 'pick' && !step.blind && !step.reveal && !allowsDuplicateDraftPicks(state)) {
+  if (step.action === 'pick' && !step.reveal && !allowsDuplicateDraftPicks(state)) {
     return Object.values(state.submissions).some(civIds => civIds.includes(civId))
   }
   return false

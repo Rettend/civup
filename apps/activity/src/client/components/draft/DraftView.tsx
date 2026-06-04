@@ -172,6 +172,7 @@ export function DraftView(props: DraftViewProps) {
     const step = currentStep()
     const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
     if (step?.action === 'pick' && targetSeatIndex == null) return
+    if (step?.action === 'pick' && targetSeatIndex !== seatIndex) return
 
     const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
     if (autoOpenedGridToken() === nextToken) return

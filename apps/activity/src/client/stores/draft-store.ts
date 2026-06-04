@@ -378,11 +378,10 @@ export function phaseLabel(): string {
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''
 
+  if (s.blindPickReveal || s.civBlitz?.reveal) return 'CONFLICT'
   if (step.action === 'ban') return 'BAN PHASE'
-  if (step.civBlitz && step.reveal) return 'PICK CONFLICT'
   if (step.civBlitz) return 'PICK PHASE'
-  if (step.reveal) return 'PICK CONFLICT'
-  if (step.blind) return (step.blindPickRound ?? 0) > 0 ? 'BLIND REDRAFT' : 'BLIND PICK'
+  if (step.blind) return 'PICK PHASE'
   return 'PICK PHASE'
 }
 

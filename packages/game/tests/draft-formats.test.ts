@@ -333,10 +333,10 @@ describe('formatDraftStepLabel', () => {
     expect(steps.slice(1).map(step => formatDraftStepLabel(step, ffaSeats))).toEqual(['PICK'])
   })
 
-  test('labels blind pick and reveal steps distinctly', () => {
-    expect(formatDraftStepLabel({ action: 'pick', seats: 'all', blind: true, blindPickRound: 0 }, ffaSeats)).toBe('BLIND PICK')
-    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], blind: true, blindPickRound: 1 }, ffaSeats)).toBe('REDRAFT')
-    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], reveal: true }, ffaSeats)).toBe('REVEAL')
+  test('labels blind pick retries as picks and reveal steps as conflicts', () => {
+    expect(formatDraftStepLabel({ action: 'pick', seats: 'all', blind: true, blindPickRound: 0 }, ffaSeats)).toBe('PICK')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], blind: true, blindPickRound: 1 }, ffaSeats)).toBe('PICK')
+    expect(formatDraftStepLabel({ action: 'pick', seats: [0, 1], reveal: true }, ffaSeats)).toBe('CONFLICT')
   })
 
   test('labels CivBlitz steps distinctly', () => {

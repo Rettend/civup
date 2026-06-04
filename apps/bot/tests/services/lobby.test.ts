@@ -244,8 +244,8 @@ describe('lobby service D1-backed projection behavior', () => {
 
     expect(updated).not.toBeNull()
     expect(snapshot?.revision).toBe(updated?.revision)
-    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null })
-    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null })
+    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null, rankedRole: null })
+    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, rankedRole: null })
   })
 
   test('does not build live snapshots when a lobby stops being open', async () => {
@@ -397,7 +397,10 @@ describe('lobby service D1-backed projection behavior', () => {
         mu: 31,
         sigma: 3,
         gamesPlayed: 12,
+        wins: 7,
+        rank: 1,
       },
+      rankedRole: null,
     })
   })
 
