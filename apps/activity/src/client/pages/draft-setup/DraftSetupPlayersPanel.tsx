@@ -19,7 +19,7 @@ const FLIP_DURATION_MS = 1400
 const ARRANGE_OVERLAY_LEAD_MS = 360
 const ARRANGE_OVERLAY_TAIL_MS = 180
 const ARRANGE_OVERLAY_VISIBLE_MS = ARRANGE_OVERLAY_LEAD_MS + FLIP_DURATION_MS + ARRANGE_OVERLAY_TAIL_MS
-const PLAYER_POPOVER_WIDTH = 288
+const PLAYER_POPOVER_MIN_WIDTH = 288
 const PLAYER_POPOVER_HEIGHT_ESTIMATE = 160
 const PLAYER_POPOVER_GAP = 8
 const PLAYER_POPOVER_VIEWPORT_PADDING = 8
@@ -76,7 +76,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   const updatePlayerPopoverPosition = (anchor = playerPopoverAnchor) => {
     if (typeof window === 'undefined' || !anchor) return
     const rect = anchor.getBoundingClientRect()
-    const maxLeft = Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, window.innerWidth - PLAYER_POPOVER_WIDTH - PLAYER_POPOVER_VIEWPORT_PADDING)
+    const popoverWidth = playerPopoverRef?.offsetWidth ?? PLAYER_POPOVER_MIN_WIDTH
+    const maxLeft = Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, window.innerWidth - popoverWidth - PLAYER_POPOVER_VIEWPORT_PADDING)
     const left = Math.min(Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, rect.left), maxLeft)
     const belowTop = rect.bottom + PLAYER_POPOVER_GAP
     const aboveTop = rect.top - PLAYER_POPOVER_HEIGHT_ESTIMATE - PLAYER_POPOVER_GAP
@@ -624,7 +625,7 @@ function PlayerStatsPopover(props: {
       ref={props.setRef}
       role="dialog"
       aria-label={`${props.row.name} stats`}
-      class="pointer-events-none fixed z-50 w-72 rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
+      class="pointer-events-none fixed z-50 w-fit min-w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
       style={props.style}
     >
       <div class="flex items-start gap-3">
@@ -653,17 +654,17 @@ function PlayerStatsPopover(props: {
         </div>
       </div>
 
-      <div class="mt-3 flex rounded-lg bg-white/5 divide-x divide-white/8">
-        <div class="flex-1 py-2 text-center">
-          <div class="text-sm font-semibold text-fg">{ratingValue()}</div>
+      <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
+        <div class="px-3 py-2 text-center">
+          <div class="text-sm font-semibold text-fg whitespace-nowrap">{ratingValue()}</div>
           <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Elo</div>
         </div>
-        <div class="flex-1 py-2 text-center">
-          <div class="text-sm font-semibold text-fg">{rankValue()}</div>
+        <div class="px-3 py-2 text-center">
+          <div class="text-sm font-semibold text-fg whitespace-nowrap">{rankValue()}</div>
           <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Rank</div>
         </div>
-        <div class="flex-1 py-2 text-center">
-          <div class="text-sm font-semibold text-fg">
+        <div class="px-3 py-2 text-center">
+          <div class="text-sm font-semibold text-fg whitespace-nowrap">
             {recordValue()}
             <Show when={winRateValue() !== 'No data'}>
               <span class="text-fg-subtle font-normal text-xs ml-1">({winRateValue()})</span>
