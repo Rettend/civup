@@ -7,7 +7,7 @@ import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRa
 import { factory } from '../setup.ts'
 
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
-const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 8
+const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
@@ -104,6 +104,7 @@ export const cron_ranked_role_discord_retries = factory.cron(
     try {
       const guildIds = await listRankedRoleConfigGuildIds(kv)
       let appliedChanges = 0
+      let attemptedChanges = 0
       let pendingChanges = 0
       for (const guildId of guildIds) {
         const result = await applyPendingRankedRoleDiscordChanges({
@@ -112,13 +113,14 @@ export const cron_ranked_role_discord_retries = factory.cron(
           token: c.env.DISCORD_TOKEN,
           maxPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,
         })
+        attemptedChanges += result.attemptedChanges
         appliedChanges += result.appliedChanges
         pendingChanges += result.pendingChanges
       }
 
-      if (appliedChanges > 0 || pendingChanges > 0) {
+      if (attemptedChanges > 0 || appliedChanges > 0 || pendingChanges > 0) {
         // eslint-disable-next-line no-console
-        console.log(`[cron] Applied ${appliedChanges} ranked role Discord change(s); ${pendingChanges} pending`)
+        console.log(`[cron] Attempted ${attemptedChanges} ranked role Discord member(s); applied ${appliedChanges} change(s); ${pendingChanges} pending`)
       }
     }
     catch (error) {
