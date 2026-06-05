@@ -21,23 +21,6 @@ import {
 } from '~/client/stores'
 import { isDraftCardUnavailable } from './draftAvailability'
 
-const ZOOMED_LEADERS = [
-  'Ahiram',
-  'Al-Hasan ibn Sulaiman',
-  'Kiviuq',
-  'Spearthrower Owl',
-  'Trisong Detsen',
-  'Vercingetorix',
-]
-
-const SLIGHTLY_ZOOMED_LEADERS = [
-  'Anacaona',
-  'Maria Theresa',
-  'Stanislaw II',
-  'Te\' K\'inich II',
-  'Theodoric',
-]
-
 interface LeaderCardProps {
   leader: Leader
   singleClickShowsDetail?: boolean
@@ -305,8 +288,6 @@ export function LeaderCard(props: LeaderCardProps) {
                 'h-full w-full object-cover',
                 isBanned() && 'grayscale',
                 isUnavailable() && 'opacity-25',
-                ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
-                SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
               )}
             />
           )}
@@ -394,8 +375,6 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
                   'h-full w-full object-cover',
                   isBanned() && 'grayscale',
                   isUnavailable() && 'opacity-25',
-                  ZOOMED_LEADERS.includes(props.leader.name) && 'scale-90',
-                  SLIGHTLY_ZOOMED_LEADERS.includes(props.leader.name) && 'scale-95',
                 )}
               />
             )}

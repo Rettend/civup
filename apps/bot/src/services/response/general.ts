@@ -32,18 +32,21 @@ export async function resDeferGeneralCommandResponse(
   buildPayload: (c: GeneralCommandDeferredContext) => Promise<GeneralCommandResponse>,
   options?: {
     createMessage?: typeof createChannelMessage
+    ephemeral?: boolean
     redirect?: boolean
   },
 ): Promise<Response> {
   const commandsChannelId = await getSystemChannel(c.env.KV, 'commands')
   const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
-  const shouldRedirect = options?.redirect !== false
+  const forceEphemeral = options?.ephemeral === true
+  const shouldRedirect = !forceEphemeral
+    && options?.redirect !== false
     && !!c.interaction.guild_id
     && !!commandsChannelId
     && !!interactionChannelId
     && interactionChannelId !== commandsChannelId
 
-  const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
+  const responder = forceEphemeral || shouldRedirect ? c.flags('EPHEMERAL') : c
   return responder.resDefer(async (deferred) => {
     const payload = await buildPayload(deferred)
     const payloads = normalizeGeneralCommandPayloads(payload)

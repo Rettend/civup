@@ -8,11 +8,15 @@ import {
   clearSelections,
   clearTagFilters,
   detailLeaderId,
+  decreaseUiScale,
   favoriteLeaderIds,
   ffaPlacementOrder,
   gridExpanded,
   gridViewMode,
+  increaseUiScale,
+  normalizeUiScale,
   pickSelections,
+  resetUiScale,
   searchQuery,
   selectedLeader,
   selectedWinningTeam,
@@ -25,12 +29,18 @@ import {
   setPickSelections,
   setSearchQuery,
   setSelectedLeader,
+  setUiScale,
   tagFilters,
   toggleBanSelection,
   toggleFfaPlacement,
   toggleLeaderFavorite,
   togglePickSelection,
   toggleTagFilter,
+  UI_SCALE_DEFAULT,
+  UI_SCALE_MAX,
+  UI_SCALE_MIN,
+  UI_SCALE_STEP,
+  uiScale,
 } from '../src/client/stores/ui-store'
 
 describe('ui-store helpers', () => {
@@ -42,6 +52,7 @@ describe('ui-store helpers', () => {
     clearLeaderFavorites()
     setGridExpanded(false)
     setGridViewMode('grid')
+    resetUiScale()
   })
 
   test('toggleBanSelection enforces max selection count', () => {
@@ -177,5 +188,25 @@ describe('ui-store helpers', () => {
 
     toggleLeaderFavorite('civ-9')
     expect(favoriteLeaderIds()).toEqual([])
+  })
+
+  test('ui scale normalizes to persisted 10% steps', () => {
+    expect(uiScale()).toBe(UI_SCALE_DEFAULT)
+    expect(normalizeUiScale(UI_SCALE_MIN - 1)).toBe(UI_SCALE_MIN)
+    expect(normalizeUiScale(UI_SCALE_MAX + 1)).toBe(UI_SCALE_MAX)
+    expect(normalizeUiScale(UI_SCALE_DEFAULT + UI_SCALE_STEP / 2)).toBe(UI_SCALE_DEFAULT + UI_SCALE_STEP)
+
+    setUiScale(83)
+    expect(uiScale()).toBe(80)
+
+    increaseUiScale()
+    expect(uiScale()).toBe(90)
+
+    decreaseUiScale()
+    decreaseUiScale()
+    expect(uiScale()).toBe(UI_SCALE_MIN)
+
+    resetUiScale()
+    expect(uiScale()).toBe(UI_SCALE_DEFAULT)
   })
 })

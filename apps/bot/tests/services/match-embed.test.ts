@@ -55,14 +55,27 @@ describe('match result embed', () => {
     expect(fields).toContain('<@&1> -> <@&2>')
   })
 
-  test('omits the BBG footer when no beta leader data is active', () => {
+  test('shows BBG footers when a leader data version is provided', () => {
     const openEmbed = lobbyOpenEmbed('2v2', [null, null, null, null], 4, null, null, 'beta').toJSON()
     const resultEmbed = lobbyResultEmbed('ffa', []).toJSON()
     const cancelledEmbed = lobbyCancelledEmbed('2v2', [], 'scrub', undefined, 'live').toJSON()
 
-    expect(openEmbed.footer).toBeUndefined()
+    expect(openEmbed.footer).toEqual({ text: 'BBG Beta' })
     expect(resultEmbed.footer).toBeUndefined()
     expect(cancelledEmbed.footer).toBeUndefined()
+  })
+
+  test('resolves beta-only leaders in reported results', () => {
+    const embed = lobbyResultEmbed('ffa', [{
+      playerId: '100010000000000001',
+      team: null,
+      civId: 'taino-anacaona',
+      placement: 1,
+    }], undefined, { leaderDataVersion: 'beta' }).toJSON()
+
+    expect(embed.description).toContain('Anacaona')
+    expect(embed.description).not.toContain('taino-anacaona')
+    expect(embed.footer).toEqual({ text: 'BBG Beta' })
   })
 
   test('shows the reporter in the reported-result footer only when provided', () => {
@@ -92,6 +105,48 @@ describe('match result embed', () => {
       'Team D',
       '\u200B',
     ])
+  })
+
+  test('marks closed open lobbies with a closed title and purple highlight', () => {
+    const embed = lobbyOpenEmbed('ffa', Array.from({ length: 6 }, () => null), 6, null, null, 'live', false, { closed: true }).toJSON()
+
+    expect(embed.title).toBe('LOBBY CLOSED  -  FFA')
+    expect(embed.color).toBe(0x8B5CF6)
+  })
+
+  test('labels CivBlitz embeds before the game mode', () => {
+    const openEmbed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, { civBlitz: true }).toJSON()
+    const resultEmbed = lobbyResultEmbed('2v2', [], undefined, { civBlitz: true }).toJSON()
+
+    expect(openEmbed.title).toBe('LOBBY OPEN  -  CivBlitz 2v2')
+    expect(resultEmbed.title).toBe('RESULT REPORTED  -  CivBlitz 2v2')
+  })
+
+  test('shows unranked result markers without rating fallbacks', () => {
+    const embed = lobbyResultEmbed('2v2', [
+      { playerId: '100010000000000001', team: 0, civId: 'america-abraham-lincoln', placement: 1 },
+      { playerId: '100010000000000002', team: 1, civId: 'arabia-saladin-vizier', placement: 2 },
+      { playerId: '100010000000000003', team: 0, civId: 'australia-john-curtin', placement: 1 },
+      { playerId: '100010000000000004', team: 1, civId: 'aztec-montezuma', placement: 2 },
+    ], undefined, { civBlitz: true, unranked: true }).toJSON()
+
+    expect(embed.description).toContain('`  +` 📈 <@100010000000000001>')
+    expect(embed.description).toContain('`  -` 📉 <@100010000000000002>')
+    expect(embed.description).not.toContain('❔')
+    expect(embed.description).not.toContain('(   ?)')
+  })
+
+  test('does not show pick and ban visibility in open lobby embeds', () => {
+    const options = {
+      closed: false,
+      draftConfig: { blindBans: false, blindPicks: true },
+    }
+    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, options).toJSON()
+    const fields = JSON.stringify(embed.fields ?? [])
+
+    expect(embed.fields?.map(field => field.name)).not.toContain('Draft Settings')
+    expect(fields).not.toContain('Pick:')
+    expect(fields).not.toContain('Ban:')
   })
 
   test('pads four-team cancelled lobbies into a 2x2 inline field layout', () => {

@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftSeat, DraftState, GameMode, ResolvedMapVoteResult } from '@civup/game'
+import type { DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 
 export interface MatchRow {
   id: string
@@ -39,7 +39,12 @@ export interface ReportInput {
   leaderAssignments?: Record<string, string>
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean } | { error: string }
+export interface ReportProcessingClaim {
+  matchId: string
+  claimId: string
+}
+
+export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean } | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
@@ -60,10 +65,30 @@ export interface CorrectMatchLeadersInput {
   correctedAt: number
 }
 
+export interface SubstituteMatchPlayerInput {
+  matchId: string
+  playerId: string
+  subPlayer: {
+    playerId: string
+    displayName: string
+    avatarUrl?: string | null
+  }
+  correctedAt: number
+}
+
 export interface MatchLeaderCorrection {
   playerId: string
   previousCivId: string | null
   nextCivId: string | null
+}
+
+export interface MatchPlayerSubstitution {
+  seatIndex: number
+  previousPlayerId: string
+  nextPlayerId: string
+  team: number | null
+  civId: string | null
+  placement: number | null
 }
 
 export interface ModeratedMatchResult {
@@ -77,9 +102,14 @@ export interface MatchLeaderCorrectionResult extends ModeratedMatchResult {
   corrections: MatchLeaderCorrection[]
 }
 
+export interface MatchPlayerSubstitutionResult extends ModeratedMatchResult {
+  substitutions: MatchPlayerSubstitution[]
+}
+
 export type ResolveMatchResult = ModeratedMatchResult | { error: string }
 export type CancelMatchResult = ModeratedMatchResult | { error: string }
 export type CorrectMatchLeadersResult = MatchLeaderCorrectionResult | { error: string }
+export type SubstituteMatchPlayerResult = MatchPlayerSubstitutionResult | { error: string }
 
 export interface ManualReportedMatchPlayerInput {
   playerId: string
@@ -109,9 +139,11 @@ export interface ActivateDraftInput {
   state: DraftState
   completedAt: number
   hostId: string
+  leaderDataVersion?: LeaderDataVersion
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
   permanentAlly?: boolean
+  doublePickMetrics?: DraftDoublePickMetrics
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -121,9 +153,11 @@ export interface CancelDraftInput {
   cancelledAt: number
   reason: DraftCancelReason
   hostId: string
+  leaderDataVersion?: LeaderDataVersion
   mapVoteResult?: ResolvedMapVoteResult | null
   hiddenDraft?: boolean
   permanentAlly?: boolean
+  doublePickMetrics?: DraftDoublePickMetrics
   allowActive?: boolean
 }
 

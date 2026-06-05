@@ -1,23 +1,39 @@
 import { describe, expect, test } from 'bun:test'
-import { getDefaultLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import { formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import { getLeaderIds } from '../src/leader-registry.ts'
 
 describe('leader pool helpers', () => {
-  test('uses fixed versus defaults', () => {
+  test('uses rank5 versus defaults', () => {
     expect(getDefaultLeaderPoolSize('1v1', 2)).toBe(32)
     expect(getDefaultLeaderPoolSize('2v2', 4)).toBe(40)
     expect(getDefaultLeaderPoolSize('3v3', 6)).toBe(48)
     expect(getDefaultLeaderPoolSize('4v4', 8)).toBe(56)
   })
 
+  test('reduces versus defaults by rank', () => {
+    expect(getDefaultLeaderPoolSize('1v1', 2, 'live', 'tier4')).toBe(30)
+    expect(getDefaultLeaderPoolSize('2v2', 4, 'live', 'tier3')).toBe(36)
+    expect(getDefaultLeaderPoolSize('3v3', 6, 'live', 'tier2')).toBe(42)
+    expect(getDefaultLeaderPoolSize('4v4', 8, 'live', 'tier1')).toBe(48)
+  })
+
   test('scales FFA defaults with player count', () => {
-    expect(getDefaultLeaderPoolSize('ffa', 6)).toBe(36)
-    expect(getDefaultLeaderPoolSize('ffa', 8)).toBe(48)
-    expect(getDefaultLeaderPoolSize('ffa', 10)).toBe(60)
+    expect(getDefaultLeaderPoolSize('ffa', 6, 'live', 'tier3')).toBe(36)
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier3')).toBe(48)
+    expect(getDefaultLeaderPoolSize('ffa', 10, 'live', 'tier3')).toBe(60)
+  })
+
+  test('scales FFA defaults around rank3', () => {
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier5')).toBe(52)
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier4')).toBe(50)
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier3')).toBe(48)
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier2')).toBe(46)
+    expect(getDefaultLeaderPoolSize('ffa', 8, 'live', 'tier1')).toBe(44)
   })
 
   test('uses a minimum FFA floor before six players', () => {
-    expect(getDefaultLeaderPoolSize('ffa', 1)).toBe(36)
-    expect(getDefaultLeaderPoolSize('ffa', 5)).toBe(36)
+    expect(getDefaultLeaderPoolSize('ffa', 1, 'live', 'tier3')).toBe(36)
+    expect(getDefaultLeaderPoolSize('ffa', 5, 'live', 'tier3')).toBe(36)
   })
 
   test('computes playable minimum sizes', () => {
@@ -33,6 +49,13 @@ describe('leader pool helpers', () => {
     expect(resolveLeaderPoolSize('2v2', 4, 28)).toBe(28)
   })
 
+  test('resolves average leader pool rank with rank5 fallback', () => {
+    expect(resolveAverageLeaderPoolRankTier(['tier1', 'tier2', 'tier2'])).toBe('tier2')
+    expect(resolveAverageLeaderPoolRankTier(['tier1', null, undefined, 'tier5'])).toBe('tier4')
+    expect(resolveAverageLeaderPoolRankTier([])).toBe('tier5')
+    expect(formatLeaderPoolRankLabel('tier2')).toBe('rank2')
+  })
+
   test('samples unique leader ids', () => {
     const pool = sampleLeaderPool(32, () => 0.25)
 
@@ -41,8 +64,25 @@ describe('leader pool helpers', () => {
     expect(pool.every(id => typeof id === 'string' && id.length > 0)).toBe(true)
   })
 
+  test('samples beta-only leaders when using beta data', () => {
+    const liveLeaderIds = getLeaderIds('live')
+    const betaOnlyLeaderIds = getLeaderIds('beta').filter(id => !liveLeaderIds.includes(id))
+    const pool = sampleLeaderPool(getMaxLeaderPoolSize('beta'), () => 0, 'beta')
+
+    expect(MAX_LEADER_POOL_SIZE).toBe(getMaxLeaderPoolSize('beta'))
+    expect(betaOnlyLeaderIds).toEqual([
+      'austria-maria-theresa',
+      'goths-theodoric',
+      'poland-stanislaw-ii',
+      'taino-anacaona',
+    ])
+    expect(betaOnlyLeaderIds.every(id => pool.includes(id))).toBe(true)
+  })
+
   test('rejects invalid sample sizes', () => {
-    expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${MAX_LEADER_POOL_SIZE}.`)
-    expect(() => sampleLeaderPool(MAX_LEADER_POOL_SIZE + 1)).toThrow(`Leader pool size must be between 1 and ${MAX_LEADER_POOL_SIZE}.`)
+    const liveMaxLeaderPoolSize = getMaxLeaderPoolSize('live')
+
+    expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
+    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
   })
 })

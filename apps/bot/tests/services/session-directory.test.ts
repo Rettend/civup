@@ -3,6 +3,8 @@ import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { and, eq, isNull } from 'drizzle-orm'
 import { projectSessionRecord } from '../../src/services/session/directory.ts'
+import { getOpenSessionLobbyProjectionsByChannel } from '../../src/services/session/lobby-projection.ts'
+import { getActivitySessionById } from '../../src/services/activity/session-state.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
 import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -39,6 +41,34 @@ describe('session directory admission', () => {
       playerId: 'host-1',
       role: 'participant',
     })
+
+    sqlite.close()
+  })
+
+  test('defaults missing persisted blindBans config to enabled', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'draft-channel',
+      messageId: 'message-1',
+      db,
+    })
+
+    const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    const configWithoutBlindBans = JSON.parse(directoryRow!.configJson) as Record<string, unknown>
+    delete configWithoutBlindBans.blindBans
+    await db.update(sessionDirectory)
+      .set({ configJson: JSON.stringify(configWithoutBlindBans) })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+
+    const activitySession = await getActivitySessionById(db, lobby.id)
+    const [projection] = await getOpenSessionLobbyProjectionsByChannel(db, 'draft-channel')
+
+    expect(activitySession?.config.blindBans).toBe(true)
+    expect(projection?.draftConfig.blindBans).toBe(true)
 
     sqlite.close()
   })

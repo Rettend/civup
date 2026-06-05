@@ -1,13 +1,15 @@
 import type { DraftSeat, DraftState } from '@civup/game'
 import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
-import { allLeaderIds } from '@civup/game'
+import { allLeaderIds, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { createDraftMatch } from '../../src/services/match/draft.ts'
+import { createRoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
 import { SessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
+import { createTestSessionNamespace } from '../helpers/session-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
@@ -266,6 +268,84 @@ describe('SessionDO open session commands', () => {
       expect(reportedMatchRow).toMatchObject({ status: 'completed', completedAt: 50 })
     }
     finally {
+      console.warn = originalConsoleWarn
+      sqlite.close()
+    }
+  })
+
+  test('report claim retries swap finalization and persists swapped leaders before reporting', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const d1 = createFailingSessionDirectoryD1(createSqliteD1Database(sqlite))
+    const env: Partial<Cloudflare.Env> = { DB: d1.database, KV: kv }
+    const namespace = createTestSessionNamespace(env)
+    env.SessionDO = namespace
+    const originalConsoleError = console.error
+    const originalConsoleWarn = console.warn
+    console.error = (() => {}) as typeof console.error
+    console.warn = (() => {}) as typeof console.warn
+    const openLobby = buildLobby({
+      id: 'report-swap-finalize',
+      mode: '2v2',
+      memberPlayerIds: ['p1', 'p2', 'p3', 'p4'],
+      slots: ['p1', 'p2', 'p3', 'p4'],
+    })
+    const room = namespace.__getRoom(openLobby.id)
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+        { playerId: 'p3', displayName: 'Player Three', avatarUrl: null, joinedAt: 12 },
+        { playerId: 'p4', displayName: 'Player Four', avatarUrl: null, joinedAt: 13 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const initialRoom = await (room as any).getRoomRecord()
+      const completedPayload = buildCompletePayload(openLobby.id, started.seats)
+      completedPayload.state.formatId = initialRoom.config.formatId
+
+      const completed = await room.fetch(sessionRequest('/commands/draft-lifecycle-sync', {
+        method: 'POST',
+        body: JSON.stringify(completedPayload),
+      }))
+      expect(completed.status).toBe(200)
+      expect((await getSessionRecordBody(room)).phase).toBe('swap')
+
+      const swappedPicks = swapSeatPicks(completedPayload.state, 0, 2)
+      if ('error' in swappedPicks) throw new Error(swappedPicks.error)
+      await (room as any).setRoomRecord(createRoomRecord(initialRoom.config, {
+        ...completedPayload.state,
+        picks: swappedPicks,
+      }, initialRoom.mapVote, {
+        completedAt: completedPayload.completedAt,
+        lifecycleEventSequence: completedPayload.eventSequence,
+        swapWindowOpen: true,
+        swapState: { completedSwaps: [{ fromSeat: 0, toSeat: 2 }] },
+        swapSafetyEndsAt: 1_000,
+      }))
+
+      d1.failNextSessionDirectoryWrite()
+      const claim = await room.fetch(sessionRequest('/commands/report-claim', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'claim', matchId: openLobby.id, reporterId: 'p1', at: 40 }),
+      }))
+
+      expect(claim.status).toBe(200)
+      expect(await claim.json()).toMatchObject({ claimed: true })
+      expect((await getSessionRecordBody(room)).phase).toBe('active')
+
+      const storedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, openLobby.id))
+      const civByPlayerId = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
+      const seat0PlayerId = completedPayload.state.seats[0]?.playerId
+      const seat2PlayerId = completedPayload.state.seats[2]?.playerId
+      expect(civByPlayerId.get(seat0PlayerId!)).toBe(completedPayload.state.picks.find(pick => pick.seatIndex === 2)?.civId)
+      expect(civByPlayerId.get(seat2PlayerId!)).toBe(completedPayload.state.picks.find(pick => pick.seatIndex === 0)?.civId)
+    }
+    finally {
+      console.error = originalConsoleError
       console.warn = originalConsoleWarn
       sqlite.close()
     }

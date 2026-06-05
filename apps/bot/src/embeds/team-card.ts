@@ -375,7 +375,14 @@ function formatLeaderName(civId: string | null): string {
     return emoji ? `${emoji} ${leader.name}` : leader.name
   }
   catch {
-    return civId
+    try {
+      const leader = getLeader(civId, 'beta')
+      const emoji = leaderEmojiMention(civId)
+      return emoji ? `${emoji} ${leader.name}` : leader.name
+    }
+    catch {
+      return civId
+    }
   }
 }
 

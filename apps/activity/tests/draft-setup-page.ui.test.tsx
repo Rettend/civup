@@ -6,6 +6,7 @@ import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } f
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
+const { formatRating, formatRecord, formatWinRate } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
 const onLobbyStarted = mock(() => {})
 
@@ -33,6 +34,39 @@ function hasIconClass(container: HTMLElement, iconClass: string) {
   return Array.from(container.querySelectorAll('span')).some(element => element.className.includes(iconClass))
 }
 
+function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patch: Record<string, unknown>) {
+  const lobby = createLobbySnapshot({ mode, revision })
+  return {
+    ...lobby,
+    targetSize: typeof patch.targetSize === 'number' ? patch.targetSize : lobby.targetSize,
+    draftConfig: {
+      ...lobby.draftConfig,
+      banTimerSeconds: typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null ? patch.banTimerSeconds : lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds: typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null ? patch.pickTimerSeconds : lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize: typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null ? patch.leaderPoolSize : lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : lobby.draftConfig.leaderDataVersion,
+      mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
+      blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : lobby.draftConfig.blindBans,
+      blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : lobby.draftConfig.blindPicks,
+      simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
+      permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
+      redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : lobby.draftConfig.redDeath,
+      dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : lobby.draftConfig.dealOptionsSize,
+      civBlitz: typeof patch.civBlitz === 'boolean' ? patch.civBlitz : lobby.draftConfig.civBlitz,
+      civBlitzOptionCount: typeof patch.civBlitzOptionCount === 'number' || patch.civBlitzOptionCount === null ? patch.civBlitzOptionCount : lobby.draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: typeof patch.civBlitzExcludeBbgExpanded === 'boolean' ? patch.civBlitzExcludeBbgExpanded : lobby.draftConfig.civBlitzExcludeBbgExpanded,
+      randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : lobby.draftConfig.randomDraft,
+      hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : lobby.draftConfig.hiddenDraft,
+      duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : lobby.draftConfig.duplicateFactions,
+      closed: typeof patch.closed === 'boolean' ? patch.closed : lobby.draftConfig.closed,
+    },
+  }
+}
+
+function queryUiScaleControl() {
+  return document.querySelector('[aria-label="UI Scale"]')
+}
+
 describe('DraftSetupPage UI', () => {
   beforeEach(() => {
     resetUiMocks()
@@ -58,8 +92,57 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('heading', { name: 'Draft Setup' })).toBeTruthy()
     expect(screen.getByText('Players')).toBeTruthy()
     expect(screen.getByText('Config')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
+  })
+
+  test('shows lobby access as an open-by-default config switch', async () => {
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    const accessSwitch = screen.getByRole('switch', { name: 'Lobby Open' })
+
+    expectTextInOrder(configCard, ['Lobby Open', 'Map Vote'])
+    expect(accessSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByRole('button', { name: 'Close Lobby' })).toBeNull()
+
+    fireEvent.click(accessSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === '2v2' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === true)).toBe(true))
+
+    cleanup()
+    storeSpies.updateLobbyConfig.mockClear()
+
+    const closedLobby = createLobbySnapshot()
+    render(() => (
+      <DraftSetupPage lobby={{
+        ...closedLobby,
+        draftConfig: { ...closedLobby.draftConfig, closed: true },
+      }} />
+    ))
+
+    const closedSwitch = screen.getByRole('switch', { name: 'Lobby Closed' })
+    const closedTrack = closedSwitch.querySelector('div') as HTMLElement
+
+    expect(closedSwitch.getAttribute('aria-checked')).toBe('false')
+    expect(closedTrack.className).toContain('bg-[#a78bfa]/18')
+
+    fireEvent.click(closedSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === 'ffa' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === false)).toBe(true))
   })
 
   test('labels normal 1v1 shuffle as first-pick randomization and hides it for tournament lobbies', async () => {
@@ -110,16 +193,24 @@ describe('DraftSetupPage UI', () => {
     const shell = container.firstElementChild as HTMLElement
     const content = shell.querySelector('.mx-auto') as HTMLElement
     const grid = content.querySelector('.grid') as HTMLElement
+    const actions = content.lastElementChild as HTMLElement
     const playersCard = screen.getByText('Players').closest('.bg-bg-subtle') as HTMLElement
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
 
     expect(shell.className).toContain('flex')
     expect(shell.className).toContain('flex-col')
+    expect(shell.className).toContain('draft-setup-shell')
+    expect(shell.className).toContain('lg:h-[var(--civup-scaled-viewport-height,100dvh)]')
+    expect(shell.className).toContain('lg:min-h-0')
     expect(content.className).toContain('flex-1')
     expect(content.className).toContain('min-h-0')
+    expect(content.className).toContain('lg:overflow-hidden')
     expect(content.className.includes('lg:h-dvh')).toBe(false)
     expect(grid.className.includes('lg:flex-1')).toBe(false)
+    expect(grid.className).toContain('lg:min-h-0')
+    expect(grid.className).toContain('lg:overflow-hidden')
     expect(grid.className).toContain('lg:max-h-[432px]')
+    expect(actions.className).toContain('lg:mt-auto')
     expect(playersCard.className).toContain('lg:h-full')
     expect(configCard.className).toContain('lg:h-full')
   })
@@ -252,7 +343,7 @@ describe('DraftSetupPage UI', () => {
       />
     ))
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Blind Bans' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Random draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Duplicate leaders' }))
 
@@ -284,6 +375,117 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Red Death' }))
 
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
+  })
+
+  test('renders CivBlitz setup options without the BBG Beta row', async () => {
+    const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
+    render(() => (
+      <DraftSetupPage lobby={{
+        ...lobby,
+        draftConfig: { ...lobby.draftConfig, civBlitz: true },
+      }} />
+    ))
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    const civBlitzSwitch = screen.getByRole('switch', { name: 'CivBlitz' })
+    const bbgExpandedSwitch = screen.getByRole('switch', { name: 'BBG Expanded' })
+    const bbgExpandedLabel = screen.getByText('BBG Expanded')
+    const civBlitzTrack = civBlitzSwitch.querySelector('div') as HTMLElement
+    const bbgExpandedTrack = bbgExpandedSwitch.querySelector('div') as HTMLElement
+
+    expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
+    expect(screen.queryByRole('switch', { name: 'BBG Beta' })).toBeNull()
+    expectTextInOrder(configCard, ['Map Vote', 'BBG Expanded', 'Game Mode'])
+    expectTextInOrder(configCard, ['CivBlitz', 'Red Death'])
+    expect(civBlitzSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(bbgExpandedSwitch.getAttribute('aria-checked')).toBe('false')
+    expect(civBlitzTrack.className).toContain('bg-cyan-300/18')
+    expect(bbgExpandedLabel.className).not.toContain('cyan')
+    expect(bbgExpandedTrack.className).not.toContain('cyan')
+
+    fireEvent.click(bbgExpandedSwitch)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).civBlitzExcludeBbgExpanded === false)).toBe(true))
+
+  })
+
+  test('queues overlapping optimistic config saves with the latest switch state', async () => {
+    let resolveFirstSave: () => void = () => {}
+    const firstSave = new Promise<void>((resolve) => { resolveFirstSave = resolve })
+    let callIndex = 0
+
+    storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
+      callIndex += 1
+      if (callIndex === 1) await firstSave
+      return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, callIndex + 1, patch) }
+    })
+
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot({
+        mode: '2v2',
+        targetSize: 4,
+        entries: [
+          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+        ],
+      })}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
+
+    const randomDraftSwitch = screen.getByRole('switch', { name: 'Random draft' })
+    expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.click(randomDraftSwitch)
+    await Promise.resolve()
+
+    expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1)
+
+    resolveFirstSave()
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(2))
+
+    const patches = storeSpies.updateLobbyConfig.mock.calls.map(call => call[3] as Record<string, unknown>)
+    const firstPatch = patches[0]!
+    const secondPatch = patches[1]!
+    expect(firstPatch.blindBans).toBe(false)
+    expect(secondPatch.blindBans).toBe(false)
+    expect(secondPatch.randomDraft).toBe(true)
+    expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false)
+  })
+
+  test('keeps a refocused timer input active when an older blur save finishes', async () => {
+    let resolveSave: () => void = () => {}
+    const save = new Promise<void>((resolve) => { resolveSave = resolve })
+
+    storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
+      await save
+      return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, 2, patch) }
+    })
+
+    render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+
+    const banInput = screen.getByRole('spinbutton', { name: 'Ban Timer (minutes)' }) as HTMLInputElement
+
+    banInput.focus()
+    fireEvent.focus(banInput)
+    fireEvent.input(banInput, { target: { value: '2' } })
+    fireEvent.blur(banInput)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
+
+    banInput.focus()
+    fireEvent.focus(banInput)
+    fireEvent.input(banInput, { target: { value: '2.5' } })
+
+    resolveSave()
+
+    await waitFor(() => expect((document.activeElement as HTMLInputElement | null)?.value).toBe('2.5'))
+    expect(document.activeElement).toBe(banInput)
   })
 
   test('covers the host 2v2 extra-team toggle flow', async () => {
@@ -460,6 +662,13 @@ describe('DraftSetupPage UI', () => {
     expect(arrangeOverlay.className).toContain('pointer-events-none')
   })
 
+  test('formats missing player popover stats as default baseline values', () => {
+    expect(formatRating(null)).toBe('1000')
+    expect(formatRating(null, true)).toBe('Unranked')
+    expect(formatRecord(null)).toBe('0-0')
+    expect(formatWinRate(null)).toBe('0%')
+  })
+
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {
     render(() => (
       <DraftSetupPage lobby={createLobbySnapshot({
@@ -524,17 +733,24 @@ describe('DraftSetupPage UI', () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: '2v2' })} />)
 
     expect(screen.getByText('Waiting for host')).toBeTruthy()
+    const readonlyLobbyAccess = screen.getByText('Lobby Open') as HTMLElement
+    expect(readonlyLobbyAccess.className).toContain('text-note')
+    expect(screen.queryByRole('switch', { name: 'Lobby Open' })).toBeNull()
     expect(screen.queryByRole('switch', { name: 'Blind Bans' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ban Draft' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start Draft' })).toBeNull()
+    expect(screen.getByText('Pick')).toBeTruthy()
+    expect(screen.getByText('Ban')).toBeTruthy()
     expect(screen.getByText('Map Vote')).toBeTruthy()
-    expect(screen.getByText('Blind Bans')).toBeTruthy()
     expect(screen.getByText('Random draft')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Leave Lobby' })).toBeTruthy()
 
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
     expectTextInOrder(configCard, [
+      'Lobby Open',
+      'Ban',
+      'Pick',
       'Map Vote',
-      'Blind Bans',
       'Min rank',
       'Max rank',
       'Leaders',
@@ -544,6 +760,8 @@ describe('DraftSetupPage UI', () => {
       'Hidden draft',
       'Duplicate leaders',
     ])
+    expect((screen.getByText('BLIND') as HTMLElement).className).toContain('text-accent')
+    expect((screen.getByText('DRAFT') as HTMLElement).className).toContain('text-accent')
     expect(configCard.textContent?.includes('Game Mode')).toBe(false)
     expect(configCard.textContent?.includes('Red Death')).toBe(false)
   })

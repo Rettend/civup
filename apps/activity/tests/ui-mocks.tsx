@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 
-import type { DraftState, LeaderDataVersion, MapScriptId, MapTypeId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
+import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { getPickSeatForPlayer } from '@civup/game'
@@ -15,9 +15,10 @@ export const storeSpies = {
   sendRevert: mock(() => true),
   sendBan: mock((_civIds: string[]) => {}),
   sendPick: mock((_civId: string) => {}),
+  sendCivBlitzSubmit: mock((_kit: CivBlitzPartialKit) => {}),
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
   sendMapVoteConfirm: mock(() => true),
-  sendMapVoteSelection: mock((_selection: { mapTypes: MapTypeId[], mapScripts: MapScriptId[] }) => true),
+  sendMapVoteSelection: mock((_selection: { maps: MapVoteMapId[] }) => true),
   sendLeaderSwap: mock((_seatIndex: number) => {}),
   updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
     uiMockState.steamLobbyLink = steamLobbyLink
@@ -41,11 +42,14 @@ export const storeSpies = {
   fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
   placeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
   removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
+  transferLobbyHost: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetPlayerId: string }) => uiMockState.transferLobbyHostResult),
+  repeatLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
   startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
-  updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Partial<LobbySnapshot>) => ({
-    ...uiMockState.updateLobbyConfigResult,
-    lobby: { steamLobbyLink: patch.steamLobbyLink ?? null },
-  })),
+  updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Record<string, unknown>) => {
+    const result = uiMockState.updateLobbyConfigResult
+    if (!result.ok) return result
+    return { ok: true, lobby: mockLobbySnapshotFromConfigPatch(patch) }
+  }),
   updateLobbyMode: mock(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
 }
 
@@ -63,6 +67,7 @@ interface MockState {
   avatarUrl: string | null
   isMiniView: boolean
   isMobileLayout: boolean
+  isCivBlitzDraft: boolean
   isRedDeathDraft: boolean
   isSpectator: boolean
   connectionStatus: ConnectionStatus
@@ -92,8 +97,7 @@ interface MockState {
   sendStartResult: boolean
   mapVoteEnabled: boolean
   mapVotePhase: 'idle' | 'voting' | 'reveal' | 'done'
-  mapVoteSelectedTypes: MapTypeId[]
-  mapVoteSelectedScripts: MapScriptId[]
+  mapVoteSelectedMaps: MapVoteMapId[]
   mapVoteHasConfirmed: boolean
   mapVoteConfirmedSeatIndices: number[]
   mapVoteSeatVotes: RevealedMapVoteSeatBallot[]
@@ -122,6 +126,8 @@ interface MockState {
   fillLobbyWithTestPlayersResult: { ok: true, addedCount: number } | { ok: false, error: string }
   placeLobbySlotResult: { ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }
   removeLobbySlotResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
+  transferLobbyHostResult: { ok: true, lobby: LobbySnapshot } | { ok: false, error: string }
+  repeatLobbyDraftResult: { ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   startLobbyDraftResult: { ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }
   updateLobbyConfigResult: { ok: true } | { ok: false, error: string }
   updateLobbyModeResult: { ok: true } | { ok: false, error: string }
@@ -158,10 +164,14 @@ function mockLobbySnapshot(): LobbySnapshot {
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
       blindBans: true,
+      blindPicks: false,
       simultaneousPick: false,
       redDeath: false,
       permanentAlly: true,
       dealOptionsSize: null,
+      civBlitz: false,
+      civBlitzOptionCount: 4,
+      civBlitzExcludeBbgExpanded: true,
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
@@ -173,6 +183,39 @@ function mockLobbySnapshot(): LobbySnapshot {
   }
 }
 
+function mockLobbySnapshotFromConfigPatch(patch: Record<string, unknown>): LobbySnapshot {
+  const snapshot = mockLobbySnapshot()
+  return {
+    ...snapshot,
+    revision: snapshot.revision + 1,
+    steamLobbyLink: typeof patch.steamLobbyLink === 'string' || patch.steamLobbyLink === null ? patch.steamLobbyLink : snapshot.steamLobbyLink,
+    minRole: patch.minRole === null || typeof patch.minRole === 'string' ? patch.minRole as LobbySnapshot['minRole'] : snapshot.minRole,
+    maxRole: patch.maxRole === null || typeof patch.maxRole === 'string' ? patch.maxRole as LobbySnapshot['maxRole'] : snapshot.maxRole,
+    targetSize: typeof patch.targetSize === 'number' ? patch.targetSize : snapshot.targetSize,
+    draftConfig: {
+      ...snapshot.draftConfig,
+      banTimerSeconds: typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null ? patch.banTimerSeconds : snapshot.draftConfig.banTimerSeconds,
+      pickTimerSeconds: typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null ? patch.pickTimerSeconds : snapshot.draftConfig.pickTimerSeconds,
+      leaderPoolSize: typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null ? patch.leaderPoolSize : snapshot.draftConfig.leaderPoolSize,
+      leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : snapshot.draftConfig.leaderDataVersion,
+      mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : snapshot.draftConfig.mapVoteEnabled,
+      blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : snapshot.draftConfig.blindBans,
+      blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : snapshot.draftConfig.blindPicks,
+      simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : snapshot.draftConfig.simultaneousPick,
+      permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : snapshot.draftConfig.permanentAlly,
+      redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : snapshot.draftConfig.redDeath,
+      dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : snapshot.draftConfig.dealOptionsSize,
+      civBlitz: typeof patch.civBlitz === 'boolean' ? patch.civBlitz : snapshot.draftConfig.civBlitz,
+      civBlitzOptionCount: typeof patch.civBlitzOptionCount === 'number' || patch.civBlitzOptionCount === null ? patch.civBlitzOptionCount : snapshot.draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: typeof patch.civBlitzExcludeBbgExpanded === 'boolean' ? patch.civBlitzExcludeBbgExpanded : snapshot.draftConfig.civBlitzExcludeBbgExpanded,
+      randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : snapshot.draftConfig.randomDraft,
+      hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : snapshot.draftConfig.hiddenDraft,
+      duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : snapshot.draftConfig.duplicateFactions,
+      closed: typeof patch.closed === 'boolean' ? patch.closed : snapshot.draftConfig.closed,
+    },
+  }
+}
+
 function defaults(): MockState {
   return {
     userId: 'host-1',
@@ -180,6 +223,7 @@ function defaults(): MockState {
     avatarUrl: null,
     isMiniView: false,
     isMobileLayout: false,
+    isCivBlitzDraft: false,
     isRedDeathDraft: false,
     isSpectator: false,
     connectionStatus: 'connected',
@@ -209,8 +253,7 @@ function defaults(): MockState {
     sendStartResult: true,
     mapVoteEnabled: true,
     mapVotePhase: 'idle',
-    mapVoteSelectedTypes: [],
-    mapVoteSelectedScripts: [],
+    mapVoteSelectedMaps: [],
     mapVoteHasConfirmed: false,
     mapVoteConfirmedSeatIndices: [],
     mapVoteSeatVotes: [],
@@ -239,6 +282,8 @@ function defaults(): MockState {
     fillLobbyWithTestPlayersResult: { ok: true, addedCount: 0 },
     placeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot(), transferNotice: null },
     removeLobbySlotResult: { ok: true, lobby: mockLobbySnapshot() },
+    transferLobbyHostResult: { ok: true, lobby: mockLobbySnapshot() },
+    repeatLobbyDraftResult: { ok: true, kind: 'complete', matchId: 'match-1', sessionAccessToken: 'session-token' },
     startLobbyDraftResult: { ok: true, matchId: 'match-1', sessionAccessToken: 'session-token' },
     updateLobbyConfigResult: { ok: true },
     updateLobbyModeResult: { ok: true },
@@ -269,8 +314,7 @@ export function resetUiMocks() {
   uiMockState.sendStartResult = true
   uiMockState.mapVoteEnabled = true
   uiMockState.mapVotePhase = 'idle'
-  uiMockState.mapVoteSelectedTypes = []
-  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteSelectedMaps = []
   uiMockState.mapVoteHasConfirmed = false
   uiMockState.mapVoteConfirmedSeatIndices = []
   uiMockState.mapVoteSeatVotes = []
@@ -415,15 +459,14 @@ function toggleRankedChoice<T extends string>(current: readonly T[], next: T, ma
 function mapVoteReadyToConfirm() {
   return uiMockState.mapVotePhase === 'voting'
     && uiMockState.draftSeatIndex != null
-    && (uiMockState.mapVoteSelectedTypes.length > 0 || uiMockState.mapVoteSelectedScripts.length > 0)
+    && uiMockState.mapVoteSelectedMaps.length > 0
     && !uiMockState.mapVoteHasConfirmed
 }
 
 function startMapVote(_matchId: string) {
   if (uiMockState.mapVotePhase !== 'idle') return
   uiMockState.mapVotePhase = 'voting'
-  uiMockState.mapVoteSelectedTypes = []
-  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteSelectedMaps = []
   uiMockState.mapVoteHasConfirmed = false
   uiMockState.mapVoteConfirmedSeatIndices = []
   uiMockState.mapVoteSeatVotes = []
@@ -433,7 +476,7 @@ function startMapVote(_matchId: string) {
   uiMockState.mapVoteWinningScriptCandidate = null
   uiMockState.mapVoteTypeRounds = []
   uiMockState.mapVoteScriptRounds = []
-  uiMockState.mapVoteVotingEndsAt = Date.now() + 30000
+  uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
   uiMockState.mapVoteRevealEndsAt = null
 }
 
@@ -455,8 +498,7 @@ function finishMapVote() {
 
 function resetMapVote() {
   uiMockState.mapVotePhase = 'idle'
-  uiMockState.mapVoteSelectedTypes = []
-  uiMockState.mapVoteSelectedScripts = []
+  uiMockState.mapVoteSelectedMaps = []
   uiMockState.mapVoteHasConfirmed = false
   uiMockState.mapVoteConfirmedSeatIndices = []
   uiMockState.mapVoteSeatVotes = []
@@ -483,8 +525,9 @@ mock.module('~/client/lib/clipboard', () => ({
 }))
 
 mock.module('~/client/stores', () => ({
-  MAP_VOTE_REVEAL_DURATION_SECONDS: 5,
-  MAP_VOTE_VOTING_DURATION_SECONDS: 30,
+  BLIND_PICK_SUBMISSION_PLACEHOLDER: '__blind__',
+  MAP_VOTE_REVEAL_DURATION_SECONDS: 10,
+  MAP_VOTE_VOTING_DURATION_SECONDS: 90,
   activeTagFilterCount: () => Object.values(uiMockState.tagFiltersState).reduce((count, tags) => count + tags.length, 0),
   arrangeLobbySlots: (...args: Parameters<typeof storeSpies.arrangeLobbySlots>) => storeSpies.arrangeLobbySlots(...args),
   banSelectionStepToken: () => uiMockState.banSelectionStepToken,
@@ -578,12 +621,14 @@ mock.module('~/client/stores', () => ({
   getSeatMapVote,
   getOptimisticSeatPick: () => null,
   getPreviewPickForSeat: (seatIndex: number) => uiMockState.previewPicks[seatIndex] ?? null,
+  getPreviewPicksForSeat: (seatIndex: number) => uiMockState.draftPreviewPicks[seatIndex] ?? (uiMockState.previewPicks[seatIndex] ? [uiMockState.previewPicks[seatIndex]!] : []),
   gridOpen: () => uiMockState.gridOpen,
   gridExpanded: () => uiMockState.gridExpanded,
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
   hiddenDraftLeaderSelections: () => uiMockState.hiddenDraftLeaderSelections,
   isHiddenDraftComplete: () => false,
+  isCivBlitzDraft: () => uiMockState.isCivBlitzDraft,
   isMiniView: () => uiMockState.isMiniView,
   isMapVotePhase,
   isSeatMapVoteConfirmed: (seatIndex: number) => uiMockState.mapVoteConfirmedSeatIndices.includes(seatIndex),
@@ -602,10 +647,8 @@ mock.module('~/client/stores', () => ({
   mapVoteReadyToConfirm,
   mapVoteRevealEndsAt: () => uiMockState.mapVoteRevealEndsAt,
   mapVoteSeatVotes: () => uiMockState.mapVoteSeatVotes,
-  mapVoteSelectedScriptCount: () => uiMockState.mapVoteSelectedScripts.length,
-  mapVoteSelectedScripts: () => uiMockState.mapVoteSelectedScripts,
-  mapVoteSelectedTypeCount: () => uiMockState.mapVoteSelectedTypes.length,
-  mapVoteSelectedTypes: () => uiMockState.mapVoteSelectedTypes,
+  mapVoteSelectedMapCount: () => uiMockState.mapVoteSelectedMaps.length,
+  mapVoteSelectedMaps: () => uiMockState.mapVoteSelectedMaps,
   mapVoteVotingEndsAt: () => uiMockState.mapVoteVotingEndsAt,
   mapVoteWinningScriptCandidate: () => uiMockState.mapVoteWinningScriptCandidate,
   mapVoteWinningScript: () => uiMockState.mapVoteWinningScript,
@@ -618,6 +661,8 @@ mock.module('~/client/stores', () => ({
   pickSelections: () => uiMockState.pickSelections,
   placeLobbySlot: (...args: Parameters<typeof storeSpies.placeLobbySlot>) => storeSpies.placeLobbySlot(...args),
   removeLobbySlot: (...args: Parameters<typeof storeSpies.removeLobbySlot>) => storeSpies.removeLobbySlot(...args),
+  transferLobbyHost: (...args: Parameters<typeof storeSpies.transferLobbyHost>) => storeSpies.transferLobbyHost(...args),
+  repeatLobbyDraft: (...args: Parameters<typeof storeSpies.repeatLobbyDraft>) => storeSpies.repeatLobbyDraft(...args),
   reportMatchResult: (...args: Parameters<typeof storeSpies.reportMatchResult>) => storeSpies.reportMatchResult(...args),
   resetMapVote,
   resultSelectionsLocked: () => uiMockState.resultSelectionsLocked,
@@ -628,6 +673,7 @@ mock.module('~/client/stores', () => ({
   selectedLeader: () => uiMockState.selectedLeaderId,
   sendCancel: (...args: Parameters<typeof storeSpies.sendCancel>) => storeSpies.sendCancel(...args),
   sendBan: (...args: Parameters<typeof storeSpies.sendBan>) => storeSpies.sendBan(...args),
+  sendCivBlitzSubmit: (...args: Parameters<typeof storeSpies.sendCivBlitzSubmit>) => storeSpies.sendCivBlitzSubmit(...args),
   confirmMapVote,
   sendConfig: async () => {},
   sendMapVoteConfirm: (...args: Parameters<typeof storeSpies.sendMapVoteConfirm>) => storeSpies.sendMapVoteConfirm(...args),
@@ -647,22 +693,13 @@ mock.module('~/client/stores', () => ({
   setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => { uiMockState.gridViewMode = next },
   setIsRandomSelected: (next: boolean) => { uiMockState.isRandomSelected = next },
   setMapVoteEnabled: (next: boolean) => { uiMockState.mapVoteEnabled = next },
-  toggleMapVoteSelectedScript: (next: MapScriptId | null) => {
+  toggleMapVoteSelectedMap: (next: MapVoteMapId | null) => {
     if (uiMockState.mapVotePhase !== 'voting' || uiMockState.mapVoteHasConfirmed || uiMockState.draftSeatIndex == null || next == null) return { changed: false, readyToConfirm: false }
-    const currentScripts = uiMockState.mapVoteSelectedScripts
-    const nextScripts = toggleRankedChoice(currentScripts, next, 3)
-    if (nextScripts.join('|') === currentScripts.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
-    uiMockState.mapVoteSelectedScripts = nextScripts
-    storeSpies.sendMapVoteSelection({ mapTypes: uiMockState.mapVoteSelectedTypes, mapScripts: nextScripts })
-    return { changed: true, readyToConfirm: mapVoteReadyToConfirm() }
-  },
-  toggleMapVoteSelectedType: (next: MapTypeId | null) => {
-    if (uiMockState.mapVotePhase !== 'voting' || uiMockState.mapVoteHasConfirmed || uiMockState.draftSeatIndex == null || next == null) return { changed: false, readyToConfirm: false }
-    const currentTypes = uiMockState.mapVoteSelectedTypes
-    const nextTypes = toggleRankedChoice(currentTypes, next, 3)
-    if (nextTypes.join('|') === currentTypes.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
-    uiMockState.mapVoteSelectedTypes = nextTypes
-    storeSpies.sendMapVoteSelection({ mapTypes: nextTypes, mapScripts: uiMockState.mapVoteSelectedScripts })
+    const currentMaps = uiMockState.mapVoteSelectedMaps
+    const nextMaps = toggleRankedChoice(currentMaps, next, 3)
+    if (nextMaps.join('|') === currentMaps.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
+    uiMockState.mapVoteSelectedMaps = nextMaps
+    storeSpies.sendMapVoteSelection({ maps: nextMaps })
     return { changed: true, readyToConfirm: mapVoteReadyToConfirm() }
   },
   setPickSelections,

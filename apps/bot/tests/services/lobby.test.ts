@@ -244,8 +244,8 @@ describe('lobby service D1-backed projection behavior', () => {
 
     expect(updated).not.toBeNull()
     expect(snapshot?.revision).toBe(updated?.revision)
-    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null })
-    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null })
+    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null, rankedRole: null })
+    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, rankedRole: null })
   })
 
   test('does not build live snapshots when a lobby stops being open', async () => {
@@ -397,7 +397,10 @@ describe('lobby service D1-backed projection behavior', () => {
         mu: 31,
         sigma: 3,
         gamesPlayed: 12,
+        wins: 7,
+        rank: 1,
       },
+      rankedRole: null,
     })
   })
 
@@ -465,6 +468,7 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'lobby',
         id: lobby.id,
         participantCount: 1,
+        players: [expect.objectContaining({ playerId: 'host-1', displayName: 'Host', team: 0 })],
         status: 'open',
       }),
     ])
@@ -481,6 +485,10 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'lobby',
         id: lobby.id,
         participantCount: 2,
+        players: [
+          expect.objectContaining({ playerId: 'host-1', displayName: 'Host', team: 0 }),
+          expect.objectContaining({ playerId: 'player-2', displayName: 'Player 2', team: 1 }),
+        ],
         status: 'open',
       }),
     ])
@@ -509,7 +517,42 @@ describe('lobby service D1-backed projection behavior', () => {
         kind: 'match',
         id: lobby.id,
         participantCount: 2,
-        status: 'active',
+        status: 'completed',
+      }),
+    ])
+  })
+
+  test('marks closed open lobbies in the activity overview', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '1v1',
+      hostId: 'host-1',
+      channelId: 'channel-closed',
+      messageId: 'message-closed',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+
+    const closedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...lobby.draftConfig, closed: true }, lobby)
+    await syncLobbyDerivedState(kv, closedLobby ?? lobby)
+
+    const overview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-closed')
+    expect(overview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        status: 'closed',
+      }),
+    ])
+
+    const reopenedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...(closedLobby ?? lobby).draftConfig, closed: false }, closedLobby ?? lobby)
+    await syncLobbyDerivedState(kv, reopenedLobby ?? closedLobby ?? lobby)
+
+    const reopenedOverview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-closed')
+    expect(reopenedOverview?.options).toEqual([
+      expect.objectContaining({
+        kind: 'lobby',
+        id: lobby.id,
+        status: 'open',
       }),
     ])
   })

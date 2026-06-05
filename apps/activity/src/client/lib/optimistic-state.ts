@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createEffect, createMemo, createSignal } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
 
 type OptimisticStatus = 'idle' | 'pending' | 'error'
 
@@ -37,7 +37,7 @@ export function createOptimisticState<T>(
   const [error, setError] = createSignal<string | null>(null)
   let commitVersion = 0
 
-  const value = createMemo(() => pending() ?? source())
+  const value = () => pending() ?? source()
 
   createEffect(() => {
     const pendingValue = pending()

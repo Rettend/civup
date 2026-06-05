@@ -1,9 +1,9 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
-import { preloadLobbyOverviewRoute } from '~/client/activity/route-preloads'
 import { cn } from '~/client/lib/css'
 import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
   canOpenLeaderGrid,
+  currentPickTargetSeatIndex,
   currentStep,
   draftStore,
   gridOpen,
@@ -12,7 +12,7 @@ import {
   isMapVotePhase,
   isMiniView,
   isMobileLayout,
-  isMyOwnPickTurn,
+  isMyTurn,
   isSpectator,
   mapVotePhase,
   setGridOpen,
@@ -20,6 +20,7 @@ import {
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
+import { FloatingUiScaleMenu } from '../ui/UiScaleMenu'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
@@ -97,7 +98,7 @@ export function DraftView(props: DraftViewProps) {
 
   const isMyPickTurn = () => {
     const step = currentStep()
-    return !!step && step.action === 'pick' && isMyOwnPickTurn() && !hasSubmitted()
+    return !!step && step.action === 'pick' && currentPickTargetSeatIndex() != null && !hasSubmitted()
   }
 
   const [showTurnFlash, setShowTurnFlash] = createSignal(false)
@@ -133,6 +134,7 @@ export function DraftView(props: DraftViewProps) {
 
   const isMapVoteVoting = () => mapVotePhase() === 'voting'
   const isMapVoteReveal = () => mapVotePhase() === 'reveal'
+  const canReviewCompleteDraft = () => state()?.status === 'complete' && !isHiddenDraftComplete()
 
   createEffect(() => {
     const current = state()
@@ -165,9 +167,14 @@ export function DraftView(props: DraftViewProps) {
     if (isMiniView()) return
     if (isMapVotePhase()) return
     if (!canOpenLeaderGrid()) return
-    if (currentStep()?.action === 'pick' && !isMyOwnPickTurn()) return
+    if (!isMyTurn() || hasSubmitted()) return
 
-    const nextToken = `${draftStore.initVersion}:${current.matchId}:${seatIndex}`
+    const step = currentStep()
+    const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
+    if (step?.action === 'pick' && targetSeatIndex == null) return
+    if (step?.action === 'pick' && targetSeatIndex !== seatIndex) return
+
+    const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
     if (autoOpenedGridToken() === nextToken) return
 
     setGridOpen(true)
@@ -176,8 +183,8 @@ export function DraftView(props: DraftViewProps) {
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => draftStore.seatIndex != null && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
-  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete()
-  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete()
+  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete() || canReviewCompleteDraft()
+  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete() || canReviewCompleteDraft()
   const overlayToggleLabel = () => {
     if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
     return gridOpen() ? 'Close leader grid' : 'Open leader grid'
@@ -230,8 +237,9 @@ export function DraftView(props: DraftViewProps) {
 
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
+                <FloatingUiScaleMenu class={gridOpen() ? 'z-5' : 'z-40'} disabled={gridOpen()} />
                 <SlotStrip />
-                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete()}>
+                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete() || canReviewCompleteDraft()}>
                   <LeaderGridOverlay />
                 </Show>
                 <Show when={isMapVoteVoting()}>
@@ -240,10 +248,11 @@ export function DraftView(props: DraftViewProps) {
 
                 {/* Grid toggle button */}
                 <Show when={showOverlayToggle()}>
-                  <div class="flex inset-x-0 bottom-3 justify-center absolute z-50">
+                  <div class="flex pointer-events-none inset-x-0 bottom-3 justify-center absolute z-50">
                     <button
                       class={cn(
                         'flex items-center gap-1 rounded-full px-5 py-1.5 text-xs font-medium cursor-pointer',
+                        'pointer-events-auto',
                         'bg-bg-subtle border border-border text-fg-muted',
                         canToggleOverlay() && 'hover:bg-bg-muted hover:text-fg transition-colors',
                         !canToggleOverlay() && 'cursor-default opacity-50',
@@ -332,22 +341,20 @@ function CancelledDraftScreen(props: {
 
   return (
     <main class="text-fg font-sans bg-bg h-screen relative overflow-y-auto">
-      <Show when={props.onSwitchTarget}>
-        <button
-          type="button"
-          class={cn(
-            'text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center z-20 absolute hover:text-fg hover:bg-bg-muted',
-            isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6',
-          )}
-          title="Lobby Overview"
-          aria-label="Lobby Overview"
-          onPointerEnter={() => { void preloadLobbyOverviewRoute() }}
-          onFocus={() => { void preloadLobbyOverviewRoute() }}
-          onClick={() => props.onSwitchTarget?.()}
-        >
-          <span class="i-ph-squares-four-bold text-base" />
-        </button>
-      </Show>
+      <div class={cn('flex gap-2 items-center z-20 absolute', isMobileLayout() ? 'top-12 right-4' : 'top-4 right-6')}>
+        <Show when={props.onSwitchTarget}>
+          <button
+            type="button"
+            class="text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
+            title="Lobby Overview"
+            aria-label="Lobby Overview"
+            onClick={() => props.onSwitchTarget?.()}
+          >
+            <span class="i-ph-squares-four-bold text-base" />
+          </button>
+        </Show>
+      </div>
+      <FloatingUiScaleMenu />
       <Show when={reason() !== 'scrub'}>
         <SteamLobbyButton
           steamLobbyLink={props.steamLobbyLink}

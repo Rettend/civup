@@ -9,8 +9,20 @@ export function resolveAssetUrl(url: string | null | undefined): string | undefi
   const cached = resolvedAssetUrls.get(url)
   if (cached) return cached
 
-  const revision = __ASSET_REVISION_MAP__[url]
+  const revision = getAssetRevision(url)
   const resolved = revision ? `${url}${url.includes('?') ? '&' : '?'}v=${revision}` : url
   resolvedAssetUrls.set(url, resolved)
   return resolved
+}
+
+function getAssetRevision(url: string): string | undefined {
+  const directRevision = __ASSET_REVISION_MAP__[url]
+  if (directRevision) return directRevision
+
+  try {
+    return __ASSET_REVISION_MAP__[decodeURI(url)]
+  }
+  catch {
+    return undefined
+  }
 }
