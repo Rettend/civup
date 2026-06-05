@@ -26,6 +26,11 @@ interface ScopedLeaderboardDirtyState extends LeaderboardDirtyState {
   scope: string
 }
 
+interface DirtyPlayerMode {
+  mode: LeaderboardMode
+  dirtyAt: number
+}
+
 interface MarkLeaderboardsDirtyOptions {
   civ?: boolean
   modes?: readonly LeaderboardMode[]
@@ -154,9 +159,10 @@ export async function refreshDirtyLeaderboards(
 
   const modes = getPlayerLeaderboardMessageModes(options.modes)
   const legacyDirtyState = dueDirtyStates.find(state => state.scope === LEGACY_LEADERBOARD_DIRTY_SCOPE) ?? null
-  const allDirtyPlayerModes = getDirtyPlayerModes(dueDirtyStates, modes, legacyDirtyState)
+  const allDirtyPlayerModeEntries = getDirtyPlayerModeEntries(dueDirtyStates, modes, legacyDirtyState)
   const playerModeLimit = normalizePlayerModeLimit(options.playerModeLimit)
-  const dirtyPlayerModes = playerModeLimit == null ? allDirtyPlayerModes : allDirtyPlayerModes.slice(0, playerModeLimit)
+  const dirtyPlayerModeEntries = playerModeLimit == null ? allDirtyPlayerModeEntries : allDirtyPlayerModeEntries.slice(0, playerModeLimit)
+  const dirtyPlayerModes = dirtyPlayerModeEntries.map(entry => entry.mode)
   const civDirtyState = legacyDirtyState ?? dueDirtyStates.find(state => state.scope === CIV_LEADERBOARD_DIRTY_SCOPE) ?? null
   const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
     getSystemChannel(kv, 'leaderboard'),
@@ -168,11 +174,17 @@ export async function refreshDirtyLeaderboards(
   let civLeaderboardState: LeaderboardMessageState | null = null
   let civSnapshotUpdated = false
   let civSnapshotReady = false
-  let playerSnapshotsUpdated = false
+  let playerLeaderboardsProcessed = false
 
   if (dirtyPlayerModes.length > 0) {
-    await Promise.all(dirtyPlayerModes.map(mode => rebuildLeaderboardModeSnapshot(db, kv, mode, now)))
-    playerSnapshotsUpdated = true
+    const snapshots = await getStoredLeaderboardModeSnapshots(kv, dirtyPlayerModes)
+    const staleModes = dirtyPlayerModeEntries.filter((entry) => {
+      const snapshot = snapshots.get(entry.mode)
+      return !snapshot || snapshot.updatedAt < entry.dirtyAt
+    })
+
+    await Promise.all(staleModes.map(entry => rebuildLeaderboardModeSnapshot(db, kv, entry.mode, now)))
+    playerLeaderboardsProcessed = true
 
     if (leaderboardChannelId) {
       leaderboardStates = await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, { modes: dirtyPlayerModes, useCachedSnapshots: true })
@@ -189,13 +201,13 @@ export async function refreshDirtyLeaderboards(
     }
   }
 
-  if (playerSnapshotsUpdated) {
+  if (playerLeaderboardsProcessed) {
     for (const mode of dirtyPlayerModes) scopesToClear.add(playerDirtyScope(mode))
   }
   if (civSnapshotUpdated) scopesToClear.add(CIV_LEADERBOARD_DIRTY_SCOPE)
   if (legacyDirtyState) {
     const processedModes = new Set(dirtyPlayerModes)
-    const remainingModes = allDirtyPlayerModes.filter(mode => !processedModes.has(mode))
+    const remainingModes = allDirtyPlayerModeEntries.map(entry => entry.mode).filter(mode => !processedModes.has(mode))
     if (remainingModes.length > 0) {
       await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-player-dirty', {
         modes: remainingModes,
@@ -212,7 +224,7 @@ export async function refreshDirtyLeaderboards(
   }
 
   await clearLeaderboardDirtyStates(db, [...scopesToClear])
-  return Boolean(leaderboardStates.length > 0 || civLeaderboardState || civSnapshotUpdated || playerSnapshotsUpdated)
+  return Boolean(leaderboardStates.length > 0 || civLeaderboardState || civSnapshotUpdated || playerLeaderboardsProcessed)
 }
 
 export async function upsertLeaderboardMessagesForChannel(
@@ -451,18 +463,23 @@ function getDirtyScopes(options: MarkLeaderboardsDirtyOptions | undefined): stri
   return [...scopes]
 }
 
-function getDirtyPlayerModes(
+function getDirtyPlayerModeEntries(
   dirtyStates: readonly ScopedLeaderboardDirtyState[],
   modes: readonly LeaderboardMode[],
   legacyDirtyState: ScopedLeaderboardDirtyState | null,
-): LeaderboardMode[] {
-  if (legacyDirtyState) return [...modes]
+): DirtyPlayerMode[] {
+  const modeOrder = new Map(modes.map((mode, index) => [mode, index]))
+  if (legacyDirtyState) return modes.map(mode => ({ mode, dirtyAt: legacyDirtyState.dirtyAt }))
 
-  const dirtyModes = new Set(dirtyStates.flatMap((state) => {
+  return dirtyStates.flatMap((state) => {
     const mode = parsePlayerDirtyScope(state.scope)
-    return mode ? [mode] : []
-  }))
-  return modes.filter(mode => dirtyModes.has(mode))
+    if (!mode || !modeOrder.has(mode)) return []
+    return [{ mode, dirtyAt: state.dirtyAt }]
+  }).sort((a, b) => {
+    const dirtyDiff = a.dirtyAt - b.dirtyAt
+    if (dirtyDiff !== 0) return dirtyDiff
+    return (modeOrder.get(a.mode) ?? 0) - (modeOrder.get(b.mode) ?? 0)
+  })
 }
 
 function normalizePlayerModeLimit(value: number | undefined): number | null {
