@@ -646,7 +646,7 @@ describe('ranked role sync service', () => {
       maxPlayers: 8,
     })
 
-    expect(result).toEqual({ appliedChanges: 0, pendingChanges: 0 })
+    expect(result).toEqual({ attemptedChanges: 0, appliedChanges: 0, pendingChanges: 0 })
     expect(operations).toEqual([])
   })
 
@@ -695,6 +695,44 @@ describe('ranked role sync service', () => {
     expect(countAppliedRoleIds(assignments)).toBe(4)
 
     sqlite.close()
+  })
+
+  test('pending Discord retry prioritizes known stale role changes before unknown applied roles', async () => {
+    const kv = createTestKv()
+    const unknownAppliedRoleId = playerIdFor('aaa', 1)
+    const staleAppliedRoleId = playerIdFor('zzz', 1)
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: {
+        [unknownAppliedRoleId]: { tier: TIER_3, sourceMode: null },
+        [staleAppliedRoleId]: { tier: TIER_3, sourceMode: null, appliedRoleId: '22222222222222222' },
+      },
+    }))
+    const { deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
+      [staleAppliedRoleId, new Set(['22222222222222222'])],
+    ]))
+
+    const result = await applyPendingRankedRoleDiscordChanges({
+      kv,
+      guildId: 'guild-1',
+      token: 'token',
+      maxPlayers: 1,
+    })
+    const assignments = await getCurrentRankAssignments(kv, 'guild-1')
+
+    expect(result.appliedChanges).toBe(1)
+    expect(result.pendingChanges).toBe(1)
+    expect(deleteCalls).toEqual([{ userId: staleAppliedRoleId, roleId: '22222222222222222' }])
+    expect(putCalls).toEqual([{ userId: staleAppliedRoleId, roleId: '33333333333333333' }])
+    expect(assignments.byPlayerId[staleAppliedRoleId]?.appliedRoleId).toBe('33333333333333333')
+    expect(assignments.byPlayerId[unknownAppliedRoleId]?.appliedRoleId).toBeUndefined()
   })
 
   test('sync persists desired assignments when Discord apply has pending failures', async () => {

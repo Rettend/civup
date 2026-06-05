@@ -182,6 +182,7 @@ function formatRankedRoleSyncResult(
 ): string {
   const lines = [
     '**Ranked roles synced**',
+    `Attempted members: ${result.attemptedDiscordChanges}`,
     `Updated members: ${result.appliedDiscordChanges}`,
     result.pendingDiscordChanges > 0 ? `Pending members: ${result.pendingDiscordChanges}` : null,
     formatRankedRoleDistribution(result.distribution, config),

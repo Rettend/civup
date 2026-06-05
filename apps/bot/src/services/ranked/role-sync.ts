@@ -83,6 +83,7 @@ export interface RankedRolePreview {
 }
 
 export interface RankedRoleSyncResult extends RankedRolePreview {
+  attemptedDiscordChanges: number
   appliedDiscordChanges: number
   pendingDiscordChanges: number
 }
@@ -453,6 +454,7 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   }
 
   let appliedDiscordChanges = 0
+  let attemptedDiscordChanges = 0
   let pendingDiscordChanges = 0
   if (options.applyDiscord) {
     const token = options.token?.trim()
@@ -471,6 +473,7 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
       token,
       maxPlayers: options.maxDiscordRoleSyncPlayers,
     })
+    attemptedDiscordChanges = applyResult.attemptedChanges
     appliedDiscordChanges = applyResult.appliedChanges
     pendingDiscordChanges = applyResult.pendingChanges
   }
@@ -487,6 +490,7 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
 
   return {
     ...preview,
+    attemptedDiscordChanges,
     appliedDiscordChanges,
     pendingDiscordChanges,
   }
@@ -497,7 +501,7 @@ export async function applyPendingRankedRoleDiscordChanges(options: {
   guildId: string
   token: string
   maxPlayers?: number
-}): Promise<{ appliedChanges: number, pendingChanges: number }> {
+}): Promise<{ attemptedChanges: number, appliedChanges: number, pendingChanges: number }> {
   const token = options.token.trim()
   if (!token) throw new Error('Cannot apply ranked roles without a Discord bot token.')
   return applyCurrentRankRoles(options.kv, options.guildId, token, { maxPlayers: options.maxPlayers })
@@ -1492,7 +1496,7 @@ async function applyCurrentRankRoles(
   guildId: string,
   token: string,
   options: { maxPlayers?: number } = {},
-): Promise<{ appliedChanges: number, pendingChanges: number }> {
+): Promise<{ attemptedChanges: number, appliedChanges: number, pendingChanges: number }> {
   const [config, previousAppliedConfig, currentAssignments, cursor] = await Promise.all([
     getRankedRoleConfig(kv, guildId),
     getAppliedRankedRoleConfig(kv, guildId),
@@ -1510,7 +1514,7 @@ async function applyCurrentRankRoles(
   )
   if (pendingApplications.length === 0) {
     if (cursor) await clearDiscordApplyCursor(kv, guildId)
-    return { appliedChanges: 0, pendingChanges: 0 }
+    return { attemptedChanges: 0, appliedChanges: 0, pendingChanges: 0 }
   }
 
   let appliedChanges = 0
@@ -1561,6 +1565,7 @@ async function applyCurrentRankRoles(
   }
 
   return {
+    attemptedChanges: attemptedPlayers,
     appliedChanges,
     pendingChanges,
   }
@@ -1577,10 +1582,34 @@ function buildPendingRankedRoleApplications(
     if (!desiredRoleId || assignment.appliedRoleId === desiredRoleId) continue
     pending.push({ playerId, assignment, desiredRoleId })
   }
-  return pending.sort((left, right) => left.playerId.localeCompare(right.playerId))
+  return pending.sort(comparePendingRankedRoleApplications)
 }
 
 function orderPendingRankedRoleApplications(
+  pending: PendingRankedRoleApplication[],
+  cursor: string | null,
+): PendingRankedRoleApplication[] {
+  if (pending.length <= 1) return pending
+
+  const knownAppliedRole = pending.filter(item => item.assignment.appliedRoleId != null)
+  const unknownAppliedRole = pending.filter(item => item.assignment.appliedRoleId == null)
+  return [
+    ...rotatePendingApplicationsByCursor(knownAppliedRole, cursor),
+    ...rotatePendingApplicationsByCursor(unknownAppliedRole, cursor),
+  ]
+}
+
+function comparePendingRankedRoleApplications(left: PendingRankedRoleApplication, right: PendingRankedRoleApplication): number {
+  const priorityDiff = pendingRankedRoleApplicationPriority(left) - pendingRankedRoleApplicationPriority(right)
+  if (priorityDiff !== 0) return priorityDiff
+  return left.playerId.localeCompare(right.playerId)
+}
+
+function pendingRankedRoleApplicationPriority(application: PendingRankedRoleApplication): number {
+  return application.assignment.appliedRoleId == null ? 1 : 0
+}
+
+function rotatePendingApplicationsByCursor(
   pending: PendingRankedRoleApplication[],
   cursor: string | null,
 ): PendingRankedRoleApplication[] {
