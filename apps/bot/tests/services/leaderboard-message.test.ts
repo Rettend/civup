@@ -208,6 +208,93 @@ describe('leaderboard message service', () => {
     }
   })
 
+  test('limited dirty refresh processes oldest player mode first', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
+        const payload = await readDiscordMultipartPayload(init)
+        postPayloads.push(payload)
+        return new Response(JSON.stringify({ id: `leaderboard-message-${postPayloads.length}` }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await db.insert(players).values([
+        { id: '100010000000000034', displayName: 'Newer Duel Player', avatarUrl: null, createdAt: NOW },
+        { id: '100010000000000035', displayName: 'Older Duo Player', avatarUrl: null, createdAt: NOW },
+      ])
+      await db.insert(playerRatings).values([
+        { playerId: '100010000000000034', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { playerId: '100010000000000035', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+      ])
+      await markLeaderboardsDirty(db, 'older-duo', { modes: ['duo'], now: NOW })
+      await markLeaderboardsDirty(db, 'newer-duel', { modes: ['duel'], now: NOW + 1 })
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel', 'duo'],
+        now: NOW + 2,
+        playerModeLimit: 1,
+      })
+      const dirtyScopes = (await db.select().from(leaderboardDirtyStates)).map(row => row.scope).sort()
+
+      expect(refreshed).toBe(true)
+      expect(postPayloads).toHaveLength(1)
+      expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duo.png')
+      expect(dirtyScopes).toEqual(['player:duel'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('dirty refresh reuses fresh player snapshot before updating message', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    const postPayloads: any[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST' && url.includes('/channels/channel-leaderboard/messages')) {
+        const payload = await readDiscordMultipartPayload(init)
+        postPayloads.push(payload)
+        return new Response(JSON.stringify({ id: 'leaderboard-message-1' }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await seedDuelRating(db, '100010000000000036', 10)
+      await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW + 100)
+      await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW })
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel'],
+        now: NOW + 200,
+        playerModeLimit: 1,
+      })
+      const snapshot = await getStoredLeaderboardModeSnapshot(kv, 'duel')
+      const dirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(refreshed).toBe(true)
+      expect(snapshot?.updatedAt).toBe(NOW + 100)
+      expect(postPayloads).toHaveLength(1)
+      expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
+      expect(dirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('limited legacy dirty refresh keeps unprocessed player modes queued', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
