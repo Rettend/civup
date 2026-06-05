@@ -1,5 +1,5 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
-import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isRedDeathFormatId } from '@civup/game'
+import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
 import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 
@@ -9,6 +9,7 @@ const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
 }
 
 const SWAP_FLASH_DURATION_MS = 600
+export const BLIND_PICK_SUBMISSION_PLACEHOLDER = '__blind__'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ export function setOptimisticSeatPick(civId: string): void {
   if (!step || step.action !== 'pick') return
   if ((s.submissions[seat]?.length ?? 0) >= step.count) return
 
-  setDraftStore('optimisticSeatPicks', seat, civId)
+  setDraftStore('optimisticSeatPicks', seat, step.blind ? BLIND_PICK_SUBMISSION_PLACEHOLDER : civId)
 }
 
 export function getOptimisticSeatPick(seatIndex: number): string | null {
@@ -241,6 +242,11 @@ export function canSendPickPreview(): boolean {
 
   const step = s.steps[s.currentStepIndex]
   if (!step || step.action !== 'pick') return false
+  if (step.reveal || step.civBlitz) return false
+  if (step.blind) {
+    const submittedCount = Math.max(s.submissions[seat]?.length ?? 0, draftStore.optimisticSeatPicks[seat] ? 1 : 0)
+    if (submittedCount >= step.count) return false
+  }
   if (seatHasLockedPick(seat)) return false
   const targetSeat = currentPickTargetSeatIndex()
   if (targetSeat != null && targetSeat !== seat) return false
@@ -255,7 +261,7 @@ export function isSwapWindowOpen(): boolean {
 
 export function isHiddenDraftComplete(): boolean {
   const state = draftStore.state
-  return state?.status === 'complete' && state.picks.length === 0
+  return state?.status === 'complete' && !state.civBlitz && state.picks.length === 0
 }
 
 export function canSwapLeadersWith(seatIndex: number): boolean {
@@ -268,6 +274,10 @@ export function canSwapLeadersWith(seatIndex: number): boolean {
   const targetSeat = state.seats[seatIndex]
   if (!mySeat || !targetSeat) return false
   if (mySeat.team == null || targetSeat.team == null || mySeat.team !== targetSeat.team) return false
+
+  if (state.civBlitz) {
+    return hasCompleteCivBlitzKit(mySeatIndex) && hasCompleteCivBlitzKit(seatIndex)
+  }
 
   return state.picks.some(pick => pick.seatIndex === mySeatIndex)
     && state.picks.some(pick => pick.seatIndex === seatIndex)
@@ -285,6 +295,10 @@ export function isRedDeathDraft(): boolean {
   return isRedDeathFormatId(draftStore.state?.formatId)
 }
 
+export function isCivBlitzDraft(): boolean {
+  return isCivBlitzFormatId(draftStore.state?.formatId)
+}
+
 export function dealtCivIds(): string[] | null {
   return draftStore.state?.dealtCivIds ?? null
 }
@@ -292,6 +306,12 @@ export function dealtCivIds(): string[] | null {
 export function canOpenLeaderGrid(): boolean {
   const s = draftStore.state
   if (!s || s.status !== 'active') return false
+  const step = currentStep()
+  if (step?.reveal) return false
+  if (step?.civBlitz) {
+    const seat = draftStore.seatIndex
+    return seat != null && !!s.civBlitz?.optionsBySeat[seat]
+  }
   if (!isRedDeathDraft()) return true
   return (s.dealtCivIds?.length ?? 0) > 0
 }
@@ -332,10 +352,9 @@ export function hasSubmitted(): boolean {
     ? currentPickTargetSeatIndex() ?? seat
     : seat
 
-  const submissions = s.submissions[targetSeat]
-  if (!submissions) return false
-
-  return submissions.length >= step.count
+  const submissionCount = s.submissions[targetSeat]?.length ?? 0
+  const optimisticCount = draftStore.optimisticSeatPicks[targetSeat] ? 1 : 0
+  return Math.max(submissionCount, optimisticCount) >= step.count
 }
 
 /** Whether the client is a spectator (not a participant) */
@@ -359,7 +378,20 @@ export function phaseLabel(): string {
   const step = s.steps[s.currentStepIndex]
   if (!step) return ''
 
-  return step.action === 'ban' ? 'BAN PHASE' : 'PICK PHASE'
+  if (s.blindPickReveal || s.civBlitz?.reveal) return 'CONFLICT'
+  if (step.action === 'ban') return 'BAN PHASE'
+  if (step.civBlitz) return 'PICK PHASE'
+  if (step.blind) return 'PICK PHASE'
+  return 'PICK PHASE'
+}
+
+function hasCompleteCivBlitzKit(seatIndex: number): boolean {
+  const kit = draftStore.state?.civBlitz?.lockedKits[seatIndex]
+  return !!kit
+    && typeof kit.civilizationAbility === 'string'
+    && typeof kit.leaderAbility === 'string'
+    && typeof kit.infrastructure === 'string'
+    && typeof kit.unit === 'string'
 }
 
 /** Get the timer duration for the current step (in seconds) */

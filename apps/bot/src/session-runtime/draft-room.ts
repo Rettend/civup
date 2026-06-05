@@ -1,4 +1,5 @@
 import type {
+  CivBlitzPartialKit,
   DraftEvent,
   DraftPreviewState,
   DraftState,
@@ -16,18 +17,20 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   EMPTY_MAP_VOTE_SNAPSHOT,
+  getCivBlitzRegistry,
+  getCivBlitzStepCategories,
   getCurrentStep,
   getPickSeatForPlayer,
+  isCivBlitzFormatId,
   isDraftError,
   isMapVoteSupportedForMode,
   isRedDeathFormatId,
-  MAP_SCRIPT_IDS,
-  MAP_TYPE_IDS,
+  MAP_VOTE_MAP_IDS,
   MAX_TIMER_SECONDS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   processDraftInput,
-  swapSeatPicks,
+  swapSeatDraftChoices,
 } from '@civup/game'
 import {
   CIVUP_ACTIVITY_USER_ID_HEADER,
@@ -37,6 +40,7 @@ import {
 import {
   applyDraftPreview,
   censorDraftPreviews,
+  censorSanitizedDraftPreviews,
   createEmptyDraftPreviews,
   draftPreviewsEqual,
   resolvePickSubmissionWithPreviews,
@@ -115,6 +119,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return Math.random()
   }
 
+  protected sleep(ms: number): Promise<void> {
+    return wait(ms)
+  }
+
   protected async runBackgroundRoomOperation<T>(operation: () => Promise<T>): Promise<T> {
     return operation()
   }
@@ -176,9 +184,20 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       throw new Error('Empty civ pool')
     }
 
+    const civBlitzRegistry = config.civBlitz === true || isCivBlitzFormatId(config.formatId)
+      ? getCivBlitzRegistry(config.leaderDataVersion ?? 'live', { excludeBbgExpanded: config.civBlitzExcludeBbgExpanded !== false })
+      : null
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
       dealOptionsSize: config.dealOptionsSize,
       duplicateFactions: config.duplicateFactions,
+      civBlitz: civBlitzRegistry
+        ? {
+            componentPools: civBlitzRegistry.componentPools,
+            optionCount: config.civBlitzOptionCount ?? 4,
+            excludeBbgExpanded: config.civBlitzExcludeBbgExpanded !== false,
+            random: () => this.random(),
+          }
+        : undefined,
     })
     const mapVoteEnabled = normalizeMapVoteEnabled(format.gameMode, config.mapVoteEnabled === true, { redDeath: format.redDeath })
     const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
@@ -558,6 +577,28 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         break
       }
 
+      case 'civ-blitz-submit': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (!msg.kit || typeof msg.kit !== 'object') {
+          this.send(sender, { type: 'error', message: 'kit must be an object' })
+          return
+        }
+        const result = processDraftInput(
+          state,
+          { type: 'CIV_BLITZ_SUBMIT', seatIndex, kit: msg.kit },
+          { blindBans: format.blindBans, random: () => this.random() },
+        )
+        if (isDraftError(result)) {
+          this.send(sender, { type: 'error', message: result.error })
+          return
+        }
+        await this.applyResult(result.state, result.events)
+        break
+      }
+
       case 'preview': {
         if (seatIndex < 0) {
           this.send(sender, { type: 'error', message: 'Not a participant' })
@@ -575,11 +616,11 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         }
         if (draftPreviewsEqual(previews, nextPreviews)) return
 
-        await this.updateRoomRecord(current => ({
-          ...current,
+        await this.setRoomRecord({
+          ...room,
           previews: nextPreviews,
-        }))
-        this.broadcastPreviewUpdate(state, nextPreviews)
+        })
+        this.broadcastPreviewUpdate(state, nextPreviews, previews)
         break
       }
 
@@ -626,24 +667,20 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           return
         }
 
-        const swappedPicks = swapSeatPicks(state, seatIndex, msg.toSeat)
-        if ('error' in swappedPicks) {
-          this.send(sender, { type: 'error', message: swappedPicks.error })
+        const swappedState = swapSeatDraftChoices(state, seatIndex, msg.toSeat)
+        if ('error' in swappedState) {
+          this.send(sender, { type: 'error', message: swappedState.error })
           return
         }
 
         const swapState = await this.getSwapState()
-        const nextState: DraftState = {
-          ...state,
-          picks: swappedPicks,
-        }
         const nextSwapState: LeaderSwapState = {
           completedSwaps: [...swapState.completedSwaps, { fromSeat: seatIndex, toSeat: msg.toSeat }],
         }
 
         await this.applyRoomTransition(applyLeaderSwapCommand(room, {
           type: 'apply-leader-swap',
-          nextState,
+          nextState: swappedState,
           swapState: nextSwapState,
         }), 'leader-swap', {
           fromSeat: seatIndex,
@@ -857,7 +894,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const scheduledDelayMs = delayMs
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-      this.ctx.waitUntil(wait(scheduledDelayMs)
+      this.ctx.waitUntil(this.sleep(scheduledDelayMs)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(scheduledStepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
@@ -876,7 +913,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       const scheduledDelayMs = delayMs
       delayMs += DEBUG_ACTIVE_BOT_STAGGER_MS
 
-      this.ctx.waitUntil(wait(scheduledDelayMs)
+      this.ctx.waitUntil(this.sleep(scheduledDelayMs)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugMapVoteBotAction(seatIndex, config)))
         .catch((error) => {
           console.error(`Debug map vote bot action failed for seat ${seatIndex} in match ${state.matchId}:`, error)
@@ -899,14 +936,22 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const submittedCount = state.submissions[seatIndex]?.length ?? 0
     if (submittedCount >= step.count) return
 
-    const availablePool = [...(state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
-    if (availablePool.length === 0) return
-
     let result:
       | { state: DraftState, events: DraftEvent[] }
       | { error: string }
 
-    if (step.action === 'ban') {
+    if (step.civBlitz) {
+      const kit = buildDebugCivBlitzKit(state, seatIndex, () => this.random())
+      if (!kit) return
+      result = processDraftInput(
+        state,
+        { type: 'CIV_BLITZ_SUBMIT', seatIndex, kit },
+        { blindBans, random: () => this.random() },
+      )
+    }
+    else if (step.action === 'ban') {
+      const availablePool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+      if (availablePool.length === 0) return
       const remainingCount = Math.min(step.count - submittedCount, availablePool.length)
       if (remainingCount <= 0) return
 
@@ -918,6 +963,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       )
     }
     else {
+      const availablePool = getDebugPickPool(state, step, seatIndex)
+      if (availablePool.length === 0) return
       const [civId] = pickRandomDistinct(availablePool, 1, () => this.random())
       if (!civId) return
       result = processDraftInput(
@@ -940,7 +987,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       && nextSubmittedCount < nextStep.count
 
     if (needsFollowUpOnSameStep) {
-      this.ctx.waitUntil(wait(DEBUG_ACTIVE_BOT_DELAY_MS)
+      this.ctx.waitUntil(this.sleep(DEBUG_ACTIVE_BOT_DELAY_MS)
         .then(() => this.runBackgroundRoomOperation(() => this.runDebugActiveBotAction(stepIndex, seatIndex, blindBans)))
         .catch((error) => {
           console.error(`Debug active bot follow-up action failed for seat ${seatIndex} in match ${nextState.matchId}:`, error)
@@ -962,12 +1009,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const selection = mapVoteState.selections[seatIndex] ?? DEFAULT_MAP_VOTE_SELECTION
     const normalizedSelection = normalizeMapVoteSelection(selection)
     const nextSelection: MapVoteSelection = {
-      mapTypes: normalizedSelection.mapTypes.length > 0
-        ? normalizedSelection.mapTypes
-        : pickRandomDistinct([...MAP_TYPE_IDS], 1 + Math.floor(this.random() * MAP_TYPE_IDS.length), () => this.random()),
-      mapScripts: normalizedSelection.mapScripts.length > 0
-        ? normalizedSelection.mapScripts
-        : pickRandomDistinct([...MAP_SCRIPT_IDS], 1 + Math.floor(this.random() * 3), () => this.random()),
+      maps: normalizedSelection.maps.length > 0
+        ? normalizedSelection.maps
+        : pickRandomDistinct([...MAP_VOTE_MAP_IDS], 1 + Math.floor(this.random() * 3), () => this.random()),
     }
 
     const updated = await this.updateMapVoteSelection(state, config, seatIndex, nextSelection)
@@ -1022,15 +1066,17 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     if (typeof storage.setAlarm === 'function') await storage.setAlarm(nextAlarm)
   }
 
-  private async finalizeCompletedDraft(state: DraftState) {
+  protected async finalizeCompletedDraft(_state?: DraftState): Promise<boolean> {
     const room = await this.getRoomRecord()
-    if (!room?.swapWindowOpen) return
-    await this.applyRoomTransition(finalizeCompletedDraftCommand(room, {
+    if (!room?.swapWindowOpen || room.state.status !== 'complete') return false
+    const transition = finalizeCompletedDraftCommand(room, {
       type: 'finalize-completed-draft',
       now: this.now(),
-    }), 'finalize-complete', {
+    })
+    await this.applyRoomTransition(transition, 'finalize-complete', {
       finalized: true,
     })
+    return transition.response === true
   }
 
   private async handleStart(state: DraftState, config: DraftRuntimeConfig, format: NonNullable<ReturnType<typeof draftFormatMap.get>>): Promise<string | null> {
@@ -1207,7 +1253,13 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       selection: resolvedSeatIndex == null ? null : normalizeMapVoteSelection(mapVoteState.selections[resolvedSeatIndex] ?? DEFAULT_MAP_VOTE_SELECTION),
       hasConfirmed: resolvedSeatIndex == null ? false : mapVoteState.confirmations[resolvedSeatIndex] === true,
       confirmedSeatIndices,
-      revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.revealedVotes : null,
+      revealedVotes: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done'
+        ? mapVoteState.revealedVotes?.map(ballot => ({
+            seatIndex: ballot.seatIndex,
+            confirmed: ballot.confirmed,
+            maps: [...normalizeMapVoteSelection(ballot).maps],
+          })) ?? null
+        : null,
       result: mapVoteState.phase === 'reveal' || mapVoteState.phase === 'done' ? mapVoteState.result : null,
     }
   }
@@ -1236,12 +1288,13 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     steamLobbyLink: string | null,
     permanentAlly: boolean,
   ) {
+    const sanitizedPreviews = sanitizeDraftPreviews(state, previews)
+    const previewCache = new Map<number, DraftPreviewState>()
+    const seatIndexCache = new Map<string, number>()
+
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
-      const playerId = connState?.playerId
-      const seatIndex = playerId
-        ? state.seats.findIndex(s => s.playerId === playerId)
-        : -1
+      const seatIndex = getCachedSeatIndex(state, seatIndexCache, connState?.playerId)
 
       this.send(conn, {
         type: 'update',
@@ -1253,7 +1306,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         serverNow: Date.now(),
         timerEndsAt,
         completedAt,
-        previews: censorDraftPreviews(state, previews, seatIndex),
+        previews: getCachedCensoredPreviews(state, sanitizedPreviews, seatIndex, previewCache),
         swapState,
         steamLobbyLink,
         permanentAlly,
@@ -1261,44 +1314,30 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private broadcastPreviewUpdate(state: DraftState, previews: DraftPreviewState) {
+  private broadcastPreviewUpdate(state: DraftState, previews: DraftPreviewState, previousPreviews: DraftPreviewState) {
+    const nextPreviewCache = new Map<number, DraftPreviewState>()
+    const previousPreviewCache = new Map<number, DraftPreviewState>()
+    const seatIndexCache = new Map<string, number>()
+
     for (const conn of this.getConnections()) {
       const connState = conn.state as ConnectionState | null
-      const playerId = connState?.playerId
-      const seatIndex = playerId
-        ? state.seats.findIndex(s => s.playerId === playerId)
-        : -1
+      const seatIndex = getCachedSeatIndex(state, seatIndexCache, connState?.playerId)
+      const next = getCachedCensoredPreviews(state, previews, seatIndex, nextPreviewCache)
+      const previous = getCachedCensoredPreviews(state, previousPreviews, seatIndex, previousPreviewCache)
+      if (draftPreviewsEqual(next, previous)) continue
 
       this.send(conn, {
         type: 'preview',
-        previews: censorDraftPreviews(state, previews, seatIndex),
+        previews: next,
       })
     }
   }
 
-  // ── Internal: Censoring for blind bans ─────────────────────
+  // ── Internal: Censoring for blind draft data ────────────────
 
-  /** Filters state for blind bans: players only see their own pending bans */
+  /** Filters state for blind picks/bans and private dealt options. */
   private censorState(state: DraftState, seatIndex: number): DraftState {
-    let nextState = state
-
-    if (state.pendingBlindBans.length > 0) {
-      nextState = {
-        ...nextState,
-        pendingBlindBans: state.pendingBlindBans.filter(
-          b => b.seatIndex === seatIndex,
-        ),
-      }
-    }
-
-    if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
-    if (nextState.dealtCivIds == null && !isRedDeathDraftState(nextState)) return nextState
-
-    return {
-      ...nextState,
-      dealtCivIds: null,
-      availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
-    }
+    return censorDraftStateForSeat(state, seatIndex)
   }
 
   /** Censors events for blind bans: hides other players' selections */
@@ -1306,6 +1345,12 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     return events.map((e) => {
       if (e.type === 'BAN_SUBMITTED' && e.blind && e.seatIndex !== seatIndex) {
         return { ...e, civIds: [] }
+      }
+      if (e.type === 'PICK_SUBMITTED' && e.blind) {
+        return { ...e, civId: '' }
+      }
+      if (e.type === 'CIV_BLITZ_SUBMITTED' && e.blind) {
+        return { ...e, categories: [] }
       }
       return e
     })
@@ -1332,6 +1377,68 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
 function isDebugActiveBotPlayerId(playerId: string | null | undefined): boolean {
   return typeof playerId === 'string' && playerId.startsWith(DEBUG_ACTIVE_BOT_PLAYER_ID_PREFIX)
+}
+
+function getDebugPickPool(state: DraftState, step: DraftState['steps'][number], seatIndex: number): string[] {
+  const pool = [...(state.dealtCivIdsBySeat?.[seatIndex]?.length ? state.dealtCivIdsBySeat[seatIndex]! : state.dealtCivIds?.length ? state.dealtCivIds : state.availableCivIds)]
+  if (!step.blind || state.duplicateFactions) return pool
+  return pool.filter(civId => !hasSameTeamPickSubmission(state, seatIndex, civId))
+}
+
+function hasSameTeamPickSubmission(state: DraftState, seatIndex: number, civId: string): boolean {
+  const team = state.seats[seatIndex]?.team
+
+  for (const [rawSubmittedSeatIndex, civIds] of Object.entries(state.submissions)) {
+    const submittedSeatIndex = Number(rawSubmittedSeatIndex)
+    if (!civIds.includes(civId)) continue
+    if (submittedSeatIndex === seatIndex) return true
+    if (team != null && state.seats[submittedSeatIndex]?.team === team) return true
+  }
+
+  return false
+}
+
+function buildDebugCivBlitzKit(
+  state: DraftState,
+  seatIndex: number,
+  random: () => number,
+): CivBlitzPartialKit | null {
+  const step = getCurrentStep(state)
+  const options = state.civBlitz?.optionsBySeat[seatIndex]
+  if (!step?.civBlitz || !options) return null
+
+  const categories = getCivBlitzStepCategories(step, seatIndex)
+  const kit: CivBlitzPartialKit = {}
+  for (const category of categories) {
+    const choices = options[category] ?? []
+    if (choices.length === 0) return null
+    kit[category] = choices[Math.floor(random() * choices.length)]
+  }
+  return kit
+}
+
+function getCachedSeatIndex(state: DraftState, cache: Map<string, number>, playerId: string | null | undefined): number {
+  if (!playerId) return -1
+  const cached = cache.get(playerId)
+  if (cached != null) return cached
+
+  const seatIndex = state.seats.findIndex(s => s.playerId === playerId)
+  cache.set(playerId, seatIndex)
+  return seatIndex
+}
+
+function getCachedCensoredPreviews(
+  state: DraftState,
+  sanitizedPreviews: DraftPreviewState,
+  seatIndex: number,
+  cache: Map<number, DraftPreviewState>,
+): DraftPreviewState {
+  const cached = cache.get(seatIndex)
+  if (cached) return cached
+
+  const censored = censorSanitizedDraftPreviews(state, sanitizedPreviews, seatIndex)
+  cache.set(seatIndex, censored)
+  return censored
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
@@ -1409,11 +1516,87 @@ function isRedDeathDraftState(state: DraftState): boolean {
   return isRedDeathFormatId(state.formatId)
 }
 
+export function censorDraftStateForSeat(state: DraftState, seatIndex: number): DraftState {
+  let nextState = state
+
+  const step = getCurrentStep(state)
+  if (step?.action === 'pick' && step.blind && state.status === 'active') {
+    const submissions: DraftState['submissions'] = {}
+    for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
+      const submittedSeatIndex = Number(rawSeatIndex)
+      submissions[submittedSeatIndex] = canViewBlindPickSubmission(state, seatIndex, submittedSeatIndex)
+        ? [...civIds]
+        : Array.from({ length: civIds.length }, () => '__blind__')
+    }
+    nextState = {
+      ...nextState,
+      submissions,
+    }
+  }
+
+  if (state.civBlitz && state.status === 'active') {
+    const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
+    nextState = {
+      ...nextState,
+      civBlitz: {
+        ...state.civBlitz,
+        optionsBySeat: ownOptions ? { [seatIndex]: ownOptions } : {},
+        submissions: Object.fromEntries(Object.entries(state.civBlitz.submissions).map(([rawSeatIndex, kit]) => [
+          rawSeatIndex,
+          canViewBlindPickSubmission(state, seatIndex, Number(rawSeatIndex))
+            ? { ...kit }
+            : Object.fromEntries(Object.keys(kit).map(category => [category, '__blind__'])),
+        ])),
+      },
+    }
+  }
+
+  if (state.pendingBlindBans.length > 0) {
+    nextState = {
+      ...nextState,
+      pendingBlindBans: state.pendingBlindBans.filter(
+        b => b.seatIndex === seatIndex,
+      ),
+    }
+  }
+
+  if (nextState.dealtCivIdsBySeat) {
+    const ownDealt = seatIndex >= 0 ? nextState.dealtCivIdsBySeat[seatIndex] ?? null : null
+    nextState = {
+      ...nextState,
+      dealtCivIds: ownDealt,
+      dealtCivIdsBySeat: ownDealt ? { [seatIndex]: ownDealt } : null,
+    }
+  }
+
+  if (seatCanSeeDealtOptions(nextState, seatIndex)) return nextState
+  if (nextState.dealtCivIds == null && nextState.dealtCivIdsBySeat == null && !isRedDeathDraftState(nextState)) return nextState
+
+  return {
+    ...nextState,
+    dealtCivIds: null,
+    dealtCivIdsBySeat: null,
+    availableCivIds: isRedDeathDraftState(nextState) ? [] : nextState.availableCivIds,
+  }
+}
+
+function canViewBlindPickSubmission(state: DraftState, viewerSeatIndex: number, submittedSeatIndex: number): boolean {
+  if (viewerSeatIndex === submittedSeatIndex) return true
+
+  const viewerSeat = state.seats[viewerSeatIndex]
+  const submittedSeat = state.seats[submittedSeatIndex]
+  if (!viewerSeat || !submittedSeat) return false
+  if (viewerSeat.team == null || submittedSeat.team == null) return false
+  return viewerSeat.team === submittedSeat.team
+}
+
 function seatCanSeeDealtOptions(state: DraftState, seatIndex: number): boolean {
   if (seatIndex < 0 || state.status !== 'active') return false
   if (!isRedDeathDraftState(state)) return true
   const step = getCurrentStep(state)
-  if (!step || step.action !== 'pick' || step.seats === 'all') return false
+  if (!step || step.action !== 'pick') return false
+  if (step.blind) return isSeatInStep(step, seatIndex, state.seats.length)
+  if (step.seats === 'all') return false
 
   const activeSeat = step.seats[0]
   if (activeSeat == null) return false
@@ -1457,7 +1640,13 @@ function applyTimerConfigToSteps(
 
   return steps.map((step) => {
     if (step.action === 'ban' && banTimer != null) return { ...step, timer: banTimer }
-    if (step.action === 'pick' && pickTimer != null) return { ...step, timer: pickTimer }
+    if (step.action === 'pick' && pickTimer != null) {
+      return {
+        ...step,
+        timer: step.fallbackTimer != null ? Math.min(pickTimer * 2, MAX_TIMER_SECONDS) : pickTimer,
+        fallbackTimer: step.fallbackTimer != null ? pickTimer : step.fallbackTimer,
+      }
+    }
     return step
   })
 }

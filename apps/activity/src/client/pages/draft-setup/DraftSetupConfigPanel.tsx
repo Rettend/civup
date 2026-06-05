@@ -1,12 +1,12 @@
-import type { JSX } from 'solid-js'
+import type { Accessor, JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
 import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { For, Show } from 'solid-js'
-import { Dropdown, Switch, TextInput } from '~/client/components/ui'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
-import { buildRankDotStyle, buildRolePillStyle, MAX_LEADER_POOL_INPUT, MAX_TIMER_MINUTES } from './helpers'
+import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
 
 type DraftSetupConfigState = ReturnType<typeof useDraftSetupState>['config']
 type ConfigRowMode = 'editable' | 'readonly'
@@ -28,13 +28,43 @@ interface ConfigRowDefinition {
 
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
+    key: 'banMode',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
+    renderEditable: state => (
+      <ModeTabsRow
+        label="Ban"
+        value={() => state.derived.optimisticDraftConfig().blindBans ? 'blind' : 'draft'}
+        disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
+        onChange={value => void state.actions.changeBlindBans(value === 'blind')}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Ban" value={state.derived.formattedBlindBans().toUpperCase()} valueClass="text-accent" />
+    ),
+  },
+  {
+    key: 'pickMode',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
+    renderEditable: state => (
+      <ModeTabsRow
+        label="Pick"
+        value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
+        disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
+        onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Pick" value={state.derived.formattedBlindPicks().toUpperCase()} valueClass="text-accent" />
+    ),
+  },
+  {
     key: 'mapVote',
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsMapVote(),
     renderEditable: state => (
       <SwitchRow
         label="Map Vote"
-        active={state.derived.optimisticDraftConfig().mapVoteEnabled}
-        disabled={state.lobbyActionPending() || state.pending.mapVoteEnabled()}
+        active={() => state.derived.optimisticDraftConfig().mapVoteEnabled}
+        disabled={() => state.lobbyActionPending() || state.pending.mapVoteEnabled()}
         onChange={checked => void state.actions.changeMapVoteEnabled(checked)}
       />
     ),
@@ -43,47 +73,47 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
-    key: 'blindBans',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsBlindBans(),
-    renderEditable: state => (
-      <SwitchRow
-        label="Blind Bans"
-        active={state.derived.optimisticDraftConfig().blindBans}
-        disabled={state.lobbyActionPending() || state.pending.blindBans()}
-        onChange={checked => void state.actions.changeBlindBans(checked)}
-      />
-    ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Blind Bans" value={state.derived.formattedBlindBans()} valueClass={state.derived.draftConfig().blindBans ? 'text-accent' : undefined} />
-    ),
-  },
-  {
     key: 'leaderDataVersion',
-    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && hasBetaLeaderData,
+    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && hasBetaLeaderData,
     renderEditable: state => (
       <SwitchRow
         label="BBG Beta"
-        active={normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
-        disabled={state.lobbyActionPending() || state.pending.leaderDataVersion()}
+        active={() => normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
+        disabled={() => state.lobbyActionPending() || state.pending.leaderDataVersion()}
         onChange={checked => void state.actions.changeLeaderDataVersion(checked)}
       />
     ),
     renderReadonly: state => (
       <ReadonlyTimerRow
-        label="BBG Beta"
+        label="BBG"
         value={state.derived.formattedBbgVersion()}
         valueClass={normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
       />
     ),
   },
   {
+    key: 'civBlitzExcludeBbgExpanded',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.isCivBlitz(),
+    renderEditable: state => (
+      <SwitchRow
+        label="BBG Expanded"
+        active={() => !state.derived.effectiveCivBlitzExcludeBbgExpanded()}
+        disabled={() => state.lobbyActionPending() || state.pending.civBlitzExcludeBbgExpanded()}
+        onChange={checked => void state.actions.changeCivBlitzExcludeBbgExpanded(!checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="BBG Expanded" value={state.derived.formattedCivBlitzBbgExpanded()} valueClass={!state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && !state.derived.optimisticDraftConfig().blindPicks,
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
-        active={state.derived.optimisticDraftConfig().simultaneousPick}
-        disabled={state.lobbyActionPending() || state.pending.simultaneousPick()}
+        active={() => state.derived.optimisticDraftConfig().simultaneousPick}
+        disabled={() => state.lobbyActionPending() || state.pending.simultaneousPick()}
         onChange={checked => void state.actions.changeSimultaneousPick(checked)}
       />
     ),
@@ -93,12 +123,12 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'permanentAlly',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Permanent Ally"
-        active={state.derived.optimisticDraftConfig().permanentAlly}
-        disabled={state.lobbyActionPending() || state.pending.permanentAlly()}
+        active={() => state.derived.optimisticDraftConfig().permanentAlly}
+        disabled={() => state.lobbyActionPending() || state.pending.permanentAlly()}
         onChange={checked => void state.actions.changePermanentAlly(checked)}
       />
     ),
@@ -158,8 +188,8 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         type="number"
         label={state.derived.poolInputLabel()}
         ariaLabel={state.derived.poolInputLabel()}
-        min={state.derived.isRedDeath() ? '2' : String(state.derived.leaderPoolMinimum())}
-        max={state.derived.isRedDeath() ? '10' : String(MAX_LEADER_POOL_INPUT)}
+        min={String(state.derived.leaderPoolMinimum())}
+        max={() => String(state.derived.leaderPoolMaximum())}
         step="1"
         value={state.fields.leaderPoolInput()}
         placeholder={state.derived.leaderPoolPlaceholder()}
@@ -175,7 +205,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'banTimer',
-    when: state => !state.derived.isRedDeath(),
+    when: state => !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -223,12 +253,12 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'randomDraft',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
-        active={state.derived.optimisticDraftConfig().randomDraft}
-        disabled={state.lobbyActionPending() || state.pending.randomDraft()}
+        active={() => state.derived.optimisticDraftConfig().randomDraft}
+        disabled={() => state.lobbyActionPending() || state.pending.randomDraft()}
         onChange={checked => void state.actions.changeRandomDraft(checked)}
       />
     ),
@@ -238,12 +268,12 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'hiddenDraft',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Hidden draft"
-        active={state.derived.optimisticDraftConfig().hiddenDraft}
-        disabled={state.lobbyActionPending() || state.pending.hiddenDraft()}
+        active={() => state.derived.optimisticDraftConfig().hiddenDraft}
+        disabled={() => state.lobbyActionPending() || state.pending.hiddenDraft()}
         onChange={checked => void state.actions.changeHiddenDraft(checked)}
       />
     ),
@@ -253,12 +283,12 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'duplicateFactions',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label={state.derived.duplicateOptionLabel()}
-        active={state.derived.optimisticDuplicateFactions()}
-        disabled={state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
+        active={() => state.derived.optimisticDuplicateFactions()}
+        disabled={() => state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
         onChange={checked => void state.actions.changeDuplicateFactions(checked)}
       />
     ),
@@ -267,19 +297,33 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
-    key: 'redDeath',
+    key: 'civBlitz',
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <div class="mt-1 pt-3 border-t border-border-subtle">
         <SwitchRow
-          label="Red Death"
-          active={state.derived.optimisticDraftConfig().redDeath}
-          activeClass="text-[#f97316]"
-          tone="orange"
-          disabled={state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
-          onChange={checked => void state.actions.changeRedDeath(checked)}
+          label="CivBlitz"
+          active={() => state.derived.optimisticDraftConfig().civBlitz}
+          activeClass="text-cyan-300"
+          tone="cyan"
+          disabled={() => state.lobbyActionPending() || state.pending.civBlitz()}
+          onChange={checked => void state.actions.changeCivBlitz(checked)}
         />
       </div>
+    ),
+  },
+  {
+    key: 'redDeath',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Red Death"
+        active={() => state.derived.optimisticDraftConfig().redDeath}
+        activeClass="text-[#f97316]"
+        tone="orange"
+        disabled={() => state.lobbyActionPending() || state.pending.redDeath() || !state.derived.canToggleRedDeath()}
+        onChange={checked => void state.actions.changeRedDeath(checked)}
+      />
     ),
   },
 ]
@@ -361,6 +405,11 @@ function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, 
 
   return (
     <div class="flex flex-col gap-2">
+      <Show when={state().isLobbyMode()}>
+        <Show when={props.mode === 'editable'} fallback={<ReadonlyLobbyAccessRow closed={state().derived.draftConfig().closed} />}>
+          <EditableLobbyAccessRow state={state()} />
+        </Show>
+      </Show>
       <For each={CONFIG_ROWS}>
         {row => (
           <Show when={canRenderRow(row)}>
@@ -372,27 +421,102 @@ function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, 
   )
 }
 
+function ModeTabsRow(props: {
+  label: string
+  value: Accessor<'blind' | 'draft'>
+  disabled: Accessor<boolean>
+  onChange: (value: 'blind' | 'draft') => void
+}) {
+  const value = createMemo(() => props.value())
+  const disabled = createMemo(() => props.disabled())
+  const options = [
+    { value: 'blind' as const, label: 'Blind', ariaLabel: `${props.label} Blind` },
+    { value: 'draft' as const, label: 'Draft', ariaLabel: `${props.label} Draft` },
+  ]
+
+  return (
+    <div class="px-1 flex gap-3 items-center justify-between">
+      <span class="text-sm font-medium text-fg-muted">
+        {props.label}
+      </span>
+      <Tabs
+        options={options}
+        value={value}
+        disabled={disabled}
+        onChange={props.onChange}
+      />
+    </div>
+  )
+}
+
 function SwitchRow(props: {
   label: string
-  active: boolean
-  disabled: boolean
-  tone?: 'orange'
+  active: Accessor<boolean>
+  disabled: Accessor<boolean>
+  tone?: 'orange' | 'cyan'
   activeClass?: string
   onChange: (checked: boolean) => void
 }) {
+  const active = createMemo(() => props.active())
+  const disabled = createMemo(() => props.disabled())
+
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
-      <span class={cn('text-sm font-medium', props.active ? (props.activeClass ?? 'text-accent') : 'text-fg-muted')}>
+      <span class={cn('text-sm font-medium', active() ? (props.activeClass ?? 'text-accent') : 'text-fg-muted')}>
         {props.label}
       </span>
       <Switch
         ariaLabel={props.label}
-        checked={props.active}
-        disabled={props.disabled}
+        checked={active}
+        disabled={disabled}
         class="w-auto"
         tone={props.tone}
         onChange={props.onChange}
       />
+    </div>
+  )
+}
+
+function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
+  const state = () => props.state
+  const [localOpen, setLocalOpen] = createSignal<boolean | null>(null)
+  const isOpen = () => localOpen() ?? !state().derived.optimisticLobbyClosed()
+  const label = () => isOpen() ? 'Lobby Open' : 'Lobby Closed'
+
+  createEffect(() => {
+    const local = localOpen()
+    if (local != null && local === !state().derived.draftConfig().closed) setLocalOpen(null)
+  })
+
+  return (
+    <div class="px-1 flex gap-3 items-center justify-between">
+      <span class={cn('text-sm font-medium', isOpen() ? 'text-note' : 'text-[#a78bfa]')}>
+        {label()}
+      </span>
+      <Switch
+        ariaLabel={label}
+        checked={isOpen}
+        disabled={() => state().lobbyActionPending() || state().pending.closed()}
+        class="w-auto"
+        tone="note"
+        inactiveTone="purple"
+        onChange={(checked) => {
+          setLocalOpen(checked)
+          void state().actions.changeLobbyOpen(checked).then((saved) => {
+            if (!saved) setLocalOpen(null)
+          })
+        }}
+      />
+    </div>
+  )
+}
+
+function ReadonlyLobbyAccessRow(props: { closed: boolean }) {
+  return (
+    <div class="text-sm px-3 py-2 rounded-md bg-bg/35 flex items-center">
+      <span class={cn('font-medium', props.closed ? 'text-[#a78bfa]' : 'text-note')}>
+        {props.closed ? 'Lobby Closed' : 'Lobby Open'}
+      </span>
     </div>
   )
 }

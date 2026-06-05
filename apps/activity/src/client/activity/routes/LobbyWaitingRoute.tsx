@@ -1,16 +1,13 @@
 import type { Accessor } from 'solid-js'
 import type { ActivityState } from '../activity-context'
 import { useParams } from '@solidjs/router'
-import { Match, onMount, Show, Switch } from 'solid-js'
+import { Match, Show, Switch } from 'solid-js'
 import { DraftSetupPage } from '../../pages/draft-setup'
 import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
-import { preloadLobbyOverviewRoute } from '../route-preloads'
 
 export default function LobbyWaitingRoute() {
   const activity = useActivityController()
   const params = useParams<{ lobbyId: string }>()
-
-  onMount(() => { void preloadLobbyOverviewRoute() })
 
   const waitingState = () => {
     const state = activity.state()

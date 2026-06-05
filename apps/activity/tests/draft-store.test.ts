@@ -1,5 +1,5 @@
 import type { DraftState } from '@civup/game'
-import { allFactionIds, createDraft, default2v2, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
+import { allFactionIds, createDraft, default2v2, default2v2BlindPick, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
   canSendPickPreview,
@@ -63,6 +63,17 @@ function createRedDeathWaitingState() {
 function createActiveBanState() {
   const waiting = createWaitingState()
   return resolveDraftState(processDraftInput(waiting, { type: 'START' }))
+}
+
+function createActiveBlindPickState(submissions: DraftState['submissions'] = {}): DraftState {
+  const civPool = Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`)
+  const waiting = createDraft('draft-store-blind-pick-test', default2v2BlindPick, create2v2Seats(), civPool)
+  return {
+    ...waiting,
+    status: 'active',
+    currentStepIndex: 1,
+    submissions,
+  }
 }
 
 function createActiveRedDeathState() {
@@ -199,6 +210,14 @@ describe('draft-store helpers', () => {
 
     initDraft(pickState, 'live', 'a1', 2, null, null, { bans: {}, picks: {} }, null)
     expect(canSendPickPreview()).toBe(true)
+  })
+
+  test('blind pick allows previews until the seat submits', () => {
+    initDraft(createActiveBlindPickState(), 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
+    expect(canSendPickPreview()).toBe(true)
+
+    initDraft(createActiveBlindPickState({ 0: ['civ-1'] }), 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
+    expect(canSendPickPreview()).toBe(false)
   })
 
   test('red death only allows the active picker to send pick previews', () => {

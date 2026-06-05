@@ -1,16 +1,16 @@
-import type { GameMode, Leader, QueueEntry } from '@civup/game'
+import type { GameMode, Leader, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { ManualReportedMatchPlayerInput } from '../services/match/index.ts'
 import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
 import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, maxPlayerCount, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { lobbyCancelledEmbed, lobbyResultEmbed } from '../embeds/match'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { filterQueueEntriesForLobby, getLobbyById, setLobbyStatus } from '../services/lobby/index.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getStoredGameModeContext, resolveMatchByModerator } from '../services/match/index.ts'
+import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getStoredGameModeContext, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
@@ -26,12 +26,14 @@ import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getI
 interface ModVar extends MatchVar {
   leader?: string
   reason?: string
+  sub?: string
   swap_with?: string
   [key: `player_${number}`]: string | undefined
   [key: `leader_${number}`]: string | undefined
 }
 
 const LIVE_LEADER_ID_SET = new Set(getLeaders('live').map(leader => leader.id))
+const BETA_LEADER_ID_SET = new Set(getLeaders('beta').map(leader => leader.id))
 const MANUAL_MATCH_MAX_PLAYERS = 12
 const MANUAL_MATCH_SLOT_NUMBERS = Array.from({ length: MANUAL_MATCH_MAX_PLAYERS }, (_, index) => index + 1)
 const MANUAL_GAME_MODE_CHOICES = GAME_MODE_CHOICES.flatMap(choice => choice.value === 'ffa'
@@ -60,6 +62,12 @@ export const command_mod = factory.autocomplete<ModVar>(
         new Option('player', 'Participant to correct', 'User').required(),
         new Option('leader', 'Leader to assign').autocomplete(),
         new Option('swap_with', 'Participant to swap leaders with', 'User'),
+        new Option('reason', 'Optional short reason for correction').max_length(140),
+      ),
+      new SubCommand('sub', 'Substitute or swap match players').options(
+        new Option('match_id', 'Match ID').required(),
+        new Option('player', 'Participant to substitute', 'User').required(),
+        new Option('sub', 'Replacement player or participant to swap with', 'User').required(),
         new Option('reason', 'Optional short reason for correction').max_length(140),
       ),
     ),
@@ -126,7 +134,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
-                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath)],
+                embeds: [lobbyCancelledEmbed(directLobby.mode, buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries), 'cancel', { actorId, reason }, directLobby.draftConfig.leaderDataVersion, directLobby.draftConfig.redDeath, undefined, directLobby.draftConfig.civBlitz)],
                 components: [],
               }, { db, sessionNamespace: c.env.SessionDO })
             }
@@ -171,7 +179,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           if (existingLobby) {
             try {
               const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby.draftConfig.leaderDataVersion, existingLobby.draftConfig.redDeath, undefined, existingLobby.draftConfig.civBlitz)],
                 components: [],
               }, { db, sessionNamespace: c.env.SessionDO })
               await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
@@ -186,7 +194,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath)],
+                embeds: [lobbyCancelledEmbed(mode, result.participants, 'cancel', moderation, existingLobby?.draftConfig.leaderDataVersion, matchContext.redDeath, undefined, matchContext.civBlitz)],
               })
               await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
             }
@@ -220,7 +228,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           const recalculated = result.recalculatedMatchIds.length
           await sendTransientEphemeralResponse(
             c,
-            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath })} matches.`,
+            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath, civBlitz: matchContext.civBlitz })} matches.`,
             'success',
           )
         })
@@ -283,6 +291,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const existingLobby = result.previousStatus === 'completed' ? null : await getSessionLobbyProjectionByMatch(db, result.match.id)
             const mode = matchContext.mode
+            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData, existingLobby?.draftConfig.leaderDataVersion ?? 'live')
             const moderation = { actorId, reason }
             const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
             const participantIds = result.participants.map(participant => participant.playerId)
@@ -358,6 +367,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                   matchId: result.match.id,
                   reportedMode: mode,
                   reportedRedDeath: matchContext.redDeath,
+                  reportedCivBlitz: matchContext.civBlitz,
                   participants: result.participants,
                   lobby: existingLobby,
                   sessionNamespace: c.env.SessionDO,
@@ -376,6 +386,9 @@ export const command_mod = factory.autocomplete<ModVar>(
                   const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
+                      leaderDataVersion,
+                      civBlitz: existingLobby.draftConfig.civBlitz,
+                      unranked: !matchContext.ranked,
                     }, existingLobby.draftConfig.redDeath)],
                     components: [],
                   }, { db, sessionNamespace: c.env.SessionDO })
@@ -392,6 +405,9 @@ export const command_mod = factory.autocomplete<ModVar>(
                   const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
                     embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
                       rankedRoleLines,
+                      leaderDataVersion,
+                      civBlitz: matchContext.civBlitz,
+                      unranked: !matchContext.ranked,
                     }, matchContext.redDeath)],
                   })
                   await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
@@ -516,6 +532,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchId: result.match.id,
                 reportedMode: matchContext.mode,
                 reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
                 participants: result.participants,
                 rankedRoleLines,
                 matchDraftData: result.match.draftData,
@@ -605,9 +622,10 @@ export const command_mod = factory.autocomplete<ModVar>(
               console.error(`Failed to mark leaderboards dirty after correcting leaders for match ${result.match.id}:`, error)
             }
 
+            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData)
             await sendEphemeralResponse(
               c,
-              `Updated leaders for match **${result.match.id}**.${reason ? ` Reason: ${reason}` : ''}\n${formatLeaderCorrections(result.corrections)}`,
+              `Updated leaders for match **${result.match.id}**.${reason ? ` Reason: ${reason}` : ''}\n${formatLeaderCorrections(result.corrections, leaderDataVersion)}`,
               'success',
             )
 
@@ -620,6 +638,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchId: result.match.id,
                 reportedMode: matchContext.mode,
                 reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
                 participants: result.participants,
                 lobby: existingLobby,
                 sessionNamespace: c.env.SessionDO,
@@ -639,6 +658,141 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
             catch (responseError) {
               console.error(`Failed to send leader correction error response for match ${matchId}:`, responseError)
+            }
+          }
+        })
+      }
+
+      // ── match sub ───────────────────────────────────────
+      case 'match sub': {
+        const matchId = c.var.match_id
+        const playerId = c.var.player
+        const subPlayerId = c.var.sub
+        const reason = c.var.reason?.trim() ?? null
+
+        if (!matchId || !playerId || !subPlayerId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, 'Please provide a match ID, player, and sub.', 'error')
+          })
+        }
+
+        if (playerId === subPlayerId) {
+          return c.flags('EPHEMERAL').resDefer(async (c) => {
+            await sendTransientEphemeralResponse(c, '`sub` must be a different player.', 'error')
+          })
+        }
+
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          try {
+            const db = createDb(c.env.DB)
+            const subIdentity = getIdentityByUserId(c, subPlayerId)
+            const result = await substituteMatchPlayerByModerator(db, kv, {
+              matchId,
+              playerId,
+              subPlayer: {
+                playerId: subPlayerId,
+                displayName: subIdentity?.displayName ?? subPlayerId,
+                avatarUrl: subIdentity?.avatarUrl ?? null,
+              },
+              correctedAt: Date.now(),
+            }, {
+              rankedRoleGuildId: c.interaction.guild_id ?? null,
+            })
+
+            if ('error' in result) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!matchContext) {
+              await sendTransientEphemeralResponse(c, `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`, 'error')
+              return
+            }
+
+            const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            if (isTournamentMatch) {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+                console.error(`Failed to refresh tournament leaderboard after substituting players for match ${result.match.id}:`, error)
+              })
+            }
+
+            try {
+              if (!isTournamentMatch && result.match.status === 'completed' && matchContext.leaderboardMode) {
+                await markLeaderboardsDirty(db, `mod-sub:${result.match.id}`, {
+                  modes: [matchContext.leaderboardMode],
+                })
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark leaderboards dirty after substituting players for match ${result.match.id}:`, error)
+            }
+
+            try {
+              if (!isTournamentMatch && result.match.status === 'completed' && matchContext.ranked) {
+                await markRankedRolesDirty(kv, `mod-sub:${result.match.id}`)
+              }
+            }
+            catch (error) {
+              console.error(`Failed to mark ranked roles dirty after substituting players for match ${result.match.id}:`, error)
+            }
+
+            const recalculated = result.recalculatedMatchIds.length
+            const statusLine = result.match.status === 'completed'
+              ? ` Recalculated ${recalculated} completed ${formatModeLabel(matchContext.mode, matchContext.mode, { redDeath: matchContext.redDeath, civBlitz: matchContext.civBlitz })} matches.`
+              : ''
+            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData)
+            await sendEphemeralResponse(
+              c,
+              `Updated players for match **${result.match.id}**.${statusLine}${reason ? ` Reason: ${reason}` : ''}\n${formatPlayerSubstitutions(result.substitutions, leaderDataVersion)}`,
+              'success',
+            )
+
+            c.executionCtx.waitUntil((async () => {
+              const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
+              if (result.match.status === 'active') {
+                if (existingLobby) {
+                  try {
+                    const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
+                      embeds: [lobbyDraftCompleteEmbed(matchContext.mode, result.participants, getMapVoteResultFromDraftData(result.match.draftData), leaderDataVersion, matchContext.redDeath, matchContext.civBlitz)],
+                      components: lobbyComponents(existingLobby.mode, existingLobby.id),
+                    }, { db, sessionNamespace: c.env.SessionDO })
+                    await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
+                  }
+                  catch (error) {
+                    console.error(`Failed to refresh substituted draft-complete match ${result.match.id} embed:`, error)
+                  }
+                }
+                return
+              }
+
+              const syncResult = await syncReportedMatchDiscordMessages({
+                db,
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                matchId: result.match.id,
+                reportedMode: matchContext.mode,
+                reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
+                participants: result.participants,
+                lobby: existingLobby,
+                sessionNamespace: c.env.SessionDO,
+                matchDraftData: result.match.draftData,
+                archivePolicy: 'if-missing',
+                archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
+              })
+              if (syncResult.errors.length > 0) {
+                console.error(`Failed to refresh player-substituted match ${result.match.id} embeds:`, syncResult.errors)
+              }
+            })())
+          }
+          catch (error) {
+            console.error(`Failed to substitute players for match ${matchId} by moderator:`, error)
+            try {
+              await sendTransientEphemeralResponse(c, 'Failed to substitute match players. Check bot logs for details.', 'error')
+            }
+            catch (responseError) {
+              console.error(`Failed to send player substitution error response for match ${matchId}:`, responseError)
             }
           }
         })
@@ -755,12 +909,15 @@ function manualReportPlayerCountOptions(mode: GameMode, permanentAlly: boolean):
 }
 
 function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
-  const leaders = query.trim().length > 0 ? searchLeaders(query, 'live') : getLeaders('live')
+  const trimmed = query.trim()
+  const leaders = trimmed.length > 0
+    ? [...searchLeaders(trimmed, 'live'), ...searchLeaders(trimmed, 'beta')]
+    : [...getLeaders('live'), ...getLeaders('beta')]
   const seen = new Set<string>()
   const choices: Array<{ name: string, value: string }> = []
 
   for (const leader of leaders) {
-    if (!LIVE_LEADER_ID_SET.has(leader.id) || seen.has(leader.id)) continue
+    if ((!LIVE_LEADER_ID_SET.has(leader.id) && !BETA_LEADER_ID_SET.has(leader.id)) || seen.has(leader.id)) continue
     seen.add(leader.id)
     choices.push({
       name: truncateAutocompleteName(formatLeaderAutocompleteName(leader)),
@@ -775,29 +932,50 @@ function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, va
 function resolveLeaderInput(input: string): string | null {
   const normalized = input.trim()
   if (LIVE_LEADER_ID_SET.has(normalized)) return normalized
+  if (BETA_LEADER_ID_SET.has(normalized)) return normalized
 
   const lower = normalized.toLowerCase()
   const exact = getLeaders('live').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
   if (exact) return exact.id
+  const betaExact = getLeaders('beta').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
+  if (betaExact) return betaExact.id
 
   const matches = searchLeaders(normalized, 'live').filter(leader => LIVE_LEADER_ID_SET.has(leader.id))
-  return matches.length === 1 ? matches[0]!.id : null
+  if (matches.length === 1) return matches[0]!.id
+  const betaMatches = searchLeaders(normalized, 'beta').filter(leader => BETA_LEADER_ID_SET.has(leader.id))
+  return betaMatches.length === 1 ? betaMatches[0]!.id : null
 }
 
-function formatLeaderCorrections(corrections: Array<{ playerId: string, previousCivId: string | null, nextCivId: string | null }>): string {
+function formatLeaderCorrections(corrections: Array<{ playerId: string, previousCivId: string | null, nextCivId: string | null }>, leaderDataVersion: LeaderDataVersion): string {
   return corrections
-    .map(correction => `<@${correction.playerId}>: ${formatLeaderLabel(correction.previousCivId)} -> ${formatLeaderLabel(correction.nextCivId)}`)
+    .map(correction => `<@${correction.playerId}>: ${formatLeaderLabel(correction.previousCivId, leaderDataVersion)} -> ${formatLeaderLabel(correction.nextCivId, leaderDataVersion)}`)
     .join('\n')
 }
 
-function formatLeaderLabel(leaderId: string | null): string {
+function formatPlayerSubstitutions(substitutions: Array<{ seatIndex: number, previousPlayerId: string, nextPlayerId: string, civId: string | null, placement: number | null }>, leaderDataVersion: LeaderDataVersion): string {
+  return substitutions
+    .map((substitution) => {
+      const leader = substitution.civId ? ` - ${formatLeaderLabel(substitution.civId, leaderDataVersion)}` : ''
+      const placement = substitution.placement != null ? `, place ${substitution.placement}` : ''
+      return `Seat ${substitution.seatIndex + 1}: <@${substitution.previousPlayerId}> -> <@${substitution.nextPlayerId}>${leader}${placement}`
+    })
+    .join('\n')
+}
+
+function formatLeaderLabel(leaderId: string | null, leaderDataVersion: LeaderDataVersion = 'live'): string {
   if (!leaderId) return 'No leader'
   try {
-    const leader = getLeader(leaderId, 'live')
+    const leader = getLeader(leaderId, leaderDataVersion)
     return `${leader.name} (${leader.civilization})`
   }
   catch {
-    return leaderId
+    try {
+      const leader = getLeader(leaderId, 'beta')
+      return `${leader.name} (${leader.civilization})`
+    }
+    catch {
+      return leaderId
+    }
   }
 }
 

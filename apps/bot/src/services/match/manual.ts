@@ -1,11 +1,12 @@
 import type { Database } from '@civup/db'
-import type { DraftState, GameMode } from '@civup/game'
+import type { DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
 import { matches, matchParticipants, players } from '@civup/db'
 import { getLeaders, maxPlayerCount, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
+import { reconcilePlayerCivStatMatchContributionFromRows } from '../leaderboard/player-civ-stats.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getActiveSeason } from '../season/index.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
@@ -14,6 +15,7 @@ import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.
 const MANUAL_MATCH_ID_LENGTH = 10
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 const LIVE_LEADER_IDS = new Set(getLeaders('live').map(leader => leader.id))
+const BETA_LEADER_IDS = new Set(getLeaders('beta').map(leader => leader.id))
 
 interface CreateManualReportedMatchOptions {
   rankedRoleGuildId?: string | null
@@ -35,7 +37,8 @@ export async function createManualReportedMatch(
   const activeSeason = await getActiveSeason(db)
   const playerCount = input.players.length
   const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
-  const draftData = buildManualReportedDraftData(matchId, input.mode, input.players, input.reporterId, input.reportedAt, permanentAlly)
+  const leaderDataVersion = resolveManualReportLeaderDataVersion(input.players)
+  const draftData = buildManualReportedDraftData(matchId, input.mode, input.players, input.reporterId, input.reportedAt, permanentAlly, leaderDataVersion)
   const participantRows = input.players.map((player, index) => {
     const team = resolveManualReportTeam(input.mode, index, playerCount)
     return {
@@ -108,6 +111,13 @@ export async function createManualReportedMatch(
     }
 
     await reconcileCivLeaderboardMatchContribution(db, matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, {
+      id: matchId,
+      status: 'completed',
+      draftData,
+      gameMode: input.mode,
+      seasonId: activeSeason?.id ?? null,
+    }, participantRows, { updatedAt: input.reportedAt, previous: 'empty' })
 
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
     const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
@@ -142,7 +152,7 @@ function validateManualReportedMatchInput(input: CreateManualReportedMatchInput)
   for (const player of input.players) {
     if (!player.playerId.trim()) return 'Manual reports require every player slot to have a player.'
     if (!player.displayName.trim()) return `Manual report player **${player.playerId}** is missing a display name.`
-    if (!LIVE_LEADER_IDS.has(player.civId)) return `Unknown leader: **${player.civId}**.`
+    if (!LIVE_LEADER_IDS.has(player.civId) && !BETA_LEADER_IDS.has(player.civId)) return `Unknown leader: **${player.civId}**.`
     if (playerIds.has(player.playerId)) return `<@${player.playerId}> is listed more than once.`
     if (civIds.has(player.civId)) return `Leader **${player.civId}** is listed more than once.`
     playerIds.add(player.playerId)
@@ -168,6 +178,7 @@ function buildManualReportedDraftData(
   reporterId: string,
   reportedAt: number,
   permanentAlly: boolean,
+  leaderDataVersion: LeaderDataVersion,
 ): string {
   const playerCount = players.length
   const state: DraftState = {
@@ -200,12 +211,17 @@ function buildManualReportedDraftData(
     completedAt: reportedAt,
     hostId: players[0]?.playerId ?? reporterId,
     reportedById: reporterId,
+    leaderDataVersion,
     mapVoteResult: null,
     redDeath: false,
     permanentAlly,
     hiddenDraft: false,
     state,
   })
+}
+
+function resolveManualReportLeaderDataVersion(players: ManualReportedMatchPlayerInput[]): LeaderDataVersion {
+  return players.some(player => !LIVE_LEADER_IDS.has(player.civId) && BETA_LEADER_IDS.has(player.civId)) ? 'beta' : 'live'
 }
 
 function resolveManualFfaPlacement(index: number, permanentAlly: boolean): number {

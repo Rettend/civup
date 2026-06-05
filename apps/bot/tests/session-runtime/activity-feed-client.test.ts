@@ -29,7 +29,7 @@ describe('activity feed client', () => {
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })
 
-  test('publishes newly reported session while removing stale completed options', () => {
+  test('reported session updates remove the reported lobby from overview', () => {
     const current = {
       channelId: 'channel-1',
       options: [
@@ -47,8 +47,7 @@ describe('activity feed client', () => {
       closedAt: 10,
     })
 
-    expect(overview?.options.map(option => option.id)).toEqual(['match-1', 'session-2'])
-    expect(overview?.options[0]).toMatchObject({ kind: 'match', id: 'match-1', status: 'completed' })
+    expect(overview?.options.map(option => option.id)).toEqual(['old-match-1', 'session-2'])
   })
 })
 

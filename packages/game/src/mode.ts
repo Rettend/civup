@@ -92,7 +92,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
   if (!normalized) return fallback
 
   for (const mode of GAME_MODES) {
-    if (normalized.endsWith(`-${mode}`)) return mode
+    if (normalized.startsWith(`${mode}-`) || normalized.endsWith(`-${mode}`) || normalized.includes(`-${mode}-`)) return mode
   }
 
   return fallback
@@ -102,7 +102,7 @@ export function inferGameMode(value: string | null | undefined, fallback: GameMo
 export function formatModeLabel(
   mode: string | null | undefined,
   fallback = '',
-  options: { redDeath?: boolean, compactRedDeath?: boolean, targetSize?: number } = {},
+  options: { redDeath?: boolean, compactRedDeath?: boolean, civBlitz?: boolean, targetSize?: number } = {},
 ): string {
   if (!mode) return fallback
 
@@ -120,8 +120,9 @@ export function formatModeLabel(
     return trimmed.replace(/^default-/i, '').replace(/-/g, ' ')
   })()
 
-  if (!options.redDeath) return baseLabel
-  return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
+  if (options.civBlitz) return `CivBlitz ${baseLabel}`
+  if (options.redDeath) return `${options.compactRedDeath ? 'RD' : 'Red Death'} ${baseLabel}`
+  return baseLabel
 }
 
 /** Whether a string matches a supported leaderboard mode. */
@@ -154,14 +155,16 @@ export function requiresRedDeathDuplicateFactions(mode: GameMode): boolean {
 }
 
 /** Map game mode to its leaderboard track. */
-export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+export function toLeaderboardMode(mode: GameMode, options: { redDeath?: boolean, civBlitz?: boolean } = {}): LeaderboardMode | null {
   if (isUnrankedMode(mode)) return null
+  if (options.civBlitz) return null
   if (options.redDeath) return 'red-death'
   return GAME_MODE_DEFINITIONS[mode].leaderboardMode
 }
 
 /** Map a mode to the rating track used when balancing lobbies. */
-export function toBalanceLeaderboardMode(mode: GameMode, options: { redDeath?: boolean } = {}): LeaderboardMode | null {
+export function toBalanceLeaderboardMode(mode: GameMode, options: { redDeath?: boolean, civBlitz?: boolean } = {}): LeaderboardMode | null {
+  if (options.civBlitz) return null
   if (options.redDeath && !isUnrankedMode(mode)) return 'red-death'
   const definition = GAME_MODE_DEFINITIONS[mode]
   return definition.balanceLeaderboardMode ?? definition.leaderboardMode

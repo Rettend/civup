@@ -138,7 +138,7 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
-    const overview = await this.loadOverviewSnapshot(channelId)
+    const overview = await this.rebuildOverviewSnapshot(channelId)
     this.send(connection, { type: 'overview', snapshot: overview })
   }
 
@@ -147,9 +147,7 @@ export class Activity extends Server<ActivityFeedEnv> {
     if (connections.length === 0) return
 
     const channelId = record.projectionState.channelId
-    const baseOverview = this.env.DB
-      ? await this.loadOverviewSnapshot(channelId)
-      : await this.getOverviewSnapshot(channelId)
+    const baseOverview = await this.getOverviewSnapshot(channelId)
     const overview = mergeActivityOverviewSnapshotForSessionUpdate(baseOverview, record)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })

@@ -62,6 +62,24 @@ describe('general command response routing', () => {
     expect(harness.followups).toEqual([{ content: 'hello world', allowed_mentions: { parse: [] } }])
   })
 
+  test('can force a local ephemeral response when redirect is configured', async () => {
+    const kv = createTestKv()
+    await setSystemChannel(kv, 'commands', 'bot-commands')
+    const harness = createResponseHarness(kv, 'channel-1')
+
+    await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
+      ephemeral: true,
+      async createMessage(...args) {
+        harness.createMessageCalls.push(args)
+        return { id: 'message-1' }
+      },
+    })
+
+    expect(harness.mode).toBe('ephemeral')
+    expect(harness.createMessageCalls).toEqual([])
+    expect(harness.followups).toEqual([{ content: 'hello world', allowed_mentions: { parse: [] } }])
+  })
+
   test('shows an ephemeral error when redirected posting fails', async () => {
     const kv = createTestKv()
     await setSystemChannel(kv, 'commands', 'bot-commands')

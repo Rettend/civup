@@ -1,11 +1,37 @@
 import { describe, expect, test } from 'bun:test'
-import { allLeaderIds, getFaction, getLeader, getLeaders } from '../src/index.ts'
+import { allLeaderIds, CIV_BLITZ_MAX_OPTION_COUNT, getCivBlitzOptionCountMaximum, getCivBlitzRegistry, getFaction, getLeader, getLeaders } from '../src/index.ts'
 import { leaders as betaLeaders } from '../src/leaders-beta.ts'
 import { leaders as liveLeaders } from '../src/leaders.ts'
 
+const betaOnlyLeaderIds = [
+  'austria-maria-theresa',
+  'goths-theodoric',
+  'poland-stanislaw-ii',
+  'taino-anacaona',
+]
+
+const bbgExpandedLeaderIds = [
+  'austria-maria-theresa',
+  'gaul-vercingetorix',
+  'goths-theodoric',
+  'macedon-olympias',
+  'maya-te-k-inich-ii',
+  'phoenicia-ahiram',
+  'poland-stanislaw-ii',
+  'swahili-al-hasan-ibn-sulaiman',
+  'taino-anacaona',
+  'teotihuacan-spearthrower-owl',
+  'thule-kiviuq',
+  'tibet-trisong-detsen',
+]
+
 describe('leader registry', () => {
-  test('beta roster keeps the same leader ids and order as live', () => {
-    expect(getLeaders('beta').map(leader => leader.id)).toEqual(allLeaderIds)
+  test('beta roster preserves live leader order and includes beta-only leaders', () => {
+    const betaLeaderIds = getLeaders('beta').map(leader => leader.id)
+
+    expect(betaLeaderIds.filter(id => allLeaderIds.includes(id))).toEqual(allLeaderIds)
+    expect(betaOnlyLeaderIds.every(id => betaLeaderIds.includes(id))).toBe(true)
+    expect(betaOnlyLeaderIds.some(id => allLeaderIds.includes(id))).toBe(false)
   })
 
   test('versioned lookup returns matching live and beta leader entries', () => {
@@ -23,6 +49,70 @@ describe('leader registry', () => {
 
     expect(hammurabi.civilizationAbility.name).toBe('Enuma Anu Enlil')
     expect(pedro.uniqueBuildings.map(unique => unique.name)).toEqual(['Street Carnival', 'Copacabana'])
+  })
+
+  test('CivBlitz leader ability components use ability names without leader prefixes', () => {
+    const lincoln = getLeader('america-abraham-lincoln')
+    const component = getCivBlitzRegistry().componentMap.get('civblitz:leaderAbility:america-abraham-lincoln')
+
+    expect(component?.name).toBe(lincoln.ability.name)
+    expect(component?.name).not.toContain(lincoln.name)
+  })
+
+  test('CivBlitz civilization ability components use civilization icons', () => {
+    const registry = getCivBlitzRegistry()
+    const expandedRegistry = getCivBlitzRegistry('beta', { excludeBbgExpanded: false })
+
+    expect(registry.componentMap.get('civblitz:civilizationAbility:america')?.iconUrl).toBe('/assets/bbg/civilizations/American.png')
+    expect(registry.componentMap.get('civblitz:civilizationAbility:netherlands')?.iconUrl).toBe('/assets/bbg/civilizations/Dutch.png')
+    expect(expandedRegistry.componentMap.get('civblitz:civilizationAbility:austria')?.iconUrl).toBe('/assets/bbg/civilizations/Austria.webp')
+    expect(expandedRegistry.components.find(component => component.category === 'civilizationAbility' && component.civilization === 'Teotihuacán')?.iconUrl).toBe('/assets/bbg/civilizations/Teotihuacan.webp')
+  })
+
+  test('CivBlitz excludes BBG Expanded source leaders by default', () => {
+    const excludedRegistry = getCivBlitzRegistry('beta')
+    const includedRegistry = getCivBlitzRegistry('beta', { excludeBbgExpanded: false })
+
+    for (const leaderId of bbgExpandedLeaderIds) {
+      expect(includedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(true)
+      expect(excludedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(false)
+    }
+  })
+
+  test('CivBlitz global option max covers beta BBG Expanded data', () => {
+    expect(CIV_BLITZ_MAX_OPTION_COUNT).toBe(getCivBlitzOptionCountMaximum('beta', { excludeBbgExpanded: false }))
+  })
+
+  test('BBG Expanded 2.0 uniques have item icons', () => {
+    const expectedIcons = [
+      'Grenzer',
+      'Coffee House',
+      'Gadrauht',
+      'Militōnd',
+      'Hlaiw',
+      'Uhlan',
+      'Macana',
+      'Batéy',
+      'Conuco',
+    ]
+    const registry = getCivBlitzRegistry('beta', { excludeBbgExpanded: false })
+
+    for (const name of expectedIcons) {
+      const component = registry.components.find(component => component.name === name)
+      expect(component?.iconUrl).toMatch(/^\/assets\/bbg\/items\//)
+    }
+  })
+
+  test('Gaul does not include Dūnon in leader data or CivBlitz', () => {
+    for (const version of ['live', 'beta'] as const) {
+      for (const leaderId of ['gaul-ambiorix', 'gaul-vercingetorix']) {
+        const leader = getLeader(leaderId, version)
+        expect(leader.uniqueImprovements.map(unique => unique.name)).not.toContain('Dūnon')
+      }
+
+      const registry = getCivBlitzRegistry(version, { excludeBbgExpanded: false })
+      expect(registry.components.some(component => component.name === 'Dūnon')).toBe(false)
+    }
   })
 
   test('expanded leaders use BBG-updated descriptions', () => {

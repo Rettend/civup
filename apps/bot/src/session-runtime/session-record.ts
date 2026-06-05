@@ -336,12 +336,17 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     mapVoteEnabled: config.mapVoteEnabled,
     blindBans: config.blindBans,
     simultaneousPick: config.simultaneousPick,
-    permanentAlly: config.redDeath ? false : config.permanentAlly !== false,
+    permanentAlly: config.redDeath || config.civBlitz ? false : config.permanentAlly !== false,
     redDeath: config.redDeath,
     dealOptionsSize: config.dealOptionsSize,
+    civBlitz: config.civBlitz,
+    civBlitzOptionCount: config.civBlitzOptionCount,
+    civBlitzExcludeBbgExpanded: config.civBlitzExcludeBbgExpanded,
+    blindPicks: config.blindPicks,
     randomDraft: config.randomDraft,
     hiddenDraft: config.hiddenDraft,
     duplicateFactions: config.duplicateFactions,
+    closed: config.closed === true,
   }
 }
 

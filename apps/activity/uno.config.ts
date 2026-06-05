@@ -174,12 +174,53 @@ export default defineConfig({
             --slot-glow: var(--accent);
           }
 
+          html,
+          body,
+          #root {
+            overflow-x: hidden;
+          }
+
           body {
             font-family: 'Inter Variable', sans-serif;
             background: var(--bg);
             color: var(--fg);
             user-select: none;
             -webkit-user-select: none;
+          }
+
+          body.civup-ui-scaled {
+            width: calc(100vw / var(--civup-ui-scale));
+          }
+
+          body.civup-ui-scaled .civup-ui-scale-panel {
+            transform: scale(var(--civup-ui-scale-inverse));
+            transform-origin: top right;
+          }
+
+          body.civup-ui-scaled .civup-ui-scale-panel.is-position-locked {
+            transform-origin: top left;
+          }
+
+          body.civup-ui-scaled .h-screen {
+            height: calc(100vh / var(--civup-ui-scale));
+          }
+
+          body.civup-ui-scaled .min-h-screen {
+            min-height: calc(100vh / var(--civup-ui-scale));
+          }
+
+          body.civup-ui-scaled .h-dvh {
+            height: calc(100dvh / var(--civup-ui-scale));
+          }
+
+          body.civup-ui-scaled .min-h-dvh {
+            min-height: calc(100dvh / var(--civup-ui-scale));
+          }
+
+          @media (min-width: 64rem) {
+            body.civup-ui-scaled .lg\:h-dvh {
+              height: calc(100dvh / var(--civup-ui-scale));
+            }
           }
 
           img {
@@ -194,6 +235,92 @@ export default defineConfig({
           select:disabled,
           textarea:disabled {
             cursor: default !important;
+          }
+
+          .civup-icon-summary {
+            list-style: none;
+          }
+
+          .civup-icon-summary::-webkit-details-marker {
+            display: none;
+          }
+
+          .civup-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(
+              to right,
+              var(--accent) 0%,
+              var(--accent) var(--civup-slider-progress, 0%),
+              var(--border-subtle) var(--civup-slider-progress, 0%),
+              var(--border-subtle) 100%
+            );
+            outline: none;
+            cursor: pointer;
+            transition: background 80ms ease;
+          }
+
+          .civup-slider:hover {
+            background: linear-gradient(
+              to right,
+              var(--accent) 0%,
+              var(--accent) var(--civup-slider-progress, 0%),
+              var(--border) var(--civup-slider-progress, 0%),
+              var(--border) 100%
+            );
+          }
+
+          .civup-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 2px solid var(--bg-subtle);
+            box-shadow: 0 0 6px var(--accent-muted), 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 150ms ease;
+          }
+
+          .civup-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+            box-shadow: 0 0 10px var(--accent-muted), 0 0 20px var(--accent-subtle), 0 1px 4px rgba(0, 0, 0, 0.5);
+          }
+
+          .civup-slider:active::-webkit-slider-thumb {
+            transform: scale(1.05);
+            box-shadow: 0 0 12px var(--accent-muted), 0 0 24px var(--accent-subtle);
+          }
+
+          .civup-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 2px solid var(--bg-subtle);
+            box-shadow: 0 0 6px var(--accent-muted), 0 1px 3px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 150ms ease;
+          }
+
+          .civup-slider::-moz-range-thumb:hover {
+            transform: scale(1.15);
+            box-shadow: 0 0 10px var(--accent-muted), 0 0 20px var(--accent-subtle), 0 1px 4px rgba(0, 0, 0, 0.5);
+          }
+
+          .civup-slider::-moz-range-track {
+            height: 6px;
+            border-radius: 3px;
+            background: transparent;
+          }
+
+          .civup-slider::-moz-range-progress {
+            height: 6px;
+            border-radius: 3px 0 0 3px;
+            background: var(--accent);
           }
 
           ::-webkit-scrollbar { width: 4px; }

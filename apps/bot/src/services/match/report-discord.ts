@@ -9,7 +9,7 @@ import { setLobbyMessage, upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentResultPng } from '../tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked } from '../tournament/index.ts'
-import { getMapVoteResultFromDraftData, getReporterIdentityFromDraftData } from './draft-data.ts'
+import { getCivBlitzFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
@@ -22,6 +22,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   matchId: string
   reportedMode: GameMode
   reportedRedDeath: boolean
+  reportedCivBlitz?: boolean
   participants: ParticipantRow[]
   lobby?: LobbyState | null
   sessionNamespace?: DurableObjectNamespace | null
@@ -45,6 +46,7 @@ export async function syncReportedMatchDiscordMessages({
   matchId,
   reportedMode,
   reportedRedDeath,
+  reportedCivBlitz,
   participants,
   lobby = null,
   sessionNamespace = null,
@@ -66,6 +68,10 @@ export async function syncReportedMatchDiscordMessages({
   const draftMessageId = messageIds[0] ?? null
   const resolvedReporter = resolveMatchReporterIdentity(matchDraftData, reporter)
   const mapVoteResult = getMapVoteResultFromDraftData(matchDraftData)
+  const leaderDataVersion = getLeaderDataVersionFromDraftData(matchDraftData, lobby?.draftConfig.leaderDataVersion ?? 'live')
+  const civBlitz = reportedCivBlitz ?? lobby?.draftConfig.civBlitz ?? getCivBlitzFromDraftData(matchDraftData)
+  const gameContext = getStoredGameModeContext(reportedMode, matchDraftData)
+  const unranked = civBlitz || (gameContext ? gameContext.leaderboardMode == null : false)
   const tournamentLinked = await isMatchTournamentLinked(db, matchId)
   let tournamentResultPng: Uint8Array | null = null
   let tournamentImageFailed = false
@@ -106,6 +112,9 @@ export async function syncReportedMatchDiscordMessages({
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
+            leaderDataVersion,
+            civBlitz,
+            unranked,
           }, lobby.draftConfig.redDeath)],
           components: [],
         }, { db, sessionNamespace })
@@ -169,6 +178,9 @@ export async function syncReportedMatchDiscordMessages({
                 mapVoteResult,
                 rankedRoleLines,
                 reporter: resolvedReporter,
+                leaderDataVersion,
+                civBlitz,
+                unranked,
               }, reportedRedDeath)],
               components: [],
               allowed_mentions: { parse: [] },
@@ -226,6 +238,9 @@ export async function syncReportedMatchDiscordMessages({
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
+            leaderDataVersion,
+            civBlitz,
+            unranked,
           }, reportedRedDeath)],
           allowed_mentions: { parse: [] },
         })

@@ -5,7 +5,6 @@ import type { lobbyComponents } from '../../embeds/match.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyState } from '../../services/lobby/index.ts'
 import { createDb as createCivupDb, matches, matchParticipants } from '@civup/db'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
-import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { getKvStore } from '../../services/kv/batch.ts'
@@ -13,10 +12,12 @@ import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, ge
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
-import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
 import { buildTournamentReservedSlotLabels, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
+
+export { getIdentity, getIdentityByUserId } from '../identity.ts'
 
 const ALL_FFA_PLACEMENT_KEYS = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'] as const
 const FFA_PLACEMENT_LABELS: Record<(typeof ALL_FFA_PLACEMENT_KEYS)[number], string> = {
@@ -72,79 +73,6 @@ export interface MatchJoinEntry {
 
 export function buildFfaPlacementOptions() {
   return FFA_PLACEMENT_KEYS.map(key => new Option(key, FFA_PLACEMENT_LABELS[key], 'User'))
-}
-
-interface ResolvedInteractionUser {
-  id?: string
-  username?: string
-  global_name?: string | null
-  avatar?: string | null
-}
-
-interface ResolvedInteractionMember {
-  nick?: string | null
-  avatar?: string | null
-}
-
-interface ResolvedInteractionData {
-  resolved?: {
-    users?: Record<string, ResolvedInteractionUser>
-    members?: Record<string, ResolvedInteractionMember>
-  }
-}
-
-export function getIdentity(c: {
-  interaction: {
-    member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
-    user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
-    data?: unknown
-  }
-}): { userId: string, displayName: string, avatarUrl: string } | null {
-  const userId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-  if (!userId) return null
-
-  const displayName = c.interaction.member?.user?.global_name
-    ?? c.interaction.member?.user?.username
-    ?? c.interaction.user?.global_name
-    ?? c.interaction.user?.username
-    ?? 'Unknown'
-
-  const avatarHash = c.interaction.member?.user?.avatar
-    ?? c.interaction.user?.avatar
-    ?? null
-  const avatarUrl = buildDiscordAvatarUrl(userId, avatarHash)
-
-  return { userId, displayName, avatarUrl }
-}
-
-export function getIdentityByUserId(c: {
-  interaction: {
-    member?: { user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null } }
-    user?: { id?: string, global_name?: string | null, username?: string, avatar?: string | null }
-    data?: unknown
-  }
-}, userId: string): { userId: string, displayName: string, avatarUrl: string } | null {
-  const self = getIdentity(c)
-  if (self?.userId === userId) return self
-
-  const resolved = (c.interaction.data as ResolvedInteractionData | undefined)?.resolved
-  const user = resolved?.users?.[userId]
-  if (!user) return null
-
-  const member = resolved?.members?.[userId]
-  const displayName = member?.nick
-    ?? user.global_name
-    ?? user.username
-    ?? 'Unknown'
-  const avatarHash = member?.avatar
-    ?? user.avatar
-    ?? null
-
-  return {
-    userId,
-    displayName,
-    avatarUrl: buildDiscordAvatarUrl(userId, avatarHash),
-  }
 }
 
 export async function joinLobbyAndMaybeStartMatch(
@@ -547,7 +475,11 @@ export async function preflightMatchCreateSessionState(
   | { kind: 'reuse-hosted-open-lobby', lobby: LobbyState }
   | { kind: 'block-open-lobby', lobby: LobbyState }
 > {
-  const currentOpenLobby = await getOpenSessionLobbyProjectionForPlayer(db, playerId)
+  const [hostedOpenLobby, currentOpenLobby] = await Promise.all([
+    getOpenSessionLobbyProjectionHostedBy(db, playerId),
+    getOpenSessionLobbyProjectionForPlayer(db, playerId),
+  ])
+  if (hostedOpenLobby?.status === 'open') return { kind: 'reuse-hosted-open-lobby', lobby: hostedOpenLobby }
   if (!currentOpenLobby) return { kind: 'continue' }
   return {
     kind: currentOpenLobby.hostId === playerId ? 'reuse-hosted-open-lobby' : 'block-open-lobby',

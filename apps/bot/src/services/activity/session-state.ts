@@ -1,15 +1,22 @@
 import type { Database } from '@civup/db'
-import type { GameMode } from '@civup/game'
+import type { CompetitiveTier, GameMode, LeaderboardMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
+import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { GAME_MODES, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { buildLobbyRankSnapshot } from '../lobby/rank.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
+
+const LEADERBOARD_RANK_CACHE_MAX_ENTRIES = 16
+const leaderboardRankCache = new Map<string, Map<string, number>>()
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -18,13 +25,23 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   hostId: string
   memberPlayerIds: string[]
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
+}
+
+export interface ActivityOverviewPlayerSnapshot {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
+  team?: number | null
 }
 
 export interface ActivityOverviewSnapshot {
@@ -41,6 +58,10 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: SessionConfig['minRole']
   maxRole: SessionConfig['maxRole']
+  lobbyRank?: {
+    tier: CompetitiveTier
+    leaderPoolSize: number | null
+  } | null
   lastArrange: LobbyArrangeMarker | null
   memberPlayerIds: string[]
   entries: ({
@@ -51,16 +72,28 @@ export interface LobbySnapshot {
       mu: number
       sigma: number
       gamesPlayed: number
+      wins?: number
+      rank?: number | null
     }
+    rankedRole?: {
+      tier: CompetitiveTier
+      sourceMode: LeaderboardMode | null
+    } | null
   } | null)[]
   minPlayers: number
   targetSize: number
   draftConfig: Omit<SessionConfig, 'minRole' | 'maxRole'>
   tournament?: TournamentLobbySnapshot | null
+  repeatDraft?: RepeatDraftSnapshot | null
   serverDefaults: {
     banTimerSeconds: number | null
     pickTimerSeconds: number | null
   }
+}
+
+export interface RepeatDraftSnapshot {
+  kind: 'resume' | 'complete'
+  matchId: string
 }
 
 export interface ActivitySessionDirectoryEntry {
@@ -86,7 +119,7 @@ type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
 
 const ACTIVITY_DIRECTORY_PHASES = ['open', 'draft', 'swap', 'active'] as const
 const ACTIVITY_TARGET_PHASES = ['open', 'draft', 'swap', 'active', 'reported'] as const
-const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<ActivityOverviewOptionSnapshot['status']>(['open', 'drafting', 'active'])
+const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<string>(['open', 'closed', 'drafting', 'completed', 'active'])
 
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
@@ -135,7 +168,7 @@ function compareActivityDirectoryRowsByUpdatedAtDesc(left: ActivityDirectoryRow,
 }
 
 function isLiveActivityOverviewPhase(phase: SessionRecord['phase']): boolean {
-  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active' || phase === 'reported'
+  return phase === 'open' || phase === 'draft' || phase === 'swap' || phase === 'active'
 }
 
 export async function getActivitySessionById(
@@ -168,7 +201,7 @@ export async function getOpenActivitySessionsForUser(
 }
 
 export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEntry): ActivityOverviewOptionSnapshot[] {
-  const status = mapSessionPhaseToActivityStatus(session.phase)
+  const status = mapSessionPhaseToActivityStatus(session.phase, session.config.closed === true)
   if (!status) return []
   const matchId = session.phase === 'open' ? null : session.matchId ?? session.sessionId
   const id = session.phase === 'open' ? session.sessionId : matchId ?? session.sessionId
@@ -181,17 +214,20 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     channelId: session.channelId,
     mode: session.mode,
     status,
+    reported: session.phase === 'reported',
     participantCount: countFilledSlots(session.roster.slots),
     targetSize: session.roster.slots.length,
     redDeath: session.config.redDeath,
+    civBlitz: session.config.civBlitz,
     hostId: session.hostId,
     memberPlayerIds: session.roster.participants.map(member => member.playerId),
+    players: buildActivityOverviewPlayers(session.mode, session.roster),
     updatedAt: session.updatedAt,
   }]
 }
 
 export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRecord): ActivityOverviewOptionSnapshot[] {
-  const status = mapSessionPhaseToActivityStatus(record.phase)
+  const status = mapSessionPhaseToActivityStatus(record.phase, record.config.closed === true)
   if (!status) return []
 
   const matchId = record.phase === 'open' ? null : record.matchId ?? record.id
@@ -204,19 +240,55 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     channelId: record.projectionState.channelId,
     mode: record.mode,
     status,
+    reported: record.phase === 'reported',
     participantCount: countFilledSlots(record.roster.slots),
     targetSize: record.roster.slots.length,
     redDeath: record.config.redDeath,
+    civBlitz: record.config.civBlitz,
     hostId: record.hostId,
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
+    players: buildActivityOverviewPlayers(record.mode, record.roster),
     updatedAt: record.updatedAt,
   }]
+}
+
+function buildActivityOverviewPlayers(mode: GameMode, roster: SessionRoster): ActivityOverviewPlayerSnapshot[] {
+  const memberByPlayerId = new Map(roster.participants.map(member => [member.playerId, member]))
+  const players: ActivityOverviewPlayerSnapshot[] = []
+  const seen = new Set<string>()
+
+  for (let slotIndex = 0; slotIndex < roster.slots.length; slotIndex += 1) {
+    const playerId = roster.slots[slotIndex]
+    if (!playerId || seen.has(playerId)) continue
+    const member = memberByPlayerId.get(playerId)
+    seen.add(playerId)
+    players.push({
+      playerId,
+      displayName: member?.displayName ?? playerId,
+      avatarUrl: member?.avatarUrl ?? null,
+      team: slotToTeamIndex(mode, slotIndex, roster.slots.length),
+    })
+  }
+
+  for (const member of roster.participants) {
+    if (seen.has(member.playerId)) continue
+    seen.add(member.playerId)
+    players.push({
+      playerId: member.playerId,
+      displayName: member.displayName ?? member.playerId,
+      avatarUrl: member.avatarUrl ?? null,
+      team: null,
+    })
+  }
+
+  return players
 }
 
 export async function buildLobbySnapshotFromSessionRecord(
   kv: KVNamespace,
   record: SessionRecord,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -225,6 +297,7 @@ export async function buildLobbySnapshotFromSessionRecord(
       id: record.id,
       version: record.version,
       mode: record.mode,
+      guildId: record.guildId,
       hostId: record.hostId,
       phase: record.phase,
       steamLobbyLink: record.projectionState.steamLobbyLink,
@@ -233,7 +306,7 @@ export async function buildLobbySnapshotFromSessionRecord(
       lastArrange: record.lastArrange,
       roster: record.roster,
       config: record.config,
-    }),
+    }, rankAssignments),
     balanceSnapshot,
   )
 }
@@ -242,6 +315,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
   kv: KVNamespace,
   session: ActivitySessionDirectoryEntry,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -250,6 +324,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       id: session.sessionId,
       version: session.version,
       mode: session.mode,
+      guildId: session.guildId,
       hostId: session.hostId,
       phase: session.phase,
       steamLobbyLink: session.steamLobbyLink,
@@ -258,7 +333,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       lastArrange: null,
       roster: session.roster,
       config: session.config,
-    }),
+    }, rankAssignments),
     balanceSnapshot,
   )
 }
@@ -269,7 +344,7 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   snapshot: LobbySnapshot,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
 ): Promise<LobbySnapshot> {
-  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath })
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath, civBlitz: snapshot.draftConfig.civBlitz })
   if (!leaderboardMode) return snapshot
 
   const leaderboardSnapshot = balanceSnapshot === undefined
@@ -277,12 +352,15 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     : balanceSnapshot
   if (!leaderboardSnapshot) return snapshot
 
+  const rankByPlayerId = getLeaderboardRankByPlayer(leaderboardSnapshot, leaderboardMode)
   const balanceRatingByPlayerId = new Map(leaderboardSnapshot.rows.map(row => [
     row.playerId,
     {
       mu: row.mu,
       sigma: row.sigma,
       gamesPlayed: row.gamesPlayed,
+      wins: row.wins,
+      rank: rankByPlayerId.get(row.playerId) ?? null,
     },
   ]))
 
@@ -305,6 +383,39 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     ...snapshot,
     entries,
   }
+}
+
+function getLeaderboardRankByPlayer(
+  snapshot: LeaderboardModeSnapshot,
+  mode: LeaderboardMode,
+): Map<string, number> {
+  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}`
+  const cached = leaderboardRankCache.get(cacheKey)
+  if (cached) return cached
+
+  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode)
+  leaderboardRankCache.set(cacheKey, rankByPlayerId)
+  while (leaderboardRankCache.size > LEADERBOARD_RANK_CACHE_MAX_ENTRIES) {
+    const oldestKey = leaderboardRankCache.keys().next().value
+    if (!oldestKey) break
+    leaderboardRankCache.delete(oldestKey)
+  }
+  return rankByPlayerId
+}
+
+function buildLeaderboardRankByPlayer(
+  rows: LeaderboardModeSnapshot['rows'],
+  mode: LeaderboardMode,
+): Map<string, number> {
+  const ranked = rows
+    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
+    .map(row => ({
+      playerId: row.playerId,
+      display: displayRating(row.mu, row.sigma),
+    }))
+    .sort((left, right) => right.display - left.display)
+
+  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
 
 export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {
@@ -345,6 +456,7 @@ async function buildLobbySnapshotFromSessionParts(
     id: string
     version: number
     mode: GameMode
+    guildId: string | null
     hostId: string
     phase: SessionPhase
     steamLobbyLink: string | null
@@ -354,21 +466,38 @@ async function buildLobbySnapshotFromSessionParts(
     roster: SessionRoster
     config: SessionConfig
   },
+  rankAssignments?: RankedRoleAssignments | null,
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const resolvedRankAssignments = rankAssignments === undefined && session.guildId && !session.config.redDeath && !session.config.civBlitz
+    ? await getCurrentRankAssignments(kv, session.guildId)
+    : rankAssignments ?? null
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
   const memberPlayerIds = session.roster.participants.map(member => member.playerId)
   const entries = session.roster.slots.map((playerId) => {
     if (!playerId) return null
     const member = memberByPlayerId.get(playerId)
     if (!member) return null
+    const rankedRole = resolvedRankAssignments?.byPlayerId[playerId] ?? null
     return {
       playerId,
       displayName: member.displayName ?? playerId,
       avatarUrl: member.avatarUrl ?? null,
+      rankedRole: rankedRole
+        ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode }
+        : null,
     }
   })
   const targetSize = session.roster.slots.length
+  const slottedPlayerIds = session.roster.slots.filter((playerId): playerId is string => playerId != null)
+  const lobbyRank = await buildLobbyRankSnapshot(kv, session.guildId, slottedPlayerIds, {
+    mode: session.mode,
+    playerCount: slottedPlayerIds.length,
+    leaderDataVersion: session.config.leaderDataVersion,
+    redDeath: session.config.redDeath,
+    civBlitz: session.config.civBlitz,
+    assignments: resolvedRankAssignments,
+  })
 
   return {
     id: session.id,
@@ -379,6 +508,7 @@ async function buildLobbySnapshotFromSessionParts(
     steamLobbyLink: session.steamLobbyLink,
     minRole: session.minRole,
     maxRole: session.maxRole,
+    lobbyRank,
     lastArrange: session.lastArrange,
     memberPlayerIds,
     entries,
@@ -391,13 +521,18 @@ async function buildLobbySnapshotFromSessionParts(
       leaderDataVersion: session.config.leaderDataVersion,
       mapVoteEnabled: session.config.mapVoteEnabled,
       blindBans: session.config.blindBans,
+      blindPicks: session.config.blindPicks,
       simultaneousPick: session.config.simultaneousPick,
       permanentAlly: session.config.permanentAlly,
       redDeath: session.config.redDeath,
       dealOptionsSize: session.config.dealOptionsSize,
+      civBlitz: session.config.civBlitz,
+      civBlitzOptionCount: session.config.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: session.config.civBlitzExcludeBbgExpanded,
       randomDraft: session.config.randomDraft,
       hiddenDraft: session.config.hiddenDraft,
       duplicateFactions: session.config.duplicateFactions,
+      closed: session.config.closed === true,
     },
     serverDefaults,
   }
@@ -440,14 +575,19 @@ function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
       leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
       leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
       mapVoteEnabled: parsed.mapVoteEnabled === true,
-      blindBans: parsed.blindBans === true,
+      blindBans: parsed.blindBans !== false,
+      blindPicks: parsed.blindPicks === true,
       simultaneousPick: parsed.simultaneousPick === true,
-      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
+      permanentAlly: mode === 'ffa' && parsed.redDeath !== true && parsed.civBlitz !== true ? parsed.permanentAlly !== false : false,
       redDeath: parsed.redDeath === true,
       dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
+      civBlitz: parsed.civBlitz === true,
+      civBlitzOptionCount: typeof parsed.civBlitzOptionCount === 'number' ? parsed.civBlitzOptionCount : 4,
+      civBlitzExcludeBbgExpanded: parsed.civBlitzExcludeBbgExpanded !== false,
       randomDraft: parsed.randomDraft === true,
       hiddenDraft: parsed.hiddenDraft === true,
       duplicateFactions: parsed.duplicateFactions === true,
+      closed: parsed.closed === true,
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,
     }
@@ -463,16 +603,16 @@ export function compareActivityOverviewOptions(left: ActivityOverviewOptionSnaps
   return left.id.localeCompare(right.id)
 }
 
-function mapSessionPhaseToActivityStatus(phase: SessionPhase): ActivityOverviewOptionSnapshot['status'] | null {
+function mapSessionPhaseToActivityStatus(phase: SessionPhase, closed: boolean): ActivityOverviewOptionSnapshot['status'] | null {
   switch (phase) {
     case 'open':
-      return 'open'
+      return closed ? 'closed' : 'open'
     case 'draft':
       return 'drafting'
     case 'swap':
-      return 'active'
+      return 'completed'
     case 'active':
-      return 'active'
+      return 'completed'
     case 'reported':
       return 'completed'
     case 'cancelled':

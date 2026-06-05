@@ -5,6 +5,7 @@ import type { ActivityTargetSelection } from '../services/activity/launch-target
 import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { LeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../services/lobby/index.ts'
+import type { RankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
 import type { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
@@ -16,8 +17,9 @@ import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActiv
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
+import { cacheCurrentRankAssignments, currentRankAssignmentsKey, getCachedCurrentRankAssignments, normalizeRankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
-import { getSessionRecord } from '../session-runtime/session-do-client.ts'
+import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 
 export interface LobbyJoinEligibility {
@@ -33,12 +35,19 @@ interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: GameMode
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   isMember: boolean
   isHost: boolean
+  players?: {
+    playerId: string
+    displayName: string
+    avatarUrl?: string | null
+  }[]
   updatedAt: number
 }
 
@@ -69,6 +78,7 @@ interface ChannelActivityTarget {
   option: ActivityTargetOption
   session: ActivitySessionDirectoryEntry
   balanceSnapshot?: LeaderboardModeSnapshot | null
+  rankAssignments?: RankedRoleAssignments | null
 }
 
 interface ResolvedActivitySelection {
@@ -78,6 +88,11 @@ interface ResolvedActivitySelection {
 
 interface ActivityLaunchContext {
   targets: ChannelActivityTarget[]
+}
+
+interface ActivityLaunchState {
+  balanceSnapshots: Map<string, LeaderboardModeSnapshot>
+  rankAssignmentsByGuildId: Map<string, RankedRoleAssignments>
 }
 
 interface ActivityRuntimeOptions {
@@ -157,7 +172,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
       const session = sessions[0]!
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
       const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
+      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this channel' }, 404)
@@ -178,7 +194,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (session) {
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
       const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      return c.json(await attachTournamentLobbySnapshot(db, snapshot))
+      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this user' }, 404)
@@ -358,7 +375,9 @@ async function buildActivityLaunchSnapshotFromTargets(
 ): Promise<ActivityLaunchSnapshot> {
   return {
     selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db, sessionNamespace) : null,
-    options: context.targets.map(target => target.option),
+    options: context.targets
+      .filter(target => target.session.phase !== 'reported')
+      .map(target => target.option),
   }
 }
 
@@ -375,9 +394,10 @@ async function serializeActivityLaunchSelection(
   if (selection.target.option.kind === 'lobby') {
     const record = await resolveAuthoritativeSessionRecord(sessionNamespace, selection.target.session)
     const lobbySnapshot = record
-      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot)
-      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot)
-    const lobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
+      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot, selection.target.rankAssignments)
+      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot, selection.target.rankAssignments)
+    const tournamentLobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
+    const lobby = await attachRepeatDraftSnapshot(tournamentLobby, sessionNamespace, selection.target.session.sessionId)
     return {
       kind: 'lobby',
       option: selection.target.option,
@@ -396,6 +416,18 @@ async function serializeActivityLaunchSelection(
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
+}
+
+async function attachRepeatDraftSnapshot(
+  snapshot: LobbySnapshot,
+  sessionNamespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+): Promise<LobbySnapshot> {
+  const repeatDraft = await getSessionRepeatDraftAvailability(sessionNamespace, sessionId).catch((error) => {
+    console.warn('[activity] failed to attach repeat draft snapshot', { sessionId }, error)
+    return null
+  })
+  return repeatDraft ? { ...snapshot, repeatDraft } : snapshot
 }
 
 export async function resolveLobbyJoinEligibility(
@@ -422,6 +454,14 @@ export async function resolveLobbyJoinEligibility(
     return {
       canJoin: true,
       blockedReason: null,
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.draftConfig.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
       pendingSlot: null,
     }
   }
@@ -463,7 +503,7 @@ export async function resolveLobbyJoinEligibility(
           ? 'You are hosting another open lobby with other players. Cancel it first.'
           : blockingLobby.mode === lobby.mode
             ? 'You are already in another open lobby.'
-            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath })} lobby.`
+            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath, civBlitz: blockingLobby.draftConfig.civBlitz })} lobby.`
         : 'You are already in a live match.',
       pendingSlot: null,
     }
@@ -523,6 +563,14 @@ async function resolveSessionJoinEligibility(
     }
   }
 
+  if (session.config.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
+      pendingSlot: null,
+    }
+  }
+
   const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
   const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'))
   if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.session.phase !== 'active' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
@@ -553,7 +601,7 @@ async function resolveSessionJoinEligibility(
         ? 'You are hosting another open lobby with other players. Cancel it first.'
         : blockingLobby.mode === session.mode
           ? 'You are already in another open lobby.'
-          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath })} lobby.`,
+          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath, civBlitz: blockingLobby.config.civBlitz })} lobby.`,
       pendingSlot: null,
     }
   }
@@ -595,7 +643,7 @@ async function loadActivityLaunchContext(
   if (!db) return { targets: [] }
 
   const channelSessions = await getActivitySessionsByChannel(createDb(db), channelId)
-  const balanceSnapshots = await loadActivityLaunchState(kv, channelSessions)
+  const launchState = await loadActivityLaunchState(kv, channelSessions)
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
@@ -610,7 +658,8 @@ async function loadActivityLaunchContext(
 
     targets.push({
       session,
-      balanceSnapshot: resolveSessionBalanceSnapshot(balanceSnapshots, session),
+      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
+      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
       option: {
         ...option,
         isMember: option.memberPlayerIds.includes(userId),
@@ -627,17 +676,33 @@ async function loadActivityLaunchContext(
 async function loadActivityLaunchState(
   kv: KVNamespace,
   channelSessions: ActivitySessionDirectoryEntry[],
-): Promise<Map<string, LeaderboardModeSnapshot>> {
+): Promise<ActivityLaunchState> {
   const requestedBalanceModes = [...new Set(
     channelSessions
       .filter(session => session.phase === 'open')
-      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath }))
+      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz }))
       .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
   )]
-  if (requestedBalanceModes.length === 0) return new Map()
+  const requestedGuildIds = [...new Set(channelSessions
+    .filter(session => session.phase === 'open')
+    .filter(session => !session.config.redDeath)
+    .map(session => session.guildId)
+    .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0))]
+  const rankAssignmentsByGuildId = new Map<string, RankedRoleAssignments>()
+  const uncachedGuildIds = requestedGuildIds.filter((guildId) => {
+    const cached = getCachedCurrentRankAssignments(kv, guildId)
+    if (!cached) return true
+    rankAssignmentsByGuildId.set(guildId, cached)
+    return false
+  })
+
+  if (requestedBalanceModes.length === 0 && uncachedGuildIds.length === 0) {
+    return { balanceSnapshots: new Map(), rankAssignmentsByGuildId }
+  }
 
   const rawState = await kvMget(kv, [
     ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
+    ...uncachedGuildIds.map(guildId => ({ key: currentRankAssignmentsKey(guildId), type: 'json' as const })),
   ])
 
   const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
@@ -649,16 +714,33 @@ async function loadActivityLaunchState(
     balanceSnapshots.set(mode, snapshot)
   }
 
-  return balanceSnapshots
+  const assignmentsOffset = requestedBalanceModes.length
+  for (let index = 0; index < uncachedGuildIds.length; index++) {
+    const guildId = uncachedGuildIds[index]
+    if (!guildId) continue
+
+    const assignments = normalizeRankedRoleAssignments(rawState[assignmentsOffset + index])
+    cacheCurrentRankAssignments(kv, guildId, assignments)
+    rankAssignmentsByGuildId.set(guildId, assignments)
+  }
+
+  return { balanceSnapshots, rankAssignmentsByGuildId }
 }
 
 function resolveSessionBalanceSnapshot(
   balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
   session: ActivitySessionDirectoryEntry,
 ): LeaderboardModeSnapshot | null {
-  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath })
+  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz })
   if (!mode) return null
   return balanceSnapshots.get(mode) ?? null
+}
+
+function resolveSessionRankAssignments(
+  rankAssignmentsByGuildId: ReadonlyMap<string, RankedRoleAssignments>,
+  session: ActivitySessionDirectoryEntry,
+): RankedRoleAssignments | null {
+  return session.guildId ? rankAssignmentsByGuildId.get(session.guildId) ?? null : null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {

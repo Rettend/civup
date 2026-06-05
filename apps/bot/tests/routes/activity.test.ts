@@ -8,7 +8,7 @@ import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLob
 import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -43,6 +43,26 @@ describe('activity lobby join eligibility', () => {
       canJoin: true,
       blockedReason: null,
       pendingSlot: 1,
+    })
+  })
+
+  test('blocks spectators from joining closed open lobbies', async () => {
+    const { kv } = createTrackedKv()
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const closedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...lobby.draftConfig, closed: true }, lobby)
+    const snapshot = await buildOpenLobbySnapshot(kv, '2v2', closedLobby ?? lobby)
+
+    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-2', closedLobby ?? lobby, snapshot)
+
+    expect(eligibility).toEqual({
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
+      pendingSlot: null,
     })
   })
 
@@ -520,11 +540,13 @@ describe('activity target selection', () => {
 
     expect(hostEntry).toEqual(expect.objectContaining({
       playerId: 'host-1',
-      balanceRating: {
+      balanceRating: expect.objectContaining({
         mu: 31,
         sigma: 3,
         gamesPlayed: 12,
-      },
+        wins: 7,
+        rank: 1,
+      }),
     }))
   })
 
@@ -622,7 +644,7 @@ describe('activity target selection', () => {
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1', activityRuntimeOptions(kv))
     expect(snapshot.options).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true }),
+      expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', isMember: true }),
       expect.objectContaining({ kind: 'lobby', id: currentLobby.id, isHost: true }),
     ]))
     expect(snapshot.selection?.kind).toBe('lobby')
@@ -644,7 +666,7 @@ describe('activity target selection', () => {
 
     const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, oldMatchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
     expect(snapshot.selection).toBeNull()
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'active', isMember: true })])
+    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', reported: false, isMember: true })])
   })
 
   test('opens overview from an explicit launch target even when following a lobby', async () => {
@@ -713,8 +735,9 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.option.status).toBe('completed')
+    expect(snapshot.selection.option.reported).toBe(true)
     expect(snapshot.selection.sessionAccessToken).toEqual(expect.any(String))
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id, status: 'completed' })])
+    expect(snapshot.options).toEqual([])
   })
 
   test('opens a clicked reportable active match when Discord launch channel differs from the button interaction channel', async () => {

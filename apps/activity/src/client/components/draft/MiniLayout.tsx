@@ -24,14 +24,14 @@ export interface MiniSeatItem {
 interface MiniFrameProps {
   modeLabel?: string | null
   title: string
-  titleAccent?: 'gold' | 'red' | 'orange'
+  titleAccent?: 'gold' | 'red' | 'orange' | 'cyan'
   rightLabel?: string | null
   children: JSX.Element
 }
 
 interface MiniSeatGridProps {
   columns: MiniSeatItem[][]
-  activeTone?: 'gold' | 'red' | 'orange'
+  activeTone?: 'gold' | 'red' | 'orange' | 'cyan'
   footer?: string | null
 }
 
@@ -43,6 +43,7 @@ export function MiniFrame(props: MiniFrameProps) {
   const titleColorClass = () => {
     if (props.titleAccent === 'red') return 'text-danger'
     if (props.titleAccent === 'orange') return 'text-[#f97316]'
+    if (props.titleAccent === 'cyan') return 'text-cyan-300'
     if (props.titleAccent === 'gold') return 'text-accent'
     return 'text-accent'
   }
@@ -108,7 +109,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
   )
 }
 
-function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' }) {
+function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' | 'cyan' }) {
   const leaderPortraitUrl = () => {
     const leaderId = props.item.leaderId ?? props.item.previewLeaderId
     if (!leaderId) return null
@@ -132,6 +133,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
     if (!props.item.active) return ''
     if (props.activeTone === 'red') return 'border-danger/55 shadow-[inset_0_0_0_1px_var(--danger-subtle)]'
     if (props.activeTone === 'orange') return 'border-[#f97316]/55 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.15)]'
+    if (props.activeTone === 'cyan') return 'border-cyan-300/55 shadow-[inset_0_0_0_1px_rgba(103,232,249,0.15)]'
     return 'border-accent/55 shadow-[inset_0_0_0_1px_var(--accent-subtle)]'
   }
 
@@ -181,7 +183,7 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
                   <div class="flex h-5 w-5 items-center justify-center">
                     <span class={cn(
                       'h-1.5 w-1.5 rounded-full animate-pulse',
-                      props.activeTone === 'red' ? 'bg-danger' : props.activeTone === 'orange' ? 'bg-[#f97316]' : 'bg-accent',
+                      props.activeTone === 'red' ? 'bg-danger' : props.activeTone === 'orange' ? 'bg-[#f97316]' : props.activeTone === 'cyan' ? 'bg-cyan-300' : 'bg-accent',
                     )}
                     />
                   </div>

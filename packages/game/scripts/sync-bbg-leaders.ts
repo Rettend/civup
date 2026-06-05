@@ -79,11 +79,12 @@ const OUTPUT_PATH_BY_VARIANT: Record<Variant, string> = {
 }
 const LEADER_DATA_META_OUTPUT_PATH = resolve(import.meta.dir, '../src/leader-data-meta.ts')
 const ITEM_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/items')
+const LEADER_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/leaders')
 const NON_SCENARIO_RULESETS = ['RULESET_STANDARD', 'RULESET_EXPANSION_1', 'RULESET_EXPANSION_2']
-const TEXT_OVERRIDES: Record<string, string> = {
-  LOC_IMPROVEMENT_SUK_DUNON_NAME: 'Dūnon',
-  LOC_IMPROVEMENT_SUK_DUNON_REWORK_DESCRIPTION: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-}
+const TEXT_OVERRIDES: Record<string, string> = {}
+const EXCLUDED_ITEM_TYPES = new Set([
+  'IMPROVEMENT_SUK_DUNON',
+])
 const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type'], string>> = {
   UNIT_LIME_THULE_DOGSLED: 'Dogsled Hunter',
   UNIT_MACEDONIAN_HETAIROI: 'Hetairoi',
@@ -92,15 +93,22 @@ const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type']
 const ITEM_ICON_ASSET_NAME_OVERRIDES_BY_NAME: Record<string, string> = {
   'Whalebone House': 'Hunter\'s House',
 }
+const APPENDABLE_EXPANDED_LEADER_TYPES = new Set([
+  'LEADER_CVS_ANACAONA',
+  'LEADER_JFD_STANISLAW',
+  'LEADER_MER_MARIA_THERESA',
+  'LEADER_MER_THEODORIC',
+])
 
 async function main(): Promise<void> {
   const variant = parseVariant(process.argv[2])
   const leaderDataMeta = await readLeaderDataMeta()
   const sourceVariant = resolveSourceVariant(variant, leaderDataMeta)
-  const rosterRows = await loadRosterRows()
+  const rosterRows = await loadRosterRows(sourceVariant)
   const localizationDb = await buildLocalizationDatabase(sourceVariant)
   const itemAssetIndex = await buildItemAssetIndex()
-  const leaders = buildLeaders(rosterRows, localizationDb, itemAssetIndex)
+  const leaderAssetIndex = await buildLeaderAssetIndex()
+  const leaders = buildLeaders(rosterRows, localizationDb, itemAssetIndex, leaderAssetIndex)
   const outputPath = OUTPUT_PATH_BY_VARIANT[variant]
   const output = renderLeadersTs(leaders, variant, sourceVariant)
 
@@ -117,10 +125,11 @@ function parseVariant(value: string | undefined): Variant {
   throw new Error(`Unknown variant: ${value}. Expected 'live' or 'beta'.`)
 }
 
-async function loadRosterRows(): Promise<SourceRosterRow[]> {
+async function loadRosterRows(variant: Variant): Promise<SourceRosterRow[]> {
   const configDb = createConfigDatabase()
   await seedBaseAndDlcConfig(configDb)
   await seedExpandedConfig(configDb)
+  await seedVariantConfig(configDb, variant)
 
   const players = configDb.query(`
     SELECT *
@@ -205,6 +214,24 @@ function createConfigDatabase(): Database {
 
 async function seedBaseAndDlcConfig(db: Database): Promise<void> {
   const xmlFiles = await collectFiles(GAME_ROOT, filePath => extname(filePath).toLowerCase() === '.xml')
+  const inserters = createConfigInserters(db)
+
+  for (const filePath of xmlFiles) {
+    const content = await readFile(filePath, 'utf8')
+    if (!content.includes('<Players>') && !content.includes('<PlayerItems>') && !content.includes('<RulesetDomainOverrides>')) continue
+
+    const parsed = parseConfigXml(content)
+    if (parsed.players.length === 0 && parsed.items.length === 0 && parsed.rulesetDomainOverrides.length === 0) continue
+
+    insertConfigRows(inserters, parsed)
+  }
+}
+
+function createConfigInserters(db: Database): {
+  playerInsert: ReturnType<Database['query']>
+  itemInsert: ReturnType<Database['query']>
+  overrideInsert: ReturnType<Database['query']>
+} {
   const playerInsert = db.query(`
     INSERT INTO Players (
       Domain,
@@ -238,56 +265,74 @@ async function seedBaseAndDlcConfig(db: Database): Promise<void> {
   `)
   const overrideInsert = db.query('INSERT INTO RulesetDomainOverrides (Ruleset, ParameterId, Domain) VALUES (?, ?, ?)')
 
-  for (const filePath of xmlFiles) {
-    const content = await readFile(filePath, 'utf8')
-    if (!content.includes('<Players>') && !content.includes('<PlayerItems>') && !content.includes('<RulesetDomainOverrides>')) continue
+  return { playerInsert, itemInsert, overrideInsert }
+}
 
-    const parsed = parseConfigXml(content)
-    if (parsed.players.length === 0 && parsed.items.length === 0 && parsed.rulesetDomainOverrides.length === 0) continue
+function insertConfigRows(inserters: ReturnType<typeof createConfigInserters>, parsed: ReturnType<typeof parseConfigXml>): void {
+  for (const row of parsed.players) {
+    inserters.playerInsert.run(
+      row.Domain ?? 'Players:StandardPlayers',
+      row.CivilizationType,
+      row.LeaderType,
+      row.CivilizationName ?? null,
+      row.CivilizationIcon ?? null,
+      row.CivilizationAbilityName ?? null,
+      row.CivilizationAbilityDescription ?? null,
+      row.CivilizationAbilityIcon ?? null,
+      row.LeaderName ?? null,
+      row.LeaderIcon ?? null,
+      row.LeaderAbilityName ?? null,
+      row.LeaderAbilityDescription ?? null,
+      row.LeaderAbilityIcon ?? null,
+      row.Portrait ?? null,
+      row.PortraitBackground ?? null,
+    )
+  }
 
-    for (const row of parsed.players) {
-      playerInsert.run(
-        row.Domain ?? 'Players:StandardPlayers',
-        row.CivilizationType,
-        row.LeaderType,
-        row.CivilizationName ?? null,
-        row.CivilizationIcon ?? null,
-        row.CivilizationAbilityName ?? null,
-        row.CivilizationAbilityDescription ?? null,
-        row.CivilizationAbilityIcon ?? null,
-        row.LeaderName ?? null,
-        row.LeaderIcon ?? null,
-        row.LeaderAbilityName ?? null,
-        row.LeaderAbilityDescription ?? null,
-        row.LeaderAbilityIcon ?? null,
-        row.Portrait ?? null,
-        row.PortraitBackground ?? null,
-      )
-    }
+  for (const row of parsed.items) {
+    inserters.itemInsert.run(
+      row.Domain ?? 'Players:StandardPlayers',
+      row.CivilizationType,
+      row.LeaderType,
+      row.Type,
+      row.Icon ?? null,
+      row.Name ?? null,
+      row.Description ?? null,
+      row.SortIndex == null ? null : Number(row.SortIndex),
+    )
+  }
 
-    for (const row of parsed.items) {
-      itemInsert.run(
-        row.Domain ?? 'Players:StandardPlayers',
-        row.CivilizationType,
-        row.LeaderType,
-        row.Type,
-        row.Icon ?? null,
-        row.Name ?? null,
-        row.Description ?? null,
-        row.SortIndex == null ? null : Number(row.SortIndex),
-      )
-    }
-
-    for (const row of parsed.rulesetDomainOverrides) {
-      overrideInsert.run(row.Ruleset ?? null, row.ParameterId ?? null, row.Domain ?? null)
-    }
+  for (const row of parsed.rulesetDomainOverrides) {
+    inserters.overrideInsert.run(row.Ruleset ?? null, row.ParameterId ?? null, row.Domain ?? null)
   }
 }
 
 async function seedExpandedConfig(db: Database): Promise<void> {
-  const sqlFiles = await collectFiles(BBG_EXPANDED_ROOT, filePath => extname(filePath).toLowerCase() === '.sql')
-  for (const filePath of sqlFiles) {
+  await seedConfigFiles(db, BBG_EXPANDED_ROOT)
+}
+
+async function seedVariantConfig(db: Database, variant: Variant): Promise<void> {
+  await seedConfigFiles(db, BBG_ROOT_BY_VARIANT[variant])
+}
+
+async function seedConfigFiles(db: Database, root: string): Promise<void> {
+  const files = await collectFiles(root, (filePath) => {
+    const extension = extname(filePath).toLowerCase()
+    return extension === '.xml' || extension === '.sql'
+  })
+  const inserters = createConfigInserters(db)
+
+  for (const filePath of files) {
     const content = await readFile(filePath, 'utf8')
+    const extension = extname(filePath).toLowerCase()
+
+    if (extension === '.xml') {
+      if (!content.includes('<Players>') && !content.includes('<PlayerItems>') && !content.includes('<RulesetDomainOverrides>')) continue
+      const parsed = parseConfigXml(content)
+      insertConfigRows(inserters, parsed)
+      continue
+    }
+
     if (!/\bPlayers\b|\bPlayerItems\b/.test(content)) continue
 
     for (const statement of splitSqlStatements(content)) {
@@ -354,10 +399,16 @@ function resolveSourceVariant(variant: Variant, leaderDataMeta: LeaderDataMetaSn
 
 function parseInstalledLeaderDataVersionLabel(content: string): string | null {
   const nameMatch = content.match(/<Name>\s*Better Balanced Game(?: BETA)?\s+([^<]+?)\s*<\/Name>/i)
-  if (nameMatch?.[1]) return nameMatch[1].trim()
+  const nameVersionLabel = extractVersionLabel(nameMatch?.[1])
+  if (nameVersionLabel) return nameVersionLabel
 
   const descriptionMatch = content.match(/Better Balanced Game\s+([^<\r\n]+?)(?:\s*<\/Description>|$)/i)
-  return descriptionMatch?.[1]?.trim() ?? null
+  return extractVersionLabel(descriptionMatch?.[1])
+}
+
+function extractVersionLabel(value: string | undefined): string | null {
+  const match = value?.match(/\b\d+(?:\.\d+)*\b/)
+  return match?.[0] ?? null
 }
 
 function createLocalizationDatabase(): Database {
@@ -443,9 +494,11 @@ async function seedExpandedLocalizations(db: Database): Promise<void> {
   }
 }
 
-function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, itemAssetIndex: Map<string, string>): Leader[] {
+function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, itemAssetIndex: Map<string, string>, leaderAssetIndex: Map<string, string>): Leader[] {
   const nextLeaders = existingLiveLeaders.map(cloneLeader)
   const liveLeaderIndexByKey = new Map<string, number>()
+  const missingLeaders: Leader[] = []
+  const missingLeaderKeys = new Set<string>()
   for (let index = 0; index < nextLeaders.length; index++) {
     const leader = nextLeaders[index]
     liveLeaderIndexByKey.set(normalizedLeaderKey(leader.civilization, leader.name), index)
@@ -456,28 +509,44 @@ function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, i
     const localizedLeaderName = resolveText(localizationDb, row.player.LeaderName) ?? row.player.LeaderName ?? ''
     const key = normalizedLeaderKey(localizedCivilization, localizedLeaderName)
     const existingIndex = liveLeaderIndexByKey.get(key)
-    if (existingIndex == null) continue
+    if (existingIndex == null) {
+      if (!APPENDABLE_EXPANDED_LEADER_TYPES.has(row.player.LeaderType)) continue
+      if (!missingLeaderKeys.has(key)) {
+        missingLeaders.push(buildLeaderFromRoster(row, localizationDb, itemAssetIndex, leaderAssetIndex, null))
+        missingLeaderKeys.add(key)
+      }
+      continue
+    }
 
     const existing = nextLeaders[existingIndex]!
-    const updated = buildLeaderFromRoster(row, localizationDb, itemAssetIndex, existing)
+    const updated = buildLeaderFromRoster(row, localizationDb, itemAssetIndex, leaderAssetIndex, existing)
     nextLeaders[existingIndex] = updated
+  }
+
+  for (const leader of missingLeaders.sort(compareLeadersByDisplayName)) {
+    const insertIndex = nextLeaders.findIndex(existing => compareLeadersByDisplayName(leader, existing) < 0)
+    if (insertIndex === -1) nextLeaders.push(leader)
+    else nextLeaders.splice(insertIndex, 0, leader)
   }
 
   return nextLeaders
 }
 
-function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, itemAssetIndex: Map<string, string>, existing: Leader | null): Leader {
+function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, itemAssetIndex: Map<string, string>, leaderAssetIndex: Map<string, string>, existing: Leader | null): Leader {
   const leaderName = resolveText(localizationDb, row.player.LeaderName) ?? existing?.name ?? row.player.LeaderName ?? row.player.LeaderType
   const civilization = resolveText(localizationDb, row.player.CivilizationName) ?? existing?.civilization ?? row.player.CivilizationName ?? row.player.CivilizationType
 
   const uniqueUnits: Leader['uniqueUnits'] = []
   const uniqueBuildings: Leader['uniqueBuildings'] = []
   const uniqueImprovements: Leader['uniqueImprovements'] = []
+  const uniqueItemKeys = new Set<string>()
   let unitIndex = 0
   let buildingIndex = 0
   let improvementIndex = 0
 
   for (const item of row.items) {
+    if (EXCLUDED_ITEM_TYPES.has(item.Type)) continue
+
     const categoryIndex = item.Type.startsWith('UNIT_')
       ? unitIndex
       : item.Type.startsWith('IMPROVEMENT_')
@@ -485,6 +554,9 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
         : buildingIndex
     const normalized = buildUniqueFromItem(item, localizationDb, itemAssetIndex, existing, categoryIndex)
     if (!normalized) continue
+    const uniqueItemKey = `${item.Type}::${normalizeCompareText(normalized.name)}`
+    if (uniqueItemKeys.has(uniqueItemKey)) continue
+    uniqueItemKeys.add(uniqueItemKey)
 
     if (item.Type.startsWith('UNIT_')) {
       uniqueUnits.push(normalized)
@@ -520,7 +592,7 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
     id: existing?.id ?? slugify(`${civilization} ${leaderName}`),
     name: leaderName,
     civilization,
-    portraitUrl: existing?.portraitUrl,
+    portraitUrl: resolveLeaderPortraitUrl(civilization, leaderName, leaderAssetIndex, existing),
     fullPortraitUrl: existing?.fullPortraitUrl,
     civilizationAbility: {
       name: civilizationAbilityName,
@@ -538,6 +610,12 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
   }
 }
 
+function compareLeadersByDisplayName(left: Leader, right: Leader): number {
+  const leftKey = normalizeCompareText(`${left.civilization} ${left.name}`)
+  const rightKey = normalizeCompareText(`${right.civilization} ${right.name}`)
+  return leftKey.localeCompare(rightKey)
+}
+
 function buildUniqueFromItem(
   item: ConfigPlayerItemRow,
   localizationDb: Database,
@@ -548,11 +626,12 @@ function buildUniqueFromItem(
   const name = resolveText(localizationDb, item.Name) ?? inheritedUniqueName(existing, item.Type, index) ?? item.Name ?? null
   const description = resolveText(localizationDb, item.Description) ?? inheritedUniqueDescription(existing, item.Type, index) ?? item.Description ?? null
   if (!name || !description) return null
+  const normalizedDescription = resolveLeaderText(description)
 
   return {
     name,
-    description: resolveLeaderText(description),
-    replaces: extractReplaces(description) ?? inheritedUniqueReplaces(existing, item.Type, index),
+    description: normalizedDescription,
+    replaces: extractReplaces(normalizedDescription) ?? inheritedUniqueReplaces(existing, item.Type, index),
     iconUrl: resolveUniqueIconUrl(item, name, itemAssetIndex, existing, index),
   }
 }
@@ -568,6 +647,27 @@ async function buildItemAssetIndex(): Promise<Map<string, string>> {
   }
 
   return assets
+}
+
+async function buildLeaderAssetIndex(): Promise<Map<string, string>> {
+  const assets = new Map<string, string>()
+  const entries = await readdir(LEADER_ASSET_ROOT, { withFileTypes: true })
+
+  for (const entry of entries) {
+    if (!entry.isFile() || extname(entry.name).toLowerCase() !== '.webp') continue
+    const assetName = entry.name.replace(/\.webp$/i, '')
+    assets.set(normalizeCompareText(assetName), leaderAssetUrl(assetName))
+  }
+
+  return assets
+}
+
+function resolveLeaderPortraitUrl(civilization: string, leaderName: string, leaderAssetIndex: Map<string, string>, existing: Leader | null): string | undefined {
+  return existing?.portraitUrl ?? leaderAssetIndex.get(normalizeCompareText(`${civilization} ${leaderName}`))
+}
+
+function leaderAssetUrl(assetName: string): string {
+  return `/assets/bbg/leaders/${encodeURIComponent(assetName)}.webp`
 }
 
 function resolveUniqueIconUrl(
@@ -681,16 +781,36 @@ function parseXmlSectionRows<T extends Record<string, unknown>>(content: string,
 
   let sectionMatch: RegExpExecArray | null = sectionRe.exec(content)
   while (sectionMatch) {
-    const rowRe = /<Row\b([^>]*)\/>/g
+    const rowRe = /<Row\b([^>]*)(?:\/>|>([\s\S]*?)<\/Row>)/g
     let rowMatch: RegExpExecArray | null = rowRe.exec(sectionMatch[1] ?? '')
     while (rowMatch) {
-      rows.push(parseXmlAttributes(rowMatch[1] ?? '') as T)
+      rows.push({
+        ...parseXmlAttributes(rowMatch[1] ?? ''),
+        ...parseXmlChildElements(rowMatch[2] ?? ''),
+      } as T)
       rowMatch = rowRe.exec(sectionMatch[1] ?? '')
     }
     sectionMatch = sectionRe.exec(content)
   }
 
   return rows
+}
+
+function parseXmlChildElements(value: string): Record<string, string> {
+  const children: Record<string, string> = {}
+  const childRe = /<(\w+)>([\s\S]*?)<\/\1>/g
+
+  let match: RegExpExecArray | null = childRe.exec(value)
+  while (match) {
+    const key = match[1]
+    const rawValue = match[2]
+    if (key && rawValue != null) {
+      children[key] = decodeXmlEntities(rawValue).replace(/\r/g, '').replace(/\n\s*/g, ' ').trim()
+    }
+    match = childRe.exec(value)
+  }
+
+  return children
 }
 
 function parseXmlAttributes(value: string): Record<string, string> {
@@ -790,8 +910,8 @@ function splitSqlStatements(content: string): string[] {
 }
 
 function isRelevantConfigStatement(statement: string): boolean {
-  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+Players\b/i.test(statement)) return true
-  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+PlayerItems\b/i.test(statement)) return true
+  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE|DELETE FROM)\s+Players\b/i.test(statement)) return true
+  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE|DELETE FROM)\s+PlayerItems\b/i.test(statement)) return true
   if (/\bWITH\b[\s\S]*\bINSERT(?: OR REPLACE)? INTO\s+PlayerItems\b/i.test(statement)) return true
   if (/\bWITH\b[\s\S]*\bINSERT(?: OR REPLACE)? INTO\s+Players\b/i.test(statement)) return true
   return false
@@ -879,22 +999,57 @@ function slugify(value: string): string {
 }
 
 function extractReplaces(description: string): string | undefined {
-  const match = description.match(/replaces (?:the )?([^.,;|]+?)(?: when| that| and|\. |[,;|]|$)/i)
-  if (!match?.[1]) return undefined
-  const replaces = match[1].trim()
-  return replaces.length > 0 ? replaces : undefined
+  const directMatch = description.match(/\breplac(?:es|e|ing)\s+(?:the\s+)?([^.,;|]+?)(?:\s+when|\s+that|\s+and|[.,;|]|$)/i)
+  if (directMatch?.[1]) {
+    const replaces = directMatch[1].trim()
+    return replaces.length > 0 ? replaces : undefined
+  }
+
+  const replacementMatch = description.match(/\b(?:an?|the)\s+([^.,;|]+?)\s+replacement unique to/i)
+  const replaces = replacementMatch?.[1]?.trim()
+  return replaces && replaces.length > 0 ? replaces : undefined
 }
 
 function renderLeadersTs(leaders: Leader[], variant: Variant, sourceVariant: Variant): string {
-  const data = JSON.stringify(leaders, null, 2)
+  const data = renderTsValue(leaders)
   const variantLine = variant === sourceVariant
     ? ` * Variant: ${variant}`
     : ` * Variant: ${variant} (mirrors ${sourceVariant}; no active beta is installed)`
   return `import type { Leader } from './types.ts'\nimport { applyLeaderTags } from './leader-tags.ts'\n\n/**\n * Leader data synced from local Civ VI files.\n *\n${variantLine}\n * Generated by: packages/game/scripts/sync-bbg-leaders.ts\n */\nexport const leaders: Leader[] = ${data}\n\napplyLeaderTags(leaders)\n\n/** Map of leader ID to leader data for quick lookup */\nexport const leaderMap = new Map<string, Leader>(\n  leaders.map(l => [l.id, l]),\n)\n\n/** All leader IDs (the default civ pool) */\nexport const allLeaderIds = leaders.map(l => l.id)\n\n/** Get a leader by ID, throws if not found */\nexport function getLeader(id: string): Leader {\n  const leader = leaderMap.get(id)\n  if (!leader) throw new Error(\`Leader not found: \${id}\`)\n  return leader\n}\n\n/** Search leaders by name or civilization (case-insensitive) */\nexport function searchLeaders(query: string): Leader[] {\n  const q = query.toLowerCase()\n  return leaders.filter(l =>\n    l.name.toLowerCase().includes(q)\n    || l.civilization.toLowerCase().includes(q),\n  )\n}\n`
 }
 
+function renderTsValue(value: unknown, indent = 0): string {
+  if (typeof value === 'string') return quoteTsString(value)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value == null) return 'null'
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    const nextIndent = indent + 2
+    return `[\n${value.map(item => `${' '.repeat(nextIndent)}${renderTsValue(item, nextIndent)},`).join('\n')}\n${' '.repeat(indent)}]`
+  }
+
+  if (typeof value === 'object') {
+    const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
+    if (entries.length === 0) return '{}'
+    const nextIndent = indent + 2
+    return `{\n${entries.map(([key, entryValue]) => `${' '.repeat(nextIndent)}${renderTsKey(key)}: ${renderTsValue(entryValue, nextIndent)},`).join('\n')}\n${' '.repeat(indent)}}`
+  }
+
+  throw new Error(`Unsupported generated value: ${String(value)}`)
+}
+
+function renderTsKey(key: string): string {
+  return /^[a-zA-Z_$][\w$]*$/.test(key) ? key : quoteTsString(key)
+}
+
+function quoteTsString(value: string): string {
+  const escaped = JSON.stringify(value).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'")
+  return `'${escaped}'`
+}
+
 function renderLeaderDataMetaTs(leaderDataMeta: LeaderDataMetaSnapshot): string {
-  return `import type { LeaderDataVersion } from './types.ts'\n\n/** Installed live BBG version label used by the UI. */\nexport const liveLeaderDataVersionLabel = ${JSON.stringify(leaderDataMeta.liveVersionLabel)}\n\n/** Installed beta BBG version label, or null when no beta is active. */\nexport const betaLeaderDataVersionLabel = ${JSON.stringify(leaderDataMeta.betaVersionLabel)}\n\n/** Whether a distinct beta BBG leader data set is currently available. */\nexport const hasBetaLeaderData = ${leaderDataMeta.hasBetaLeaderData ? 'true' : 'false'}\n\n/** Collapse beta requests to live when no active beta is installed. */\nexport function normalizeAvailableLeaderDataVersion(version: LeaderDataVersion = 'live'): LeaderDataVersion {\n  return hasBetaLeaderData && version === 'beta' ? 'beta' : 'live'\n}\n`
+  return `import type { LeaderDataVersion } from './types.ts'\n\n/** Installed live BBG version label used by the UI. */\nexport const liveLeaderDataVersionLabel = ${renderTsValue(leaderDataMeta.liveVersionLabel)}\n\n/** Installed beta BBG version label, or null when no beta is active. */\nexport const betaLeaderDataVersionLabel = ${renderTsValue(leaderDataMeta.betaVersionLabel)}\n\n/** Whether a distinct beta BBG leader data set is currently available. */\nexport const hasBetaLeaderData = ${leaderDataMeta.hasBetaLeaderData ? 'true' : 'false'}\n\n/** Collapse beta requests to live when no active beta is installed. */\nexport function normalizeAvailableLeaderDataVersion(version: LeaderDataVersion = 'live'): LeaderDataVersion {\n  return hasBetaLeaderData && version === 'beta' ? 'beta' : 'live'\n}\n`
 }
 
 void main()

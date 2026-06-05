@@ -1,6 +1,7 @@
 import type { DraftSetupPageProps } from './types'
 import type { LobbyArrangeStrategy } from '~/client/stores'
 import { Show } from 'solid-js'
+import { FloatingUiScaleMenu } from '~/client/components/ui/UiScaleMenu'
 import { cn } from '~/client/lib/css'
 import { DraftSetupActions } from './DraftSetupActions'
 import { DraftSetupConfigPanel } from './DraftSetupConfigPanel'
@@ -16,11 +17,12 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
     <Show
       when={state.layout.isMiniView()}
       fallback={(
-        <div class="text-fg font-sans bg-bg flex flex-col relative overflow-y-auto min-h-dvh lg:overflow-hidden lg:h-dvh">
+        <div class="draft-setup-shell text-fg font-sans bg-bg flex flex-col relative overflow-y-auto min-h-dvh lg:h-[var(--civup-scaled-viewport-height,100dvh)] lg:min-h-0 lg:overflow-hidden">
+          <FloatingUiScaleMenu />
           <DraftSetupHeader header={state.header} isMobileLayout={state.layout.isMobileLayout()} onSwitchTarget={props.onSwitchTarget} />
 
-          <div class={cn('mx-auto px-6 py-4 flex w-full max-w-5xl flex-1 min-h-0 flex-col gap-6', state.layout.isMobileLayout() && 'pt-12')}>
-            <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
+          <div class={cn('mx-auto px-6 py-4 flex w-full max-w-5xl flex-1 min-h-0 flex-col gap-6 lg:overflow-hidden', state.layout.isMobileLayout() && 'pt-12')}>
+            <div class={cn('gap-4 grid grid-cols-1 lg:min-h-0 lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]', state.layout.desktopSetupPanelMaxHeightClass())}>
               <div class="p-4 rounded-lg bg-bg-subtle flex flex-col min-h-0 overflow-hidden lg:h-full">
                 <div class="text-xs text-fg-subtle tracking-widest font-bold mb-3 flex gap-3 uppercase items-center justify-between relative">
                   <span>Players</span>
