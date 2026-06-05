@@ -1,5 +1,5 @@
-import type { DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
-import { getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
+import type { CivBlitzComponentCategory, DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
+import { getCivBlitzStepCategories, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
 
 export function createEmptyDraftPreviews(): DraftPreviewState {
   return {
@@ -22,8 +22,10 @@ export function sanitizeDraftPreviews(state: DraftState, previews: DraftPreviewS
   const sanitizedBans = step.action === 'ban'
     ? sanitizeBanPreviewMap(state, step, previews.bans, available)
     : {}
-  const sanitizedPicks = step.action === 'pick'
-    ? sanitizePickPreviewMap(state, previews.picks, available)
+  const sanitizedPicks = step.action === 'pick' && !step.reveal
+    ? step.civBlitz
+      ? sanitizeCivBlitzPreviewMap(state, step, previews.picks)
+      : sanitizePickPreviewMap(state, step, previews.picks, available)
     : {}
 
   return {
@@ -58,7 +60,17 @@ export function applyDraftPreview(
     })
   }
 
-  if (step.action !== 'pick') return { error: 'Current step is not a pick phase' }
+  if (step.action !== 'pick' || step.reveal) return { error: 'Current step is not a pick phase' }
+
+  if (step.civBlitz) {
+    if (!isSeatInStep(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+    if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
+
+    return sanitizeDraftPreviews(state, {
+      bans: previews.bans,
+      picks: setPreviewSelections(previews.picks, seatIndex, civIds),
+    })
+  }
 
   const normalized = normalizePreviewSelections(civIds, new Set(state.availableCivIds))
   return sanitizeDraftPreviews(state, {
@@ -75,6 +87,8 @@ export function resolveTimeoutWithPreviews(
 ): DraftResult | DraftError {
   const step = getCurrentStep(state)
   if (!step) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
+
+  if (step.action === 'pick' && (step.blind || step.reveal)) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
 
   return step.action === 'ban'
     ? resolveBanTimeoutWithPreviews(state, step, blindBans, previews.bans, random)
@@ -107,7 +121,14 @@ export function censorDraftPreviews(
   previews: DraftPreviewState,
   seatIndex: number,
 ): DraftPreviewState {
-  const sanitized = sanitizeDraftPreviews(state, previews)
+  return censorSanitizedDraftPreviews(state, sanitizeDraftPreviews(state, previews), seatIndex)
+}
+
+export function censorSanitizedDraftPreviews(
+  state: DraftState,
+  sanitized: DraftPreviewState,
+  seatIndex: number,
+): DraftPreviewState {
   if (state.status !== 'active' || seatIndex < 0) return createEmptyDraftPreviews()
 
   const step = getCurrentStep(state)
@@ -115,7 +136,7 @@ export function censorDraftPreviews(
 
   const ownTeam = state.seats[seatIndex]?.team ?? null
   const visiblePicks: DraftPreviewState['picks'] = {}
-  if (step.action === 'pick') {
+  if (step.action === 'pick' && !step.reveal) {
     for (const [rawSeatIndex, civIds] of Object.entries(sanitized.picks)) {
       const previewSeatIndex = Number(rawSeatIndex)
       const previewSeat = state.seats[previewSeatIndex]
@@ -129,9 +150,23 @@ export function censorDraftPreviews(
     }
   }
 
-  const ownBans = sanitized.bans[seatIndex]
+  const visibleBans: DraftPreviewState['bans'] = {}
+  if (step.action === 'ban') {
+    for (const [rawSeatIndex, civIds] of Object.entries(sanitized.bans)) {
+      const previewSeatIndex = Number(rawSeatIndex)
+      const previewSeat = state.seats[previewSeatIndex]
+      if (!previewSeat) continue
+      if (previewSeatIndex === seatIndex) {
+        visibleBans[previewSeatIndex] = [...civIds]
+        continue
+      }
+      if (ownTeam == null || previewSeat.team == null || previewSeat.team !== ownTeam) continue
+      visibleBans[previewSeatIndex] = [...civIds]
+    }
+  }
+
   return {
-    bans: ownBans ? { [seatIndex]: [...ownBans] } : {},
+    bans: visibleBans,
     picks: visiblePicks,
   }
 }
@@ -164,6 +199,7 @@ function sanitizeBanPreviewMap(
 
 function sanitizePickPreviewMap(
   state: DraftState,
+  step: DraftStep,
   previews: DraftPreviewState['picks'],
   available: Set<string>,
 ): DraftPreviewState['picks'] {
@@ -171,12 +207,42 @@ function sanitizePickPreviewMap(
 
   for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex++) {
     if (seatHasLockedPick(state, seatIndex)) continue
+    if (seatHasCompletedSubmission(state, step, seatIndex)) continue
 
     const civIds = normalizePreviewSelections(previews[seatIndex] ?? [], available)
     if (civIds.length === 0) continue
     sanitized[seatIndex] = civIds
   }
 
+  return sanitized
+}
+
+function sanitizeCivBlitzPreviewMap(
+  state: DraftState,
+  step: DraftStep,
+  previews: DraftPreviewState['picks'],
+): DraftPreviewState['picks'] {
+  const civBlitz = state.civBlitz
+  if (!civBlitz) return {}
+
+  const sanitized: DraftPreviewState['picks'] = {}
+  for (const seatIndex of getActiveSeats(step, state.seats.length)) {
+    if (state.submissions[seatIndex]) continue
+
+    const options = civBlitz.optionsBySeat[seatIndex]
+    if (!options) continue
+
+    const categories = getCivBlitzStepCategories(step, seatIndex)
+    const selectedCategories = new Set<CivBlitzComponentCategory>()
+    const selections: string[] = []
+    for (const componentId of previews[seatIndex] ?? []) {
+      const category = categories.find(candidate => options[candidate]?.includes(componentId))
+      if (!category || selectedCategories.has(category)) continue
+      selectedCategories.add(category)
+      selections.push(componentId)
+    }
+    if (selections.length > 0) sanitized[seatIndex] = selections
+  }
   return sanitized
 }
 
@@ -318,6 +384,10 @@ function isSeatInStep(step: DraftStep, seatIndex: number, seatCount: number): bo
 
 function seatHasLockedPick(state: DraftState, seatIndex: number): boolean {
   return state.picks.some(pick => pick.seatIndex === seatIndex)
+}
+
+function seatHasCompletedSubmission(state: DraftState, step: DraftStep, seatIndex: number): boolean {
+  return (state.submissions[seatIndex]?.length ?? 0) >= step.count
 }
 
 function normalizePreviewSelections(

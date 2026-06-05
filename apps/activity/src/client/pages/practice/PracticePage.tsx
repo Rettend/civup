@@ -1,5 +1,4 @@
 import { A } from '@solidjs/router'
-import { preloadActivityOverviewEntry } from '~/client/activity/route-preloads'
 
 export default function PracticePage() {
   return (
@@ -9,9 +8,6 @@ export default function PracticePage() {
         <A
           href="/overview"
           class="text-sm text-fg-muted px-4 py-2 border border-border rounded-md bg-transparent inline-flex transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
-          onPointerEnter={preloadActivityOverviewEntry}
-          onPointerDown={preloadActivityOverviewEntry}
-          onFocus={preloadActivityOverviewEntry}
         >
           Back
         </A>

@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
-import type { DraftState, GameMode } from '@civup/game'
+import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { isRedDeathFormatId, isTeamMode } from '@civup/game'
+import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { and, eq } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
@@ -141,15 +141,20 @@ export async function activateDraftMatch(
     return { error: `Match **${matchId}** has no participants.` }
   }
 
-  const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const leaderDataVersion = normalizeAvailableLeaderDataVersion(input.leaderDataVersion)
+  const civByPlayer = mapCivsFromDraftState(input.state, leaderDataVersion)
   const permanentAlly = isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly)
+  const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
   const draftData = JSON.stringify({
     completedAt: input.completedAt,
     hostId: input.hostId,
+    leaderDataVersion,
     mapVoteResult: input.mapVoteResult ?? null,
     redDeath: isRedDeathFormatId(input.state.formatId),
+    civBlitz: isCivBlitzFormatId(input.state.formatId),
     permanentAlly,
     hiddenDraft: input.hiddenDraft === true,
+    ...(doublePickMetrics ? { doublePickMetrics } : {}),
     state: input.state,
   })
 
@@ -273,7 +278,9 @@ export async function cancelDraftMatch(
     return { match, participants: participantRows }
   }
 
-  const civByPlayer = mapCivsFromDraftState(input.state, participantRows, match.gameMode as GameMode)
+  const leaderDataVersion = normalizeAvailableLeaderDataVersion(input.leaderDataVersion)
+  const civByPlayer = mapCivsFromDraftState(input.state, leaderDataVersion)
+  const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
 
   for (const participant of participantRows) {
     await db
@@ -298,10 +305,13 @@ export async function cancelDraftMatch(
         cancelledAt: input.cancelledAt,
         reason: input.reason,
         hostId: input.hostId,
+        leaderDataVersion,
         mapVoteResult: input.mapVoteResult ?? null,
         redDeath: isRedDeathFormatId(input.state.formatId),
+        civBlitz: isCivBlitzFormatId(input.state.formatId),
         permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly),
         hiddenDraft: input.hiddenDraft === true,
+        ...(doublePickMetrics ? { doublePickMetrics } : {}),
         state: input.state,
       }),
     })
@@ -325,51 +335,22 @@ function isPermanentAllyFfaDraft(gameMode: GameMode, state: DraftState, permanen
   return gameMode === 'ffa' && !isRedDeathFormatId(state.formatId) && permanentAlly === true
 }
 
+function normalizeDoublePickMetrics(metrics: DraftDoublePickMetrics | undefined): DraftDoublePickMetrics | null {
+  if (!metrics || metrics.groups <= 0) return null
+  return {
+    groups: Math.max(0, Math.round(metrics.groups)),
+    fallbackStarted: Math.max(0, Math.round(metrics.fallbackStarted)),
+    fallbackResolved: Math.max(0, Math.round(metrics.fallbackResolved)),
+    bothMissedTimeouts: Math.max(0, Math.round(metrics.bothMissedTimeouts)),
+    fallbackTimeouts: Math.max(0, Math.round(metrics.fallbackTimeouts)),
+  }
+}
+
 function mapCivsFromDraftState(
   state: DraftState,
-  participantRows: ParticipantRow[],
-  gameMode: GameMode,
+  leaderDataVersion: LeaderDataVersion,
 ): Map<string, string | null> {
   const civByPlayer = new Map<string, string | null>()
-
-  if (isTeamMode(gameMode)) {
-    const playerToSeatIndex = new Map<string, number>()
-    state.seats.forEach((seat, idx) => {
-      playerToSeatIndex.set(seat.playerId, idx)
-    })
-
-    const orderedParticipants = [...participantRows].sort((a, b) => {
-      const aSeat = playerToSeatIndex.get(a.playerId) ?? Number.MAX_SAFE_INTEGER
-      const bSeat = playerToSeatIndex.get(b.playerId) ?? Number.MAX_SAFE_INTEGER
-      return aSeat - bSeat
-    })
-
-    const picksByTeam = new Map<number, string[]>()
-    for (const pick of state.picks) {
-      const team = state.seats[pick.seatIndex]?.team
-      if (team == null) continue
-      const teamPicks = picksByTeam.get(team) ?? []
-      teamPicks.push(pick.civId)
-      picksByTeam.set(team, teamPicks)
-    }
-
-    const teamPickOffsets = new Map<number, number>()
-    for (const participant of orderedParticipants) {
-      const team = participant.team
-      if (team == null) {
-        civByPlayer.set(participant.playerId, null)
-        continue
-      }
-
-      const offset = teamPickOffsets.get(team) ?? 0
-      const civId = picksByTeam.get(team)?.[offset] ?? null
-      civByPlayer.set(participant.playerId, civId)
-      teamPickOffsets.set(team, offset + 1)
-    }
-
-    return civByPlayer
-  }
-
   const pickBySeat = new Map<number, string>()
   for (const pick of state.picks) {
     if (!pickBySeat.has(pick.seatIndex)) {
@@ -377,8 +358,26 @@ function mapCivsFromDraftState(
     }
   }
 
+  const civBlitzLeaderBySeat = new Map<number, string>()
+  const civBlitzState = state.civBlitz
+  if (civBlitzState) {
+    for (const [rawSeatIndex, kit] of Object.entries(civBlitzState.lockedKits)) {
+      const seatIndex = Number(rawSeatIndex)
+      if (!Number.isInteger(seatIndex)) continue
+      const leaderAbilityId = kit.leaderAbility
+      if (!leaderAbilityId) continue
+
+      const component = getCivBlitzComponent(leaderAbilityId, leaderDataVersion, {
+        excludeBbgExpanded: civBlitzState.excludeBbgExpanded,
+      })
+      if (component?.category === 'leaderAbility') {
+        civBlitzLeaderBySeat.set(seatIndex, component.sourceLeaderId)
+      }
+    }
+  }
+
   state.seats.forEach((seat, seatIndex) => {
-    civByPlayer.set(seat.playerId, pickBySeat.get(seatIndex) ?? null)
+    civByPlayer.set(seat.playerId, civBlitzLeaderBySeat.get(seatIndex) ?? pickBySeat.get(seatIndex) ?? null)
   })
 
   return civByPlayer

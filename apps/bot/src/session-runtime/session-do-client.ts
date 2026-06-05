@@ -1,7 +1,7 @@
 import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import type { DraftSessionRecord, SessionRecord } from './session-record.ts'
+import type { ActiveSessionRecord, DraftSessionRecord, SessionRecord } from './session-record.ts'
 import { SessionAdmissionError } from '../services/session/directory.ts'
 
 export type SessionOpenLobbyCommand
@@ -34,6 +34,13 @@ export type SessionOpenLobbyCommand
     type: 'set-steam-lobby-link'
     expectedVersion?: number
     steamLobbyLink: string | null
+    now?: number
+  }
+  | {
+    type: 'set-host'
+    expectedVersion?: number
+    hostId: string
+    lastActivityAt?: number
     now?: number
   }
   | {
@@ -141,9 +148,40 @@ export interface SessionReportedDiscordSyncCommand {
   at?: number
 }
 
+export interface SessionReportClaim {
+  matchId: string
+  claimId: string
+}
+
+export type SessionReportClaimResult
+  = | { claimed: true, claim: SessionReportClaim, finalized?: boolean }
+    | { claimed: false, processing?: boolean, alreadyReported?: boolean, finalizing?: boolean }
+
 export type SessionDraftLifecycleSyncResult
   = | { ok: true, ignored?: boolean, synced?: boolean }
     | { ok: false, status: number, error: string }
+
+export interface SessionRepeatDraftAvailability {
+  kind: 'resume' | 'complete'
+  matchId: string
+}
+
+export interface SessionRepeatDraftResult {
+  kind: 'resume' | 'complete'
+  record: DraftSessionRecord | ActiveSessionRecord
+  matchId: string
+  seats: DraftSeat[]
+  participants?: Array<{
+    playerId: string
+    team: number | null
+    civId: string | null
+    placement?: number | null
+    ratingBeforeMu?: number | null
+    ratingBeforeSigma?: number | null
+    ratingAfterMu?: number | null
+    ratingAfterSigma?: number | null
+  }>
+}
 
 export async function createSessionAggregateFromLobby(
   namespace: DurableObjectNamespace | null | undefined,
@@ -193,6 +231,51 @@ export async function startSessionDraft(
     throw new Error(`Failed to start session draft for ${sessionId}: invalid response`)
   }
   return { record: body.record, matchId: body.matchId, seats: body.seats, idempotent: body.idempotent }
+}
+
+export async function getSessionRepeatDraftAvailability(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+): Promise<SessionRepeatDraftAvailability | null> {
+  if (!namespace) return null
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/repeat-draft'))
+  if (response.status === 404 || response.status === 409) return null
+  if (!response.ok) await throwSessionCommandError(response, `read repeat draft availability for ${sessionId}`)
+
+  const body = await response.json<{ repeatDraft?: SessionRepeatDraftAvailability | null }>()
+  return body.repeatDraft ?? null
+}
+
+export async function repeatSessionDraft(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: { expectedVersion?: number, hostId?: string, now?: number } = {},
+): Promise<SessionRepeatDraftResult> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/repeat-draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `repeat session draft for ${sessionId}`)
+  }
+
+  const body = await response.json<Partial<SessionRepeatDraftResult>>()
+  if ((body.kind !== 'resume' && body.kind !== 'complete') || !body.record || typeof body.matchId !== 'string' || !Array.isArray(body.seats)) {
+    throw new Error(`Failed to repeat session draft for ${sessionId}: invalid response`)
+  }
+  if (body.record.phase !== 'draft' && body.record.phase !== 'active') {
+    throw new Error(`Failed to repeat session draft for ${sessionId}: invalid record phase`)
+  }
+  return body as SessionRepeatDraftResult
 }
 
 export async function runSessionOpenLobbyCommand(
@@ -331,6 +414,73 @@ export async function queueSessionReportedDiscordSync(
 
   if (!response.ok) {
     await throwSessionCommandError(response, `queue reported Discord sync for ${sessionId}`)
+  }
+}
+
+export async function claimSessionReport(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: { matchId?: string, reporterId?: string | null, at?: number } = {},
+): Promise<SessionReportClaimResult> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...command, type: 'claim' }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `claim report processing for ${sessionId}`)
+  }
+
+  const body = await response.json<SessionReportClaimResult>()
+  if (body.claimed && body.claim?.claimId && body.claim.matchId) return body
+  if (!body.claimed) return body
+  throw new Error(`Failed to claim report processing for ${sessionId}: invalid response`)
+}
+
+export async function getSessionReportClaimStatus(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: { matchId?: string, at?: number } = {},
+): Promise<SessionReportClaimResult> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...command, type: 'status' }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `read report processing claim for ${sessionId}`)
+  }
+
+  return await response.json<SessionReportClaimResult>()
+}
+
+export async function releaseSessionReportClaim(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  claim: SessionReportClaim,
+): Promise<void> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/report-claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'release', matchId: claim.matchId, claimId: claim.claimId }),
+  }))
+
+  if (!response.ok) {
+    await throwSessionCommandError(response, `release report processing claim for ${sessionId}`)
   }
 }
 

@@ -257,6 +257,31 @@ export async function setLobbySteamLobbyLink(
     : () => runSessionProjectionCommand(options?.sessionNamespace, updated.id, { type: 'set-steam-lobby-link', expectedVersion: lobby.revision, steamLobbyLink, now: updated.updatedAt }))
 }
 
+export async function setLobbyHost(
+  kv: KVNamespace,
+  lobbyId: string,
+  hostId: string,
+  currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState | null> {
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
+  if (!lobby) return null
+
+  if (lobby.hostId === hostId) return lobby
+
+  const updatedAt = Date.now()
+  const updated: LobbyState = {
+    ...lobby,
+    hostId,
+    lastActivityAt: updatedAt,
+    updatedAt,
+    revision: lobby.revision + 1,
+  }
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-host', expectedVersion: lobby.revision, hostId, lastActivityAt: updatedAt, now: updatedAt }
+    : undefined)
+}
+
 export async function setLobbySlots(
   kv: KVNamespace,
   lobbyId: string,

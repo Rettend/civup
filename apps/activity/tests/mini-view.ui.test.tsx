@@ -28,7 +28,7 @@ describe('MiniView UI', () => {
     expect(screen.getByText('Draft Setup')).toBeTruthy()
 
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
     mount(createWaitingDraftState({ formatId: '3v3' }))
     expect(screen.getByText('Map Voting')).toBeTruthy()
 

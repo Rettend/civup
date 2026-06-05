@@ -14,7 +14,9 @@
     "test": "bun test --preload ./tests/setup-dom.ts tests",
     "test:coverage": "bun test --preload ./tests/setup-dom.ts tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "check": "tsgo --noEmit",
+    "items:normalize-icons": "bun ./scripts/normalize-bbg-item-icons.ts",
     "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
+    "portraits:normalize-icons": "bun ./scripts/normalize-leader-grid-icons.ts",
     "deploy": "bun run deploy:prod",
     "deploy:prod": "bun run build:prod && wrangler deploy",
     "secret:bulk:prod": "wrangler secret bulk .prod.secrets"

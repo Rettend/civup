@@ -16,7 +16,7 @@ export async function buildOpenLobbySnapshot(
   mode: GameMode,
   lobby: LobbyState,
 ) {
-  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
   const resolvedQueueEntries = buildLobbyQueueEntries(lobby)
   const resolvedSlots = normalizeLobbySlots(mode, lobby.slots, resolvedQueueEntries)
   return buildOpenLobbySnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots, balanceSnapshot)
@@ -38,8 +38,9 @@ export async function getLobbyBalanceSnapshot(
   kv: KVNamespace,
   mode: GameMode,
   redDeath = false,
+  civBlitz = false,
 ): Promise<LeaderboardModeSnapshot | null> {
-  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath })
+  const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath, civBlitz })
   return leaderboardMode ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode) : null
 }
 

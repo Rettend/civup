@@ -1,5 +1,7 @@
-import type { JSX } from 'solid-js'
+import type { Accessor, JSX } from 'solid-js'
 import { cn } from '~/client/lib/css'
+
+type MaybeAccessor<T> = T | Accessor<T>
 
 interface TextInputProps {
   type?: 'text' | 'number'
@@ -8,7 +10,7 @@ interface TextInputProps {
   value?: string | number
   placeholder?: string
   min?: string
-  max?: string
+  max?: MaybeAccessor<string | undefined>
   step?: string
   disabled?: boolean
   onInput?: JSX.EventHandlerUnion<HTMLInputElement, InputEvent>
@@ -20,6 +22,9 @@ interface TextInputProps {
 }
 
 export function TextInput(props: TextInputProps) {
+  const resolve = <T,>(value: MaybeAccessor<T> | undefined) => typeof value === 'function' ? (value as Accessor<T>)() : value
+  const max = () => resolve(props.max)
+
   const normalizeNumberValue = (value: string): { nextValue: string, adjusted: boolean } => {
     if (props.type !== 'number') return { nextValue: value, adjusted: false }
 
@@ -36,8 +41,9 @@ export function TextInput(props: TextInputProps) {
       if (Number.isFinite(minimum)) bounded = Math.max(minimum, bounded)
     }
 
-    if (props.max != null) {
-      const maximum = Number(props.max)
+    const maximumValue = max()
+    if (maximumValue != null) {
+      const maximum = Number(maximumValue)
       if (Number.isFinite(maximum)) bounded = Math.min(maximum, bounded)
     }
 
@@ -64,7 +70,7 @@ export function TextInput(props: TextInputProps) {
         value={props.value ?? ''}
         placeholder={props.placeholder}
         min={props.min}
-        max={props.max}
+        max={max()}
         step={props.step}
         disabled={props.disabled}
         onInput={(e) => { if (typeof props.onInput === 'function') props.onInput(e) }}

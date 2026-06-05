@@ -1,10 +1,10 @@
 /** @jsxImportSource solid-js */
 
-import type { DraftStep } from '@civup/game'
-import { getLeader } from '@civup/game'
-import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
+import type { CivBlitzCategoryOptions, DraftStep } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
@@ -24,6 +24,15 @@ function setViewportWidth(width: number) {
       removeEventListener: () => {},
     },
   })
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function createCivBlitzOptions(): CivBlitzCategoryOptions {
+  const pools = getCivBlitzRegistry().componentPools
+  return Object.fromEntries(CIV_BLITZ_CATEGORIES.map(category => [category, pools[category].slice(0, 4)])) as CivBlitzCategoryOptions
 }
 
 describe('LeaderGridOverlay UI', () => {
@@ -169,9 +178,12 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
     expect(screen.getByRole('button', { name: 'Confirm Bans (2/2)' })).toBeTruthy()
 
+    storeSpies.sendPreview.mockClear()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (2/2)' }))
+    await wait(80)
 
     expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
+    expect(storeSpies.sendPreview.mock.calls.some(call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0)).toBe(false)
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.banSelections).toEqual([])
   })
@@ -195,6 +207,127 @@ describe('LeaderGridOverlay UI', () => {
 
     expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)
     expect(uiMockState.gridOpen).toBe(false)
+  })
+
+  test('hydrates CivBlitz selections from pick previews after remount', async () => {
+    const options = createCivBlitzOptions()
+    const previewIds = CIV_BLITZ_CATEGORIES.map(category => options[category][0]!)
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.draftPreviewPicks[0] = previewIds
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: getCivBlitzRegistry().componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    await waitFor(() => {
+      const confirmButton = screen.getByRole('button', { name: /Confirm/ })
+      expect(confirmButton.textContent?.replace(/\s+/g, '')).toBe('Confirm(4/4)')
+      expect(confirmButton.hasAttribute('disabled')).toBe(false)
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/ }))
+
+    expect(storeSpies.sendCivBlitzSubmit).toHaveBeenCalledWith({
+      civilizationAbility: previewIds[0],
+      leaderAbility: previewIds[1],
+      infrastructure: previewIds[2],
+      unit: previewIds[3],
+    })
+  })
+
+  test('orders CivBlitz civilization and leader options like normal draft cards', () => {
+    const registry = getCivBlitzRegistry()
+    const options: CivBlitzCategoryOptions = {
+      civilizationAbility: [
+        'civblitz:civilizationAbility:babylon',
+        'civblitz:civilizationAbility:australia',
+        'civblitz:civilizationAbility:america',
+      ],
+      leaderAbility: [
+        'civblitz:leaderAbility:australia-john-curtin',
+        'civblitz:leaderAbility:babylon-hammurabi',
+        'civblitz:leaderAbility:america-abraham-lincoln',
+      ],
+      infrastructure: [],
+      unit: [],
+    }
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.gridViewMode = 'list'
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility'] }],
+      civBlitz: {
+        optionCount: 3,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    expect(getCivBlitzSectionLabels('Civilization Ability')).toEqual([
+      registry.componentMap.get('civblitz:civilizationAbility:america')?.name,
+      registry.componentMap.get('civblitz:civilizationAbility:australia')?.name,
+      registry.componentMap.get('civblitz:civilizationAbility:babylon')?.name,
+    ])
+    expect(getCivBlitzSectionLabels('Leader Ability')).toEqual([
+      registry.componentMap.get('civblitz:leaderAbility:america-abraham-lincoln')?.name,
+      registry.componentMap.get('civblitz:leaderAbility:babylon-hammurabi')?.name,
+      registry.componentMap.get('civblitz:leaderAbility:australia-john-curtin')?.name,
+    ])
+  })
+
+  test('shows locked CivBlitz picks in the completed review grid', () => {
+    const registry = getCivBlitzRegistry()
+    const options = createCivBlitzOptions()
+    const extraLeaderAbilityId = registry.componentPools.leaderAbility.find(componentId => !options.leaderAbility.includes(componentId))!
+    const extraLeaderAbility = registry.componentMap.get(extraLeaderAbilityId)!
+
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.gridViewMode = 'list'
+    uiMockState.draftState = createCompleteDraftState({
+      formatId: 'civblitz-2v2',
+      picks: [],
+      availableCivIds: [],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: { 0: options },
+        submissions: {},
+        lockedKits: {
+          1: { leaderAbility: extraLeaderAbilityId },
+        },
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    expect(getCivBlitzSectionLabels('Leader Ability')).toContain(extraLeaderAbility.name)
+    expect(screen.queryByRole('button', { name: /Confirm/ })).toBeNull()
   })
 
   test('toggles the expanded overlay layout through the shared grid controls', async () => {
@@ -410,3 +543,9 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.hammurabi])
   })
 })
+
+function getCivBlitzSectionLabels(sectionLabel: string): Array<string | undefined> {
+  const section = screen.getByText(sectionLabel).closest('section')
+  expect(section).toBeTruthy()
+  return Array.from(section!.querySelectorAll('button')).map(button => button.querySelector('span span')?.textContent ?? undefined)
+}

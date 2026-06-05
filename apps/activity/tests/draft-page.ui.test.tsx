@@ -10,6 +10,10 @@ const onSwitchTarget = mock(() => {})
 
 const { DraftPage } = await import('../src/client/pages/draft')
 
+function queryUiScaleControl() {
+  return document.querySelector('[aria-label="UI Scale"]')
+}
+
 describe('DraftPage UI', () => {
   beforeEach(() => {
     cleanup()
@@ -23,6 +27,7 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
     expect(screen.getByText('Joining draft room...')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeTruthy()
   })
 
   test('keeps the joining shell after socket connect until draft state hydrates', () => {
@@ -86,9 +91,8 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteSelectedTypes = []
-    uiMockState.mapVoteSelectedScripts = []
-    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    uiMockState.mapVoteSelectedMaps = []
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
     uiMockState.gridOpen = true
 
     render(() => <DraftPage matchId="match-1" autoStart steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
@@ -103,13 +107,13 @@ describe('DraftPage UI', () => {
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['seven-seas'] },
+      { seatIndex: 0, confirmed: true, maps: ['inland-sea-east-vs-west'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
-    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
     uiMockState.gridOpen = true
 
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
@@ -127,6 +131,7 @@ describe('DraftPage UI', () => {
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
+    expect((queryUiScaleControl() as HTMLButtonElement | null)?.disabled).toBe(true)
     expect(screen.getByRole('button', { name: 'Expand leader grid' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
     expect(screen.getByText('Reconnecting...')).toBeTruthy()
@@ -166,6 +171,7 @@ describe('DraftPage UI', () => {
 
     expect(screen.getByText('You can close the activity!')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Confirm Result' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open leader grid' })).toBeTruthy()
   })
 
   test('supports selecting the winning team from the completed draft page slot strip', () => {
@@ -203,6 +209,7 @@ describe('DraftPage UI', () => {
     mount(null)
 
     expect(screen.getByText('Draft Reverted')).toBeTruthy()
+    expect(queryUiScaleControl()).toBeNull()
   })
 
   test('transitions from the auto-start splash into the active draft shell', () => {

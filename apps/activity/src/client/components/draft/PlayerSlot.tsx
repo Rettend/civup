@@ -1,13 +1,13 @@
-import type { Leader } from '@civup/game'
-import { getLeader, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
-import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
+import type { CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader, MapVoteMapOption } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getCivBlitzStepCategories, getLeader, getMapVoteMapIdForResult, MAP_VOTE_MAP_BY_ID, normalizeMapVoteSelection } from '@civup/game'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { getLeaderFullPortraitUrl } from '~/client/lib/leader-full-portrait'
 import { placementIconClass } from '~/client/lib/placement-icons'
 import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '~/client/lib/seat-grid'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
-import { canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
+import { BLIND_PICK_SUBMISSION_PLACEHOLDER, canSwapLeadersWith, draftNow, draftStore, ffaPlacementOrder, getOptimisticSeatPick, getPreviewPickForSeat, getPreviewPicksForSeat, getSeatMapVote, gridOpen, hiddenDraftLeaderSelections, isHiddenDraftComplete, isMapVotePhase, isMobileLayout, isSeatMapVoteConfirmed, MAP_VOTE_REVEAL_DURATION_SECONDS, MAP_VOTE_VOTING_DURATION_SECONDS, mapVotePhase, mapVoteRevealEndsAt, mapVoteWinningScriptCandidate, mapVoteWinningTypeCandidate, phaseAccent, resultSelectionsLocked, seatJustSwapped, selectWinningTeam, sendLeaderSwap, toggleFfaPlacement, toggleTeamPlacement, userId } from '~/client/stores'
 
 interface PlayerSlotProps {
   /** Seat index in the draft */
@@ -19,10 +19,19 @@ interface PlayerSlotProps {
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
+const BAN_PREVIEW_HORIZONTAL_RATIO = 0.92
+const CIV_BLITZ_SLOT_ICONS: Record<CivBlitzComponentCategory, string> = {
+  civilizationAbility: 'i-ph:flag-duotone',
+  leaderAbility: 'i-ph:user-duotone',
+  infrastructure: 'i-ph:factory-duotone',
+  unit: 'i-ph:horse-duotone',
+}
 
 function SlotPortraitImage(props: {
   src: string
   alt: string
+  title?: string
+  'data-testid'?: string
   class?: string
   animate?: boolean
   waitForDecode?: boolean
@@ -42,6 +51,8 @@ function SlotPortraitImage(props: {
       }}
       src={props.src}
       alt={props.alt}
+      title={props.title}
+      data-testid={props['data-testid']}
       class={cn(
         props.class,
         props.animate && props.waitForDecode && !ready() && 'opacity-0',
@@ -55,17 +66,23 @@ function SlotPortraitImage(props: {
 
 /** Individual player slot */
 export function PlayerSlot(props: PlayerSlotProps) {
+  let slotElement: HTMLDivElement | undefined
   const state = () => draftStore.state
   const seat = () => state()?.seats[props.seatIndex]
+  const civBlitzComponentMap = createMemo(() => getCivBlitzRegistry(draftStore.leaderDataVersion, { excludeBbgExpanded: state()?.civBlitz?.excludeBbgExpanded !== false }).componentMap)
 
   const pick = () => {
     const serverPick = state()?.picks.find(p => p.seatIndex === props.seatIndex)
     if (serverPick) return serverPick
 
+    const currentSubmissionPick = visibleBlindPickSubmission()
+    if (currentSubmissionPick) return currentSubmissionPick
+
     const optimisticCivId = getOptimisticSeatPick(props.seatIndex)
+    const visibleOptimisticCivId = optimisticCivId === BLIND_PICK_SUBMISSION_PLACEHOLDER ? null : optimisticCivId
     const visualIndex = getVisualSeatOrder(state()?.seats).indexOf(props.seatIndex)
     const hiddenDraftCivId = visualIndex >= 0 ? hiddenDraftLeaderSelections()[visualIndex] ?? null : null
-    const civId = optimisticCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
+    const civId = visibleOptimisticCivId ?? (isHiddenDraftComplete() ? hiddenDraftCivId : null)
     if (!civId) return null
 
     return {
@@ -81,7 +98,76 @@ export function PlayerSlot(props: PlayerSlotProps) {
     catch { return null }
   }
 
+  const visibleBlindPickSubmission = () => {
+    const s = state()
+    if (!s || s.status !== 'active') return null
+    const step = s.steps[s.currentStepIndex]
+    if (!step || step.action !== 'pick' || !step.blind || step.reveal || step.civBlitz) return null
+
+    const civId = s.submissions[props.seatIndex]?.[0]
+    if (!civId || civId === BLIND_PICK_SUBMISSION_PLACEHOLDER) return null
+    return {
+      seatIndex: props.seatIndex,
+      civId,
+    }
+  }
+
   const filled = () => !!pick()
+  const revealPick = () => state()?.blindPickReveal?.picks.find(p => p.seatIndex === props.seatIndex) ?? null
+  const revealLeader = (): Leader | null => {
+    const p = revealPick()
+    if (!p) return null
+    try { return getLeader(p.civId, draftStore.leaderDataVersion) }
+    catch { return null }
+  }
+  const hasReveal = (): boolean => revealLeader() != null
+  const civBlitzLockedKit = (): CivBlitzPartialKit | null => state()?.civBlitz?.lockedKits[props.seatIndex] ?? null
+  const civBlitzRevealedKit = (): CivBlitzPartialKit | null => {
+    const blitz = state()?.civBlitz
+    if (!blitz) return null
+    return blitz.reveal?.submissions.find(submission => submission.seatIndex === props.seatIndex)?.kit ?? null
+  }
+  const civBlitzSubmittedKit = (): CivBlitzPartialKit | null => {
+    const kit = state()?.civBlitz?.submissions[props.seatIndex]
+    if (!kit) return null
+
+    const visible: CivBlitzPartialKit = {}
+    for (const category of CIV_BLITZ_CATEGORIES) {
+      const componentId = kit[category]
+      if (typeof componentId === 'string' && componentId.length > 0 && componentId !== BLIND_PICK_SUBMISSION_PLACEHOLDER) visible[category] = componentId
+    }
+    return Object.keys(visible).length > 0 ? visible : null
+  }
+  const civBlitzPreviewKit = (): CivBlitzPartialKit | null => {
+    const blitz = state()?.civBlitz
+    if (!blitz) return null
+    const options = blitz.optionsBySeat[props.seatIndex]
+    if (!options) return null
+
+    const kit: CivBlitzPartialKit = {}
+    for (const componentId of getPreviewPicksForSeat(props.seatIndex)) {
+      for (const category of CIV_BLITZ_CATEGORIES) {
+        if (kit[category] || !options[category].includes(componentId)) continue
+        kit[category] = componentId
+        break
+      }
+    }
+    return Object.keys(kit).length > 0 ? kit : null
+  }
+  const hasCivBlitzDisplay = () => state()?.civBlitz != null
+  const civBlitzConflictIds = () => new Set(state()?.civBlitz?.reveal?.conflictComponentIds ?? [])
+  const civBlitzStepCategories = (): CivBlitzComponentCategory[] => {
+    const s = state()
+    const step = s?.steps[s.currentStepIndex]
+    if (!step?.civBlitz) return []
+    return getCivBlitzStepCategories(step, props.seatIndex)
+  }
+  const civBlitzActiveCategorySet = createMemo(() => new Set(civBlitzStepCategories()))
+  const shouldFadeLockedCivBlitzCategory = (category: CivBlitzComponentCategory): boolean => {
+    const s = state()
+    const step = s?.steps[s.currentStepIndex]
+    return !!step?.civBlitz && isActive() && !civBlitzActiveCategorySet().has(category)
+  }
   const previewLeader = (): Leader | null => {
     if (filled()) return null
     const civId = getPreviewPickForSeat(props.seatIndex)
@@ -91,13 +177,17 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
 
   const hasPreview = (): boolean => previewLeader() != null
-  const displayLeader = (): Leader | null => leader() ?? previewLeader()
+  const displayLeader = (): Leader | null => leader() ?? revealLeader() ?? previewLeader()
   const leaderKey = () => {
     const l = leader()
     return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
   }
   const previewLeaderKey = () => {
     const l = previewLeader()
+    return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
+  }
+  const revealLeaderKey = () => {
+    const l = revealLeader()
     return l ? `${draftStore.leaderDataVersion}:${l.id}` : null
   }
   const displayLeaderKey = () => {
@@ -109,6 +199,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const accent = () => phaseAccent()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
   const seatPlayerId = () => seat()?.playerId ?? null
+  const seatTeam = () => seat()?.team ?? null
   const isComplete = () => state()?.status === 'complete'
   const isFfa = () => !(state()?.seats.some(s => s.team != null) ?? false)
   const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
@@ -141,9 +232,27 @@ export function PlayerSlot(props: PlayerSlotProps) {
       : step.seats.includes(props.seatIndex)
     if (!seatIsInStep) return false
 
-    const submittedCount = s.submissions[props.seatIndex]?.length ?? 0
+    const submittedCount = Math.max(s.submissions[props.seatIndex]?.length ?? 0, getOptimisticSeatPick(props.seatIndex) ? 1 : 0)
     return submittedCount < step.count
   }
+  const banPreviewLeaders = createMemo<Leader[]>(() => {
+    const s = state()
+    if (!s || s.status !== 'active' || filled() || seatTeam() == null) return []
+
+    const step = s.steps[s.currentStepIndex]
+    if (!step || step.action !== 'ban') return []
+    if (step.seats !== 'all' && !step.seats.includes(props.seatIndex)) return []
+    if ((s.submissions[props.seatIndex]?.length ?? 0) >= step.count) return []
+
+    const leaders: Leader[] = []
+    for (const civId of (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, 3)) {
+      try { leaders.push(getLeader(civId, draftStore.leaderDataVersion)) }
+      catch { }
+    }
+    return leaders
+  })
+  const hasBanPreview = (): boolean => banPreviewLeaders().length > 0
+  const [banPreviewHorizontal, setBanPreviewHorizontal] = createSignal(isMobileLayout())
   const activeStepDurationSeconds = () => {
     const s = state()
     if (!s || s.status !== 'active') return 0
@@ -163,6 +272,36 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const [wasEverActive, setWasEverActive] = createSignal(false)
   createEffect(() => { if (isActive()) setWasEverActive(true) })
+
+  createEffect(() => {
+    if (!hasBanPreview()) {
+      setBanPreviewHorizontal(isMobileLayout())
+      return
+    }
+
+    const element = slotElement
+    if (!element) return
+
+    const updateOrientation = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) {
+        setBanPreviewHorizontal(isMobileLayout())
+        return
+      }
+      setBanPreviewHorizontal(width >= height * BAN_PREVIEW_HORIZONTAL_RATIO)
+    }
+
+    const rect = element.getBoundingClientRect()
+    updateOrientation(rect.width, rect.height)
+
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      updateOrientation(entry.contentRect.width, entry.contentRect.height)
+    })
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
 
   // ── FFA Placement ────────────────────────────────────────
   const placementRank = () => {
@@ -246,7 +385,6 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if (rank < 0) return 0
     return draftStore.permanentAlly ? Math.floor(rank / 2) + 1 : rank + 1
   }
-  const seatTeam = () => seat()?.team ?? null
 
   const showCornerSwapButton = () => !resultSelectionsLocked() && canSwapLeadersWith(props.seatIndex)
   const swapButtonClass = 'rounded-full border-2 bg-transparent text-[#e2c68b] border-[#e8d4ab]/72 shadow-[0_6px_18px_rgba(0,0,0,0.38),0_0_0_1px_rgba(200,170,110,0.08)] transition-[color,border-color,box-shadow,transform] duration-200 hover:text-[#f4dca8] hover:border-[#f4dca8]/92 hover:shadow-[0_8px_24px_rgba(0,0,0,0.46),0_0_18px_rgba(200,170,110,0.24)] active:scale-95'
@@ -270,6 +408,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   return (
     <div
+      ref={slotElement}
       class={cn(
         'relative flex flex-col overflow-hidden bg-bg-subtle h-full isolate',
         canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
@@ -382,6 +521,33 @@ export function PlayerSlot(props: PlayerSlotProps) {
       </Show>
 
       {/* Portrait */}
+      <Show when={hasCivBlitzDisplay()}>
+        <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-black/20">
+          <For each={CIV_BLITZ_CATEGORIES}>
+            {category => {
+              const lockedComponentId = () => civBlitzLockedKit()?.[category] ?? null
+              const submittedComponentId = () => civBlitzSubmittedKit()?.[category] ?? null
+              const revealedComponentId = () => civBlitzRevealedKit()?.[category] ?? null
+              const previewComponentId = () => lockedComponentId() || submittedComponentId() ? null : civBlitzPreviewKit()?.[category] ?? null
+              const componentId = () => submittedComponentId() ?? lockedComponentId() ?? previewComponentId() ?? revealedComponentId()
+              const component = () => componentId() ? civBlitzComponentMap().get(componentId()!) ?? null : null
+              const muted = () => previewComponentId() != null || (lockedComponentId() != null && submittedComponentId() == null && shouldFadeLockedCivBlitzCategory(category))
+              return (
+                <CivBlitzSlotTile
+                  category={category}
+                  component={component()}
+                  sourceLeaderName={getCivBlitzSourceLeaderName(component())}
+                  conflict={!previewComponentId() && revealedComponentId() ? civBlitzConflictIds().has(revealedComponentId()!) : false}
+                  muted={muted()}
+                  animate={previewComponentId() != null}
+                  compact={props.compact}
+                />
+              )
+            }}
+          </For>
+        </div>
+      </Show>
+
       <Show when={leaderKey()} keyed>
         {(_key) => {
           const l = leader()
@@ -402,7 +568,29 @@ export function PlayerSlot(props: PlayerSlotProps) {
         }}
       </Show>
 
-      <Show when={!filled() && previewLeaderKey()} keyed>
+      <Show when={!filled() && revealLeaderKey()} keyed>
+        {(_key) => {
+          const l = revealLeader()
+          return l
+            ? (
+                <div class="opacity-80 inset-0 absolute saturate-90">
+                  <SlotPortraitImage
+                    src={getLeaderFullPortraitUrl(l)}
+                    alt={l.name}
+                    class={cn(
+                      'absolute inset-0 h-full w-full object-cover',
+                      props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                    )}
+                    animate
+                    waitForDecode
+                  />
+                </div>
+              )
+            : null
+        }}
+      </Show>
+
+      <Show when={!filled() && !hasReveal() && previewLeaderKey()} keyed>
         {(_key) => {
           const l = previewLeader()
           return l
@@ -423,9 +611,35 @@ export function PlayerSlot(props: PlayerSlotProps) {
         }}
       </Show>
 
+      <Show when={!filled() && hasBanPreview()}>
+        <div
+          data-testid="slot-ban-preview-stack"
+          class={cn(
+            'pointer-events-none absolute inset-0 flex opacity-50 saturate-85',
+            banPreviewHorizontal() ? 'flex-row' : 'flex-col',
+          )}
+        >
+          <For each={banPreviewLeaders()}>
+            {entry => (
+              <SlotPortraitImage
+                data-testid="slot-ban-preview"
+                src={getLeaderFullPortraitUrl(entry)}
+                alt={`Ban preview: ${entry.name}`}
+                title={`${entry.name} - ${entry.civilization}`}
+                class={cn(
+                  'h-full min-h-0 min-w-0 flex-1 object-cover',
+                  props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
+                )}
+                animate
+              />
+            )}
+          </For>
+        </div>
+      </Show>
+
       {/* Empty state icon */}
-      <Show when={!filled() && !hasPreview()}>
-        <div class="flex flex-1 items-center justify-center">
+      <Show when={!hasCivBlitzDisplay() && !filled() && !hasReveal() && !hasPreview() && !hasBanPreview()}>
+        <div class="flex flex-1 flex-col items-center justify-center">
           <div class={cn(
             isHiddenDraftComplete() ? 'i-ph-question-bold text-4xl' : 'i-ph-user-bold text-3xl',
             isActive() ? (accent() === 'red' ? 'text-danger/80' : 'text-accent/80') : 'text-fg-muted/40',
@@ -437,7 +651,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
       {/* Bottom gradient overlay */}
       <div class={cn(
         'absolute inset-x-0 bottom-0 px-2 pb-2 pt-8 z-20',
-        filled() || hasPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
+        filled() || hasCivBlitzDisplay() || hasReveal() || hasPreview() || hasBanPreview() ? 'bg-gradient-to-t from-black/80 to-transparent' : 'bg-gradient-to-t from-bg/40 to-transparent',
       )}
       >
         {/* Leader name (when picked) */}
@@ -447,10 +661,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
             return l
               ? (
                   <div class="mb-1">
-                    <div class={cn('text-base leading-tight font-semibold truncate', filled() ? 'text-fg' : 'text-fg/72')}>
+                    <div class={cn('text-base leading-tight font-semibold truncate', filled() || hasReveal() ? 'text-fg' : 'text-fg/72')}>
                       {l.name}
                     </div>
-                    <div class={cn('text-sm leading-tight truncate', filled() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
+                    <div class={cn('text-sm leading-tight truncate', filled() || hasReveal() ? 'text-fg-muted/80' : 'text-fg-muted/65')}>
                       {l.civilization}
                     </div>
                   </div>
@@ -507,6 +721,73 @@ export function PlayerSlot(props: PlayerSlotProps) {
   )
 }
 
+function CivBlitzSlotTile(props: {
+  category: CivBlitzComponentCategory
+  component: CivBlitzComponent | null
+  sourceLeaderName?: string | null
+  conflict: boolean
+  muted: boolean
+  animate: boolean
+  compact?: boolean
+}) {
+  const imageUrl = () => props.component?.iconUrl ?? props.component?.portraitUrl ?? null
+  const hasIcon = () => props.component?.iconUrl != null
+  const isCivilizationIcon = () => props.category === 'civilizationAbility' && hasIcon()
+  const imageFrameClass = () => cn(
+    'aspect-square',
+    hasIcon()
+      ? (props.compact ? 'w-[58%]' : 'w-[66%]')
+      : (props.compact ? 'w-[58%]' : 'w-[66%]'),
+    isCivilizationIcon() || !hasIcon() ? 'rounded-full' : 'rounded-md',
+    !hasIcon() && 'bg-bg-subtle/45',
+  )
+  const imageClass = () => hasIcon()
+    ? cn('object-contain', isCivilizationIcon() && 'rounded-full')
+    : 'object-cover'
+  return (
+    <div class={cn('relative min-h-0 min-w-0 box-border bg-bg overflow-hidden', props.conflict && 'opacity-80 saturate-90', props.muted && 'opacity-50 saturate-85')}>
+      <div class="absolute inset-0 flex flex-col items-center justify-center px-2 pb-2 pt-4">
+        <Show when={props.component}>
+          {component => (
+            <div class="mb-1.5 max-w-full text-center text-sm leading-tight text-white/90 font-semibold truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
+              {component().name}
+            </div>
+          )}
+        </Show>
+        <div class={cn('relative shrink-0 overflow-hidden', imageFrameClass())}>
+          <Show
+            when={imageUrl()}
+            keyed
+            fallback={(
+              <div class="absolute inset-0 flex items-center justify-center">
+                <span class={cn('text-3xl text-fg-muted/45', CIV_BLITZ_SLOT_ICONS[props.category])} />
+              </div>
+            )}
+          >
+            {url => (
+              <SlotPortraitImage
+                src={resolveAssetUrl(url) ?? url}
+                alt={props.component?.name ?? ''}
+                class={cn('absolute inset-0 h-full w-full object-center', imageClass())}
+                animate={props.animate}
+              />
+            )}
+          </Show>
+        </div>
+      </div>
+      <Show when={props.conflict}>
+        <div class="pointer-events-none inset-0 absolute box-border border border-danger/55 bg-danger/14" />
+      </Show>
+    </div>
+  )
+}
+
+function getCivBlitzSourceLeaderName(component: CivBlitzComponent | null): string | null {
+  if (!component) return null
+  try { return getLeader(component.sourceLeaderId, draftStore.leaderDataVersion).name }
+  catch { return null }
+}
+
 function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const state = () => draftStore.state
   const seat = () => state()?.seats[props.seatIndex]
@@ -520,47 +801,37 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
   const isRevealing = () => mapVotePhase() === 'reveal'
   const vote = () => isRevealing() ? getSeatMapVote(props.seatIndex) : null
   const mapVoteResult = () => draftStore.mapVote.result
-  const winningTypeCandidate = () => mapVoteWinningTypeCandidate()
-  const winningScriptCandidate = () => mapVoteWinningScriptCandidate()
-  const isWinningType = () => {
-    const winningType = winningTypeCandidate()
-    return winningType != null && (vote()?.mapTypes ?? []).includes(winningType)
+  const winningMapCandidate = () => getMapVoteMapIdForResult(mapVoteWinningTypeCandidate(), mapVoteWinningScriptCandidate())
+  const selectedMaps = () => normalizeMapVoteSelection(vote()).maps
+  const isWinningMap = () => {
+    const winningMap = winningMapCandidate()
+    return winningMap != null && selectedMaps().includes(winningMap)
   }
-  const isWinningScript = () => {
-    const winningScript = winningScriptCandidate()
-    return winningScript != null && (vote()?.mapScripts ?? []).includes(winningScript)
-  }
-  const hasTypeVote = () => (vote()?.mapTypes.length ?? 0) > 0
-  const hasScriptVote = () => (vote()?.mapScripts.length ?? 0) > 0
+  const hasMapVote = () => selectedMaps().length > 0
   const isWinningBallot = () => {
     if (!isRevealing()) return false
-    if (!hasTypeVote() && !hasScriptVote()) return false
-    return (!hasTypeVote() || isWinningType())
-      && (!hasScriptVote() || isWinningScript())
+    if (!hasMapVote()) return false
+    return isWinningMap()
   }
 
   const isConfirmedSeat = () => isVoting() && isSeatMapVoteConfirmed(props.seatIndex)
   const showVotingGlow = () => isVoting() && !isConfirmedSeat()
   const displayedMap = () => {
-    const displayedScriptId = isWinningBallot()
-      ? mapVoteResult()?.mapScript
-      : vote()?.mapScripts[0] ?? mapVoteResult()?.mapScript
-    if (!displayedScriptId) return null
-    const script = MAP_SCRIPT_BY_ID[displayedScriptId]
-    if (!script) return null
+    const result = mapVoteResult()
+    const displayedMapId = isWinningBallot()
+      ? getMapVoteMapIdForResult(result?.mapType, result?.mapScript)
+      : selectedMaps()[0] ?? getMapVoteMapIdForResult(result?.mapType, result?.mapScript)
+    if (!displayedMapId) return null
+    const map = MAP_VOTE_MAP_BY_ID[displayedMapId]
+    if (!map) return null
     return {
-      ...script,
-      label: script.hint ? `${script.name} (${script.hint})` : script.name,
-      imageSrc: script.imageUrl ? (resolveAssetUrl(script.imageUrl) ?? script.imageUrl) : null,
-      isRandom: script.id === 'random',
+      ...map,
+      label: formatSlotMapLabel(map),
+      subLabel: formatSlotMapSubLabel(map),
+      imageAlt: formatSlotMapImageAlt(map),
+      imageSrc: map.imageUrl ? (resolveAssetUrl(map.imageUrl) ?? map.imageUrl) : null,
+      isRandom: map.id === 'random',
     }
-  }
-  const displayedMapTypeLabel = () => {
-    const displayedTypeId = isWinningBallot()
-      ? mapVoteResult()?.mapType
-      : vote()?.mapTypes[0] ?? mapVoteResult()?.mapType
-    if (!displayedTypeId) return ''
-    return MAP_TYPE_BY_ID[displayedTypeId]?.name ?? displayedTypeId
   }
   const iconClass = () => props.compact ? 'text-3xl' : 'text-5xl'
   const winningBallotBackdropStyle = {
@@ -730,7 +1001,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                         {src => (
                           <img
                             src={src()}
-                            alt={map().label}
+                            alt={map().imageAlt}
                             class="h-full w-full inset-0 absolute object-contain"
                             style={isWinningBallot()
                               ? {
@@ -751,7 +1022,7 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
                       {map().label}
                     </span>
 
-                    <Show when={displayedMapTypeLabel()}>
+                    <Show when={map().subLabel}>
                       {label => (
                         <span class={cn(
                           'mx-auto max-w-full truncate text-center font-semibold leading-none',
@@ -801,6 +1072,19 @@ function MapVoteSlotOverlay(props: { seatIndex: number, compact?: boolean }) {
       </Show>
     </div>
   )
+}
+
+function formatSlotMapLabel(map: MapVoteMapOption): string {
+  return map.name
+}
+
+function formatSlotMapSubLabel(map: MapVoteMapOption): string {
+  return [map.badgeLeft, map.badgeRight].filter(Boolean).join(' ')
+}
+
+function formatSlotMapImageAlt(map: MapVoteMapOption): string {
+  const subLabel = formatSlotMapSubLabel(map)
+  return subLabel ? `${map.name} ${subLabel}` : map.name
 }
 
 interface StableBreatheAnimationStyle {

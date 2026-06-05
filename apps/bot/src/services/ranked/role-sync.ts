@@ -66,6 +66,7 @@ export interface RankedRolePlayerPreview {
   previousAssignment: CurrentRankAssignment | null
   previousSourceMode: LeaderboardMode | null
   ladderTiers: Record<LeaderboardMode, CompetitiveTier | null>
+  ladderRanks: Record<LeaderboardMode, number | null>
   ladderScores: Record<LeaderboardMode, number | null>
   pendingDemotion: RankedRoleDemotionCandidate | null
   status: 'promoted' | 'demoted' | 'changed' | 'kept' | 'new'
@@ -74,6 +75,7 @@ export interface RankedRolePlayerPreview {
 export interface RankedRolePreview {
   guildId: string
   evaluatedAt: number
+  config: RankedRoleConfig
   playerPreviews: RankedRolePlayerPreview[]
   missingConfigTiers: CompetitiveTier[]
   unrankedCount: number
@@ -81,6 +83,7 @@ export interface RankedRolePreview {
 }
 
 export interface RankedRoleSyncResult extends RankedRolePreview {
+  attemptedDiscordChanges: number
   appliedDiscordChanges: number
   pendingDiscordChanges: number
 }
@@ -139,6 +142,7 @@ interface RankedRoleSyncOptions {
   playerIds?: string[]
   includePlayerIdentities?: boolean
   rankedMinGames?: number
+  maxDiscordRoleSyncPlayers?: number
 }
 
 interface RatingSnapshotRow {
@@ -189,12 +193,19 @@ interface LadderAssignment {
 interface LadderSnapshots {
   earn: Map<string, LadderAssignment>
   keep: Map<string, LadderAssignment>
+  ranks: Map<string, number>
   scores: Map<string, number>
 }
 
 interface PlannedRankRoleChange {
   removeRoleIds: string[]
   addRoleId: string | null
+}
+
+interface PendingRankedRoleApplication {
+  playerId: string
+  assignment: CurrentRankAssignment
+  desiredRoleId: string
 }
 
 interface RankedRolePreviewState {
@@ -219,6 +230,12 @@ const CURRENT_ASSIGNMENTS_KEY_PREFIX = 'ranked-roles:current-assignments:'
 const DEMOTION_CANDIDATES_KEY_PREFIX = 'ranked-roles:demotion-candidates:'
 const RANKED_ROLES_DIRTY_STATE_KEY = 'ranked-roles:dirty'
 const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
+const DISCORD_APPLY_CURSOR_KEY_PREFIX = 'ranked-roles:discord-apply-cursor:'
+// Keep this shorter than the daily role sync interval so old isolates do not
+// hide a fresh daily assignment snapshot for another full day.
+const CURRENT_ASSIGNMENTS_CACHE_TTL_MS = 4 * 60 * 60 * 1_000
+
+const currentRankAssignmentsCacheByNamespace = new WeakMap<KVNamespace, Map<string, { assignments: RankedRoleAssignments, expiresAt: number }>>()
 
 const EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.20, 0.40, 0.90] as const
 const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
@@ -437,34 +454,57 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   }
 
   let appliedDiscordChanges = 0
+  let attemptedDiscordChanges = 0
   let pendingDiscordChanges = 0
-  let processedPlayerIds: Set<string> | null = null
-  let appliedRoleIdsByPlayerId: Map<string, string | null> | null = null
   if (options.applyDiscord) {
     const token = options.token?.trim()
     if (!token) throw new Error('Cannot sync ranked roles without a Discord bot token.')
-    const applyResult = await applyCurrentRankRoles(options.kv, options.guildId, token, preview.playerPreviews)
+    await persistRankedRoleSyncState({
+      kv: options.kv,
+      guildId: options.guildId,
+      previousAssignments: state.previousAssignments,
+      previousCandidates: state.previousCandidates,
+      playerPreviews: preview.playerPreviews,
+      appliedRoleIdsByPlayerId: null,
+    })
+    const applyResult = await applyPendingRankedRoleDiscordChanges({
+      kv: options.kv,
+      guildId: options.guildId,
+      token,
+      maxPlayers: options.maxDiscordRoleSyncPlayers,
+    })
+    attemptedDiscordChanges = applyResult.attemptedChanges
     appliedDiscordChanges = applyResult.appliedChanges
-    pendingDiscordChanges = 0
-    processedPlayerIds = applyResult.processedPlayerIds
-    appliedRoleIdsByPlayerId = applyResult.appliedRoleIdsByPlayerId
+    pendingDiscordChanges = applyResult.pendingChanges
   }
-
-  await persistRankedRoleSyncState({
-    kv: options.kv,
-    guildId: options.guildId,
-    previousAssignments: state.previousAssignments,
-    previousCandidates: state.previousCandidates,
-    playerPreviews: preview.playerPreviews,
-    processedPlayerIds,
-    appliedRoleIdsByPlayerId,
-  })
+  else {
+    await persistRankedRoleSyncState({
+      kv: options.kv,
+      guildId: options.guildId,
+      previousAssignments: state.previousAssignments,
+      previousCandidates: state.previousCandidates,
+      playerPreviews: preview.playerPreviews,
+      appliedRoleIdsByPlayerId: null,
+    })
+  }
 
   return {
     ...preview,
+    attemptedDiscordChanges,
     appliedDiscordChanges,
     pendingDiscordChanges,
   }
+}
+
+export async function applyPendingRankedRoleDiscordChanges(options: {
+  kv: KVNamespace
+  guildId: string
+  token: string
+  maxPlayers?: number
+}): Promise<{ attemptedChanges: number, appliedChanges: number, pendingChanges: number }> {
+  const token = options.token.trim()
+  if (!token) throw new Error('Cannot apply ranked roles without a Discord bot token.')
+  return applyCurrentRankRoles(options.kv, options.guildId, token, { maxPlayers: options.maxPlayers })
 }
 
 export async function listRankedRoleMatchUpdateLines(options: {
@@ -540,11 +580,29 @@ export async function listRankedRoleConfigGuildIds(kv: KVNamespace): Promise<str
 }
 
 export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string): Promise<RankedRoleAssignments> {
-  const raw = await kv.get(currentAssignmentsKey(guildId), 'json') as RankedRoleAssignments | null
-  if (!raw || !raw.byPlayerId || typeof raw.byPlayerId !== 'object') return { byPlayerId: {} }
+  const now = Date.now()
+  const cached = getCachedCurrentRankAssignments(kv, guildId, now)
+  if (cached) return cached
+
+  const key = currentRankAssignmentsKey(guildId)
+  const raw = await kv.get(key, 'json')
+  const assignments = normalizeRankedRoleAssignments(raw)
+  cacheCurrentRankAssignments(kv, guildId, assignments, now)
+  return assignments
+}
+
+export function getCachedCurrentRankAssignments(kv: KVNamespace, guildId: string, now = Date.now()): RankedRoleAssignments | null {
+  const cached = getCurrentRankAssignmentsCache(kv).get(currentRankAssignmentsKey(guildId))
+  if (!cached || cached.expiresAt <= now) return null
+  return cloneRankedRoleAssignments(cached.assignments)
+}
+
+export function normalizeRankedRoleAssignments(raw: unknown): RankedRoleAssignments {
+  const rawByPlayerId = raw && typeof raw === 'object' ? (raw as { byPlayerId?: unknown }).byPlayerId : null
+  if (!rawByPlayerId || typeof rawByPlayerId !== 'object') return { byPlayerId: {} }
 
   const byPlayerId: Record<string, CurrentRankAssignment> = {}
-  for (const [playerId, assignment] of Object.entries(raw.byPlayerId)) {
+  for (const [playerId, assignment] of Object.entries(rawByPlayerId as Record<string, unknown>)) {
     const normalized = normalizeCurrentRankAssignment(assignment)
     if (!normalized) continue
     byPlayerId[playerId] = normalized
@@ -553,8 +611,37 @@ export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string
   return { byPlayerId }
 }
 
+function cloneRankedRoleAssignments(assignments: RankedRoleAssignments): RankedRoleAssignments {
+  return {
+    byPlayerId: Object.fromEntries(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, { ...assignment }])),
+  }
+}
+
 export async function setCurrentRankAssignments(kv: KVNamespace, guildId: string, assignments: RankedRoleAssignments): Promise<void> {
-  await kv.put(currentAssignmentsKey(guildId), JSON.stringify(assignments))
+  await kv.put(currentRankAssignmentsKey(guildId), JSON.stringify(assignments))
+  cacheCurrentRankAssignments(kv, guildId, normalizeRankedRoleAssignments(assignments))
+}
+
+export function cacheCurrentRankAssignments(kv: KVNamespace, guildId: string, assignments: RankedRoleAssignments, now = Date.now()): void {
+  getCurrentRankAssignmentsCache(kv).set(currentRankAssignmentsKey(guildId), {
+    assignments: cloneRankedRoleAssignments(assignments),
+    expiresAt: now + CURRENT_ASSIGNMENTS_CACHE_TTL_MS,
+  })
+}
+
+export function clearCurrentRankAssignmentsCache(kv: KVNamespace, guildId?: string): void {
+  const cache = currentRankAssignmentsCacheByNamespace.get(kv)
+  if (!cache) return
+  if (guildId) cache.delete(currentRankAssignmentsKey(guildId))
+  else cache.clear()
+}
+
+function getCurrentRankAssignmentsCache(kv: KVNamespace): Map<string, { assignments: RankedRoleAssignments, expiresAt: number }> {
+  const current = currentRankAssignmentsCacheByNamespace.get(kv)
+  if (current) return current
+  const next = new Map<string, { assignments: RankedRoleAssignments, expiresAt: number }>()
+  currentRankAssignmentsCacheByNamespace.set(kv, next)
+  return next
 }
 
 export async function getRankedRoleDemotionCandidates(kv: KVNamespace, guildId: string): Promise<RankedRoleDemotionCandidates> {
@@ -600,7 +687,7 @@ export async function clearRankedRolesDirtyState(kv: KVNamespace): Promise<void>
   await kv.delete(RANKED_ROLES_DIRTY_STATE_KEY)
 }
 
-function currentAssignmentsKey(guildId: string): string {
+export function currentRankAssignmentsKey(guildId: string): string {
   return `${CURRENT_ASSIGNMENTS_KEY_PREFIX}${guildId}`
 }
 
@@ -610,6 +697,29 @@ function demotionCandidatesKey(guildId: string): string {
 
 function appliedRoleConfigKey(guildId: string): string {
   return `${APPLIED_ROLE_CONFIG_KEY_PREFIX}${guildId}`
+}
+
+function discordApplyCursorKey(guildId: string): string {
+  return `${DISCORD_APPLY_CURSOR_KEY_PREFIX}${guildId}`
+}
+
+async function getDiscordApplyCursor(kv: KVNamespace, guildId: string): Promise<string | null> {
+  const value = await kv.get(discordApplyCursorKey(guildId))
+  return typeof value === 'string' && isDiscordSnowflake(value) ? value : null
+}
+
+async function setDiscordApplyCursor(kv: KVNamespace, guildId: string, playerId: string): Promise<void> {
+  await kv.put(discordApplyCursorKey(guildId), playerId)
+}
+
+async function clearDiscordApplyCursor(kv: KVNamespace, guildId: string): Promise<void> {
+  await kv.delete(discordApplyCursorKey(guildId))
+}
+
+function normalizeMaxDiscordRoleSyncPlayers(value: number | undefined): number {
+  if (value == null) return Number.POSITIVE_INFINITY
+  if (!Number.isFinite(value)) return Number.POSITIVE_INFINITY
+  return Math.max(0, Math.round(value))
 }
 
 async function buildRankedRolePreview(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
@@ -627,10 +737,10 @@ async function buildRankedRolePreviewState({
   includePlayerIdentities = true,
   rankedMinGames = MODE_LADDER_MIN_GAMES,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
-  const [leaderboardSnapshots, previousAssignments, previousCandidates, config, globalRatingRows] = await Promise.all([
+  const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
+  const [leaderboardSnapshots, previousAssignments, config, globalRatingRows] = await Promise.all([
     getLeaderboardModeSnapshotsForPreview(db, kv),
     getCurrentRankAssignments(kv, guildId),
-    getRankedRoleDemotionCandidates(kv, guildId),
     getRankedRoleConfig(kv, guildId),
     db
       .select({
@@ -650,6 +760,9 @@ async function buildRankedRolePreviewState({
       .from(playerRatings)
       .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
   ])
+  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, requestedPlayerIds)
+    ? await getRankedRoleDemotionCandidates(kv, guildId)
+    : { byPlayerId: {} }
 
   const ratings = [...leaderboardSnapshots.values()]
     .flatMap(snapshot => snapshot.rows)
@@ -702,7 +815,6 @@ async function buildRankedRolePreviewState({
     knownPlayerIds.add(playerId)
   }
 
-  const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
   const previewPlayerIds = requestedPlayerIds ?? [...knownPlayerIds].sort((a, b) => a.localeCompare(b))
   const playerIdentityById = await loadPlayerIdentityById(
     db,
@@ -731,6 +843,7 @@ async function buildRankedRolePreviewState({
     const earnAssignment = qualified ? toCurrentAssignment(globalLadders.earn.get(playerId) ?? null) : null
     const keepAssignment = qualified ? toCurrentAssignment(globalLadders.keep.get(playerId) ?? null) : null
     const ladderTiers = buildLadderTierMap(playerId, laddersByMode)
+    const ladderRanks = buildLadderRankMap(playerId, laddersByMode)
     const ladderScores = buildLadderScoreMap(playerId, laddersByMode)
     const liveAssignment = qualified
       ? resolveLiveAssignment({
@@ -779,6 +892,7 @@ async function buildRankedRolePreviewState({
       previousAssignment,
       previousSourceMode: previousAssignment?.sourceMode ?? null,
       ladderTiers,
+      ladderRanks,
       ladderScores,
       pendingDemotion: finalAssignment.pendingDemotion,
       status: qualified ? classifyPreviewStatus(previousAssignment, finalAssignment.assignment, fallbackTier) : 'kept',
@@ -791,6 +905,7 @@ async function buildRankedRolePreviewState({
     preview: {
       guildId,
       evaluatedAt: now,
+      config,
       playerPreviews,
       missingConfigTiers: getMissingRankedRoleConfigTiers(config),
       unrankedCount,
@@ -812,6 +927,17 @@ function buildRequestedPlayerIds(playerIds: string[] | undefined): string[] | nu
   const filtered = [...new Set(playerIds.filter(isDiscordSnowflake))]
   if (filtered.length === 0) return []
   return filtered.sort((a, b) => a.localeCompare(b))
+}
+
+function shouldLoadRankedRoleDemotionCandidates(
+  previousAssignments: RankedRoleAssignments,
+  requestedPlayerIds: string[] | null,
+): boolean {
+  if (requestedPlayerIds) {
+    return requestedPlayerIds.some(playerId => previousAssignments.byPlayerId[playerId] != null)
+  }
+
+  return Object.keys(previousAssignments.byPlayerId).some(isDiscordSnowflake)
 }
 
 async function loadPlayerIdentityById(
@@ -896,6 +1022,7 @@ function buildLadderSnapshots(
   return {
     earn: buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
     keep: buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
+    ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -918,6 +1045,7 @@ function buildGlobalLadderSnapshots(
   return {
     earn: applyGlobalEvidenceGates(buildEarnAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
     keep: applyGlobalEvidenceGates(buildKeepAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
+    ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -1245,6 +1373,16 @@ function buildLadderTierMap(playerId: string, laddersByMode: Map<LeaderboardMode
   }
 }
 
+function buildLadderRankMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
+  return {
+    'duel': laddersByMode.get('duel')?.ranks.get(playerId) ?? null,
+    'duo': laddersByMode.get('duo')?.ranks.get(playerId) ?? null,
+    'squad': laddersByMode.get('squad')?.ranks.get(playerId) ?? null,
+    'ffa': laddersByMode.get('ffa')?.ranks.get(playerId) ?? null,
+    'red-death': laddersByMode.get('red-death')?.ranks.get(playerId) ?? null,
+  }
+}
+
 function buildLadderScoreMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
   return {
     'duel': laddersByMode.get('duel')?.scores.get(playerId) ?? null,
@@ -1330,21 +1468,19 @@ async function persistRankedRoleSyncState(options: {
   previousAssignments: RankedRoleAssignments
   previousCandidates: RankedRoleDemotionCandidates
   playerPreviews: RankedRolePlayerPreview[]
-  processedPlayerIds: Set<string> | null
   appliedRoleIdsByPlayerId: Map<string, string | null> | null
 }): Promise<void> {
   const nextAssignments = { ...options.previousAssignments.byPlayerId }
   const nextCandidates = { ...options.previousCandidates.byPlayerId }
-  const previewsToPersist = options.processedPlayerIds
-    ? options.playerPreviews.filter(player => options.processedPlayerIds?.has(player.playerId))
-    : options.playerPreviews
 
-  for (const player of previewsToPersist) {
+  for (const player of options.playerPreviews) {
     if (!player.managed) continue
     const appliedRoleId = options.appliedRoleIdsByPlayerId?.get(player.playerId)
-    nextAssignments[player.playerId] = appliedRoleId === undefined
-      ? player.assignment
-      : { ...player.assignment, appliedRoleId }
+    const previousAppliedRoleId = options.previousAssignments.byPlayerId[player.playerId]?.appliedRoleId
+    const nextAppliedRoleId = appliedRoleId === undefined ? previousAppliedRoleId : appliedRoleId
+    nextAssignments[player.playerId] = nextAppliedRoleId
+      ? { ...player.assignment, appliedRoleId: nextAppliedRoleId }
+      : player.assignment
     if (player.pendingDemotion) nextCandidates[player.playerId] = player.pendingDemotion
     else delete nextCandidates[player.playerId]
   }
@@ -1359,66 +1495,141 @@ async function applyCurrentRankRoles(
   kv: KVNamespace,
   guildId: string,
   token: string,
-  playerPreviews: RankedRolePlayerPreview[],
-): Promise<{ appliedChanges: number, processedPlayerIds: Set<string>, appliedRoleIdsByPlayerId: Map<string, string | null> }> {
-  const [config, previousAppliedConfig] = await Promise.all([
+  options: { maxPlayers?: number } = {},
+): Promise<{ attemptedChanges: number, appliedChanges: number, pendingChanges: number }> {
+  const [config, previousAppliedConfig, currentAssignments, cursor] = await Promise.all([
     getRankedRoleConfig(kv, guildId),
     getAppliedRankedRoleConfig(kv, guildId),
+    getCurrentRankAssignments(kv, guildId),
+    getDiscordApplyCursor(kv, guildId),
   ])
   const missingTiers = getMissingRankedRoleConfigTiers(config)
   if (missingTiers.length > 0) {
     throw new Error(`Cannot sync ranked roles until all current roles are configured: ${missingTiers.join(', ')}`)
   }
   const managedRoleIds = buildManagedRankedRoleIds(config, previousAppliedConfig)
+  const pendingApplications = orderPendingRankedRoleApplications(
+    buildPendingRankedRoleApplications(currentAssignments, config),
+    cursor,
+  )
+  if (pendingApplications.length === 0) {
+    if (cursor) await clearDiscordApplyCursor(kv, guildId)
+    return { attemptedChanges: 0, appliedChanges: 0, pendingChanges: 0 }
+  }
 
   let appliedChanges = 0
-  const processedPlayerIds = new Set<string>()
-  const appliedRoleIdsByPlayerId = new Map<string, string | null>()
-  for (const preview of playerPreviews) {
-    if (!preview.managed) continue
-    if (!isDiscordSnowflake(preview.playerId)) continue
-    const desiredRoleId = getConfiguredRankedRoleId(config, preview.assignment.tier)
-    if (!desiredRoleId) continue
+  let failedChanges = 0
+  let attemptedPlayers = 0
+  const maxPlayers = normalizeMaxDiscordRoleSyncPlayers(options.maxPlayers)
 
-    const previousRoleId = resolvePreviouslyAppliedRoleId(preview.previousAssignment, previousAppliedConfig, config)
-    if (preview.previousAssignment && preview.previousAssignment.tier === preview.assignment.tier && previousRoleId === desiredRoleId) {
-      processedPlayerIds.add(preview.playerId)
-      appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
-      continue
+  for (const pending of pendingApplications) {
+    if (attemptedPlayers >= maxPlayers) break
+    attemptedPlayers += 1
+    try {
+      const plan = await planTrackedRankRoleChange({
+        token,
+        guildId,
+        playerId: pending.playerId,
+        previousRoleId: resolvePreviouslyAppliedRoleId(pending.assignment, previousAppliedConfig, config),
+        nextRoleId: pending.desiredRoleId,
+        managedRoleIds,
+      })
+      if (!plannedRankRoleChangeHasChanges(plan)) {
+        await persistAppliedRankedRoleId(kv, guildId, currentAssignments, pending.playerId, pending.desiredRoleId)
+        await setDiscordApplyCursor(kv, guildId, pending.playerId)
+        continue
+      }
+
+      const changed = await applyPlannedRankRoleChange({
+        token,
+        guildId,
+        playerId: pending.playerId,
+        plan,
+      })
+      await persistAppliedRankedRoleId(kv, guildId, currentAssignments, pending.playerId, pending.desiredRoleId)
+      await setDiscordApplyCursor(kv, guildId, pending.playerId)
+      if (changed) appliedChanges += 1
     }
-
-    const plan = await planTrackedRankRoleChange({
-      token,
-      guildId,
-      playerId: preview.playerId,
-      previousRoleId,
-      nextRoleId: desiredRoleId,
-      managedRoleIds,
-    })
-    if (!plannedRankRoleChangeHasChanges(plan)) {
-      processedPlayerIds.add(preview.playerId)
-      appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
-      continue
+    catch (error) {
+      failedChanges += 1
+      await setDiscordApplyCursor(kv, guildId, pending.playerId)
+      console.error(`[ranked-roles] Failed to apply Discord role for ${pending.playerId} in guild ${guildId}:`, error)
     }
-
-    const changed = await applyPlannedRankRoleChange({
-      token,
-      guildId,
-      playerId: preview.playerId,
-      plan,
-    })
-    processedPlayerIds.add(preview.playerId)
-    appliedRoleIdsByPlayerId.set(preview.playerId, desiredRoleId)
-    if (changed) appliedChanges += 1
   }
 
-  await setAppliedRankedRoleConfig(kv, guildId, config)
+  const unattemptedChanges = Math.max(0, pendingApplications.length - attemptedPlayers)
+  const pendingChanges = failedChanges + unattemptedChanges
+  if (pendingChanges === 0) {
+    await clearDiscordApplyCursor(kv, guildId)
+    await setAppliedRankedRoleConfig(kv, guildId, config)
+  }
 
   return {
+    attemptedChanges: attemptedPlayers,
     appliedChanges,
-    processedPlayerIds,
-    appliedRoleIdsByPlayerId,
+    pendingChanges,
   }
+}
+
+function buildPendingRankedRoleApplications(
+  assignments: RankedRoleAssignments,
+  config: RankedRoleConfig,
+): PendingRankedRoleApplication[] {
+  const pending: PendingRankedRoleApplication[] = []
+  for (const [playerId, assignment] of Object.entries(assignments.byPlayerId)) {
+    if (!isDiscordSnowflake(playerId)) continue
+    const desiredRoleId = getConfiguredRankedRoleId(config, assignment.tier)
+    if (!desiredRoleId || assignment.appliedRoleId === desiredRoleId) continue
+    pending.push({ playerId, assignment, desiredRoleId })
+  }
+  return pending.sort(comparePendingRankedRoleApplications)
+}
+
+function orderPendingRankedRoleApplications(
+  pending: PendingRankedRoleApplication[],
+  cursor: string | null,
+): PendingRankedRoleApplication[] {
+  if (pending.length <= 1) return pending
+
+  const knownAppliedRole = pending.filter(item => item.assignment.appliedRoleId != null)
+  const unknownAppliedRole = pending.filter(item => item.assignment.appliedRoleId == null)
+  return [
+    ...rotatePendingApplicationsByCursor(knownAppliedRole, cursor),
+    ...rotatePendingApplicationsByCursor(unknownAppliedRole, cursor),
+  ]
+}
+
+function comparePendingRankedRoleApplications(left: PendingRankedRoleApplication, right: PendingRankedRoleApplication): number {
+  const priorityDiff = pendingRankedRoleApplicationPriority(left) - pendingRankedRoleApplicationPriority(right)
+  if (priorityDiff !== 0) return priorityDiff
+  return left.playerId.localeCompare(right.playerId)
+}
+
+function pendingRankedRoleApplicationPriority(application: PendingRankedRoleApplication): number {
+  return application.assignment.appliedRoleId == null ? 1 : 0
+}
+
+function rotatePendingApplicationsByCursor(
+  pending: PendingRankedRoleApplication[],
+  cursor: string | null,
+): PendingRankedRoleApplication[] {
+  if (!cursor || pending.length <= 1) return pending
+  const nextIndex = pending.findIndex(item => item.playerId.localeCompare(cursor) > 0)
+  if (nextIndex <= 0) return nextIndex === 0 ? pending : pending
+  return [...pending.slice(nextIndex), ...pending.slice(0, nextIndex)]
+}
+
+async function persistAppliedRankedRoleId(
+  kv: KVNamespace,
+  guildId: string,
+  assignments: RankedRoleAssignments,
+  playerId: string,
+  roleId: string,
+): Promise<void> {
+  const assignment = assignments.byPlayerId[playerId]
+  if (!assignment) return
+  assignments.byPlayerId[playerId] = { ...assignment, appliedRoleId: roleId }
+  await setCurrentRankAssignments(kv, guildId, assignments)
 }
 
 async function getAppliedRankedRoleConfig(

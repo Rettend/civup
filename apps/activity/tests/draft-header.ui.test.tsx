@@ -94,7 +94,7 @@ describe('DraftHeader UI', () => {
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'voting'
-    uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+    uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
@@ -116,9 +116,13 @@ describe('DraftHeader UI', () => {
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
     const cluster = screen.getByTestId('draft-header-desktop-phase-cluster')
+    const grid = cluster.parentElement as HTMLElement
     const leftCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-left"]') as HTMLElement
     const rightCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-right"]') as HTMLElement
 
+    expect(grid.className).toContain('pl-12')
+    expect(grid.className).toContain('pr-12')
+    expect(grid.className).not.toContain('px-24')
     expect(cluster.className).toContain('items-stretch')
     expect(leftCluster.className).toContain('items-center')
     expect(rightCluster.className).toContain('items-center')
@@ -134,7 +138,7 @@ describe('DraftHeader UI', () => {
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
-    uiMockState.mapVoteRevealEndsAt = Date.now() + 5_000
+    uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 

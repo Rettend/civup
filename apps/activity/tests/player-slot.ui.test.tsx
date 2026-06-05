@@ -1,11 +1,32 @@
 /** @jsxImportSource solid-js */
 
 import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { getCivBlitzRegistry } from '@civup/game'
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { PlayerSlot } = await import('../src/client/components/draft/PlayerSlot')
+
+function createTestCivBlitzKit() {
+  return {
+    civilizationAbility: 'civblitz:civilizationAbility:america',
+    leaderAbility: 'civblitz:leaderAbility:america-abraham-lincoln',
+    infrastructure: 'civblitz:infrastructure:oppidum',
+    unit: 'civblitz:unit:gaesatae',
+  }
+}
+
+function createSingleSeatCivBlitzOptions(kit: ReturnType<typeof createTestCivBlitzKit>) {
+  return {
+    0: {
+      civilizationAbility: [kit.civilizationAbility],
+      leaderAbility: [kit.leaderAbility],
+      infrastructure: [kit.infrastructure],
+      unit: [kit.unit],
+    },
+  }
+}
 
 describe('PlayerSlot UI', () => {
   beforeEach(() => {
@@ -86,6 +107,202 @@ describe('PlayerSlot UI', () => {
     expect(image.className).toContain('anim-portrait-in')
   })
 
+  test('stacks ban preview portraits vertically in captain slots on desktop', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+      TEST_LEADER_IDS.montezuma,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getAllByTestId('slot-ban-preview')).toHaveLength(3)
+    expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBeTruthy()
+    expect(screen.getByAltText('Ban preview: John Curtin')).toBeTruthy()
+    expect(screen.getByAltText('Ban preview: Montezuma')).toBeTruthy()
+    expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('flex-col')
+    expect(screen.queryByText('BAN 1')).toBeNull()
+    expect(screen.queryByText('Abraham Lincoln')).toBeNull()
+  })
+
+  test('lays out ban preview portraits horizontally on mobile slots', () => {
+    uiMockState.isMobileLayout = true
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getAllByTestId('slot-ban-preview')).toHaveLength(2)
+    expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('flex-row')
+  })
+
+  test('keeps ban preview images mounted when another seat submits bans', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+    const firstImage = screen.getByAltText('Ban preview: Abraham Lincoln')
+
+    uiMockState.draftState = {
+      ...uiMockState.draftState!,
+      submissions: {
+        ...uiMockState.draftState!.submissions,
+        1: [TEST_LEADER_IDS.montezuma, TEST_LEADER_IDS.hammurabi, TEST_LEADER_IDS.saladinVizier],
+      },
+    }
+
+    expect(screen.getByAltText('Ban preview: Abraham Lincoln')).toBe(firstImage)
+  })
+
+  test('shows the inactive user icon without revealing blind-pick submissions', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'default-ffa-blind-pick',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      submissions: { 0: ['__blind__'] },
+    })
+
+    const { container } = render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.queryByText('Submitted')).toBeNull()
+    expect(container.querySelector('.i-ph-user-bold')).toBeTruthy()
+    expect(container.querySelector('.i-ph-check-circle-bold')).toBeNull()
+    expect(screen.queryByText('Abraham Lincoln')).toBeNull()
+    expect(screen.queryByAltText('Abraham Lincoln')).toBeNull()
+  })
+
+  test('shows visible blind-pick submissions as locked teammate portraits', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      submissions: { 2: [TEST_LEADER_IDS.johnCurtin] },
+    })
+
+    render(() => <PlayerSlot seatIndex={2} />)
+
+    expect(screen.getByAltText('John Curtin')).toBeTruthy()
+    expect(screen.getByText('John Curtin')).toBeTruthy()
+    expect(screen.queryByText('Submitted')).toBeNull()
+  })
+
+  test('keeps CivBlitz slot icons square and unique icon backgrounds transparent', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = createTestCivBlitzKit()
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
+        submissions: {},
+        lockedKits: { 0: kit },
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    const civImage = screen.getByAltText(registry.componentMap.get(kit.civilizationAbility)!.name)
+    const leaderImage = screen.getByAltText(registry.componentMap.get(kit.leaderAbility)!.name)
+    const infrastructureImage = screen.getByAltText(registry.componentMap.get(kit.infrastructure)!.name)
+    const unitImage = screen.getByAltText(registry.componentMap.get(kit.unit)!.name)
+
+    expect(civImage.className).toContain('rounded-full')
+    expect(civImage.parentElement?.className).toContain('aspect-square')
+    expect(leaderImage.parentElement?.className).toContain('rounded-full')
+    expect(leaderImage.parentElement?.className).toContain('aspect-square')
+    expect(infrastructureImage.parentElement?.className).toContain('aspect-square')
+    expect(unitImage.parentElement?.className).toContain('aspect-square')
+    expect(infrastructureImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
+    expect(unitImage.parentElement?.className).not.toContain('bg-bg-subtle/45')
+  })
+
+  test('shows visible submitted CivBlitz kits in the player slot', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = createTestCivBlitzKit()
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true }],
+      submissions: { 0: ['__civblitz__'] },
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
+        submissions: { 0: kit },
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    const leaderImage = screen.getByAltText(registry.componentMap.get(kit.leaderAbility)!.name)
+    expect(leaderImage).toBeTruthy()
+    expect(leaderImage.parentElement?.parentElement?.parentElement?.className).not.toContain('opacity-50')
+  })
+
+  test('fades locked CivBlitz components while a conflicted seat reselects', () => {
+    const registry = getCivBlitzRegistry()
+    const kit = createTestCivBlitzKit()
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      steps: [{ action: 'pick', seats: [0], count: 1, timer: 60, blind: true, blindPickRound: 1, civBlitz: true, civBlitzCategoriesBySeat: { 0: ['unit'] } }],
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: registry.componentPools,
+        optionsBySeat: createSingleSeatCivBlitzOptions(kit),
+        submissions: {},
+        lockedKits: {
+          0: {
+            civilizationAbility: kit.civilizationAbility,
+            leaderAbility: kit.leaderAbility,
+            infrastructure: kit.infrastructure,
+          },
+        },
+        reveal: {
+          round: 0,
+          submissions: [{ seatIndex: 0, stepIndex: 0, kit }],
+          conflictComponentIds: [kit.unit],
+          conflictedSeatIndexes: [0],
+          categoriesBySeat: { 0: ['unit'] },
+          maxRedrafts: 2,
+        },
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    const { container } = render(() => <PlayerSlot seatIndex={0} />)
+
+    const infrastructureImage = screen.getByAltText(registry.componentMap.get(kit.infrastructure)!.name)
+    const unitImage = screen.getByAltText(registry.componentMap.get(kit.unit)!.name)
+    expect(infrastructureImage.parentElement?.parentElement?.parentElement?.className).toContain('opacity-50')
+    expect(unitImage.parentElement?.parentElement?.parentElement?.className).toContain('opacity-80')
+    expect(container.innerHTML).toContain('box-border border border-danger/55 bg-danger/14')
+  })
+
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
@@ -126,15 +343,14 @@ describe('PlayerSlot UI', () => {
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
       uiMockState.draftState.status = 'waiting'
       uiMockState.mapVotePhase = 'voting'
-      uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
-      uiMockState.mapVoteSelectedTypes = []
-      uiMockState.mapVoteSelectedScripts = []
+      uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
+      uiMockState.mapVoteSelectedMaps = []
 
       const firstRender = render(() => <PlayerSlot seatIndex={0} />)
       const firstDelay = firstRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
 
       firstRender.unmount()
-      uiMockState.mapVoteSelectedScripts = ['lakes']
+      uiMockState.mapVoteSelectedMaps = ['lakes']
 
       const secondRender = render(() => <PlayerSlot seatIndex={0} />)
       const secondDelay = secondRender.container.querySelector('.anim-glow-breathe')?.getAttribute('style') ?? ''
@@ -157,7 +373,7 @@ describe('PlayerSlot UI', () => {
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
       uiMockState.draftState.status = 'waiting'
       uiMockState.mapVotePhase = 'voting'
-      uiMockState.mapVoteVotingEndsAt = Date.now() + 30_000
+      uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
       const firstRender = render(() => <PlayerSlot seatIndex={0} />)
       const secondRender = render(() => <PlayerSlot seatIndex={1} />)
@@ -178,34 +394,35 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
-      { seatIndex: 1, confirmed: false, mapTypes: ['east-vs-west'], mapScripts: [] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
+      { seatIndex: 1, confirmed: false, maps: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     const { container } = render(() => <PlayerSlot seatIndex={0} />)
     const revealLayout = screen.getByTestId('map-vote-reveal-layout')
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
     expect(screen.queryByText('Lakes')).toBeNull()
-    expect(screen.getByText('Seven Seas').className).toContain('text-accent')
+    expect(screen.getByText('Inland Sea').className).toContain('text-accent')
+    expect(screen.getByText('EvW').className).toContain('text-accent/80')
     expect(screen.getAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(1)
     expect(revealLayout.className).toContain('justify-center')
     expect(container.querySelectorAll('.i-ph-map-trifold-fill')).toHaveLength(0)
   })
 
-  test('highlights a supporting ballot that only ranked the winning script', () => {
+  test('highlights a supporting ballot that ranked the winning map', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: [], mapScripts: ['seven-seas'] },
+      { seatIndex: 0, confirmed: true, maps: ['seven-seas'] },
     ]
     uiMockState.mapVoteWinningType = 'standard'
     uiMockState.mapVoteWinningScript = 'seven-seas'
@@ -225,18 +442,18 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes', 'seven-seas'] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} compact />)
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
   })
 
   test('shows a non-supporting ballot\'s first-ranked map instead of the final winner', () => {
@@ -245,19 +462,19 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, mapTypes: ['east-vs-west'], mapScripts: ['lakes'] },
+      { seatIndex: 0, confirmed: true, maps: ['lakes'] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} />)
 
     expect(screen.getByText('Lakes')).toBeTruthy()
     expect(screen.getByAltText('Lakes')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
-    expect(screen.queryByText('Seven Seas')).toBeNull()
+    expect(screen.queryByText('Inland Sea')).toBeNull()
+    expect(screen.queryByText('EvW')).toBeNull()
     expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
   })
 
@@ -267,18 +484,18 @@ describe('PlayerSlot UI', () => {
     uiMockState.draftState.status = 'waiting'
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: false, mapTypes: [], mapScripts: [] },
+      { seatIndex: 0, confirmed: false, maps: [] },
     ]
     uiMockState.mapVoteWinningType = 'east-vs-west'
-    uiMockState.mapVoteWinningScript = 'seven-seas'
+    uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
-    uiMockState.mapVoteWinningScriptCandidate = 'seven-seas'
+    uiMockState.mapVoteWinningScriptCandidate = 'inland-sea'
 
     render(() => <PlayerSlot seatIndex={0} />)
 
-    expect(screen.getByText('Seven Seas')).toBeTruthy()
-    expect(screen.getByAltText('Seven Seas')).toBeTruthy()
-    expect(screen.getByText('East vs West')).toBeTruthy()
+    expect(screen.getByText('Inland Sea')).toBeTruthy()
+    expect(screen.getByText('EvW')).toBeTruthy()
+    expect(screen.getByAltText('Inland Sea EvW')).toBeTruthy()
     expect(screen.queryAllByTestId('map-vote-reveal-winning-glow')).toHaveLength(0)
   })
 })

@@ -1,10 +1,193 @@
-import type { DraftSeat } from '@civup/game'
+import type { DraftInput, DraftSeat, DraftState } from '@civup/game'
 import { allLeaderIds, createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, finalizeCompletedDraftCommand } from '../../src/session-runtime/draft-room-domain.ts'
+import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, finalizeCompletedDraftCommand, normalizeStoredRoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 
 describe('draft room domain', () => {
+  test('tracks double-pick fallback metrics through room transitions', () => {
+    const seats: DraftSeat[] = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const format = draftFormatMap.get('default-2v2')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    let state = createDraft('match-double-metrics', format, seats, allLeaderIds.slice(0, 24))
+    state = applyDraftInput(state, { type: 'START' }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: allLeaderIds.slice(0, 3) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: allLeaderIds.slice(3, 6) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
+    state = applyDraftInput(state, { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! }, format.blindBans)
+
+    const room = createRoomRecord({
+      matchId: 'match-double-metrics',
+      hostId: 'a1',
+      formatId: 'default-2v2',
+      seats,
+      civPool: allLeaderIds.slice(0, 24),
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    const fallbackTransition = applyDraftResultCommand(room, {
+      type: 'apply-draft-result',
+      nextState: timedOut.state,
+      events: timedOut.events,
+      now: 1_000,
+    })
+
+    expect(fallbackTransition.room.doublePickMetrics).toEqual({
+      groups: 1,
+      fallbackStarted: 1,
+      fallbackResolved: 0,
+      bothMissedTimeouts: 0,
+      fallbackTimeouts: 0,
+    })
+
+    const fallbackPick = processDraftInput(timedOut.state, { type: 'PICK', seatIndex: 3, civId: allLeaderIds[8]! }, format.blindBans)
+    expect(isDraftError(fallbackPick)).toBe(false)
+    if (isDraftError(fallbackPick)) return
+
+    const resolvedTransition = applyDraftResultCommand(fallbackTransition.room, {
+      type: 'apply-draft-result',
+      nextState: fallbackPick.state,
+      events: fallbackPick.events,
+      now: 2_000,
+    })
+
+    expect(resolvedTransition.room.doublePickMetrics).toEqual({
+      groups: 1,
+      fallbackStarted: 1,
+      fallbackResolved: 1,
+      bothMissedTimeouts: 0,
+      fallbackTimeouts: 0,
+    })
+  })
+
+  test('includes double-pick timeout metrics in cancellation lifecycle payloads', () => {
+    const seats: DraftSeat[] = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const format = draftFormatMap.get('default-2v2')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    let state = createDraft('match-double-timeout', format, seats, allLeaderIds.slice(0, 24))
+    state = applyDraftInput(state, { type: 'START' }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: allLeaderIds.slice(0, 3) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: allLeaderIds.slice(3, 6) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
+
+    const room = createRoomRecord({
+      matchId: 'match-double-timeout',
+      hostId: 'a1',
+      formatId: 'default-2v2',
+      seats,
+      civPool: allLeaderIds.slice(0, 24),
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
+    expect(isDraftError(timedOut)).toBe(false)
+    if (isDraftError(timedOut)) return
+
+    const transition = applyDraftResultCommand(room, {
+      type: 'apply-draft-result',
+      nextState: timedOut.state,
+      events: timedOut.events,
+      now: 1_000,
+    })
+
+    expect(transition.room.doublePickMetrics).toEqual({
+      groups: 1,
+      fallbackStarted: 0,
+      fallbackResolved: 0,
+      bothMissedTimeouts: 1,
+      fallbackTimeouts: 0,
+    })
+    expect(transition.effects.find(effect => effect.type === 'sync-draft-lifecycle')).toMatchObject({
+      type: 'sync-draft-lifecycle',
+      payload: {
+        doublePickMetrics: transition.room.doublePickMetrics,
+      },
+    })
+  })
+
+  test('preserves double-pick metrics in repeat draft snapshots', () => {
+    const seats: DraftSeat[] = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const format = draftFormatMap.get('default-2v2')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    let state = createDraft('match-double-repeat', format, seats, allLeaderIds.slice(0, 24))
+    state = applyDraftInput(state, { type: 'START' }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 0, civIds: allLeaderIds.slice(0, 3) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: allLeaderIds.slice(3, 6) }, format.blindBans)
+    state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
+    state = applyDraftInput(state, { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! }, format.blindBans)
+
+    const room = createRoomRecord({
+      matchId: 'match-double-repeat',
+      hostId: 'a1',
+      formatId: 'default-2v2',
+      seats,
+      civPool: allLeaderIds.slice(0, 24),
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+
+    const fallback = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
+    expect(isDraftError(fallback)).toBe(false)
+    if (isDraftError(fallback)) return
+
+    const fallbackTransition = applyDraftResultCommand(room, {
+      type: 'apply-draft-result',
+      nextState: fallback.state,
+      events: fallback.events,
+      now: 1_000,
+    })
+
+    const fallbackTimeout = processDraftInput(fallbackTransition.room.state, { type: 'TIMEOUT' }, format.blindBans)
+    expect(isDraftError(fallbackTimeout)).toBe(false)
+    if (isDraftError(fallbackTimeout)) return
+
+    const cancelledTransition = applyDraftResultCommand(fallbackTransition.room, {
+      type: 'apply-draft-result',
+      nextState: fallbackTimeout.state,
+      events: fallbackTimeout.events,
+      now: 2_000,
+    })
+    const expectedMetrics = {
+      groups: 1,
+      fallbackStarted: 1,
+      fallbackResolved: 0,
+      bothMissedTimeouts: 0,
+      fallbackTimeouts: 1,
+    }
+
+    expect(cancelledTransition.room.doublePickMetrics).toEqual(expectedMetrics)
+    expect(cancelledTransition.room.repeatDraft?.doublePickMetrics).toEqual(expectedMetrics)
+    expect(normalizeStoredRoomRecord(cancelledTransition.room)?.repeatDraft?.doublePickMetrics).toEqual(expectedMetrics)
+
+    const legacyRoom = {
+      ...cancelledTransition.room,
+      repeatDraft: cancelledTransition.room.repeatDraft
+        ? { ...cancelledTransition.room.repeatDraft, doublePickMetrics: undefined }
+        : null,
+    }
+    expect(normalizeStoredRoomRecord(legacyRoom)?.repeatDraft?.doublePickMetrics).toEqual(expectedMetrics)
+  })
+
   test('applying a leader swap broadcasts the updated room without syncing lifecycle projection', () => {
     const seats: DraftSeat[] = [
       { playerId: 'a1', displayName: 'A1', team: 0 },
@@ -80,6 +263,7 @@ describe('draft room domain', () => {
       matchId: 'match-1',
       hostId: 'p1',
       formatId: 'default-1v1',
+      leaderDataVersion: 'beta',
       seats,
       civPool: allLeaderIds.slice(0, 8),
     }, state, EMPTY_STORED_MAP_VOTE_STATE, {
@@ -145,6 +329,7 @@ describe('draft room domain', () => {
       matchId: 'match-1',
       hostId: 'p1',
       formatId: 'default-1v1',
+      leaderDataVersion: 'beta',
       seats,
       civPool: allLeaderIds.slice(0, 8),
     }, started.state, {
@@ -178,6 +363,7 @@ describe('draft room domain', () => {
       delivery: 'await',
       payload: expect.objectContaining({
         eventKind: 'DraftCompleted',
+        leaderDataVersion: 'beta',
       }),
     })
   })
@@ -234,3 +420,9 @@ describe('draft room domain', () => {
     expect(transition.room.mapVote).toEqual(EMPTY_STORED_MAP_VOTE_STATE)
   })
 })
+
+function applyDraftInput(state: DraftState, input: DraftInput, blindBans: boolean): DraftState {
+  const result = processDraftInput(state, input, blindBans)
+  if (isDraftError(result)) throw new Error(result.error)
+  return result.state
+}

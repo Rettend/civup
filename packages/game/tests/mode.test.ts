@@ -44,6 +44,8 @@ describe('formatModeLabel', () => {
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 6 })).toBe('Red Death 2v2v2')
     expect(formatModeLabel('2v2', '', { targetSize: 8 })).toBe('2v2v2v2')
     expect(formatModeLabel('2v2', '', { redDeath: true, targetSize: 8 })).toBe('Red Death 2v2v2v2')
+    expect(formatModeLabel('2v2', '', { civBlitz: true })).toBe('CivBlitz 2v2')
+    expect(formatModeLabel('2v2', '', { civBlitz: true, targetSize: 8 })).toBe('CivBlitz 2v2v2v2')
     expect(formatModeLabel('4V4', '', { redDeath: true })).toBe('Red Death 4v4')
     expect(formatModeLabel('3V3', '', { redDeath: true, compactRedDeath: true })).toBe('RD 3v3')
   })
@@ -84,6 +86,12 @@ describe('inferGameMode', () => {
     expect(inferGameMode('default-6v6')).toBe('6v6')
   })
 
+  test('extracts modes from variant format ids', () => {
+    expect(inferGameMode('default-2v2-blind-pick')).toBe('2v2')
+    expect(inferGameMode('default-3v3-visible-bans-blind-pick')).toBe('3v3')
+    expect(inferGameMode('red-death-ffa-blind-pick')).toBe('ffa')
+  })
+
   test('falls back when no mode can be inferred', () => {
     expect(inferGameMode('custom', '1v1')).toBe('1v1')
     expect(inferGameMode(null)).toBe('ffa')
@@ -114,6 +122,7 @@ describe('shared mode helpers', () => {
     expect(toLeaderboardMode('5v5')).toBe('squad')
     expect(toLeaderboardMode('6v6')).toBe('squad')
     expect(toLeaderboardMode('2v2', { redDeath: true })).toBe('red-death')
+    expect(toLeaderboardMode('2v2', { civBlitz: true })).toBeNull()
     expect(toLeaderboardMode('4v4', { redDeath: true })).toBe('red-death')
     expect(toLeaderboardMode('5v5', { redDeath: true })).toBe('red-death')
     expect(toLeaderboardMode('6v6', { redDeath: true })).toBe('red-death')
@@ -124,6 +133,7 @@ describe('shared mode helpers', () => {
     expect(toBalanceLeaderboardMode('5v5')).toBe('squad')
     expect(toBalanceLeaderboardMode('6v6')).toBe('squad')
     expect(toBalanceLeaderboardMode('5v5', { redDeath: true })).toBe('red-death')
+    expect(toBalanceLeaderboardMode('5v5', { civBlitz: true })).toBeNull()
     expect(toBalanceLeaderboardMode('6v6', { redDeath: true })).toBe('red-death')
     expect(toBalanceLeaderboardMode('4v4', { redDeath: true })).toBe('red-death')
     expect(isUnrankedMode('5v5')).toBe(false)

@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
-import { defaultPlayerCount, formatModeLabel, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, isDev } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -23,6 +23,7 @@ import {
   sameLobbySlots,
   setLobbyArranged,
   setLobbyDraftConfig,
+  setLobbyHost,
   setLobbyLastActivityAt,
   setLobbyMaxRole,
   setLobbyMinRole,
@@ -35,13 +36,14 @@ import {
 } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
+import { buildLobbyRankSnapshot } from '../../services/lobby/rank.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
-import { getSessionRecord, startSessionDraft } from '../../session-runtime/session-do-client.ts'
+import { getSessionRecord, repeatSessionDraft, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
 import {
@@ -132,9 +134,9 @@ function isWritableD1Binding(db: D1Database | undefined): db is D1Database {
   }
 }
 
-function parseSessionDraftStartError(error: unknown): { status: 400 | 403 | 409, message: string } | null {
+function parseSessionDraftCommandError(error: unknown): { status: 400 | 403 | 409, message: string } | null {
   if (!(error instanceof Error)) return null
-  const match = /^Failed to start session draft for [^:]+: (400|403|409) (.*)$/.exec(error.message)
+  const match = /^Failed to (?:start|repeat) session draft for [^:]+: (400|403|409) (.*)$/.exec(error.message)
   if (!match) return null
   return {
     status: Number(match[1]) as 400 | 403 | 409,
@@ -229,7 +231,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, civBlitz: civBlitzRaw, civBlitzOptionCount: civBlitzOptionCountRaw, civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -237,13 +239,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       leaderDataVersion?: unknown
       mapVoteEnabled?: unknown
       blindBans?: unknown
+      blindPicks?: unknown
       simultaneousPick?: unknown
       permanentAlly?: unknown
       redDeath?: unknown
       dealOptionsSize?: unknown
+      civBlitz?: unknown
+      civBlitzOptionCount?: unknown
+      civBlitzExcludeBbgExpanded?: unknown
       randomDraft?: unknown
       hiddenDraft?: unknown
       duplicateFactions?: unknown
+      closed?: unknown
       minRole?: unknown
       maxRole?: unknown
       steamLobbyLink?: unknown
@@ -272,13 +279,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasLeaderDataVersion = Object.prototype.hasOwnProperty.call(body, 'leaderDataVersion')
     const hasMapVoteEnabled = Object.prototype.hasOwnProperty.call(body, 'mapVoteEnabled')
     const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
+    const hasBlindPicks = Object.prototype.hasOwnProperty.call(body, 'blindPicks')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasPermanentAlly = Object.prototype.hasOwnProperty.call(body, 'permanentAlly')
     const hasRedDeath = Object.prototype.hasOwnProperty.call(body, 'redDeath')
     const hasDealOptionsSize = Object.prototype.hasOwnProperty.call(body, 'dealOptionsSize')
+    const hasCivBlitz = Object.prototype.hasOwnProperty.call(body, 'civBlitz')
+    const hasCivBlitzOptionCount = Object.prototype.hasOwnProperty.call(body, 'civBlitzOptionCount')
+    const hasCivBlitzExcludeBbgExpanded = Object.prototype.hasOwnProperty.call(body, 'civBlitzExcludeBbgExpanded')
     const hasRandomDraft = Object.prototype.hasOwnProperty.call(body, 'randomDraft')
     const hasHiddenDraft = Object.prototype.hasOwnProperty.call(body, 'hiddenDraft')
     const hasDuplicateFactions = Object.prototype.hasOwnProperty.call(body, 'duplicateFactions')
+    const hasClosed = Object.prototype.hasOwnProperty.call(body, 'closed')
     const hasTargetSize = Object.prototype.hasOwnProperty.call(body, 'targetSize')
     const parsedLeaderPoolSize = hasLeaderPoolSize
       ? parseLobbyLeaderPoolSize(leaderPoolSizeRaw)
@@ -298,6 +310,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedBlindBans = hasBlindBans
       ? parseLobbyBlindBans(blindBansRaw)
       : undefined
+    const parsedBlindPicks = hasBlindPicks
+      ? parseLobbyBlindPicks(blindPicksRaw)
+      : undefined
     const parsedSimultaneousPick = hasSimultaneousPick
       ? parseLobbySimultaneousPick(simultaneousPickRaw)
       : undefined
@@ -310,6 +325,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedDealOptionsSize = hasDealOptionsSize
       ? parseLobbyDealOptionsSize(dealOptionsSizeRaw)
       : undefined
+    const parsedCivBlitz = hasCivBlitz
+      ? parseLobbyCivBlitz(civBlitzRaw)
+      : undefined
+    const parsedCivBlitzOptionCount = hasCivBlitzOptionCount
+      ? parseLobbyCivBlitzOptionCount(civBlitzOptionCountRaw)
+      : undefined
+    const parsedCivBlitzExcludeBbgExpanded = hasCivBlitzExcludeBbgExpanded
+      ? parseLobbyCivBlitzExcludeBbgExpanded(civBlitzExcludeBbgExpandedRaw)
+      : undefined
     const parsedRandomDraft = hasRandomDraft
       ? parseLobbyRandomDraft(randomDraftRaw)
       : undefined
@@ -319,6 +343,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const parsedDuplicateFactions = hasDuplicateFactions
       ? parseLobbyDuplicateFactions(duplicateFactionsRaw)
       : undefined
+    const parsedClosed = hasClosed
+      ? parseLobbyClosed(closedRaw)
+      : undefined
     const parsedTargetSize = hasTargetSize
       ? parseLobbyTargetSize(mode, targetSizeRaw)
       : undefined
@@ -327,6 +354,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasBlindBans && parsedBlindBans === undefined) {
       return c.json({ error: 'blindBans must be true or false' }, 400)
+    }
+    if (hasBlindPicks && parsedBlindPicks === undefined) {
+      return c.json({ error: 'blindPicks must be true or false' }, 400)
     }
     if (hasMapVoteEnabled && parsedMapVoteEnabled === undefined) {
       return c.json({ error: 'mapVoteEnabled must be true or false' }, 400)
@@ -343,6 +373,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (hasDealOptionsSize && parsedDealOptionsSize === undefined) {
       return c.json({ error: 'dealOptionsSize must be an integer between 2 and 10, or null' }, 400)
     }
+    if (hasCivBlitz && parsedCivBlitz === undefined) {
+      return c.json({ error: 'civBlitz must be true or false' }, 400)
+    }
+    if (hasCivBlitzOptionCount && parsedCivBlitzOptionCount === undefined) {
+      return c.json({ error: `civBlitzOptionCount must be an integer between ${CIV_BLITZ_MIN_OPTION_COUNT} and ${CIV_BLITZ_MAX_OPTION_COUNT}, or null` }, 400)
+    }
+    if (hasCivBlitzExcludeBbgExpanded && parsedCivBlitzExcludeBbgExpanded === undefined) {
+      return c.json({ error: 'civBlitzExcludeBbgExpanded must be true or false' }, 400)
+    }
     if (hasRandomDraft && parsedRandomDraft === undefined) {
       return c.json({ error: 'randomDraft must be true or false' }, 400)
     }
@@ -351,6 +390,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasDuplicateFactions && parsedDuplicateFactions === undefined) {
       return c.json({ error: 'duplicateFactions must be true or false' }, 400)
+    }
+    if (hasClosed && parsedClosed === undefined) {
+      return c.json({ error: 'closed must be true or false' }, 400)
     }
     const hasSteamLobbyLink = Object.prototype.hasOwnProperty.call(body, 'steamLobbyLink')
     const parsedSteamLobbyLink = hasSteamLobbyLink
@@ -393,32 +435,54 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const resolvedPickTimerSeconds = hasPickTimerSeconds
       ? normalizedPick ?? null
       : lobby.draftConfig.pickTimerSeconds
-    const normalizedMinRole = normalizedRankBounds.minimum
-    const normalizedMaxRole = normalizedRankBounds.maximum
-    const normalizedLeaderPoolSize: number | null = hasLeaderPoolSize
+    const requestedLeaderPoolSize: number | null = hasLeaderPoolSize
       ? parsedLeaderPoolSize ?? null
       : lobby.draftConfig.leaderPoolSize
     const normalizedLeaderDataVersion = hasLeaderDataVersion
       ? parsedLeaderDataVersion ?? 'live'
       : lobby.draftConfig.leaderDataVersion
+    const leaderDataVersionChanged = normalizedLeaderDataVersion !== lobby.draftConfig.leaderDataVersion
+    const normalizedLeaderPoolSize = requestedLeaderPoolSize == null || !leaderDataVersionChanged
+      ? requestedLeaderPoolSize
+      : Math.min(requestedLeaderPoolSize, getMaxLeaderPoolSize(normalizedLeaderDataVersion))
     const normalizedMapVoteEnabled = hasMapVoteEnabled
       ? parsedMapVoteEnabled ?? false
       : lobby.draftConfig.mapVoteEnabled
     const normalizedBlindBans = hasBlindBans
       ? parsedBlindBans ?? true
       : lobby.draftConfig.blindBans
+    const normalizedBlindPicks = hasBlindPicks
+      ? parsedBlindPicks ?? false
+      : lobby.draftConfig.blindPicks
     const normalizedSimultaneousPick = hasSimultaneousPick
       ? parsedSimultaneousPick ?? false
       : lobby.draftConfig.simultaneousPick
     const normalizedPermanentAlly = hasPermanentAlly
       ? parsedPermanentAlly ?? true
       : lobby.draftConfig.permanentAlly
-    const normalizedRedDeath = hasRedDeath
+    let normalizedRedDeath = hasRedDeath
       ? parsedRedDeath ?? false
       : lobby.draftConfig.redDeath
     const normalizedDealOptionsSize = hasDealOptionsSize
       ? parsedDealOptionsSize ?? null
       : lobby.draftConfig.dealOptionsSize
+    let normalizedCivBlitz = hasCivBlitz
+      ? parsedCivBlitz ?? false
+      : lobby.draftConfig.civBlitz
+    if (hasRedDeath && parsedRedDeath === true) normalizedCivBlitz = false
+    if (normalizedCivBlitz) normalizedRedDeath = false
+    let normalizedCivBlitzOptionCount = hasCivBlitzOptionCount
+      ? parsedCivBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT
+      : lobby.draftConfig.civBlitzOptionCount
+    const normalizedCivBlitzExcludeBbgExpanded = hasCivBlitzExcludeBbgExpanded
+      ? parsedCivBlitzExcludeBbgExpanded ?? true
+      : lobby.draftConfig.civBlitzExcludeBbgExpanded
+    if (normalizedCivBlitz) {
+      normalizedCivBlitzOptionCount = Math.min(
+        normalizedCivBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT,
+        getCivBlitzOptionCountMaximum(normalizedLeaderDataVersion, { excludeBbgExpanded: normalizedCivBlitzExcludeBbgExpanded }),
+      )
+    }
     let normalizedRandomDraft = hasRandomDraft
       ? parsedRandomDraft ?? false
       : lobby.draftConfig.randomDraft
@@ -427,15 +491,29 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : lobby.draftConfig.hiddenDraft
     if (hasHiddenDraft && parsedHiddenDraft === true) normalizedRandomDraft = false
     if (hasRandomDraft && parsedRandomDraft === true) normalizedHiddenDraft = false
+    if (normalizedCivBlitz) {
+      normalizedRandomDraft = false
+      normalizedHiddenDraft = false
+    }
     const normalizedDuplicateFactions = hasDuplicateFactions
       ? parsedDuplicateFactions ?? false
       : lobby.draftConfig.duplicateFactions
+    const normalizedClosed = hasClosed
+      ? parsedClosed ?? false
+      : lobby.draftConfig.closed === true
     const parsedRedDeathFfaTargetSize = mode === 'ffa' && hasTargetSize
       ? parseRedDeathFfaTargetSize(targetSizeRaw)
       : undefined
 
+    let normalizedMinRole = normalizedRankBounds.minimum
+    let normalizedMaxRole = normalizedRankBounds.maximum
+    if (normalizedCivBlitz) {
+      normalizedMinRole = null
+      normalizedMaxRole = null
+    }
+
     if (isUnrankedMode(mode) && (normalizedMinRole != null || normalizedMaxRole != null)) {
-      return c.json({ error: `${formatModeLabel(mode)} lobbies are unranked and do not support matchmaking rank limits.` }, 400)
+      return c.json({ error: `${normalizedCivBlitz ? 'CivBlitz' : formatModeLabel(mode)} lobbies are unranked and do not support matchmaking rank limits.` }, 400)
     }
 
     if (hasTargetSize) {
@@ -448,7 +526,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
-    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasTargetSize || hasMinRole || hasMaxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasBlindBans || hasBlindPicks || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasCivBlitz || hasCivBlitzOptionCount || hasCivBlitzExcludeBbgExpanded || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
     const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
     const currentUserIsHost = lobby.hostId === auth.identity.userId
     const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
@@ -500,6 +578,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         mapVoteEnabled: parsedMapVoteEnabled ?? false,
         hasBlindBans,
         blindBans: parsedBlindBans ?? true,
+        hasBlindPicks,
+        blindPicks: parsedBlindPicks ?? false,
         hasSimultaneousPick,
         simultaneousPick: parsedSimultaneousPick ?? false,
         hasPermanentAlly,
@@ -508,6 +588,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         redDeath: parsedRedDeath ?? false,
         hasDealOptionsSize,
         dealOptionsSize: parsedDealOptionsSize ?? null,
+        hasCivBlitz,
+        civBlitz: parsedCivBlitz ?? false,
+        hasCivBlitzOptionCount,
+        civBlitzOptionCount: parsedCivBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT,
+        hasCivBlitzExcludeBbgExpanded,
+        civBlitzExcludeBbgExpanded: parsedCivBlitzExcludeBbgExpanded ?? true,
         hasRandomDraft,
         randomDraft: parsedRandomDraft ?? false,
         hasHiddenDraft,
@@ -529,9 +615,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'This lobby is missing guild context, so max rank cannot be set.' }, 400)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, resolvedLobby.draftConfig.redDeath)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, normalizedRedDeath, normalizedCivBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+    const renderSlotsBeforeConfigChange = [...slots]
     const requestedTargetSize = (() => {
       if (mode !== 'ffa') {
         return hasTargetSize ? parsedTargetSize ?? slots.length : slots.length
@@ -559,8 +646,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const leaderPoolError = getLeaderPoolSizeError(
       mode,
-      normalizedRedDeath,
+      normalizedRedDeath || normalizedCivBlitz,
       normalizedLeaderPoolSize,
+      normalizedLeaderDataVersion,
       slots.length,
     )
     if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
@@ -582,13 +670,18 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       leaderDataVersion: normalizedLeaderDataVersion,
       mapVoteEnabled: normalizedMapVoteEnabled,
       blindBans: normalizedBlindBans,
+      blindPicks: normalizedBlindPicks,
       simultaneousPick: normalizedSimultaneousPick,
       permanentAlly: normalizedPermanentAlly,
       redDeath: normalizedRedDeath,
       dealOptionsSize: normalizedDealOptionsSize,
+      civBlitz: normalizedCivBlitz,
+      civBlitzOptionCount: normalizedCivBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: normalizedCivBlitzExcludeBbgExpanded,
       randomDraft: normalizedRandomDraft,
       hiddenDraft: normalizedHiddenDraft,
       duplicateFactions: normalizedDuplicateFactions,
+      closed: normalizedClosed,
     }, requestedTargetSize)
     const nextDraftConfig = lockTournamentDraftConfig(baseDraftConfig, tournamentMatch != null)
 
@@ -630,14 +723,16 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
 
-    queueBackgroundTask(c, async () => {
-      const currentLobby = updated
-      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, updated, slottedEntries)
-      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-        embeds: renderPayload.embeds,
-        components: renderPayload.components,
-      }, lobbySessionMutationOptions(c))
-    }, `Failed to update lobby embed after config change in ${mode}:`)
+    if (openLobbyMessageRenderStateChanged(resolvedLobby, updated, renderSlotsBeforeConfigChange, normalizedSlots)) {
+      queueBackgroundTask(c, async () => {
+        const currentLobby = updated
+        const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, updated, slottedEntries)
+        await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+          embeds: renderPayload.embeds,
+          components: renderPayload.components,
+        }, lobbySessionMutationOptions(c))
+      }, `Failed to update lobby embed after config change in ${mode}:`)
+    }
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots))
   })
@@ -699,7 +794,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (tournamentMatch) {
       return c.json({ error: 'Tournament lobbies are fixed at 1v1.' }, 403)
     }
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const sourceLobby = lobby
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, sourceLobby)
     if (!sourceLobby.memberPlayerIds.includes(sourceLobby.hostId)) {
@@ -839,10 +934,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     let transferNotice: string | null = null
 
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
+    if (lobby.draftConfig.closed === true && !isHost && !alreadyInTargetLobby) {
+      return c.json({ error: 'This lobby is closed.' }, 403)
+    }
     let blockingLobbyForPlayer: Awaited<ReturnType<typeof getCurrentSessionLobbyProjectionsForPlayer>>[number] | null = null
     if (!alreadyInTargetLobby) {
       const currentLobbiesForPlayer = await getCurrentSessionLobbyProjectionsForPlayer(db, movingPlayerId, {
@@ -859,7 +957,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         if (movingPlayerId !== auth.identity.userId) {
           return c.json({ error: 'That player is already in another lobby.' }, 400)
         }
-        transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath })} lobby.`
+        transferNotice = `Moved you from your previous ${formatModeLabel(blockingLobbyForPlayer.mode, blockingLobbyForPlayer.mode, { redDeath: blockingLobbyForPlayer.draftConfig.redDeath, civBlitz: blockingLobbyForPlayer.draftConfig.civBlitz })} lobby.`
       }
     }
 
@@ -1079,7 +1177,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid slot index' }, 400)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const targetPlayerId = slots[slot]
@@ -1096,6 +1193,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!isHost && auth.identity.userId !== targetPlayerId) {
       return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
     }
+
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
 
     slots[slot] = null
 
@@ -1126,6 +1225,92 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }, `Failed to update lobby embed after slot removal in ${mode}:`)
 
     return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
+  })
+
+  app.post('/api/lobby/:mode/transfer-host', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mode = parseGameMode(c.req.param('mode'))
+    const kv = getKvStore(c.env)
+    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    }
+    catch {
+      return c.json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'Invalid request body' }, 400)
+    }
+
+    const { userId, targetPlayerId, lobbyId } = body as { userId?: string, targetPlayerId?: unknown, lobbyId?: unknown }
+
+    if (typeof userId !== 'string' || userId.length === 0) {
+      return c.json({ error: 'userId is required' }, 400)
+    }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    if (typeof targetPlayerId !== 'string' || targetPlayerId.length === 0) {
+      return c.json({ error: 'targetPlayerId is required' }, 400)
+    }
+
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    if (!lobby) {
+      return c.json({ error: 'No open lobby for this mode' }, 404)
+    }
+
+    if (lobby.hostId !== auth.identity.userId) {
+      return c.json({ error: 'Only the lobby host can transfer host' }, 403)
+    }
+
+    const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
+    const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
+
+    if (targetPlayerId === lobby.hostId) {
+      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots))
+    }
+
+    if (!slots.includes(targetPlayerId)) {
+      return c.json({ error: 'New host must be in a lobby slot.' }, 400)
+    }
+
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+
+    let nextLobby: LobbyState
+    try {
+      nextLobby = await setLobbyHost(kv, lobby.id, targetPlayerId, lobby, lobbySessionMutationOptions(c, lobbyQueueEntries)) ?? lobby
+    }
+    catch (error) {
+      if (isSessionVersionStaleError(error)) return c.json({ error: 'Lobby changed; please retry.' }, 409)
+      throw error
+    }
+
+    const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
+    const nextSlots = normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntries)
+    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+      queueEntries: nextLobbyQueueEntries,
+      slots: nextSlots,
+      balanceSnapshot,
+    })
+    const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
+
+    queueBackgroundTask(c, async () => {
+      const currentLobby = nextLobby
+      const renderPayload = await buildOpenLobbyRenderPayloadForMessage(db, kv, nextLobby, slottedEntries)
+      await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
+        embeds: renderPayload.embeds,
+        components: renderPayload.components,
+      }, lobbySessionMutationOptions(c))
+    }, `Failed to update lobby embed after host transfer in ${mode}:`)
+
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, nextSlots))
   })
 
   app.post('/api/lobby/:mode/arrange', async (c) => {
@@ -1175,14 +1360,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can arrange the lobby' }, 403)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
 
     let ratingsByPlayerId = new Map<string, { mu: number, sigma: number }>()
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
-      const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath })
+      const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath, civBlitz: lobby.draftConfig.civBlitz })
       if (leaderboardMode != null) {
         const rows = await db
           .select({
@@ -1278,7 +1463,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can fill test players' }, 403)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const nextEntries = [...lobbyQueueEntries]
@@ -1422,7 +1607,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         queueBackgroundTask(c, async () => {
           const currentLobby = lobbyForMessage
           const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, currentLobby, {
-            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath)],
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath, lobbyForMessage.draftConfig.civBlitz)],
             components: lobbyComponents(mode, currentLobby.id),
           }, lobbySessionMutationOptions(c))
           await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
@@ -1441,9 +1626,90 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     catch (error) {
       console.error(`Failed to start lobby draft for mode ${mode}:`, error)
-      const commandError = parseSessionDraftStartError(error)
+      const commandError = parseSessionDraftCommandError(error)
       if (commandError) return c.json({ error: commandError.message }, commandError.status)
       return c.json({ error: 'Failed to start draft. Please try again.' }, 500)
+    }
+  })
+
+  app.post('/api/lobby/:mode/repeat-draft', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const mode = parseGameMode(c.req.param('mode'))
+    const kv = getKvStore(c.env)
+    if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    }
+    catch {
+      return c.json({ error: 'Invalid JSON payload' }, 400)
+    }
+
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'Invalid request body' }, 400)
+    }
+
+    const { userId, lobbyId } = body as { userId?: string, lobbyId?: unknown }
+    if (typeof userId !== 'string' || userId.length === 0) {
+      return c.json({ error: 'userId is required' }, 400)
+    }
+
+    const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
+    if (mismatch) return mismatch
+
+    const internalSecret = c.env.CIVUP_SECRET?.trim() ?? ''
+    if (internalSecret.length === 0) {
+      return c.json({ error: 'Draft auth is not configured.' }, 503)
+    }
+
+    const db = createDb(c.env.DB)
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    if (!lobby) return c.json({ error: 'No open lobby for this mode' }, 404)
+    if (lobby.hostId !== auth.identity.userId) {
+      return c.json({ error: 'Only the lobby host can repeat the draft' }, 403)
+    }
+
+    try {
+      const repeated = await repeatSessionDraft(c.env.SessionDO, lobby.id, {
+        expectedVersion: lobby.revision,
+        hostId: auth.identity.userId,
+      })
+      if (repeated.record.mode !== mode) return c.json({ error: 'Session mode does not match lobby route.' }, 409)
+
+      const { matchId, seats } = repeated
+      const lobbyForMessage = buildLobbyStateFromSessionRecord(repeated.record, lobby)
+      await syncLobbyDerivedState(kv, lobbyForMessage)
+      await markTournamentMatchDrafting(db, lobby.id, matchId)
+
+      if (repeated.kind === 'resume') {
+        queueBackgroundTask(c, async () => {
+          const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobbyForMessage, {
+            embeds: [lobbyDraftingEmbed(mode, seats, lobbyForMessage.draftConfig.leaderDataVersion, lobbyForMessage.draftConfig.redDeath, lobbyForMessage.draftConfig.civBlitz)],
+            components: lobbyComponents(mode, lobbyForMessage.id),
+          }, lobbySessionMutationOptions(c))
+          await storeMatchMessageMapping(db, updatedLobby.messageId, matchId)
+        }, `Failed to update repeated draft lobby embed for mode ${mode}:`)
+      }
+
+      return c.json({
+        ok: true as const,
+        kind: repeated.kind,
+        matchId,
+        sessionAccessToken: await createSessionAccessToken(internalSecret, {
+          userId: auth.identity.userId,
+          sessionId: matchId,
+          channelId: lobbyForMessage.channelId,
+        }),
+      })
+    }
+    catch (error) {
+      const commandError = parseSessionDraftCommandError(error)
+      if (commandError) return c.json({ error: commandError.message }, commandError.status)
+      console.error(`Failed to repeat lobby draft for mode ${mode}:`, error)
+      return c.json({ error: 'Failed to repeat draft. Please try again.' }, 500)
     }
   })
 
@@ -1501,7 +1767,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     queueBackgroundTask(c, async () => {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
         embeds: [{
-          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath })}`,
+          title: `LOBBY CANCELLED  -  ${formatModeLabel(mode, mode, { redDeath: lobby.draftConfig.redDeath, civBlitz: lobby.draftConfig.civBlitz })}`,
           description: 'Host cancelled this lobby before draft start.',
           color: 0x6B7280,
         }],
@@ -1518,6 +1784,14 @@ async function buildStoredLobbySnapshot(
   lobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
 ) {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const slottedPlayerIds = lobby.slots.filter((playerId): playerId is string => playerId != null)
+  const lobbyRank = await buildLobbyRankSnapshot(kv, lobby.guildId, slottedPlayerIds, {
+    mode,
+    playerCount: slottedPlayerIds.length,
+    leaderDataVersion: lobby.draftConfig.leaderDataVersion,
+    redDeath: lobby.draftConfig.redDeath,
+    civBlitz: lobby.draftConfig.civBlitz,
+  })
   return {
     id: lobby.id,
     revision: lobby.revision,
@@ -1527,6 +1801,7 @@ async function buildStoredLobbySnapshot(
     steamLobbyLink: lobby.steamLobbyLink,
     minRole: lobby.minRole,
     maxRole: lobby.maxRole,
+    lobbyRank,
     entries: lobby.slots.map(() => null),
     minPlayers: lobbyMinPlayerCount(mode, lobby.slots.length, lobby.draftConfig.redDeath, lobby.draftConfig.permanentAlly),
     targetSize: lobby.slots.length,
@@ -1546,10 +1821,14 @@ function lockTournamentDraftConfig(config: LobbyDraftConfig, locked: boolean): L
     leaderPoolSize: null,
     mapVoteEnabled: false,
     blindBans: true,
+    blindPicks: false,
     simultaneousPick: false,
     permanentAlly: false,
     redDeath: false,
     dealOptionsSize: null,
+    civBlitz: false,
+    civBlitzOptionCount: CIV_BLITZ_DEFAULT_OPTION_COUNT,
+    civBlitzExcludeBbgExpanded: true,
     randomDraft: false,
     hiddenDraft: false,
     duplicateFactions: false,
@@ -1567,6 +1846,8 @@ function getTournamentLockedConfigError(
     mapVoteEnabled: boolean
     hasBlindBans: boolean
     blindBans: boolean
+    hasBlindPicks: boolean
+    blindPicks: boolean
     hasSimultaneousPick: boolean
     simultaneousPick: boolean
     hasPermanentAlly: boolean
@@ -1575,6 +1856,12 @@ function getTournamentLockedConfigError(
     redDeath: boolean
     hasDealOptionsSize: boolean
     dealOptionsSize: number | null
+    hasCivBlitz: boolean
+    civBlitz: boolean
+    hasCivBlitzOptionCount: boolean
+    civBlitzOptionCount: number
+    hasCivBlitzExcludeBbgExpanded: boolean
+    civBlitzExcludeBbgExpanded: boolean
     hasRandomDraft: boolean
     randomDraft: boolean
     hasHiddenDraft: boolean
@@ -1592,10 +1879,14 @@ function getTournamentLockedConfigError(
   if (isLockedValueChange(request.hasLeaderPoolSize, request.leaderPoolSize, lobby.draftConfig.leaderPoolSize, null)) return 'Tournament leader pool is fixed.'
   if (isLockedValueChange(request.hasMapVoteEnabled, request.mapVoteEnabled, lobby.draftConfig.mapVoteEnabled, false)) return 'Tournament lobbies do not use map vote.'
   if (isLockedValueChange(request.hasBlindBans, request.blindBans, lobby.draftConfig.blindBans, true)) return 'Tournament blind-ban settings are locked.'
+  if (isLockedValueChange(request.hasBlindPicks, request.blindPicks, lobby.draftConfig.blindPicks, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasSimultaneousPick, request.simultaneousPick, lobby.draftConfig.simultaneousPick, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasPermanentAlly, request.permanentAlly, lobby.draftConfig.permanentAlly, false)) return 'Tournament ally settings are locked.'
   if (isLockedValueChange(request.hasRedDeath, request.redDeath, lobby.draftConfig.redDeath, false)) return 'Tournament lobbies cannot enable Red Death.'
   if (isLockedValueChange(request.hasDealOptionsSize, request.dealOptionsSize, lobby.draftConfig.dealOptionsSize, null)) return 'Tournament Red Death settings are locked.'
+  if (isLockedValueChange(request.hasCivBlitz, request.civBlitz, lobby.draftConfig.civBlitz, false)) return 'Tournament lobbies cannot enable CivBlitz.'
+  if (isLockedValueChange(request.hasCivBlitzOptionCount, request.civBlitzOptionCount, lobby.draftConfig.civBlitzOptionCount ?? CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_DEFAULT_OPTION_COUNT)) return 'Tournament CivBlitz settings are locked.'
+  if (isLockedValueChange(request.hasCivBlitzExcludeBbgExpanded, request.civBlitzExcludeBbgExpanded, lobby.draftConfig.civBlitzExcludeBbgExpanded, true)) return 'Tournament CivBlitz settings are locked.'
   if (isLockedValueChange(request.hasRandomDraft, request.randomDraft, lobby.draftConfig.randomDraft, false)) return 'Tournament draft visibility settings are locked.'
   if (isLockedValueChange(request.hasHiddenDraft, request.hiddenDraft, lobby.draftConfig.hiddenDraft, false)) return 'Tournament draft visibility settings are locked.'
   if (isLockedValueChange(request.hasDuplicateFactions, request.duplicateFactions, lobby.draftConfig.duplicateFactions, false)) return 'Tournament duplicate leader settings are locked.'
@@ -1612,10 +1903,14 @@ function getLeaderPoolSizeError(
   mode: GameMode,
   redDeath: boolean,
   leaderPoolSize: number | null,
+  leaderDataVersion: 'live' | 'beta',
   playerCount: number,
 ): string | null {
   if (redDeath) return null
   if (leaderPoolSize == null) return null
+
+  const maximumSize = getMaxLeaderPoolSize(leaderDataVersion)
+  if (leaderPoolSize > maximumSize) return `Leaders must be at most ${maximumSize} for this BBG version.`
 
   const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
   if (leaderPoolSize >= minimumSize) return null
@@ -1656,6 +1951,10 @@ function parseLobbyBlindBans(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
+function parseLobbyBlindPicks(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function parseLobbyMapVoteEnabled(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
@@ -1672,6 +1971,22 @@ function parseLobbyDealOptionsSize(value: unknown): number | null | undefined {
   return numeric
 }
 
+function parseLobbyCivBlitz(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyCivBlitzOptionCount(value: unknown): number | null | undefined {
+  if (value == null) return null
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(numeric)) return undefined
+  if (numeric < CIV_BLITZ_MIN_OPTION_COUNT || numeric > CIV_BLITZ_MAX_OPTION_COUNT) return undefined
+  return numeric
+}
+
+function parseLobbyCivBlitzExcludeBbgExpanded(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function parseLobbyRandomDraft(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
@@ -1681,6 +1996,10 @@ function parseLobbyHiddenDraft(value: unknown): boolean | undefined {
 }
 
 function parseLobbyDuplicateFactions(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyClosed(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
@@ -1704,6 +2023,22 @@ function getResizeShrinkErrorMessage(mode: GameMode, currentSize: number, target
   }
 
   return 'Clear the extra seats before shrinking the lobby.'
+}
+
+function openLobbyMessageRenderStateChanged(
+  before: LobbyState,
+  after: LobbyState,
+  beforeSlots: (string | null)[],
+  afterSlots: (string | null)[],
+): boolean {
+  return before.mode !== after.mode
+    || !sameLobbySlots(beforeSlots, afterSlots)
+    || before.minRole !== after.minRole
+    || before.maxRole !== after.maxRole
+    || before.draftConfig.leaderDataVersion !== after.draftConfig.leaderDataVersion
+    || before.draftConfig.redDeath !== after.draftConfig.redDeath
+    || before.draftConfig.civBlitz !== after.draftConfig.civBlitz
+    || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 
 function isDebugLobbyFillEnabled(

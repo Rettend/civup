@@ -34,14 +34,6 @@ export const component_match_join = factory.component(
     const db = createDb(env.DB)
     const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
     const clickedTournamentMatch = clickedLobby ? await getTournamentMatchBySessionId(db, clickedLobby.id) : null
-    if (clickedLobby?.status === 'open' && clickedTournamentMatch) {
-      const validation = await validateTournamentLobbyJoin(db, clickedLobby, identity)
-      if (!validation.ok) {
-        return c.flags('EPHEMERAL').resDefer(async (c) => {
-          await sendTransientEphemeralResponse(c, validation.error, 'error')
-        })
-      }
-    }
     if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
       await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby.channelId, identity.userId, {
         kind: 'match',
@@ -89,6 +81,10 @@ export const component_match_join = factory.component(
 
       if (lobby.memberPlayerIds.length === 0) return
       if (!shouldJoinOpenLobbyFromActivityButton(lobby, identity.userId)) return
+      if (clickedTournamentMatch) {
+        const validation = await validateTournamentLobbyJoin(db, lobby, identity)
+        if (!validation.ok) return
+      }
 
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null

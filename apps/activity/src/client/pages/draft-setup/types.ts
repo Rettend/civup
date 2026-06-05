@@ -18,13 +18,18 @@ export interface LobbyEditableDraftConfig {
   leaderDataVersion: 'live' | 'beta'
   mapVoteEnabled: boolean
   blindBans: boolean
+  blindPicks: boolean
   simultaneousPick: boolean
   permanentAlly: boolean
   redDeath: boolean
   dealOptionsSize: number | null
+  civBlitz: boolean
+  civBlitzOptionCount: number | null
+  civBlitzExcludeBbgExpanded: boolean
   randomDraft: boolean
   hiddenDraft: boolean
   duplicateFactions: boolean
+  closed: boolean
 }
 
 export type EditableConfigField = 'ban' | 'pick' | 'leaderPool'

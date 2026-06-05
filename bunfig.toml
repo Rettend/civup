@@ -1,4 +1,7 @@
 [test]
+preload = [
+  "./tests/setup-activity-dom.ts",
+]
 coverageReporter = [
   "text",
   "lcov"

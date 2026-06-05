@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
@@ -39,6 +39,10 @@ export interface LobbySnapshot {
   steamLobbyLink: string | null
   minRole: CompetitiveTier | null
   maxRole: CompetitiveTier | null
+  lobbyRank?: {
+    tier: CompetitiveTier
+    leaderPoolSize: number | null
+  } | null
   lastArrange?: {
     strategy: LobbyArrangeStrategy
     at: number
@@ -52,7 +56,13 @@ export interface LobbySnapshot {
       mu: number
       sigma: number
       gamesPlayed: number
+      wins?: number
+      rank?: number | null
     }
+    rankedRole?: {
+      tier: CompetitiveTier
+      sourceMode: string | null
+    } | null
   } | null)[]
   minPlayers: number
   targetSize: number
@@ -63,13 +73,18 @@ export interface LobbySnapshot {
     leaderDataVersion: LeaderDataVersion
     mapVoteEnabled: boolean
     blindBans: boolean
+    blindPicks: boolean
     simultaneousPick: boolean
     permanentAlly: boolean
     redDeath: boolean
     dealOptionsSize: number | null
+    civBlitz: boolean
+    civBlitzOptionCount: number | null
+    civBlitzExcludeBbgExpanded: boolean
     randomDraft: boolean
     hiddenDraft: boolean
     duplicateFactions: boolean
+    closed?: boolean
   }
   tournament?: {
     id: string
@@ -77,6 +92,10 @@ export interface LobbySnapshot {
     rematchPolicy: 'allow' | 'warn' | 'block'
     rematchWarning: string | null
     configLocked: true
+  } | null
+  repeatDraft?: {
+    kind: 'resume' | 'complete'
+    matchId: string
   } | null
   serverDefaults: {
     banTimerSeconds: number | null
@@ -135,13 +154,23 @@ export interface ActivityTargetOption {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   isMember: boolean
   isHost: boolean
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
+}
+
+export interface ActivityOverviewPlayerSnapshot {
+  playerId: string
+  displayName: string
+  avatarUrl?: string | null
+  team?: number | null
 }
 
 export interface ActivityOverviewOptionSnapshot {
@@ -151,12 +180,15 @@ export interface ActivityOverviewOptionSnapshot {
   matchId: string | null
   channelId: string
   mode: string
-  status: 'open' | 'drafting' | 'active' | 'completed'
+  status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
+  reported?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
+  civBlitz: boolean
   hostId: string
   memberPlayerIds: string[]
+  players?: ActivityOverviewPlayerSnapshot[]
   updatedAt: number
 }
 
@@ -531,6 +563,10 @@ export function sendPick(civId: string) {
   }
 }
 
+export function sendCivBlitzSubmit(kit: CivBlitzPartialKit) {
+  return sendMessage({ type: 'civ-blitz-submit', kit })
+}
+
 export function sendPreview(action: DraftAction, civIds: string[]) {
   const key = `${action}:${civIds.join(',')}`
   if (lastSentPreviewKeys[action] === key) return true
@@ -654,13 +690,18 @@ export async function updateLobbyConfig(
     leaderDataVersion?: LeaderDataVersion
     mapVoteEnabled?: boolean
     blindBans?: boolean
+    blindPicks?: boolean
     simultaneousPick?: boolean
     permanentAlly?: boolean
     redDeath?: boolean
     dealOptionsSize?: number | null
+    civBlitz?: boolean
+    civBlitzOptionCount?: number | null
+    civBlitzExcludeBbgExpanded?: boolean
     randomDraft?: boolean
     hiddenDraft?: boolean
     duplicateFactions?: boolean
+    closed?: boolean
     targetSize?: number
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
@@ -677,13 +718,18 @@ export async function updateLobbyConfig(
       leaderDataVersion: draftConfig.leaderDataVersion,
       mapVoteEnabled: draftConfig.mapVoteEnabled,
       blindBans: draftConfig.blindBans,
+      blindPicks: draftConfig.blindPicks,
       simultaneousPick: draftConfig.simultaneousPick,
       permanentAlly: draftConfig.permanentAlly,
       redDeath: draftConfig.redDeath,
       dealOptionsSize: draftConfig.dealOptionsSize,
+      civBlitz: draftConfig.civBlitz,
+      civBlitzOptionCount: draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded: draftConfig.civBlitzExcludeBbgExpanded,
       randomDraft: draftConfig.randomDraft,
       hiddenDraft: draftConfig.hiddenDraft,
       duplicateFactions: draftConfig.duplicateFactions,
+      closed: draftConfig.closed,
       targetSize: draftConfig.targetSize,
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
@@ -773,6 +819,26 @@ export async function removeLobbySlot(
   }
 }
 
+/** Transfer open lobby host ownership to another slotted player (host-only). */
+export async function transferLobbyHost(
+  mode: string,
+  payload: {
+    lobbyId: string
+    userId: string
+    targetPlayerId: string
+  },
+): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+  try {
+    const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/transfer-host`, payload)
+    return { ok: true, lobby }
+  }
+  catch (err) {
+    console.error('Failed to transfer lobby host:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while transferring host' }
+  }
+}
+
 /** Arrange lobby slots for team or seat-order drafts (host-only). */
 export async function arrangeLobbySlots(
   mode: string,
@@ -806,6 +872,24 @@ export async function startLobbyDraft(
     console.error('Failed to start lobby draft:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while starting lobby draft' }
+  }
+}
+
+/** Repeat or resume the previous matching draft from an open lobby (host-only). */
+export async function repeatLobbyDraft(
+  mode: string,
+  lobbyId: string,
+  userId: string,
+): Promise<{ ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }> {
+  try {
+    const data = await activityApiPost<{ kind?: 'resume' | 'complete', matchId?: string, sessionAccessToken?: string | null }>(`/api/lobby/${mode}/repeat-draft`, { lobbyId, userId })
+    if (!data.matchId) return { ok: false, error: 'Draft repeated but no match ID was returned' }
+    return { ok: true, kind: data.kind ?? 'complete', matchId: data.matchId, sessionAccessToken: data.sessionAccessToken ?? null }
+  }
+  catch (err) {
+    console.error('Failed to repeat lobby draft:', err)
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    return { ok: false, error: 'Network error while repeating draft' }
   }
 }
 
@@ -896,7 +980,16 @@ export async function reportMatchResult(
   leaderAssignments?: Record<string, string>,
 ): Promise<{ ok: true } | { ok: false, error: string }> {
   try {
-    await activityApiPost(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
+    const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
+    if (data.reportProcessing) {
+      return {
+        ok: false,
+        error: data.reportFinalizing
+          ? 'Match is finalizing leader swaps. Try again in a moment.'
+          : 'Match is already being reported.',
+      }
+    }
+    if (data.ok === false) return { ok: false, error: data.error ?? 'Failed to report result' }
     return { ok: true }
   }
   catch (err) {

@@ -1,7 +1,7 @@
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
 import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
-import { formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
+import { formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
 import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
 import {
   arrangeLobbySlots,
@@ -14,10 +14,12 @@ import {
   isMobileLayout,
   isSpectator,
   placeLobbySlot,
+  repeatLobbyDraft,
   removeLobbySlot,
   sendCancel,
   sendStart,
   startLobbyDraft,
+  transferLobbyHost,
   updateLobbyConfig,
   userId,
 } from '~/client/stores'
@@ -40,6 +42,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
   const [cancelPending, setCancelPending] = createSignal(false)
   const [startPending, setStartPending] = createSignal(false)
+  const [repeatPending, setRepeatPending] = createSignal(false)
   const [lobbyActionPending, setLobbyActionPending] = createSignal(false)
   const [pendingPlaceSelfSlot, setPendingPlaceSelfSlot] = createSignal<number | null>(null)
   const [pendingArrangeStrategy, setPendingArrangeStrategy] = createSignal<LobbyArrangeStrategy | null>(null)
@@ -49,13 +52,16 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   let optimisticLobbyActionTimeout: ReturnType<typeof setTimeout> | null = null
   let configMessageTimeout: ReturnType<typeof setTimeout> | null = null
 
-  createRenderEffect(() => {
-    const incomingLobby = props.lobby ?? null
+  const applyLobbySnapshot = (incomingLobby: LobbySnapshot | null) => {
     setLobbyState((current) => {
       if (!incomingLobby) return null
-      if (current && incomingLobby.revision < current.revision) return current
+      if (current && current.id === incomingLobby.id && incomingLobby.revision < current.revision) return current
       return incomingLobby
     })
+  }
+
+  createRenderEffect(() => {
+    applyLobbySnapshot(props.lobby ?? null)
   })
 
   const clearOptimisticLobbyAction = () => {
@@ -152,7 +158,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const persistentConfigMessage = () => currentLobby()?.tournament?.rematchWarning ?? null
   const effectiveConfigMessage = () => configMessage() ?? persistentConfigMessage()
   const effectiveConfigMessageTone = () => configMessageTone() ?? (persistentConfigMessage() ? 'warning' : null)
-  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby()))
+  const lobbyBalance = createMemo(() => buildLobbyBalanceSummary(currentLobby(), userId()))
   const teamBalance = (team: number) => lobbyBalance()?.teams.find(summary => summary.team === team) ?? null
   const pendingSelfJoinSlot = () => resolvePendingJoinGhostSlot(currentLobby(), userId(), (props.showJoinPending === true) || pendingPlaceSelfSlot() != null, props.joinEligibility, pendingPlaceSelfSlot())
   const steamLobbyLink = () => currentLobby()?.steamLobbyLink ?? props.steamLobbyLink ?? null
@@ -165,13 +171,24 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const lobbyMode = () => inferGameMode(currentLobby()?.mode ?? state()?.formatId)
   const formatLabel = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, targetSize: lobby.targetSize })
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, civBlitz: configState.derived.draftConfig().civBlitz, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: configState.derived.isRedDeath(), targetSize: state()?.seats.length })
   }
   const miniFormatLabel = () => {
     const lobby = currentLobby()
-    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, compactRedDeath: true, targetSize: lobby.targetSize })
+    if (lobby) return formatModeLabel(lobby.mode, 'DRAFT', { redDeath: configState.derived.draftConfig().redDeath, compactRedDeath: true, civBlitz: configState.derived.draftConfig().civBlitz, targetSize: lobby.targetSize })
     return formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { redDeath: configState.derived.isRedDeath(), compactRedDeath: true, targetSize: state()?.seats.length })
+  }
+  const statsLabel = () => {
+    const config = configState.derived.draftConfig()
+    if (config.civBlitz) return 'CivBlitz'
+    if (config.redDeath) return 'Red Death'
+
+    const lobby = currentLobby()
+    const baseLabel = lobby
+      ? formatModeLabel(lobby.mode, 'DRAFT', { targetSize: lobby.targetSize })
+      : formatModeLabel(inferGameMode(state()?.formatId), 'DRAFT', { targetSize: state()?.seats.length })
+    return `${baseLabel} Stats`
   }
   const isTeamMode = () => {
     const lobby = currentLobby()
@@ -199,6 +216,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return slot >= 0 ? slot : null
   })
   const isCurrentUserSlotted = () => currentUserLobbySlot() != null
+  const isLobbyClosed = () => currentLobby()?.draftConfig.closed === true
 
   const configState = useDraftSetupConfigState({
     props,
@@ -216,6 +234,17 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     showInfoMessage,
     showRankRoleSetMessage,
   })
+  const lobbyRankBadge = () => {
+    const rank = currentLobby()?.lobbyRank ?? null
+    if (!rank) return null
+
+    const roleOption = configState.options.rankedRoles().find(option => option.tier === rank.tier) ?? null
+    return {
+      label: roleOption?.label ?? formatLeaderPoolRankLabel(rank.tier),
+      color: roleOption?.color ?? null,
+      leaderPoolSize: rank.leaderPoolSize,
+    }
+  }
 
   createEffect(() => {
     const slot = pendingPlaceSelfSlot()
@@ -289,6 +318,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const canCurrentUserPlaceSelf = () => {
     if (!isLobbyMode() || !userId()) return false
     if (props.showJoinPending && !isCurrentUserSlotted()) return false
+    if (isLobbyClosed() && !amHost() && !isCurrentUserSlotted()) return false
     if (props.joinEligibility && !props.joinEligibility.canJoin && !isCurrentUserSlotted()) return false
     return true
   }
@@ -305,6 +335,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const canLeaveLobby = () => isLobbyMode() && !amHost() && currentUserLobbySlot() != null
   const joinLobbyButtonTitle = () => {
     if (props.showJoinPending) return 'Joining lobby...'
+    if (isLobbyClosed() && !amHost() && !isCurrentUserSlotted()) return 'This lobby is closed.'
     if (props.joinEligibility?.blockedReason) return props.joinEligibility.blockedReason
     if (joinLobbyTargetSlot() == null) return 'No empty seats available.'
     return 'Join Lobby'
@@ -343,6 +374,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     if (!id) return false
     return amHost() || row.playerId === id
   }
+  const canTransferHostToRow = (row: PlayerRow) => isLobbyMode() && amHost() && !row.empty && !row.pendingSelf && !!row.playerId && !row.isHost
   const canDragRow = (row: PlayerRow) => {
     if (!isLobbyMode() || lobbyActionPending() || row.empty || !row.playerId || row.pendingSelf) return false
     const id = userId()
@@ -462,6 +494,23 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setLobbyActionPending(false)
     }
   }
+  const handleTransferHost = async (targetPlayerId: string) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending()) return
+    if (targetPlayerId === lobby.hostId) return
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await transferLobbyHost(lobby.mode, { lobbyId: lobby.id, userId: currentUserId, targetPlayerId })
+      if (!result.ok) return showErrorMessage(result.error)
+      const targetName = lobby.entries.find(entry => entry?.playerId === targetPlayerId)?.displayName ?? 'Player'
+      showInfoMessage(`${targetName} is now host.`)
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
   const handleStartLobbyDraftAction = async () => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -469,13 +518,36 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     setStartPending(true)
     clearConfigMessage()
     try {
-      const result = await startLobbyDraft(lobby.mode, lobby.id, currentUserId)
+      const configSaved = await configState.actions.flushPendingEdits()
+      if (!configSaved) return
+
+      const latestLobby = currentLobby()
+      const latestUserId = userId()
+      if (!latestLobby || !latestUserId || !amHost() || !configState.derived.canStartLobby() || lobbyActionPending()) return
+
+      const result = await startLobbyDraft(latestLobby.mode, latestLobby.id, latestUserId)
       if (!result.ok) return showErrorMessage(result.error)
-      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.sessionAccessToken)
+      props.onLobbyStarted?.(result.matchId, latestLobby.steamLobbyLink, result.sessionAccessToken)
       showInfoMessage('Draft created. Opening draft...')
     }
     finally {
       setStartPending(false)
+    }
+  }
+  const handleRepeatLobbyDraftAction = async () => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || !lobby.repeatDraft || repeatPending() || startPending() || lobbyActionPending()) return
+    setRepeatPending(true)
+    clearConfigMessage()
+    try {
+      const result = await repeatLobbyDraft(lobby.mode, lobby.id, currentUserId)
+      if (!result.ok) return showErrorMessage(result.error)
+      props.onLobbyStarted?.(result.matchId, lobby.steamLobbyLink, result.sessionAccessToken)
+      showInfoMessage(result.kind === 'resume' ? 'Draft restored. Opening draft...' : 'Draft repeated. Opening report screen...')
+    }
+    finally {
+      setRepeatPending(false)
     }
   }
   const handleArrangeLobby = async (strategy: LobbyArrangeStrategy) => {
@@ -564,11 +636,24 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     if (slot == null) return
     await handleRemoveFromSlot(slot)
   }
-  const sendStartAction = () => sendStart()
+  const sendStartAction = async () => {
+    if (!amHost() || isLobbyMode() || startPending()) return
+    setStartPending(true)
+    clearConfigMessage()
+    try {
+      const configSaved = await configState.actions.flushPendingEdits()
+      if (!configSaved) return
+      sendStart()
+    }
+    finally {
+      setStartPending(false)
+    }
+  }
 
   const pending = {
     lobbyAction: lobbyActionPending,
     start: startPending,
+    repeat: repeatPending,
     cancel: cancelPending,
   }
 
@@ -585,6 +670,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     canSaveSteamLobbyLink: isCurrentUserSlotted,
     savePending: lobbyActionPending,
     formatLabel,
+    lobbyRank: lobbyRankBadge,
     modeLabelClass: configState.derived.modeLabelClass,
     saveSteamLobbyLink: configState.actions.saveSteamLobbyLink,
   }
@@ -601,15 +687,20 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     arrangeEvent: () => currentLobby()?.lastArrange ?? null,
     pendingArrangeStrategy,
     clearPendingArrangeStrategy,
+    rankedRoles: configState.options.rankedRoles,
+    statsLabel,
+    unranked: configState.derived.isUnranked,
     permissions: {
       canDragRow,
       canDropOnRow,
       canJoinSlot,
       canRemoveSlot,
+      canTransferHostToRow,
     },
     actions: {
       join: handlePlaceSelf,
       remove: handleRemoveFromSlot,
+      transferHost: handleTransferHost,
       dragStart: handleDragStart,
       dragEnd: handleDragEnd,
       dragEnter: setDragOverSlot,
@@ -640,6 +731,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     isLobbyMode,
     pending,
     canStartLobby: configState.derived.canStartLobby,
+    repeatDraft: () => currentLobby()?.repeatDraft ?? null,
     arrangeTargetLabel,
     randomizeButtonLabel,
     randomizeButtonTitle,
@@ -653,6 +745,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     joinLobby: handleJoinLobby,
     leaveLobby: handleLeaveLobby,
     startLobbyDraft: handleStartLobbyDraftAction,
+    repeatLobbyDraft: handleRepeatLobbyDraftAction,
     randomizeLobby: () => handleArrangeLobby('randomize'),
     shuffleTeamsLobby: () => handleArrangeLobby('shuffle-teams'),
     balanceLobby: () => handleArrangeLobby('balance'),
@@ -674,7 +767,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   const mini = {
     formatLabel: miniFormatLabel,
-    titleAccent: () => configState.derived.isRedDeath() ? 'orange' : 'gold',
+    titleAccent: () => configState.derived.isCivBlitz() ? 'cyan' : configState.derived.isRedDeath() ? 'orange' : 'gold',
     rightLabel: () => currentLobby() ? `${filledSlots()}/${currentLobby()!.targetSize}` : null,
     columns: miniColumns,
   }

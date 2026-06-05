@@ -41,6 +41,12 @@ interface CommonPlayerStat {
   wins: number
 }
 
+interface LeaderStat {
+  civId: string
+  games: number
+  wins: number
+}
+
 interface CommonPlayerQuerySegment {
   relationship: 'teammate' | 'opponent'
   didWin: boolean
@@ -91,26 +97,6 @@ export async function playerCardEmbed(
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
 
-  for (const mode of ratingModes) {
-    const ratingRow = ratings.find(r => r.mode === mode)
-    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
-
-    const rating = displayRating(ratingRow.mu, ratingRow.sigma)
-    const winRate = ratingRow.gamesPlayed > 0
-      ? Math.round((ratingRow.wins / ratingRow.gamesPlayed) * 100)
-      : 0
-
-    fields.push({
-      name: formatLeaderboardModeLabel(mode, mode),
-      value: [
-        `Rating: ${formatModeRating(rankProfile?.modes[mode], Math.round(rating))}`,
-        `Games: ${ratingRow.gamesPlayed}`,
-        `Wins: ${ratingRow.wins} (${winRate}%)`,
-      ].join('\n'),
-      inline: true,
-    })
-  }
-
   const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter, displaySeason?.id ?? null)
 
   const completedParticipationRowsRaw = await db
@@ -133,21 +119,34 @@ export async function playerCardEmbed(
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
     .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
     .where(completedMatchesWhere)
-    .orderBy(desc(matches.completedAt), desc(matches.id))
+    .orderBy(desc(matches.createdAt), desc(matches.id))
   const completedParticipationRows = completedParticipationRowsRaw.map(({ tournamentSessionId, ...row }) => ({
     ...row,
     isTournament: tournamentSessionId != null,
   }))
   const completedParticipations = await hydrateModeRatingSnapshotsFromEvents(db, completedParticipationRows)
+  const ffaRatingWins = countFfaRatingWins(completedParticipations)
 
-  const topLeaders = summarizeLeaderStats(completedParticipations)
+  for (const mode of ratingModes) {
+    const ratingRow = ratings.find(r => r.mode === mode)
+    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
+
+    fields.push({
+      name: formatLeaderboardModeLabel(mode, mode),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins }),
+      inline: true,
+    })
+  }
+
+  const leaderStats = summarizeLeaderStats(completedParticipations)
+  const topPlayedLeaders = sortLeaderStatsByGames(leaderStats)
     .slice(0, TOP_LEADERS_LIMIT)
 
-  if (topLeaders.length > 0) {
-    const fieldName = requestedModeLabel ? `Top Leaders (${requestedModeLabel})` : 'Top Leaders'
+  if (topPlayedLeaders.length > 0) {
+    const fieldName = requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders'
     fields.push({
       name: fieldName,
-      value: topLeaders.map(formatLeaderStatLine).join('\n'),
+      value: topPlayedLeaders.map(formatLeaderStatLine).join('\n'),
       inline: false,
     })
   }
@@ -213,6 +212,41 @@ function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | un
   return label ? `${label} (${rating})` : String(rating)
 }
 
+function formatModeStats(
+  modeSummary: PlayerRankProfile['modes'][LeaderboardMode] | undefined,
+  ratingRow: PlayerRatingSummary,
+  mode: LeaderboardMode,
+  stats: { ffaRatingWins: number },
+): string {
+  const rating = Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
+  const lines = [
+    `Rating: ${formatModeRating(modeSummary, rating)}`,
+  ]
+
+  const rank = formatModeRank(modeSummary)
+  if (rank) lines.push(`Rank: ${rank}`)
+
+  lines.push(`Games: ${ratingRow.gamesPlayed}`)
+  if (mode === 'ffa') {
+    const firstPlaces = ratingRow.wins
+    lines.push(`1st Place: ${firstPlaces} (${formatPercent(firstPlaces, ratingRow.gamesPlayed)}%)`)
+    lines.push(`Win: ${stats.ffaRatingWins} (${formatPercent(stats.ffaRatingWins, ratingRow.gamesPlayed)}%)`)
+  }
+  else {
+    lines.push(`Wins: ${ratingRow.wins} (${formatPercent(ratingRow.wins, ratingRow.gamesPlayed)}%)`)
+  }
+
+  return lines.join('\n')
+}
+
+function formatModeRank(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined): string | null {
+  return mode?.rank == null ? null : `#${mode.rank}`
+}
+
+function formatPercent(count: number, total: number): number {
+  return total > 0 ? Math.round((count / total) * 100) : 0
+}
+
 function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMode]): string | null {
   if (mode.tierRoleId) return `<@&${mode.tierRoleId}>`
   const label = mode.tierLabel?.trim()
@@ -234,6 +268,28 @@ function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsMod
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
   return and(...conditions)
+}
+
+function countFfaRatingWins(matchesPlayed: CompletedPlayerMatchRow[]): number {
+  let ratingWins = 0
+
+  for (const match of matchesPlayed) {
+    if (getStoredGameModeContext(match.gameMode, match.draftData)?.leaderboardMode !== 'ffa') continue
+    if (
+      match.ratingBeforeMu == null
+      || match.ratingBeforeSigma == null
+      || match.ratingAfterMu == null
+      || match.ratingAfterSigma == null
+    ) {
+      continue
+    }
+
+    const before = displayRating(match.ratingBeforeMu, match.ratingBeforeSigma)
+    const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
+    if (after > before) ratingWins += 1
+  }
+
+  return ratingWins
 }
 
 async function summarizeCommonPlayers(
@@ -389,8 +445,8 @@ function mergeCommonPlayerCounts(
   }
 }
 
-function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>) {
-  const byLeader = new Map<string, { civId: string, games: number, wins: number }>()
+function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>): LeaderStat[] {
+  const byLeader = new Map<string, LeaderStat>()
 
   for (const row of rows) {
     if (!row.civId) continue
@@ -401,18 +457,21 @@ function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: num
   }
 
   return [...byLeader.values()]
-    .sort((a, b) => {
-      const gamesDiff = b.games - a.games
-      if (gamesDiff !== 0) return gamesDiff
-
-      const winsDiff = b.wins - a.wins
-      if (winsDiff !== 0) return winsDiff
-
-      return a.civId.localeCompare(b.civId)
-    })
 }
 
-function formatLeaderStatLine(stat: { civId: string, games: number, wins: number }): string {
+function sortLeaderStatsByGames(stats: LeaderStat[]): LeaderStat[] {
+  return [...stats].sort((a, b) => {
+    const gamesDiff = b.games - a.games
+    if (gamesDiff !== 0) return gamesDiff
+
+    const winsDiff = b.wins - a.wins
+    if (winsDiff !== 0) return winsDiff
+
+    return a.civId.localeCompare(b.civId)
+  })
+}
+
+function formatLeaderStatLine(stat: LeaderStat): string {
   const winRate = Math.round((stat.wins / stat.games) * 100)
   const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
   const pct = `${winRate}%`.padStart(4, ' ')
@@ -451,13 +510,14 @@ function formatPlacementCode(placement: number | null): string {
 }
 
 function formatRecentRatingChange(match: {
+  placement: number | null
   ratingBeforeMu: number | null
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
   isTournament?: boolean
 }): string {
-  if (match.isTournament) return '`Tournament`'
+  if (match.isTournament) return `${formatTournamentResultEmoji(match.placement)} \`Tournament\``
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null
@@ -471,6 +531,11 @@ function formatRecentRatingChange(match: {
   const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
 
   return formatDisplayRatingChange(before, after)
+}
+
+function formatTournamentResultEmoji(placement: number | null): string {
+  if (placement == null) return '❔'
+  return placement === 1 ? '📈' : '📉'
 }
 
 function formatGameModeLabel(gameMode: string, draftData: string | null): string {
@@ -492,7 +557,14 @@ function formatLeaderName(civId: string | null): string {
     return emoji ? `${emoji} ${leader.name}` : leader.name
   }
   catch {
-    return civId
+    try {
+      const leader = getLeader(civId, 'beta')
+      const emoji = leaderEmojiMention(civId)
+      return emoji ? `${emoji} ${leader.name}` : leader.name
+    }
+    catch {
+      return civId
+    }
   }
 }
 

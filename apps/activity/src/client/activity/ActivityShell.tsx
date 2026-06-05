@@ -32,7 +32,6 @@ import {
   watchLobbyState,
 } from '../stores'
 import { ActivityControllerContext } from './activity-context'
-import { preloadLobbyOverviewRoute, preloadPracticePage } from './route-preloads'
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
@@ -221,6 +220,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       participantCount: 0,
       targetSize: 0,
       redDeath: false,
+      civBlitz: false,
       isMember: true,
       isHost: false,
       updatedAt: Date.now(),
@@ -428,7 +428,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
-    if (filteredSnapshot.selection.option.status === 'completed') {
+    if (filteredSnapshot.selection.option.reported === true) {
       const current = state()
       if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && draftStore.state?.status === 'complete') {
         if (!current.reported) setState({ ...current, reported: true })
@@ -514,7 +514,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const openOverview = (options: { replace?: boolean } = {}) => {
     const current = state()
     const replace = options.replace ?? false
-    void preloadLobbyOverviewRoute()
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = '/overview'
     selectionRequestVersion += 1
@@ -542,7 +541,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openPractice = () => {
-    void preloadPracticePage()
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = null
     selectionRequestVersion += 1
@@ -1024,8 +1022,10 @@ function materializeOverviewOptions(
       participantCount: option.participantCount,
       targetSize: option.targetSize,
       redDeath: option.redDeath,
+      civBlitz: option.civBlitz,
       isMember: option.memberPlayerIds.includes(currentUserId),
       isHost: option.hostId === currentUserId,
+      players: option.players ?? [],
       updatedAt: option.updatedAt,
     }))
     .sort(compareActivityTargetOptions)
@@ -1102,10 +1102,11 @@ function buildLobbyTargetOptionFromSnapshot(
     matchId: null,
     channelId: channelId ?? '',
     mode: snapshot.mode as ActivityTargetOption['mode'],
-    status: 'open',
+    status: snapshot.draftConfig.closed === true ? 'closed' : 'open',
     participantCount: snapshot.entries.filter(entry => entry != null).length,
     targetSize: snapshot.targetSize,
     redDeath: snapshot.draftConfig.redDeath,
+    civBlitz: snapshot.draftConfig.civBlitz,
     isMember: isLobbySnapshotMember(snapshot, currentUserId),
     isHost: snapshot.hostId === currentUserId,
     updatedAt: Date.now(),
@@ -1130,6 +1131,14 @@ function resolveLiveJoinEligibility(
     return {
       canJoin: false,
       blockedReason: 'This lobby is no longer open.',
+      pendingSlot: null,
+    }
+  }
+
+  if (lobby.draftConfig.closed === true) {
+    return {
+      canJoin: false,
+      blockedReason: 'This lobby is closed.',
       pendingSlot: null,
     }
   }
@@ -1172,10 +1181,34 @@ function applyLiveLobbyMembership(
   currentUserId: string,
 ): ActivityTargetOption[] {
   return options.map((option) => {
-    if (option.kind !== 'lobby' || option.isMember) return option
+    if (option.kind !== 'lobby') return option
     const snapshot = liveLobbySnapshots.get(option.id)
-    if (!snapshot || !isLobbySnapshotMember(snapshot, currentUserId)) return option
-    return { ...option, isMember: true }
+    if (!snapshot) return option
+
+    const status = snapshot.draftConfig.closed === true ? 'closed' : 'open'
+    const participantCount = snapshot.entries.filter(entry => entry != null).length
+    const isMember = option.isMember || isLobbySnapshotMember(snapshot, currentUserId)
+    const isHost = snapshot.hostId === currentUserId
+    if (
+      option.status === status
+      && option.participantCount === participantCount
+      && option.targetSize === snapshot.targetSize
+      && option.mode === snapshot.mode
+      && option.redDeath === snapshot.draftConfig.redDeath
+      && option.isMember === isMember
+      && option.isHost === isHost
+    ) return option
+
+    return {
+      ...option,
+      mode: snapshot.mode,
+      status,
+      participantCount,
+      targetSize: snapshot.targetSize,
+      redDeath: snapshot.draftConfig.redDeath,
+      isMember,
+      isHost,
+    }
   })
 }
 
@@ -1193,6 +1226,8 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.status !== b.status) return false
   if (a.minRole !== b.minRole) return false
   if (a.maxRole !== b.maxRole) return false
+  if ((a.lobbyRank?.tier ?? null) !== (b.lobbyRank?.tier ?? null)) return false
+  if ((a.lobbyRank?.leaderPoolSize ?? null) !== (b.lobbyRank?.leaderPoolSize ?? null)) return false
   if (a.minPlayers !== b.minPlayers) return false
   if (a.targetSize !== b.targetSize) return false
   if (a.draftConfig.banTimerSeconds !== b.draftConfig.banTimerSeconds) return false
@@ -1200,12 +1235,16 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
   if (a.draftConfig.leaderPoolSize !== b.draftConfig.leaderPoolSize) return false
   if (a.draftConfig.leaderDataVersion !== b.draftConfig.leaderDataVersion) return false
   if (a.draftConfig.blindBans !== b.draftConfig.blindBans) return false
+  if (a.draftConfig.blindPicks !== b.draftConfig.blindPicks) return false
   if (a.draftConfig.simultaneousPick !== b.draftConfig.simultaneousPick) return false
   if (a.draftConfig.redDeath !== b.draftConfig.redDeath) return false
   if (a.draftConfig.dealOptionsSize !== b.draftConfig.dealOptionsSize) return false
   if (a.draftConfig.randomDraft !== b.draftConfig.randomDraft) return false
+  if ((a.draftConfig.closed === true) !== (b.draftConfig.closed === true)) return false
   if ((a.tournament?.id ?? null) !== (b.tournament?.id ?? null)) return false
   if ((a.tournament?.rematchWarning ?? null) !== (b.tournament?.rematchWarning ?? null)) return false
+  if ((a.repeatDraft?.kind ?? null) !== (b.repeatDraft?.kind ?? null)) return false
+  if ((a.repeatDraft?.matchId ?? null) !== (b.repeatDraft?.matchId ?? null)) return false
   if (a.serverDefaults.banTimerSeconds !== b.serverDefaults.banTimerSeconds) return false
   if (a.serverDefaults.pickTimerSeconds !== b.serverDefaults.pickTimerSeconds) return false
   if (a.entries.length !== b.entries.length) return false

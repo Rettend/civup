@@ -28,7 +28,7 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { clearCurrentRankAssignmentsCache, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
@@ -485,6 +485,7 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
       advanceDemotionWindow: true,
       now: NOW,
     })
+    clearCurrentRankAssignmentsCache(kv)
 
     resetOperations()
     sqlTracker.reset()
@@ -605,6 +606,7 @@ async function simulateScenarioLifecycle(input: {
     await ensureLeaderboardModeSnapshots(db, kv)
     await syncRankedRoles({ db, kv, guildId: GUILD_ID, now: NOW + 1_000 })
     await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
+    clearCurrentRankAssignmentsCache(kv)
 
     resetOperations()
     sqlTracker.reset()
@@ -1099,7 +1101,7 @@ function buildCompletedDraftState(
         if (state.submissions[seatIndex]) continue
         const civIds = pickAvailableCivs(state.availableCivIds, step.count, reserved)
         for (const civId of civIds) reserved.add(civId)
-        selectionPreviewInputCount += 1
+        selectionPreviewInputCount += civIds.length
         state = applyDraftInput(state, { type: 'BAN', seatIndex, civIds }, format.blindBans)
         inputCount += 1
       }

@@ -180,7 +180,7 @@ describe('calculateFfaRatings realistic distributions', () => {
     expect(provisionalWinner.displayDelta).toBeLessThan(70)
   })
 
-  test('elite players still need top finishes against average 10-player FFA lobbies', () => {
+  test('high-rated players still need top finishes against average 10-player FFA lobbies', () => {
     const heroWinField: FfaEntry[] = [
       { player: playerFromDisplay('hero', 1400, 4), placement: 1 },
       ...Array.from({ length: 9 }, (_, index) => ({
@@ -418,8 +418,8 @@ describe('teamer rating scenarios', () => {
     expect(playerById(fourUpdates, 'mix4-carry').displayDelta).toBeCloseTo(30.54, 2)
   })
 
-  test('elite 3v3 stacks are overwhelming favorites over average stacks', () => {
-    const eliteTeam = [
+  test('high-rated 3v3 stacks are overwhelming favorites over average stacks', () => {
+    const highRatedTeam = [
       playerFromDisplay('pro1', 1400, 4),
       playerFromDisplay('pro2', 1400, 4),
       playerFromDisplay('pro3', 1400, 4),
@@ -430,14 +430,14 @@ describe('teamer rating scenarios', () => {
       playerFromDisplay('avg3', 1000),
     ]
 
-    const probabilities = predictWinProbabilities([eliteTeam, averageTeam])
+    const probabilities = predictWinProbabilities([highRatedTeam, averageTeam])
     const expectedWinUpdates = calculateTeamRatings([
-      { players: eliteTeam },
+      { players: highRatedTeam },
       { players: averageTeam },
     ])
     const upsetUpdates = calculateTeamRatings([
       { players: averageTeam },
-      { players: eliteTeam },
+      { players: highRatedTeam },
     ])
 
     expect(probabilities[0]).toBeGreaterThan(0.99)

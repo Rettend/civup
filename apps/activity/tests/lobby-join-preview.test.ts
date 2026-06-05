@@ -27,10 +27,14 @@ const baseLobby: LobbySnapshot = {
     leaderDataVersion: 'live',
     mapVoteEnabled: true,
     blindBans: true,
+    blindPicks: false,
     simultaneousPick: false,
     redDeath: false,
     permanentAlly: false,
     dealOptionsSize: 2,
+    civBlitz: false,
+    civBlitzOptionCount: 4,
+    civBlitzExcludeBbgExpanded: true,
     randomDraft: false,
     hiddenDraft: false,
     duplicateFactions: false,
@@ -53,7 +57,7 @@ describe('resolvePendingJoinGhostSlot', () => {
   test('returns null when the pending join is blocked', () => {
     expect(resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
       canJoin: false,
-      blockedReason: 'This lobby requires at least Legion.',
+      blockedReason: 'This lobby requires at least Rank 2.',
       pendingSlot: null,
     })).toBeNull()
   })

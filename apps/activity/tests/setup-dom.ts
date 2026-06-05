@@ -30,9 +30,11 @@ const solidWeb = await import('solid-js/web/dist/web.js')
 mock.module('solid-js/web', () => solidWeb)
 mock.module('~/client/lib/leader-tags', () => LeaderTags)
 
-GlobalRegistrator.register({
-  url: 'http://localhost/',
-})
+if (!GlobalRegistrator.isRegistered) {
+  GlobalRegistrator.register({
+    url: 'http://localhost/',
+  })
+}
 
 if (!('__ASSET_REVISION_MAP__' in globalThis)) {
   Object.assign(globalThis, { __ASSET_REVISION_MAP__: {} })

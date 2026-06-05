@@ -207,24 +207,6 @@ export const leaders: Leader[] = [
     tags: [],
   },
   {
-    id: 'austria-maria-theresa',
-    name: 'Maria Theresa',
-    civilization: 'Austria',
-    portraitUrl: '/assets/bbg/leaders/Austria%20Maria%20Theresa.webp',
-    civilizationAbility: {
-      name: '',
-      description: '',
-    },
-    ability: {
-      name: '',
-      description: '',
-    },
-    uniqueUnits: [],
-    uniqueBuildings: [],
-    uniqueImprovements: [],
-    tags: [],
-  },
-  {
     id: 'aztec-montezuma',
     name: 'Montezuma',
     civilization: 'Aztec',
@@ -985,13 +967,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -1022,13 +998,7 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Oppidum.webp',
       },
     ],
-    uniqueImprovements: [
-      {
-        name: 'Dūnon',
-        description: 'Unlocks the Builder ability to construct a Dūnon, unique to Gaul. +1 :food: Food, +1 :housing: Housing. +1 :production: Production if built on a Hill. Friendly units within 1 tile of a Dūnon receive +5 :strength: Combat Strength. The Dūnon must be built on a Camp or Pasture resource and provides that resource’s yield modifier to adjacent tiles. One per City. Tiles with Dūnons cannot be swapped.',
-        iconUrl: '/assets/bbg/items/D%C5%ABnon.webp',
-      },
-    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -1060,24 +1030,6 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Tsikhe.webp',
       },
     ],
-    uniqueImprovements: [],
-    tags: [],
-  },
-  {
-    id: 'goths-theodoric',
-    name: 'Theodoric',
-    civilization: 'Goths',
-    portraitUrl: '/assets/bbg/leaders/Goths%20Theodoric.webp',
-    civilizationAbility: {
-      name: '',
-      description: '',
-    },
-    ability: {
-      name: '',
-      description: '',
-    },
-    uniqueUnits: [],
-    uniqueBuildings: [],
     uniqueImprovements: [],
     tags: [],
   },
@@ -2319,24 +2271,6 @@ export const leaders: Leader[] = [
     tags: [],
   },
   {
-    id: 'poland-stanislaw-ii',
-    name: 'Stanislaw II',
-    civilization: 'Poland',
-    portraitUrl: '/assets/bbg/leaders/Poland%20Stanislaw%20II.webp',
-    civilizationAbility: {
-      name: '',
-      description: '',
-    },
-    ability: {
-      name: '',
-      description: '',
-    },
-    uniqueUnits: [],
-    uniqueBuildings: [],
-    uniqueImprovements: [],
-    tags: [],
-  },
-  {
     id: 'portugal-joao-iii',
     name: 'João III',
     civilization: 'Portugal',
@@ -2657,24 +2591,6 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Open-Air%20Museum.webp',
       },
     ],
-    tags: [],
-  },
-  {
-    id: 'taino-anacaona',
-    name: 'Anacaona',
-    civilization: 'Taíno',
-    portraitUrl: '/assets/bbg/leaders/Ta%C3%ADno%20Anacaona.webp',
-    civilizationAbility: {
-      name: '',
-      description: '',
-    },
-    ability: {
-      name: '',
-      description: '',
-    },
-    uniqueUnits: [],
-    uniqueBuildings: [],
-    uniqueImprovements: [],
     tags: [],
   },
   {

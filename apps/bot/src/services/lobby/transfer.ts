@@ -70,6 +70,8 @@ export async function leaveOpenLobbyForLobbyJoin(
             undefined,
             currentLobby.draftConfig.leaderDataVersion,
             currentLobby.draftConfig.redDeath,
+            undefined,
+            currentLobby.draftConfig.civBlitz,
           )],
           components: [],
         }, options)
@@ -159,6 +161,8 @@ export async function finalizeDeferredOpenLobbyTransferSource(
             undefined,
             source.lobby.draftConfig.leaderDataVersion,
             source.lobby.draftConfig.redDeath,
+            undefined,
+            source.lobby.draftConfig.civBlitz,
           )],
           components: [],
         }, options)

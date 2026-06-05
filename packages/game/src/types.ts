@@ -122,6 +122,67 @@ export interface Leader {
   tags: string[]
 }
 
+// -- CivBlitz Types ---------------------------------------------------------
+
+export const CIV_BLITZ_CATEGORIES = ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'] as const
+
+
+export type CivBlitzComponentCategory = (typeof CIV_BLITZ_CATEGORIES)[number]
+
+export interface CivBlitzComponent {
+  id: string
+  category: CivBlitzComponentCategory
+  name: string
+  description: string
+  sourceLeaderId: string
+  civilization?: string
+  iconUrl?: string
+  portraitUrl?: string
+  replaces?: string
+}
+
+export type CivBlitzKit = Record<CivBlitzComponentCategory, string>
+
+export type CivBlitzPartialKit = Partial<Record<CivBlitzComponentCategory, string>>
+
+export type CivBlitzCategoryOptions = Record<CivBlitzComponentCategory, string[]>
+
+export type CivBlitzComponentPools = Record<CivBlitzComponentCategory, string[]>
+
+export interface CivBlitzSeatSubmission {
+  seatIndex: number
+  stepIndex: number
+  kit: CivBlitzPartialKit
+}
+
+export interface CivBlitzSelection {
+  componentId: string
+  category: CivBlitzComponentCategory
+  seatIndex: number
+  stepIndex: number
+}
+
+export interface CivBlitzReveal {
+  round: number
+  submissions: CivBlitzSeatSubmission[]
+  conflictComponentIds: string[]
+  conflictedSeatIndexes: number[]
+  categoriesBySeat: Record<number, CivBlitzComponentCategory[]>
+  maxRedrafts: number
+}
+
+export interface CivBlitzState {
+  optionCount: number
+  excludeBbgExpanded: boolean
+  componentPools: CivBlitzComponentPools
+  optionsBySeat: Record<number, CivBlitzCategoryOptions>
+  submissions: Record<number, CivBlitzPartialKit>
+  lockedKits: Record<number, CivBlitzPartialKit>
+  reveal: CivBlitzReveal | null
+  conflictBans: CivBlitzSelection[]
+  maxRedrafts: number
+}
+
 // ── Draft Types ─────────────────────────────────────────────
 
 export type DraftAction = 'ban' | 'pick'
@@ -145,6 +206,42 @@ export interface DraftStep {
   count: number
   /** Timer in seconds (0 = no timer / unlimited) */
   timer: number
+  /** Timer for a temporary fallback phase spawned by this grouped pick step. */
+  fallbackTimer?: number
+  /** Original grouped pick step that spawned this temporary fallback step. */
+  fallbackForStepIndex?: number
+  /** Whether pick submissions in this step stay hidden until everyone submits. */
+  blind?: boolean
+  /** Temporary 5s reveal step for blind-pick conflicts. */
+  reveal?: boolean
+  /** Blind-pick redraft round, starting at 0 for the initial blind pick. */
+  blindPickRound?: number
+  /** Seat order used if blind-pick conflicts fall back to draft pick. */
+  fallbackPickOrder?: number[]
+  /** Pick timer to use after a conflict reveal. */
+  redraftTimer?: number
+  /** Whether this step submits a CivBlitz kit instead of a normal leader pick. */
+  civBlitz?: boolean
+  /** CivBlitz categories required from every active seat. */
+  civBlitzCategories?: CivBlitzComponentCategory[]
+  /** CivBlitz categories required from each active seat for per-component redrafts. */
+  civBlitzCategoriesBySeat?: Record<number, CivBlitzComponentCategory[]>
+}
+
+export interface DraftBlindPickReveal {
+  round: number
+  picks: DraftSelection[]
+  conflictCivIds: string[]
+  conflictedSeatIndexes: number[]
+  maxRedrafts: number
+}
+
+export interface DraftDoublePickMetrics {
+  groups: number
+  fallbackStarted: number
+  fallbackResolved: number
+  bothMissedTimeouts: number
+  fallbackTimeouts: number
 }
 
 export interface DraftFormat {
@@ -152,6 +249,7 @@ export interface DraftFormat {
   name: string
   gameMode: GameMode
   redDeath: boolean
+  civBlitz?: boolean
   /** Whether simultaneous bans are hidden until all submitted */
   blindBans: boolean
   /** Generate concrete steps for a given number of seats */
@@ -212,10 +310,18 @@ export interface DraftState {
   availableCivIds: string[]
   /** Factions dealt to the active picker this turn (rd modes only). */
   dealtCivIds?: string[] | null
+  /** Per-seat dealt options for simultaneous blind-pick turns, primarily Red Death. */
+  dealtCivIdsBySeat?: Record<number, string[]> | null
   /** How many factions to deal per turn (rd modes only). */
   dealOptionsSize?: number
   /** Whether picks may reuse leaders or factions that were already chosen. */
   duplicateFactions?: boolean
+  /** Current blind-pick conflict reveal, visible to every player. */
+  blindPickReveal?: DraftBlindPickReveal | null
+  /** Leaders removed because multiple players blind-picked them. These are not normal player bans. */
+  blindPickBans?: DraftSelection[]
+  /** CivBlitz-specific dealt options, submissions, reveals, and locked kits. */
+  civBlitz?: CivBlitzState | null
   status: 'waiting' | 'active' | 'complete' | 'cancelled'
   /** Why the draft was cancelled, scrubbed, timed out, or reverted (null unless status is cancelled) */
   cancelReason: DraftCancelReason | null
@@ -237,6 +343,7 @@ export type DraftInput
   = | { type: 'START' }
     | { type: 'BAN', seatIndex: number, civIds: string[] }
     | { type: 'PICK', seatIndex: number, civId: string }
+    | { type: 'CIV_BLITZ_SUBMIT', seatIndex: number, kit: CivBlitzPartialKit }
     | { type: 'CANCEL', reason: DraftCancelReason }
     | { type: 'TIMEOUT' }
 
@@ -245,7 +352,10 @@ export type DraftEvent
   = | { type: 'DRAFT_STARTED' }
     | { type: 'DRAFT_CANCELLED', reason: DraftCancelReason }
     | { type: 'BAN_SUBMITTED', seatIndex: number, civIds: string[], blind: boolean }
-    | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string }
+    | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string, blind?: boolean }
+    | { type: 'CIV_BLITZ_SUBMITTED', seatIndex: number, categories: CivBlitzComponentCategory[], blind?: boolean }
+    | { type: 'CIV_BLITZ_REVEALED', submissions: CivBlitzSeatSubmission[], conflictComponentIds: string[], conflictedSeatIndexes: number[], categoriesBySeat: Record<number, CivBlitzComponentCategory[]>, round: number }
+    | { type: 'BLIND_PICKS_REVEALED', picks: DraftSelection[], conflictCivIds: string[], conflictedSeatIndexes: number[], round: number }
     | { type: 'BLIND_BANS_REVEALED', bans: DraftSelection[] }
     | { type: 'STEP_ADVANCED', stepIndex: number }
     | { type: 'DRAFT_COMPLETE' }

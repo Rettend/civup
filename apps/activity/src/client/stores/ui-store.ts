@@ -25,10 +25,16 @@ interface UiMemoryState {
 
 type GridViewMode = 'grid' | 'multi-list' | 'list'
 
+export const UI_SCALE_MIN = 70
+export const UI_SCALE_MAX = 140
+export const UI_SCALE_STEP = 10
+export const UI_SCALE_DEFAULT = 100
+
 interface UiPersistedState {
   gridExpanded: boolean
   gridViewMode: GridViewMode
   favoriteLeaderIds: string[]
+  uiScale: number
 }
 
 // ── UI State ───────────────────────────────────────────────
@@ -55,6 +61,7 @@ const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedS
   gridExpanded: false,
   gridViewMode: 'grid',
   favoriteLeaderIds: [],
+  uiScale: UI_SCALE_DEFAULT,
 })
 
 const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateBase, setPersistedUiStateBase], {
@@ -76,6 +83,7 @@ export const gridOpen = () => uiState.gridOpen
 export const gridExpanded = () => persistedUiState.gridExpanded
 export const gridViewMode = () => persistedUiState.gridViewMode
 export const favoriteLeaderIds = () => persistedUiState.favoriteLeaderIds
+export const uiScale = () => persistedUiState.uiScale
 export const detailLeaderId = () => uiState.detailLeaderId
 export const isMiniView = () => uiState.isMiniView
 export const isMobileLayout = () => uiState.isMobileLayout
@@ -115,6 +123,22 @@ export function setGridExpanded(next: boolean | ((prev: boolean) => boolean)) {
 
 export function setGridViewMode(next: GridViewMode | ((prev: GridViewMode) => GridViewMode)) {
   setPersistedUiState('gridViewMode', next)
+}
+
+export function setUiScale(next: number | ((prev: number) => number)) {
+  setPersistedUiState('uiScale', prev => normalizeUiScale(typeof next === 'function' ? next(prev) : next))
+}
+
+export function increaseUiScale() {
+  setUiScale(prev => prev + UI_SCALE_STEP)
+}
+
+export function decreaseUiScale() {
+  setUiScale(prev => prev - UI_SCALE_STEP)
+}
+
+export function resetUiScale() {
+  setUiScale(UI_SCALE_DEFAULT)
 }
 
 export function setDetailLeaderId(next: string | null | ((prev: string | null) => string | null)) {
@@ -320,9 +344,15 @@ function normalizeIdList(ids: string[]): string[] {
   return normalized
 }
 
+export function normalizeUiScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return UI_SCALE_DEFAULT
+  const stepped = Math.round(value / UI_SCALE_STEP) * UI_SCALE_STEP
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, stepped))
+}
+
 function normalizePersistedUiState(value: unknown): UiPersistedState {
   if (!value || typeof value !== 'object') {
-    return { gridExpanded: false, gridViewMode: 'grid', favoriteLeaderIds: [] }
+    return { gridExpanded: false, gridViewMode: 'grid', favoriteLeaderIds: [], uiScale: UI_SCALE_DEFAULT }
   }
 
   const record = value as Record<string, unknown>
@@ -331,10 +361,12 @@ function normalizePersistedUiState(value: unknown): UiPersistedState {
   const favoriteLeaderIds = Array.isArray(record.favoriteLeaderIds)
     ? normalizeIdList(record.favoriteLeaderIds)
     : []
+  const uiScale = normalizeUiScale(record.uiScale)
 
   return {
     gridExpanded,
     gridViewMode,
     favoriteLeaderIds,
+    uiScale,
   }
 }
