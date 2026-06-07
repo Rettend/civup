@@ -1,8 +1,10 @@
-import { matches, matchParticipants, players } from '@civup/db'
+import { matches, matchParticipants, players, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { eq, isNull } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -214,6 +216,64 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     if (!('stage' in result)) return
     expect(result.stage).toBe('open')
     expect(result.lobby.memberPlayerIds).toContain('guest')
+  })
+
+  test('repairs a hidden stale open admission lock when joining another lobby', async () => {
+    const { kv } = createTrackedKv()
+    const sourceEntries = [
+      { playerId: 'source-host', displayName: 'Source Host', avatarUrl: null, joinedAt: Date.now() },
+      { playerId: 'guest', displayName: 'Guest', avatarUrl: null, joinedAt: Date.now() + 1 },
+    ]
+    const sourceLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'source-host',
+      channelId: 'channel-source',
+      messageId: 'message-source',
+      queueEntries: sourceEntries,
+    })
+    const sourceWithGuest = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby, { queueEntries: sourceEntries })
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest', null, null], sourceWithGuest ?? sourceLobby, { queueEntries: sourceEntries })
+
+    const targetLobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'target-host',
+      channelId: 'channel-target',
+      messageId: 'message-target',
+      queueEntries: [{ playerId: 'target-host', displayName: 'Target Host', avatarUrl: null, joinedAt: Date.now() + 2 }],
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+    const staleAt = Date.now() - SESSION_DIRECTORY_OPEN_STALE_MS - 1
+    await runtime.db.update(sessionDirectory)
+      .set({ updatedAt: staleAt, lastActivityAt: staleAt })
+      .where(eq(sessionDirectory.sessionId, sourceLobby.id))
+
+    const originalConsoleWarn = console.warn
+    console.warn = () => {}
+    let result: Awaited<ReturnType<typeof joinLobbyAndMaybeStartMatch>>
+    try {
+      result = await joinLobbyAndMaybeStartMatch({
+        env: buildTestLobbyEnv(kv),
+      }, '2v2', [{
+        playerId: 'guest',
+        displayName: 'Guest',
+        avatarUrl: '',
+      }], {
+        preferredLobbyId: targetLobby.id,
+      })
+    }
+    finally {
+      console.warn = originalConsoleWarn
+    }
+
+    expect('stage' in result!).toBe(true)
+    if (!('stage' in result!)) return
+    expect(result!.stage).toBe('open')
+    expect(result!.lobby.id).toBe(targetLobby.id)
+    expect(result!.lobby.memberPlayerIds).toContain('guest')
+
+    const [sourceDirectory] = await runtime.db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, sourceLobby.id)).limit(1)
+    expect(sourceDirectory).toMatchObject({ phase: 'cancelled' })
+    expect(await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(2)
   })
 
   test('joins a queued player into the canonical roster despite old slot residue', async () => {

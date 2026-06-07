@@ -48,40 +48,51 @@ export async function resDeferGeneralCommandResponse(
 
   const responder = forceEphemeral || shouldRedirect ? c.flags('EPHEMERAL') : c
   return responder.resDefer(async (deferred) => {
-    const payload = await buildPayload(deferred)
-    const payloads = normalizeGeneralCommandPayloads(payload)
-    if (payloads.length === 0) return
-
-    if (!shouldRedirect || !commandsChannelId) {
-      const [firstPayload, ...additionalPayloads] = payloads
-      await deferred.followup(firstPayload)
-
-      for (const additionalPayload of additionalPayloads) {
-        await createInteractionFollowupMessage({
-          applicationId: deferred.env.DISCORD_APPLICATION_ID,
-          interactionToken: deferred.interaction.token,
-          payload: additionalPayload,
-        })
-      }
-      return
-    }
-
     try {
-      for (const normalizedPayload of payloads) {
-        await (options?.createMessage ?? createChannelMessage)(
-          deferred.env.DISCORD_TOKEN,
-          commandsChannelId,
-          normalizedPayload,
-        )
+      const payload = await buildPayload(deferred)
+      const payloads = normalizeGeneralCommandPayloads(payload)
+      if (payloads.length === 0) return
+
+      if (!shouldRedirect || !commandsChannelId) {
+        const [firstPayload, ...additionalPayloads] = payloads
+        await deferred.followup(firstPayload)
+
+        for (const additionalPayload of additionalPayloads) {
+          await createInteractionFollowupMessage({
+            applicationId: deferred.env.DISCORD_APPLICATION_ID,
+            interactionToken: deferred.interaction.token,
+            payload: additionalPayload,
+          })
+        }
+        return
       }
+
+      try {
+        for (const normalizedPayload of payloads) {
+          await (options?.createMessage ?? createChannelMessage)(
+            deferred.env.DISCORD_TOKEN,
+            commandsChannelId,
+            normalizedPayload,
+          )
+        }
+      }
+      catch (error) {
+        console.error(`Failed to post redirected command output to ${commandsChannelId}:`, error)
+        await sendTransientEphemeralResponse(deferred, `Failed to post in <#${commandsChannelId}>.`, 'error')
+        return
+      }
+
+      await sendTransientEphemeralResponse(deferred, `Posted in <#${commandsChannelId}>.`, 'info')
     }
     catch (error) {
-      console.error(`Failed to post redirected command output to ${commandsChannelId}:`, error)
-      await sendTransientEphemeralResponse(deferred, `Failed to post in <#${commandsChannelId}>.`, 'error')
-      return
+      console.error('Failed to build deferred command response:', error)
+      try {
+        await sendTransientEphemeralResponse(deferred, 'Failed to build this command response.', 'error')
+      }
+      catch (followupError) {
+        console.error('Failed to send deferred command error response:', followupError)
+      }
     }
-
-    await sendTransientEphemeralResponse(deferred, `Posted in <#${commandsChannelId}>.`, 'info')
   }) as Response
 }
 

@@ -47,6 +47,15 @@ interface LeaderStat {
   wins: number
 }
 
+export interface ModeRatingSnapshotRow {
+  gameMode: string
+  draftData: string | null
+  ratingBeforeMu: number | null
+  ratingBeforeSigma: number | null
+  ratingAfterMu: number | null
+  ratingAfterSigma: number | null
+}
+
 interface CommonPlayerQuerySegment {
   relationship: 'teammate' | 'opponent'
   didWin: boolean
@@ -212,7 +221,7 @@ function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | un
   return label ? `${label} (${rating})` : String(rating)
 }
 
-function formatModeStats(
+export function formatModeStats(
   modeSummary: PlayerRankProfile['modes'][LeaderboardMode] | undefined,
   ratingRow: PlayerRatingSummary,
   mode: LeaderboardMode,
@@ -253,7 +262,7 @@ function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMod
   return label || null
 }
 
-function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
+export function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
   if (modeFilter === 'all') return visibleModes
   const mode = toLeaderboardMode(modeFilter)
   return mode && visibleModes.includes(mode) ? [mode] : []
@@ -270,7 +279,7 @@ function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsMod
   return and(...conditions)
 }
 
-function countFfaRatingWins(matchesPlayed: CompletedPlayerMatchRow[]): number {
+export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow[]): number {
   let ratingWins = 0
 
   for (const match of matchesPlayed) {
