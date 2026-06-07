@@ -31,6 +31,8 @@
     "bot:d1:create": "bun run --filter civup-bot d1:create",
     "bot:kv:create": "bun run --filter civup-bot kv:create",
     "bot:kv:local": "bun run --filter civup-bot kv:local",
+    "bot:backfill:player-civs": "bun run --filter civup-bot backfill:player-civs",
+    "bot:seed:dev:leaders": "bun run --filter civup-bot seed:dev:leaders",
     "bot:l:migrate": "bun run --filter civup-bot l:migrate",
     "bot:r:migrate": "bun run --filter civup-bot r:migrate",
     "db:generate": "bun run --filter @civup/db generate",
