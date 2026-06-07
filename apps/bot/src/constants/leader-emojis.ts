@@ -105,3 +105,9 @@ export function leaderEmojiMention(leaderId: string): string | null {
   if (!emojiId) return null
   return `<:leader:${emojiId}>`
 }
+
+export function leaderEmojiImageUrl(leaderId: string): string | null {
+  const emojiId = LEADER_EMOJI_IDS[leaderId]
+  if (!emojiId) return null
+  return `https://cdn.discordapp.com/emojis/${emojiId}.webp?size=128&quality=lossless`
+}

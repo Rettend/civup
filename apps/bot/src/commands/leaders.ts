@@ -30,6 +30,7 @@ export const command_leaders = factory.command<Var>(
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
     const mode = (parseGameMode(c.var.mode) ?? 'all') as LeadersModeFilter
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode
 
     if (!targetId) return c.res('Could not identify the player.')
 
@@ -61,6 +62,8 @@ export const command_leaders = factory.command<Var>(
         visibleModes,
       })
       return { embeds: [embed] }
+    }, {
+      ephemeral: isDefaultSelfLookup,
     })
   },
 )

@@ -5,6 +5,7 @@ import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 export type CivLeaderboardBoard = 'picked' | 'winrate' | 'banned'
 
 export const CIV_LEADERBOARD_BOARDS: readonly CivLeaderboardBoard[] = ['picked', 'winrate', 'banned']
+export const CIV_LEADERBOARD_PAGE_SIZE = 20
 export const CIV_LEADERBOARD_TOP_LIMIT = 25
 export const CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT = 2100
 
@@ -20,6 +21,12 @@ const BOARD_TITLES: Record<CivLeaderboardBoard, string> = {
   picked: 'Top Picked Leaders',
   winrate: 'Top Win Rate Leaders',
   banned: 'Top Banned Leaders',
+}
+
+const BOARD_PAGE_TITLES: Record<CivLeaderboardBoard, string> = {
+  picked: 'Picked Leaders',
+  winrate: 'Win Rate Leaders',
+  banned: 'Banned Leaders',
 }
 
 const EMPTY_DESCRIPTIONS: Record<CivLeaderboardBoard, string> = {
@@ -41,6 +48,11 @@ const STAT_ORDER: Record<CivLeaderboardBoard, readonly CivLeaderboardBoard[]> = 
 }
 
 const STAT_PERCENT_WIDTH = 5
+
+export function parseCivLeaderboardBoard(value: string | undefined): CivLeaderboardBoard | null {
+  if (value === 'picked' || value === 'winrate' || value === 'banned') return value
+  return null
+}
 
 export function civLeaderboardEmbeds(
   snapshot: CivLeaderboardSnapshot,
@@ -84,7 +96,7 @@ export function civLeaderboardEmbed(
     titlePrefix?: string
   } = {},
 ): Embed {
-  const rows = rowsForBoard(board, snapshot.rows).slice(0, CIV_LEADERBOARD_TOP_LIMIT)
+  const rows = civLeaderboardRowsForBoard(board, snapshot.rows).slice(0, CIV_LEADERBOARD_TOP_LIMIT)
   const title = formatCivLeaderboardTitle(board, options.titlePrefix)
 
   if (rows.length === 0) {
@@ -102,16 +114,54 @@ export function civLeaderboardEmbed(
     .color(BOARD_COLORS[board])
 }
 
+export function civLeaderboardPageEmbed(
+  board: CivLeaderboardBoard,
+  snapshot: CivLeaderboardSnapshot,
+  options: {
+    pageIndex?: number
+    pageSize?: number
+    titlePrefix?: string
+  } = {},
+): { embed: Embed, pageIndex: number, pageCount: number, totalRows: number } {
+  const pageSize = normalizePageSize(options.pageSize)
+  const allRows = civLeaderboardRowsForBoard(board, snapshot.rows)
+  const pageCount = Math.max(1, Math.ceil(allRows.length / pageSize))
+  const pageIndex = clampPageIndex(options.pageIndex ?? 0, pageCount)
+  const startIndex = pageStartIndex(pageIndex, pageCount, allRows.length, pageSize)
+  const rows = allRows.slice(startIndex, startIndex + pageSize)
+  const title = formatCivLeaderboardPageTitle(board, options.titlePrefix)
+
+  if (rows.length === 0) {
+    const embed = new Embed()
+      .title(title)
+      .description(emptyDescriptionForBoard(board))
+      .color(BOARD_COLORS[board])
+    return { embed, pageIndex, pageCount, totalRows: allRows.length }
+  }
+
+  const startRank = startIndex + 1
+  const endRank = startIndex + rows.length
+  const description = formatBoardDescription(board, rows, snapshot.completedMatchCount, startRank)
+  const embed = new Embed()
+    .title(title)
+    .description(description)
+    .color(BOARD_COLORS[board])
+    .footer({ text: `Page ${pageIndex + 1}/${pageCount} - ${startRank}-${endRank} of ${allRows.length}` })
+
+  return { embed, pageIndex, pageCount, totalRows: allRows.length }
+}
+
 function formatBoardDescription(
   board: CivLeaderboardBoard,
   rows: readonly CivLeaderboardSnapshotRow[],
   completedMatchCount: number,
+  startRank = 1,
 ): string {
   const lines: string[] = []
   let length = 0
 
   for (let index = 0; index < rows.length; index++) {
-    const line = formatRow(board, rows[index]!, index + 1, completedMatchCount)
+    const line = formatRow(board, rows[index]!, startRank + index, completedMatchCount)
     const nextLength = length + (lines.length > 0 ? 1 : 0) + line.length
     if (nextLength > CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT) break
 
@@ -122,7 +172,7 @@ function formatBoardDescription(
   return lines.length > 0 ? lines.join('\n') : emptyDescriptionForBoard(board)
 }
 
-function rowsForBoard(
+export function civLeaderboardRowsForBoard(
   board: CivLeaderboardBoard,
   rows: readonly CivLeaderboardSnapshotRow[],
 ): CivLeaderboardSnapshotRow[] {
@@ -169,6 +219,11 @@ function formatCivLeaderboardTitle(board: CivLeaderboardBoard, titlePrefix?: str
   return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
 }
 
+function formatCivLeaderboardPageTitle(board: CivLeaderboardBoard, titlePrefix?: string): string {
+  const baseTitle = BOARD_PAGE_TITLES[board]
+  return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
+}
+
 function emptyDescriptionForBoard(board: CivLeaderboardBoard): string {
   return EMPTY_DESCRIPTIONS[board]
 }
@@ -184,6 +239,21 @@ function formatCodePercent(value: number | null): string {
 function ratePct(count: number, total: number): number | null {
   if (total <= 0) return null
   return Math.round((count / total) * 1000) / 10
+}
+
+function normalizePageSize(value: number | undefined): number {
+  if (value == null || !Number.isFinite(value)) return CIV_LEADERBOARD_PAGE_SIZE
+  return Math.max(1, Math.floor(value))
+}
+
+function clampPageIndex(pageIndex: number, pageCount: number): number {
+  if (!Number.isFinite(pageIndex)) return 0
+  return Math.min(Math.max(0, Math.floor(pageIndex)), Math.max(1, pageCount) - 1)
+}
+
+function pageStartIndex(pageIndex: number, pageCount: number, totalRows: number, pageSize: number): number {
+  if (pageIndex >= pageCount - 1) return Math.max(0, totalRows - pageSize)
+  return pageIndex * pageSize
 }
 
 function formatPlacementCode(placement: number): string {
