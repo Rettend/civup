@@ -20,16 +20,15 @@ describe('rank graph image', () => {
       await seedPlayer(db, HERO_ID, 'Graph Hero')
       await seedRatingEvents(db, HERO_ID, 'ffa', 5)
 
-      const data = await buildRankGraphImageData(db, kv, 'guild-1', [HERO_ID], {
+      const data = await buildRankGraphImageData(db, kv, 'guild-1', HERO_ID, {
         scope: 'ffa',
         gameLimit: 3,
       })
 
-      const series = data.series[0]
-      expect(series?.displayName).toBe('Graph Hero')
-      expect(series?.games).toBe(3)
-      expect(series?.points.map(point => point.x)).toEqual([0, 1, 2, 3])
-      expect(series?.points.map(point => point.rating)).toEqual([
+      expect(data.player.displayName).toBe('Graph Hero')
+      expect(data.player.games).toBe(3)
+      expect(data.player.points.map(point => point.x)).toEqual([0, 1, 2, 3])
+      expect(data.player.points.map(point => point.rating)).toEqual([
         Math.round(displayRating(27, 6)),
         Math.round(displayRating(28, 6)),
         Math.round(displayRating(29, 6)),
@@ -38,8 +37,12 @@ describe('rank graph image', () => {
       expect(data.bands.map(band => band.tier)).toContain('tier1')
 
       const svg = await renderRankGraphSvg(data)
-      expect(svg).toContain('FFA History')
-      expect(svg).toContain('LAST 3 GAMES')
+      expect(svg).toContain('Rank History')
+      expect(svg).toContain('FFA')
+      expect(svg).toContain('Graph Hero')
+      expect(svg).toContain('ELO')
+      expect(svg).not.toContain('FFA History')
+      expect(svg).not.toContain('LAST 3 GAMES')
       expect(svg).not.toContain('Red Death')
     }
     finally {
@@ -57,7 +60,7 @@ describe('rank graph image', () => {
       await seedPlayer(db, HERO_ID, 'Graph Hero')
       await seedRatingEvents(db, HERO_ID, 'ffa', 5)
 
-      const result = await buildRankCommandImage(db, kv, 'guild-1', [HERO_ID], {
+      const result = await buildRankCommandImage(db, kv, 'guild-1', HERO_ID, {
         scope: 'ffa',
         gameLimit: 3,
       })
@@ -71,6 +74,70 @@ describe('rank graph image', () => {
     }
   })
 
+  test('colors the line and fill by visible rank band', async () => {
+    const svg = await renderRankGraphSvg({
+      scope: 'overall',
+      gameLimit: 4,
+      player: {
+        playerId: HERO_ID,
+        displayName: 'Graph Hero',
+        avatarUrl: null,
+        currentRating: 1450,
+        games: 4,
+        points: [
+          { x: 0, rating: 1400 },
+          { x: 1, rating: 1600 },
+          { x: 2, rating: 2100 },
+          { x: 3, rating: 1700 },
+          { x: 4, rating: 1450 },
+        ],
+      },
+      bands: [
+        { tier: 'tier1', label: 'Rank 1', color: '#ff0000', cutoffScore: 2000 },
+        { tier: 'tier2', label: 'Rank 2', color: '#00ff00', cutoffScore: 1500 },
+        { tier: 'tier3', label: 'Rank 3', color: '#0000ff', cutoffScore: null },
+      ],
+    })
+
+    expect(svg).toContain('id="rankGraphBandClip0"')
+    expect(svg).toContain('id="rankGraphBandClip1"')
+    expect(svg).toContain('id="rankGraphBandClip2"')
+    for (const color of ['#ff0000', '#00ff00', '#0000ff']) {
+      expect(svg).toContain(`fill="${color}" opacity="0.13"`)
+      expect(svg).toContain(`stroke="${color}" stroke-opacity="0.16"`)
+    }
+    expect(svg).toContain('RANK 1')
+    expect(svg).toContain('RANK 2')
+    expect(svg).toContain('fill="#ff0000" opacity="0.9" font-size="16"')
+  })
+
+  test('uses nice whole-number x labels without crowding the end', async () => {
+    const svg = await renderRankGraphSvg({
+      scope: 'overall',
+      gameLimit: 50,
+      player: {
+        playerId: HERO_ID,
+        displayName: 'Graph Hero',
+        avatarUrl: null,
+        currentRating: 1700,
+        games: 47,
+        points: [
+          { x: 0, rating: 1500 },
+          { x: 47, rating: 1700 },
+        ],
+      },
+      bands: [
+        { tier: 'tier1', label: 'Rank 1', color: '#ff0000', cutoffScore: 1600 },
+        { tier: 'tier2', label: 'Rank 2', color: '#00ff00', cutoffScore: null },
+      ],
+    })
+
+    for (const tick of [0, 10, 20, 30, 40, 47]) {
+      expect(svg).toContain(`>${tick}</text>`)
+    }
+    expect(svg).not.toContain('>45</text>')
+  })
+
   test('returns a message when no ranked history exists', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -79,7 +146,7 @@ describe('rank graph image', () => {
       await seedConfiguredRoles(kv)
       await seedPlayer(db, HERO_ID, 'Graph Hero')
 
-      const result = await buildRankCommandImage(db, kv, 'guild-1', [HERO_ID], {
+      const result = await buildRankCommandImage(db, kv, 'guild-1', HERO_ID, {
         scope: 'overall',
         gameLimit: 20,
       })
