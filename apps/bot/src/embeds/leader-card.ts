@@ -1,16 +1,20 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
 import { matches, matchParticipants, tournamentMatches } from '@civup/db'
-import { formatModeLabel, getLeader } from '@civup/game'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { leaderEmojiImageUrl, leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { listTopPlayerCivRankings } from '../services/leaderboard/player-civ-stats.ts'
 
 export type LeaderStatsModeFilter = 'all' | GameMode
 
 const TOP_LIMIT = 5
 const MIN_MATCHUP_GAMES = 2
 const MATCH_ID_BATCH_SIZE = 90
+const LEADER_MODE_ORDER = ['duel', 'duo', 'squad', 'ffa'] as const
+
+type LeaderMode = typeof LEADER_MODE_ORDER[number]
 
 interface TargetLeaderRow {
   matchId: string
@@ -35,7 +39,7 @@ interface RelationStat {
 }
 
 interface ModeStat {
-  gameMode: string
+  mode: LeaderMode
   games: number
   wins: number
   totalMatches: number
@@ -54,9 +58,10 @@ interface MatchCountSummary {
 
 export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all'): Promise<Embed> {
   const leader = resolveLeader(leaderId)
-  const [targetRows, matchCounts] = await Promise.all([
+  const [targetRows, matchCounts, bestPlayers] = await Promise.all([
     loadTargetLeaderRows(db, leaderId, modeFilter),
     loadCompletedMatchCounts(db, modeFilter),
+    listTopPlayerCivRankings(db, { mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
   ])
   const participantRows = await loadParticipantRows(db, targetRows.map(row => row.matchId))
   const stats = buildLeaderStats(targetRows, participantRows, matchCounts)
@@ -71,6 +76,8 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
   ]
 
   fields.push(...formatModeFields(stats.modes))
+
+  fields.push({ name: 'Best Players', value: formatBestPlayerList(bestPlayers), inline: false })
 
   fields.push(
     { name: 'Most Faced', value: formatRelationList(sortByGames(stats.against).slice(0, TOP_LIMIT)), inline: false },
@@ -152,7 +159,8 @@ async function loadCompletedMatchCounts(db: Database, modeFilter: LeaderStatsMod
   let total = 0
   for (const row of rows) {
     const count = normalizeCount(row.count)
-    modes.set(row.gameMode, count)
+    const mode = toLeaderMode(row.gameMode)
+    if (mode) modes.set(mode, (modes.get(mode) ?? 0) + count)
     total += count
   }
 
@@ -181,15 +189,18 @@ function buildLeaderStats(
     total.games += 1
     if (targetWon) total.wins += 1
 
-    const mode = modes.get(target.gameMode) ?? {
-      gameMode: target.gameMode,
+    const modeKey = toLeaderMode(target.gameMode)
+    if (!modeKey) continue
+
+    const mode = modes.get(modeKey) ?? {
+      mode: modeKey,
       games: 0,
       wins: 0,
-      totalMatches: matchCounts.modes.get(target.gameMode) ?? 0,
+      totalMatches: matchCounts.modes.get(modeKey) ?? 0,
     }
     mode.games += 1
     if (targetWon) mode.wins += 1
-    modes.set(target.gameMode, mode)
+    modes.set(modeKey, mode)
 
     for (const other of participantsByMatchId.get(target.matchId) ?? []) {
       if (!other.civId || other.playerId === target.playerId) continue
@@ -201,7 +212,7 @@ function buildLeaderStats(
 
   return {
     total,
-    modes: [...modes.values()].sort((left, right) => right.games - left.games || left.gameMode.localeCompare(right.gameMode)),
+    modes: LEADER_MODE_ORDER.flatMap(mode => modes.get(mode) ?? []),
     against: [...against.values()],
     with: [...withLeader.values()],
   }
@@ -230,7 +241,7 @@ function formatOverview(total: TotalStat): string {
 
 function formatModeFields(modes: readonly ModeStat[]): Array<{ name: string, value: string, inline: true }> {
   return modes.map(mode => ({
-    name: formatModeLabel(mode.gameMode, mode.gameMode),
+    name: formatLeaderboardModeLabel(mode.mode, mode.mode),
     value: formatModeStat(mode),
     inline: true,
   }))
@@ -248,6 +259,22 @@ function formatRelationList(stats: readonly RelationStat[]): string {
     .filter(stat => stat.games >= MIN_MATCHUP_GAMES)
     .map(stat => `${formatRecord(stat.wins, stat.games)} ${formatLeaderName(stat.civId)}`)
   return lines.length > 0 ? lines.join('\n') : 'Not enough matchup data'
+}
+
+function formatBestPlayerList(stats: Awaited<ReturnType<typeof listTopPlayerCivRankings>>): string {
+  if (stats.length === 0) return 'Not enough player data'
+  return stats
+    .map(stat => `${formatRank(stat.adjustedWinRateRank)} ${formatRecord(stat.wins, stat.picks)} ${formatPlayerName(stat.displayName, stat.playerId)}`)
+    .join('\n')
+}
+
+function formatRank(rank: number): string {
+  return `\`${`#${rank}`.padEnd(3, ' ')}\``
+}
+
+function formatPlayerName(displayName: string | null, playerId: string): string {
+  const name = displayName?.trim()
+  return name && name.length > 0 ? name : `<@${playerId}>`
 }
 
 function sortByGames(stats: readonly RelationStat[]): RelationStat[] {
@@ -285,6 +312,14 @@ function resolveLeader(civId: string) {
   catch {
     return getLeader(civId, 'beta')
   }
+}
+
+function toLeaderMode(gameMode: string): LeaderMode | null {
+  if (gameMode === '1v1') return 'duel'
+  if (gameMode === '2v2') return 'duo'
+  if (gameMode === '3v3' || gameMode === '4v4' || gameMode === '5v5' || gameMode === '6v6') return 'squad'
+  if (gameMode === 'ffa') return 'ffa'
+  return null
 }
 
 function eligibleStoredMatchCondition() {

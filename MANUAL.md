@@ -312,6 +312,38 @@ The bot keeps separate ratings for each game mode:
 
 Every ranked game also updates the player's overall ranked rating which Discord ranked roles use.
 
+### Leader ranks
+
+`/leaders`, `/stats player`, and `/stats leader` can show a player's rank on a specific leader.
+
+Leader ranks use aggregate player-vs-leader records from `player_civ_stats`, scoped by current season and requested mode when those filters are active.
+
+Eligibility:
+
+- the player must have at least **5 games** on that leader in the scope
+- the server must have at least **10 games** on that leader in the scope
+
+The rank is not raw win rate. It uses a Bayesian-smoothed win rate:
+
+```txt
+serverWinRate = serverWins / serverPicks
+
+adjustedWinRate =
+  (playerWins + serverWinRate * 10)
+  / (playerPicks + 10)
+```
+
+The `10` is the smoothing strength. It acts like 10 virtual games at the leader's server win rate, so small perfect records do not automatically beat larger strong records.
+
+Players are ranked by:
+
+- adjusted win rate, highest first
+- games on the leader
+- wins on the leader
+- player id as a stable tie-breaker
+
+This rank currently does not use player Elo, opponent strength, teammate strength, or recency.
+
 ### Ranked roles
 
 Example with 5 configured roles:

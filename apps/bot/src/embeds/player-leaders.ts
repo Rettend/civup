@@ -7,7 +7,7 @@ import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MOD
 import { Embed } from 'discord-hono'
 import { and, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { listPlayerCivStats, loadPlayerCivRankingSummaries, PLAYER_CIV_MIN_RANK_GAMES, PLAYER_CIV_SERVER_AVG_MIN_GAMES } from '../services/leaderboard/player-civ-stats.ts'
+import { listPlayerCivStats, loadPlayerCivRankingSummaries, PLAYER_CIV_MIN_RANK_GAMES } from '../services/leaderboard/player-civ-stats.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { countFfaRatingWins, formatModeStats, getRatingModes } from './player-card.ts'
@@ -15,15 +15,13 @@ import { countFfaRatingWins, formatModeStats, getRatingModes } from './player-ca
 export type LeadersModeFilter = 'all' | GameMode
 
 const TOP_LEADER_LIMIT = 5
-const COMPARISON_LIMIT = 5
+const HIGHEST_RANKED_LIMIT = 5
 const FIELD_VALUE_LIMIT = 1024
 const NOT_ENOUGH_LEADER_DATA = 'Not enough leader data'
 
-interface LeaderComparisonRow {
+interface LeaderRankRow {
   stat: PlayerCivStatSummary
   ranking: PlayerCivRankingSummary
-  playerWinRatePct: number
-  diffPct: number
 }
 
 export async function playerLeadersEmbed(
@@ -64,7 +62,7 @@ export async function playerLeadersEmbed(
   const topPlayedLeaders = sortLeaderStatsByGames(leaderStats).slice(0, TOP_LEADER_LIMIT)
   const bestLeaders = sortLeaderStatsByWinRate(leaderStats.filter(stat => stat.picks >= PLAYER_CIV_MIN_RANK_GAMES)).slice(0, TOP_LEADER_LIMIT)
   const rankings = await loadPlayerCivRankingSummaries(db, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
-  const comparisonRows = buildComparisonRows(leaderStats, rankings)
+  const rankRows = buildRankRows(leaderStats, rankings)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
@@ -101,25 +99,16 @@ export async function playerLeadersEmbed(
     })
   }
 
-  const betterValue = formatComparisonList(comparisonRows.filter(row => row.diffPct > 0).sort((a, b) => b.diffPct - a.diffPct).slice(0, COMPARISON_LIMIT))
-  if (betterValue) {
+  const highestRankedValue = formatHighestRankedList(rankRows.slice(0, HIGHEST_RANKED_LIMIT))
+  if (highestRankedValue) {
     fields.push({
-      name: requestedModeLabel ? `Better Than Server Avg (${requestedModeLabel})` : 'Better Than Server Avg',
-      value: betterValue,
+      name: requestedModeLabel ? `Highest Ranked Leaders (${requestedModeLabel})` : 'Highest Ranked Leaders',
+      value: highestRankedValue,
       inline: false,
     })
   }
 
-  const worseValue = formatComparisonList(comparisonRows.filter(row => row.diffPct < 0).sort((a, b) => a.diffPct - b.diffPct).slice(0, COMPARISON_LIMIT))
-  if (worseValue) {
-    fields.push({
-      name: requestedModeLabel ? `Worse Than Server Avg (${requestedModeLabel})` : 'Worse Than Server Avg',
-      value: worseValue,
-      inline: false,
-    })
-  }
-
-  if (!bestValue && !betterValue && !worseValue) {
+  if (!bestValue && !highestRankedValue) {
     fields.push({
       name: requestedModeLabel ? `Leaders (${requestedModeLabel})` : 'Leaders',
       value: NOT_ENOUGH_LEADER_DATA,
@@ -171,23 +160,31 @@ function sortLeaderStatsByWinRate(stats: readonly PlayerCivStatSummary[]): Playe
   })
 }
 
-function buildComparisonRows(
+function buildRankRows(
   leaderStats: readonly PlayerCivStatSummary[],
   rankings: Map<string, PlayerCivRankingSummary>,
-): LeaderComparisonRow[] {
-  return leaderStats.flatMap((stat) => {
-    if (stat.picks < PLAYER_CIV_MIN_RANK_GAMES) return []
-    const ranking = rankings.get(stat.civId)
-    if (!ranking || ranking.serverWinRatePct == null || ranking.serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES) return []
+): LeaderRankRow[] {
+  return leaderStats
+    .flatMap((stat) => {
+      const ranking = rankings.get(stat.civId)
+      if (!ranking || ranking.playerAdjustedWinRateRank == null || ranking.playerAdjustedWinRatePct == null) return []
+      return [{ stat, ranking }]
+    })
+    .sort((left, right) => {
+      const rankDiff = left.ranking.playerAdjustedWinRateRank! - right.ranking.playerAdjustedWinRateRank!
+      if (rankDiff !== 0) return rankDiff
 
-    const playerWinRatePct = round((stat.wins / stat.picks) * 100, 1)
-    return [{
-      stat,
-      ranking,
-      playerWinRatePct,
-      diffPct: round(playerWinRatePct - ranking.serverWinRatePct, 1),
-    }]
-  })
+      const adjustedDiff = (right.ranking.playerAdjustedWinRatePct ?? 0) - (left.ranking.playerAdjustedWinRatePct ?? 0)
+      if (adjustedDiff !== 0) return adjustedDiff
+
+      const gamesDiff = right.stat.picks - left.stat.picks
+      if (gamesDiff !== 0) return gamesDiff
+
+      const winsDiff = right.stat.wins - left.stat.wins
+      if (winsDiff !== 0) return winsDiff
+
+      return left.stat.civId.localeCompare(right.stat.civId)
+    })
 }
 
 function formatLeaderList(
@@ -202,11 +199,10 @@ function formatLeaderList(
   }))
 }
 
-function formatComparisonList(rows: readonly LeaderComparisonRow[]): string {
+function formatHighestRankedList(rows: readonly LeaderRankRow[]): string {
   return limitFieldLines(rows.map((row) => {
-    const diff = `${row.diffPct > 0 ? '+' : ''}${row.diffPct}%`
-    const comparison = row.diffPct > 0 ? '>' : '<'
-    return `${formatRank(row.ranking.playerWinRateRank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)} ${comparison} server \`${row.ranking.serverWinRatePct}%\` by \`(${diff})\``
+    const rank = row.ranking.playerAdjustedWinRateRank
+    return `${formatRank(rank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)} - Rank #${rank}`
   }))
 }
 
@@ -282,9 +278,4 @@ function buildCompletedMatchesWhereClause(playerId: string, modeFilter: LeadersM
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
   return and(...conditions)
-}
-
-function round(value: number, decimals: number): number {
-  const factor = 10 ** decimals
-  return Math.round(value * factor) / factor
 }

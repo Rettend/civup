@@ -1,4 +1,4 @@
-import { matches, matchParticipants, players } from '@civup/db'
+import { matches, matchParticipants, playerCivStats, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -31,23 +31,25 @@ describe('leader stats embed', () => {
       expect(json.description).toBe('Trajan - Rome')
       expect(json.thumbnail?.url).toContain('/1470104020193382522.webp')
       expect(fields.some(field => field.name === 'Modes')).toBe(false)
+      expect(fields.slice(0, 5).map(field => field.name)).toEqual(['Overview', 'Duel', 'Duo', 'FFA', 'Best Players'])
       expect(field(fields, 'Overview')).toMatchObject({
         value: 'Picks: 4 (57%)\nWins: 2 (50%)',
         inline: true,
       })
       expect(field(fields, 'Overview')?.value).not.toContain('Bans:')
-      expect(field(fields, '1v1')).toMatchObject({
+      expect(field(fields, 'Duel')).toMatchObject({
         value: 'Picks: 2 (67%)\nWins: 1 (50%)',
+        inline: true,
+      })
+      expect(field(fields, 'Duo')).toMatchObject({
+        value: 'Picks: 1 (100%)\nWins: 0 (0%)',
         inline: true,
       })
       expect(field(fields, 'FFA')).toMatchObject({
         value: 'Picks: 1 (33%)\nWins: 1 (100%)',
         inline: true,
       })
-      expect(field(fields, '2v2')).toMatchObject({
-        value: 'Picks: 1 (100%)\nWins: 0 (0%)',
-        inline: true,
-      })
+      expect(field(fields, 'Best Players')?.value).toBe('Not enough player data')
     }
     finally {
       sqlite.close()
@@ -125,6 +127,35 @@ describe('leader stats embed', () => {
           ratingAfterSigma: null,
         },
       ])
+    }
+  })
+
+  test('shows best players using adjusted leader ranks', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Small Sample', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Big Sample', avatarUrl: null, createdAt: 1 },
+        { id: 'p3', displayName: 'Baseline', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(playerCivStats).values([
+        { seasonId: '', gameMode: '1v1', playerId: 'p1', civId: 'rome-trajan', picks: 5, wins: 5, updatedAt: 1 },
+        { seasonId: '', gameMode: '1v1', playerId: 'p2', civId: 'rome-trajan', picks: 25, wins: 20, updatedAt: 1 },
+        { seasonId: '', gameMode: '1v1', playerId: 'p3', civId: 'rome-trajan', picks: 30, wins: 0, updatedAt: 1 },
+      ])
+
+      const embed = await leaderStatsEmbed(db, 'rome-trajan')
+      const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
+      const bestPlayers = field(json.fields ?? [], 'Best Players')
+
+      expect(bestPlayers?.value.split('\n')[0]).toContain('Big Sample')
+      expect(bestPlayers?.value.split('\n')[0]).toContain('`#1 `')
+      expect(bestPlayers?.value.split('\n')[1]).toContain('Small Sample')
+      expect(bestPlayers?.value.split('\n')[1]).toContain('`#2 `')
+    }
+    finally {
+      sqlite.close()
     }
   })
 })

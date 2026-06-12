@@ -2,6 +2,7 @@ export interface DiscordMessagePayload {
   content?: string | null
   embeds?: unknown[]
   components?: unknown
+  flags?: number
   allowed_mentions?: {
     parse?: string[]
     roles?: string[]

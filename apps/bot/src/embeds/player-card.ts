@@ -7,6 +7,7 @@ import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
+import { loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
@@ -152,10 +153,14 @@ export async function playerCardEmbed(
     .slice(0, TOP_LEADERS_LIMIT)
 
   if (topPlayedLeaders.length > 0) {
+    const topLeaderRankings = await loadPlayerCivRankingSummaries(db, {
+      seasonId: displaySeason?.id ?? null,
+      mode: modeFilter === 'all' ? null : modeFilter,
+    }, playerId, topPlayedLeaders.map(stat => stat.civId))
     const fieldName = requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders'
     fields.push({
       name: fieldName,
-      value: topPlayedLeaders.map(formatLeaderStatLine).join('\n'),
+      value: topPlayedLeaders.map(stat => formatLeaderStatLine(stat, topLeaderRankings.get(stat.civId)?.playerAdjustedWinRateRank ?? null)).join('\n'),
       inline: false,
     })
   }
@@ -480,11 +485,12 @@ function sortLeaderStatsByGames(stats: LeaderStat[]): LeaderStat[] {
   })
 }
 
-function formatLeaderStatLine(stat: LeaderStat): string {
+function formatLeaderStatLine(stat: LeaderStat, rank: number | null = null): string {
   const winRate = Math.round((stat.wins / stat.games) * 100)
   const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
   const pct = `${winRate}%`.padStart(4, ' ')
-  return `\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}`
+  const rankSuffix = rank == null ? '' : ` - Rank #${rank}`
+  return `\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}${rankSuffix}`
 }
 
 function formatCommonPlayerStatLine(stat: CommonPlayerStat): string {
