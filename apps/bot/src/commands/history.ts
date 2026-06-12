@@ -13,11 +13,6 @@ import { getIdentityByUserId } from './identity.ts'
 
 const HISTORY_PAGINATION_NAMESPACE = 'history'
 
-const MODE_CHOICES = [
-  { name: 'All', value: 'all' },
-  ...GAME_MODE_CHOICES,
-] as const
-
 interface Var {
   player?: string
   mode?: string
@@ -26,7 +21,7 @@ interface Var {
 export const command_history = factory.command<Var>(
   new Command('history', 'Show recent match history').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
-    new Option('mode', 'Filter by game mode').choices(...MODE_CHOICES),
+    new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
   ),
   (c) => {
     const targetId = c.var.player
