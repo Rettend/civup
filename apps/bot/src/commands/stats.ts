@@ -12,11 +12,6 @@ import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
-const MODE_CHOICES = [
-  { name: 'All', value: 'all' },
-  ...GAME_MODE_CHOICES,
-] as const
-
 interface Var {
   player?: string
   leader?: string
@@ -35,7 +30,7 @@ export const command_stats = factory.autocomplete<Var>(
   new Command('stats', 'View player or leader stats').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('leader', 'Leader to look up').autocomplete(),
-    new Option('mode', 'Filter by game mode').choices(...MODE_CHOICES),
+    new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
     new Option('teammate1', 'First teammate for lineup stats', 'User'),
     new Option('teammate2', 'Second teammate for lineup stats', 'User'),
     new Option('teammate3', 'Third teammate for lineup stats', 'User'),
