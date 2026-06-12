@@ -6,18 +6,13 @@ import { getIdentityByUserId } from './identity.ts'
 import { createChannelMessageWithFile, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { buildRankGraphImageData, parseRankGraphScope, renderRankGraphPng } from '../services/player/rank-graph.ts'
-import { upsertPlayerProfiles } from '../services/player/profile.ts'
+import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
   player?: string
-  player1?: string
-  player2?: string
-  player3?: string
-  player4?: string
-  player5?: string
   mode?: string
   games?: string
 }
@@ -49,11 +44,6 @@ const DEFAULT_RANK_GRAPH_GAMES = 20
 export const command_rank = factory.command<Var>(
   new Command('rank', 'View ranked rating history').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
-    new Option('player1', 'Additional player to graph', 'User'),
-    new Option('player2', 'Additional player to graph', 'User'),
-    new Option('player3', 'Additional player to graph', 'User'),
-    new Option('player4', 'Additional player to graph', 'User'),
-    new Option('player5', 'Additional player to graph', 'User'),
     new Option('mode', 'Rating track').choices(...RANK_GRAPH_MODE_CHOICES),
     new Option('games', 'X-axis window').choices(...RANK_GRAPH_GAME_CHOICES),
   ),
@@ -62,18 +52,14 @@ export const command_rank = factory.command<Var>(
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
-    const additionalPlayerIds = [c.var.player1, c.var.player2, c.var.player3, c.var.player4, c.var.player5]
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    const playerIds = targetId ? [targetId, ...additionalPlayerIds] : additionalPlayerIds
     const scope = parseRankGraphScope(c.var.mode) ?? 'overall'
     const gameLimit = parseRankGraphGameLimit(c.var.games)
-    const isDefaultSelfLookup = !c.var.player && additionalPlayerIds.length === 0 && !c.var.mode && !c.var.games
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode && !c.var.games
 
     if (!guildId) return c.res('This command can only be used in a server.')
     if (!targetId) return c.res('Could not identify the player.')
     if (c.var.mode && !parseRankGraphScope(c.var.mode)) return c.res('Pick a rank mode.')
     if (c.var.games && gameLimit == null) return c.res('Pick a game window.')
-    if (new Set(playerIds).size !== playerIds.length) return c.res('Pick unique players for the graph.')
 
     const kv = getKvStore(c.env)
     const commandsChannelId = await getSystemChannel(kv, 'commands')
@@ -86,19 +72,16 @@ export const command_rank = factory.command<Var>(
 
     return responder.resDefer(async (c) => {
       const db = createDb(c.env.DB)
-      const identities = new Map(playerIds.flatMap((playerId) => {
-        const identity = getIdentityByUserId(c, playerId)
-        return identity ? [[identity.userId, identity] as const] : []
-      }))
-      if (identities.size > 0) {
-        await upsertPlayerProfiles(db, [...identities.values()].map(identity => ({
+      const identity = getIdentityByUserId(c, targetId)
+      if (identity) {
+        await upsertPlayerProfile(db, {
           playerId: identity.userId,
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
-        })))
+        })
       }
 
-      const result = await buildRankCommandImage(db, kv, guildId, playerIds, {
+      const result = await buildRankCommandImage(db, kv, guildId, targetId, {
         scope,
         gameLimit: gameLimit ?? DEFAULT_RANK_GRAPH_GAMES,
       })
@@ -142,14 +125,14 @@ export async function buildRankCommandImage(
   db: Database,
   kv: KVNamespace,
   guildId: string,
-  playerIds: readonly string[],
+  playerId: string,
   options: {
     scope: RankGraphScope
     gameLimit: number
   },
 ): Promise<RankCommandResult> {
-  const data = await buildRankGraphImageData(db, kv, guildId, playerIds, options)
-  if (data.series.every(series => series.points.length === 0)) {
+  const data = await buildRankGraphImageData(db, kv, guildId, playerId, options)
+  if (data.player.points.length === 0) {
     return { content: 'No ranked games found for this view.' }
   }
 
