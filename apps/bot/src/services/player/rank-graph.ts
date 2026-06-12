@@ -6,7 +6,8 @@ import { formatLeaderboardModeLabel } from '@civup/game'
 import { displayRating, roleRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
+import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
 import { previewRankedRoles, summarizeRankedPreview } from '../ranked/role-sync.ts'
 import { getConfiguredRankedRoleLabel } from '../ranked/roles.ts'
 
@@ -18,10 +19,10 @@ export interface RankGraphPoint {
   rating: number
 }
 
-export interface RankGraphSeries {
+export interface RankGraphPlayer {
   playerId: string
   displayName: string
-  color: string
+  avatarUrl: string | null
   points: RankGraphPoint[]
   currentRating: number | null
   games: number
@@ -37,8 +38,18 @@ export interface RankGraphBand {
 export interface RankGraphImageData {
   scope: RankGraphScope
   gameLimit: number
-  series: RankGraphSeries[]
+  player: RankGraphPlayer
   bands: RankGraphBand[]
+}
+
+interface RankGraphBandSegment {
+  index: number
+  label: string
+  color: string
+  cutoffScore: number | null
+  y: number
+  bottom: number
+  height: number
 }
 
 interface RankGraphEventRow {
@@ -53,11 +64,11 @@ interface RankGraphEventRow {
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
 const SIDE_PAD = 52
-const TOP_PAD = 42
+const HEADER_HEIGHT = 100
 const CHART_X = 84
-const CHART_Y = 122
+const CHART_Y = 120
 const CHART_W = 1050
-const CHART_H = 420
+const CHART_H = 456
 const CHART_BOTTOM = CHART_Y + CHART_H
 const FONT_ASSET_SPECIFIERS = [
   '@fontsource/inter/files/inter-latin-400-normal.woff2',
@@ -69,16 +80,16 @@ const COLORS = {
   bg: '#09090b',
   panel: '#151518',
   panelAlt: '#1f1f24',
-  border: 'rgba(255,255,255,0.15)',
+  border: 'rgba(255,255,255,0.18)',
   borderSubtle: 'rgba(255,255,255,0.08)',
   grid: 'rgba(255,255,255,0.10)',
   fg: '#fafafa',
   muted: '#a1a1aa',
   subtle: '#71717a',
   accent: '#c8aa6e',
+  accentDim: 'rgba(200,170,110,0.14)',
 }
 
-const SERIES_COLORS = ['#22d3ee', '#f59e0b', '#a78bfa', '#34d399', '#fb7185', '#60a5fa'] as const
 const BAND_FALLBACK_COLORS = ['#f5c542', '#d4d4d8', '#c08457', '#22c55e', '#71717a', '#52525b'] as const
 
 let wasmReady: Promise<unknown> | null = null
@@ -94,7 +105,7 @@ export async function buildRankGraphImageData(
   db: Database,
   kv: KVNamespace,
   guildId: string,
-  playerIds: readonly string[],
+  playerId: string,
   options: {
     scope?: RankGraphScope
     gameLimit: number
@@ -102,28 +113,25 @@ export async function buildRankGraphImageData(
 ): Promise<RankGraphImageData> {
   const scope = options.scope ?? 'overall'
   const gameLimit = normalizeGameLimit(options.gameLimit)
-  const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  const [profiles, eventRowsByPlayerId, bands] = await Promise.all([
-    loadPlayerProfiles(db, uniquePlayerIds),
-    loadRankGraphEvents(db, uniquePlayerIds, scope, gameLimit),
+  const [profile, eventRows, bands] = await Promise.all([
+    loadPlayerProfile(db, playerId),
+    loadRankGraphEvents(db, playerId, scope, gameLimit),
     loadRankGraphBands(db, kv, guildId, scope),
   ])
+  const points = buildRankGraphPoints(eventRows, scope)
 
   return {
     scope,
     gameLimit,
     bands,
-    series: uniquePlayerIds.map((playerId, index) => {
-      const points = buildRankGraphPoints(eventRowsByPlayerId.get(playerId) ?? [], scope)
-      return {
-        playerId,
-        displayName: profiles.get(playerId)?.displayName?.trim() || shortPlayerLabel(playerId),
-        color: SERIES_COLORS[index % SERIES_COLORS.length] ?? SERIES_COLORS[0],
-        points,
-        currentRating: points.at(-1)?.rating ?? null,
-        games: Math.max(0, points.length - 1),
-      }
-    }),
+    player: {
+      playerId,
+      displayName: profile?.displayName?.trim() || shortPlayerLabel(playerId),
+      avatarUrl: profile?.avatarUrl ?? null,
+      points,
+      currentRating: points.at(-1)?.rating ?? null,
+      games: Math.max(0, points.length - 1),
+    },
   }
 }
 
@@ -133,80 +141,80 @@ export async function renderRankGraphPng(data: RankGraphImageData): Promise<Uint
 
 export async function renderRankGraphSvg(data: RankGraphImageData): Promise<string> {
   const scale = buildRatingScale(data)
-  const ticks = buildRatingTicks(scale.min, scale.max)
-  const xMax = Math.max(1, data.gameLimit)
-  const activeSeries = data.series.filter(series => series.points.length > 0)
-  const title = formatRankGraphTitle(data.scope)
+  const bandSegments = buildRankBandSegments(data.bands, scale)
+  const xMax = Math.max(1, data.player.games)
+  const xTicks = buildGameTicks(xMax)
+  const title = 'Rank History'
+  const subtitle = formatRankGraphSubtitle(data.scope)
+  const subtitleX = SIDE_PAD + measurePlainTextWidth(title, 52, 900) + 24
+  const hasGraph = data.player.points.length > 0
+  const player = data.player
+  const avatarData = await loadAvatarDataUris([player])
+  const avatarDataUri = avatarData.get(avatarKey(player))
 
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" viewBox="0 0 ${IMAGE_WIDTH} ${IMAGE_HEIGHT}" font-family="Inter, Arial, sans-serif">
   <defs>
-    <linearGradient id="rankGraphBg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0" stop-color="${COLORS.panel}" />
-      <stop offset="1" stop-color="${COLORS.panelAlt}" />
-    </linearGradient>
     <filter id="rankGraphGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feGaussianBlur stdDeviation="2.5" result="blur" />
       <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
     </filter>
+    ${renderRankBandClipDefs(bandSegments)}
     <clipPath id="rankGraphClip"><rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" /></clipPath>
+    <clipPath id="rankGraphPlayerAvatar" clipPathUnits="objectBoundingBox"><circle cx="0.5" cy="0.5" r="0.5" /></clipPath>
   </defs>
-  <rect width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" fill="url(#rankGraphBg)" />
-  <circle cx="1115" cy="54" r="180" fill="${COLORS.accent}" opacity="0.08" />
-  <text x="${SIDE_PAD}" y="${TOP_PAD + 35}" fill="${COLORS.fg}" font-size="46" font-weight="900" letter-spacing="1.1">${escapeXml(title)}</text>
-  <text x="${IMAGE_WIDTH - SIDE_PAD}" y="${TOP_PAD + 31}" text-anchor="end" fill="${COLORS.muted}" font-size="20" font-weight="900" letter-spacing="1.7">LAST ${data.gameLimit} GAMES</text>
+  <rect width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" fill="${COLORS.panel}" />
+  <text x="${SIDE_PAD}" y="68" fill="${COLORS.fg}" font-size="52" font-weight="900" letter-spacing="1">${escapeXml(title)}</text>
+  <text x="${subtitleX}" y="66" fill="${COLORS.muted}" font-size="19" font-weight="900" letter-spacing="1.6">${escapeXml(subtitle)}</text>
+  ${renderPlayerIdentity(player, avatarDataUri)}
   <rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" fill="rgba(0,0,0,0.24)" />
   <g clip-path="url(#rankGraphClip)">
-    ${renderRankBands(data.bands, scale)}
-    ${renderGridLines(ticks, scale)}
-    ${activeSeries.map(series => renderSeriesLine(series, scale, xMax)).join('')}
+    ${renderRankBands(bandSegments)}
+    ${hasGraph ? renderGraphArea(data.player.points, scale, xMax, bandSegments) : ''}
+    ${renderXGridLines(xTicks, xMax)}
+    ${hasGraph ? renderSeriesLine(data.player.points, scale, xMax, bandSegments) : ''}
   </g>
-  <rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" fill="none" stroke="${COLORS.border}" stroke-width="2" />
-  ${renderAxisLabels(ticks, scale, xMax)}
-  ${activeSeries.length > 0 ? renderLegend(activeSeries) : renderEmptyState()}
+  <rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" fill="none" stroke="${COLORS.border}" stroke-width="2.5" />
+  ${renderBandAxisLabels(bandSegments, scale)}
+  ${renderXAxisLabels(xTicks, xMax)}
+  ${hasGraph ? '' : renderEmptyState()}
 </svg>`
 }
 
 async function loadRankGraphEvents(
   db: Database,
-  playerIds: readonly string[],
+  playerId: string,
   scope: RankGraphScope,
   gameLimit: number,
-): Promise<Map<string, RankGraphEventRow[]>> {
-  const byPlayerId = new Map<string, RankGraphEventRow[]>()
+): Promise<RankGraphEventRow[]> {
   const ratingScope = toRatingEventScope(scope)
-  await Promise.all(playerIds.map(async (playerId) => {
-    const rows = await db
-      .select({
-        matchId: playerRatingEvents.matchId,
-        ratingBeforeMu: playerRatingEvents.ratingBeforeMu,
-        ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
-        ratingAfterMu: playerRatingEvents.ratingAfterMu,
-        ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
-        matchCreatedAt: playerRatingEvents.matchCreatedAt,
-      })
-      .from(playerRatingEvents)
-      .where(and(
-        eq(playerRatingEvents.playerId, playerId),
-        eq(playerRatingEvents.mode, ratingScope),
-      ))
-      .orderBy(desc(playerRatingEvents.matchCreatedAt), desc(playerRatingEvents.matchId))
-      .limit(gameLimit)
+  const rows = await db
+    .select({
+      matchId: playerRatingEvents.matchId,
+      ratingBeforeMu: playerRatingEvents.ratingBeforeMu,
+      ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
+      ratingAfterMu: playerRatingEvents.ratingAfterMu,
+      ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+      matchCreatedAt: playerRatingEvents.matchCreatedAt,
+    })
+    .from(playerRatingEvents)
+    .where(and(
+      eq(playerRatingEvents.playerId, playerId),
+      eq(playerRatingEvents.mode, ratingScope),
+    ))
+    .orderBy(desc(playerRatingEvents.matchCreatedAt), desc(playerRatingEvents.matchId))
+    .limit(gameLimit)
 
-    byPlayerId.set(playerId, rows.reverse())
-  }))
-  return byPlayerId
+  return rows.reverse()
 }
 
-async function loadPlayerProfiles(db: Database, playerIds: readonly string[]): Promise<Map<string, { displayName: string }>> {
-  const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  if (uniquePlayerIds.length === 0) return new Map()
-
-  const rows = await db
-    .select({ id: playerRows.id, displayName: playerRows.displayName })
+async function loadPlayerProfile(db: Database, playerId: string): Promise<{ displayName: string, avatarUrl: string | null } | null> {
+  const [row] = await db
+    .select({ displayName: playerRows.displayName, avatarUrl: playerRows.avatarUrl })
     .from(playerRows)
-    .where(inArray(playerRows.id, uniquePlayerIds))
-  return new Map(rows.map(row => [row.id, { displayName: row.displayName }]))
+    .where(eq(playerRows.id, playerId))
+    .limit(1)
+  return row ?? null
 }
 
 async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope): Promise<RankGraphBand[]> {
@@ -267,10 +275,10 @@ function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGra
   return points
 }
 
-function renderRankBands(bands: readonly RankGraphBand[], scale: RatingScale): string {
+function buildRankBandSegments(bands: readonly RankGraphBand[], scale: RatingScale): RankGraphBandSegment[] {
   const rankedBands = bands.length > 0 ? bands : [{ tier: 'tier1', label: '', color: COLORS.accent, cutoffScore: null }]
   let upper = scale.max
-  let svg = ''
+  const segments: RankGraphBandSegment[] = []
 
   for (let index = 0; index < rankedBands.length; index++) {
     const band = rankedBands[index]!
@@ -282,70 +290,115 @@ function renderRankBands(bands: readonly RankGraphBand[], scale: RatingScale): s
       const bottom = ratingToY(boundedLower, scale)
       const height = Math.max(1, bottom - y)
       const color = normalizeSvgColor(band.color, BAND_FALLBACK_COLORS[index % BAND_FALLBACK_COLORS.length] ?? COLORS.accent)
-      svg += `
-        <rect x="${CHART_X}" y="${y}" width="${CHART_W}" height="${height}" fill="${color}" opacity="0.105" />
-        <rect x="${CHART_X}" y="${y}" width="${CHART_W}" height="${height}" fill="none" stroke="${color}" stroke-opacity="0.32" stroke-width="1.2" />
-        ${band.label ? `<text x="${CHART_X + CHART_W - 18}" y="${Math.min(bottom - 13, y + 29)}" text-anchor="end" fill="${color}" opacity="0.74" font-size="16" font-weight="900" letter-spacing="1.2">${escapeXml(formatBandLabel(band.label))}</text>` : ''}
-      `
+      segments.push({
+        index,
+        label: band.label,
+        color,
+        cutoffScore: band.cutoffScore,
+        y,
+        bottom,
+        height,
+      })
     }
     upper = lower
   }
 
-  return svg
+  return segments
 }
 
-function renderGridLines(ticks: readonly number[], scale: RatingScale): string {
-  return ticks.map((tick) => {
-    const y = ratingToY(tick, scale)
-    return `<line x1="${CHART_X}" y1="${y}" x2="${CHART_X + CHART_W}" y2="${y}" stroke="${COLORS.grid}" stroke-width="1" />`
+function renderRankBandClipDefs(segments: readonly RankGraphBandSegment[]): string {
+  return segments.map((segment) => {
+    const y = Math.max(CHART_Y, segment.y - 0.5)
+    const bottom = Math.min(CHART_BOTTOM, segment.bottom + 0.5)
+    return `<clipPath id="${rankBandClipId(segment)}" clipPathUnits="userSpaceOnUse"><rect x="${CHART_X}" y="${y}" width="${CHART_W}" height="${Math.max(1, bottom - y)}" /></clipPath>`
   }).join('')
 }
 
-function renderSeriesLine(series: RankGraphSeries, scale: RatingScale, xMax: number): string {
-  const points = series.points
+function renderRankBands(segments: readonly RankGraphBandSegment[]): string {
+  return segments.map(segment => `
+    <rect x="${CHART_X}" y="${segment.y}" width="${CHART_W}" height="${segment.height}" fill="${segment.color}" opacity="0.025" />
+    <line x1="${CHART_X}" y1="${segment.y}" x2="${CHART_X + CHART_W}" y2="${segment.y}" stroke="${COLORS.grid}" stroke-width="1" />
+    ${segment.label && segment.height >= 30 ? `<text x="${CHART_X + CHART_W - 18}" y="${Math.min(segment.bottom - 13, segment.y + 29)}" text-anchor="end" fill="${segment.color}" opacity="0.72" font-size="18" font-weight="900" letter-spacing="1.2">${escapeXml(formatBandLabel(segment.label))}</text>` : ''}
+  `).join('')
+}
+
+function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | undefined): string {
+  const avatarSize = 46
+  const avatarX = IMAGE_WIDTH - SIDE_PAD - avatarSize
+  const avatarY = 24
+  const nameX = avatarX - 14
+  const name = truncateToWidth(stripUnsupportedEmoji(player.displayName), 360, 22, 900)
+  const ratingLabel = player.currentRating != null ? `${player.currentRating} ELO` : 'UNRATED'
+  const center = avatarSize / 2
+  const initials = getInitials(stripUnsupportedEmoji(player.displayName))
+  return `
+    <circle cx="${avatarX + center}" cy="${avatarY + center}" r="${center}" fill="${COLORS.bg}" />
+    ${avatarDataUri ? `<image href="${avatarDataUri}" x="${avatarX}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" clip-path="url(#rankGraphPlayerAvatar)" preserveAspectRatio="xMidYMid slice" />` : ''}
+    ${avatarDataUri ? '' : `<text x="${avatarX + center}" y="${avatarY + center + (avatarSize * 0.13)}" text-anchor="middle" fill="${COLORS.muted}" font-size="${Math.round(avatarSize * 0.36)}" font-weight="900">${escapeXml(initials)}</text>`}
+    <text x="${nameX}" y="${avatarY + 18}" text-anchor="end" fill="${COLORS.fg}" font-size="22" font-weight="900">${escapeXml(name)}</text>
+    <text x="${nameX}" y="${avatarY + 42}" text-anchor="end" fill="${COLORS.muted}" font-size="17" font-weight="900" letter-spacing="1.1">${ratingLabel}</text>
+  `
+}
+
+function renderXGridLines(ticks: readonly number[], xMax: number): string {
+  return ticks.map((tick) => {
+    if (tick === 0 || tick === xMax) return ''
+    const x = xToChart(tick, xMax)
+    return `<line x1="${x}" y1="${CHART_Y}" x2="${x}" y2="${CHART_BOTTOM}" stroke="${COLORS.grid}" stroke-width="1" />`
+  }).join('')
+}
+
+function renderGraphArea(points: readonly RankGraphPoint[], scale: RatingScale, xMax: number, segments: readonly RankGraphBandSegment[]): string {
+  const chartPoints = points.map(point => ({ x: xToChart(point.x, xMax), y: ratingToY(point.rating, scale) }))
+  const first = chartPoints[0]
+  const last = chartPoints.at(-1)
+  if (!first || !last) return ''
+
+  const linePoints = chartPoints.map(point => `${point.x},${point.y}`).join(' ')
+  const reversePoints = [...chartPoints].reverse().map(point => `${point.x},${point.y}`).join(' ')
+  const topPath = `M${first.x},${CHART_Y} H${last.x} L${reversePoints} Z`
+  const bottomPath = `M${linePoints} L${last.x},${CHART_BOTTOM} H${first.x} Z`
+
+  return segments.map(segment => `
+    <g clip-path="url(#${rankBandClipId(segment)})">
+      <path d="${topPath}" fill="${segment.color}" opacity="0.018" />
+      <path d="${bottomPath}" fill="${segment.color}" opacity="0.13" />
+    </g>
+  `).join('')
+}
+
+function renderSeriesLine(pointsInput: readonly RankGraphPoint[], scale: RatingScale, xMax: number, segments: readonly RankGraphBandSegment[]): string {
+  const points = pointsInput
     .map(point => `${xToChart(point.x, xMax)},${ratingToY(point.rating, scale)}`)
     .join(' ')
-  const last = series.points.at(-1)
-  const lastPoint = last ? { x: xToChart(last.x, xMax), y: ratingToY(last.rating, scale) } : null
 
-  return `
-    <polyline points="${points}" fill="none" stroke="${series.color}" stroke-opacity="0.24" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" filter="url(#rankGraphGlow)" />
-    <polyline points="${points}" fill="none" stroke="${series.color}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
-    ${lastPoint ? `<circle cx="${lastPoint.x}" cy="${lastPoint.y}" r="7" fill="${COLORS.bg}" stroke="${series.color}" stroke-width="4" />` : ''}
-  `
+  return segments.map(segment => `
+    <g clip-path="url(#${rankBandClipId(segment)})">
+      <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-opacity="0.16" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" filter="url(#rankGraphGlow)" />
+      <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+  `).join('')
 }
 
-function renderAxisLabels(ticks: readonly number[], scale: RatingScale, xMax: number): string {
-  const yLabels = ticks.map((tick) => {
-    const y = ratingToY(tick, scale) + 5
-    return `<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${COLORS.subtle}" font-size="16" font-weight="900">${tick}</text>`
-  }).join('')
-
-  return `
-    ${yLabels}
-    <text x="${CHART_X}" y="${CHART_BOTTOM + 34}" text-anchor="middle" fill="${COLORS.subtle}" font-size="15" font-weight="900">0</text>
-    <text x="${xToChart(xMax, xMax)}" y="${CHART_BOTTOM + 34}" text-anchor="middle" fill="${COLORS.subtle}" font-size="15" font-weight="900">${xMax}</text>
-  `
+function rankBandClipId(segment: RankGraphBandSegment): string {
+  return `rankGraphBandClip${segment.index}`
 }
 
-function renderLegend(series: readonly RankGraphSeries[]): string {
-  const rows = series.slice(0, 6)
-  const columnWidth = 360
-  const startX = SIDE_PAD
-  const startY = 584
+function renderBandAxisLabels(segments: readonly RankGraphBandSegment[], scale: RatingScale): string {
+  const labels: string[] = []
+  for (const segment of segments) {
+    if (segment.cutoffScore == null) continue
+    const y = ratingToY(segment.cutoffScore, scale) + 5
+    if (y < CHART_Y + 10 || y > CHART_BOTTOM - 5) continue
+    labels.push(`<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${segment.color}" opacity="0.9" font-size="16" font-weight="900">${Math.round(segment.cutoffScore)}</text>`)
+  }
+  return labels.join('')
+}
 
-  return rows.map((item, index) => {
-    const column = index % 3
-    const row = Math.floor(index / 3)
-    const x = startX + (column * columnWidth)
-    const y = startY + (row * 30)
-    const label = truncateToWidth(stripUnsupportedEmoji(item.displayName), 220, 19, 900)
-    const rating = item.currentRating == null ? '' : `${item.currentRating}`
-    return `
-      <circle cx="${x}" cy="${y - 6}" r="6" fill="${item.color}" />
-      <text x="${x + 16}" y="${y}" fill="${COLORS.fg}" font-size="19" font-weight="900">${escapeXml(label)}</text>
-      <text x="${x + 278}" y="${y}" text-anchor="end" fill="${COLORS.muted}" font-size="18" font-weight="900">${rating}</text>
-    `
+function renderXAxisLabels(xTicks: readonly number[], xMax: number): string {
+  return xTicks.map((tick) => {
+    const x = xToChart(tick, xMax)
+    return `<text x="${x}" y="${CHART_BOTTOM + 34}" text-anchor="middle" fill="${COLORS.subtle}" font-size="15" font-weight="900">${tick}</text>`
   }).join('')
 }
 
@@ -360,7 +413,7 @@ interface RatingScale {
 
 function buildRatingScale(data: RankGraphImageData): RatingScale {
   const values = [
-    ...data.series.flatMap(series => series.points.map(point => point.rating)),
+    ...data.player.points.map(point => point.rating),
     ...data.bands.flatMap(band => band.cutoffScore == null ? [] : [band.cutoffScore]),
   ].filter(value => Number.isFinite(value))
 
@@ -375,14 +428,86 @@ function buildRatingScale(data: RankGraphImageData): RatingScale {
   return min === max ? { min: min - 100, max: max + 100 } : { min, max }
 }
 
-function buildRatingTicks(min: number, max: number): number[] {
-  const spread = Math.max(1, max - min)
-  const rawStep = spread / 4
-  const step = rawStep <= 50 ? 50 : rawStep <= 100 ? 100 : rawStep <= 200 ? 200 : 250
-  const first = Math.ceil(min / step) * step
-  const ticks: number[] = []
-  for (let value = first; value <= max; value += step) ticks.push(value)
-  return ticks.length > 0 ? ticks : [min, max]
+function buildGameTicks(xMax: number): number[] {
+  if (xMax <= 5) {
+    const ticks: number[] = []
+    for (let value = 0; value <= xMax; value++) ticks.push(value)
+    return ticks
+  }
+  const step = pickGameTickStep(xMax)
+  const ticks: number[] = [0]
+  for (let value = step; value < xMax; value += step) ticks.push(value)
+  const lastInteriorTick = ticks.at(-1)
+  if (lastInteriorTick != null && lastInteriorTick > 0 && xMax - lastInteriorTick < step * 0.6) ticks.pop()
+  ticks.push(xMax)
+  return ticks
+}
+
+function pickGameTickStep(xMax: number): number {
+  const desired = getGameTickDensity(xMax)
+  let bestStep = 1
+  let bestScore = Number.POSITIVE_INFINITY
+
+  for (const step of buildGameTickStepCandidates(xMax)) {
+    const labels = buildGameTickLabelsForStep(xMax, step)
+    const count = labels.length
+    const countPenalty = count < desired.min
+      ? (desired.min - count) * 8
+      : count > desired.max
+        ? (count - desired.max) * 5
+        : Math.abs(count - desired.target)
+    const divisorBonus = xMax % step === 0 ? -1.6 : 0
+    const niceBonus = isPreferredGameTickStep(step) ? -1 : 0
+    const crowdPenalty = hasCrowdedEndTick(xMax, step) ? 3 : 0
+    const score = countPenalty + divisorBonus + niceBonus + crowdPenalty
+    if (score < bestScore || (score === bestScore && step > bestStep)) {
+      bestScore = score
+      bestStep = step
+    }
+  }
+
+  return bestStep
+}
+
+function getGameTickDensity(xMax: number): { min: number, max: number, target: number } {
+  if (xMax <= 15) return { min: 4, max: 6, target: 5 }
+  if (xMax <= 60) return { min: 5, max: 8, target: 6 }
+  if (xMax <= 120) return { min: 5, max: 8, target: 6 }
+  return { min: 6, max: 11, target: 10 }
+}
+
+function buildGameTickStepCandidates(xMax: number): number[] {
+  const candidates = new Set<number>()
+  const bases = [1, 2, 3, 4, 5, 10, 15, 20, 25, 50]
+  for (let multiplier = 1; multiplier <= xMax; multiplier *= 10) {
+    for (const base of bases) {
+      const step = base * multiplier
+      if (step >= 1 && step <= xMax) candidates.add(step)
+    }
+  }
+  for (let step = 1; step <= xMax; step++) {
+    if (xMax % step === 0) candidates.add(step)
+  }
+  return [...candidates].sort((a, b) => a - b)
+}
+
+function buildGameTickLabelsForStep(xMax: number, step: number): number[] {
+  const labels: number[] = [0]
+  for (let value = step; value < xMax; value += step) labels.push(value)
+  if (hasCrowdedEndTick(xMax, step)) labels.pop()
+  labels.push(xMax)
+  return labels
+}
+
+function hasCrowdedEndTick(xMax: number, step: number): boolean {
+  const remainder = xMax % step
+  return remainder > 0 && remainder < step * 0.6
+}
+
+function isPreferredGameTickStep(step: number): boolean {
+  let normalized = step
+  while (normalized >= 10 && normalized % 10 === 0) normalized /= 10
+  return normalized === 1 || normalized === 2 || normalized === 5
 }
 
 function ratingToY(rating: number, scale: RatingScale): number {
@@ -395,9 +520,8 @@ function xToChart(x: number, xMax: number): number {
   return CHART_X + (ratio * CHART_W)
 }
 
-function formatRankGraphTitle(scope: RankGraphScope): string {
-  if (scope === 'overall') return 'Rank History'
-  return `${formatLeaderboardModeLabel(scope, scope)} History`
+function formatRankGraphSubtitle(scope: RankGraphScope): string {
+  return scope === 'overall' ? 'OVERALL' : formatLeaderboardModeLabel(scope, scope).toUpperCase()
 }
 
 function toRatingEventScope(scope: RankGraphScope): LeaderboardMode | 'global' {
@@ -432,11 +556,16 @@ function formatBandLabel(label: string): string {
   if (!trimmed) return ''
   const roleMatch = /^role\s+(\d+)$/i.exec(trimmed)
   if (roleMatch) return `R${roleMatch[1]}`
-  return truncateToWidth(trimmed.toUpperCase(), 92, 16, 900)
+  return trimmed.toUpperCase()
 }
 
 function shortPlayerLabel(playerId: string): string {
   return `Player ${playerId.slice(-4) || '?'}`
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return (parts.length >= 2 ? `${parts[0]![0]}${parts[1]![0]}` : name.slice(0, 2) || '?').toUpperCase()
 }
 
 function normalizeSvgColor(value: string | null | undefined, fallback: string): string {
