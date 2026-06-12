@@ -1,11 +1,12 @@
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
-import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, tournamentMatches } from '@civup/db'
+import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, players, tournamentMatches } from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 
-export const PLAYER_CIV_MIN_RANK_GAMES = 3
+export const PLAYER_CIV_MIN_RANK_GAMES = 5
 export const PLAYER_CIV_SERVER_AVG_MIN_GAMES = 10
+export const PLAYER_CIV_RANK_PRIOR_GAMES = 10
 
 export interface PlayerCivStatsFilter {
   seasonId?: string | null
@@ -24,8 +25,16 @@ export interface PlayerCivRankingSummary {
   serverPicks: number
   serverWins: number
   serverWinRatePct: number | null
+  playerAdjustedWinRatePct: number | null
+  playerAdjustedWinRateRank: number | null
   playerWinRateRank: number | null
   playerGamesRank: number | null
+}
+
+export interface PlayerCivRankedPlayerSummary extends PlayerCivStatSummary {
+  displayName: string | null
+  adjustedWinRatePct: number
+  adjustedWinRateRank: number
 }
 
 interface PlayerCivStatContributionEntry {
@@ -117,6 +126,50 @@ export async function loadPlayerCivRankingSummaries(
     const entries = byCivId.get(civId) ?? []
     return [civId, summarizeRanking(civId, playerId, entries)]
   }))
+}
+
+export async function listTopPlayerCivRankings(
+  db: Database,
+  filter: PlayerCivStatsFilter,
+  civId: string,
+  limit: number,
+): Promise<PlayerCivRankedPlayerSummary[]> {
+  if (civId.length === 0 || limit <= 0) return []
+
+  const conditions = buildPlayerCivStatConditions(filter, eq(playerCivStats.civId, civId))
+  const rows = await db
+    .select({
+      playerId: playerCivStats.playerId,
+      displayName: players.displayName,
+      picks: sql<number>`sum(${playerCivStats.picks})`,
+      wins: sql<number>`sum(${playerCivStats.wins})`,
+    })
+    .from(playerCivStats)
+    .leftJoin(players, eq(players.id, playerCivStats.playerId))
+    .where(and(...conditions))
+    .groupBy(playerCivStats.playerId)
+
+  const entries = rows.map(row => ({
+    playerId: row.playerId,
+    displayName: row.displayName,
+    civId,
+    picks: normalizeCount(row.picks),
+    wins: normalizeCount(row.wins),
+  }))
+  const serverPicks = entries.reduce((sum, entry) => sum + entry.picks, 0)
+  const serverWins = entries.reduce((sum, entry) => sum + entry.wins, 0)
+  if (serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES) return []
+
+  const serverWinRate = serverWins / serverPicks
+  return entries
+    .filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES)
+    .sort((left, right) => compareByAdjustedWinRate(left, right, serverWinRate))
+    .slice(0, limit)
+    .map((entry, index) => ({
+      ...entry,
+      adjustedWinRatePct: round(adjustedWinRate(entry, serverWinRate) * 100, 1),
+      adjustedWinRateRank: index + 1,
+    }))
 }
 
 export async function reconcilePlayerCivStatMatchContribution(
@@ -382,11 +435,21 @@ function summarizeRanking(
   const serverPicks = entries.reduce((sum, entry) => sum + entry.picks, 0)
   const serverWins = entries.reduce((sum, entry) => sum + entry.wins, 0)
   const playerEntry = entries.find(entry => entry.playerId === playerId) ?? null
+  const serverWinRate = serverPicks > 0 ? serverWins / serverPicks : null
+  const adjustedEligibleEntries = serverWinRate == null || serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES
+    ? []
+    : entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES)
   return {
     civId,
     serverPicks,
     serverWins,
     serverWinRatePct: serverPicks > 0 ? round((serverWins / serverPicks) * 100, 1) : null,
+    playerAdjustedWinRatePct: playerEntry && serverWinRate != null && serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
+      ? round(adjustedWinRate(playerEntry, serverWinRate) * 100, 1)
+      : null,
+    playerAdjustedWinRateRank: playerEntry && serverWinRate != null && serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
+      ? rankEntry(playerEntry, adjustedEligibleEntries, (left, right) => compareByAdjustedWinRate(left, right, serverWinRate))
+      : null,
     playerWinRateRank: playerEntry && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
       ? rankEntry(playerEntry, entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES), compareByWinRate)
       : null,
@@ -410,6 +473,16 @@ function compareByWinRate(left: PlayerCivStatSummary, right: PlayerCivStatSummar
   const winRateDiff = (right.wins * left.picks) - (left.wins * right.picks)
   if (winRateDiff !== 0) return winRateDiff
   return compareByGames(left, right)
+}
+
+function compareByAdjustedWinRate(left: PlayerCivStatSummary, right: PlayerCivStatSummary, serverWinRate: number): number {
+  const winRateDiff = adjustedWinRate(right, serverWinRate) - adjustedWinRate(left, serverWinRate)
+  if (winRateDiff !== 0) return winRateDiff
+  return compareByGames(left, right)
+}
+
+function adjustedWinRate(entry: PlayerCivStatSummary, serverWinRate: number): number {
+  return (entry.wins + (serverWinRate * PLAYER_CIV_RANK_PRIOR_GAMES)) / (entry.picks + PLAYER_CIV_RANK_PRIOR_GAMES)
 }
 
 function compareByGames(left: PlayerCivStatSummary, right: PlayerCivStatSummary): number {

@@ -125,16 +125,14 @@ function buildEstimateSql(): string {
 function buildApplyBatchSql(updatedAt: number, batchSize: number): string {
   const cte = buildBatchEntriesCte('missing_entries', batchSize)
   return [
-    'begin transaction',
-    `with ${cte}
+    `with ${buildBatchAggregateCte(batchSize)}
       insert into player_civ_stats (season_id, game_mode, player_id, civ_id, picks, wins, updated_at)
-      select season_id, game_mode, player_id, civ_id, sum(picks), sum(wins), ${updatedAt}
-      from missing_entries
+      select season_id, game_mode, player_id, civ_id, picks, wins, ${updatedAt}
+      from aggregate_totals
       where true
-      group by season_id, game_mode, player_id, civ_id
       on conflict(season_id, game_mode, player_id, civ_id) do update set
-        picks = player_civ_stats.picks + excluded.picks,
-        wins = player_civ_stats.wins + excluded.wins,
+        picks = excluded.picks,
+        wins = excluded.wins,
         updated_at = excluded.updated_at`,
     `with ${cte}
       insert into match_player_civ_stat_contributions (match_id, contributions_json, updated_at)
@@ -153,8 +151,32 @@ function buildApplyBatchSql(updatedAt: number, batchSize: number): string {
         order by match_id, season_id, game_mode, player_id, civ_id
       )
       group by match_id`,
-    'commit',
   ].join(';\n')
+}
+
+function buildBatchAggregateCte(batchSize: number): string {
+  return `${buildBatchEntriesCte('missing_entries', batchSize)},
+  affected_keys as (
+    select distinct season_id, game_mode, player_id, civ_id
+    from missing_entries
+  ),
+  aggregate_totals as (
+    select
+      coalesce(m.season_id, '') as season_id,
+      m.game_mode as game_mode,
+      mp.player_id as player_id,
+      mp.civ_id as civ_id,
+      count(*) as picks,
+      sum(case when mp.placement = 1 then 1 else 0 end) as wins
+    from affected_keys affected
+    inner join matches m on m.game_mode = affected.game_mode
+      and coalesce(m.season_id, '') = affected.season_id
+    inner join match_participants mp on mp.match_id = m.id
+      and mp.player_id = affected.player_id
+      and mp.civ_id = affected.civ_id
+    where ${buildEligibleParticipantWhereClause()}
+    group by coalesce(m.season_id, ''), m.game_mode, mp.player_id, mp.civ_id
+  )`
 }
 
 function buildBatchEntriesCte(name: string, batchSize: number): string {
@@ -496,7 +518,9 @@ function printEstimate(options: Options, estimate: Estimate): void {
   console.log(`Missing aggregate delta rows: ${estimate.missingAggregateDeltaRows}`)
   console.log(`Existing contribution rows: ${estimate.existingContributionRows}`)
   console.log(`Existing aggregate rows: ${estimate.existingAggregateRows}`)
-  console.log(`Estimated apply row writes: ${estimate.missingContributionMatches + estimate.missingAggregateDeltaRows}`)
+  const minimumWrites = estimate.missingContributionMatches + estimate.missingAggregateDeltaRows
+  const upperBoundWrites = estimate.missingContributionMatches + estimate.missingLeaderParticipantRows
+  console.log(`Estimated apply row writes: ${minimumWrites}-${upperBoundWrites}`)
   if (estimate.d1RowsRead != null) console.log(`Estimate D1 rows read: ${estimate.d1RowsRead}`)
 }
 
