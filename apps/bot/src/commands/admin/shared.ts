@@ -54,7 +54,7 @@ export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
   if (target === 'commands') return 'Bot Commands'
-  if (target === 'civ-leaderboard') return 'Civ Leaderboard (All Fallback)'
+  if (target === 'civ-leaderboard') return 'Civ Leaderboard (All)'
   if (target === 'civ-leaderboard-all') return 'Civ Leaderboard (All)'
   if (target === 'civ-leaderboard-duel') return 'Civ Leaderboard (Duel)'
   if (target === 'civ-leaderboard-duo') return 'Civ Leaderboard (Duo)'
