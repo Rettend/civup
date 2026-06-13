@@ -167,6 +167,79 @@ describe('leader stats embed', () => {
       sqlite.close()
     }
   })
+
+  test('smooths relation performance before sorting matchup fields', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Yongle Player', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Opponent', avatarUrl: null, createdAt: 1 },
+      ])
+
+      let matchIndex = 0
+      const seedRelationSeries = async (civId: string, games: number, wins: number) => {
+        for (let index = 0; index < games; index += 1) {
+          const didWin = index < wins
+          const matchId = `relation-smooth-${matchIndex}`
+          matchIndex += 1
+
+          await db.insert(matches).values({
+            id: matchId,
+            gameMode: '1v1',
+            status: 'completed',
+            isOld: false,
+            seasonId: null,
+            draftData: null,
+            createdAt: matchIndex,
+            completedAt: matchIndex,
+          })
+          await db.insert(matchParticipants).values([
+            {
+              matchId,
+              playerId: 'p1',
+              team: 0,
+              civId: 'china-yongle',
+              placement: didWin ? 1 : 2,
+              ratingBeforeMu: null,
+              ratingBeforeSigma: null,
+              ratingAfterMu: null,
+              ratingAfterSigma: null,
+            },
+            {
+              matchId,
+              playerId: 'p2',
+              team: 1,
+              civId,
+              placement: didWin ? 2 : 1,
+              ratingBeforeMu: null,
+              ratingBeforeSigma: null,
+              ratingAfterMu: null,
+              ratingAfterSigma: null,
+            },
+          ])
+        }
+      }
+
+      await seedRelationSeries('rome-trajan', 7, 5)
+      await seedRelationSeries('korea-seondeok', 2, 2)
+      await seedRelationSeries('babylon-hammurabi', 6, 0)
+      await seedRelationSeries('japan-hojo-tokimune', 2, 0)
+
+      const embed = await leaderStatsEmbed(db, 'china-yongle')
+      const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
+      const bestAgainstLine = field(json.fields ?? [], 'Best Against')?.value.split('\n')[0] ?? ''
+      const worstAgainstLine = field(json.fields ?? [], 'Worst Against')?.value.split('\n')[0] ?? ''
+
+      expect(bestAgainstLine).toContain('Trajan')
+      expect(bestAgainstLine).toContain('5/7  71%')
+      expect(worstAgainstLine).toContain('Hammurabi')
+      expect(worstAgainstLine).toContain('0/6   0%')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 function field(fields: Array<{ name: string, value: string, inline?: boolean }>, name: string) {
