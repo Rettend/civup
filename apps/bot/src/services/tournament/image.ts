@@ -234,7 +234,7 @@ function getNextBracketRound(round: string): string | null {
 }
 
 function getBracketRoundRequiredWins(round: string): number {
-  return round === 'quarterfinal' ? 2 : 1
+  return round === 'final' ? 3 : 2
 }
 
 function groupPairingsByRound(pairings: TournamentBracketPairing[]): BracketRoundGroup[] {
