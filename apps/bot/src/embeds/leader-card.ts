@@ -11,6 +11,9 @@ export type LeaderStatsModeFilter = 'all' | GameMode
 
 const TOP_LIMIT = 5
 const MIN_MATCHUP_GAMES = 2
+const MATCHUP_PERFORMANCE_PRIOR_GAMES = 20
+const MATCHUP_VOLUME_BONUS_CAP = 0.02
+const MATCHUP_VOLUME_BONUS_FULL_GAMES = 25
 const MATCH_ID_BATCH_SIZE = 90
 const LEADER_MODE_ORDER = ['duel', 'duo', 'squad', 'ffa'] as const
 
@@ -81,11 +84,11 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
 
   fields.push(
     { name: 'Most Faced', value: formatRelationList(sortByGames(stats.against).slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Best Against', value: formatRelationList(sortByWinRate(stats.against, 'desc').slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Worst Against', value: formatRelationList(sortByWinRate(stats.against, 'asc').slice(0, TOP_LIMIT)), inline: false },
+    { name: 'Best Against', value: formatRelationList(sortByPerformance(stats.against, 'desc').slice(0, TOP_LIMIT)), inline: false },
+    { name: 'Worst Against', value: formatRelationList(sortByPerformance(stats.against, 'asc').slice(0, TOP_LIMIT)), inline: false },
     { name: 'Most With', value: formatRelationList(sortByGames(stats.with).slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Best With', value: formatRelationList(sortByWinRate(stats.with, 'desc').slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Worst With', value: formatRelationList(sortByWinRate(stats.with, 'asc').slice(0, TOP_LIMIT)), inline: false },
+    { name: 'Best With', value: formatRelationList(sortByPerformance(stats.with, 'desc').slice(0, TOP_LIMIT)), inline: false },
+    { name: 'Worst With', value: formatRelationList(sortByPerformance(stats.with, 'asc').slice(0, TOP_LIMIT)), inline: false },
   )
 
   const emoji = leaderEmojiMention(leaderId)
@@ -281,16 +284,44 @@ function sortByGames(stats: readonly RelationStat[]): RelationStat[] {
   return [...stats].sort((left, right) => right.games - left.games || right.wins - left.wins || left.civId.localeCompare(right.civId))
 }
 
-function sortByWinRate(stats: readonly RelationStat[], direction: 'asc' | 'desc'): RelationStat[] {
-  return [...stats]
-    .filter(stat => stat.games >= MIN_MATCHUP_GAMES)
-    .sort((left, right) => {
-      const winRateDiff = (right.wins * left.games) - (left.wins * right.games)
-      if (winRateDiff !== 0) return direction === 'desc' ? winRateDiff : -winRateDiff
-      const gamesDiff = right.games - left.games
-      if (gamesDiff !== 0) return gamesDiff
-      return left.civId.localeCompare(right.civId)
-    })
+function sortByPerformance(stats: readonly RelationStat[], direction: 'asc' | 'desc'): RelationStat[] {
+  const eligible = stats.filter(stat => stat.games >= MIN_MATCHUP_GAMES)
+  const baseline = relationWinRate(eligible)
+  return eligible.sort((left, right) => compareByPerformance(left, right, baseline, direction))
+}
+
+function compareByPerformance(left: RelationStat, right: RelationStat, baseline: number, direction: 'asc' | 'desc'): number {
+  const leftScore = relationPerformanceScore(left, baseline, direction)
+  const rightScore = relationPerformanceScore(right, baseline, direction)
+  const scoreDiff = direction === 'desc' ? rightScore - leftScore : leftScore - rightScore
+  if (scoreDiff !== 0) return scoreDiff
+
+  const adjustedDiff = relationAdjustedWinRate(right, baseline) - relationAdjustedWinRate(left, baseline)
+  if (adjustedDiff !== 0) return direction === 'desc' ? adjustedDiff : -adjustedDiff
+
+  const gamesDiff = right.games - left.games
+  if (gamesDiff !== 0) return gamesDiff
+
+  return left.civId.localeCompare(right.civId)
+}
+
+function relationPerformanceScore(stat: RelationStat, baseline: number, direction: 'asc' | 'desc'): number {
+  const volumeBonus = relationVolumeBonus(stat.games)
+  return relationAdjustedWinRate(stat, baseline) + (direction === 'desc' ? volumeBonus : -volumeBonus)
+}
+
+function relationAdjustedWinRate(stat: RelationStat, baseline: number): number {
+  return (stat.wins + (baseline * MATCHUP_PERFORMANCE_PRIOR_GAMES)) / (stat.games + MATCHUP_PERFORMANCE_PRIOR_GAMES)
+}
+
+function relationWinRate(stats: readonly RelationStat[]): number {
+  const games = stats.reduce((sum, stat) => sum + stat.games, 0)
+  if (games <= 0) return 0.5
+  return stats.reduce((sum, stat) => sum + stat.wins, 0) / games
+}
+
+function relationVolumeBonus(games: number): number {
+  return Math.min(Math.log1p(games) / Math.log1p(MATCHUP_VOLUME_BONUS_FULL_GAMES), 1) * MATCHUP_VOLUME_BONUS_CAP
 }
 
 function formatRecord(wins: number, games: number): string {
