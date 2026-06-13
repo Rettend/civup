@@ -314,35 +314,37 @@ Every ranked game also updates the player's overall ranked rating which Discord 
 
 ### Leader ranks
 
-`/leaders`, `/stats player`, and `/stats leader` can show a player's rank on a specific leader.
-
-Leader ranks use aggregate player-vs-leader records from `player_civ_stats`, scoped by current season and requested mode when those filters are active.
-
-Eligibility:
-
-- the player must have at least **5 games** on that leader in the scope
-- the server must have at least **10 games** on that leader in the scope
-
-The rank is not raw win rate. It uses a Bayesian-smoothed win rate:
+Leader ranks use a smoothed win rate plus current global elo and a volume bonus:
 
 ```txt
 serverWinRate = serverWins / serverPicks
 
 adjustedWinRate =
-  (playerWins + serverWinRate * 10)
-  / (playerPicks + 10)
+  (playerWins + serverWinRate * 20)
+  / (playerPicks + 20)
+
+confidence = playerPicks / (playerPicks + 20)
+
+globalEloBonus =
+  clamp(((globalElo - 1000) / 500) * 20pp, -20pp, 20pp)
+  * confidence
+
+volumeBonus = min(log1p(playerPicks) / log1p(25), 1) * 2pp
+
+score = adjustedWinRate + globalEloBonus + volumeBonus
 ```
 
-The `10` is the smoothing strength. It acts like 10 virtual games at the leader's server win rate, so small perfect records do not automatically beat larger strong records.
+- `20` is the smoothing strength, it acts like 20 virtual games at the leader's server win rate, so that someone with 100% win rate and few games does not automatically beat everyone else
+- the volume bonus is capped at 2 percentage points, grows slower as games go up, and reaches the cap at 25 games, it only helps break close cases, it does not let games played beat much better win rate or global Elo
 
 Players are ranked by:
 
-- adjusted win rate, highest first
+- total score, highest first
+- adjusted win rate
+- global Elo
 - games on the leader
 - wins on the leader
 - player id as a stable tie-breaker
-
-This rank currently does not use player Elo, opponent strength, teammate strength, or recency.
 
 ### Ranked roles
 
