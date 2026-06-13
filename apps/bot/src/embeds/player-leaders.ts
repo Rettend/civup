@@ -2,26 +2,28 @@ import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
 import type { PlayerCivRankingSummary, PlayerCivStatSummary } from '../services/leaderboard/player-civ-stats.ts'
-import { playerRatings, players } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { listPlayerCivStats, loadPlayerCivRankingSummaries, PLAYER_CIV_MIN_RANK_GAMES, PLAYER_CIV_SERVER_AVG_MIN_GAMES } from '../services/leaderboard/player-civ-stats.ts'
+import { listPlayerCivStats, loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
+import { countFfaRatingWins, formatModeStats, getRatingModes } from './player-card.ts'
 
 export type LeadersModeFilter = 'all' | GameMode
 
 const TOP_LEADER_LIMIT = 10
-const COMPARISON_LIMIT = 5
+const BEST_LEADER_LIMIT = 10
 const FIELD_VALUE_LIMIT = 1024
+const NOT_ENOUGH_LEADER_DATA = 'Not enough leader data'
+const TOP_PLAYED_NOTE = '-# Ranked by number of games played'
+const BEST_LEADERS_NOTE = '-# Ranked by leader performance'
 
-interface LeaderComparisonRow {
+interface LeaderRankRow {
   stat: PlayerCivStatSummary
   ranking: PlayerCivRankingSummary
-  playerWinRatePct: number
-  diffPct: number
 }
 
 export async function playerLeadersEmbed(
@@ -60,36 +62,51 @@ export async function playerLeadersEmbed(
 
   const leaderStats = await listPlayerCivStats(db, playerCivFilter, playerId)
   const topPlayedLeaders = sortLeaderStatsByGames(leaderStats).slice(0, TOP_LEADER_LIMIT)
-  const bestLeaders = sortLeaderStatsByWinRate(leaderStats.filter(stat => stat.picks >= PLAYER_CIV_MIN_RANK_GAMES)).slice(0, TOP_LEADER_LIMIT)
   const rankings = await loadPlayerCivRankingSummaries(db, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
-  const comparisonRows = buildComparisonRows(leaderStats, rankings)
+  const rankRows = buildRankRows(leaderStats, rankings)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
-  const modeSummary = formatModeSummary(ratings, rankProfile, modeFilter, visibleModes)
-  if (modeSummary) fields.push({ name: 'Mode Summary', value: modeSummary, inline: false })
+  const ratingModes = getRatingModes(modeFilter, visibleModes)
+  const ffaRatingWins = ratingModes.includes('ffa')
+    ? await countPlayerFfaRatingWins(db, playerId, modeFilter, displaySeason?.id ?? null)
+    : 0
 
-  fields.push({
-    name: requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders',
-    value: formatLeaderList(topPlayedLeaders, rankings, 'games') || 'No leaders played yet.',
-    inline: false,
-  })
-  fields.push({
-    name: requestedModeLabel ? `Best Leaders (${requestedModeLabel})` : 'Best Leaders',
-    value: formatLeaderList(bestLeaders, rankings, 'winrate') || `No leaders with ${PLAYER_CIV_MIN_RANK_GAMES}+ games yet.`,
-    inline: false,
-  })
-  fields.push({
-    name: requestedModeLabel ? `Better Than Server Avg (${requestedModeLabel})` : 'Better Than Server Avg',
-    value: formatComparisonList(comparisonRows.filter(row => row.diffPct > 0).sort((a, b) => b.diffPct - a.diffPct).slice(0, COMPARISON_LIMIT))
-      || `No leaders with ${PLAYER_CIV_MIN_RANK_GAMES}+ games and ${PLAYER_CIV_SERVER_AVG_MIN_GAMES}+ server games above average.`,
-    inline: false,
-  })
-  fields.push({
-    name: requestedModeLabel ? `Worse Than Server Avg (${requestedModeLabel})` : 'Worse Than Server Avg',
-    value: formatComparisonList(comparisonRows.filter(row => row.diffPct < 0).sort((a, b) => a.diffPct - b.diffPct).slice(0, COMPARISON_LIMIT))
-      || `No leaders with ${PLAYER_CIV_MIN_RANK_GAMES}+ games and ${PLAYER_CIV_SERVER_AVG_MIN_GAMES}+ server games below average.`,
-    inline: false,
-  })
+  for (const mode of ratingModes) {
+    const ratingRow = ratings.find(row => row.mode === mode)
+    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
+
+    fields.push({
+      name: formatLeaderboardModeLabel(mode, mode),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins }),
+      inline: true,
+    })
+  }
+
+  const topPlayedValue = formatTopPlayedLeaderList(topPlayedLeaders, rankings)
+  if (topPlayedValue) {
+    fields.push({
+      name: requestedModeLabel ? `Most Played Leaders (${requestedModeLabel})` : 'Most Played Leaders',
+      value: topPlayedValue,
+      inline: false,
+    })
+  }
+
+  const bestValue = formatBestLeaderList(rankRows.slice(0, BEST_LEADER_LIMIT))
+  if (bestValue) {
+    fields.push({
+      name: requestedModeLabel ? `Best Leaders (${requestedModeLabel})` : 'Best Leaders',
+      value: bestValue,
+      inline: false,
+    })
+  }
+
+  if (!topPlayedValue && !bestValue) {
+    fields.push({
+      name: requestedModeLabel ? `Leaders (${requestedModeLabel})` : 'Leaders',
+      value: NOT_ENOUGH_LEADER_DATA,
+      inline: false,
+    })
+  }
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   return new Embed()
@@ -108,33 +125,6 @@ function buildLeadersDescription(playerId: string, requestedModeLabel: string | 
   return parts.join(' - ')
 }
 
-function formatModeSummary(
-  ratings: readonly PlayerRatingSummary[],
-  rankProfile: PlayerRankProfile | null,
-  modeFilter: LeadersModeFilter,
-  visibleModes: readonly LeaderboardMode[],
-): string {
-  const lines = getRatingModes(modeFilter, visibleModes).flatMap((mode) => {
-    const ratingRow = ratings.find(row => row.mode === mode)
-    if (!ratingRow || ratingRow.gamesPlayed === 0) return []
-
-    const rating = Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
-    const rank = rankProfile?.modes[mode]?.rank
-    const winRate = formatPercent(ratingRow.wins, ratingRow.gamesPlayed)
-    const ratingText = rank == null ? String(rating) : `${rating} (#${rank})`
-    const resultLabel = mode === 'ffa' ? '1st' : 'WR'
-    return `${formatLeaderboardModeLabel(mode, mode)}: ${ratingText}, ${ratingRow.gamesPlayed}g, ${winRate}% ${resultLabel}`
-  })
-
-  return limitFieldLines(lines)
-}
-
-function getRatingModes(modeFilter: LeadersModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
-  if (modeFilter === 'all') return visibleModes
-  const mode = toLeaderboardMode(modeFilter)
-  return mode && visibleModes.includes(mode) ? [mode] : []
-}
-
 function sortLeaderStatsByGames(stats: readonly PlayerCivStatSummary[]): PlayerCivStatSummary[] {
   return [...stats].sort((a, b) => {
     const gamesDiff = b.picks - a.picks
@@ -147,57 +137,51 @@ function sortLeaderStatsByGames(stats: readonly PlayerCivStatSummary[]): PlayerC
   })
 }
 
-function sortLeaderStatsByWinRate(stats: readonly PlayerCivStatSummary[]): PlayerCivStatSummary[] {
-  return [...stats].sort((a, b) => {
-    const winRateDiff = (b.wins * a.picks) - (a.wins * b.picks)
-    if (winRateDiff !== 0) return winRateDiff
-
-    const gamesDiff = b.picks - a.picks
-    if (gamesDiff !== 0) return gamesDiff
-
-    const winsDiff = b.wins - a.wins
-    if (winsDiff !== 0) return winsDiff
-
-    return a.civId.localeCompare(b.civId)
-  })
-}
-
-function buildComparisonRows(
+function buildRankRows(
   leaderStats: readonly PlayerCivStatSummary[],
   rankings: Map<string, PlayerCivRankingSummary>,
-): LeaderComparisonRow[] {
-  return leaderStats.flatMap((stat) => {
-    if (stat.picks < PLAYER_CIV_MIN_RANK_GAMES) return []
-    const ranking = rankings.get(stat.civId)
-    if (!ranking || ranking.serverWinRatePct == null || ranking.serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES) return []
+): LeaderRankRow[] {
+  return leaderStats
+    .flatMap((stat) => {
+      const ranking = rankings.get(stat.civId)
+      if (!ranking || ranking.playerAdjustedWinRateRank == null || ranking.playerAdjustedWinRatePct == null) return []
+      return [{ stat, ranking }]
+    })
+    .sort((left, right) => {
+      const rankDiff = left.ranking.playerAdjustedWinRateRank! - right.ranking.playerAdjustedWinRateRank!
+      if (rankDiff !== 0) return rankDiff
 
-    const playerWinRatePct = round((stat.wins / stat.picks) * 100, 1)
-    return [{
-      stat,
-      ranking,
-      playerWinRatePct,
-      diffPct: round(playerWinRatePct - ranking.serverWinRatePct, 1),
-    }]
-  })
+      const adjustedDiff = (right.ranking.playerAdjustedWinRatePct ?? 0) - (left.ranking.playerAdjustedWinRatePct ?? 0)
+      if (adjustedDiff !== 0) return adjustedDiff
+
+      const gamesDiff = right.stat.picks - left.stat.picks
+      if (gamesDiff !== 0) return gamesDiff
+
+      const winsDiff = right.stat.wins - left.stat.wins
+      if (winsDiff !== 0) return winsDiff
+
+      return left.stat.civId.localeCompare(right.stat.civId)
+    })
 }
 
-function formatLeaderList(
+function formatTopPlayedLeaderList(
   stats: readonly PlayerCivStatSummary[],
   rankings: Map<string, PlayerCivRankingSummary>,
-  rankType: 'games' | 'winrate',
 ): string {
-  return limitFieldLines(stats.map((stat) => {
+  const lines = stats.map((stat) => {
     const ranking = rankings.get(stat.civId)
-    const rank = rankType === 'games' ? ranking?.playerGamesRank : ranking?.playerWinRateRank
+    const rank = ranking?.playerGamesRank
     return `${formatRank(rank)} ${formatRecord(stat.wins, stat.picks)} ${formatLeaderName(stat.civId)}`
-  }))
+  })
+  return lines.length > 0 ? limitFieldLines([...lines, TOP_PLAYED_NOTE]) : ''
 }
 
-function formatComparisonList(rows: readonly LeaderComparisonRow[]): string {
-  return limitFieldLines(rows.map((row) => {
-    const diff = `${row.diffPct > 0 ? '+' : ''}${row.diffPct}%`
-    return `${formatRank(row.ranking.playerWinRateRank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)} - server ${row.ranking.serverWinRatePct}% (${diff})`
-  }))
+function formatBestLeaderList(rows: readonly LeaderRankRow[]): string {
+  const lines = rows.map((row) => {
+    const rank = row.ranking.playerAdjustedWinRateRank
+    return `${formatRank(rank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)}`
+  })
+  return lines.length > 0 ? limitFieldLines([...lines, BEST_LEADERS_NOTE]) : ''
 }
 
 function formatRank(rank: number | null | undefined): string {
@@ -244,7 +228,32 @@ function limitFieldLines(lines: readonly string[]): string {
   return kept.join('\n')
 }
 
-function round(value: number, decimals: number): number {
-  const factor = 10 ** decimals
-  return Math.round(value * factor) / factor
+async function countPlayerFfaRatingWins(db: Database, playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null): Promise<number> {
+  const rowsRaw = await db
+    .select({
+      matchId: matchParticipants.matchId,
+      playerId: matchParticipants.playerId,
+      ratingBeforeMu: matchParticipants.ratingBeforeMu,
+      ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+      ratingAfterMu: matchParticipants.ratingAfterMu,
+      ratingAfterSigma: matchParticipants.ratingAfterSigma,
+      gameMode: matches.gameMode,
+      draftData: matches.draftData,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+    .where(buildCompletedMatchesWhereClause(playerId, modeFilter, seasonId))
+
+  return countFfaRatingWins(await hydrateModeRatingSnapshotsFromEvents(db, rowsRaw))
+}
+
+function buildCompletedMatchesWhereClause(playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null) {
+  const conditions = [
+    eq(matchParticipants.playerId, playerId),
+    eq(matches.status, 'completed'),
+  ]
+
+  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
+  if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
+  return and(...conditions)
 }

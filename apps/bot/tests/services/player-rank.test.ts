@@ -1,10 +1,11 @@
 import type { GameMode } from '@civup/game'
 import { matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons, tournamentMatches, tournaments } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
+import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { playerLeadersEmbed } from '../../src/embeds/player-leaders.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
-import { backfillPlayerCivStatsFromHistory, listPlayerCivStats, reconcilePlayerCivStatMatchContribution, removePlayerCivStatMatchContribution } from '../../src/services/leaderboard/player-civ-stats.ts'
+import { backfillPlayerCivStatsFromHistory, listPlayerCivStats, loadPlayerCivRankingSummaries, reconcilePlayerCivStatMatchContribution, removePlayerCivStatMatchContribution } from '../../src/services/leaderboard/player-civ-stats.ts'
 import { getPlayerRankProfile, getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
@@ -687,14 +688,14 @@ describe('player rank views', () => {
     expect(teammatesField?.value).toContain('Teammate B')
     expect(teammatesField?.value).toContain('1/2')
     expect(teammatesField?.value).toContain('Teammate E')
-    expect(teammatesField?.value).not.toContain('Teammate F')
+    expect(teammatesField?.value).toContain('Teammate F')
     expect(teammatesField?.value).not.toContain('<@')
 
     expect(opponentsField?.value).toContain('Opponent A')
     expect(opponentsField?.value).toContain('3/4')
     expect(opponentsField?.value).toContain('Opponent B')
     expect(opponentsField?.value).toContain('Opponent E')
-    expect(opponentsField?.value).not.toContain('Opponent F')
+    expect(opponentsField?.value).toContain('Opponent F')
     expect(opponentsField?.value).not.toContain('<@')
     expect(teammatesField?.inline).toBe(false)
     expect(opponentsField?.inline).toBe(false)
@@ -704,7 +705,7 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
-  test('renders distinct top played and best leaders in leaders embed', async () => {
+  test('renders most played leaders with ranking note in leaders embed', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
@@ -713,7 +714,7 @@ describe('player rank views', () => {
     const leaderRuns = [
       { civId: 'japan-hojo-tokimune', results: [true, true, false, false, false] },
       { civId: 'babylon-hammurabi', results: [true, true, true, true] },
-      { civId: 'france-catherine-de-medici-magnificence', results: [true, true, true] },
+      { civId: 'france-catherine-de-medici-magnificence', results: [true, true, true, true, true] },
       { civId: 'rome-trajan', results: [true, true, false] },
     ] as const
 
@@ -737,22 +738,79 @@ describe('player rank views', () => {
 
     const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
     const fields = embed.fields ?? []
-    const topIndex = fields.findIndex(field => field.name === 'Top Played Leaders')
-    const bestIndex = fields.findIndex(field => field.name === 'Best Leaders')
+    const topIndex = fields.findIndex(field => field.name === 'Most Played Leaders')
     const topField = fields[topIndex]
-    const bestField = fields[bestIndex]
 
     expect(topIndex).toBeGreaterThanOrEqual(0)
-    expect(bestIndex).toBe(topIndex + 1)
     expect(topField?.inline).toBe(false)
-    expect(bestField?.inline).toBe(false)
+    expect(topField?.value).toContain('-# Ranked by number of games played')
     expect(topField?.value).toContain('Hojo Tokimune')
-    expect(bestField?.value).toContain('Catherine de Medici (Magnificence)')
 
     sqlite.close()
   })
 
-  test('shows three-game best leaders at moderate sample sizes in leaders embed', async () => {
+  test('shares top played leader ranks for equal game counts', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    const aheadId = '100010000000000096'
+    const tiedId = '100010000000000097'
+    const opponentId = '100010000000000098'
+    await seedPlayerIdentity(db, HERO_ID, 'Hero')
+    await seedPlayerIdentity(db, aheadId, 'Ahead')
+    await seedPlayerIdentity(db, tiedId, 'Tied')
+    await seedPlayerIdentity(db, opponentId, 'Opponent')
+
+    let matchIndex = 0
+    const seedLeaderSeries = async (input: { playerId: string, games: number, wins: number }) => {
+      for (let index = 0; index < input.games; index += 1) {
+        const didWin = index < input.wins
+        await seedCompletedMatch(db, {
+          matchId: `leader-games-rank-${matchIndex}`,
+          gameMode: '1v1',
+          completedAt: NOW - ((20 - matchIndex) * 1_000),
+          participants: [
+            { playerId: input.playerId, team: 0, placement: didWin ? 1 : 2, civId: 'china-yongle' },
+            { playerId: opponentId, team: 1, placement: didWin ? 2 : 1, civId: 'rome-trajan' },
+          ],
+        })
+        matchIndex += 1
+      }
+    }
+
+    await seedLeaderSeries({ playerId: aheadId, games: 3, wins: 0 })
+    await seedLeaderSeries({ playerId: HERO_ID, games: 2, wins: 0 })
+    await seedLeaderSeries({ playerId: tiedId, games: 2, wins: 2 })
+    await backfillPlayerCivStatsFromHistory(db)
+
+    const rankings = await loadPlayerCivRankingSummaries(db, {}, HERO_ID, ['china-yongle'])
+
+    expect(rankings.get('china-yongle')?.playerGamesRank).toBe(2)
+
+    sqlite.close()
+  })
+
+  test('renders leaders mode stats like stats with concise low-data fallback', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID, 'Hero')
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 25, sigma: 8.333, gamesPlayed: 5, wins: 3, lastPlayedAt: NOW })
+
+    const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
+    const duelField = embed.fields?.find(field => field.name === 'Duel')
+    const fieldsJson = JSON.stringify(embed.fields)
+
+    expect(embed.fields?.some(field => field.name === 'Mode Summary')).toBe(false)
+    expect(duelField?.inline).toBe(true)
+    expect(duelField?.value).toContain('Rating:')
+    expect(duelField?.value).toContain('Games: 5')
+    expect(duelField?.value).toContain('Wins: 3 (60%)')
+    expect(fieldsJson).toContain('Not enough leader data')
+    expect(fieldsJson).not.toContain('No leaders with')
+
+    sqlite.close()
+  })
+
+  test('does not treat raw five-game win rate as best without leader baseline', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
@@ -763,7 +821,7 @@ describe('player rank views', () => {
       { civId: 'babylon-hammurabi', games: 18, wins: 9 },
       { civId: 'mali-sundiata-keita', games: 10, wins: 5 },
       { civId: 'rome-trajan', games: 10, wins: 5 },
-      { civId: 'america-teddy-roosevelt-bull-moose', games: 3, wins: 3 },
+      { civId: 'america-teddy-roosevelt-bull-moose', games: 5, wins: 5 },
     ] as const
 
     let matchIndex = 0
@@ -788,18 +846,19 @@ describe('player rank views', () => {
     const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
     const bestField = embed.fields?.find(field => field.name === 'Best Leaders')
 
-    expect(bestField?.value).toContain('3/3 100%')
-    expect(bestField?.value).toContain('Teddy Roosevelt (Bull Moose)')
+    expect(bestField?.value).toContain('-# Ranked by leader performance')
+    expect(bestField?.value).not.toContain('Teddy Roosevelt (Bull Moose)')
 
     sqlite.close()
   })
 
-  test('renders server average comparison fields in leaders embed', async () => {
+  test('renders adjusted best leaders in leaders embed', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
     await seedPlayerIdentity(db, '100010000000000098', 'Opponent')
     await seedPlayerIdentity(db, '100010000000000097', 'Other')
+    await seedPlayerIdentity(db, '100010000000000096', 'Baseline')
 
     let matchIndex = 0
     const seedLeaderSeries = async (input: { playerId: string, civId: string, games: number, wins: number }) => {
@@ -818,22 +877,106 @@ describe('player rank views', () => {
       }
     }
 
-    await seedLeaderSeries({ playerId: HERO_ID, civId: 'china-yongle', games: 10, wins: 8 })
-    await seedLeaderSeries({ playerId: '100010000000000097', civId: 'china-yongle', games: 10, wins: 3 })
-    await seedLeaderSeries({ playerId: HERO_ID, civId: 'babylon-hammurabi', games: 5, wins: 2 })
-    await seedLeaderSeries({ playerId: '100010000000000097', civId: 'babylon-hammurabi', games: 10, wins: 8 })
+    await seedLeaderSeries({ playerId: HERO_ID, civId: 'china-yongle', games: 5, wins: 5 })
+    await seedLeaderSeries({ playerId: '100010000000000097', civId: 'china-yongle', games: 25, wins: 20 })
+    await seedLeaderSeries({ playerId: '100010000000000096', civId: 'china-yongle', games: 30, wins: 0 })
+    await seedLeaderSeries({ playerId: HERO_ID, civId: 'babylon-hammurabi', games: 5, wins: 5 })
+    await seedLeaderSeries({ playerId: '100010000000000097', civId: 'babylon-hammurabi', games: 10, wins: 4 })
     await backfillPlayerCivStatsFromHistory(db)
 
     const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
-    const betterField = embed.fields?.find(field => field.name === 'Better Than Server Avg')
+    const bestField = embed.fields?.find(field => field.name === 'Best Leaders')
     const worseField = embed.fields?.find(field => field.name === 'Worse Than Server Avg')
+    const betterField = embed.fields?.find(field => field.name === 'Better Than Server Avg')
+    const statsEmbed = (await playerCardEmbed(db, HERO_ID)).toJSON()
 
-    expect(betterField?.value).toContain('Yongle')
-    expect(betterField?.value).toContain('server 55% (+25%)')
-    expect(betterField?.value).toContain('`#1 `')
-    expect(worseField?.value).toContain('Hammurabi')
-    expect(worseField?.value).toContain('server 66.7% (-26.7%)')
-    expect(worseField?.value).toContain('`#2 `')
+    expect(bestField?.value).toContain('-# Ranked by leader performance')
+    expect(bestField?.value).toContain('`#1 `')
+    expect(bestField?.value).toContain('Hammurabi')
+    expect(bestField?.value).toContain('`#2 `')
+    expect(bestField?.value).toContain('Yongle')
+    expect(betterField).toBeUndefined()
+    expect(worseField).toBeUndefined()
+    expect(statsEmbed.fields?.some(field => field.name === 'Top Played Leaders')).toBe(false)
+    expect(statsEmbed.fields?.some(field => field.name === 'Most Played Leaders')).toBe(false)
+
+    sqlite.close()
+  })
+
+  test('renders leader stats matchup and ally fields', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID, 'Hero')
+    await seedPlayerIdentity(db, '100010000000000098', 'Opponent')
+    await seedPlayerIdentity(db, '100010000000000097', 'Ally')
+    await seedPlayerIdentity(db, '100010000000000096', 'Other')
+
+    let matchIndex = 0
+    const seedLeaderMatch = async (input: { gameMode: GameMode, participants: Array<{ playerId: string, team: number | null, placement: number, civId: string }> }) => {
+      await seedCompletedMatch(db, {
+        matchId: `leader-card-${matchIndex}`,
+        gameMode: input.gameMode,
+        completedAt: NOW - ((20 - matchIndex) * 1_000),
+        participants: input.participants,
+      })
+      matchIndex += 1
+    }
+
+    for (let index = 0; index < 3; index += 1) {
+      await seedLeaderMatch({
+        gameMode: '1v1',
+        participants: [
+          { playerId: HERO_ID, team: 0, placement: 1, civId: 'china-yongle' },
+          { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+        ],
+      })
+    }
+    for (let index = 0; index < 2; index += 1) {
+      await seedLeaderMatch({
+        gameMode: '1v1',
+        participants: [
+          { playerId: HERO_ID, team: 0, placement: 2, civId: 'china-yongle' },
+          { playerId: '100010000000000098', team: 1, placement: 1, civId: 'babylon-hammurabi' },
+        ],
+      })
+      await seedLeaderMatch({
+        gameMode: '2v2',
+        participants: [
+          { playerId: HERO_ID, team: 0, placement: 1, civId: 'china-yongle' },
+          { playerId: '100010000000000097', team: 0, placement: 1, civId: 'inca-pachacuti' },
+          { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+          { playerId: '100010000000000096', team: 1, placement: 2, civId: 'korea-seondeok' },
+        ],
+      })
+      await seedLeaderMatch({
+        gameMode: '2v2',
+        participants: [
+          { playerId: HERO_ID, team: 0, placement: 2, civId: 'china-yongle' },
+          { playerId: '100010000000000097', team: 0, placement: 2, civId: 'japan-hojo-tokimune' },
+          { playerId: '100010000000000098', team: 1, placement: 1, civId: 'babylon-hammurabi' },
+          { playerId: '100010000000000096', team: 1, placement: 1, civId: 'rome-trajan' },
+        ],
+      })
+    }
+
+    const embed = (await leaderStatsEmbed(db, 'china-yongle')).toJSON()
+    const overview = embed.fields?.find(field => field.name === 'Overview')
+    const bestAgainst = embed.fields?.find(field => field.name === 'Best Against')
+    const worstAgainst = embed.fields?.find(field => field.name === 'Worst Against')
+    const bestWith = embed.fields?.find(field => field.name === 'Best With')
+    const worstWith = embed.fields?.find(field => field.name === 'Worst With')
+
+    expect(embed.title).toBe('Leader Stats')
+    expect(embed.description).toContain('Yongle')
+    expect(overview?.value).toContain('Picks: 9')
+    expect(bestAgainst?.value).toContain('Trajan')
+    expect(bestAgainst?.value).toContain('5/7  71%')
+    expect(worstAgainst?.value).toContain('Hammurabi')
+    expect(worstAgainst?.value).toContain('0/4   0%')
+    expect(bestWith?.value).toContain('Pachacuti')
+    expect(bestWith?.value).toContain('2/2 100%')
+    expect(worstWith?.value).toContain('Hojo Tokimune')
+    expect(worstWith?.value).toContain('0/2   0%')
 
     sqlite.close()
   })
@@ -920,7 +1063,7 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
-  test('keeps top played leader names untruncated in stats', async () => {
+  test('keeps recent match leader names untruncated in stats', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
@@ -939,12 +1082,14 @@ describe('player rank views', () => {
     }
 
     const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
-    const topField = embed.fields?.find(field => field.name === 'Top Played Leaders')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(embed.fields?.some(field => field.name === 'Best Leaders')).toBe(false)
-    expect(topField?.inline).toBe(false)
-    expect(topField?.value).toContain('Catherine de Medici (Magnificence)')
-    expect(topField?.value).not.toContain('Catherine de Medici...')
+    expect(embed.fields?.some(field => field.name === 'Top Played Leaders')).toBe(false)
+    expect(embed.fields?.some(field => field.name === 'Most Played Leaders')).toBe(false)
+    expect(recentMatchesField?.inline).toBe(false)
+    expect(recentMatchesField?.value).toContain('Catherine de Medici (Magnificence)')
+    expect(recentMatchesField?.value).not.toContain('Catherine de Medici...')
 
     sqlite.close()
   })

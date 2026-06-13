@@ -1,4 +1,4 @@
-export type SystemChannelType = 'draft' | 'archive' | 'leaderboard' | 'civ-leaderboard' | 'commands' | 'tournament-draft' | 'tournament-archive' | 'tournament-leaderboard'
+export type SystemChannelType = 'draft' | 'archive' | 'leaderboard' | 'civ-leaderboard' | 'civ-leaderboard-all' | 'civ-leaderboard-duel' | 'civ-leaderboard-duo' | 'civ-leaderboard-squad' | 'commands' | 'tournament-draft' | 'tournament-archive' | 'tournament-leaderboard'
 
 export interface LeaderboardMessageState {
   channelId: string

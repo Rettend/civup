@@ -205,7 +205,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
           const isRankedMatch = matchContext.ranked
           try {
-            if (!isTournamentMatch && !matchContext.redDeath) {
+            if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
               await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
                 civ: true,
                 modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -305,7 +305,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
 
             try {
-              if (!isTournamentMatch && !matchContext.redDeath) {
+              if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
                 await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -472,7 +472,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             const guildId = c.interaction.guild_id ?? null
             const participantIds = result.participants.map(participant => participant.playerId)
             try {
-              if (!matchContext.redDeath) {
+              if (!matchContext.redDeath && !matchContext.civBlitz) {
                 await markLeaderboardsDirty(db, `mod-manual:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -614,8 +614,11 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
 
             try {
-              if (!isTournamentMatch && !matchContext.redDeath && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
-                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`, { civ: true })
+              if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
+                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`, {
+                  civ: true,
+                  modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
+                })
               }
             }
             catch (error) {
