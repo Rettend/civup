@@ -135,7 +135,7 @@ describe('stats benchmarks', () => {
       expect(report.cold.sqlRowsRead.total).toBeGreaterThan(0)
       expect(report.warm.sqlRowsRead.total).toBeGreaterThan(0)
       expect(report.output.fieldCount).toBeGreaterThan(0)
-      expect(report.output.topLeadersLines).toBeGreaterThan(0)
+      expect(report.output.topLeadersLines).toBe(0)
       expect(report.output.commonOpponentsLines).toBeGreaterThan(0)
       expect(report.output.recentMatchesLines).toBeGreaterThan(0)
     }

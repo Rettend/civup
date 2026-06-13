@@ -60,21 +60,25 @@ function getExpectedWinWeight(winnerProbability: number): number {
   return Math.max(MIN_EXPECTED_WIN_WEIGHT, normalizedTail ** EXPECTED_WIN_WEIGHT_EXPONENT)
 }
 
+function scaleRatingUpdate(update: RatingUpdate, weight: number): RatingUpdate {
+  if (weight >= 1) return update
+
+  const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * weight)
+  const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * weight)
+  const displayAfter = displayRating(afterMu, afterSigma)
+
+  return {
+    ...update,
+    after: { mu: afterMu, sigma: afterSigma },
+    displayAfter,
+    displayDelta: displayAfter - update.displayBefore,
+  }
+}
+
 function scaleRatingUpdates(updates: RatingUpdate[], weight: number): RatingUpdate[] {
   if (weight >= 1) return updates
 
-  return updates.map((update) => {
-    const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * weight)
-    const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * weight)
-    const displayAfter = displayRating(afterMu, afterSigma)
-
-    return {
-      ...update,
-      after: { mu: afterMu, sigma: afterSigma },
-      displayAfter,
-      displayDelta: displayAfter - update.displayBefore,
-    }
-  })
+  return updates.map(update => scaleRatingUpdate(update, weight))
 }
 
 /** Minimum games required to appear on player leaderboards. */
@@ -85,6 +89,21 @@ export const RANKED_ROLE_MIN_EFFECTIVE_GAMES = 8
 
 /** Imported games count as partial qualification evidence. */
 export const IMPORTED_GAME_EFFECTIVE_WEIGHT = 0.5
+
+/** Sigma below this is treated as established for provisional loss protection. */
+const PROVISIONAL_ESTABLISHED_SIGMA = 5
+
+/** Duel provisional winner upsets can reduce only the loser's loss by up to half. */
+const DUEL_PROVISIONAL_LOSS_MIN_WEIGHT = 0.5
+
+/** Duel protection is only for clear underdog upsets by visible rating. */
+const DUEL_PROVISIONAL_MIN_DISPLAY_GAP = 100
+
+/** Team provisional winner upsets use a smaller cap because teammates smooth volatility. */
+const TEAM_PROVISIONAL_LOSS_MIN_WEIGHT = 0.75
+
+/** Team protection only applies to individual losers taking a large visible hit. */
+const TEAM_PROVISIONAL_MIN_RAW_LOSS = 60
 
 export type LeaderboardMode = 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death'
 
@@ -99,6 +118,8 @@ export interface PlayerRating {
   playerId: string
   mu: number
   sigma: number
+  /** Pre-match games in the current rating scope, when available. */
+  gamesPlayed?: number
 }
 
 /**
@@ -137,6 +158,11 @@ export interface RatingUpdate {
   displayDelta: number
 }
 
+export interface RatingCalculationOptions {
+  /** Weight later applied to this match's rating update, e.g. imported games use 0.5. */
+  sourceWeight?: number
+}
+
 // ── Team / Duel Ratings ─────────────────────────────────────
 
 /**
@@ -144,6 +170,120 @@ export interface RatingUpdate {
  */
 export interface TeamInput {
   players: PlayerRating[]
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function getSourceWeight(options?: RatingCalculationOptions): number {
+  const sourceWeight = options?.sourceWeight ?? 1
+  if (!Number.isFinite(sourceWeight)) return 1
+  return clamp(sourceWeight, 0, 1)
+}
+
+function knownGamesPlayed(player: PlayerRating): number | null {
+  if (typeof player.gamesPlayed !== 'number' || !Number.isFinite(player.gamesPlayed)) return null
+  return Math.max(0, player.gamesPlayed)
+}
+
+function playerEstablishedness(player: PlayerRating): number | null {
+  const gamesPlayed = knownGamesPlayed(player)
+  if (gamesPlayed == null) return null
+
+  const sigmaDenominator = DEFAULT_SIGMA - PROVISIONAL_ESTABLISHED_SIGMA
+  const sigmaFactor = sigmaDenominator <= 0
+    ? 1
+    : clamp((DEFAULT_SIGMA - player.sigma) / sigmaDenominator, 0, 1)
+  const gamesFactor = clamp(gamesPlayed / LEADERBOARD_MIN_GAMES, 0, 1)
+  return Math.max(sigmaFactor, gamesFactor)
+}
+
+function averageWinnerTeamEstablishedness(team: TeamInput): number | null {
+  if (team.players.length === 0) return null
+
+  const values: number[] = []
+  for (const player of team.players) {
+    const establishedness = playerEstablishedness(player)
+    if (establishedness == null) return null
+    values.push(establishedness)
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length
+}
+
+function sourceWeightedDisplayDelta(update: RatingUpdate, sourceWeight: number): number {
+  if (sourceWeight >= 1) return update.displayDelta
+
+  const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight)
+  const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight)
+  return displayRating(afterMu, afterSigma) - update.displayBefore
+}
+
+function applyProvisionalLossProtection(
+  teams: TeamInput[],
+  updates: RatingUpdate[],
+  options?: RatingCalculationOptions,
+): RatingUpdate[] {
+  if (teams.length !== 2) return updates
+
+  const winnerTeam = teams[0]
+  const loserTeam = teams[1]
+  if (!winnerTeam || !loserTeam) return updates
+  if (winnerTeam.players.length === 1 && loserTeam.players.length === 1) {
+    return applyDuelProvisionalLossProtection(winnerTeam.players[0]!, loserTeam.players[0]!, updates)
+  }
+
+  return applyTeamProvisionalLossProtection(winnerTeam, loserTeam, updates, getSourceWeight(options))
+}
+
+function applyDuelProvisionalLossProtection(
+  winner: PlayerRating,
+  loser: PlayerRating,
+  updates: RatingUpdate[],
+): RatingUpdate[] {
+  const loserGames = knownGamesPlayed(loser)
+  const winnerEstablishedness = playerEstablishedness(winner)
+  if (loserGames == null || winnerEstablishedness == null) return updates
+  if (loserGames < LEADERBOARD_MIN_GAMES) return updates
+  if (winnerEstablishedness >= 0.999) return updates
+
+  const winnerDisplay = displayRating(winner.mu, winner.sigma)
+  const loserDisplay = displayRating(loser.mu, loser.sigma)
+  if (loserDisplay - winnerDisplay < DUEL_PROVISIONAL_MIN_DISPLAY_GAP) return updates
+
+  const lossWeight = Math.max(DUEL_PROVISIONAL_LOSS_MIN_WEIGHT, winnerEstablishedness)
+  if (lossWeight >= 0.999) return updates
+
+  return updates.map((update) => {
+    if (update.playerId !== loser.playerId || update.displayDelta >= 0) return update
+    return scaleRatingUpdate(update, lossWeight)
+  })
+}
+
+function applyTeamProvisionalLossProtection(
+  winnerTeam: TeamInput,
+  loserTeam: TeamInput,
+  updates: RatingUpdate[],
+  sourceWeight: number,
+): RatingUpdate[] {
+  const winnerEstablishedness = averageWinnerTeamEstablishedness(winnerTeam)
+  if (winnerEstablishedness == null || winnerEstablishedness >= 0.999) return updates
+
+  const lossWeight = Math.max(TEAM_PROVISIONAL_LOSS_MIN_WEIGHT, winnerEstablishedness)
+  if (lossWeight >= 0.999) return updates
+
+  const losingPlayerById = new Map(loserTeam.players.map(player => [player.playerId, player]))
+  return updates.map((update) => {
+    const loser = losingPlayerById.get(update.playerId)
+    if (!loser) return update
+
+    const loserGames = knownGamesPlayed(loser)
+    if (loserGames == null || loserGames < LEADERBOARD_MIN_GAMES) return update
+    if (sourceWeightedDisplayDelta(update, sourceWeight) > -TEAM_PROVISIONAL_MIN_RAW_LOSS) return update
+
+    return scaleRatingUpdate(update, lossWeight)
+  })
 }
 
 /**
@@ -162,7 +302,7 @@ export interface TeamInput {
  * @param teams - Teams ordered by placement (winner first).
  * @returns Rating updates for every player across all teams.
  */
-export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
+export function calculateTeamRatings(teams: TeamInput[], options?: RatingCalculationOptions): RatingUpdate[] {
   const osTeams: OSRating[][] = teams.map(t =>
     t.players.map(p => ({ mu: p.mu, sigma: p.sigma })),
   )
@@ -204,7 +344,9 @@ export function calculateTeamRatings(teams: TeamInput[]): RatingUpdate[] {
   }
 
   if (winnerProbability == null) return scaleRatingUpdates(updates, PLACEMENT_UPDATE_WEIGHT)
-  return scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
+
+  const scaledUpdates = scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
+  return applyProvisionalLossProtection(teams, scaledUpdates, options)
 }
 
 // ── FFA Ratings ─────────────────────────────────────────────
@@ -263,9 +405,9 @@ export type MatchResult
  * For team/duel: `teams` ordered by placement (winner first).
  * For FFA: `entries` with placement values.
  */
-export function calculateRatings(result: MatchResult): RatingUpdate[] {
+export function calculateRatings(result: MatchResult, options?: RatingCalculationOptions): RatingUpdate[] {
   if (result.type === 'team') {
-    return calculateTeamRatings(result.teams)
+    return calculateTeamRatings(result.teams, options)
   }
   return calculateFfaRatings(result.entries)
 }

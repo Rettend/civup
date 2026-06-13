@@ -7,7 +7,6 @@ import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
@@ -15,8 +14,8 @@ import { formatDisplayRatingChange } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
-const TOP_LEADERS_LIMIT = 5
-const COMMON_PLAYERS_LIMIT = 5
+const COMMON_PLAYERS_LIMIT = 8
+const RECENT_MATCHES_LIMIT = 8
 const MATCH_ID_BATCH_SIZE = 90
 
 interface CompletedPlayerMatchRow {
@@ -38,12 +37,6 @@ interface CompletedPlayerMatchRow {
 interface CommonPlayerStat {
   playerId: string
   displayName: string
-  games: number
-  wins: number
-}
-
-interface LeaderStat {
-  civId: string
   games: number
   wins: number
 }
@@ -148,23 +141,6 @@ export async function playerCardEmbed(
     })
   }
 
-  const leaderStats = summarizeLeaderStats(completedParticipations)
-  const topPlayedLeaders = sortLeaderStatsByGames(leaderStats)
-    .slice(0, TOP_LEADERS_LIMIT)
-
-  if (topPlayedLeaders.length > 0) {
-    const topLeaderRankings = await loadPlayerCivRankingSummaries(db, {
-      seasonId: displaySeason?.id ?? null,
-      mode: modeFilter === 'all' ? null : modeFilter,
-    }, playerId, topPlayedLeaders.map(stat => stat.civId))
-    const fieldName = requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders'
-    fields.push({
-      name: fieldName,
-      value: topPlayedLeaders.map(stat => formatLeaderStatLine(stat, topLeaderRankings.get(stat.civId)?.playerAdjustedWinRateRank ?? null)).join('\n'),
-      inline: false,
-    })
-  }
-
   const commonPlayers = await summarizeCommonPlayers(db, playerId, completedParticipations)
 
   if (commonPlayers.teammates.length > 0) {
@@ -185,7 +161,7 @@ export async function playerCardEmbed(
     })
   }
 
-  const recentParticipations = completedParticipations.slice(0, 5)
+  const recentParticipations = completedParticipations.slice(0, RECENT_MATCHES_LIMIT)
 
   if (recentParticipations.length > 0) {
     fields.push({
@@ -457,40 +433,6 @@ function mergeCommonPlayerCounts(
     if (didWin) entry.wins += row.games
     target.set(row.playerId, entry)
   }
-}
-
-function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>): LeaderStat[] {
-  const byLeader = new Map<string, LeaderStat>()
-
-  for (const row of rows) {
-    if (!row.civId) continue
-    const entry = byLeader.get(row.civId) ?? { civId: row.civId, games: 0, wins: 0 }
-    entry.games += 1
-    if (row.placement === 1) entry.wins += 1
-    byLeader.set(row.civId, entry)
-  }
-
-  return [...byLeader.values()]
-}
-
-function sortLeaderStatsByGames(stats: LeaderStat[]): LeaderStat[] {
-  return [...stats].sort((a, b) => {
-    const gamesDiff = b.games - a.games
-    if (gamesDiff !== 0) return gamesDiff
-
-    const winsDiff = b.wins - a.wins
-    if (winsDiff !== 0) return winsDiff
-
-    return a.civId.localeCompare(b.civId)
-  })
-}
-
-function formatLeaderStatLine(stat: LeaderStat, rank: number | null = null): string {
-  const winRate = Math.round((stat.wins / stat.games) * 100)
-  const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
-  const pct = `${winRate}%`.padStart(4, ' ')
-  const rankPrefix = rank == null ? '' : `\`${`#${rank}`.padEnd(3, ' ')}\` `
-  return `${rankPrefix}\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}`
 }
 
 function formatCommonPlayerStatLine(stat: CommonPlayerStat): string {
