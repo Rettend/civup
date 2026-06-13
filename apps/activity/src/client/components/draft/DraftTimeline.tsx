@@ -99,8 +99,16 @@ function getDraftStepTimelineLabels(
   step: DraftStep,
   seats: DraftState['seats'],
 ): string[] {
+  if (isRepeatedBanStep(step, seats)) {
+    const label = formatDraftTimelineStepLabel(step, seats)
+    return [label, trimRepeatedActionLabel(label, step.action)]
+  }
+
   if (!isFusedPickStep(step, seats)) return [formatDraftTimelineStepLabel(step, seats)]
-  return step.seats.map(seatIndex => formatDraftTimelineStepLabel({ ...step, seats: [seatIndex] }, seats))
+  return step.seats.map((seatIndex, index) => {
+    const label = formatDraftTimelineStepLabel({ ...step, seats: [seatIndex] }, seats)
+    return index === 0 ? label : trimRepeatedActionLabel(label, step.action)
+  })
 }
 
 function formatDraftTimelineStepLabel(
@@ -111,13 +119,24 @@ function formatDraftTimelineStepLabel(
   return formatDraftStepLabel(step, seats)
 }
 
+function trimRepeatedActionLabel(label: string, action: DraftStep['action']): string {
+  const prefix = `${action.toUpperCase()} `
+  return label.startsWith(prefix) ? label.slice(prefix.length) : label
+}
+
+function isRepeatedBanStep(step: DraftStep, seats: DraftState['seats']): step is typeof step & { seats: [number], count: 2 } {
+  if (step.action !== 'ban' || step.seats === 'all' || step.seats.length !== 1 || step.count !== 2) return false
+  const seatIndex = step.seats[0]
+  return seatIndex != null && seats[seatIndex]?.team != null
+}
+
 function isFusedPickStep(
   step: DraftStep,
   seats: DraftState['seats'],
 ): step is typeof step & { seats: number[] } {
-  if (step.action !== 'pick') return false
   if (step.seats === 'all' || step.seats.length < 2) return false
   if (step.fallbackForStepIndex != null) return false
+  if (step.action !== 'pick') return false
 
   const firstTeam = seats[step.seats[0] ?? -1]?.team
   return firstTeam != null && step.seats.every(seatIndex => seats[seatIndex]?.team === firstTeam)
