@@ -4,13 +4,18 @@ import {
   backfillCivLeaderboardStatsFromHistory,
   buildCivLeaderboardSnapshotFromD1,
   getCivLeaderboardStatsStatus,
-  rebuildCivLeaderboardSnapshot,
+  getStoredCivLeaderboardDisplayConfig,
+  repairCivLeaderboardStatsFromContributions,
+  rebuildCivLeaderboardSnapshots,
 } from '../src/services/leaderboard/civ-snapshot.ts'
+import { markLeaderboardsDirty } from '../src/services/leaderboard/message.ts'
 
 export type CivLeaderboardBackfillCommand = 'preview' | 'apply'
+export type CivLeaderboardBackfillSource = 'history' | 'contributions'
 
 export interface CivLeaderboardBackfillOptions {
   command: CivLeaderboardBackfillCommand
+  source?: CivLeaderboardBackfillSource
   execute: boolean
   json: boolean
   target: string
@@ -24,6 +29,7 @@ export interface CivLeaderboardBackfillOptions {
 
 interface ScriptResult {
   mode: CivLeaderboardBackfillCommand
+  source: CivLeaderboardBackfillSource
   target: string
   config: string
   database: string
@@ -46,14 +52,16 @@ interface ScriptResult {
 }
 
 export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillOptions): Promise<void> {
+  const source = options.source ?? 'history'
   const before = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
   if (options.command === 'preview') {
-    const historical = options.includeHistoricalPreview === false
-      ? undefined
-      : await buildCivLeaderboardSnapshotFromD1(options.db)
+    const historical = source === 'history' && options.includeHistoricalPreview !== false
+      ? await buildCivLeaderboardSnapshotFromD1(options.db)
+      : undefined
     const result: ScriptResult = {
       mode: 'preview',
+      source,
       target: options.target,
       config: options.config,
       database: options.database,
@@ -73,6 +81,7 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
   if (!options.execute) {
     printResult({
       mode: 'apply',
+      source,
       target: options.target,
       config: options.config,
       database: options.database,
@@ -83,12 +92,18 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
   }
 
   const updatedAt = Date.now()
-  const backfill = await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt)
-  const snapshot = await rebuildCivLeaderboardSnapshot(options.db, options.kv, updatedAt)
+  const config = await getStoredCivLeaderboardDisplayConfig(options.kv)
+  const backfill = source === 'contributions'
+    ? await repairCivLeaderboardStatsFromContributions(options.db, updatedAt, config)
+    : await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt, config)
+  const snapshots = await rebuildCivLeaderboardSnapshots(options.db, options.kv, undefined, updatedAt)
+  await markLeaderboardsDirty(options.db, `script:civ-leaderboard:${source}`, { civ: true, now: dirtyTimestampBefore(updatedAt) })
+  const snapshot = snapshots.get('all') ?? backfill.snapshot
   const after = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
   printResult({
     mode: 'apply',
+    source,
     target: options.target,
     config: options.config,
     database: options.database,
@@ -113,6 +128,7 @@ function printResult(result: ScriptResult, json: boolean): void {
   }
 
   console.log(`Mode: ${result.mode}`)
+  console.log(`Source: ${result.source}`)
   console.log(`Target: ${result.target}`)
   console.log(`Config: ${result.config}`)
   console.log(`Database: ${result.database}`)
@@ -137,4 +153,8 @@ function printObject(value: unknown): void {
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     console.log(`  ${key}: ${String(item)}`)
   }
+}
+
+function dirtyTimestampBefore(value: number): number {
+  return Math.max(0, Math.round(value) - 1)
 }

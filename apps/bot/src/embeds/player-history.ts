@@ -6,7 +6,6 @@ import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { HISTORY_ALIGNMENT_SAMPLE_CHARS, HISTORY_ALIGNMENT_SAMPLE_SOURCE } from '../dev/history-alignment-samples.generated.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
@@ -23,45 +22,68 @@ const LEADER_ICON_WIDTH_PX = 22
 const LEADER_ICON_GAP_PX = 5
 const INTER_TEAM_COLUMN_GAP_PX = 24
 const MIN_TEAM_COLUMN_WIDTH_PX = 120
-const NBSP_WIDTH_PX = 4
-const ALIGNMENT_ANCHOR_NAME = 'xxxxxxxxxx'
-const ALIGNMENT_ANCHOR_LABEL = 'anchor'
-const ALIGNMENT_TEST_COLUMN_WIDTH_PX = 280
+
 const DEFAULT_ASCII_CHARACTER_WIDTH = 7
 const DEFAULT_NON_ASCII_CHARACTER_WIDTH = 8
 
+const WIDE_NAME_CHARACTER_WIDTH = 17
+const HANGUL_CHARACTER_WIDTH = 15.5
+const EMOJI_CHARACTER_WIDTH = 22
+
+const SINGLE_WORD_NAME_WIDTH_ADJUSTMENT = -5
+const NAME_SPACE_EXTRA_WIDTH = 2
+const ALNUM_NAME_LENGTH_BASE = 7
+const ALNUM_NAME_LENGTH_EXTRA_WIDTH = 1.5
+const ALNUM_NAME_MAX_WIDTH_ADJUSTMENT = 3
+const COMPOUND_NAME_LENGTH_BASE = 12
+const COMPOUND_NAME_LENGTH_EXTRA_WIDTH = 1.5
+const COMPOUND_NAME_SEPARATOR_EXTRA_WIDTH = 1.5
+
+const PAD_UNITS = [
+  { value: '\u00A0', widthPx: 4 },
+  { value: '\u2009', widthPx: 2 },
+  { value: '\u200A', widthPx: 1 },
+] as const
+
 const CHARACTER_WIDTHS: Readonly<Record<string, number>> = {
   ' ': 4,
-  '!': 2.5,
-  '"': 7,
-  '#': 10,
-  '%': 10,
-  '&': 10,
-  "'": 2.5,
-  '(': 2.5,
-  ')': 2.5,
-  ',': 2.5,
-  '-': 5,
-  '.': 2.5,
+  '!': 3,
+  '?': 7.25,
+  '"': 5,
+  '#': 10.25,
+  '$': 8.75,
+  '%': 11.5,
+  '&': 9.75,
+  "'": 1.75,
+  '(': 4,
+  ')': 4,
+  '*': 5.75,
+  '+': 7.5,
+  ',': 3,
+  '-': 6.25,
+  '.': 3,
   '/': 5,
-  '0': 9.5,
+  '0': 9.25,
   '1': 5,
   '2': 8.25,
   '3': 8.5,
   '4': 8.5,
   '5': 8.25,
   '6': 8.25,
-  '7': 7.5,
+  '7': 7.25,
   '8': 8.25,
   '9': 8.25,
-  ':': 2.5,
-  ';': 2.5,
-  '@': 10,
+  ':': 3,
+  ';': 3,
+  '<': 7.5,
+  '=': 7.5,
+  '>': 7.5,
+  '@': 15,
   'A': 10.25,
-  'B': 10,
+  'B': 9.75,
   'C': 10.25,
   'D': 10.5,
-  'E': 9,
+  'E': 8.75,
   'F': 8.5,
   'G': 10.5,
   'H': 10.5,
@@ -69,37 +91,38 @@ const CHARACTER_WIDTHS: Readonly<Record<string, number>> = {
   'J': 7.5,
   'K': 9.5,
   'L': 8.5,
-  'M': 14,
+  'M': 13.75,
   'N': 11,
   'O': 11,
-  'P': 10,
+  'P': 9.5,
   'Q': 11,
-  'R': 10,
+  'R': 9.75,
   'S': 8.5,
   'T': 8.5,
-  'U': 11,
-  'V': 10,
+  'U': 10.75,
+  'V': 9.5,
   'W': 13.5,
-  'X': 9.5,
+  'X': 9.25,
   'Y': 9.5,
   'Z': 8.5,
-  '[': 2.5,
+  '[': 4.25,
   '\\': 5,
-  ']': 2.5,
-  '_': 5,
-  '`': 2.5,
-  'a': 8,
+  ']': 4.25,
+  '^': 6.75,
+  '_': 7.75,
+  '`': 3.5,
+  'a': 7.75,
   'b': 8.5,
   'c': 7.5,
   'd': 8.5,
-  'e': 8.25,
-  'f': 5,
-  'g': 8,
+  'e': 8,
+  'f': 4.75,
+  'g': 7.75,
   'h': 8.5,
-  'i': 2.5,
-  'j': 2.5,
+  'i': 2.75,
+  'j': 2.75,
   'k': 7.5,
-  'l': 3,
+  'l': 3.25,
   'm': 13.5,
   'n': 8.25,
   'o': 8.25,
@@ -109,14 +132,15 @@ const CHARACTER_WIDTHS: Readonly<Record<string, number>> = {
   's': 6.5,
   't': 5.5,
   'u': 8.25,
-  'v': 7,
+  'v': 7.25,
   'w': 11.5,
   'x': DEFAULT_ASCII_CHARACTER_WIDTH,
-  'y': 7,
+  'y': 7.25,
   'z': 6.5,
-  '{': 2.5,
-  '|': 2.5,
-  '}': 2.5,
+  '{': 5,
+  '|': 3,
+  '}': 5,
+  '~': 7.5,
 } as const
 
 interface PlayerHistoryTargetRow {
@@ -195,132 +219,8 @@ export async function playerHistoryPageEmbed(
   return { embed, pageIndex, pageCount, totalRows }
 }
 
-export function playerHistoryAlignmentTestEmbeds(): Embed[] {
-  const sampleGroups = buildAlignmentSampleGroups([...HISTORY_ALIGNMENT_SAMPLE_CHARS])
-  const leftCivs = [
-    'byzantium-theodora',
-    'babylon-hammurabi',
-    'japan-hojo-tokimune',
-    'phoenicia-ahiram',
-    'macedon-alexander',
-  ]
-  const rightCivs = [
-    'france-catherine-de-medici-magnificence',
-    'inca-pachacuti',
-    'korea-seondeok',
-    'korea-sejong',
-    'egypt-cleopatra-egyptian',
-  ]
-
-  return [
-    ...sampleGroups.map(group => alignmentTestEmbed(group.title, group.description, group.samples, leftCivs, rightCivs)),
-    alignmentTestEmbed('Wide Script Widths', 'Representative wide glyph rows; other rare special characters are intentionally not exhaustive.', [
-      { left: '漢漢漢漢漢漢', right: 'CJK ideograph' },
-      { left: 'ああああああ', right: 'hiragana' },
-      { left: 'カカカカカカ', right: 'katakana' },
-      { left: '한한한한한한', right: 'hangul' },
-      { left: 'ＡＡＡＡＡＡ', right: 'full-width latin' },
-    ], leftCivs, rightCivs),
-    alignmentTestEmbed('Symbol Widths', 'Rows repeat common symbols.', [
-      { left: '!!!!!!!!!!', right: 'exclamation' },
-      { left: '??????????', right: 'question' },
-      { left: '@@@@@@@@@@', right: 'at' },
-      { left: '##########', right: 'hash' },
-      { left: '%%%%%%%%%%', right: 'percent' },
-      { left: '&&&&&&&&&&', right: 'ampersand' },
-      { left: '----------', right: 'dash' },
-      { left: '__________', right: 'underscore' },
-      { left: '//////////', right: 'slash' },
-      { left: '\\\\\\\\\\', right: 'backslash' },
-      { left: '..........', right: 'period' },
-      { left: ',,,,,,,,,,', right: 'comma' },
-      { left: '::::::::::', right: 'colon' },
-      { left: ';;;;;;;;;;', right: 'semicolon' },
-      { left: '||||||||||', right: 'pipe' },
-      { left: '(((((((((', right: 'open parens' },
-      { left: ')))))))))', right: 'close parens' },
-    ], leftCivs, rightCivs),
-    alignmentTestEmbed('Realistic Names', 'Rows use names similar to actual history output.', [
-      { left: 'Rettend', right: 'short normal' },
-      { left: 'Hman', right: 'very short' },
-      { left: 'mmmmmmmmmm', right: 'many m' },
-      { left: 'iiiiiiiiii', right: 'many i' },
-      { left: 'WWWWWWWWWW', right: 'many W' },
-      { left: 'Dev Leader Bot 14', right: 'bot 14' },
-      { left: 'Test Player 10', right: 'player 10' },
-      { left: 'Catherine Main', right: 'medium' },
-      { left: 'Long Player Name 888', right: 'long digits' },
-      { left: 'MiWiMiWiMiWi', right: 'mixed wide' },
-      { left: 'l1I|!.,', right: 'narrow mix' },
-    ], leftCivs, rightCivs),
-  ]
-}
-
-function buildAlignmentSampleGroups(chars: readonly string[]): Array<{ title: string, description: string, samples: Array<{ left: string, right: string }> }> {
-  const uniqueChars = [...new Set(chars)].filter(char => char.length > 0 && !isControlCharacter(char))
-  const lowercase = uniqueChars.filter(char => /^[a-z]$/u.test(char)).sort((a, b) => a.localeCompare(b))
-  const uppercase = uniqueChars.filter(char => /^[A-Z]$/u.test(char)).sort((a, b) => a.localeCompare(b))
-  const numbers = uniqueChars.filter(char => /^[0-9]$/u.test(char)).sort((a, b) => a.localeCompare(b))
-
-  return [
-    { title: 'PPL Lowercase Widths', description: 'Lowercase characters found in cached PPL display names.', samples: sampleRepeatedChars(lowercase, 'lower') },
-    { title: 'PPL Uppercase Widths', description: 'Uppercase characters found in cached PPL display names.', samples: sampleRepeatedChars(uppercase, 'upper') },
-    { title: 'PPL Number Widths', description: 'Number characters found in cached PPL display names.', samples: sampleRepeatedChars(numbers, 'number') },
-  ].filter(group => group.samples.length > 0)
-}
-
-function alignmentTestEmbed(
-  title: string,
-  description: string,
-  samples: ReadonlyArray<{ left: string, right: string }>,
-  leftCivs: readonly string[],
-  rightCivs: readonly string[],
-): Embed {
-  return new Embed()
-    .title(`History Alignment Test - ${title}`)
-    .description(description)
-    .color(0xC8AA6E)
-    .fields(...chunk([...samples].slice(0, 100), 4).map((group, index) => ({
-      name: `${sampleSourceLabel()} - Rows ${index * 4 + 1}-${index * 4 + group.length}`,
-      value: formatAlignmentTestColumns(
-        [ALIGNMENT_ANCHOR_NAME, ...group.map(sample => sample.left)],
-        [ALIGNMENT_ANCHOR_LABEL, ...group.map(sample => sample.right)],
-        leftCivs,
-        rightCivs,
-      ),
-      inline: false,
-    })))
-}
-
-function sampleRepeatedChars(chars: readonly string[], label: string): Array<{ left: string, right: string }> {
-  return chars.map(char => ({
-    left: repeatedSampleText(char),
-    right: `${label} ${visibleCharacterLabel(char)}`,
-  }))
-}
-
-function repeatedSampleText(char: string): string {
-  if (char === ' ') return 'x x x x x'
-  return char.repeat(char.codePointAt(0)! > 0x7F ? 6 : 10)
-}
-
-function visibleCharacterLabel(char: string): string {
-  if (char === ' ') return '[space]'
-  return char
-}
-
-function sampleSourceLabel(): string {
-  const sampleSource = String(HISTORY_ALIGNMENT_SAMPLE_SOURCE.source)
-  const source = sampleSource === 'fallback' ? 'fallback' : 'ppl'
-  return `${source} chars`
-}
-
 function isAsciiCharacter(char: string): boolean {
   return /^[\x20-\x7E]$/u.test(char)
-}
-
-function isControlCharacter(char: string): boolean {
-  return /[\p{Cc}\p{Cf}]/u.test(char)
 }
 
 async function loadPlayerHistoryRows(
@@ -572,24 +472,20 @@ function formatPlayerEntry(participant: PlayerHistoryParticipantRow, isOld: bool
 }
 
 function padColumn(entry: { text: string, visibleWidth: number } | null, widthPx: number): string {
-  if (!entry) return '\u00A0'.repeat(Math.ceil(widthPx / NBSP_WIDTH_PX))
+  if (!entry) return formatPadding(widthPx)
   const padWidthPx = Math.max(INTER_TEAM_COLUMN_GAP_PX, widthPx - entry.visibleWidth)
-  return `${entry.text}${'\u00A0'.repeat(Math.ceil(padWidthPx / NBSP_WIDTH_PX))}`
+  return `${entry.text}${formatPadding(padWidthPx)}`
 }
 
-function formatAlignmentTestColumns(leftNames: readonly string[], rightNames: readonly string[], leftCivs: readonly string[], rightCivs: readonly string[]): string {
-  const leftEntries = leftNames.map((name, index) => formatTestEntry(name, leftCivs[index % leftCivs.length]!))
-  const rightEntries = rightNames.map((name, index) => formatTestEntry(name, rightCivs[index % rightCivs.length]!))
-  const columnWidth = ALIGNMENT_TEST_COLUMN_WIDTH_PX
-  const lines = leftEntries.map((left, index) => `${PLAYER_ROW_INDENT}${padColumn(left, columnWidth)}│ ${rightEntries[index]?.text ?? ''}`)
-  return preserveLeadingIndent(lines.join('\n'))
-}
-
-function formatTestEntry(name: string, civId: string): { text: string, visibleWidth: number } {
-  return {
-    text: `${formatLeaderIcon(civId, false)} ${escapeMarkdown(name)}`,
-    visibleWidth: LEADER_ICON_WIDTH_PX + LEADER_ICON_GAP_PX + estimateTextWidth(name),
+function formatPadding(widthPx: number): string {
+  let remainingPx = Math.max(0, Math.ceil(widthPx))
+  let padding = ''
+  for (const unit of PAD_UNITS) {
+    const count = Math.floor(remainingPx / unit.widthPx)
+    if (count > 0) padding += unit.value.repeat(count)
+    remainingPx -= count * unit.widthPx
   }
+  return padding
 }
 
 function preserveLeadingIndent(value: string): string {
@@ -602,15 +498,43 @@ function preserveLeadingIndent(value: string): string {
 function estimateTextWidth(value: string): number {
   let width = 0
   for (const char of value) width += estimateCharacterWidth(char)
-  return width
+  return width + estimateNaturalNameAdjustment(value)
+}
+
+function estimateNaturalNameAdjustment(value: string): number {
+  if (isRepeatedSingleCharacter(value)) return 0
+
+  const chars = [...value]
+  const spaceCount = chars.filter(char => char === ' ').length
+  if (spaceCount > 0) return spaceCount * NAME_SPACE_EXTRA_WIDTH
+  if (/^[A-Za-z0-9]+$/u.test(value)) return estimateAlnumNameAdjustment(chars.length)
+  if (/^[A-Za-z0-9_-]+$/u.test(value)) return estimateCompoundNameAdjustment(chars.length, chars.filter(char => char === '_' || char === '-').length)
+  return 0
+}
+
+function estimateAlnumNameAdjustment(length: number): number {
+  return Math.min(
+    ALNUM_NAME_MAX_WIDTH_ADJUSTMENT,
+    SINGLE_WORD_NAME_WIDTH_ADJUSTMENT + Math.max(0, length - ALNUM_NAME_LENGTH_BASE) * ALNUM_NAME_LENGTH_EXTRA_WIDTH,
+  )
+}
+
+function estimateCompoundNameAdjustment(length: number, separatorCount: number): number {
+  return Math.max(0, length - COMPOUND_NAME_LENGTH_BASE) * COMPOUND_NAME_LENGTH_EXTRA_WIDTH + separatorCount * COMPOUND_NAME_SEPARATOR_EXTRA_WIDTH
+}
+
+function isRepeatedSingleCharacter(value: string): boolean {
+  const chars = [...value]
+  return chars.length > 1 && chars.every(char => char === chars[0])
 }
 
 function estimateCharacterWidth(char: string): number {
   const explicitWidth = CHARACTER_WIDTHS[char]
   if (explicitWidth != null) return explicitWidth
   if (/\s/u.test(char)) return CHARACTER_WIDTHS[' '] ?? 4
-  if (isEmojiLikeCharacter(char)) return 14
-  if (isWideNameCharacter(char)) return 13
+  if (isEmojiLikeCharacter(char)) return EMOJI_CHARACTER_WIDTH
+  if (isHangulCharacter(char)) return HANGUL_CHARACTER_WIDTH
+  if (isWideNameCharacter(char)) return WIDE_NAME_CHARACTER_WIDTH
   if (!isAsciiCharacter(char)) return DEFAULT_NON_ASCII_CHARACTER_WIDTH
   return DEFAULT_ASCII_CHARACTER_WIDTH
 }
@@ -618,6 +542,11 @@ function estimateCharacterWidth(char: string): number {
 function isEmojiLikeCharacter(char: string): boolean {
   const codePoint = char.codePointAt(0) ?? 0
   return (codePoint >= 0x1F1E6 && codePoint <= 0x1FAFF)
+}
+
+function isHangulCharacter(char: string): boolean {
+  const codePoint = char.codePointAt(0) ?? 0
+  return (codePoint >= 0x1100 && codePoint <= 0x11FF) || (codePoint >= 0xAC00 && codePoint <= 0xD7AF)
 }
 
 function isWideNameCharacter(char: string): boolean {

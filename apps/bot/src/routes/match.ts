@@ -229,7 +229,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
           console.error(`Failed to refresh tournament leaderboard after activity scrub ${result.match.id}:`, error)
         })
       }
-      if (!isTournamentMatch && scrubContext && !scrubContext.redDeath) {
+      if (!isTournamentMatch && scrubContext && !scrubContext.redDeath && !scrubContext.civBlitz) {
         try {
           await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {
             civ: true,
@@ -336,7 +336,7 @@ function queueActivityReportProjectionTasks(
         return
       }
 
-      if (!input.reportedContext.redDeath) {
+      if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
         await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
           civ: true,
           modes: input.reportedContext.leaderboardMode ? [input.reportedContext.leaderboardMode] : [],

@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import type { LeaderboardDirtyState, LeaderboardMessageState } from '../system/channels.ts'
+import type { CivLeaderboardModeScope } from './civ-snapshot.ts'
+import type { LeaderboardDirtyState, LeaderboardMessageState, SystemChannelType } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq, inArray } from 'drizzle-orm'
@@ -10,15 +11,15 @@ import { loadAvatarDataUris } from '../image/avatar.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from './civ-snapshot.ts'
+import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshots, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshots } from './civ-snapshot.ts'
 import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from './image.ts'
 import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
 const LEGACY_PLAYER_LEADERBOARD_SCOPE = 'global'
 const CIV_LEADERBOARD_SCOPE = 'civ'
-const CIV_LEADERBOARD_MESSAGE_SCOPES = [CIV_LEADERBOARD_SCOPE, 'civ:2', 'civ:3'] as const
 const LEGACY_LEADERBOARD_DIRTY_SCOPE = 'global'
-const CIV_LEADERBOARD_DIRTY_SCOPE = 'civ'
+const LEGACY_CIV_LEADERBOARD_DIRTY_SCOPE = 'civ'
+const CIV_LEADERBOARD_DIRTY_SCOPE_PREFIX = 'civ:'
 const PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX = 'player:'
 export const PLAYER_LEADERBOARD_MESSAGE_MODES = ['duel', 'duo', 'squad', 'ffa'] as const satisfies readonly LeaderboardMode[]
 
@@ -28,6 +29,11 @@ interface ScopedLeaderboardDirtyState extends LeaderboardDirtyState {
 
 interface DirtyPlayerMode {
   mode: LeaderboardMode
+  dirtyAt: number
+}
+
+interface DirtyCivModeScope {
+  modeScope: CivLeaderboardModeScope
   dirtyAt: number
 }
 
@@ -83,10 +89,14 @@ export async function refreshConfiguredCivLeaderboards(
   kv: KVNamespace,
   token: string,
 ): Promise<boolean> {
-  const leaderboardChannelId = await getSystemChannel(kv, 'civ-leaderboard')
-  if (!leaderboardChannelId) return false
+  const configuredChannels = await getConfiguredCivLeaderboardChannels(kv)
+  if (configuredChannels.size === 0) return false
 
-  return Boolean(await upsertCivLeaderboardMessageForChannel(db, kv, token, leaderboardChannelId))
+  let updated = false
+  for (const [modeScope, channelId] of configuredChannels) {
+    updated = Boolean(await upsertCivLeaderboardMessageForChannel(db, kv, token, channelId, { modeScope })) || updated
+  }
+  return updated
 }
 
 export async function archiveSeasonLeaderboards(
@@ -163,16 +173,18 @@ export async function refreshDirtyLeaderboards(
   const playerModeLimit = normalizePlayerModeLimit(options.playerModeLimit)
   const dirtyPlayerModeEntries = playerModeLimit == null ? allDirtyPlayerModeEntries : allDirtyPlayerModeEntries.slice(0, playerModeLimit)
   const dirtyPlayerModes = dirtyPlayerModeEntries.map(entry => entry.mode)
-  const civDirtyState = legacyDirtyState ?? dueDirtyStates.find(state => state.scope === CIV_LEADERBOARD_DIRTY_SCOPE) ?? null
-  const [leaderboardChannelId, civLeaderboardChannelId] = await Promise.all([
+  const legacyCivDirtyState = dueDirtyStates.find(state => state.scope === LEGACY_CIV_LEADERBOARD_DIRTY_SCOPE) ?? null
+  const dirtyCivModeEntries = getDirtyCivModeEntries(dueDirtyStates, legacyDirtyState, legacyCivDirtyState)
+  const dirtyCivModeScopes = dirtyCivModeEntries.map(entry => entry.modeScope)
+  const [leaderboardChannelId, civLeaderboardChannels] = await Promise.all([
     getSystemChannel(kv, 'leaderboard'),
-    getSystemChannel(kv, 'civ-leaderboard'),
+    getConfiguredCivLeaderboardChannels(kv),
   ])
 
   const scopesToClear = new Set<string>()
   let leaderboardStates: LeaderboardMessageState[] = []
-  let civLeaderboardState: LeaderboardMessageState | null = null
-  let civSnapshotUpdated = false
+  let civLeaderboardStates: LeaderboardMessageState[] = []
+  let civLeaderboardsProcessed = false
   let civSnapshotReady = false
   let playerLeaderboardsProcessed = false
 
@@ -191,20 +203,33 @@ export async function refreshDirtyLeaderboards(
     }
   }
 
-  if (civDirtyState) civSnapshotReady = await isCivLeaderboardStatsInitialized(db)
+  if (dirtyCivModeScopes.length > 0) civSnapshotReady = await isCivLeaderboardStatsInitialized(db)
 
-  if (civDirtyState && civSnapshotReady) {
-    await rebuildCivLeaderboardSnapshot(db, kv, now)
-    civSnapshotUpdated = true
-    if (civLeaderboardChannelId) {
-      civLeaderboardState = await upsertCivLeaderboardMessageForChannel(db, kv, token, civLeaderboardChannelId)
+  if (dirtyCivModeScopes.length > 0 && civSnapshotReady) {
+    const snapshots = await getStoredCivLeaderboardSnapshots(kv, dirtyCivModeScopes)
+    const staleModeScopes = dirtyCivModeEntries.filter((entry) => {
+      const snapshot = snapshots.get(entry.modeScope)
+      return !snapshot || snapshot.updatedAt <= entry.dirtyAt
+    }).map(entry => entry.modeScope)
+
+    if (staleModeScopes.length > 0) await rebuildCivLeaderboardSnapshots(db, kv, staleModeScopes, now)
+    civLeaderboardsProcessed = true
+
+    for (const modeScope of dirtyCivModeScopes) {
+      const channelId = civLeaderboardChannels.get(modeScope)
+      if (!channelId) continue
+      const state = await upsertCivLeaderboardMessageForChannel(db, kv, token, channelId, { modeScope })
+      if (state) civLeaderboardStates.push(state)
     }
   }
 
   if (playerLeaderboardsProcessed) {
     for (const mode of dirtyPlayerModes) scopesToClear.add(playerDirtyScope(mode))
   }
-  if (civSnapshotUpdated) scopesToClear.add(CIV_LEADERBOARD_DIRTY_SCOPE)
+  if (civLeaderboardsProcessed) {
+    for (const modeScope of dirtyCivModeScopes) scopesToClear.add(civLeaderboardDirtyScope(modeScope))
+    if (legacyCivDirtyState) scopesToClear.add(LEGACY_CIV_LEADERBOARD_DIRTY_SCOPE)
+  }
   if (legacyDirtyState) {
     const processedModes = new Set(dirtyPlayerModes)
     const remainingModes = allDirtyPlayerModeEntries.map(entry => entry.mode).filter(mode => !processedModes.has(mode))
@@ -216,7 +241,7 @@ export async function refreshDirtyLeaderboards(
     }
     scopesToClear.add(LEGACY_LEADERBOARD_DIRTY_SCOPE)
   }
-  if (legacyDirtyState && civDirtyState && !civSnapshotUpdated) {
+  if (legacyDirtyState && dirtyCivModeScopes.length > 0 && !civLeaderboardsProcessed) {
     await markLeaderboardsDirty(db, legacyDirtyState.reason ?? 'legacy-civ-dirty', {
       civ: true,
       now: legacyDirtyState.dirtyAt,
@@ -224,7 +249,7 @@ export async function refreshDirtyLeaderboards(
   }
 
   await clearLeaderboardDirtyStates(db, [...scopesToClear])
-  return Boolean(leaderboardStates.length > 0 || civLeaderboardState || civSnapshotUpdated || playerLeaderboardsProcessed)
+  return Boolean(leaderboardStates.length > 0 || civLeaderboardStates.length > 0 || civLeaderboardsProcessed || playerLeaderboardsProcessed)
 }
 
 export async function upsertLeaderboardMessagesForChannel(
@@ -257,16 +282,17 @@ export async function upsertCivLeaderboardMessageForChannel(
   channelId: string,
   options: {
     forceCreate?: boolean
+    modeScope?: CivLeaderboardModeScope
   } = {},
 ): Promise<LeaderboardMessageState | null> {
-  const embedGroups = await buildCivLeaderboardEmbedGroups(kv)
+  const modeScope = options.modeScope ?? 'all'
+  const embedGroups = await buildCivLeaderboardEmbedGroups(kv, modeScope)
   if (!embedGroups) return null
 
   const states: LeaderboardMessageState[] = []
 
   for (const [index, embeds] of embedGroups.entries()) {
-    const scope = CIV_LEADERBOARD_MESSAGE_SCOPES[index]
-    if (!scope) break
+    const scope = civLeaderboardMessageScope(modeScope, index)
 
     const state = await upsertScopedLeaderboardMessage(db, token, channelId, scope, embeds, {
       forceCreate: options.forceCreate,
@@ -274,8 +300,8 @@ export async function upsertCivLeaderboardMessageForChannel(
     states.push(state)
   }
 
-  await deleteUnusedCivLeaderboardMessages(db, token, channelId, embedGroups.length)
-  return states[0] ?? await upsertScopedLeaderboardMessage(db, token, channelId, CIV_LEADERBOARD_SCOPE, [], {
+  await deleteUnusedCivLeaderboardMessages(db, token, channelId, modeScope, embedGroups.length)
+  return states[0] ?? await upsertScopedLeaderboardMessage(db, token, channelId, civLeaderboardMessageScope(modeScope), [], {
     forceCreate: options.forceCreate,
   })
 }
@@ -316,8 +342,9 @@ async function buildPlayerLeaderboardImages(
 
 async function buildCivLeaderboardEmbedGroups(
   kv: KVNamespace,
+  modeScope: CivLeaderboardModeScope,
 ) {
-  const snapshot = await getStoredCivLeaderboardSnapshot(kv)
+  const snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
   if (!snapshot?.historyInitialized) return null
   return civLeaderboardEmbedGroups(snapshot)
 }
@@ -423,9 +450,10 @@ async function deleteUnusedCivLeaderboardMessages(
   db: Database,
   token: string,
   channelId: string,
+  modeScope: CivLeaderboardModeScope,
   activeCount: number,
 ): Promise<void> {
-  for (const scope of CIV_LEADERBOARD_MESSAGE_SCOPES.slice(activeCount)) {
+  for (const scope of civLeaderboardMessageScopes(modeScope).slice(activeCount)) {
     const existing = await getLeaderboardMessageState(db, scope)
     if (existing?.channelId === channelId) {
       try {
@@ -459,8 +487,27 @@ function getDirtyScopes(options: MarkLeaderboardsDirtyOptions | undefined): stri
   for (const mode of options.modes ?? []) {
     if (LEADERBOARD_MODES.includes(mode)) scopes.add(playerDirtyScope(mode))
   }
-  if (options.civ) scopes.add(CIV_LEADERBOARD_DIRTY_SCOPE)
+  if (options.civ) {
+    for (const modeScope of getCivDirtyModeScopes(options.modes)) scopes.add(civLeaderboardDirtyScope(modeScope))
+  }
   return [...scopes]
+}
+
+function getCivDirtyModeScopes(modes: readonly LeaderboardMode[] | undefined): CivLeaderboardModeScope[] {
+  if (!modes || modes.length === 0) return [...CIV_LEADERBOARD_MODE_SCOPES]
+
+  const scopes = new Set<CivLeaderboardModeScope>()
+  for (const mode of modes) {
+    if (mode === 'ffa') {
+      scopes.add('all')
+      continue
+    }
+    if (mode === 'duel' || mode === 'duo' || mode === 'squad') {
+      scopes.add('all')
+      scopes.add(mode)
+    }
+  }
+  return scopes.size > 0 ? [...scopes] : [...CIV_LEADERBOARD_MODE_SCOPES]
 }
 
 function getDirtyPlayerModeEntries(
@@ -482,6 +529,25 @@ function getDirtyPlayerModeEntries(
   })
 }
 
+function getDirtyCivModeEntries(
+  dirtyStates: readonly ScopedLeaderboardDirtyState[],
+  legacyDirtyState: ScopedLeaderboardDirtyState | null,
+  legacyCivDirtyState: ScopedLeaderboardDirtyState | null,
+): DirtyCivModeScope[] {
+  const legacyState = legacyDirtyState ?? legacyCivDirtyState
+  if (legacyState) return CIV_LEADERBOARD_MODE_SCOPES.map(modeScope => ({ modeScope, dirtyAt: legacyState.dirtyAt }))
+
+  const dirtyByModeScope = new Map<CivLeaderboardModeScope, DirtyCivModeScope>()
+  for (const state of dirtyStates) {
+    const modeScope = parseCivDirtyScope(state.scope)
+    if (!modeScope) continue
+    const existing = dirtyByModeScope.get(modeScope)
+    if (!existing || state.dirtyAt < existing.dirtyAt) dirtyByModeScope.set(modeScope, { modeScope, dirtyAt: state.dirtyAt })
+  }
+
+  return CIV_LEADERBOARD_MODE_SCOPES.flatMap(modeScope => dirtyByModeScope.get(modeScope) ?? [])
+}
+
 function normalizePlayerModeLimit(value: number | undefined): number | null {
   if (value == null) return null
   if (!Number.isFinite(value)) return null
@@ -494,6 +560,44 @@ function playerDirtyScope(mode: LeaderboardMode): string {
 
 function playerLeaderboardMessageScope(mode: LeaderboardMode): string {
   return `${PLAYER_LEADERBOARD_DIRTY_SCOPE_PREFIX}${mode}`
+}
+
+function civLeaderboardDirtyScope(modeScope: CivLeaderboardModeScope): string {
+  return `${CIV_LEADERBOARD_DIRTY_SCOPE_PREFIX}${modeScope}`
+}
+
+function parseCivDirtyScope(scope: string): CivLeaderboardModeScope | null {
+  if (!scope.startsWith(CIV_LEADERBOARD_DIRTY_SCOPE_PREFIX)) return null
+  const modeScope = scope.slice(CIV_LEADERBOARD_DIRTY_SCOPE_PREFIX.length)
+  return CIV_LEADERBOARD_MODE_SCOPES.includes(modeScope as CivLeaderboardModeScope) ? modeScope as CivLeaderboardModeScope : null
+}
+
+function civLeaderboardMessageScope(modeScope: CivLeaderboardModeScope, groupIndex = 0): string {
+  if (modeScope === 'all') return groupIndex === 0 ? CIV_LEADERBOARD_SCOPE : `${CIV_LEADERBOARD_SCOPE}:${groupIndex + 1}`
+  return groupIndex === 0 ? `${CIV_LEADERBOARD_SCOPE}:${modeScope}` : `${CIV_LEADERBOARD_SCOPE}:${modeScope}:${groupIndex + 1}`
+}
+
+function civLeaderboardMessageScopes(modeScope: CivLeaderboardModeScope): string[] {
+  return [0, 1, 2].map(groupIndex => civLeaderboardMessageScope(modeScope, groupIndex))
+}
+
+function civLeaderboardSystemChannelType(modeScope: CivLeaderboardModeScope): SystemChannelType {
+  if (modeScope === 'all') return 'civ-leaderboard-all'
+  return `civ-leaderboard-${modeScope}` as SystemChannelType
+}
+
+async function getConfiguredCivLeaderboardChannels(kv: KVNamespace): Promise<Map<CivLeaderboardModeScope, string>> {
+  const [legacyAllChannelId, ...scopedChannelIds] = await Promise.all([
+    getSystemChannel(kv, 'civ-leaderboard'),
+    ...CIV_LEADERBOARD_MODE_SCOPES.map(modeScope => getSystemChannel(kv, civLeaderboardSystemChannelType(modeScope))),
+  ])
+  const channelByModeScope = new Map<CivLeaderboardModeScope, string>()
+  for (let index = 0; index < CIV_LEADERBOARD_MODE_SCOPES.length; index++) {
+    const modeScope = CIV_LEADERBOARD_MODE_SCOPES[index]!
+    const channelId = scopedChannelIds[index] ?? (modeScope === 'all' ? legacyAllChannelId : null)
+    if (channelId) channelByModeScope.set(modeScope, channelId)
+  }
+  return channelByModeScope
 }
 
 function getPlayerLeaderboardMessageModes(modes?: readonly LeaderboardMode[]): LeaderboardMode[] {

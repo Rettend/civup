@@ -104,14 +104,16 @@ export function civLeaderboardEmbed(
       .title(title)
       .description(emptyDescriptionForBoard(board))
       .color(BOARD_COLORS[board])
+      .footer({ text: formatFooter(snapshot) })
   }
 
-  const description = formatBoardDescription(board, rows, snapshot.completedMatchCount)
+  const description = formatBoardDescription(board, rows)
 
   return new Embed()
     .title(title)
     .description(description)
     .color(BOARD_COLORS[board])
+    .footer({ text: formatFooter(snapshot) })
 }
 
 export function civLeaderboardPageEmbed(
@@ -136,17 +138,18 @@ export function civLeaderboardPageEmbed(
       .title(title)
       .description(emptyDescriptionForBoard(board))
       .color(BOARD_COLORS[board])
+      .footer({ text: formatFooter(snapshot) })
     return { embed, pageIndex, pageCount, totalRows: allRows.length }
   }
 
   const startRank = startIndex + 1
   const endRank = startIndex + rows.length
-  const description = formatBoardDescription(board, rows, snapshot.completedMatchCount, startRank)
+  const description = formatBoardDescription(board, rows, startRank)
   const embed = new Embed()
     .title(title)
     .description(description)
     .color(BOARD_COLORS[board])
-    .footer({ text: `Page ${pageIndex + 1}/${pageCount} - ${startRank}-${endRank} of ${allRows.length}` })
+    .footer({ text: `${formatFooter(snapshot)} | Page ${pageIndex + 1}/${pageCount} - ${startRank}-${endRank} of ${allRows.length}` })
 
   return { embed, pageIndex, pageCount, totalRows: allRows.length }
 }
@@ -154,14 +157,13 @@ export function civLeaderboardPageEmbed(
 function formatBoardDescription(
   board: CivLeaderboardBoard,
   rows: readonly CivLeaderboardSnapshotRow[],
-  completedMatchCount: number,
   startRank = 1,
 ): string {
   const lines: string[] = []
   let length = 0
 
   for (let index = 0; index < rows.length; index++) {
-    const line = formatRow(board, rows[index]!, startRank + index, completedMatchCount)
+    const line = formatRow(board, rows[index]!, startRank + index)
     const nextLength = length + (lines.length > 0 ? 1 : 0) + line.length
     if (nextLength > CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT) break
 
@@ -193,10 +195,10 @@ export function civLeaderboardRowsForBoard(
     .sort((left, right) => right.bans - left.bans || right.picks - left.picks || left.civId.localeCompare(right.civId))
 }
 
-function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number, completedMatchCount: number): string {
+function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number): string {
   const leader = formatLeader(row)
   const stats = {
-    picked: formatCodePercent(ratePct(row.picks, completedMatchCount)),
+    picked: formatCodePercent(row.pickRatePct),
     winrate: formatCodePercent(row.winRatePct),
     banned: formatCodePercent(row.banRatePct),
   }
@@ -236,9 +238,8 @@ function formatCodePercent(value: number | null): string {
   return `\`${formatPercent(value).padEnd(STAT_PERCENT_WIDTH, ' ')}\``
 }
 
-function ratePct(count: number, total: number): number | null {
-  if (total <= 0) return null
-  return Math.round((count / total) * 1000) / 10
+function formatFooter(snapshot: CivLeaderboardSnapshot): string {
+  return `${snapshot.label} | Games: ${snapshot.completedMatchCount}`
 }
 
 function normalizePageSize(value: number | undefined): number {
@@ -264,9 +265,10 @@ function embedTextLength(embed: Embed): number {
   const json = embed.toJSON() as {
     title?: unknown
     description?: unknown
+    footer?: { text?: unknown }
   }
 
-  return stringLength(json.title) + stringLength(json.description)
+  return stringLength(json.title) + stringLength(json.description) + stringLength(json.footer?.text)
 }
 
 function stringLength(value: unknown): number {
