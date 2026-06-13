@@ -14,7 +14,7 @@ import { sendTransientEphemeralResponse } from './shared.ts'
 import { handleTournamentCreate, handleTournamentCut, handleTournamentEdit, handleTournamentImport, handleTournamentStart, handleTournamentStatus, modal_admin_tournament_create, modal_admin_tournament_edit } from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
-  new Command('admin', 'Admin commands for CivUp')
+  new Command('admin', 'Admin commands')
     .default_member_permissions(ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS)
     .options(
       new SubGroup('permission', 'Configure Mod command access').options(

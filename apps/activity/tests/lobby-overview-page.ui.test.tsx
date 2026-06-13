@@ -131,6 +131,26 @@ describe('LobbyOverviewPage UI', () => {
     expect(rendered.container.querySelector('[data-overview-name-grid]')).toBeNull()
   })
 
+  test('orders 2v2 card players left to right across teams', () => {
+    const players = [
+      { playerId: 'a1', displayName: 'Team A 1', avatarUrl: null, team: 0 },
+      { playerId: 'a2', displayName: 'Team A 2', avatarUrl: null, team: 0 },
+      { playerId: 'b1', displayName: 'Team B 1', avatarUrl: null, team: 1 },
+      { playerId: 'b2', displayName: 'Team B 2', avatarUrl: null, team: 1 },
+    ]
+
+    const rendered = render(() => (
+      <LobbyOverviewPage
+        options={[createActivityTargetOption({ mode: '2v2', participantCount: 4, targetSize: 4, players })]}
+        onSelect={onSelect}
+      />
+    ))
+
+    const names = [...rendered.container.querySelectorAll('[data-overview-name-grid] > div > span:last-child')]
+      .map(element => element.textContent)
+    expect(names).toEqual(['Team A 1', 'Team B 1', 'Team A 2', 'Team B 2'])
+  })
+
   test('shows the mini overview with hidden-count, host or joined tags, and mini empty fallback', () => {
     uiMockState.isMiniView = true
 

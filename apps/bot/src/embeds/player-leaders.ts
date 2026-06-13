@@ -7,17 +7,19 @@ import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MOD
 import { Embed } from 'discord-hono'
 import { and, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { listPlayerCivStats, loadPlayerCivRankingSummaries, PLAYER_CIV_MIN_RANK_GAMES } from '../services/leaderboard/player-civ-stats.ts'
+import { listPlayerCivStats, loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { countFfaRatingWins, formatModeStats, getRatingModes } from './player-card.ts'
 
 export type LeadersModeFilter = 'all' | GameMode
 
-const TOP_LEADER_LIMIT = 5
-const HIGHEST_RANKED_LIMIT = 5
+const TOP_LEADER_LIMIT = 10
+const BEST_LEADER_LIMIT = 10
 const FIELD_VALUE_LIMIT = 1024
 const NOT_ENOUGH_LEADER_DATA = 'Not enough leader data'
+const TOP_PLAYED_NOTE = '-# Ranked by number of games played'
+const BEST_LEADERS_NOTE = '-# Ranked by leader performance'
 
 interface LeaderRankRow {
   stat: PlayerCivStatSummary
@@ -60,7 +62,6 @@ export async function playerLeadersEmbed(
 
   const leaderStats = await listPlayerCivStats(db, playerCivFilter, playerId)
   const topPlayedLeaders = sortLeaderStatsByGames(leaderStats).slice(0, TOP_LEADER_LIMIT)
-  const bestLeaders = sortLeaderStatsByWinRate(leaderStats.filter(stat => stat.picks >= PLAYER_CIV_MIN_RANK_GAMES)).slice(0, TOP_LEADER_LIMIT)
   const rankings = await loadPlayerCivRankingSummaries(db, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
   const rankRows = buildRankRows(leaderStats, rankings)
 
@@ -81,7 +82,7 @@ export async function playerLeadersEmbed(
     })
   }
 
-  const topPlayedValue = formatLeaderList(topPlayedLeaders, rankings, 'games')
+  const topPlayedValue = formatTopPlayedLeaderList(topPlayedLeaders, rankings)
   if (topPlayedValue) {
     fields.push({
       name: requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders',
@@ -90,7 +91,7 @@ export async function playerLeadersEmbed(
     })
   }
 
-  const bestValue = formatLeaderList(bestLeaders, rankings, 'winrate')
+  const bestValue = formatBestLeaderList(rankRows.slice(0, BEST_LEADER_LIMIT))
   if (bestValue) {
     fields.push({
       name: requestedModeLabel ? `Best Leaders (${requestedModeLabel})` : 'Best Leaders',
@@ -99,16 +100,7 @@ export async function playerLeadersEmbed(
     })
   }
 
-  const highestRankedValue = formatHighestRankedList(rankRows.slice(0, HIGHEST_RANKED_LIMIT))
-  if (highestRankedValue) {
-    fields.push({
-      name: requestedModeLabel ? `Highest Ranked Leaders (${requestedModeLabel})` : 'Highest Ranked Leaders',
-      value: highestRankedValue,
-      inline: false,
-    })
-  }
-
-  if (!bestValue && !highestRankedValue) {
+  if (!topPlayedValue && !bestValue) {
     fields.push({
       name: requestedModeLabel ? `Leaders (${requestedModeLabel})` : 'Leaders',
       value: NOT_ENOUGH_LEADER_DATA,
@@ -135,21 +127,6 @@ function buildLeadersDescription(playerId: string, requestedModeLabel: string | 
 
 function sortLeaderStatsByGames(stats: readonly PlayerCivStatSummary[]): PlayerCivStatSummary[] {
   return [...stats].sort((a, b) => {
-    const gamesDiff = b.picks - a.picks
-    if (gamesDiff !== 0) return gamesDiff
-
-    const winsDiff = b.wins - a.wins
-    if (winsDiff !== 0) return winsDiff
-
-    return a.civId.localeCompare(b.civId)
-  })
-}
-
-function sortLeaderStatsByWinRate(stats: readonly PlayerCivStatSummary[]): PlayerCivStatSummary[] {
-  return [...stats].sort((a, b) => {
-    const winRateDiff = (b.wins * a.picks) - (a.wins * b.picks)
-    if (winRateDiff !== 0) return winRateDiff
-
     const gamesDiff = b.picks - a.picks
     if (gamesDiff !== 0) return gamesDiff
 
@@ -187,23 +164,24 @@ function buildRankRows(
     })
 }
 
-function formatLeaderList(
+function formatTopPlayedLeaderList(
   stats: readonly PlayerCivStatSummary[],
   rankings: Map<string, PlayerCivRankingSummary>,
-  rankType: 'games' | 'winrate',
 ): string {
-  return limitFieldLines(stats.map((stat) => {
+  const lines = stats.map((stat) => {
     const ranking = rankings.get(stat.civId)
-    const rank = rankType === 'games' ? ranking?.playerGamesRank : ranking?.playerWinRateRank
+    const rank = ranking?.playerGamesRank
     return `${formatRank(rank)} ${formatRecord(stat.wins, stat.picks)} ${formatLeaderName(stat.civId)}`
-  }))
+  })
+  return lines.length > 0 ? limitFieldLines([...lines, TOP_PLAYED_NOTE]) : ''
 }
 
-function formatHighestRankedList(rows: readonly LeaderRankRow[]): string {
-  return limitFieldLines(rows.map((row) => {
+function formatBestLeaderList(rows: readonly LeaderRankRow[]): string {
+  const lines = rows.map((row) => {
     const rank = row.ranking.playerAdjustedWinRateRank
-    return `${formatRank(rank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)} - Rank #${rank}`
-  }))
+    return `${formatRank(rank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)}`
+  })
+  return lines.length > 0 ? limitFieldLines([...lines, BEST_LEADERS_NOTE]) : ''
 }
 
 function formatRank(rank: number | null | undefined): string {

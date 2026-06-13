@@ -8,7 +8,7 @@ export const command_ping = factory.command(
       const startedAt = performance.now()
       await c.followup('🏛️ Pong! Measuring latency...')
       const latencyMs = Math.max(0, Math.round(performance.now() - startedAt))
-      await c.followup(`🏛️ Pong! CivUp is online. (${latencyMs} ms)`)
+      await c.followup(`🏛️ Pong! Bot is online. (${latencyMs} ms)`)
     })
   },
 )
