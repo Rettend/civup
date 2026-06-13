@@ -871,13 +871,17 @@ describe('tournament service', () => {
       expect(finalTarget.opponentId).toBe(PLAYER_1)
       expect(finalTarget.opponentDisplayName).toBe('Alice')
       const finalImageData = await buildTournamentLeaderboardImageData(db, tournament.id)
-      expect(finalImageData?.pairings.find(pairing => pairing.round === 'final')?.requiredWins).toBe(2)
+      expect(finalImageData?.pairings.find(pairing => pairing.round === 'final')?.requiredWins).toBe(3)
 
       await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session-1', 'advance-final-match-1', PLAYER_3)
-      const [pendingTournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournament.id))
+      let pendingTournament = (await db.select().from(tournaments).where(eq(tournaments.id, tournament.id)))[0]
       expect(pendingTournament?.status).toBe('top_cut')
 
       await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session-2', 'advance-final-match-2', PLAYER_3)
+      pendingTournament = (await db.select().from(tournaments).where(eq(tournaments.id, tournament.id)))[0]
+      expect(pendingTournament?.status).toBe('top_cut')
+
+      await reportTopCutPairing(db, tournament.id, finals[0]!, 'advance-final-session-3', 'advance-final-match-3', PLAYER_3)
       const [completedTournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournament.id))
       expect(completedTournament?.status).toBe('completed')
 

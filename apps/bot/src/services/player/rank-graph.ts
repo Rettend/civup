@@ -1,15 +1,14 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from '../ranked/roles.ts'
-import { playerRatingEvents, players as playerRows } from '@civup/db'
+import { playerRatingEvents, playerRatings, players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { displayRating, roleRating } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
-import { previewRankedRoles, summarizeRankedPreview } from '../ranked/role-sync.ts'
-import { getConfiguredRankedRoleLabel } from '../ranked/roles.ts'
+import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
 export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
@@ -61,6 +60,19 @@ interface RankGraphEventRow {
   matchCreatedAt: number
 }
 
+interface RankGraphScoreRow {
+  playerId: string
+  score: number
+  lastPlayedAt: number | null
+  qualified: boolean
+}
+
+interface RankGraphTierThreshold {
+  tier: CompetitiveTier
+  earnPercent: number
+  minimumCountWhenUnlocked: number
+}
+
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
 const SIDE_PAD = 52
@@ -91,6 +103,8 @@ const COLORS = {
 }
 
 const BAND_FALLBACK_COLORS = ['#f5c542', '#d4d4d8', '#c08457', '#22c55e', '#71717a', '#52525b'] as const
+const MODE_RANK_GRAPH_BAND_MIN_GAMES = 10
+const RANK_GRAPH_EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.20, 0.40, 0.90] as const
 
 let wasmReady: Promise<unknown> | null = null
 let fontBuffersReady: Promise<Uint8Array[]> | null = null
@@ -218,41 +232,137 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<{ disp
 }
 
 async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope): Promise<RankGraphBand[]> {
-  if (scope === 'overall') return loadOverallRankGraphBands(db, kv, guildId)
-
-  const summary = await summarizeRankedPreview({ db, kv, guildId, mode: scope })
-  const modeSummary = summary.modes.find(mode => mode.mode === scope)
-  if (!modeSummary) return []
-
-  return modeSummary.tiers.map((tier, index) => ({
-    tier: tier.tier,
-    label: getConfiguredRankedRoleLabel(summary.config, tier.tier) ?? shortTierLabel(tier.tier),
-    color: getTierColor(summary.config, tier.tier, index),
-    cutoffScore: tier.isFallback ? null : tier.cutoffScore,
-  }))
+  const [config, scores] = await Promise.all([
+    getRankedRoleConfig(kv, guildId),
+    scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
+  ])
+  return buildRankGraphBands(config, scores)
 }
 
-async function loadOverallRankGraphBands(db: Database, kv: KVNamespace, guildId: string): Promise<RankGraphBand[]> {
-  const preview = await previewRankedRoles({ db, kv, guildId, includePlayerIdentities: false })
-  const cutoffByTier = new Map<CompetitiveTier, number>()
+async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {
+  const rows = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      gamesPlayed: playerRatings.gamesPlayed,
+      lastPlayedAt: playerRatings.lastPlayedAt,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, scope))
 
-  for (const player of preview.playerPreviews) {
-    if (!player.managed || player.globalScore == null) continue
-    const tier = player.assignment.tier
-    const current = cutoffByTier.get(tier)
-    if (current == null || player.globalScore < current) cutoffByTier.set(tier, player.globalScore)
-  }
+  const leaderboardMinGames = getLeaderboardMinGames(scope)
+  return rows
+    .filter(row => row.gamesPlayed >= leaderboardMinGames)
+    .map(row => ({
+      playerId: row.playerId,
+      score: displayRating(row.mu, row.sigma),
+      lastPlayedAt: row.lastPlayedAt ?? null,
+      qualified: row.gamesPlayed >= MODE_RANK_GRAPH_BAND_MIN_GAMES,
+    }))
+    .sort(compareRankGraphScoreRows)
+}
 
-  return preview.config.tiers.map((_tier, index) => {
+async function loadOverallRankGraphScores(db: Database): Promise<RankGraphScoreRow[]> {
+  const rows = await db
+    .select({
+      playerId: playerRatings.playerId,
+      mu: playerRatings.mu,
+      sigma: playerRatings.sigma,
+      effectiveGames: playerRatings.effectiveGames,
+      lastPlayedAt: playerRatings.lastPlayedAt,
+    })
+    .from(playerRatings)
+    .where(eq(playerRatings.mode, 'global'))
+
+  return rows
+    .filter(row => row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES)
+    .map(row => ({
+      playerId: row.playerId,
+      score: roleRating(row.mu, row.sigma),
+      lastPlayedAt: row.lastPlayedAt ?? null,
+      qualified: true,
+    }))
+    .sort(compareRankGraphScoreRows)
+}
+
+function buildRankGraphBands(config: RankedRoleConfig, sortedScores: readonly RankGraphScoreRow[]): RankGraphBand[] {
+  const cutoffByTier = buildRankGraphCutoffs(config, sortedScores)
+  return config.tiers.map((_tier, index) => {
     const tier = `tier${index + 1}` as CompetitiveTier
-    const fallback = index === preview.config.tiers.length - 1
+    const fallback = index === config.tiers.length - 1
     return {
       tier,
-      label: getConfiguredRankedRoleLabel(preview.config, tier) ?? shortTierLabel(tier),
-      color: getTierColor(preview.config, tier, index),
+      label: getConfiguredRankedRoleLabel(config, tier) ?? shortTierLabel(tier),
+      color: getTierColor(config, tier, index),
       cutoffScore: fallback ? null : cutoffByTier.get(tier) ?? null,
     }
   })
+}
+
+function buildRankGraphCutoffs(config: RankedRoleConfig, sortedScores: readonly RankGraphScoreRow[]): Map<CompetitiveTier, number> {
+  const cutoffByTier = new Map<CompetitiveTier, number>()
+  const rankedCount = sortedScores.length
+  let start = 0
+
+  for (const threshold of buildRankGraphTierThresholds(config)) {
+    let size = Math.round(rankedCount * threshold.earnPercent)
+    if (threshold.minimumCountWhenUnlocked > 0) size = Math.max(threshold.minimumCountWhenUnlocked, size)
+    size = Math.max(0, Math.min(size, rankedCount - start))
+
+    const cutoff = findLastQualifiedScore(sortedScores, start, size)
+    if (cutoff != null) cutoffByTier.set(threshold.tier, cutoff)
+    start += size
+  }
+
+  return cutoffByTier
+}
+
+function findLastQualifiedScore(sortedScores: readonly RankGraphScoreRow[], start: number, size: number): number | null {
+  for (let offset = size - 1; offset >= 0; offset--) {
+    const row = sortedScores[start + offset]
+    if (row?.qualified) return row.score
+  }
+  return null
+}
+
+function buildRankGraphTierThresholds(config: RankedRoleConfig): RankGraphTierThreshold[] {
+  const prestigeTierCount = Math.max(0, config.tiers.length - 1)
+  if (prestigeTierCount <= 0) return []
+
+  let previousEarnPercent = 0
+  return Array.from({ length: prestigeTierCount }, (_value, index) => {
+    const progress = prestigeTierCount <= 1 ? 1 : index / (prestigeTierCount - 1)
+    const cumulativeEarnPercent = interpolatePositiveAnchors(RANK_GRAPH_EARN_CUMULATIVE_PERCENT_ANCHORS, progress)
+    const threshold: RankGraphTierThreshold = {
+      tier: `tier${index + 1}` as CompetitiveTier,
+      earnPercent: Math.max(0, cumulativeEarnPercent - previousEarnPercent),
+      minimumCountWhenUnlocked: index < Math.min(2, prestigeTierCount) ? 1 : 0,
+    }
+    previousEarnPercent = cumulativeEarnPercent
+    return threshold
+  })
+}
+
+function interpolatePositiveAnchors(values: readonly number[], progress: number): number {
+  if (values.length === 0) return 0
+  if (values.length === 1) return values[0] ?? 0
+
+  const bounded = Math.max(0, Math.min(1, progress))
+  const scaled = bounded * (values.length - 1)
+  const leftIndex = Math.floor(scaled)
+  const rightIndex = Math.min(values.length - 1, leftIndex + 1)
+  const mix = scaled - leftIndex
+  const left = values[leftIndex] ?? values[0] ?? 0
+  const right = values[rightIndex] ?? left
+  if (left <= 0 || right <= 0) return left + (right - left) * mix
+  return Math.exp(Math.log(left) + (Math.log(right) - Math.log(left)) * mix)
+}
+
+function compareRankGraphScoreRows(left: RankGraphScoreRow, right: RankGraphScoreRow): number {
+  if (right.score !== left.score) return right.score - left.score
+  if ((right.lastPlayedAt ?? 0) !== (left.lastPlayedAt ?? 0)) return (right.lastPlayedAt ?? 0) - (left.lastPlayedAt ?? 0)
+  return left.playerId.localeCompare(right.playerId)
 }
 
 function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGraphScope): RankGraphPoint[] {
