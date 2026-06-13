@@ -86,7 +86,6 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Civ Leaderboard (Duel)', value: 'civ-leaderboard-duel' },
           { name: 'Civ Leaderboard (Duo)', value: 'civ-leaderboard-duo' },
           { name: 'Civ Leaderboard (Squad)', value: 'civ-leaderboard-squad' },
-          { name: 'Civ Leaderboard (All Fallback)', value: 'civ-leaderboard' },
           { name: 'Tournament Draft', value: 'tournament-draft' },
           { name: 'Tournament Archive', value: 'tournament-archive' },
           { name: 'Tournament Leaderboard', value: 'tournament-leaderboard' },

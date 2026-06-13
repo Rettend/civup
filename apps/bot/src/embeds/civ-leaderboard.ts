@@ -49,6 +49,13 @@ const STAT_ORDER: Record<CivLeaderboardBoard, readonly CivLeaderboardBoard[]> = 
 
 const STAT_PERCENT_WIDTH = 5
 
+const MODE_SCOPE_TITLE_LABELS: Record<CivLeaderboardSnapshot['modeScope'], string | null> = {
+  all: null,
+  duel: 'Duel',
+  duo: 'Duo',
+  squad: 'Squad',
+}
+
 export function parseCivLeaderboardBoard(value: string | undefined): CivLeaderboardBoard | null {
   if (value === 'picked' || value === 'winrate' || value === 'banned') return value
   return null
@@ -97,7 +104,7 @@ export function civLeaderboardEmbed(
   } = {},
 ): Embed {
   const rows = civLeaderboardRowsForBoard(board, snapshot.rows).slice(0, CIV_LEADERBOARD_TOP_LIMIT)
-  const title = formatCivLeaderboardTitle(board, options.titlePrefix)
+  const title = formatCivLeaderboardTitle(board, resolveTitleScopeLabel(snapshot, options.titlePrefix))
 
   if (rows.length === 0) {
     return new Embed()
@@ -131,7 +138,7 @@ export function civLeaderboardPageEmbed(
   const pageIndex = clampPageIndex(options.pageIndex ?? 0, pageCount)
   const startIndex = pageStartIndex(pageIndex, pageCount, allRows.length, pageSize)
   const rows = allRows.slice(startIndex, startIndex + pageSize)
-  const title = formatCivLeaderboardPageTitle(board, options.titlePrefix)
+  const title = formatCivLeaderboardPageTitle(board, resolveTitleScopeLabel(snapshot, options.titlePrefix))
 
   if (rows.length === 0) {
     const embed = new Embed()
@@ -216,14 +223,22 @@ function formatStat(stat: CivLeaderboardBoard, value: string): string {
   return `${STAT_EMOJIS[stat]} ${value}`
 }
 
-function formatCivLeaderboardTitle(board: CivLeaderboardBoard, titlePrefix?: string): string {
+function formatCivLeaderboardTitle(board: CivLeaderboardBoard, titleScopeLabel?: string): string {
   const baseTitle = BOARD_TITLES[board]
-  return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
+  return formatTitleWithScope(baseTitle, titleScopeLabel)
 }
 
-function formatCivLeaderboardPageTitle(board: CivLeaderboardBoard, titlePrefix?: string): string {
+function formatCivLeaderboardPageTitle(board: CivLeaderboardBoard, titleScopeLabel?: string): string {
   const baseTitle = BOARD_PAGE_TITLES[board]
-  return titlePrefix ? `${titlePrefix} ${baseTitle}` : baseTitle
+  return formatTitleWithScope(baseTitle, titleScopeLabel)
+}
+
+function resolveTitleScopeLabel(snapshot: CivLeaderboardSnapshot, override?: string): string | undefined {
+  return override ?? MODE_SCOPE_TITLE_LABELS[snapshot.modeScope] ?? undefined
+}
+
+function formatTitleWithScope(baseTitle: string, titleScopeLabel?: string): string {
+  return titleScopeLabel ? `${baseTitle} (${titleScopeLabel})` : baseTitle
 }
 
 function emptyDescriptionForBoard(board: CivLeaderboardBoard): string {
@@ -239,7 +254,8 @@ function formatCodePercent(value: number | null): string {
 }
 
 function formatFooter(snapshot: CivLeaderboardSnapshot): string {
-  return `${snapshot.label} | Games: ${snapshot.completedMatchCount}`
+  const gamesLabel = snapshot.completedMatchCount === 1 ? 'Game' : 'Games'
+  return `${snapshot.label} - ${snapshot.completedMatchCount} ${gamesLabel}`
 }
 
 function normalizePageSize(value: number | undefined): number {
