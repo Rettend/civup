@@ -65,7 +65,7 @@ describe('civ leaderboard command payload', () => {
       expect(embeds[1]?.description).toContain('🏆 `75%  ` 🖱️ `50%  ` 🚫 `33.3%`')
       expect(embeds[2]?.description).toContain('🚫 `33.3%` 🖱️ `50%  ` 🏆 `75%  `')
       expect(embeds.map(embed => embed.description).join('\n')).not.toContain('Aliens')
-      expect(embeds[0]?.footer?.text).toBe(`BBG ${liveLeaderDataVersionLabel} | Games: 24 | Page 1/1 - 1-2 of 2`)
+      expect(embeds[0]?.footer?.text).toBe(`BBG ${liveLeaderDataVersionLabel} - 24 Games | Page 1/1 - 1-2 of 2`)
       expect(pickedPayload.components).toEqual([])
     }
     finally {
@@ -264,7 +264,7 @@ describe('civ leaderboard command payload', () => {
       expect(lineCount(topEmbed?.description)).toBe(CIV_LEADERBOARD_PAGE_SIZE)
       expect(topEmbed?.description).toContain('`#1 `')
       expect(topEmbed?.description).toContain(getLeader(allLeaderIds[0]!).name)
-      expect(topEmbed?.footer?.text).toBe('BBG Test | Games: 100 | Page 1/3 - 1-20 of 45')
+      expect(topEmbed?.footer?.text).toBe('BBG Test - 100 Games | Page 1/3 - 1-20 of 45')
       expect(controls[0]?.components.map(button => button.label)).toEqual(['Top', 'Prev', 'Next', 'Bottom'])
       expect(controls[0]?.components.map(button => button.style)).toEqual([2, 2, 2, 2])
       expect(customIds(controls)).toHaveLength(new Set(customIds(controls)).size)
@@ -281,7 +281,7 @@ describe('civ leaderboard command payload', () => {
       expect(lineCount(bottomEmbed?.description)).toBe(CIV_LEADERBOARD_PAGE_SIZE)
       expect(bottomEmbed?.description).toContain('`#26`')
       expect(bottomEmbed?.description).toContain(getLeader(allLeaderIds[44]!).name)
-      expect(bottomEmbed?.footer?.text).toBe('BBG Test | Games: 100 | Page 3/3 - 26-45 of 45')
+      expect(bottomEmbed?.footer?.text).toBe('BBG Test - 100 Games | Page 3/3 - 26-45 of 45')
       expect(customIds(bottomControls)).toHaveLength(new Set(customIds(bottomControls)).size)
       expect(bottomControls[0]?.components[2]?.disabled).toBe(true)
       expect(bottomControls[0]?.components[3]?.disabled).toBe(true)
@@ -463,6 +463,17 @@ describe('civ leaderboard command payload', () => {
       expect(snapshots.get('duel')?.rows.map(row => row.civId)).toEqual(['rome-trajan'])
       expect(snapshots.get('duo')?.rows.map(row => row.civId)).toEqual(['russia-peter'])
       expect(snapshots.get('squad')?.rows).toEqual([])
+
+      const duelPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'duel' })
+      const duoPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'duo' })
+      const squadPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'squad' })
+
+      expect(firstEmbedJson(duelPayload).title).toBe('Picked Leaders (Duel)')
+      expect(firstEmbedJson(duelPayload).description).toContain('Trajan')
+      expect(firstEmbedJson(duoPayload).title).toBe('Picked Leaders (Duo)')
+      expect(firstEmbedJson(duoPayload).description).toContain('Peter')
+      expect(firstEmbedJson(squadPayload).title).toBe('Picked Leaders (Squad)')
+      expect(firstEmbedJson(squadPayload).description).toBe('No completed matches with picked leaders yet.')
     }
     finally {
       sqlite.close()

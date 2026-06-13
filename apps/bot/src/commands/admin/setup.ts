@@ -14,7 +14,7 @@ export function handleSetup(c: AdminCommandContext) {
   const rawTarget = c.var.target
   if (!rawTarget) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId, civLeaderboardFallbackChannelId, civLeaderboardAllChannelId, civLeaderboardDuelChannelId, civLeaderboardDuoChannelId, civLeaderboardSquadChannelId, tournamentDraftChannelId, tournamentArchiveChannelId, tournamentLeaderboardChannelId] = await Promise.all([
+      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId, legacyCivLeaderboardChannelId, civLeaderboardAllChannelId, civLeaderboardDuelChannelId, civLeaderboardDuoChannelId, civLeaderboardSquadChannelId, tournamentDraftChannelId, tournamentArchiveChannelId, tournamentLeaderboardChannelId] = await Promise.all([
         getSystemChannel(c.env.KV, 'draft'),
         getSystemChannel(c.env.KV, 'archive'),
         getSystemChannel(c.env.KV, 'commands'),
@@ -36,11 +36,10 @@ export function handleSetup(c: AdminCommandContext) {
         + `Archive — ${formatChannelMention(archiveChannelId)}\n`
         + `Bot Commands — ${formatChannelMention(commandsChannelId)}\n`
         + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n`
-        + `Civ Leaderboard (All) — ${formatChannelMention(civLeaderboardAllChannelId ?? civLeaderboardFallbackChannelId)}\n`
+        + `Civ Leaderboard (All) — ${formatChannelMention(civLeaderboardAllChannelId ?? legacyCivLeaderboardChannelId)}\n`
         + `Civ Leaderboard (Duel) — ${formatChannelMention(civLeaderboardDuelChannelId)}\n`
         + `Civ Leaderboard (Duo) — ${formatChannelMention(civLeaderboardDuoChannelId)}\n`
         + `Civ Leaderboard (Squad) — ${formatChannelMention(civLeaderboardSquadChannelId)}\n`
-        + `Civ Leaderboard (All Fallback) — ${formatChannelMention(civLeaderboardFallbackChannelId)}\n`
         + `Tournament Draft — ${formatChannelMention(tournamentDraftChannelId)}\n`
         + `Tournament Archive — ${formatChannelMention(tournamentArchiveChannelId)}\n`
         + `Tournament Leaderboard — ${formatChannelMention(tournamentLeaderboardChannelId)}`,
