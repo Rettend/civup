@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerCivStats, players } from '@civup/db'
+import { matches, matchParticipants, playerCivStats, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -130,28 +130,37 @@ describe('leader stats embed', () => {
     }
   })
 
-  test('shows best players using adjusted leader ranks', async () => {
+  test('shows best players using strict global-Elo-aware leader ranks', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
       await db.insert(players).values([
-        { id: 'p1', displayName: 'Small Sample', avatarUrl: null, createdAt: 1 },
-        { id: 'p2', displayName: 'Big Sample', avatarUrl: null, createdAt: 1 },
+        { id: 'p1', displayName: 'Perfect Sample', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'High Elo Strong', avatarUrl: null, createdAt: 1 },
         { id: 'p3', displayName: 'Baseline', avatarUrl: null, createdAt: 1 },
       ])
       await db.insert(playerCivStats).values([
         { seasonId: '', gameMode: '1v1', playerId: 'p1', civId: 'rome-trajan', picks: 5, wins: 5, updatedAt: 1 },
-        { seasonId: '', gameMode: '1v1', playerId: 'p2', civId: 'rome-trajan', picks: 25, wins: 20, updatedAt: 1 },
+        { seasonId: '', gameMode: '1v1', playerId: 'p2', civId: 'rome-trajan', picks: 11, wins: 7, updatedAt: 1 },
         { seasonId: '', gameMode: '1v1', playerId: 'p3', civId: 'rome-trajan', picks: 30, wins: 0, updatedAt: 1 },
       ])
+      await db.insert(playerRatings).values({
+        playerId: 'p2',
+        mode: 'global',
+        mu: 36.111,
+        sigma: 8.333,
+        gamesPlayed: 20,
+        wins: 14,
+        lastPlayedAt: 1,
+      })
 
       const embed = await leaderStatsEmbed(db, 'rome-trajan')
       const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
       const bestPlayers = field(json.fields ?? [], 'Best Players')
 
-      expect(bestPlayers?.value.split('\n')[0]).toContain('Big Sample')
+      expect(bestPlayers?.value.split('\n')[0]).toContain('High Elo Strong')
       expect(bestPlayers?.value.split('\n')[0]).toContain('`#1 `')
-      expect(bestPlayers?.value.split('\n')[1]).toContain('Small Sample')
+      expect(bestPlayers?.value.split('\n')[1]).toContain('Perfect Sample')
       expect(bestPlayers?.value.split('\n')[1]).toContain('`#2 `')
     }
     finally {

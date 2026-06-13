@@ -489,8 +489,8 @@ function formatLeaderStatLine(stat: LeaderStat, rank: number | null = null): str
   const winRate = Math.round((stat.wins / stat.games) * 100)
   const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
   const pct = `${winRate}%`.padStart(4, ' ')
-  const rankSuffix = rank == null ? '' : ` - Rank #${rank}`
-  return `\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}${rankSuffix}`
+  const rankPrefix = rank == null ? '' : `\`${`#${rank}`.padEnd(3, ' ')}\` `
+  return `${rankPrefix}\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}`
 }
 
 function formatCommonPlayerStatLine(stat: CommonPlayerStat): string {

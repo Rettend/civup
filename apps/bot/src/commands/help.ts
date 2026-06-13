@@ -29,7 +29,7 @@ interface HelpEntry {
 }
 
 export const command_help = factory.command(
-  new Command('help', 'Show available CivUp commands'),
+  new Command('help', 'Show available commands that you can use'),
   async (c) => {
     const memberPermissions = c.interaction.member?.permissions
     const canUseAdmin = hasAdminPermission({ permissions: memberPermissions })
