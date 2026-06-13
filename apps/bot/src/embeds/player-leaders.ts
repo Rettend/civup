@@ -85,7 +85,7 @@ export async function playerLeadersEmbed(
   const topPlayedValue = formatTopPlayedLeaderList(topPlayedLeaders, rankings)
   if (topPlayedValue) {
     fields.push({
-      name: requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders',
+      name: requestedModeLabel ? `Most Played Leaders (${requestedModeLabel})` : 'Most Played Leaders',
       value: topPlayedValue,
       inline: false,
     })
