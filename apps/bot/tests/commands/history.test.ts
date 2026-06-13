@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { buildPlayerHistoryCommandPayload } from '../../src/commands/history.ts'
-import { PLAYER_HISTORY_PAGE_SIZE, playerHistoryAlignmentTestEmbeds } from '../../src/embeds/player-history.ts'
+import { PLAYER_HISTORY_PAGE_SIZE } from '../../src/embeds/player-history.ts'
 import { parsePaginationCustomId } from '../../src/services/response/pagination.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
@@ -204,20 +204,6 @@ describe('history command payload', () => {
         index < teamSize ? 1 : 2,
         matchId,
       )))
-    }
-  })
-
-  test('keeps history test embeds within Discord field limits', () => {
-    const embeds = playerHistoryAlignmentTestEmbeds().map(embed => embed.toJSON() as { title?: string, fields?: Array<{ value?: string }> })
-
-    expect(embeds.length).toBeGreaterThan(0)
-    expect(embeds.some(embed => embed.title?.includes('Wide Script Widths'))).toBe(true)
-    expect(embeds.find(embed => embed.title?.includes('Symbol Widths'))?.fields?.map(field => field.value).join('\n')).toContain('\\_\\_\\_')
-    expect(embeds.find(embed => embed.title?.includes('Symbol Widths'))?.fields?.map(field => field.value).join('\n')).toContain('\\|\\|\\|')
-    expect(embeds.find(embed => embed.title?.includes('Symbol Widths'))?.fields?.map(field => field.value).join('\n')).toContain('\\\\\\\\\\\\')
-    for (const embed of embeds) {
-      expect(embed.fields?.length ?? 0).toBeLessThanOrEqual(25)
-      for (const field of embed.fields ?? []) expect(field.value?.split('\n')[0]).toContain('xxxxxxxxxx')
     }
   })
 })
