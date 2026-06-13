@@ -32,6 +32,7 @@ const EMOJI_CHARACTER_WIDTH = 22
 
 const SINGLE_WORD_NAME_WIDTH_ADJUSTMENT = -5
 const NAME_SPACE_EXTRA_WIDTH = 2
+const INITIALISM_SPACE_EXTRA_WIDTH = -0.5
 const ALNUM_NAME_LENGTH_BASE = 7
 const ALNUM_NAME_LENGTH_EXTRA_WIDTH = 1.5
 const ALNUM_NAME_MAX_WIDTH_ADJUSTMENT = 3
@@ -404,7 +405,7 @@ function formatPlayerList(
   const grouped = groupParticipantsByTeam(sorted)
   if (grouped.length <= 1) {
     return sorted
-      .map(participant => `${PLAYER_ROW_INDENT}${formatPlacementCode(participant.placement)} ${formatPlayerEntry(participant, row.isOld).text}`)
+      .map(participant => `${PLAYER_ROW_INDENT}${formatPlacementCode(participant.placement)} ${formatPlayerEntry(participant, row.isOld, targetPlayerId).text}`)
       .join('\n')
   }
 
@@ -416,7 +417,7 @@ function formatTeamColumns(
   targetPlayerId: string,
   isOld: boolean,
 ): string {
-  const columns = groups.map(group => sortTeamParticipants(group.participants, targetPlayerId).map(participant => formatPlayerEntry(participant, isOld)))
+  const columns = groups.map(group => sortTeamParticipants(group.participants, targetPlayerId).map(participant => formatPlayerEntry(participant, isOld, targetPlayerId)))
   const columnWidths = columns.slice(0, -1).map(column => Math.max(MIN_TEAM_COLUMN_WIDTH_PX, Math.max(0, ...column.map(entry => entry.visibleWidth)) + INTER_TEAM_COLUMN_GAP_PX))
   const maxRows = Math.max(0, ...columns.map(column => column.length))
   const lines: string[] = []
@@ -462,9 +463,10 @@ function sortParticipants(participants: readonly PlayerHistoryParticipantRow[]):
   })
 }
 
-function formatPlayerEntry(participant: PlayerHistoryParticipantRow, isOld: boolean): { text: string, visibleWidth: number } {
+function formatPlayerEntry(participant: PlayerHistoryParticipantRow, isOld: boolean, targetPlayerId: string): { text: string, visibleWidth: number } {
   const rawName = formatPlainPlayerName(participant.displayName, participant.playerId)
-  const name = escapeMarkdown(rawName)
+  const escapedName = escapeMarkdown(rawName)
+  const name = participant.playerId === targetPlayerId ? `**${escapedName}**` : escapedName
   return {
     text: `${formatLeaderIcon(participant.civId, isOld)} ${name}`,
     visibleWidth: LEADER_ICON_WIDTH_PX + LEADER_ICON_GAP_PX + estimateTextWidth(rawName),
@@ -506,6 +508,7 @@ function estimateNaturalNameAdjustment(value: string): number {
 
   const chars = [...value]
   const spaceCount = chars.filter(char => char === ' ').length
+  if (spaceCount > 0 && isSpacedInitialism(value)) return spaceCount * INITIALISM_SPACE_EXTRA_WIDTH
   if (spaceCount > 0) return spaceCount * NAME_SPACE_EXTRA_WIDTH
   if (/^[A-Za-z0-9]+$/u.test(value)) return estimateAlnumNameAdjustment(chars.length)
   if (/^[A-Za-z0-9_-]+$/u.test(value)) return estimateCompoundNameAdjustment(chars.length, chars.filter(char => char === '_' || char === '-').length)
@@ -521,6 +524,11 @@ function estimateAlnumNameAdjustment(length: number): number {
 
 function estimateCompoundNameAdjustment(length: number, separatorCount: number): number {
   return Math.max(0, length - COMPOUND_NAME_LENGTH_BASE) * COMPOUND_NAME_LENGTH_EXTRA_WIDTH + separatorCount * COMPOUND_NAME_SEPARATOR_EXTRA_WIDTH
+}
+
+function isSpacedInitialism(value: string): boolean {
+  const parts = value.split(' ')
+  return parts.length > 1 && parts.every(part => /^[A-Za-z0-9]$/u.test(part))
 }
 
 function isRepeatedSingleCharacter(value: string): boolean {
