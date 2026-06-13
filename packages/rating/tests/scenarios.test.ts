@@ -13,12 +13,13 @@ import {
   Z_MULTIPLIER,
 } from '../src/index.ts'
 
-function playerFromDisplay(playerId: string, targetDisplay: number, sigma: number = 5): PlayerRating {
-  return {
+function playerFromDisplay(playerId: string, targetDisplay: number, sigma: number = 5, gamesPlayed?: number): PlayerRating {
+  const player = {
     playerId,
     mu: DEFAULT_MU + ((targetDisplay - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE) + (Z_MULTIPLIER * (sigma - DEFAULT_SIGMA)),
     sigma,
   }
+  return gamesPlayed == null ? player : { ...player, gamesPlayed }
 }
 
 function playerById(updates: RatingUpdate[], playerId: string): RatingUpdate {
@@ -277,6 +278,38 @@ describe('duel progression simulations', () => {
     expect(playerById(heavyFavorite, 'fav-1200').displayDelta).toBeCloseTo(3.65, 2)
     expect(playerById(fullStomp, 'fav-1400').displayDelta).toBeCloseTo(0.64, 2)
   })
+
+  test('duel provisional underdog upsets reduce only established favorite losses', () => {
+    const baseline = calculateTeamRatings([
+      { players: [playerFromDisplay('new-winner', 1000, DEFAULT_SIGMA)] },
+      { players: [playerFromDisplay('favorite-loser', 1400, 4)] },
+    ])
+    const protectedUpset = calculateTeamRatings([
+      { players: [playerFromDisplay('new-winner', 1000, DEFAULT_SIGMA, 0)] },
+      { players: [playerFromDisplay('favorite-loser', 1400, 4, 10)] },
+    ])
+
+    const baselineWinner = playerById(baseline, 'new-winner')
+    const baselineLoser = playerById(baseline, 'favorite-loser')
+    const protectedWinner = playerById(protectedUpset, 'new-winner')
+    const protectedLoser = playerById(protectedUpset, 'favorite-loser')
+
+    expect(protectedWinner.displayDelta).toBeCloseTo(baselineWinner.displayDelta, 5)
+    expect(protectedLoser.displayDelta).toBeCloseTo(baselineLoser.displayDelta * 0.5, 5)
+  })
+
+  test('duel provisional protection requires a clear visible rating gap', () => {
+    const baseline = calculateTeamRatings([
+      { players: [playerFromDisplay('new-winner', 1000, DEFAULT_SIGMA)] },
+      { players: [playerFromDisplay('nearby-loser', 1075, 4)] },
+    ])
+    const gapGated = calculateTeamRatings([
+      { players: [playerFromDisplay('new-winner', 1000, DEFAULT_SIGMA, 0)] },
+      { players: [playerFromDisplay('nearby-loser', 1075, 4, 10)] },
+    ])
+
+    expect(playerById(gapGated, 'nearby-loser').displayDelta).toBeCloseTo(playerById(baseline, 'nearby-loser').displayDelta, 5)
+  })
 })
 
 describe('teamer rating scenarios', () => {
@@ -451,6 +484,25 @@ describe('teamer rating scenarios', () => {
     for (const playerId of ['avg1', 'avg2', 'avg3']) {
       expect(Math.abs(playerById(expectedWinUpdates, playerId).displayDelta)).toBeLessThan(6)
       expect(playerById(upsetUpdates, playerId).displayDelta).toBeGreaterThan(65)
+    }
+  })
+
+  test('two-team provisional upsets reduce only large individual loser hits', () => {
+    const baseline = calculateTeamRatings([
+      { players: [playerFromDisplay('new1', 1000, DEFAULT_SIGMA), playerFromDisplay('new2', 1000, DEFAULT_SIGMA)] },
+      { players: [playerFromDisplay('loser1', 1400, 8), playerFromDisplay('loser2', 1400, 8)] },
+    ])
+    const protectedUpset = calculateTeamRatings([
+      { players: [playerFromDisplay('new1', 1000, DEFAULT_SIGMA, 0), playerFromDisplay('new2', 1000, DEFAULT_SIGMA, 0)] },
+      { players: [playerFromDisplay('loser1', 1400, 8, 5), playerFromDisplay('loser2', 1400, 8, 5)] },
+    ])
+
+    for (const playerId of ['new1', 'new2']) {
+      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(playerById(baseline, playerId).displayDelta, 5)
+    }
+    for (const playerId of ['loser1', 'loser2']) {
+      expect(playerById(baseline, playerId).displayDelta).toBeLessThan(-60)
+      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(playerById(baseline, playerId).displayDelta * 0.75, 5)
     }
   })
 })

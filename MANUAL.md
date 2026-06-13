@@ -312,6 +312,40 @@ The bot keeps separate ratings for each game mode:
 
 Every ranked game also updates the player's overall ranked rating which Discord ranked roles use.
 
+### Leader ranks
+
+Leader ranks use a smoothed win rate plus current global elo and a volume bonus:
+
+```txt
+serverWinRate = serverWins / serverPicks
+
+adjustedWinRate =
+  (playerWins + serverWinRate * 20)
+  / (playerPicks + 20)
+
+confidence = playerPicks / (playerPicks + 20)
+
+globalEloBonus =
+  clamp(((globalElo - 1000) / 500) * 20pp, -20pp, 20pp)
+  * confidence
+
+volumeBonus = min(log1p(playerPicks) / log1p(25), 1) * 2pp
+
+score = adjustedWinRate + globalEloBonus + volumeBonus
+```
+
+- `20` is the smoothing strength, it acts like 20 virtual games at the leader's server win rate, so that someone with 100% win rate and few games does not automatically beat everyone else
+- the volume bonus is capped at 2 percentage points, grows slower as games go up, and reaches the cap at 25 games, it only helps break close cases, it does not let games played beat much better win rate or global Elo
+
+Players are ranked by:
+
+- total score, highest first
+- adjusted win rate
+- global Elo
+- games on the leader
+- wins on the leader
+- player id as a stable tie-breaker
+
 ### Ranked roles
 
 Example with 5 configured roles:
@@ -332,7 +366,8 @@ Players with less than **8 games** are `Unranked`, which means the bot won't tou
 - New players start around `1000` display rating.
 - The first 10 games move the rating more due to uncertainty.
 - In team game modes, players are rated individually. A stronger teammate gains less for a win and loses more for a loss than a weaker teammate.
-- There is an anti-farming system, which reduces elo gains/losses when expected winrate is above 70%
+- There is an anti-farming system, which reduces elo gains from expected wins when expected winrate is above 70%.
+- And there is an stablished protection system, veteran players can get partial protection from very large losses to highly uncertain lower rated players. This only reduces the losing player's loss, winner gains are unchanged.
 
 ### Extra requirements for high ranks
 

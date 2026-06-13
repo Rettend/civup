@@ -400,6 +400,26 @@ describe('LeaderGridOverlay UI', () => {
     expect(screen.queryByRole('button', { name: 'Remove favorite' })).toBeNull()
   })
 
+  test('preserves leader detail scroll when draft updates refresh the overlay', async () => {
+    uiMockState.detailLeaderId = TEST_LEADER_IDS.hammurabi
+    const mount = createMount()
+
+    mount()
+
+    const panel = document.querySelector('[data-leader-detail-panel]') as HTMLElement
+    panel.scrollTop = 96
+    fireEvent.scroll(panel)
+
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      picks: [{ seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
+    })
+    mount()
+    await wait(0)
+
+    expect((document.querySelector('[data-leader-detail-panel]') as HTMLElement).scrollTop).toBe(96)
+  })
+
   test('supports random ban confirmation through the shared overlay flow', () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,

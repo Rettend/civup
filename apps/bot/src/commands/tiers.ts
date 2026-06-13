@@ -7,18 +7,13 @@ import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
-const MODE_CHOICES = [
-  { name: 'All', value: 'all' },
-  ...LEADERBOARD_MODE_CHOICES,
-] as const
-
 interface Var {
   mode?: string
 }
 
 export const command_tiers = factory.command<Var>(
   new Command('tiers', 'View ranked role thresholds and live cutoffs').options(
-    new Option('mode', 'Filter by leaderboard track').choices(...MODE_CHOICES),
+    new Option('mode', 'Filter by leaderboard track').choices(...LEADERBOARD_MODE_CHOICES),
   ),
   (c) => {
     const guildId = c.interaction.guild_id

@@ -234,7 +234,7 @@ function getNextBracketRound(round: string): string | null {
 }
 
 function getBracketRoundRequiredWins(round: string): number {
-  return round === 'quarterfinal' ? 2 : 1
+  return round === 'final' ? 3 : 2
 }
 
 function groupPairingsByRound(pairings: TournamentBracketPairing[]): BracketRoundGroup[] {
@@ -320,14 +320,20 @@ function renderBracket(
 
   if (champion) {
     const lastRoundIndex = roundGroups.length - 1
-    const lastX = BRACKET_LEFT_PAD + (lastRoundIndex * roundW) + matchW + 16
+    const lastX = BRACKET_LEFT_PAD + (lastRoundIndex * roundW)
     const lastCenters = matchCenters[lastRoundIndex]
-    const lastY = lastCenters?.[0] ?? BRACKET_START_Y + bracketH / 2
-    svg += `<text x="${lastX + 4}" y="${lastY - 14}" fill="${COLORS.accent}" font-size="20" font-weight="900" letter-spacing="1">CHAMPION</text>`
-    svg += renderInlineText(champion.displayName, lastX + 4, lastY + 12, 180, 28, 900, COLORS.fg)
+    const finalCenterY = lastCenters?.[0] ?? BRACKET_START_Y + bracketH / 2
+    const trophySize = 58
+    const trophyX = lastX + (matchW / 2) - (trophySize / 2)
+    const trophyY = Math.max(BRACKET_START_Y + 18, finalCenterY - (BRACKET_MATCH_H / 2) - trophySize - 18)
+    svg += renderTrophyIcon(trophyX, trophyY, trophySize)
   }
 
   return svg
+}
+
+function renderTrophyIcon(x: number, y: number, size: number): string {
+  return `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="0 0 256 256" overflow="visible"><g fill="${COLORS.accent}"><path d="M200 48v63.1c0 39.7-31.75 72.6-71.45 72.9A72 72 0 0 1 56 112V48Z" opacity=".24"/><path d="M232 64h-24V48a8 8 0 0 0-8-8H56a8 8 0 0 0-8 8v16H24A16 16 0 0 0 8 80v16a40 40 0 0 0 40 40h3.65A80.13 80.13 0 0 0 120 191.61V216H96a8 8 0 0 0 0 16h64a8 8 0 0 0 0-16h-24v-24.42c31.94-3.23 58.44-25.64 68.08-55.58H208a40 40 0 0 0 40-40V80a16 16 0 0 0-16-16M48 120a24 24 0 0 1-24-24V80h24v32q0 4 .39 8Zm144-8.9c0 35.52-29 64.64-64 64.9a64 64 0 0 1-64-64V56h128ZM232 96a24 24 0 0 1-24 24h-.5a81.81 81.81 0 0 0 .5-8.9V80h24Z"/></g></svg>`
 }
 
 function renderBracketMatch(

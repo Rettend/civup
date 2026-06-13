@@ -14,8 +14,8 @@ import { formatDisplayRatingChange } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
-const TOP_LEADERS_LIMIT = 5
-const COMMON_PLAYERS_LIMIT = 5
+const COMMON_PLAYERS_LIMIT = 8
+const RECENT_MATCHES_LIMIT = 8
 const MATCH_ID_BATCH_SIZE = 90
 
 interface CompletedPlayerMatchRow {
@@ -41,10 +41,13 @@ interface CommonPlayerStat {
   wins: number
 }
 
-interface LeaderStat {
-  civId: string
-  games: number
-  wins: number
+export interface ModeRatingSnapshotRow {
+  gameMode: string
+  draftData: string | null
+  ratingBeforeMu: number | null
+  ratingBeforeSigma: number | null
+  ratingAfterMu: number | null
+  ratingAfterSigma: number | null
 }
 
 interface CommonPlayerQuerySegment {
@@ -138,19 +141,6 @@ export async function playerCardEmbed(
     })
   }
 
-  const leaderStats = summarizeLeaderStats(completedParticipations)
-  const topPlayedLeaders = sortLeaderStatsByGames(leaderStats)
-    .slice(0, TOP_LEADERS_LIMIT)
-
-  if (topPlayedLeaders.length > 0) {
-    const fieldName = requestedModeLabel ? `Top Played Leaders (${requestedModeLabel})` : 'Top Played Leaders'
-    fields.push({
-      name: fieldName,
-      value: topPlayedLeaders.map(formatLeaderStatLine).join('\n'),
-      inline: false,
-    })
-  }
-
   const commonPlayers = await summarizeCommonPlayers(db, playerId, completedParticipations)
 
   if (commonPlayers.teammates.length > 0) {
@@ -171,7 +161,7 @@ export async function playerCardEmbed(
     })
   }
 
-  const recentParticipations = completedParticipations.slice(0, 5)
+  const recentParticipations = completedParticipations.slice(0, RECENT_MATCHES_LIMIT)
 
   if (recentParticipations.length > 0) {
     fields.push({
@@ -212,7 +202,7 @@ function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | un
   return label ? `${label} (${rating})` : String(rating)
 }
 
-function formatModeStats(
+export function formatModeStats(
   modeSummary: PlayerRankProfile['modes'][LeaderboardMode] | undefined,
   ratingRow: PlayerRatingSummary,
   mode: LeaderboardMode,
@@ -253,7 +243,7 @@ function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMod
   return label || null
 }
 
-function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
+export function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {
   if (modeFilter === 'all') return visibleModes
   const mode = toLeaderboardMode(modeFilter)
   return mode && visibleModes.includes(mode) ? [mode] : []
@@ -270,7 +260,7 @@ function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsMod
   return and(...conditions)
 }
 
-function countFfaRatingWins(matchesPlayed: CompletedPlayerMatchRow[]): number {
+export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow[]): number {
   let ratingWins = 0
 
   for (const match of matchesPlayed) {
@@ -443,39 +433,6 @@ function mergeCommonPlayerCounts(
     if (didWin) entry.wins += row.games
     target.set(row.playerId, entry)
   }
-}
-
-function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>): LeaderStat[] {
-  const byLeader = new Map<string, LeaderStat>()
-
-  for (const row of rows) {
-    if (!row.civId) continue
-    const entry = byLeader.get(row.civId) ?? { civId: row.civId, games: 0, wins: 0 }
-    entry.games += 1
-    if (row.placement === 1) entry.wins += 1
-    byLeader.set(row.civId, entry)
-  }
-
-  return [...byLeader.values()]
-}
-
-function sortLeaderStatsByGames(stats: LeaderStat[]): LeaderStat[] {
-  return [...stats].sort((a, b) => {
-    const gamesDiff = b.games - a.games
-    if (gamesDiff !== 0) return gamesDiff
-
-    const winsDiff = b.wins - a.wins
-    if (winsDiff !== 0) return winsDiff
-
-    return a.civId.localeCompare(b.civId)
-  })
-}
-
-function formatLeaderStatLine(stat: LeaderStat): string {
-  const winRate = Math.round((stat.wins / stat.games) * 100)
-  const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
-  const pct = `${winRate}%`.padStart(4, ' ')
-  return `\`${ratio} ${pct}\` ${formatLeaderName(stat.civId)}`
 }
 
 function formatCommonPlayerStatLine(stat: CommonPlayerStat): string {

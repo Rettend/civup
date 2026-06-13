@@ -1,7 +1,7 @@
 import type { QueueEntry } from '@civup/game'
-import { sessionDirectory } from '@civup/db'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, isNull } from 'drizzle-orm'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { getOpenSessionLobbyProjectionsByMode } from '../../src/services/session/index.ts'
@@ -116,6 +116,57 @@ describe('inactive lobby cleanup', () => {
     }])
     expect((await getLobbyById(kv, lobby.id))?.status).toBe('cancelled')
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
+  })
+
+  test('falls back to stale admission repair when canonical timeout cancellation fails', async () => {
+    const { kv } = createTrackedKv()
+    const now = Date.now()
+    const staleAt = now - 61 * 60 * 1000
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+    await runtime.db.update(sessionDirectory)
+      .set({ updatedAt: staleAt, lastActivityAt: staleAt })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+
+    const failingSessionNamespace = {
+      idFromName(name: string) {
+        return name as unknown as DurableObjectId
+      },
+      get() {
+        return {
+          async fetch() {
+            return new Response(JSON.stringify({ error: 'forced failure' }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            })
+          },
+        } as DurableObjectStub
+      },
+    } as DurableObjectNamespace
+    const originalConsoleError = console.error
+    console.error = () => {}
+    let pruned: Awaited<ReturnType<typeof pruneInactiveOpenLobbies>>
+    try {
+      pruned = await pruneInactiveOpenLobbies(kv, undefined, { now, sessionNamespace: failingSessionNamespace })
+    }
+    finally {
+      console.error = originalConsoleError
+    }
+
+    expect(pruned!).toEqual([{
+      lobbyId: lobby.id,
+      mode: '2v2',
+      removedPlayerIds: ['host'],
+    }])
+    expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
+    const [directoryRow] = await runtime.db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    expect(directoryRow).toMatchObject({ phase: 'cancelled' })
+    expect(await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(0)
   })
 })
 
