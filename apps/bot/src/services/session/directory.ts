@@ -350,6 +350,7 @@ async function reconcileDirectoryMembers(
   const departedPlayerIds = existingLiveRows
     .map(row => row.playerId)
     .filter(playerId => !nextLiveMemberIdSet.has(playerId))
+  const existingLiveMemberIdSet = new Set(existingLiveRows.map(row => row.playerId))
 
   if (departedPlayerIds.length > 0) {
     await db.update(sessionDirectoryMembers)
@@ -362,6 +363,7 @@ async function reconcileDirectoryMembers(
   }
 
   for (const playerId of uniqueLiveMemberIds) {
+    if (existingLiveMemberIdSet.has(playerId)) continue
     try {
       await db.insert(sessionDirectoryMembers)
         .values({

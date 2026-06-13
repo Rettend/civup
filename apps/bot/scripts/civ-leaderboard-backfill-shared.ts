@@ -25,6 +25,7 @@ export interface CivLeaderboardBackfillOptions {
   kv: KVNamespace
   applyHint: string
   includeHistoricalPreview?: boolean
+  onProgress?: (label: string) => void
 }
 
 interface ScriptResult {
@@ -53,11 +54,12 @@ interface ScriptResult {
 
 export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillOptions): Promise<void> {
   const source = options.source ?? 'history'
+  options.onProgress?.('loading current status')
   const before = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
   if (options.command === 'preview') {
     const historical = source === 'history' && options.includeHistoricalPreview !== false
-      ? await buildCivLeaderboardSnapshotFromD1(options.db)
+      ? await withProgress(options, 'scanning historical preview', () => buildCivLeaderboardSnapshotFromD1(options.db))
       : undefined
     const result: ScriptResult = {
       mode: 'preview',
@@ -92,13 +94,18 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
   }
 
   const updatedAt = Date.now()
+  options.onProgress?.('loading display config')
   const config = await getStoredCivLeaderboardDisplayConfig(options.kv)
+  options.onProgress?.(source === 'contributions' ? 'rebuilding aggregates from contribution rows' : 'rebuilding contribution rows from match history')
   const backfill = source === 'contributions'
     ? await repairCivLeaderboardStatsFromContributions(options.db, updatedAt, config)
     : await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt, config)
+  options.onProgress?.('writing scoped KV snapshots')
   const snapshots = await rebuildCivLeaderboardSnapshots(options.db, options.kv, undefined, updatedAt)
+  options.onProgress?.('marking civ leaderboards dirty')
   await markLeaderboardsDirty(options.db, `script:civ-leaderboard:${source}`, { civ: true, now: dirtyTimestampBefore(updatedAt) })
   const snapshot = snapshots.get('all') ?? backfill.snapshot
+  options.onProgress?.('loading final status')
   const after = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
   printResult({
@@ -157,4 +164,9 @@ function printObject(value: unknown): void {
 
 function dirtyTimestampBefore(value: number): number {
   return Math.max(0, Math.round(value) - 1)
+}
+
+async function withProgress<T>(options: CivLeaderboardBackfillOptions, label: string, run: () => Promise<T>): Promise<T> {
+  options.onProgress?.(label)
+  return run()
 }
