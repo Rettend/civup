@@ -54,7 +54,11 @@ export function setupTargetLabel(target: SystemChannelType): string {
   if (target === 'draft') return 'Draft'
   if (target === 'archive') return 'Archive'
   if (target === 'commands') return 'Bot Commands'
-  if (target === 'civ-leaderboard') return 'Civ Leaderboard'
+  if (target === 'civ-leaderboard') return 'Civ Leaderboard (All Fallback)'
+  if (target === 'civ-leaderboard-all') return 'Civ Leaderboard (All)'
+  if (target === 'civ-leaderboard-duel') return 'Civ Leaderboard (Duel)'
+  if (target === 'civ-leaderboard-duo') return 'Civ Leaderboard (Duo)'
+  if (target === 'civ-leaderboard-squad') return 'Civ Leaderboard (Squad)'
   if (target === 'tournament-draft') return 'Tournament Draft'
   if (target === 'tournament-archive') return 'Tournament Archive'
   if (target === 'tournament-leaderboard') return 'Tournament Leaderboard'
@@ -62,7 +66,19 @@ export function setupTargetLabel(target: SystemChannelType): string {
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'commands' || value === 'tournament-draft' || value === 'tournament-archive' || value === 'tournament-leaderboard') return value
+  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'civ-leaderboard-all' || value === 'civ-leaderboard-duel' || value === 'civ-leaderboard-duo' || value === 'civ-leaderboard-squad' || value === 'commands' || value === 'tournament-draft' || value === 'tournament-archive' || value === 'tournament-leaderboard') return value
+  return null
+}
+
+export function isCivLeaderboardSetupTarget(target: SystemChannelType): boolean {
+  return target === 'civ-leaderboard' || target === 'civ-leaderboard-all' || target === 'civ-leaderboard-duel' || target === 'civ-leaderboard-duo' || target === 'civ-leaderboard-squad'
+}
+
+export function setupTargetCivModeScope(target: SystemChannelType): 'all' | 'duel' | 'duo' | 'squad' | null {
+  if (target === 'civ-leaderboard' || target === 'civ-leaderboard-all') return 'all'
+  if (target === 'civ-leaderboard-duel') return 'duel'
+  if (target === 'civ-leaderboard-duo') return 'duo'
+  if (target === 'civ-leaderboard-squad') return 'squad'
   return null
 }
 
