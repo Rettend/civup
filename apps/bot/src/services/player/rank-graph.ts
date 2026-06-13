@@ -169,10 +169,6 @@ export async function renderRankGraphSvg(data: RankGraphImageData): Promise<stri
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" viewBox="0 0 ${IMAGE_WIDTH} ${IMAGE_HEIGHT}" font-family="Inter, Arial, sans-serif">
   <defs>
-    <filter id="rankGraphGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="2.5" result="blur" />
-      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-    </filter>
     ${renderRankBandClipDefs(bandSegments)}
     <clipPath id="rankGraphClip"><rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" /></clipPath>
     <clipPath id="rankGraphPlayerAvatar" clipPathUnits="objectBoundingBox"><circle cx="0.5" cy="0.5" r="0.5" /></clipPath>
@@ -484,7 +480,7 @@ function renderSeriesLine(pointsInput: readonly RankGraphPoint[], scale: RatingS
 
   return segments.map(segment => `
     <g clip-path="url(#${rankBandClipId(segment)})">
-      <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-opacity="0.16" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" filter="url(#rankGraphGlow)" />
+      <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-opacity="0.16" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
       <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
     </g>
   `).join('')
