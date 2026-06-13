@@ -2,10 +2,11 @@ import type { Database } from '@civup/db'
 import type { PlayerRating, RatingUpdate } from '@civup/rating'
 import { createDb, playerRatings } from '@civup/db'
 import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
-import { Command, Embed } from 'discord-hono'
+import { Button, Command, Components, Embed } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
 import { getIdentity, getIdentityByUserId } from './identity.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
+import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../services/response/ephemeral.ts'
 import { factory } from '../setup.ts'
 
 const USER_COMMAND_TYPE = 2
@@ -55,7 +56,7 @@ export const command_preview_elo = factory.command(
           avatarUrl: identity.avatarUrl,
         })))
         const embed = await duelEloPreviewEmbed(db, viewer, target)
-        await c.followup({ embeds: [embed], allowed_mentions: { parse: [] } })
+        await c.followup({ embeds: [embed], components: previewEloComponents(), allowed_mentions: { parse: [] } })
       }
       catch (error) {
         console.error('Failed to build duel Elo preview:', error)
@@ -64,6 +65,12 @@ export const command_preview_elo = factory.command(
     })
   },
 )
+
+export function previewEloComponents(): Components {
+  return new Components().row(
+    new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'),
+  )
+}
 
 function getInteractionTargetId(data: unknown): string | null {
   if (typeof data !== 'object' || data === null) return null
@@ -78,8 +85,8 @@ export async function duelEloPreviewEmbed(db: Database, viewer: PreviewEloIdenti
   const preview = calculateDuelEloPreview(viewerRating, targetRating)
 
   return new Embed()
-    .title('Preview Elo')
-    .description(`${viewer.displayName} vs ${target.displayName} in Duel\nPreview only. Ratings are not changed.`)
+    .title('Preview Elo (1v1)')
+    .description(`${formatUserMention(viewer.userId)} vs ${formatUserMention(target.userId)}`)
     .color(0xC8AA6E)
     .fields(
       {
@@ -168,6 +175,10 @@ function requireUpdate(updates: readonly RatingUpdate[], playerId: string): Rati
 
 function formatOutcomeLine(name: string, update: RatingUpdate): string {
   return `${name}: \`${formatSignedDisplayDelta(update.displayDelta)}\` -> \`${formatDisplayRating(update.displayAfter)}\``
+}
+
+function formatUserMention(userId: string): string {
+  return `<@${userId}>`
 }
 
 function formatDisplayRating(value: number): number {
