@@ -3,7 +3,7 @@ import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
-import { getOpenSessionLobbyProjectionsByMode } from '../session/index.ts'
+import { getOpenSessionLobbyProjectionsByMode, repairStaleOpenSessionDirectoryMemberships } from '../session/index.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyStatus } from './mutations.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from './slots.ts'
@@ -38,10 +38,21 @@ export async function pruneInactiveOpenLobbies(
   const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode, { includeStale: true })))).flat()
   for (const lobby of currentLobbies) {
     if (!isLobbyInactive(lobby, now)) continue
-    pruned.push(await expireOpenLobby(kv, token, lobby, {
-      db: options.db,
-      sessionNamespace: options.sessionNamespace,
-    }))
+    try {
+      pruned.push(await expireOpenLobby(kv, token, lobby, {
+        db: options.db,
+        sessionNamespace: options.sessionNamespace,
+      }))
+    }
+    catch (error) {
+      console.error(`Failed to expire inactive open lobby ${lobby.id}; applying stale admission fallback:`, error)
+      await repairStaleOpenSessionDirectoryMemberships(options.db, lobby.memberPlayerIds, now, { staleMs: LOBBY_INACTIVITY_TIMEOUT_MS })
+      pruned.push({
+        lobbyId: lobby.id,
+        mode: lobby.mode,
+        removedPlayerIds: [...lobby.memberPlayerIds],
+      })
+    }
   }
 
   return pruned
@@ -59,7 +70,8 @@ async function expireOpenLobby(
   const cancelledLobby = await setLobbyStatus(kv, lobby.id, 'cancelled', lobby, {
     ...options,
     queueEntries: lobbyQueueEntries,
-  }) ?? lobby
+  })
+  if (!cancelledLobby) throw new Error(`Session ${lobby.id} did not accept open-lobby cancellation`)
 
   if (token) {
     try {

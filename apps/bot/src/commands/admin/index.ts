@@ -14,7 +14,7 @@ import { sendTransientEphemeralResponse } from './shared.ts'
 import { handleTournamentCreate, handleTournamentCut, handleTournamentEdit, handleTournamentImport, handleTournamentStart, handleTournamentStatus, modal_admin_tournament_create, modal_admin_tournament_edit } from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
-  new Command('admin', 'Admin commands for CivUp')
+  new Command('admin', 'Admin commands')
     .default_member_permissions(ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS)
     .options(
       new SubGroup('permission', 'Configure Mod command access').options(
@@ -82,7 +82,10 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Archive', value: 'archive' },
           { name: 'Bot Commands', value: 'commands' },
           { name: 'Leaderboard', value: 'leaderboard' },
-          { name: 'Civ Leaderboard', value: 'civ-leaderboard' },
+          { name: 'Civ Leaderboard (All)', value: 'civ-leaderboard-all' },
+          { name: 'Civ Leaderboard (Duel)', value: 'civ-leaderboard-duel' },
+          { name: 'Civ Leaderboard (Duo)', value: 'civ-leaderboard-duo' },
+          { name: 'Civ Leaderboard (Squad)', value: 'civ-leaderboard-squad' },
           { name: 'Tournament Draft', value: 'tournament-draft' },
           { name: 'Tournament Archive', value: 'tournament-archive' },
           { name: 'Tournament Leaderboard', value: 'tournament-leaderboard' },

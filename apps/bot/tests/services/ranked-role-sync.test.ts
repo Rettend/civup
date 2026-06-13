@@ -471,6 +471,54 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('grace cap gives overflow players one weaker grace role using the full ranked population', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const graceIds = [9, 10, 11, 12, 19, 20].map(index => playerIdFor('grace-cap', index))
+
+    for (let index = 1; index <= 20; index++) {
+      const playerId = playerIdFor('grace-cap', index)
+      await seedPlayerIdentity(db, playerId)
+      await seedRating(db, {
+        playerId,
+        mode: 'global',
+        mu: 60 - index,
+        sigma: 6,
+        gamesPlayed: 12,
+        effectiveGames: 12,
+        lastPlayedAt: NOW,
+        winsVsTier2Plus: index >= 9 && index <= 12 ? 2 : 0,
+        effectiveWinsVsTier2Plus: index >= 9 && index <= 12 ? 0.5 : 0,
+      })
+    }
+    await seedRating(db, { playerId: graceIds[4]!, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 20, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: graceIds[5]!, mode: 'duel', mu: 39, sigma: 6, gamesPlayed: 20, lastPlayedAt: NOW })
+
+    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW, includePlayerIdentities: false })
+    const previewById = new Map(preview.playerPreviews.map(player => [player.playerId, player]))
+
+    for (const playerId of graceIds.slice(0, 4)) {
+      expect(previewById.get(playerId)?.assignment.tier).toBe(TIER_3)
+    }
+    for (const playerId of graceIds.slice(4)) {
+      expect(previewById.get(playerId)?.assignment.tier).toBe(TIER_4)
+    }
+
+    const focusedPreview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [graceIds[5]!],
+      includePlayerIdentities: false,
+    })
+
+    expect(focusedPreview.playerPreviews).toHaveLength(1)
+    expect(focusedPreview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
+
+    sqlite.close()
+  })
+
   test('daily sync keeps demotion candidates until the delay is reached', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

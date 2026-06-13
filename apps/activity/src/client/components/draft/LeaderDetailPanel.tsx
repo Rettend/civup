@@ -1,6 +1,6 @@
 import type { CivBlitzComponent, CivBlitzComponentCategory, Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
-import { For, Show } from 'solid-js'
+import { createEffect, For, onCleanup, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { detailLeaderId, draftStore, isLeaderFavorited, setDetailLeaderId, toggleLeaderFavorite } from '~/client/stores'
@@ -13,8 +13,11 @@ const CIV_BLITZ_CATEGORY_LABELS: Record<CivBlitzComponentCategory, string> = {
   unit: 'Unique Unit',
 }
 
+const detailPanelScrollTopByKey = new Map<string, number>()
+
 /** Click-to-open detail panel beside the grid */
 export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent | null, onClose?: () => void } = {}) {
+  let scrollElement: HTMLDivElement | undefined
   const leader = (): Leader | null => {
     const id = detailLeaderId()
     if (!id) return null
@@ -38,15 +41,44 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
     return id ? isLeaderFavorited(id) : false
   }
   const closeDetails = () => props.onClose ? props.onClose() : setDetailLeaderId(null)
+  const scrollKey = () => {
+    const component = props.civBlitzComponent
+    if (component) return `component:${component.id}`
+    const id = detailLeaderId()
+    return id ? `leader:${id}` : null
+  }
+  const rememberScroll = () => {
+    const key = scrollKey()
+    if (key && scrollElement) detailPanelScrollTopByKey.set(key, scrollElement.scrollTop)
+  }
+  const restoreScroll = () => {
+    const key = scrollKey()
+    if (!key || !scrollElement) return
+    const scrollTop = detailPanelScrollTopByKey.get(key) ?? 0
+    queueMicrotask(() => {
+      if (scrollKey() === key && scrollElement) scrollElement.scrollTop = scrollTop
+    })
+  }
+  const setScrollElement = (element: HTMLDivElement) => {
+    scrollElement = element
+    restoreScroll()
+  }
   const componentImageUrl = () => props.civBlitzComponent?.iconUrl ?? props.civBlitzComponent?.portraitUrl ?? null
   const componentImageClass = () => {
     if (!props.civBlitzComponent?.iconUrl) return 'rounded object-cover'
     return cn('object-contain p-1.5', props.civBlitzComponent.category === 'civilizationAbility' ? 'rounded-full' : 'rounded')
   }
 
+  createEffect(() => {
+    scrollKey()
+    restoreScroll()
+  })
+
+  onCleanup(rememberScroll)
+
   if (props.civBlitzComponent) {
     return (
-      <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
+      <div ref={setScrollElement} class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible" onScroll={rememberScroll} data-leader-detail-panel>
         <div class="flex flex-col gap-1 items-end right-4 top-2 absolute z-10">
           <button
             class="text-fg-subtle rounded-full flex h-8 w-8 cursor-pointer items-center justify-center hover:text-fg-muted hover:bg-bg-muted"
@@ -85,7 +117,7 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
   return (
     <Show when={leader()}>
       {l => (
-        <div class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible">
+        <div ref={setScrollElement} class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible" onScroll={rememberScroll} data-leader-detail-panel>
           <div class="flex flex-col gap-1 items-end right-4 top-2 absolute z-10">
             <button
               class="text-fg-subtle rounded-full flex h-8 w-8 cursor-pointer items-center justify-center hover:text-fg-muted hover:bg-bg-muted"

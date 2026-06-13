@@ -254,6 +254,20 @@ describe('leaderboard message service', () => {
     }
   })
 
+  test('civ dirty scopes are narrowed from leaderboard mode', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await markLeaderboardsDirty(db, 'duel-civ', { civ: true, modes: ['duel'], now: NOW })
+
+      const dirtyScopes = (await db.select().from(leaderboardDirtyStates)).map(row => row.scope).sort()
+      expect(dirtyScopes).toEqual(['civ:all', 'civ:duel', 'player:duel'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('dirty refresh reuses fresh player snapshot before updating message', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -333,7 +347,7 @@ describe('leaderboard message service', () => {
       expect(refreshed).toBe(true)
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
-      expect(dirtyScopes).toEqual(['civ', 'player:duo'])
+      expect(dirtyScopes).toEqual(['civ:all', 'civ:duel', 'civ:duo', 'civ:squad', 'player:duo'])
     }
     finally {
       sqlite.close()
@@ -388,6 +402,53 @@ describe('leaderboard message service', () => {
     }
   })
 
+  test('dirty refresh updates each configured civ leaderboard scope', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:civ-leaderboard-all', 'channel-civ-all')
+    await kv.put('system:channel:civ-leaderboard-duel', 'channel-civ-duel')
+    await kv.put('system:channel:civ-leaderboard-duo', 'channel-civ-duo')
+    await kv.put('system:channel:civ-leaderboard-squad', 'channel-civ-squad')
+
+    const postPayloads: Array<{ channelId: string, payload: any }> = []
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      const match = url.match(/\/channels\/(channel-civ-[^/]+)\/messages/)
+      if (init?.method === 'POST' && match) {
+        const payload = JSON.parse(String(init.body))
+        postPayloads.push({ channelId: match[1]!, payload })
+        return new Response(JSON.stringify({ id: `civ-message-${postPayloads.length}` }), { status: 200 })
+      }
+
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await db.insert(players).values({
+        id: '100010000000000006',
+        displayName: 'Civ Player 3',
+        avatarUrl: null,
+        createdAt: NOW,
+      })
+      await seedCompletedLeaderMatch(db, 'civ-scope-match', '100010000000000006', 'rome-trajan', 1)
+      await backfillCivLeaderboardStatsFromHistory(db, NOW)
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
+
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
+      const messageScopes = (await db.select().from(leaderboardMessageStates)).map(row => row.scope).sort()
+      const dirtyRows = await db.select().from(leaderboardDirtyStates)
+
+      expect(refreshed).toBe(true)
+      expect(postPayloads.map(row => row.channelId).sort()).toEqual(['channel-civ-all', 'channel-civ-duel', 'channel-civ-duo', 'channel-civ-squad'])
+      expect(postPayloads.every(row => row.payload.embeds?.length === 3)).toBe(true)
+      expect(messageScopes).toEqual(['civ', 'civ:duel', 'civ:duo', 'civ:squad'])
+      expect(dirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('dirty civ refresh waits for historical backfill and keeps dirty state', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -421,7 +482,7 @@ describe('leaderboard message service', () => {
       expect(refreshed).toBe(false)
       expect(snapshot).toBeNull()
       expect(postPayloads).toHaveLength(0)
-      expect(dirtyRows.map(row => row.scope)).toEqual(['civ'])
+      expect(dirtyRows.map(row => row.scope).sort()).toEqual(['civ:all', 'civ:duel', 'civ:duo', 'civ:squad'])
     }
     finally {
       sqlite.close()

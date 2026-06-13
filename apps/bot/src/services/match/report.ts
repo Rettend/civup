@@ -730,16 +730,20 @@ function buildRatingScopeUpdateQueries(
     ? buildPermanentAllyFfaPlacementByPlayerId(input.participantRows)
     : new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
   if ('error' in placementByPlayerId) return placementByPlayerId.error
-  const playerRatingMap = new Map<string, { mu: number, sigma: number }>()
+  const playerRatingMap = new Map<string, { mu: number, sigma: number, gamesPlayed: number }>()
 
   for (const participant of input.participantRows) {
     const existing = input.existingRatingsByPlayerId.get(participant.playerId)
     if (existing) {
-      playerRatingMap.set(participant.playerId, { mu: existing.mu, sigma: existing.sigma })
+      playerRatingMap.set(participant.playerId, {
+        mu: existing.mu,
+        sigma: existing.sigma,
+        gamesPlayed: existing.gamesPlayed,
+      })
     }
     else {
       const fresh = createRating(participant.playerId)
-      playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma })
+      playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma, gamesPlayed: 0 })
     }
   }
 
@@ -755,13 +759,18 @@ function buildRatingScopeUpdateQueries(
     ratingUpdates = updates
   }
   else if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
-    const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
+    const teams = new Map<number, { playerId: string, mu: number, sigma: number, gamesPlayed: number }[]>()
     for (const participant of input.participantRows) {
       const team = participant.team ?? 0
       if (!teams.has(team)) teams.set(team, [])
       const rating = playerRatingMap.get(participant.playerId)
       if (!rating) return `Missing rating state for **${participant.playerId}**.`
-      teams.get(team)?.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
+      teams.get(team)?.push({
+        playerId: participant.playerId,
+        mu: rating.mu,
+        sigma: rating.sigma,
+        gamesPlayed: rating.gamesPlayed,
+      })
     }
 
     const teamEntries = [...teams.entries()].sort((a, b) => {
@@ -771,10 +780,18 @@ function buildRatingScopeUpdateQueries(
     })
 
     const teamInputs: TeamInput[] = teamEntries.map(([, players]) => ({
-      players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
+      players: players.map(player => ({
+        playerId: player.playerId,
+        mu: player.mu,
+        sigma: player.sigma,
+        gamesPlayed: player.gamesPlayed,
+      })),
     }))
 
-    ratingUpdates = calculateRatings({ type: 'team', teams: teamInputs })
+    ratingUpdates = calculateRatings(
+      { type: 'team', teams: teamInputs },
+      { sourceWeight: input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1 },
+    )
   }
   else {
     const ffaEntries: FfaEntry[] = input.participantRows.map((participant) => {

@@ -9,11 +9,6 @@ import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
-const MODE_CHOICES = [
-  { name: 'All', value: 'all' },
-  ...GAME_MODE_CHOICES,
-] as const
-
 interface Var {
   player?: string
   mode?: string
@@ -22,7 +17,7 @@ interface Var {
 export const command_leaders = factory.command<Var>(
   new Command('leaders', 'View player leader stats').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
-    new Option('mode', 'Filter by game mode').choices(...MODE_CHOICES),
+    new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
   ),
   (c) => {
     const guildId = c.interaction.guild_id
@@ -30,6 +25,7 @@ export const command_leaders = factory.command<Var>(
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
     const mode = (parseGameMode(c.var.mode) ?? 'all') as LeadersModeFilter
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode
 
     if (!targetId) return c.res('Could not identify the player.')
 
@@ -61,6 +57,8 @@ export const command_leaders = factory.command<Var>(
         visibleModes,
       })
       return { embeds: [embed] }
+    }, {
+      ephemeral: isDefaultSelfLookup,
     })
   },
 )

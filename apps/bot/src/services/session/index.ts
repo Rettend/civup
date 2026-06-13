@@ -1,6 +1,7 @@
 export {
   formatSessionAdmissionError,
   isSessionAdmissionError,
+  repairStaleOpenSessionDirectoryMemberships,
   releaseSessionDirectoryMembers,
   restoreSessionDirectoryMembers,
   SessionAdmissionError,

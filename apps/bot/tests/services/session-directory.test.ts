@@ -2,7 +2,7 @@ import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { and, eq, isNull } from 'drizzle-orm'
-import { projectSessionRecord } from '../../src/services/session/directory.ts'
+import { projectSessionRecord, SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { getOpenSessionLobbyProjectionsByChannel } from '../../src/services/session/lobby-projection.ts'
 import { getActivitySessionById } from '../../src/services/activity/session-state.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
@@ -119,10 +119,11 @@ describe('session directory admission', () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
-      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
+      const now = Date.now()
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'], updatedAt: now }))
 
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'], updatedAt: now + 1 }))
         throw new Error('Expected duplicate live admission to fail')
       }
       catch (error) {
@@ -141,10 +142,11 @@ describe('session directory admission', () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
-      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['p2'] }))
+      const now = Date.now()
+      await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['p2'], updatedAt: now }))
 
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['p1', 'p2'] }))
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['p1', 'p2'], updatedAt: now + 1 }))
         throw new Error('Expected partial live admission to fail')
       }
       catch (error) {
@@ -225,28 +227,59 @@ describe('session directory admission', () => {
     }
   })
 
-  test('does not repair stale open admission conflicts during new projections', async () => {
+  test('does not repair fresh open admission conflicts during new projections', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
-      await projectSessionRecord(db, buildSessionRecord({ id: 'stale-open', playerIds: ['host-1'], updatedAt: 1 }))
+      await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }))
 
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: 10_000 }))
-        throw new Error('Expected stale open admission to require explicit repair')
+        await projectSessionRecord(db, buildSessionRecord({ id: 'second-open', playerIds: ['host-1'], updatedAt: Date.now() }))
+        throw new Error('Expected fresh open admission to block')
       }
       catch (error) {
         expect(isSessionAdmissionError(error)).toBe(true)
       }
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
-      expect(liveMembers.map(row => row.sessionId)).toEqual(['stale-open'])
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
 
-      const [staleMember] = await db.select().from(sessionDirectoryMembers).where(and(
-        eq(sessionDirectoryMembers.sessionId, 'stale-open'),
+      const [freshMember] = await db.select().from(sessionDirectoryMembers).where(and(
+        eq(sessionDirectoryMembers.sessionId, 'fresh-open'),
         eq(sessionDirectoryMembers.playerId, 'host-1'),
       )).limit(1)
-      expect(staleMember?.leftAt).toBeNull()
+      expect(freshMember?.leftAt).toBeNull()
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('repairs stale open admission conflicts during new projections', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const staleAt = Date.now() - SESSION_DIRECTORY_OPEN_STALE_MS - 1
+      await projectSessionRecord(db, buildSessionRecord({ id: 'stale-open', playerIds: ['host-1', 'player-2'], updatedAt: staleAt }))
+
+      const originalConsoleWarn = console.warn
+      console.warn = () => {}
+      try {
+        await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }))
+      }
+      finally {
+        console.warn = originalConsoleWarn
+      }
+
+      const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
+      expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
+
+      const staleMembers = await db.select().from(sessionDirectoryMembers).where(eq(sessionDirectoryMembers.sessionId, 'stale-open'))
+      expect(staleMembers.map(row => row.leftAt == null)).toEqual([false, false])
+
+      const [staleDirectory] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'stale-open')).limit(1)
+      expect(staleDirectory).toMatchObject({ phase: 'cancelled', version: 2 })
+      expect(staleDirectory?.closedAt).not.toBeNull()
     }
     finally {
       sqlite.close()

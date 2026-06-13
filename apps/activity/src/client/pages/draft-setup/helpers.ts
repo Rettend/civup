@@ -147,6 +147,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
     playerId: player.playerId,
     mu: player.mu,
     sigma: player.sigma,
+    gamesPlayed: player.gamesPlayed,
   } satisfies PlayerRating)))
   const probabilities = predictTeamProbabilities(teamRatings)
   if (!probabilities) return null
@@ -183,6 +184,7 @@ function estimateProjectedWinDelta(teams: LobbyBalancePlayer[][], winningTeamInd
           playerId: player.playerId,
           mu: player.mu,
           sigma: player.sigma,
+          gamesPlayed: player.gamesPlayed,
         })),
       })),
     })

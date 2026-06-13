@@ -197,7 +197,7 @@ function OverviewTargetCard(props: {
 }) {
   const status = () => getOptionStatus(props.option)
   const meta = () => getStatusMeta(status())
-  const players = () => props.option.players ?? []
+  const players = () => getCardDisplayPlayers(props.option)
   const namePreviewPlayers = () => players().slice(0, NAME_PLAYER_PREVIEW_LIMIT)
   const avatarPreviewPlayers = () => players().slice(0, AVATAR_PLAYER_PREVIEW_LIMIT)
   const showAvatarPreview = () => players().length > NAME_PLAYER_PREVIEW_LIMIT
@@ -354,6 +354,35 @@ function splitPlayersForAvatarColumns(players: OverviewPlayer[]): [OverviewPlaye
   }
 
   return columns
+}
+
+function getCardDisplayPlayers(option: ActivityTargetOption): OverviewPlayer[] {
+  const players = option.players ?? []
+  if (option.mode !== '2v2' || option.targetSize !== 4) return players
+  return orderTwoVsTwoPlayersLeftToRight(players)
+}
+
+function orderTwoVsTwoPlayersLeftToRight(players: OverviewPlayer[]): OverviewPlayer[] {
+  const teams: [OverviewPlayer[], OverviewPlayer[]] = [[], []]
+  const ungrouped: OverviewPlayer[] = []
+
+  for (const player of players) {
+    if (player.team === 0 || player.team === 1) teams[player.team].push(player)
+    else ungrouped.push(player)
+  }
+
+  if (teams[0].length === 0 || teams[1].length === 0) return players
+
+  const ordered: OverviewPlayer[] = []
+  const maxTeamSize = Math.max(teams[0].length, teams[1].length)
+  for (let index = 0; index < maxTeamSize; index += 1) {
+    const left = teams[0][index]
+    const right = teams[1][index]
+    if (left) ordered.push(left)
+    if (right) ordered.push(right)
+  }
+
+  return [...ordered, ...ungrouped]
 }
 
 function getOverviewCounts(options: ActivityTargetOption[]): Record<OverviewFilter, number> {
