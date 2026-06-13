@@ -855,12 +855,21 @@ async function replayCompletedMatch(
   }
 
   const gameMode = gameContext.mode
-  const ratingUpdates = calculateRatingUpdatesForMatch(gameMode, participantRows, gameContext.permanentAlly, (playerId) => {
-    const existingRating = ratingStateByPlayer.get(playerId)
-    if (existingRating) return { mu: existingRating.mu, sigma: existingRating.sigma }
-    const rating = createRating(playerId)
-    return { mu: rating.mu, sigma: rating.sigma }
-  })
+  const ratingUpdates = calculateRatingUpdatesForMatch(
+    gameMode,
+    participantRows,
+    gameContext.permanentAlly,
+    (playerId) => {
+      const existingRating = ratingStateByPlayer.get(playerId)
+      if (existingRating) {
+        return { mu: existingRating.mu, sigma: existingRating.sigma, gamesPlayed: existingRating.gamesPlayed }
+      }
+
+      const rating = createRating(playerId)
+      return { mu: rating.mu, sigma: rating.sigma, gamesPlayed: 0 }
+    },
+    match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1,
+  )
   if ('error' in ratingUpdates) return ratingUpdates.error
 
   const updateByPlayer = new Map(ratingUpdates.map(update => [update.playerId, update]))
@@ -1029,20 +1038,26 @@ function calculateRatingUpdatesForMatch(
   gameMode: string,
   participantRows: StoredParticipantRow[],
   permanentAlly: boolean,
-  resolveRating: (playerId: string) => { mu: number, sigma: number },
+  resolveRating: (playerId: string) => { mu: number, sigma: number, gamesPlayed: number },
+  sourceWeight: number = 1,
 ): ReturnType<typeof calculateRatings> | { error: string } {
   if (permanentAlly && gameMode === 'ffa') {
     return calculatePermanentAllyFfaRatingUpdates(participantRows, resolveRating)
   }
 
   if (isTeamMode(gameMode as Parameters<typeof isTeamMode>[0]) || gameMode === '1v1') {
-    const teams = new Map<number, { playerId: string, mu: number, sigma: number }[]>()
+    const teams = new Map<number, { playerId: string, mu: number, sigma: number, gamesPlayed: number }[]>()
 
     for (const participant of participantRows) {
       const team = participant.team ?? 0
       const rating = resolveRating(participant.playerId)
       const teamPlayers = teams.get(team) ?? []
-      teamPlayers.push({ playerId: participant.playerId, mu: rating.mu, sigma: rating.sigma })
+      teamPlayers.push({
+        playerId: participant.playerId,
+        mu: rating.mu,
+        sigma: rating.sigma,
+        gamesPlayed: rating.gamesPlayed,
+      })
       teams.set(team, teamPlayers)
     }
 
@@ -1053,10 +1068,15 @@ function calculateRatingUpdatesForMatch(
     })
 
     const teamInputs: TeamInput[] = teamEntries.map(([, players]) => ({
-      players: players.map(player => ({ playerId: player.playerId, mu: player.mu, sigma: player.sigma })),
+      players: players.map(player => ({
+        playerId: player.playerId,
+        mu: player.mu,
+        sigma: player.sigma,
+        gamesPlayed: player.gamesPlayed,
+      })),
     }))
 
-    return calculateRatings({ type: 'team', teams: teamInputs })
+    return calculateRatings({ type: 'team', teams: teamInputs }, { sourceWeight })
   }
 
   const ffaEntries: FfaEntry[] = participantRows.map((participant) => {

@@ -688,14 +688,14 @@ describe('player rank views', () => {
     expect(teammatesField?.value).toContain('Teammate B')
     expect(teammatesField?.value).toContain('1/2')
     expect(teammatesField?.value).toContain('Teammate E')
-    expect(teammatesField?.value).not.toContain('Teammate F')
+    expect(teammatesField?.value).toContain('Teammate F')
     expect(teammatesField?.value).not.toContain('<@')
 
     expect(opponentsField?.value).toContain('Opponent A')
     expect(opponentsField?.value).toContain('3/4')
     expect(opponentsField?.value).toContain('Opponent B')
     expect(opponentsField?.value).toContain('Opponent E')
-    expect(opponentsField?.value).not.toContain('Opponent F')
+    expect(opponentsField?.value).toContain('Opponent F')
     expect(opponentsField?.value).not.toContain('<@')
     expect(teammatesField?.inline).toBe(false)
     expect(opponentsField?.inline).toBe(false)
@@ -705,7 +705,7 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
-  test('renders top played leaders with ranking note in leaders embed', async () => {
+  test('renders most played leaders with ranking note in leaders embed', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
@@ -738,7 +738,7 @@ describe('player rank views', () => {
 
     const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
     const fields = embed.fields ?? []
-    const topIndex = fields.findIndex(field => field.name === 'Top Played Leaders')
+    const topIndex = fields.findIndex(field => field.name === 'Most Played Leaders')
     const topField = fields[topIndex]
 
     expect(topIndex).toBeGreaterThanOrEqual(0)
@@ -889,7 +889,6 @@ describe('player rank views', () => {
     const worseField = embed.fields?.find(field => field.name === 'Worse Than Server Avg')
     const betterField = embed.fields?.find(field => field.name === 'Better Than Server Avg')
     const statsEmbed = (await playerCardEmbed(db, HERO_ID)).toJSON()
-    const topPlayedField = statsEmbed.fields?.find(field => field.name === 'Top Played Leaders')
 
     expect(bestField?.value).toContain('-# Ranked by leader performance')
     expect(bestField?.value).toContain('`#1 `')
@@ -898,10 +897,8 @@ describe('player rank views', () => {
     expect(bestField?.value).toContain('Yongle')
     expect(betterField).toBeUndefined()
     expect(worseField).toBeUndefined()
-    expect(topPlayedField?.value).toContain('`#1 `')
-    expect(topPlayedField?.value).toContain('Hammurabi')
-    expect(topPlayedField?.value).toContain('`#2 `')
-    expect(topPlayedField?.value).toContain('Yongle')
+    expect(statsEmbed.fields?.some(field => field.name === 'Top Played Leaders')).toBe(false)
+    expect(statsEmbed.fields?.some(field => field.name === 'Most Played Leaders')).toBe(false)
 
     sqlite.close()
   })
@@ -1066,7 +1063,7 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
-  test('keeps top played leader names untruncated in stats', async () => {
+  test('keeps recent match leader names untruncated in stats', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
@@ -1085,12 +1082,14 @@ describe('player rank views', () => {
     }
 
     const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
-    const topField = embed.fields?.find(field => field.name === 'Top Played Leaders')
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(embed.fields?.some(field => field.name === 'Best Leaders')).toBe(false)
-    expect(topField?.inline).toBe(false)
-    expect(topField?.value).toContain('Catherine de Medici (Magnificence)')
-    expect(topField?.value).not.toContain('Catherine de Medici...')
+    expect(embed.fields?.some(field => field.name === 'Top Played Leaders')).toBe(false)
+    expect(embed.fields?.some(field => field.name === 'Most Played Leaders')).toBe(false)
+    expect(recentMatchesField?.inline).toBe(false)
+    expect(recentMatchesField?.value).toContain('Catherine de Medici (Magnificence)')
+    expect(recentMatchesField?.value).not.toContain('Catherine de Medici...')
 
     sqlite.close()
   })

@@ -254,6 +254,11 @@ const TIER_3_EFFECTIVE_TIER_1_WIN_FLOOR = 0.5
 const TIER_3_EFFECTIVE_TIER_2_PLUS_WIN_FLOOR = 1 / 3
 const TIER_3_RAW_TIER_2_PLUS_WIN_FLOOR = 2
 const QUALITY_FLOOR_EPSILON = 1e-9
+const GRACE_CAP_RATIO_BY_TIER_RANK = new Map<number, number>([
+  [1, 0.75],
+  [2, 0.75],
+  [3, 1.20],
+])
 
 function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshold[] {
   const prestigeTierCount = Math.max(0, getRankedRoleTierCount(config) - 1)
@@ -760,7 +765,7 @@ async function buildRankedRolePreviewState({
       .from(playerRatings)
       .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
   ])
-  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, requestedPlayerIds)
+  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, null)
     ? await getRankedRoleDemotionCandidates(kv, guildId)
     : { byPlayerId: {} }
 
@@ -795,6 +800,7 @@ async function buildRankedRolePreviewState({
   const globalRatingByPlayerId = new Map(globalRatings.map(row => [row.playerId, row]))
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   const globalLadders = buildGlobalLadderSnapshots(globalRatings, config)
+  const rawGlobalEarnAssignments = buildRawGlobalEarnAssignments(globalRatings, config)
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
@@ -815,18 +821,18 @@ async function buildRankedRolePreviewState({
     knownPlayerIds.add(playerId)
   }
 
-  const previewPlayerIds = requestedPlayerIds ?? [...knownPlayerIds].sort((a, b) => a.localeCompare(b))
+  const calculationPlayerIds = [...new Set([...knownPlayerIds, ...(requestedPlayerIds ?? [])])].sort((a, b) => a.localeCompare(b))
+  const previewPlayerIdSet = requestedPlayerIds ? new Set(requestedPlayerIds) : null
+  const identityPlayerIds = requestedPlayerIds ?? calculationPlayerIds
   const playerIdentityById = await loadPlayerIdentityById(
     db,
-    previewPlayerIds,
+    identityPlayerIds,
     includePlayerIdentities,
   )
 
   const playerPreviews: RankedRolePlayerPreview[] = []
-  const distribution = createTierCounter(config)
-  let unrankedCount = 0
 
-  for (const playerId of previewPlayerIds) {
+  for (const playerId of calculationPlayerIds) {
     const previousAssignment = (() => {
       const assignment = previousAssignments.byPlayerId[playerId] ?? null
       return assignment && hasConfiguredRankedRoleTier(config, assignment.tier) ? assignment : null
@@ -876,11 +882,6 @@ async function buildRankedRolePreviewState({
       ? applyTier4ParticipationFloor(tier1ProtectedAssignment, globalRating, config)
       : tier1ProtectedAssignment
 
-    if (!qualified && previousAssignment == null) {
-      unrankedCount += 1
-    }
-
-    if (qualified) distribution[finalAssignment.assignment.tier] = (distribution[finalAssignment.assignment.tier] ?? 0) + 1
     playerPreviews.push({
       playerId,
       displayName: playerIdentityById.get(playerId)?.displayName ?? `<@${playerId}>`,
@@ -899,14 +900,29 @@ async function buildRankedRolePreviewState({
     })
   }
 
-  playerPreviews.sort(comparePlayerPreview)
+  applyGraceCaps(playerPreviews, rawGlobalEarnAssignments, globalRatingByPlayerId, config)
+  for (const player of playerPreviews) {
+    player.status = player.qualified ? classifyPreviewStatus(player.previousAssignment, player.assignment, fallbackTier) : 'kept'
+  }
+
+  const outputPlayerPreviews = previewPlayerIdSet
+    ? playerPreviews.filter(player => previewPlayerIdSet.has(player.playerId))
+    : playerPreviews
+  const distribution = createTierCounter(config)
+  let unrankedCount = 0
+  for (const player of outputPlayerPreviews) {
+    if (!player.qualified && player.previousAssignment == null) unrankedCount += 1
+    if (player.qualified) distribution[player.assignment.tier] = (distribution[player.assignment.tier] ?? 0) + 1
+  }
+
+  outputPlayerPreviews.sort(comparePlayerPreview)
 
   return {
     preview: {
       guildId,
       evaluatedAt: now,
       config,
-      playerPreviews,
+      playerPreviews: outputPlayerPreviews,
       missingConfigTiers: getMissingRankedRoleConfigTiers(config),
       unrankedCount,
       distribution,
@@ -1032,14 +1048,7 @@ function buildGlobalLadderSnapshots(
   config: RankedRoleConfig,
 ): LadderSnapshots {
   const rowByPlayerId = new Map(rows.map(row => [row.playerId, row]))
-  const ranked = rows
-    .filter(isGlobalRatingQualified)
-    .map(row => ({
-      playerId: row.playerId,
-      score: roleRating(row.mu, row.sigma),
-      lastPlayedAt: row.lastPlayedAt,
-    }))
-    .sort(compareLadderEntry)
+  const ranked = buildGlobalLadderEntries(rows)
   const qualifiedPlayerIds = new Set(ranked.map(row => row.playerId))
 
   return {
@@ -1048,6 +1057,83 @@ function buildGlobalLadderSnapshots(
     ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
+}
+
+function buildRawGlobalEarnAssignments(
+  rows: GlobalRatingSnapshotRow[],
+  config: RankedRoleConfig,
+): Map<string, LadderAssignment> {
+  const ranked = buildGlobalLadderEntries(rows)
+  return buildEarnAssignments(ranked, null, config, new Set(ranked.map(row => row.playerId)))
+}
+
+function buildGlobalLadderEntries(rows: GlobalRatingSnapshotRow[]): LadderEntry[] {
+  return rows
+    .filter(isGlobalRatingQualified)
+    .map(row => ({
+      playerId: row.playerId,
+      score: roleRating(row.mu, row.sigma),
+      lastPlayedAt: row.lastPlayedAt,
+    }))
+    .sort(compareLadderEntry)
+}
+
+function applyGraceCaps(
+  playerPreviews: RankedRolePlayerPreview[],
+  rawGlobalEarnAssignments: Map<string, LadderAssignment>,
+  globalRatingByPlayerId: Map<string, GlobalRatingSnapshotRow>,
+  config: RankedRoleConfig,
+): void {
+  const rawBandSizes = createTierCounter(config)
+  for (const assignment of rawGlobalEarnAssignments.values()) {
+    rawBandSizes[assignment.tier] = (rawBandSizes[assignment.tier] ?? 0) + 1
+  }
+
+  const graceCandidatesByTier = new Map<CompetitiveTier, RankedRolePlayerPreview[]>()
+  for (const player of playerPreviews) {
+    if (!player.qualified) continue
+    const rawAssignment = rawGlobalEarnAssignments.get(player.playerId)
+    if (!rawAssignment) continue
+    const targetRank = rankedRoleTierNumber(player.assignment.tier)
+    if (targetRank == null || !GRACE_CAP_RATIO_BY_TIER_RANK.has(targetRank)) continue
+    if (competitiveTierRank(player.assignment.tier) <= competitiveTierRank(rawAssignment.tier)) continue
+
+    const candidates = graceCandidatesByTier.get(player.assignment.tier) ?? []
+    candidates.push(player)
+    graceCandidatesByTier.set(player.assignment.tier, candidates)
+  }
+
+  for (const [tier, candidates] of graceCandidatesByTier) {
+    const tierRank = rankedRoleTierNumber(tier)
+    if (tierRank == null) continue
+    const ratio = GRACE_CAP_RATIO_BY_TIER_RANK.get(tierRank)
+    if (ratio == null) continue
+    const rawBandSize = rawBandSizes[tier] ?? 0
+    const cap = rawBandSize > 0 ? Math.max(1, Math.floor(rawBandSize * ratio)) : 0
+    const excludedCount = Math.max(0, candidates.length - cap)
+    if (excludedCount <= 0) continue
+
+    candidates.sort((left, right) => compareGraceCapCandidate(left, right, globalRatingByPlayerId))
+    const fallbackTier = createRankedRoleTierId(tierRank + 1)
+    if (!hasConfiguredRankedRoleTier(config, fallbackTier)) continue
+
+    for (const player of candidates.slice(0, excludedCount)) {
+      player.assignment = { tier: fallbackTier, sourceMode: null }
+      player.pendingDemotion = null
+    }
+  }
+}
+
+function compareGraceCapCandidate(
+  left: RankedRolePlayerPreview,
+  right: RankedRolePlayerPreview,
+  globalRatingByPlayerId: Map<string, GlobalRatingSnapshotRow>,
+): number {
+  const leftRating = globalRatingByPlayerId.get(left.playerId)
+  const rightRating = globalRatingByPlayerId.get(right.playerId)
+  return (left.globalScore ?? Number.POSITIVE_INFINITY) - (right.globalScore ?? Number.POSITIVE_INFINITY)
+    || (leftRating?.effectiveGames ?? Number.POSITIVE_INFINITY) - (rightRating?.effectiveGames ?? Number.POSITIVE_INFINITY)
+    || left.playerId.localeCompare(right.playerId)
 }
 
 function isGlobalRatingQualified(row: GlobalRatingSnapshotRow): boolean {

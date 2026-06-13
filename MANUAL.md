@@ -366,7 +366,8 @@ Players with less than **8 games** are `Unranked`, which means the bot won't tou
 - New players start around `1000` display rating.
 - The first 10 games move the rating more due to uncertainty.
 - In team game modes, players are rated individually. A stronger teammate gains less for a win and loses more for a loss than a weaker teammate.
-- There is an anti-farming system, which reduces elo gains/losses when expected winrate is above 70%
+- There is an anti-farming system, which reduces elo gains from expected wins when expected winrate is above 70%.
+- And there is an stablished protection system, veteran players can get partial protection from very large losses to highly uncertain lower rated players. This only reduces the losing player's loss, winner gains are unchanged.
 
 ### Extra requirements for high ranks
 
