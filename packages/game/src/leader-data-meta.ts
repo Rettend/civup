@@ -4,7 +4,7 @@ import type { LeaderDataVersion } from './types.ts'
 export const liveLeaderDataVersionLabel = '7.4.6'
 
 /** Installed beta BBG version label, or null when no beta is active. */
-export const betaLeaderDataVersionLabel = '7.5'
+export const betaLeaderDataVersionLabel = '7.5.6'
 
 /** Whether a distinct beta BBG leader data set is currently available. */
 export const hasBetaLeaderData = true
