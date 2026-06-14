@@ -679,6 +679,7 @@ export function LeaderGridOverlay() {
     return new Set([
       ...draftState.availableCivIds,
       ...draftState.bans.map(selection => selection.civId),
+      ...(draftState.blindPickBans ?? []).map(selection => selection.civId),
       ...draftState.picks.map(selection => selection.civId),
     ])
   })
