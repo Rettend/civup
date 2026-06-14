@@ -65,8 +65,13 @@ export function DraftView(props: DraftViewProps) {
 
     const leaderIds = new Set(current.availableCivIds)
     for (const selection of current.bans) leaderIds.add(selection.civId)
+<<<<<<< New base: fix: /history display fix
     for (const selection of current.pendingBlindBans) leaderIds.add(selection.civId)
     for (const selection of current.blindPickBans ?? []) leaderIds.add(selection.civId)
+||||||| Common ancestor
+=======
+    for (const selection of current.blindPickBans ?? []) leaderIds.add(selection.civId)
+>>>>>>> Current commit: fix: hidden draft timeline, blind pick conflict design
     for (const selection of current.picks) leaderIds.add(selection.civId)
     for (const selections of Object.values(draftStore.previews.bans)) {
       for (const civId of selections) leaderIds.add(civId)
