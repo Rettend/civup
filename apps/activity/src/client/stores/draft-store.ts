@@ -38,6 +38,8 @@ export interface DraftStore {
   steamLobbyLink: string | null
   /** Whether completed FFA result reporting should group adjacent placements as allies. */
   permanentAlly: boolean
+  /** Whether the session uses in-game All Random Leaders instead of draft picks. */
+  hiddenDraft: boolean
   /** Server-authoritative pre-draft map vote state. */
   mapVote: MapVoteSnapshot
   /** Recently swapped seats for transient portrait flash effects. */
@@ -61,6 +63,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   swapState: null,
   steamLobbyLink: null,
   permanentAlly: false,
+  hiddenDraft: false,
   mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
   swapFlashSeatIndices: [],
   initVersion: 0,
@@ -86,6 +89,7 @@ export function initDraft(
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
   permanentAlly = false,
+  hiddenDraft = false,
 ) {
   clearSwapFlash()
   const nextInitVersion = draftStore.initVersion + 1
@@ -102,6 +106,7 @@ export function initDraft(
     swapState,
     steamLobbyLink,
     permanentAlly,
+    hiddenDraft,
     mapVote,
     swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
@@ -124,6 +129,7 @@ export function resetDraft() {
     swapState: null,
     steamLobbyLink: null,
     permanentAlly: false,
+    hiddenDraft: false,
     mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
@@ -151,6 +157,7 @@ export function updateDraft(
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
   steamLobbyLink: string | null = null,
   permanentAlly = false,
+  hiddenDraft = false,
 ) {
   const flashSeats = swapState ? findChangedPickSeats(draftStore.state?.picks ?? [], state.picks) : []
 
@@ -166,6 +173,7 @@ export function updateDraft(
     s.swapState = swapState
     s.steamLobbyLink = steamLobbyLink
     s.permanentAlly = permanentAlly
+    s.hiddenDraft = hiddenDraft
     s.mapVote = mapVote
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
   }))
@@ -261,7 +269,12 @@ export function isSwapWindowOpen(): boolean {
 
 export function isHiddenDraftComplete(): boolean {
   const state = draftStore.state
-  return state?.status === 'complete' && !state.civBlitz && state.picks.length === 0
+  return state?.status === 'complete' && isHiddenDraftMode()
+}
+
+export function isHiddenDraftMode(): boolean {
+  const state = draftStore.state
+  return draftStore.hiddenDraft || (state?.status === 'complete' && !state.civBlitz && state.picks.length === 0)
 }
 
 export function canSwapLeadersWith(seatIndex: number): boolean {

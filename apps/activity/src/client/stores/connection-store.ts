@@ -1082,7 +1082,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -1090,7 +1090,7 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()

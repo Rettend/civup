@@ -71,4 +71,39 @@ describe('DraftTimeline UI', () => {
     expect(screen.getAllByText('BAN T2')).toHaveLength(1)
     expect(screen.getByText('T2')).toBeTruthy()
   })
+
+  test('shows only the hidden phase for hidden drafts without map vote', () => {
+    uiMockState.hiddenDraft = true
+    uiMockState.draftState = createActiveDraftState({
+      steps: [
+        { action: 'ban', seats: [0], count: 1, timer: 60 },
+        { action: 'pick', seats: [0], count: 1, timer: 90 },
+      ],
+    })
+
+    render(() => <DraftTimeline />)
+
+    expect(screen.getByText('HIDDEN')).toBeTruthy()
+    expect(screen.queryByText('BAN')).toBeNull()
+    expect(screen.queryByText('PICK P1')).toBeNull()
+    expect(screen.queryByText('MAP')).toBeNull()
+  })
+
+  test('keeps map vote before the hidden phase', () => {
+    uiMockState.hiddenDraft = true
+    uiMockState.mapVotePhase = 'voting'
+    uiMockState.draftState = createActiveDraftState({
+      steps: [
+        { action: 'ban', seats: [0], count: 1, timer: 60 },
+        { action: 'pick', seats: [0], count: 1, timer: 90 },
+      ],
+    })
+
+    render(() => <DraftTimeline />)
+
+    const text = document.body.textContent ?? ''
+    expect(text.indexOf('MAP')).toBeLessThan(text.indexOf('HIDDEN'))
+    expect(screen.queryByText('BAN')).toBeNull()
+    expect(screen.queryByText('PICK P1')).toBeNull()
+  })
 })
