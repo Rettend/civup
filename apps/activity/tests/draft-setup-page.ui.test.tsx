@@ -377,6 +377,42 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
   })
 
+  test('hides invalid ban and pick config while hidden draft is on', () => {
+    const hiddenLobby = createLobbySnapshot({
+      draftConfig: {
+        ...createLobbySnapshot().draftConfig,
+        hiddenDraft: true,
+      },
+    })
+
+    render(() => <DraftSetupPage lobby={hiddenLobby} />)
+
+    expect(screen.getByRole('switch', { name: 'Hidden draft' })).toBeTruthy()
+    expect(screen.getByText('Map Vote')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Ban Blind' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ban Draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick Blind' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick Draft' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Leaders' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Ban Timer (minutes)' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Pick Timer (minutes)' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Random draft' })).toBeNull()
+
+    cleanup()
+    uiMockState.userId = 'player-2'
+    uiMockState.displayName = 'Player 2'
+
+    render(() => <DraftSetupPage lobby={hiddenLobby} />)
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    expect(configCard.textContent).toContain('Hidden draft')
+    expect(configCard.textContent).toContain('Map Vote')
+    expect(configCard.textContent).not.toContain('Ban Timer')
+    expect(configCard.textContent).not.toContain('Pick Timer')
+    expect(configCard.textContent).not.toContain('Random draft')
+    expect(configCard.textContent).not.toContain('Leaders')
+  })
+
   test('renders CivBlitz setup options without the BBG Beta row', async () => {
     const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
     render(() => (

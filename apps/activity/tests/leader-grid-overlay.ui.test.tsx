@@ -160,6 +160,21 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.isRandomSelected).toBe(false)
   })
 
+  test('shows blind-pick conflicts as banned cards in the leader pool', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      availableCivIds: [TEST_LEADER_IDS.johnCurtin],
+      blindPickBans: [{ seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    const conflictedCard = screen.getByAltText('Abraham Lincoln').closest('button') as HTMLButtonElement
+
+    expect(conflictedCard.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('✕')).toBeTruthy()
+  })
+
   test('supports ban selections and confirmation through the shared overlay flow', async () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,

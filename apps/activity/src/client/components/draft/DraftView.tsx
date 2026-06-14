@@ -63,6 +63,7 @@ export function DraftView(props: DraftViewProps) {
 
     const leaderIds = new Set(current.availableCivIds)
     for (const selection of current.bans) leaderIds.add(selection.civId)
+    for (const selection of current.blindPickBans ?? []) leaderIds.add(selection.civId)
     for (const selection of current.picks) leaderIds.add(selection.civId)
     for (const selections of Object.values(draftStore.previews.bans)) {
       for (const civId of selections) leaderIds.add(civId)

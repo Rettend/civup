@@ -115,6 +115,7 @@ interface MockState {
   draftPreviewPicks: Record<number, string[]>
   steamLobbyLink: string | null
   permanentAlly: boolean
+  hiddenDraft: boolean
   canSwapLeaderSeatIndices: number[]
   swapFlashSeatIndices: number[]
   swapWindowOpen: boolean
@@ -271,6 +272,7 @@ function defaults(): MockState {
     draftPreviewPicks: {},
     steamLobbyLink: null,
     permanentAlly: false,
+    hiddenDraft: false,
     canSwapLeaderSeatIndices: [],
     swapFlashSeatIndices: [],
     swapWindowOpen: false,
@@ -331,6 +333,7 @@ export function resetUiMocks() {
   uiMockState.draftPreviewBans = {}
   uiMockState.draftPreviewPicks = {}
   uiMockState.steamLobbyLink = null
+  uiMockState.hiddenDraft = false
   uiMockState.canSwapLeaderSeatIndices = []
   uiMockState.swapFlashSeatIndices = []
   uiMockState.swapWindowOpen = false
@@ -447,6 +450,15 @@ function getSeatMapVote(seatIndex: number) {
 
 function isMapVotePhase() {
   return uiMockState.mapVotePhase === 'voting' || uiMockState.mapVotePhase === 'reveal'
+}
+
+function isHiddenDraftMode() {
+  const state = uiMockState.draftState
+  return uiMockState.hiddenDraft || (state?.status === 'complete' && !state.civBlitz && state.picks.length === 0)
+}
+
+function isHiddenDraftComplete() {
+  return uiMockState.draftState?.status === 'complete' && isHiddenDraftMode()
 }
 
 function toggleRankedChoice<T extends string>(current: readonly T[], next: T, max: number): T[] {
@@ -610,6 +622,9 @@ mock.module('~/client/stores', () => ({
     get permanentAlly() {
       return uiMockState.permanentAlly
     },
+    get hiddenDraft() {
+      return uiMockState.hiddenDraft
+    },
     swapState: null,
     initVersion: 1,
   },
@@ -627,7 +642,8 @@ mock.module('~/client/stores', () => ({
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
   hiddenDraftLeaderSelections: () => uiMockState.hiddenDraftLeaderSelections,
-  isHiddenDraftComplete: () => false,
+  isHiddenDraftComplete,
+  isHiddenDraftMode,
   isCivBlitzDraft: () => uiMockState.isCivBlitzDraft,
   isMiniView: () => uiMockState.isMiniView,
   isMapVotePhase,

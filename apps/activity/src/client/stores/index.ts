@@ -71,6 +71,7 @@ export {
   getPreviewPicksForSeat,
   hasSubmitted,
   isHiddenDraftComplete,
+  isHiddenDraftMode,
   isCivBlitzDraft,
   isMyOwnPickTurn,
   isMyTurn,

@@ -251,6 +251,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
       steamLobbyLink: room.config.steamLobbyLink ?? null,
       permanentAlly: room.config.permanentAlly === true,
+      hiddenDraft: room.config.hiddenDraft === true,
     })
   }
 
@@ -361,6 +362,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       room.mapVote,
       room.config.steamLobbyLink ?? null,
       room.config.permanentAlly === true,
+      room.config.hiddenDraft === true,
     )
   }
 
@@ -422,6 +424,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
       steamLobbyLink: room.config.steamLobbyLink ?? null,
+      permanentAlly: room.config.permanentAlly === true,
+      hiddenDraft: room.config.hiddenDraft === true,
     })
 
     if (room.swapWindowOpen && seatIndex >= 0 && room.swapDisconnectFinalizeAt != null) {
@@ -1287,6 +1291,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     mapVoteState: StoredMapVoteState,
     steamLobbyLink: string | null,
     permanentAlly: boolean,
+    hiddenDraft: boolean,
   ) {
     const sanitizedPreviews = sanitizeDraftPreviews(state, previews)
     const previewCache = new Map<number, DraftPreviewState>()
@@ -1310,6 +1315,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         swapState,
         steamLobbyLink,
         permanentAlly,
+        hiddenDraft,
       })
     }
   }

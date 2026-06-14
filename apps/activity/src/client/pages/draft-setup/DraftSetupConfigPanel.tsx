@@ -29,7 +29,7 @@ interface ConfigRowDefinition {
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
     key: 'banMode',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
+    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
     renderEditable: state => (
       <ModeTabsRow
         label="Ban"
@@ -44,7 +44,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'pickMode',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
+    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
     renderEditable: state => (
       <ModeTabsRow
         label="Pick"
@@ -108,7 +108,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && !state.derived.optimisticDraftConfig().blindPicks,
+    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && !state.derived.optimisticDraftConfig().blindPicks,
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
@@ -182,7 +182,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'leaderPool',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby(),
+    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby(),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -205,7 +205,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'banTimer',
-    when: state => !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
+    when: state => !hiddenDraftSelected(state) && !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -229,7 +229,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'pickTimer',
-    when: () => true,
+    when: state => !hiddenDraftSelected(state),
     renderEditable: state => (
       <TextInput
         type="number"
@@ -253,7 +253,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'randomDraft',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
+    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
@@ -327,6 +327,10 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
 ]
+
+function hiddenDraftSelected(state: DraftSetupConfigState): boolean {
+  return state.derived.optimisticDraftConfig().hiddenDraft
+}
 
 export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
   const state = () => props.state
