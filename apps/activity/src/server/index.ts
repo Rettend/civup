@@ -181,6 +181,10 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
       return streamProxyResponse(response)
     }
 
+    if (shouldStreamProxyResponse(request, url, response)) {
+      return streamProxyResponse(response)
+    }
+
     const nullBody = isNullBodyStatus(response.status)
     const body = nullBody ? null : await response.text()
     if (!response.ok) {
@@ -257,6 +261,7 @@ function isNullBodyStatus(status: number): boolean {
   return status === 204 || status === 205 || status === 304
 }
 
+<<<<<<< New base: chore: update leader desc
 function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
   return request.method.toUpperCase() === 'GET'
     && response.ok
@@ -266,6 +271,35 @@ function shouldStreamProxyResponse(request: Request, url: URL, response: Respons
       || /^\/api\/match\/[^/]+\/civblitz\/download$/.test(url.pathname)
     )
 }
+||||||| Common ancestor
+function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
+  if (!env.BOT) return false
+  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
+=======
+function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
+  return request.method.toUpperCase() === 'GET'
+    && response.ok
+    && url.pathname.startsWith('/api/uploads/')
+    && url.pathname.endsWith('/download')
+}
+
+function streamProxyResponse(response: Response): Response {
+  const headers = new Headers()
+  for (const name of ['content-type', 'content-length', 'content-disposition', 'etag']) {
+    const value = response.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  headers.set('Cache-Control', 'no-store')
+  return new Response(response.body, {
+    status: response.status,
+    headers,
+  })
+}
+
+function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
+  if (!env.BOT) return false
+  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
+>>>>>>> Current commit: feat: catalog
 
 function streamProxyResponse(response: Response): Response {
   const headers = new Headers()
@@ -348,6 +382,7 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
 
   const headers = new Headers()
+<<<<<<< New base: chore: update leader desc
   for (const name of [
     'accept',
     'accept-language',
@@ -355,6 +390,19 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
     'content-type',
     'user-agent',
   ]) {
+||||||| Common ancestor
+  for (const name of ['accept', 'accept-language', 'content-type', 'user-agent']) {
+=======
+  for (const name of [
+    'accept',
+    'accept-language',
+    'content-type',
+    'user-agent',
+    'x-civup-upload-filename',
+    'x-civup-upload-channel-id',
+    'x-civup-upload-match-id',
+  ]) {
+>>>>>>> Current commit: feat: catalog
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }

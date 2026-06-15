@@ -30,6 +30,7 @@ export interface ActivityControllerContextValue {
   currentTargetKey: () => string | null
   openOverview: (options?: { replace?: boolean }) => void
   openPractice: () => void
+<<<<<<< New base: chore: update leader desc
   openAutosaveUpload: () => void
   openAutosaveFolderUpload: () => void
   openAutosaveCatalog: () => void
@@ -37,6 +38,12 @@ export interface ActivityControllerContextValue {
   canExportPlayerData: () => boolean
   exportPlayerData: () => Promise<void>
   playerDataExportState: Accessor<PlayerDataExportState>
+||||||| Common ancestor
+=======
+  openAutosaveUpload: () => void
+  openAutosaveCatalog: () => void
+  canViewAutosaveCatalog: () => boolean
+>>>>>>> Current commit: feat: catalog
   handleTargetSelection: (option: ActivityTargetOption) => Promise<void>
   restoreLastSelection: () => Promise<void>
   transitionToDraft: (

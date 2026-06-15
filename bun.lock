@@ -22,6 +22,7 @@
       "name": "civup-activity",
       "version": "0.0.0",
       "dependencies": {
+        "@civup/civ6-save-metadata": "workspace:*",
         "@civup/game": "workspace:*",
         "@civup/rating": "workspace:*",
         "@civup/session": "workspace:*",
@@ -31,7 +32,12 @@
         "@solid-primitives/scheduled": "^1.5.3",
         "@solid-primitives/storage": "^4.3.4",
         "@solidjs/router": "^0.16.1",
+<<<<<<< New base: chore: update leader desc
         "@zip.js/zip.js": "^2.8.11",
+||||||| Common ancestor
+=======
+        "fflate": "^0.8.2",
+>>>>>>> Current commit: feat: catalog
         "partysocket": "^1.1.3",
         "solid-js": "^1.9.7",
         "unocss-merge": "^0.8.2",
@@ -79,6 +85,7 @@
         "wrangler": "^4.22.0",
       },
     },
+<<<<<<< New base: chore: update leader desc
     "packages/civ6-mod": {
       "name": "@civup/civ6-mod",
       "version": "0.0.0",
@@ -103,6 +110,13 @@
         "@civup/civ6-save-metadata": "workspace:*",
       },
     },
+||||||| Common ancestor
+=======
+    "packages/civ6-save-metadata": {
+      "name": "@civup/civ6-save-metadata",
+      "version": "0.0.0",
+    },
+>>>>>>> Current commit: feat: catalog
     "packages/db": {
       "name": "@civup/db",
       "version": "0.0.0",
@@ -186,12 +200,18 @@
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
+<<<<<<< New base: chore: update leader desc
     "@civup/analyzer": ["@civup/analyzer@workspace:packages/civup-analyzer"],
 
     "@civup/civ6-mod": ["@civup/civ6-mod@workspace:packages/civ6-mod"],
 
     "@civup/civ6-save-metadata": ["@civup/civ6-save-metadata@workspace:packages/civ6-save-metadata"],
 
+||||||| Common ancestor
+=======
+    "@civup/civ6-save-metadata": ["@civup/civ6-save-metadata@workspace:packages/civ6-save-metadata"],
+
+>>>>>>> Current commit: feat: catalog
     "@civup/db": ["@civup/db@workspace:packages/db"],
 
     "@civup/game": ["@civup/game@workspace:packages/game"],

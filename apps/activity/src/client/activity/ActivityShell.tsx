@@ -16,11 +16,25 @@ import type {
 import type { ActivityState } from './activity-context'
 import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { useLocation, useNavigate } from '@solidjs/router'
+<<<<<<< New base: chore: update leader desc
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
+||||||| Common ancestor
+import { batch, createEffect, createSignal, onCleanup, onMount, startTransition, untrack } from 'solid-js'
+import { discordSdk, setupDiscordSdk } from '../discord'
+=======
+import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
+import { discordSdk, setupDiscordSdk } from '../discord'
+>>>>>>> Current commit: feat: catalog
 import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
+<<<<<<< New base: chore: update leader desc
 import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { buildActivitySessionHeaders } from '../lib/activity-session'
 import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/autosave-upload'
+||||||| Common ancestor
+=======
+import { buildActivitySessionHeaders } from '../lib/activity-session'
+import { parseAutosaveUploadClientMetadata } from '../lib/autosave-upload-metadata'
+>>>>>>> Current commit: feat: catalog
 import { relayDevLog } from '../lib/dev-log'
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
@@ -47,6 +61,7 @@ const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
 const MOBILE_LAYOUT_BREAKPOINT = 640
+<<<<<<< New base: chore: update leader desc
 const AUTOSAVE_UPLOAD_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
 const MAX_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
 
@@ -90,6 +105,27 @@ interface WebkitFileSystemDirectoryEntry extends WebkitFileSystemEntry {
 interface WebkitFileSystemDirectoryReader {
   readEntries: (success: (entries: WebkitFileSystemEntry[]) => void, error?: (error: DOMException) => void) => void
 }
+||||||| Common ancestor
+=======
+const AUTOSAVE_UPLOAD_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
+const AUTOSAVE_UPLOAD_FILE_NAME_HEADER = 'X-Civup-Upload-Filename'
+const AUTOSAVE_UPLOAD_CHANNEL_ID_HEADER = 'X-Civup-Upload-Channel-Id'
+const AUTOSAVE_UPLOAD_MATCH_ID_HEADER = 'X-Civup-Upload-Match-Id'
+const MAX_AUTOSAVE_UPLOAD_BYTES = 100 * 1024 * 1024
+const AUTOSAVE_CATALOG_USER_IDS = new Set(['361534796830081024'])
+
+type AutosaveUploadState
+  = | { status: 'idle' }
+    | { status: 'uploading', fileName: string }
+    | { status: 'success', fileName: string }
+    | { status: 'error', message: string }
+
+interface AutosaveUploadResponse {
+  ok?: boolean
+  id?: string
+  error?: string
+}
+>>>>>>> Current commit: feat: catalog
 
 let cachedOverviewTargets: ActivityTargetOption[] = []
 
@@ -143,17 +179,31 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const [liveOverviewSnapshot, setLiveOverviewSnapshot] = createSignal<ActivityOverviewSnapshot | null | undefined>(undefined)
   const [liveTargetState, setLiveTargetState] = createSignal<LiveActivityTargetState | null>(null)
   const [liveLobbySnapshotVersion, setLiveLobbySnapshotVersion] = createSignal(0)
+<<<<<<< New base: chore: update leader desc
   const [autosaveDragActive, setAutosaveDragActive] = createSignal(false)
   const [autosaveUploadState, setAutosaveUploadState] = createSignal<AutosaveUploadState>({ status: 'idle' })
   const [adminCapabilities, setAdminCapabilities] = createSignal(NO_ACTIVITY_ADMIN_CAPABILITIES)
   const [playerDataExportState, setPlayerDataExportState] = createSignal<PlayerDataExportState>({ status: 'idle' })
   const [loadedBrowserRouteKey, setLoadedBrowserRouteKey] = createSignal<string | null>(null)
+||||||| Common ancestor
+=======
+  const [autosaveDragActive, setAutosaveDragActive] = createSignal(false)
+  const [autosaveUploadState, setAutosaveUploadState] = createSignal<AutosaveUploadState>({ status: 'idle' })
+  const [authenticatedUserId, setAuthenticatedUserId] = createSignal<string | null>(null)
+>>>>>>> Current commit: feat: catalog
   let activityWatch: LobbyStateWatch | null = null
   let launchSnapshotFallbackTimeout: ReturnType<typeof setTimeout> | null = null
+<<<<<<< New base: chore: update leader desc
   let autosaveUploadResetTimeout: ReturnType<typeof setTimeout> | null = null
   let autosaveFileInput: HTMLInputElement | undefined
   let autosaveFolderInput: HTMLInputElement | undefined
   let autosaveDragDepth = 0
+||||||| Common ancestor
+=======
+  let autosaveUploadResetTimeout: ReturnType<typeof setTimeout> | null = null
+  let autosaveFileInput: HTMLInputElement | undefined
+  let autosaveDragDepth = 0
+>>>>>>> Current commit: feat: catalog
   let activeChannelId: string | null = null
   let activeUserId: string | null = null
   let pendingTargetSelectionKey: string | null = null
@@ -218,11 +268,16 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
   onCleanup(() => {
     clearLaunchSnapshotFallback()
+<<<<<<< New base: chore: update leader desc
     clearAutosaveUploadReset()
     browserRouteRequestVersion += 1
     adminCapabilitiesRequestVersion += 1
     playerDataExportRequestVersion += 1
     pendingPlayerDataExport = null
+||||||| Common ancestor
+=======
+    clearAutosaveUploadReset()
+>>>>>>> Current commit: feat: catalog
     stopActivityWatch()
     clearDraftConnection()
   })
@@ -254,6 +309,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })
   })
 
+<<<<<<< New base: chore: update leader desc
   onMount(() => {
     if (surface === 'web') return
     const handleDragEnter = (event: DragEvent) => {
@@ -298,6 +354,58 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })
   })
 
+||||||| Common ancestor
+=======
+  onMount(() => {
+    const handleDragEnter = (event: DragEvent) => {
+      if (!isFileDrag(event)) return
+      event.preventDefault()
+      autosaveDragDepth += 1
+      setAutosaveDragActive(true)
+    }
+
+    const handleDragOver = (event: DragEvent) => {
+      if (!isFileDrag(event)) return
+      event.preventDefault()
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+      setAutosaveDragActive(true)
+    }
+
+    const handleDragLeave = (event: DragEvent) => {
+      if (!isFileDrag(event)) return
+      autosaveDragDepth = Math.max(0, autosaveDragDepth - 1)
+      if (autosaveDragDepth === 0) setAutosaveDragActive(false)
+    }
+
+    const handleDrop = (event: DragEvent) => {
+      if (!isFileDrag(event)) return
+      event.preventDefault()
+      autosaveDragDepth = 0
+      setAutosaveDragActive(false)
+
+      const files = event.dataTransfer?.files
+      if (!files || files.length === 0) return
+      if (files.length > 1) {
+        setAutosaveUploadMessage({ status: 'error', message: 'Drop one autosave zip at a time' })
+        return
+      }
+      void uploadAutosaveFile(files.item(0))
+    }
+
+    window.addEventListener('dragenter', handleDragEnter)
+    window.addEventListener('dragover', handleDragOver)
+    window.addEventListener('dragleave', handleDragLeave)
+    window.addEventListener('drop', handleDrop)
+
+    onCleanup(() => {
+      window.removeEventListener('dragenter', handleDragEnter)
+      window.removeEventListener('dragover', handleDragOver)
+      window.removeEventListener('dragleave', handleDragLeave)
+      window.removeEventListener('drop', handleDrop)
+    })
+  })
+
+>>>>>>> Current commit: feat: catalog
   const currentTargetKey = () => {
     const current = state()
     if (current.status === 'lobby-waiting') return activityTargetOptionKey({ kind: 'lobby', id: current.lobby.id })
@@ -748,6 +856,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })
   }
 
+<<<<<<< New base: chore: update leader desc
   const openAutosaveUpload = () => {
     if (autosaveUploadState().status === 'uploading') return
     autosaveFileInput?.click()
@@ -1002,6 +1111,112 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
   }
 
+||||||| Common ancestor
+=======
+  const openAutosaveUpload = () => {
+    if (autosaveUploadState().status === 'uploading') return
+    autosaveFileInput?.click()
+  }
+
+  const openAutosaveCatalog = () => {
+    void startTransition(() => {
+      navigate('/uploads', { scroll: false })
+    })
+  }
+
+  const canViewAutosaveCatalog = () => {
+    const userId = authenticatedUserId()
+    return userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
+  }
+
+  const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
+    clearAutosaveUploadReset()
+    setAutosaveUploadState(nextState)
+    if (nextState.status === 'uploading') return
+
+    autosaveUploadResetTimeout = setTimeout(() => {
+      autosaveUploadResetTimeout = null
+      setAutosaveUploadState({ status: 'idle' })
+    }, resetDelayMs)
+  }
+
+  const uploadAutosaveFile = async (file: File | null) => {
+    if (!file) return
+    const validationError = validateAutosaveUploadFile(file)
+    if (validationError) {
+      setAutosaveUploadMessage({ status: 'error', message: validationError })
+      return
+    }
+
+    const headers = buildActivitySessionHeaders({
+      'Content-Type': file.type || 'application/zip',
+      [AUTOSAVE_UPLOAD_FILE_NAME_HEADER]: encodeURIComponent(file.name),
+    })
+    if (activeChannelId) headers.set(AUTOSAVE_UPLOAD_CHANNEL_ID_HEADER, activeChannelId)
+    const current = state()
+    if (current.status === 'authenticated') headers.set(AUTOSAVE_UPLOAD_MATCH_ID_HEADER, current.matchId)
+
+    clearAutosaveUploadReset()
+    setAutosaveUploadState({ status: 'uploading', fileName: file.name })
+
+    try {
+      const metadata = await parseAutosaveMetadataForUpload(file)
+      const response = await fetch('/api/uploads/autosaves', {
+        method: 'POST',
+        headers,
+        body: file,
+      })
+      const payload = await response.json().catch(() => null) as AutosaveUploadResponse | null
+      if (!response.ok) throw new Error(payload?.error ?? 'Upload failed')
+      if (payload?.id && metadata) void storeAutosaveUploadMetadata(payload.id, metadata)
+      setAutosaveUploadMessage({ status: 'success', fileName: file.name })
+    }
+    catch (error) {
+      setAutosaveUploadMessage({
+        status: 'error',
+        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Upload failed',
+      }, 6500)
+    }
+  }
+
+  const parseAutosaveMetadataForUpload = async (file: File) => {
+    try {
+      const metadata = await parseAutosaveUploadClientMetadata(file)
+      console.debug('[autosave-upload] parsed metadata', {
+        fileName: file.name,
+        maxTurn: metadata.maxTurn,
+        playerCount: metadata.playerCount,
+        gameMode: metadata.gameMode,
+        bbgTitle: metadata.bbgTitle,
+        bbgVersion: metadata.bbgVersion,
+      })
+      return metadata
+    }
+    catch (error) {
+      console.warn('[autosave-upload] metadata parse failed', { fileName: file.name }, error)
+      return null
+    }
+  }
+
+  const storeAutosaveUploadMetadata = async (uploadId: string, metadata: Awaited<ReturnType<typeof parseAutosaveUploadClientMetadata>>) => {
+    try {
+      const response = await fetch(`/api/uploads/autosaves/${encodeURIComponent(uploadId)}/metadata`, {
+        method: 'POST',
+        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(metadata),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(payload?.error ?? `Metadata update failed (${response.status})`)
+      }
+      console.debug('[autosave-upload] stored metadata', { uploadId })
+    }
+    catch (error) {
+      console.warn('[autosave-upload] metadata update failed', { uploadId }, error)
+    }
+  }
+
+>>>>>>> Current commit: feat: catalog
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
     if (surface === 'web') {
       void startTransition(() => navigate(browserSessionPath(option.lobbyId), { scroll: false }))
@@ -1355,8 +1570,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       }
 
       activeChannelId = channelId
+<<<<<<< New base: chore: update leader desc
       activeUserId = bootstrap.identity.userId
       void refreshAdminCapabilities()
+||||||| Common ancestor
+      activeUserId = auth.user.id
+=======
+      activeUserId = auth.user.id
+      setAuthenticatedUserId(auth.user.id)
+>>>>>>> Current commit: feat: catalog
       const initialRoute = parseLiveRoute(location.pathname)
       if (initialRoute?.kind === 'overview') {
         setOverviewPinned(true)
@@ -1486,6 +1708,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         currentTargetKey,
         openOverview,
         openPractice,
+<<<<<<< New base: chore: update leader desc
         openAutosaveUpload,
         openAutosaveFolderUpload,
         openAutosaveCatalog,
@@ -1493,12 +1716,19 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         canExportPlayerData,
         exportPlayerData,
         playerDataExportState,
+||||||| Common ancestor
+=======
+        openAutosaveUpload,
+        openAutosaveCatalog,
+        canViewAutosaveCatalog,
+>>>>>>> Current commit: feat: catalog
         handleTargetSelection,
         restoreLastSelection,
         transitionToDraft,
       }}
     >
       {props.children}
+<<<<<<< New base: chore: update leader desc
       <input
         ref={(element) => { autosaveFileInput = element }}
         type="file"
@@ -1533,10 +1763,33 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           setAutosaveUploadState({ status: 'idle' })
         }}
       />
+||||||| Common ancestor
+=======
+      <input
+        ref={(element) => { autosaveFileInput = element }}
+        type="file"
+        class="hidden"
+        accept={AUTOSAVE_UPLOAD_ACCEPT}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.item(0) ?? null
+          event.currentTarget.value = ''
+          void uploadAutosaveFile(file)
+        }}
+      />
+      <AutosaveDropOverlay visible={autosaveDragActive()} />
+      <AutosaveUploadToast
+        state={autosaveUploadState()}
+        onDismiss={() => {
+          clearAutosaveUploadReset()
+          setAutosaveUploadState({ status: 'idle' })
+        }}
+      />
+>>>>>>> Current commit: feat: catalog
     </ActivityControllerContext.Provider>
   )
 }
 
+<<<<<<< New base: chore: update leader desc
 function AutosaveDropOverlay(props: { visible: boolean }) {
   return (
     <Show when={props.visible}>
@@ -1728,6 +1981,79 @@ function isFileDrag(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files')
 }
 
+||||||| Common ancestor
+=======
+function AutosaveDropOverlay(props: { visible: boolean }) {
+  return (
+    <Show when={props.visible}>
+      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/72 backdrop-blur-sm pointer-events-none">
+        <div class="mx-6 max-w-md rounded-3xl border border-sky-300/60 bg-sky-950/70 px-8 py-7 text-center shadow-[0_0_60px_rgba(56,189,248,0.28)]">
+          <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-sky-200" />
+          <div class="text-xl font-bold text-white">Drop autosave zip</div>
+          <div class="mt-2 text-sm text-sky-100/80">One zipped Civ 6 autosave folder at a time.</div>
+        </div>
+      </div>
+    </Show>
+  )
+}
+
+function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () => void }) {
+  const statusClass = () => {
+    const status = props.state.status
+    if (status === 'success') return 'border-emerald-300/45 bg-emerald-950/88 text-emerald-50'
+    if (status === 'error') return 'border-danger/45 bg-danger/18 text-danger'
+    return 'border-sky-300/45 bg-sky-950/88 text-sky-50'
+  }
+
+  const iconClass = () => {
+    const status = props.state.status
+    if (status === 'success') return 'i-ph-check-circle-bold text-emerald-300'
+    if (status === 'error') return 'i-ph-warning-circle-bold text-danger'
+    return 'i-ph-spinner-gap-bold animate-spin text-sky-200'
+  }
+
+  const message = () => {
+    const state = props.state
+    if (state.status === 'uploading') return `Uploading ${state.fileName}...`
+    if (state.status === 'success') return `Uploaded ${state.fileName}`
+    if (state.status === 'error') return state.message
+    return ''
+  }
+
+  return (
+    <Show when={props.state.status !== 'idle'}>
+      <div class="fixed bottom-5 right-5 z-[90] max-w-[min(24rem,calc(100vw-2.5rem))]">
+        <div class={`flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur ${statusClass()}`}>
+          <span class={`${iconClass()} mt-0.5 shrink-0 text-xl`} />
+          <div class="min-w-0 flex-1 text-sm font-semibold break-words">{message()}</div>
+          <Show when={props.state.status !== 'uploading'}>
+            <button
+              type="button"
+              class="text-current/70 transition hover:text-current"
+              aria-label="Dismiss upload status"
+              onClick={props.onDismiss}
+            >
+              <span class="i-ph-x-bold text-base" />
+            </button>
+          </Show>
+        </div>
+      </div>
+    </Show>
+  )
+}
+
+function validateAutosaveUploadFile(file: File): string | null {
+  if (!file.name.trim().toLowerCase().endsWith('.zip')) return 'Please upload one .zip file'
+  if (file.size <= 0) return 'Selected zip is empty'
+  if (file.size > MAX_AUTOSAVE_UPLOAD_BYTES) return 'This prototype supports uploads up to 100 MB'
+  return null
+}
+
+function isFileDrag(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
+}
+
+>>>>>>> Current commit: feat: catalog
 function parseLiveRoute(pathname: string): LiveRoute | null {
   const normalized = pathname.replace(/\/+$/, '') || '/'
   if (normalized === '/') return { kind: 'root' }

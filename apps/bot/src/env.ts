@@ -13,6 +13,11 @@ export interface Env {
     ACTIVITY_PUBLIC_ORIGIN?: string
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
+<<<<<<< New base: chore: update leader desc
     CIVUP_INTERACTION_ENDPOINT_URL?: string
+||||||| Common ancestor
+=======
+    AUTOSAVE_ADMIN_USER_IDS?: string
+>>>>>>> Current commit: feat: catalog
   }
 }
