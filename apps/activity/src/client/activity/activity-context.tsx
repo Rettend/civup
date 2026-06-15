@@ -28,6 +28,7 @@ export interface ActivityControllerContextValue {
   openOverview: (options?: { replace?: boolean }) => void
   openPractice: () => void
   openAutosaveUpload: () => void
+  openAutosaveFolderUpload: () => void
   openAutosaveCatalog: () => void
   canViewAutosaveCatalog: () => boolean
   handleTargetSelection: (option: ActivityTargetOption) => Promise<void>
