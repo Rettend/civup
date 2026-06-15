@@ -16,7 +16,9 @@
 
   "vars": {
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "ENABLE_DEBUG_LOBBY_FILL": "1"
+    "ENABLE_DEBUG_LOBBY_FILL": "1",
+    "R2_ACCOUNT_ID": "bee9950f4935b08fbc80f8e9ea881286",
+    "AUTOSAVE_UPLOAD_BUCKET": "civup-autosave-uploads"
   },
 
   "durable_objects": {
@@ -62,7 +64,8 @@
   "r2_buckets": [
     {
       "binding": "AUTOSAVE_UPLOADS",
-      "bucket_name": "civup-autosave-uploads"
+      "bucket_name": "civup-autosave-uploads",
+      "remote": true
     }
   ],
 

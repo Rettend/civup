@@ -43,10 +43,8 @@ const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
 const MOBILE_LAYOUT_BREAKPOINT = 640
 const AUTOSAVE_UPLOAD_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
-const AUTOSAVE_UPLOAD_FILE_NAME_HEADER = 'X-Civup-Upload-Filename'
-const AUTOSAVE_UPLOAD_CHANNEL_ID_HEADER = 'X-Civup-Upload-Channel-Id'
-const AUTOSAVE_UPLOAD_MATCH_ID_HEADER = 'X-Civup-Upload-Match-Id'
-const MAX_AUTOSAVE_UPLOAD_BYTES = 100 * 1024 * 1024
+const MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
+const DISCORD_R2_UPLOAD_PROXY_PREFIX = '/r2-upload'
 const AUTOSAVE_CATALOG_USER_IDS = new Set(['361534796830081024'])
 
 type AutosaveUploadState
@@ -55,8 +53,29 @@ type AutosaveUploadState
     | { status: 'success', fileName: string }
     | { status: 'error', message: string }
 
-interface AutosaveUploadResponse {
+interface DirectAutosaveUploadInitResponse {
+  id?: string
+  uploadMode?: 'single' | 'multipart'
+  uploadUrl?: string
+  headers?: Record<string, string>
+  multipartUploadId?: string
+  partSizeBytes?: number
   error?: string
+}
+
+interface DirectAutosaveUploadCompleteResponse {
+  error?: string
+}
+
+interface MultipartAutosaveUploadPartResponse {
+  partNumber?: number
+  etag?: string
+  error?: string
+}
+
+interface MultipartAutosaveUploadedPart {
+  partNumber: number
+  etag: string
 }
 
 interface AutosaveFolderFile {
@@ -699,25 +718,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
-    const headers = buildActivitySessionHeaders({
-      'Content-Type': file.type || 'application/zip',
-      [AUTOSAVE_UPLOAD_FILE_NAME_HEADER]: encodeURIComponent(file.name),
-    })
-    if (activeChannelId) headers.set(AUTOSAVE_UPLOAD_CHANNEL_ID_HEADER, activeChannelId)
-    const current = state()
-    if (current.status === 'authenticated') headers.set(AUTOSAVE_UPLOAD_MATCH_ID_HEADER, current.matchId)
-
     clearAutosaveUploadReset()
     setAutosaveUploadState({ status: 'uploading', fileName: file.name })
 
     try {
-      const response = await fetch('/api/uploads/autosaves', {
-        method: 'POST',
-        headers,
-        body: file,
-      })
-      const payload = await response.json().catch(() => null) as AutosaveUploadResponse | null
-      if (!response.ok) throw new Error(payload?.error ?? 'Upload failed')
+      await uploadAutosaveFileDirect(file)
       setAutosaveUploadMessage({ status: 'success', fileName: file.name })
     }
     catch (error) {
@@ -726,6 +731,165 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Upload failed',
       }, 6500)
     }
+  }
+
+  const uploadAutosaveFileDirect = async (file: File) => {
+    const current = state()
+    const initResponse = await fetch('/api/uploads/autosaves/init', {
+      method: 'POST',
+      headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        contentType: file.type || 'application/zip',
+        channelId: activeChannelId,
+        matchId: current.status === 'authenticated' ? current.matchId : null,
+      }),
+    })
+    const initPayload = await initResponse.json().catch(() => null) as DirectAutosaveUploadInitResponse | null
+    if (!initResponse.ok) {
+      throw new Error(getAutosaveUploadErrorMessage(initResponse.status, initPayload?.error))
+    }
+    if (!initPayload?.id) throw new Error('Upload init returned an invalid response')
+
+    if (initPayload.uploadMode === 'multipart') {
+      const partSizeBytes = normalizeAutosaveMultipartPartSize(initPayload.partSizeBytes)
+      if (!initPayload.multipartUploadId || partSizeBytes == null) throw new Error('Upload init returned an invalid multipart response')
+      await uploadAutosaveFileMultipart(file, initPayload.id, initPayload.multipartUploadId, partSizeBytes)
+      return
+    }
+
+    if (!initPayload.uploadUrl) throw new Error('Upload init returned an invalid response')
+
+    const rawUploadUrl = new URL(initPayload.uploadUrl)
+    const uploadUrl = resolveAutosaveUploadUrl(rawUploadUrl)
+    relayDevLog('warn', '[autosave-upload] init ok', {
+      id: initPayload.id,
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      pageOrigin: window.location.origin,
+      rawUploadOrigin: rawUploadUrl.origin,
+      uploadOrigin: uploadUrl.origin,
+      uploadPath: uploadUrl.pathname,
+    })
+
+    const uploadHeaders = new Headers(initPayload.headers ?? undefined)
+    if (!uploadHeaders.has('Content-Type')) uploadHeaders.set('Content-Type', file.type || 'application/zip')
+    relayDevLog('warn', '[autosave-upload] R2 PUT start', {
+      id: initPayload.id,
+      rawUploadOrigin: rawUploadUrl.origin,
+      uploadOrigin: uploadUrl.origin,
+      uploadPath: uploadUrl.pathname,
+      contentType: uploadHeaders.get('Content-Type'),
+    })
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: uploadHeaders,
+      body: file,
+    }).catch((error: unknown) => {
+      relayDevLog('error', '[autosave-upload] R2 PUT failed before response', {
+        id: initPayload.id,
+        pageOrigin: window.location.origin,
+        rawUploadOrigin: rawUploadUrl.origin,
+        uploadOrigin: uploadUrl.origin,
+        uploadPath: uploadUrl.pathname,
+        error,
+      })
+      throw new Error('Saved game uploads are not available right now. Please try again later.')
+    })
+    relayDevLog('warn', '[autosave-upload] R2 PUT response', {
+      id: initPayload.id,
+      ok: uploadResponse.ok,
+      status: uploadResponse.status,
+      statusText: uploadResponse.statusText,
+      responseType: uploadResponse.type,
+      etag: uploadResponse.headers.get('etag'),
+    })
+    if (!uploadResponse.ok) {
+      const body = await uploadResponse.text().catch(() => '')
+      relayDevLog('error', '[autosave-upload] R2 PUT rejected', {
+        id: initPayload.id,
+        status: uploadResponse.status,
+        statusText: uploadResponse.statusText,
+        body: body.slice(0, 500),
+      })
+      throw new Error('Saved game uploads are not available right now. Please try again later.')
+    }
+
+    relayDevLog('warn', '[autosave-upload] complete start', { id: initPayload.id })
+    const completeResponse = await fetch(`/api/uploads/autosaves/${encodeURIComponent(initPayload.id)}/complete`, {
+      method: 'POST',
+      headers: buildActivitySessionHeaders(),
+    })
+    const completePayload = await completeResponse.json().catch(() => null) as DirectAutosaveUploadCompleteResponse | null
+    relayDevLog('warn', '[autosave-upload] complete response', {
+      id: initPayload.id,
+      ok: completeResponse.ok,
+      status: completeResponse.status,
+      error: completePayload?.error ?? null,
+    })
+    if (!completeResponse.ok) throw new Error(getAutosaveUploadErrorMessage(completeResponse.status, completePayload?.error))
+  }
+
+  const uploadAutosaveFileMultipart = async (file: File, uploadId: string, multipartUploadId: string, partSizeBytes: number) => {
+    const partCount = Math.ceil(file.size / partSizeBytes)
+    const parts: MultipartAutosaveUploadedPart[] = []
+
+    relayDevLog('warn', '[autosave-upload] multipart start', {
+      id: uploadId,
+      fileSizeBytes: file.size,
+      partSizeBytes,
+      partCount,
+    })
+
+    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+      const start = (partNumber - 1) * partSizeBytes
+      const end = Math.min(start + partSizeBytes, file.size)
+      const chunk = file.slice(start, end)
+      const partUrl = `/api/uploads/autosaves/${encodeURIComponent(uploadId)}/parts/${partNumber}?uploadId=${encodeURIComponent(multipartUploadId)}`
+
+      relayDevLog('warn', '[autosave-upload] multipart part start', {
+        id: uploadId,
+        partNumber,
+        partCount,
+        sizeBytes: chunk.size,
+      })
+
+      const response = await fetch(partUrl, {
+        method: 'PUT',
+        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/octet-stream' }),
+        body: chunk,
+      })
+      const payload = await response.json().catch(() => null) as MultipartAutosaveUploadPartResponse | null
+      relayDevLog(response.ok ? 'warn' : 'error', '[autosave-upload] multipart part response', {
+        id: uploadId,
+        partNumber,
+        ok: response.ok,
+        status: response.status,
+        error: payload?.error ?? null,
+      })
+      if (!response.ok) throw new Error(getAutosaveUploadErrorMessage(response.status, payload?.error))
+      if (payload?.partNumber !== partNumber || !payload.etag) throw new Error('Upload part returned an invalid response')
+      parts.push({ partNumber, etag: payload.etag })
+    }
+
+    relayDevLog('warn', '[autosave-upload] multipart complete start', {
+      id: uploadId,
+      partCount: parts.length,
+    })
+    const completeResponse = await fetch(`/api/uploads/autosaves/${encodeURIComponent(uploadId)}/complete`, {
+      method: 'POST',
+      headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ multipartUploadId, parts }),
+    })
+    const completePayload = await completeResponse.json().catch(() => null) as DirectAutosaveUploadCompleteResponse | null
+    relayDevLog(completeResponse.ok ? 'warn' : 'error', '[autosave-upload] multipart complete response', {
+      id: uploadId,
+      ok: completeResponse.ok,
+      status: completeResponse.status,
+      error: completePayload?.error ?? null,
+    })
+    if (!completeResponse.ok) throw new Error(getAutosaveUploadErrorMessage(completeResponse.status, completePayload?.error))
   }
 
   const uploadAutosaveFolder = async (fileList: FileList | null) => {
@@ -1406,8 +1570,30 @@ function isWebkitDirectoryEntry(entry: WebkitFileSystemEntry): entry is WebkitFi
 function validateAutosaveUploadFile(file: File): string | null {
   if (!file.name.trim().toLowerCase().endsWith('.zip')) return 'Please upload one .zip file'
   if (file.size <= 0) return 'Selected zip is empty'
-  if (file.size > MAX_AUTOSAVE_UPLOAD_BYTES) return 'This prototype supports uploads up to 100 MB'
+  if (file.size > MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES) return 'This upload path supports autosave zips up to 512 MB'
   return null
+}
+
+function getAutosaveUploadErrorMessage(status: number, serverMessage: string | undefined): string {
+  if (status === 400) return serverMessage?.trim() || 'That saved game zip could not be uploaded.'
+  if (status === 401 || status === 403) return 'Please reopen CivUp in Discord and try again.'
+  if (status === 413) return 'That saved game zip is too large.'
+  if (status === 404 || status === 503) return 'Saved game uploads are not available right now. Please try again later.'
+  return 'Upload failed. Please try again later.'
+}
+
+function resolveAutosaveUploadUrl(rawUploadUrl: URL): URL {
+  if (typeof window === 'undefined') return rawUploadUrl
+  if (!window.location.hostname.endsWith('.discordsays.com')) return rawUploadUrl
+
+  const proxiedUrl = new URL(window.location.origin)
+  proxiedUrl.pathname = `${DISCORD_R2_UPLOAD_PROXY_PREFIX}${rawUploadUrl.pathname}`
+  proxiedUrl.search = rawUploadUrl.search
+  return proxiedUrl
+}
+
+function normalizeAutosaveMultipartPartSize(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
 }
 
 function isFileDrag(event: DragEvent): boolean {
