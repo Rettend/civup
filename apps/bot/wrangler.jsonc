@@ -59,6 +59,13 @@
     }
   ],
 
+  "r2_buckets": [
+    {
+      "binding": "AUTOSAVE_UPLOADS",
+      "bucket_name": "civup-autosave-uploads"
+    }
+  ],
+
   "triggers": {
     "crons": [
       "0 * * * *", // every hour

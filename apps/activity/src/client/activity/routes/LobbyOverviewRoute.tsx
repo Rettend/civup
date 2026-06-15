@@ -17,6 +17,8 @@ export default function LobbyOverviewRoute() {
         onSelect={activity.handleTargetSelection}
         onResume={activity.lastResolvedSelection() ? activity.restoreLastSelection : undefined}
         onPractice={activity.openPractice}
+        onUpload={activity.openAutosaveUpload}
+        onCatalog={activity.canViewAutosaveCatalog() ? activity.openAutosaveCatalog : undefined}
       />
     )
   }

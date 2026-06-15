@@ -85,6 +85,7 @@ export default {
         || url.pathname.startsWith('/api/match/')
         || url.pathname.startsWith('/api/lobby/')
         || url.pathname.startsWith('/api/lobby-ranks/')
+        || url.pathname.startsWith('/api/uploads/')
       ) {
         return await handleMatchProxy(request, url, env)
       }
@@ -146,6 +147,10 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
       response = await fetch(buildProxyRequest(targetUrl, request, env, session))
     }
 
+    if (shouldStreamProxyResponse(request, url, response)) {
+      return streamProxyResponse(response)
+    }
+
     const nullBody = isNullBodyStatus(response.status)
     const body = nullBody ? null : await response.text()
     if (!response.ok) {
@@ -174,6 +179,26 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
 
 function isNullBodyStatus(status: number): boolean {
   return status === 204 || status === 205 || status === 304
+}
+
+function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
+  return request.method.toUpperCase() === 'GET'
+    && response.ok
+    && url.pathname.startsWith('/api/uploads/')
+    && url.pathname.endsWith('/download')
+}
+
+function streamProxyResponse(response: Response): Response {
+  const headers = new Headers()
+  for (const name of ['content-type', 'content-length', 'content-disposition', 'etag']) {
+    const value = response.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  headers.set('Cache-Control', 'no-store')
+  return new Response(response.body, {
+    status: response.status,
+    headers,
+  })
 }
 
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
@@ -236,7 +261,15 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
 
   const headers = new Headers()
-  for (const name of ['accept', 'accept-language', 'content-type', 'user-agent']) {
+  for (const name of [
+    'accept',
+    'accept-language',
+    'content-type',
+    'user-agent',
+    'x-civup-upload-filename',
+    'x-civup-upload-channel-id',
+    'x-civup-upload-match-id',
+  ]) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }
@@ -279,6 +312,7 @@ function shouldWarnForMatchProxy(method: string, pathname: string, status: numbe
     || pathname.startsWith('/api/match/')
     || pathname.startsWith('/api/lobby/')
     || pathname.startsWith('/api/lobby-ranks/')
+    || pathname.startsWith('/api/uploads/')
   )
 }
 
