@@ -18,6 +18,14 @@ export interface Env {
 ||||||| Common ancestor
 =======
     AUTOSAVE_ADMIN_USER_IDS?: string
+<<<<<<< New base: fix: sonner design
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+=======
+    AUTOSAVE_UPLOAD_BUCKET?: string
+    R2_ACCOUNT_ID?: string
+    R2_UPLOAD_ACCESS_KEY_ID?: string
+    R2_UPLOAD_SECRET_ACCESS_KEY?: string
+>>>>>>> Current commit: fix: multiple r2
   }
 }

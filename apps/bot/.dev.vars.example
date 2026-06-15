@@ -4,4 +4,10 @@ DISCORD_TOKEN=
 ALLOWED_DISCORD_GUILD_ID=
 ACTIVITY_PUBLIC_ORIGIN=https://your-activity.example.com
 CIVUP_SECRET=
+<<<<<<< New base: fix: sonner design
 ENABLE_DEBUG_LOBBY_FILL=1
+||||||| Common ancestor
+=======
+R2_UPLOAD_ACCESS_KEY_ID=
+R2_UPLOAD_SECRET_ACCESS_KEY=
+>>>>>>> Current commit: fix: multiple r2
