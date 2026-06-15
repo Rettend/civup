@@ -774,8 +774,10 @@ import type { Leader } from '@civup/game'
 import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } from 'solid-js'
 import { useActivityController } from '~/client/activity/activity-context'
+import { Dropdown } from '~/client/components/ui/Dropdown'
 import { discordSdk } from '~/client/discord'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '~/client/lib/activity-session'
+import { isMiniView } from '~/client/stores'
 
 interface AutosaveUploadCatalogRow {
   id: string
@@ -840,6 +842,7 @@ interface DecoratedAutosaveUpload {
   row: AutosaveUploadCatalogRow
   bbgVersion: string | null
   bbgLabel: string | null
+  mapLabel: string | null
   leaders: CatalogLeaderCard[]
   searchText: string
 }
@@ -858,7 +861,7 @@ export default function AutosaveCatalogPage() {
   const [error, setError] = createSignal<string | null>(null)
   const [search, setSearch] = createSignal('')
   const [modeFilter, setModeFilter] = createSignal('')
-  const [leaderFilter, setLeaderFilter] = createSignal('')
+  const [mapFilter, setMapFilter] = createSignal('')
   const [bbgFilter, setBbgFilter] = createSignal('')
   const [downloadingId, setDownloadingId] = createSignal<string | null>(null)
   const [pendingAction, setPendingAction] = createSignal<{ id: string, action: CatalogAction } | null>(null)
@@ -908,17 +911,17 @@ export default function AutosaveCatalogPage() {
 
   const decoratedUploads = createMemo(() => uploads().map(row => decorateUpload(row)))
   const modeOptions = createMemo(() => uniqueSorted(decoratedUploads().map(item => item.row.gameMode)))
-  const leaderOptions = createMemo(() => uniqueSorted(decoratedUploads().flatMap(item => item.leaders.map(leader => leader.leaderName))))
+  const mapOptions = createMemo(() => uniqueSorted(decoratedUploads().map(item => item.mapLabel)))
   const bbgOptions = createMemo(() => uniqueSorted(decoratedUploads().map(item => item.bbgVersion)))
   const filteredUploads = createMemo(() => {
     const query = normalizeSearchText(search())
     const mode = modeFilter()
-    const leader = leaderFilter()
+    const map = mapFilter()
     const bbg = bbgFilter()
     return decoratedUploads().filter((item) => {
       const row = item.row
       if (mode && row.gameMode !== mode) return false
-      if (leader && !item.leaders.some(candidate => candidate.leaderName === leader)) return false
+      if (map && item.mapLabel !== map) return false
       if (bbg && item.bbgVersion !== bbg) return false
       if (!query) return true
       return item.searchText.includes(query)
@@ -1015,72 +1018,74 @@ export default function AutosaveCatalogPage() {
     }
   }
 
-  return (
-    <main class="text-fg bg-bg font-sans min-h-screen overflow-y-auto">
+  const pageContent = () => (
+    <main class="text-fg bg-bg font-sans relative min-h-screen overflow-y-auto">
+      <div class="flex gap-2 items-center z-20 absolute top-12 right-4 sm:top-4 sm:right-6">
+        <button
+          type="button"
+          class="text-sm text-fg-muted border border-border-subtle rounded-md flex h-9 cursor-pointer gap-2 px-3 transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted disabled:opacity-50"
+          title="Refresh saved games"
+          aria-label="Refresh saved games"
+          disabled={loading()}
+          onClick={() => void loadUploads()}
+        >
+          <span class={loading() ? 'i-gg:spinner text-sm animate-spin' : 'i-ph-arrow-clockwise-bold text-sm'} />
+          Refresh
+        </button>
+        <button
+          type="button"
+          class="text-fg-muted border border-border-subtle rounded-md flex h-9 w-9 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:bg-bg-muted"
+          title="Lobby Overview"
+          aria-label="Lobby Overview"
+          onClick={() => activity.openOverview()}
+        >
+          <span class="i-ph-squares-four-bold text-base" />
+        </button>
+      </div>
       <div class="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6">
-        <header class="flex items-center gap-3">
-          <button
-            type="button"
-            class="text-sm text-fg-muted rounded-md border border-border-subtle px-3 py-1.5 transition hover:text-fg hover:bg-bg-muted"
-            onClick={() => activity.openOverview()}
-          >
-            Back
-          </button>
-          <h1 class="text-xl font-semibold">Catalog</h1>
-          <button
-            type="button"
-            class="text-sm text-fg-muted ml-auto inline-flex items-center gap-2 rounded-md border border-border-subtle px-3 py-1.5 transition hover:text-fg hover:bg-bg-muted disabled:opacity-50"
-            disabled={loading()}
-            onClick={() => void loadUploads()}
-          >
-            <span class={loading() ? 'i-gg:spinner text-sm animate-spin' : 'i-ph-arrow-clockwise-bold text-sm'} />
-            Refresh
-          </button>
+        <header class="flex items-center gap-3 pr-24">
+          <h1 class="text-xl font-semibold">Saved Games</h1>
         </header>
 
-        <div class="grid gap-3 rounded-xl border border-border-subtle bg-bg-subtle/40 p-3 sm:grid-cols-2 lg:grid-cols-[minmax(14rem,1fr)_8rem_10rem_8rem_auto]">
-          <label class="grid gap-1 text-xs font-semibold text-fg-muted">
-            Search
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="relative min-w-56 max-w-sm flex-1 max-sm:basis-full">
+            <div class="i-ph-magnifying-glass-bold text-sm text-fg-subtle left-3 top-1/2 absolute -translate-y-1/2" />
             <input
+              type="text"
+              placeholder="Search leaders, players..."
               value={search()}
-              class="h-9 rounded-md border border-border-subtle bg-bg px-3 text-sm text-fg outline-none focus:border-border-hover"
+              class="text-sm text-fg px-3.5 py-2 pl-9 rounded-lg w-full bg-bg/60 border border-border outline-none transition-all duration-150 placeholder:text-fg-subtle/60 focus:border-border-hover focus:bg-bg/80"
               onInput={event => setSearch(event.currentTarget.value)}
             />
-          </label>
-          <label class="grid gap-1 text-xs font-semibold text-fg-muted">
-            Mode
-            <select
-              value={modeFilter()}
-              class="h-9 rounded-md border border-border-subtle bg-bg px-3 text-sm text-fg outline-none focus:border-border-hover"
-              onChange={event => setModeFilter(event.currentTarget.value)}
-            >
-              <option value="">All</option>
-              <For each={modeOptions()}>{mode => <option value={mode}>{mode}</option>}</For>
-            </select>
-          </label>
-          <label class="grid gap-1 text-xs font-semibold text-fg-muted">
-            Leader
-            <select
-              value={leaderFilter()}
-              class="h-9 rounded-md border border-border-subtle bg-bg px-3 text-sm text-fg outline-none focus:border-border-hover"
-              onChange={event => setLeaderFilter(event.currentTarget.value)}
-            >
-              <option value="">All</option>
-              <For each={leaderOptions()}>{leader => <option value={leader}>{leader}</option>}</For>
-            </select>
-          </label>
-          <label class="grid gap-1 text-xs font-semibold text-fg-muted">
-            BBG
-            <select
-              value={bbgFilter()}
-              class="h-9 rounded-md border border-border-subtle bg-bg px-3 text-sm text-fg outline-none focus:border-border-hover"
-              onChange={event => setBbgFilter(event.currentTarget.value)}
-            >
-              <option value="">All</option>
-              <For each={bbgOptions()}>{bbg => <option value={bbg}>{bbg}</option>}</For>
-            </select>
-          </label>
-          <div class="self-end text-right text-sm text-fg-muted">{filteredUploads().length}</div>
+          </div>
+          <Dropdown
+            ariaLabel="Mode filter"
+            class="w-32"
+            tone="neutral"
+            value={modeFilter()}
+            options={[{ value: '', label: 'All modes' }, ...modeOptions().map(mode => ({ value: mode, label: mode }))]}
+            onChange={setModeFilter}
+          />
+          <Dropdown
+            ariaLabel="Map filter"
+            class="w-36"
+            tone="neutral"
+            value={mapFilter()}
+            options={[{ value: '', label: 'All maps' }, ...mapOptions().map(map => ({ value: map, label: map }))]}
+            onChange={setMapFilter}
+          />
+          <Dropdown
+            ariaLabel="BBG filter"
+            class="w-32"
+            tone="neutral"
+            value={bbgFilter()}
+            options={[{ value: '', label: 'All BBG' }, ...bbgOptions().map(bbg => ({ value: bbg, label: bbg }))]}
+            onChange={setBbgFilter}
+          />
+          <div class="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-muted">
+            <span>{filteredUploads().length} / {uploads().length}</span>
+            <span class="i-ph-archive-bold text-sm" />
+          </div>
         </div>
 
         <Show when={error()}>
@@ -1172,6 +1177,22 @@ export default function AutosaveCatalogPage() {
         </Show>
       </div>
     </main>
+  )
+
+  return (
+    <Show when={isMiniView()} fallback={pageContent()}>
+      <main class="text-fg bg-bg font-sans h-screen overflow-hidden p-3">
+        <div class="shrink-0 h-5 relative">
+          <span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xs tracking-widest font-bold uppercase text-white">
+            Saved Games
+          </span>
+          <span class="text-sm text-fg-muted font-mono text-right right-0 top-1/2 absolute tabular-nums -translate-y-1/2 inline-flex items-center gap-1">
+            <span>{filteredUploads().length}/{uploads().length}</span>
+            <span class="i-ph-archive-bold text-sm" />
+          </span>
+        </div>
+      </main>
+    </Show>
   )
 }
 
@@ -1322,16 +1343,18 @@ function buildMetaItems(item: DecoratedAutosaveUpload): CatalogMetaItem[] {
 function decorateUpload(row: AutosaveUploadCatalogRow): DecoratedAutosaveUpload {
   const bbgVersion = resolveBbgVersion(row)
   const bbgLabel = bbgVersion ? `BBG ${bbgVersion}` : null
+  const mapLabel = formatMapFile(row.mapFile)
   const leaders = resolveLeaderCards(row)
   const searchText = normalizeSearchText([
     row.uploaderDisplayName,
     row.uploaderUserId,
     row.gameMode,
+    mapLabel,
     bbgVersion,
     ...leaders.map(leader => leader.searchText),
   ].filter((value): value is string => value != null && value.length > 0).join(' '))
 
-  return { row, bbgVersion, bbgLabel, leaders, searchText }
+  return { row, bbgVersion, bbgLabel, mapLabel, leaders, searchText }
 }
 
 function resolveLeaderCards(row: AutosaveUploadCatalogRow): CatalogLeaderCard[] {
@@ -1455,6 +1478,12 @@ function resolveBbgVersion(row: AutosaveUploadCatalogRow): string | null {
   if (!row.bbgDetected) return null
   if (row.bbgTitle?.toLowerCase().includes('beta')) return betaLeaderDataVersionLabel
   return liveLeaderDataVersionLabel
+}
+
+function formatMapFile(value: string | null): string | null {
+  const fileName = value?.split(/[\\/]/).pop()?.trim() ?? ''
+  if (!fileName) return null
+  return titleCaseWords(fileName.replace(/\.lua$/i, '').replace(/[_-]+/g, ' '))
 }
 
 function formatLeaderCode(value: string | null): string {
