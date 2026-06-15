@@ -1230,7 +1230,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 function AutosaveDropOverlay(props: { visible: boolean }) {
   return (
     <Show when={props.visible}>
-      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-[2px] pointer-events-none">
+      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/65 backdrop-blur-[2px] pointer-events-none">
         <div class="mx-6 max-w-md rounded-3xl border border-border-subtle bg-bg-subtle/92 px-8 py-7 text-center shadow-2xl">
           <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-fg-muted" />
           <div class="text-xl font-bold text-fg">Upload autosaves</div>
@@ -1242,18 +1242,18 @@ function AutosaveDropOverlay(props: { visible: boolean }) {
 }
 
 function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () => void }) {
-  const statusClass = () => {
-    const status = props.state.status
-    if (status === 'success') return 'border-emerald-300/45 bg-emerald-950/88 text-emerald-50'
-    if (status === 'error') return 'border-danger/45 bg-danger/18 text-danger'
-    return 'border-sky-300/45 bg-sky-950/88 text-sky-50'
-  }
-
   const iconClass = () => {
     const status = props.state.status
     if (status === 'success') return 'i-ph-check-circle-bold text-emerald-300'
     if (status === 'error') return 'i-ph-warning-circle-bold text-danger'
-    return 'i-ph-spinner-gap-bold animate-spin text-sky-200'
+    return 'i-gg:spinner animate-spin text-fg-muted'
+  }
+
+  const messageClass = () => {
+    const status = props.state.status
+    if (status === 'error') return 'text-danger'
+    if (status === 'success') return 'text-emerald-100'
+    return 'text-fg'
   }
 
   const message = () => {
@@ -1267,13 +1267,13 @@ function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () 
   return (
     <Show when={props.state.status !== 'idle'}>
       <div class="fixed bottom-5 right-5 z-[90] max-w-[min(24rem,calc(100vw-2.5rem))]">
-        <div class={`flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur ${statusClass()}`}>
+        <div class="flex items-start gap-3 rounded-2xl border border-border-subtle bg-bg-subtle/95 px-4 py-3 text-fg shadow-2xl backdrop-blur">
           <span class={`${iconClass()} mt-0.5 shrink-0 text-xl`} />
-          <div class="min-w-0 flex-1 text-sm font-semibold break-words">{message()}</div>
+          <div class={`min-w-0 flex-1 text-sm font-semibold break-words ${messageClass()}`}>{message()}</div>
           <Show when={props.state.status !== 'uploading'}>
             <button
               type="button"
-              class="text-current/70 transition hover:text-current"
+              class="text-fg-muted transition hover:text-fg"
               aria-label="Dismiss upload status"
               onClick={props.onDismiss}
             >
