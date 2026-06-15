@@ -23,6 +23,11 @@ export interface AutosaveZipEntry extends ZipEntry {
 
 export type InflateRaw = (bytes: Uint8Array) => Uint8Array
 
+export interface ZipByteReader {
+  size: number
+  read: (offset: number, length: number) => Promise<Uint8Array>
+}
+
 export interface AutosaveZipIndex {
   zipEntryCount: number
   saveCount: number
@@ -47,6 +52,15 @@ interface EndOfCentralDirectory {
 
 export function parseAutosaveZipIndex(bytes: Uint8Array, options: AutosaveZipIndexOptions = {}): AutosaveZipIndex {
   const zipEntries = parseZipEntries(bytes)
+  return createAutosaveZipIndex(zipEntries, options)
+}
+
+export async function parseAutosaveZipIndexFromReader(reader: ZipByteReader, options: AutosaveZipIndexOptions = {}): Promise<AutosaveZipIndex> {
+  const zipEntries = await parseZipEntriesFromReader(reader)
+  return createAutosaveZipIndex(zipEntries, options)
+}
+
+export function createAutosaveZipIndex(zipEntries: readonly ZipEntry[], options: AutosaveZipIndexOptions = {}): AutosaveZipIndex {
   const saveEntries = listAutosaveZipEntries(zipEntries)
   const latestSave = pickLatestAutosaveZipEntry(zipEntries)
   const maxTurn = saveEntries.reduce<number | null>((max, entry) => {
@@ -88,6 +102,24 @@ export function readZipEntryData(bytes: Uint8Array, entry: ZipEntry, inflateRaw?
   ensureRange(bytes, dataOffset, entry.compressedSize, 'zip entry data')
   const compressed = bytes.subarray(dataOffset, dataOffset + entry.compressedSize)
 
+  return inflateZipEntryData(compressed, entry, inflateRaw)
+}
+
+export async function readZipEntryDataFromReader(reader: ZipByteReader, entry: ZipEntry, inflateRaw?: InflateRaw): Promise<Uint8Array> {
+  const localHeader = await readZipRange(reader, entry.localHeaderOffset, 30, 'local file header')
+  if (readUint32(localHeader, 0) !== LOCAL_FILE_HEADER_SIGNATURE) {
+    throw new Error(`Invalid local file header signature at offset ${entry.localHeaderOffset}`)
+  }
+
+  const fileNameLength = readUint16(localHeader, 26)
+  const extraLength = readUint16(localHeader, 28)
+  const dataOffset = entry.localHeaderOffset + 30 + fileNameLength + extraLength
+  const compressed = await readZipRange(reader, dataOffset, entry.compressedSize, 'zip entry data')
+
+  return inflateZipEntryData(compressed, entry, inflateRaw)
+}
+
+function inflateZipEntryData(compressed: Uint8Array, entry: ZipEntry, inflateRaw?: InflateRaw): Uint8Array {
   if (entry.compressionMethod === ZIP_METHOD_STORE) return compressed.slice()
   if (entry.compressionMethod === ZIP_METHOD_DEFLATE) {
     if (!inflateRaw) throw new Error('Zip entry is deflated, but no inflateRaw function was provided')
@@ -99,14 +131,26 @@ export function readZipEntryData(bytes: Uint8Array, entry: ZipEntry, inflateRaw?
 
 export function parseZipEntries(bytes: Uint8Array): ZipEntry[] {
   const eocd = findEndOfCentralDirectory(bytes)
+  const centralDirectory = bytes.subarray(eocd.centralDirectoryOffset, eocd.centralDirectoryOffset + eocd.centralDirectorySize)
+  return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
+}
+
+export async function parseZipEntriesFromReader(reader: ZipByteReader): Promise<ZipEntry[]> {
+  const eocd = await findEndOfCentralDirectoryFromReader(reader)
+  const centralDirectory = await readZipRange(reader, eocd.centralDirectoryOffset, eocd.centralDirectorySize, 'central directory')
+  return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
+}
+
+function parseZipEntriesFromCentralDirectory(bytes: Uint8Array, eocd: EndOfCentralDirectory): ZipEntry[] {
   const entries: ZipEntry[] = []
-  let offset = eocd.centralDirectoryOffset
-  const endOffset = eocd.centralDirectoryOffset + eocd.centralDirectorySize
+  let offset = 0
+  const endOffset = eocd.centralDirectorySize
 
   for (let index = 0; index < eocd.totalEntries; index += 1) {
     ensureRange(bytes, offset, 46, 'central directory header')
+    const absoluteOffset = eocd.centralDirectoryOffset + offset
     if (readUint32(bytes, offset) !== CENTRAL_DIRECTORY_SIGNATURE) {
-      throw new Error(`Invalid central directory signature at offset ${offset}`)
+      throw new Error(`Invalid central directory signature at offset ${absoluteOffset}`)
     }
 
     const flags = readUint16(bytes, offset + 8)
@@ -138,14 +182,21 @@ export function parseZipEntries(bytes: Uint8Array): ZipEntry[] {
   return entries
 }
 
-function findEndOfCentralDirectory(bytes: Uint8Array): EndOfCentralDirectory {
+async function findEndOfCentralDirectoryFromReader(reader: ZipByteReader): Promise<EndOfCentralDirectory> {
+  const length = Math.min(reader.size, MAX_EOCD_SEARCH_BYTES)
+  const offset = reader.size - length
+  const bytes = await readZipRange(reader, offset, length, 'zip end')
+  return findEndOfCentralDirectory(bytes, offset, reader.size)
+}
+
+function findEndOfCentralDirectory(bytes: Uint8Array, baseOffset = 0, fileSize = bytes.length): EndOfCentralDirectory {
   const minOffset = Math.max(0, bytes.length - MAX_EOCD_SEARCH_BYTES)
   for (let offset = bytes.length - 22; offset >= minOffset; offset -= 1) {
     if (readUint32(bytes, offset) !== EOCD_SIGNATURE) continue
 
     const commentLength = readUint16(bytes, offset + 20)
-    if (offset + 22 + commentLength > bytes.length) continue
-
+    const endOffset = baseOffset + offset + 22 + commentLength
+    if (offset + 22 + commentLength > bytes.length || endOffset > fileSize) continue
 
     const diskNumber = readUint16(bytes, offset + 4)
     const centralDirectoryDisk = readUint16(bytes, offset + 6)
@@ -166,7 +217,7 @@ function findEndOfCentralDirectory(bytes: Uint8Array): EndOfCentralDirectory {
       throw new Error('Zip64 files are not supported yet')
     }
     if (totalEntries !== totalEntriesOnDisk) throw new Error('Multi-disk zip entry counts are not supported')
-    if (centralDirectoryOffset + centralDirectorySize > bytes.length) throw new Error('Central directory exceeds file size')
+    if (centralDirectoryOffset + centralDirectorySize > fileSize) throw new Error('Central directory exceeds file size')
 
     return {
       totalEntries,
@@ -176,6 +227,24 @@ function findEndOfCentralDirectory(bytes: Uint8Array): EndOfCentralDirectory {
   }
 
   throw new Error('Could not find zip central directory')
+}
+
+async function readZipRange(reader: ZipByteReader, offset: number, length: number, label: string): Promise<Uint8Array> {
+  ensureReaderRange(reader.size, offset, length, label)
+  if (length === 0) return new Uint8Array()
+
+  const bytes = await reader.read(offset, length)
+  if (bytes.length !== length) {
+    throw new Error(`Could not read complete ${label} range ${offset}:${offset + length}`)
+  }
+  return bytes
+}
+
+function ensureReaderRange(size: number, offset: number, length: number, label: string) {
+  if (!Number.isSafeInteger(size) || size < 0) throw new Error(`Invalid zip reader size ${size}`)
+  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > size) {
+    throw new Error(`Invalid ${label} range ${offset}:${offset + length}`)
+  }
 }
 
 function extractAutosaveTurn(name: string): number | null {

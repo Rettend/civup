@@ -13,5 +13,9 @@ export interface Env {
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
     AUTOSAVE_ADMIN_USER_IDS?: string
+    AUTOSAVE_UPLOAD_BUCKET?: string
+    R2_ACCOUNT_ID?: string
+    R2_UPLOAD_ACCESS_KEY_ID?: string
+    R2_UPLOAD_SECRET_ACCESS_KEY?: string
   }
 }
