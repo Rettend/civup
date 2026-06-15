@@ -25,6 +25,14 @@ function normalizeMeta(meta: unknown): unknown {
     }
   }
 
+  if (Array.isArray(meta)) return meta.map(normalizeMeta)
+
+  if (meta && typeof meta === 'object') {
+    return Object.fromEntries(
+      Object.entries(meta).map(([key, value]) => [key, normalizeMeta(value)]),
+    )
+  }
+
   return meta
 }
 
