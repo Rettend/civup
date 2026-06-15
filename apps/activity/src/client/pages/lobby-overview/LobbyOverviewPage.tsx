@@ -67,6 +67,7 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
           <div class="mx-auto px-4 py-4 pb-44 w-full max-w-[1600px] sm:px-6 sm:pb-32">
             <TargetPickerPanel {...props} />
           </div>
+<<<<<<< New base: fix: teammates see submitted bans
 <<<<<<< New base: fix: /stats perf
 <<<<<<< New base: chore: update leader desc
           <Show when={props.onPractice || props.onCatalog || props.onExportData}>
@@ -122,35 +123,20 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
 =======
           <Show when={props.onPractice || props.onUpload || props.onFolderUpload || props.onCatalog}>
 >>>>>>> Current commit: feat: parse in worker
+||||||| Common ancestor
+          <Show when={props.onPractice || props.onUpload || props.onFolderUpload || props.onCatalog}>
+=======
+          <Show when={props.onPractice || props.onCatalog}>
+>>>>>>> Current commit: enhance: catalog card
             <div class="flex gap-3 bottom-6 left-1/2 absolute z-20 -translate-x-1/2">
               <Show when={props.onCatalog}>
                 <button
                   type="button"
-                  class="text-sm text-fg-muted font-semibold px-4 py-2 border border-border-subtle rounded-full bg-bg-subtle inline-flex gap-2 whitespace-nowrap transition items-center hover:text-fg hover:border-border-hover hover:bg-bg-muted"
+                  class="text-sm text-sky-200 font-bold px-4 py-2 border border-sky-400/35 rounded-full bg-sky-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(56,189,248,0.16)] transition items-center hover:text-white hover:border-sky-300/70 hover:bg-sky-500/22"
                   onClick={() => props.onCatalog?.()}
                 >
                   <span class="i-ph-folder-open-bold text-lg" />
-                  Catalog
-                </button>
-              </Show>
-              <Show when={props.onUpload}>
-                <button
-                  type="button"
-                  class="text-sm text-sky-200 font-bold px-4 py-2 border border-sky-400/35 rounded-full bg-sky-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(56,189,248,0.16)] transition items-center hover:text-white hover:border-sky-300/70 hover:bg-sky-500/22"
-                  onClick={() => props.onUpload?.()}
-                >
-                  <span class="i-ph-upload-simple-bold text-lg" />
-                  Upload
-                </button>
-              </Show>
-              <Show when={props.onFolderUpload}>
-                <button
-                  type="button"
-                  class="text-sm text-sky-200 font-bold px-4 py-2 border border-sky-400/35 rounded-full bg-sky-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(56,189,248,0.16)] transition items-center hover:text-white hover:border-sky-300/70 hover:bg-sky-500/22"
-                  onClick={() => props.onFolderUpload?.()}
-                >
-                  <span class="i-ph-folder-bold text-lg" />
-                  Folder
+                  Saved Games
                 </button>
               </Show>
               <Show when={props.onPractice}>
