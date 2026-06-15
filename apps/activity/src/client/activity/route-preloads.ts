@@ -4,4 +4,5 @@ export const preloadActivityRedirectRoute = () => import('./routes/ActivityRedir
 export const preloadDraftActivityRoute = () => import('./routes/DraftActivityRoute')
 export const preloadLobbyOverviewRoute = () => import('./routes/LobbyOverviewRoute')
 export const preloadLobbyWaitingRoute = () => import('./routes/LobbyWaitingRoute')
+export const preloadAutosaveCatalogPage = () => import('../pages/uploads/AutosaveCatalogPage')
 export const preloadPracticePage = () => import('../pages/practice/PracticePage')

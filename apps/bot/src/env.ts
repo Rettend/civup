@@ -2,6 +2,7 @@ export interface Env {
   Bindings: {
     DB: D1Database
     KV: KVNamespace
+    AUTOSAVE_UPLOADS?: R2Bucket
     Activity?: DurableObjectNamespace
     SessionDO?: DurableObjectNamespace
     DISCORD_APPLICATION_ID: string
@@ -11,5 +12,6 @@ export interface Env {
     BOT_HOST?: string
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
+    AUTOSAVE_ADMIN_USER_IDS?: string
   }
 }

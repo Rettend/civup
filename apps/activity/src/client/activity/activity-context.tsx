@@ -27,6 +27,9 @@ export interface ActivityControllerContextValue {
   currentTargetKey: () => string | null
   openOverview: (options?: { replace?: boolean }) => void
   openPractice: () => void
+  openAutosaveUpload: () => void
+  openAutosaveCatalog: () => void
+  canViewAutosaveCatalog: () => boolean
   handleTargetSelection: (option: ActivityTargetOption) => Promise<void>
   restoreLastSelection: () => Promise<void>
   transitionToDraft: (
