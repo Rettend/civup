@@ -1,7 +1,10 @@
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
+import { parseAutosaveZipIndex, parseCiv6SaveMetadata, parseZipEntries, pickLatestAutosaveZipEntry, readZipEntryData } from '@civup/civ6-save-metadata'
 import { autosaveUploads, createDb } from '@civup/db'
+import { betaLeaderDataVersionLabel, liveLeaderDataVersionLabel } from '@civup/game'
 import { desc, eq, sql } from 'drizzle-orm'
+import { inflateSync } from 'fflate'
 import { requireAuthenticatedActivity } from './auth.ts'
 
 const MAX_AUTOSAVE_UPLOAD_BYTES = 100 * 1024 * 1024
@@ -9,7 +12,6 @@ const UPLOAD_FILE_NAME_HEADER = 'x-civup-upload-filename'
 const UPLOAD_CHANNEL_ID_HEADER = 'x-civup-upload-channel-id'
 const UPLOAD_MATCH_ID_HEADER = 'x-civup-upload-match-id'
 const DEFAULT_AUTOSAVE_ADMIN_USER_IDS = new Set(['361534796830081024'])
-const MAX_METADATA_ARRAY_ITEMS = 100
 
 interface AutosaveUploadCatalogRow {
   id: string
@@ -39,22 +41,6 @@ interface AutosaveUploadCatalogRow {
   bbgTitle: string | null
   bbgVersion: string | null
   notes: string | null
-}
-
-interface AutosaveClientMetadataPayload {
-  saveCount?: unknown
-  maxTurn?: unknown
-  latestSaveName?: unknown
-  playerCount?: unknown
-  gameMode?: unknown
-  leaders?: unknown
-  civs?: unknown
-  players?: unknown
-  mapFile?: unknown
-  mods?: unknown
-  bbgDetected?: unknown
-  bbgTitle?: unknown
-  bbgVersion?: unknown
 }
 
 export function registerUploadRoutes(app: Hono<Env>) {
@@ -149,55 +135,50 @@ export function registerUploadRoutes(app: Hono<Env>) {
     return new Response(object.body, { headers })
   })
 
-  app.post('/api/uploads/autosaves/:id/metadata', async (c) => {
+  app.post('/api/uploads/autosaves/:id/reparse', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-
-    let body: AutosaveClientMetadataPayload
-    try {
-      body = await c.req.json<AutosaveClientMetadataPayload>()
-    }
-    catch {
-      return c.json({ error: 'Invalid JSON payload' }, 400)
-    }
-
-    if (!body || typeof body !== 'object') return c.json({ error: 'Invalid metadata payload' }, 400)
+    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
 
     const id = c.req.param('id')
     const db = createDb(c.env.DB)
     const [row] = await db
-      .select({ uploaderUserId: autosaveUploads.uploaderUserId })
+      .select({ r2Key: autosaveUploads.r2Key })
       .from(autosaveUploads)
       .where(eq(autosaveUploads.id, id))
       .limit(1)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
-    if (row.uploaderUserId !== auth.identity.userId && !isAutosaveAdmin(c.env, auth.identity.userId)) {
-      return c.json({ error: 'Forbidden' }, 403)
-    }
 
-    const metadata = normalizeClientMetadata(body)
     await db
       .update(autosaveUploads)
-      .set({
-        parseStatus: 'client_parsed',
-        parseError: null,
-        saveCount: metadata.saveCount,
-        maxTurn: metadata.maxTurn,
-        latestSaveName: metadata.latestSaveName,
-        playerCount: metadata.playerCount,
-        gameMode: metadata.gameMode,
-        leadersJson: metadata.leadersJson,
-        civsJson: metadata.civsJson,
-        playersJson: metadata.playersJson,
-        mapFile: metadata.mapFile,
-        modsJson: metadata.modsJson,
-        bbgDetected: metadata.bbgDetected,
-        bbgTitle: metadata.bbgTitle,
-        bbgVersion: metadata.bbgVersion,
-      })
+      .set({ parseStatus: 'pending', parseError: null })
       .where(eq(autosaveUploads.id, id))
 
+    c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
+    return c.json({ ok: true })
+  })
+
+  app.delete('/api/uploads/autosaves/:id', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+
+    const bucket = c.env.AUTOSAVE_UPLOADS
+    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+
+    const id = c.req.param('id')
+    const db = createDb(c.env.DB)
+    const [row] = await db
+      .select({ r2Key: autosaveUploads.r2Key })
+      .from(autosaveUploads)
+      .where(eq(autosaveUploads.id, id))
+      .limit(1)
+
+    if (!row) return c.json({ error: 'Upload not found' }, 404)
+
+    await bucket.delete(row.r2Key)
+    await db.delete(autosaveUploads).where(eq(autosaveUploads.id, id))
     return c.json({ ok: true })
   })
 
@@ -271,6 +252,8 @@ export function registerUploadRoutes(app: Hono<Env>) {
       throw error
     }
 
+    c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, uploadId, key))
+
     return c.json({
       ok: true,
       id: uploadId,
@@ -281,73 +264,78 @@ export function registerUploadRoutes(app: Hono<Env>) {
   })
 }
 
-function normalizeClientMetadata(payload: AutosaveClientMetadataPayload) {
-  return {
-    saveCount: normalizeInteger(payload.saveCount),
-    maxTurn: normalizeInteger(payload.maxTurn),
-    latestSaveName: normalizeMetadataValue(typeof payload.latestSaveName === 'string' ? payload.latestSaveName : null),
-    playerCount: normalizeInteger(payload.playerCount),
-    gameMode: normalizeGameMode(payload.gameMode),
-    leadersJson: stringifyStringArray(payload.leaders),
-    civsJson: stringifyStringArray(payload.civs),
-    playersJson: stringifyPlayers(payload.players),
-    mapFile: normalizeMetadataValue(typeof payload.mapFile === 'string' ? payload.mapFile : null),
-    modsJson: stringifyMods(payload.mods),
-    bbgDetected: payload.bbgDetected === true,
-    bbgTitle: normalizeMetadataValue(typeof payload.bbgTitle === 'string' ? payload.bbgTitle : null),
-    bbgVersion: normalizeMetadataValue(typeof payload.bbgVersion === 'string' ? payload.bbgVersion : null),
+async function parseAndStoreAutosaveUploadMetadata(env: Env['Bindings'], uploadId: string, key: string): Promise<void> {
+  const db = createDb(env.DB)
+  try {
+    const bucket = env.AUTOSAVE_UPLOADS
+    if (!bucket) throw new Error('Autosave upload storage is not configured')
+
+    const object = await bucket.get(key)
+    if (!object) throw new Error('Upload object not found')
+
+    const bytes = new Uint8Array(await object.arrayBuffer())
+    const zipIndex = parseAutosaveZipIndex(bytes)
+    const zipEntries = parseZipEntries(bytes)
+    const latestSave = pickLatestAutosaveZipEntry(zipEntries)
+    if (!latestSave) throw new Error('No .Civ6Save entries found in zip')
+
+    const saveBytes = readZipEntryData(bytes, latestSave, inflateRaw)
+    const metadata = parseCiv6SaveMetadata(saveBytes)
+    const bbgVersion = resolveBbgVersion(metadata.bbgDetected, metadata.bbgTitle, metadata.bbgVersion)
+
+    await db
+      .update(autosaveUploads)
+      .set({
+        parseStatus: 'parsed',
+        parseError: null,
+        saveCount: zipIndex.saveCount,
+        maxTurn: zipIndex.maxTurn,
+        latestSaveName: latestSave.name,
+        playerCount: metadata.playerCount,
+        gameMode: metadata.gameMode,
+        leadersJson: JSON.stringify(metadata.leaders),
+        civsJson: JSON.stringify(metadata.civs),
+        playersJson: JSON.stringify(metadata.players),
+        mapFile: metadata.mapFile,
+        modsJson: JSON.stringify(metadata.mods),
+        bbgDetected: metadata.bbgDetected,
+        bbgTitle: metadata.bbgTitle,
+        bbgVersion,
+      })
+      .where(eq(autosaveUploads.id, uploadId))
+
+    // eslint-disable-next-line no-console
+    console.log('[autosave-parse] parsed upload', {
+      id: uploadId,
+      maxTurn: zipIndex.maxTurn,
+      playerCount: metadata.playerCount,
+      gameMode: metadata.gameMode,
+      bbgTitle: metadata.bbgTitle,
+      bbgVersion,
+    })
+  }
+  catch (error) {
+    const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Parse failed'
+    console.warn('[autosave-parse] failed', { id: uploadId, key, error: message })
+    await db
+      .update(autosaveUploads)
+      .set({
+        parseStatus: 'parse_failed',
+        parseError: normalizeMetadataValue(message),
+      })
+      .where(eq(autosaveUploads.id, uploadId))
   }
 }
 
-function normalizeInteger(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+function inflateRaw(bytes: Uint8Array): Uint8Array {
+  return inflateSync(bytes)
 }
 
-function normalizeGameMode(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = normalizeMetadataValue(value)
-  return normalized && /^\d+v\d+$/.test(normalized) ? normalized : null
-}
-
-function stringifyStringArray(value: unknown): string | null {
-  if (!Array.isArray(value)) return null
-  const items = value
-    .slice(0, MAX_METADATA_ARRAY_ITEMS)
-    .map(item => typeof item === 'string' ? normalizeMetadataValue(item) : null)
-    .filter((item): item is string => item != null)
-  return items.length > 0 ? JSON.stringify(items) : null
-}
-
-function stringifyPlayers(value: unknown): string | null {
-  if (!Array.isArray(value)) return null
-  const items = value.slice(0, MAX_METADATA_ARRAY_ITEMS).map((item) => {
-    if (!item || typeof item !== 'object') return null
-    const record = item as Record<string, unknown>
-    return {
-      slot: normalizeInteger(record.slot),
-      playerName: normalizeMetadataValue(typeof record.playerName === 'string' ? record.playerName : null),
-      leader: normalizeMetadataValue(typeof record.leader === 'string' ? record.leader : null),
-      civilization: normalizeMetadataValue(typeof record.civilization === 'string' ? record.civilization : null),
-      isHuman: typeof record.isHuman === 'boolean' ? record.isHuman : null,
-      alive: typeof record.alive === 'boolean' ? record.alive : null,
-    }
-  }).filter((item): item is NonNullable<typeof item> => item != null)
-
-  return items.length > 0 ? JSON.stringify(items) : null
-}
-
-function stringifyMods(value: unknown): string | null {
-  if (!Array.isArray(value)) return null
-  const items = value.slice(0, MAX_METADATA_ARRAY_ITEMS).map((item) => {
-    if (!item || typeof item !== 'object') return null
-    const record = item as Record<string, unknown>
-    return {
-      id: normalizeMetadataValue(typeof record.id === 'string' ? record.id : null),
-      title: normalizeMetadataValue(typeof record.title === 'string' ? record.title : null),
-    }
-  }).filter((item): item is NonNullable<typeof item> => item != null && (item.id != null || item.title != null))
-
-  return items.length > 0 ? JSON.stringify(items) : null
+function resolveBbgVersion(detected: boolean, title: string | null, parsedVersion: string | null): string | null {
+  if (parsedVersion) return parsedVersion
+  if (!detected) return null
+  if (title?.toLowerCase().includes('beta')) return betaLeaderDataVersionLabel
+  return liveLeaderDataVersionLabel
 }
 
 function isAutosaveAdmin(env: Env['Bindings'], userId: string): boolean {
