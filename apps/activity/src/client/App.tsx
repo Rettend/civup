@@ -4,6 +4,7 @@ import {
   preloadActivityIndexRoute,
   preloadActivityRedirectRoute,
   preloadActivityShell,
+  preloadAutosaveCatalogPage,
   preloadDraftActivityRoute,
   preloadLobbyOverviewRoute,
   preloadLobbyWaitingRoute,
@@ -14,6 +15,7 @@ import { UiScaleController } from './components/ui/UiScaleController'
 const ActivityShell = lazy(preloadActivityShell)
 const ActivityIndexRoute = lazy(preloadActivityIndexRoute)
 const ActivityRedirectRoute = lazy(preloadActivityRedirectRoute)
+const AutosaveCatalogPage = lazy(preloadAutosaveCatalogPage)
 const DraftActivityRoute = lazy(preloadDraftActivityRoute)
 const LobbyOverviewRoute = lazy(preloadLobbyOverviewRoute)
 const LobbyWaitingRoute = lazy(preloadLobbyWaitingRoute)
@@ -29,6 +31,7 @@ export default function App() {
           <Route path="/" component={ActivityShell}>
             <Route path="/" component={ActivityIndexRoute} />
             <Route path="/overview" component={LobbyOverviewRoute} />
+            <Route path="/uploads" component={AutosaveCatalogPage} />
             <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
             <Route path="/draft/:matchId" component={DraftActivityRoute} />
           </Route>
