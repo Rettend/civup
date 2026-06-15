@@ -114,14 +114,18 @@ export function DraftHeader(props: DraftHeaderProps) {
     }, 4000)
   }
 
-  const allBans = () => state()?.bans.map(b => b.civId) ?? []
+  const visibleBanSelections = () => {
+    const s = state()
+    return s ? [...s.bans, ...s.pendingBlindBans] : []
+  }
+  const allBans = () => visibleBanSelections().map(b => b.civId)
   const ffaSplitIndex = () => Math.ceil(allBans().length / 2)
 
   /** Bans for team A or the first half of FFA bans. */
   const leftBans = () => {
     const s = state()
     if (!s) return [] as string[]
-    if (isTeamMode()) return s.bans.filter(b => b.seatIndex === 0).map(b => b.civId)
+    if (isTeamMode()) return visibleBanSelections().filter(b => b.seatIndex === 0).map(b => b.civId)
     return allBans().slice(0, ffaSplitIndex())
   }
 
@@ -129,7 +133,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const rightBans = () => {
     const s = state()
     if (!s) return [] as string[]
-    if (isTeamMode()) return s.bans.filter(b => b.seatIndex === 1).map(b => b.civId)
+    if (isTeamMode()) return visibleBanSelections().filter(b => b.seatIndex === 1).map(b => b.civId)
     return allBans().slice(ffaSplitIndex())
   }
 

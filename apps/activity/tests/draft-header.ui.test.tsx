@@ -3,7 +3,7 @@
 import { render, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState } from './ui-fixtures'
+import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const onSwitchTarget = mock(() => {})
@@ -129,6 +129,24 @@ describe('DraftHeader UI', () => {
     expect(leftCluster.textContent).toContain('Lakes EvW')
     expect(rightCluster.textContent).toContain('Revert')
     expect(cluster.textContent).toContain('Pick Phase')
+  })
+
+  test('shows visible pending blind bans in the team header', () => {
+    uiMockState.userId = 'player-3'
+    uiMockState.draftSeatIndex = 2
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
+      pendingBlindBans: [
+        { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 0 },
+        { seatIndex: 0, civId: TEST_LEADER_IDS.johnCurtin, stepIndex: 0 },
+      ],
+    })
+
+    render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" />)
+
+    expect(screen.getByAltText('Abraham Lincoln')).toBeTruthy()
+    expect(screen.getByAltText('John Curtin')).toBeTruthy()
   })
 
   test('keeps host controls available during map-vote reveal', async () => {
