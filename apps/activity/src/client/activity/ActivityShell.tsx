@@ -1230,11 +1230,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 function AutosaveDropOverlay(props: { visible: boolean }) {
   return (
     <Show when={props.visible}>
-      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/72 backdrop-blur-sm pointer-events-none">
-        <div class="mx-6 max-w-md rounded-3xl border border-sky-300/60 bg-sky-950/70 px-8 py-7 text-center shadow-[0_0_60px_rgba(56,189,248,0.28)]">
-          <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-sky-200" />
-          <div class="text-xl font-bold text-white">Drop autosaves</div>
-          <div class="mt-2 text-sm text-sky-100/80">One Civ 6 autosave zip or folder at a time.</div>
+      <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-[2px] pointer-events-none">
+        <div class="mx-6 max-w-md rounded-3xl border border-border-subtle bg-bg-subtle/92 px-8 py-7 text-center shadow-2xl">
+          <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-fg-muted" />
+          <div class="text-xl font-bold text-fg">Upload autosaves</div>
+          <div class="mt-2 text-sm text-fg-muted">Upload the <code class="rounded bg-bg px-1 py-0.5 text-fg">auto</code> folder to share the game with others</div>
         </div>
       </div>
     </Show>
