@@ -15,6 +15,7 @@ interface DropdownProps {
   value?: string
   options: DropdownOption[]
   disabled?: boolean
+  tone?: 'accent' | 'neutral'
   onChange?: (value: string) => void
   class?: string
 }
@@ -26,6 +27,7 @@ export function Dropdown(props: DropdownProps) {
   const selectedOption = () => props.options.find(o => o.value === props.value)
 
   const fallbackValue = () => props.value ?? ''
+  const tone = () => props.tone ?? 'accent'
 
   const renderSelected = () => {
     const option = selectedOption()
@@ -113,9 +115,11 @@ export function Dropdown(props: DropdownProps) {
             'bg-bg/60 border border-border-subtle',
             'outline-none transition-all duration-150 cursor-pointer',
             'hover:border-border hover:bg-bg/75',
-            'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]',
+            tone() === 'accent'
+              ? 'focus:border-accent/50 focus:bg-bg/80 focus:shadow-[0_0_0_3px_var(--accent-subtle)]'
+              : 'focus:border-border-hover focus:bg-bg/80',
             'disabled:opacity-50 disabled:hover:border-border-subtle',
-            open() && 'border-accent/50 bg-bg/80',
+            open() && (tone() === 'accent' ? 'border-accent/50 bg-bg/80' : 'border-border-hover bg-bg/80'),
           )}
         >
           <span class="min-w-0 truncate">{renderSelected()}</span>
@@ -148,7 +152,9 @@ export function Dropdown(props: DropdownProps) {
                   'transition-colors duration-100',
                   option.disabled && 'cursor-default opacity-45',
                   option.value === props.value
-                    ? 'bg-accent/12 text-accent font-medium'
+                    ? tone() === 'accent'
+                      ? 'bg-accent/12 text-accent font-medium'
+                      : 'bg-white/6 text-fg font-medium'
                     : option.disabled
                       ? 'text-fg-subtle'
                       : 'text-fg-muted hover:bg-white/6 hover:text-fg',

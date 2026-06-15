@@ -45,7 +45,7 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
               <Show when={props.onCatalog}>
                 <button
                   type="button"
-                  class="text-sm text-sky-200 font-bold px-4 py-2 border border-sky-400/35 rounded-full bg-sky-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(56,189,248,0.16)] transition items-center hover:text-white hover:border-sky-300/70 hover:bg-sky-500/22"
+                  class="text-sm text-sky-200 font-bold px-4 py-2 border border-sky-400/35 rounded-full bg-sky-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(56,189,248,0.16)] transition items-center hover:text-sky-200 hover:border-sky-400/60 hover:bg-sky-500/20"
                   onClick={() => props.onCatalog?.()}
                 >
                   <span class="i-ph-folder-open-bold text-lg" />
