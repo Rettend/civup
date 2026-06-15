@@ -51,7 +51,7 @@ export async function getPlayerStatsRankProfile(
   now = Date.now(),
 ): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[] }> {
   const [preview, ratingRows] = await Promise.all([
-    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
+    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
   ])
 
@@ -70,7 +70,7 @@ export async function getPlayerRankProfile(
   now = Date.now(),
 ): Promise<PlayerRankProfile> {
   const [preview, ratingRows] = await Promise.all([
-    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false }),
+    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
   ])
 

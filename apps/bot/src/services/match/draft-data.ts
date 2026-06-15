@@ -105,6 +105,10 @@ export function getLeaderDataVersionFromDraftData(draftData: string | null, fall
 export function getPermanentAllyFromDraftData(gameMode: string, draftData: string | null): boolean {
   const mode = parseGameMode(gameMode)
   const parsed = parseDraftData(draftData)
+  return getPermanentAllyFromParsedDraftData(mode, parsed)
+}
+
+function getPermanentAllyFromParsedDraftData(mode: GameMode | null, parsed: ParsedDraftData | null): boolean {
   if (mode !== 'ffa' || parsed?.redDeath === true || parsed?.civBlitz === true) return false
   if (typeof parsed?.permanentAlly === 'boolean') return parsed.permanentAlly
   if (parsed?.manualReport === true) return false
@@ -160,7 +164,7 @@ export function getStoredGameModeContext(gameMode: string, draftData: string | n
   const parsed = parseDraftData(draftData)
   const redDeath = parsed?.redDeath === true
   const civBlitz = parsed?.civBlitz === true
-  const permanentAlly = getPermanentAllyFromDraftData(mode, draftData)
+  const permanentAlly = getPermanentAllyFromParsedDraftData(mode, parsed)
   const leaderDataVersion = normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion)
   const seatCount = Array.isArray(parsed?.state?.seats) ? parsed.state.seats.length : undefined
   const leaderboardMode = civBlitz ? null : toLeaderboardMode(mode, { redDeath })

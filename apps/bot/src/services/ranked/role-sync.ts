@@ -143,6 +143,8 @@ interface RankedRoleSyncOptions {
   includePlayerIdentities?: boolean
   rankedMinGames?: number
   maxDiscordRoleSyncPlayers?: number
+  /** Full role sync needs full-roster grace caps; single-player read views can skip them. */
+  fullRosterGraceCaps?: boolean
 }
 
 interface RatingSnapshotRow {
@@ -741,6 +743,7 @@ async function buildRankedRolePreviewState({
   playerIds,
   includePlayerIdentities = true,
   rankedMinGames = MODE_LADDER_MIN_GAMES,
+  fullRosterGraceCaps = true,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
   const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
   const [leaderboardSnapshots, previousAssignments, config, globalRatingRows] = await Promise.all([
@@ -765,7 +768,7 @@ async function buildRankedRolePreviewState({
       .from(playerRatings)
       .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
   ])
-  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, null)
+  const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, fullRosterGraceCaps ? null : requestedPlayerIds)
     ? await getRankedRoleDemotionCandidates(kv, guildId)
     : { byPlayerId: {} }
 
@@ -821,7 +824,9 @@ async function buildRankedRolePreviewState({
     knownPlayerIds.add(playerId)
   }
 
-  const calculationPlayerIds = [...new Set([...knownPlayerIds, ...(requestedPlayerIds ?? [])])].sort((a, b) => a.localeCompare(b))
+  const calculationPlayerIds = fullRosterGraceCaps || !requestedPlayerIds
+    ? [...new Set([...knownPlayerIds, ...(requestedPlayerIds ?? [])])].sort((a, b) => a.localeCompare(b))
+    : requestedPlayerIds
   const previewPlayerIdSet = requestedPlayerIds ? new Set(requestedPlayerIds) : null
   const identityPlayerIds = requestedPlayerIds ?? calculationPlayerIds
   const playerIdentityById = await loadPlayerIdentityById(

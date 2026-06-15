@@ -1,11 +1,11 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import { matches, matchParticipants, playerRatings, players, tournamentMatches } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
@@ -19,6 +19,13 @@ const RECENT_MATCHES_LIMIT = 8
 const MATCH_ID_BATCH_SIZE = 90
 
 interface CompletedPlayerMatchRow {
+  matchId: string
+  team: number | null
+  placement: number | null
+  createdAt: number
+}
+
+interface RecentPlayerMatchRow {
   matchId: string
   playerId: string
   team: number | null
@@ -100,35 +107,11 @@ export async function playerCardEmbed(
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
 
-  const completedMatchesWhere = buildCompletedMatchesWhereClause(playerId, modeFilter, displaySeason?.id ?? null)
-
-  const completedParticipationRowsRaw = await db
-    .select({
-      matchId: matchParticipants.matchId,
-      playerId: matchParticipants.playerId,
-      team: matchParticipants.team,
-      placement: matchParticipants.placement,
-      civId: matchParticipants.civId,
-      ratingBeforeMu: matchParticipants.ratingBeforeMu,
-      ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-      ratingAfterMu: matchParticipants.ratingAfterMu,
-      ratingAfterSigma: matchParticipants.ratingAfterSigma,
-      gameMode: matches.gameMode,
-      draftData: matches.draftData,
-      isOld: matches.isOld,
-      tournamentSessionId: tournamentMatches.sessionId,
-    })
-    .from(matchParticipants)
-    .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
-    .where(completedMatchesWhere)
-    .orderBy(desc(matches.createdAt), desc(matches.id))
-  const completedParticipationRows = completedParticipationRowsRaw.map(({ tournamentSessionId, ...row }) => ({
-    ...row,
-    isTournament: tournamentSessionId != null,
-  }))
-  const completedParticipations = await hydrateModeRatingSnapshotsFromEvents(db, completedParticipationRows)
-  const ffaRatingWins = countFfaRatingWins(completedParticipations)
+  const completedParticipationRows = await listCompletedPlayerMatchSummaries(db, playerId, modeFilter, displaySeason?.id ?? null)
+  const ffaRatingRows = ratingModes.includes('ffa')
+    ? await listFfaRatingWinSnapshotRows(db, playerId, displaySeason?.id ?? null)
+    : []
+  const ffaRatingWins = countFfaRatingWins(ffaRatingRows)
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(r => r.mode === mode)
@@ -141,7 +124,7 @@ export async function playerCardEmbed(
     })
   }
 
-  const commonPlayers = await summarizeCommonPlayers(db, playerId, completedParticipations)
+  const commonPlayers = await summarizeCommonPlayers(db, playerId, completedParticipationRows)
 
   if (commonPlayers.teammates.length > 0) {
     const fieldName = requestedModeLabel ? `Common Teammates (${requestedModeLabel})` : 'Common Teammates'
@@ -161,7 +144,10 @@ export async function playerCardEmbed(
     })
   }
 
-  const recentParticipations = completedParticipations.slice(0, RECENT_MATCHES_LIMIT)
+  const recentParticipations = await hydrateModeRatingSnapshotsFromEvents(
+    db,
+    await listRecentPlayerMatches(db, playerId, completedParticipationRows.slice(0, RECENT_MATCHES_LIMIT).map(row => row.matchId)),
+  )
 
   if (recentParticipations.length > 0) {
     fields.push({
@@ -249,17 +235,6 @@ export function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readon
   return mode && visibleModes.includes(mode) ? [mode] : []
 }
 
-function buildCompletedMatchesWhereClause(playerId: string, modeFilter: StatsModeFilter, seasonId: string | null) {
-  const conditions = [
-    eq(matchParticipants.playerId, playerId),
-    eq(matches.status, 'completed'),
-  ]
-
-  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
-  if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
-  return and(...conditions)
-}
-
 export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow[]): number {
   let ratingWins = 0
 
@@ -280,6 +255,141 @@ export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow
   }
 
   return ratingWins
+}
+
+async function listCompletedPlayerMatchSummaries(
+  db: Database,
+  playerId: string,
+  modeFilter: StatsModeFilter,
+  seasonId: string | null,
+): Promise<CompletedPlayerMatchRow[]> {
+  const participations = await db
+    .select({
+      matchId: matchParticipants.matchId,
+      team: matchParticipants.team,
+      placement: matchParticipants.placement,
+    })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.playerId, playerId))
+
+  if (participations.length === 0) return []
+
+  const participationByMatchId = new Map(participations.map(row => [row.matchId, row]))
+  const rows: CompletedPlayerMatchRow[] = []
+
+  for (const batch of chunk(participations.map(row => row.matchId), MATCH_ID_BATCH_SIZE)) {
+    const conditions = [
+      inArray(matches.id, batch),
+      eq(matches.status, 'completed'),
+    ]
+    if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
+    if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
+
+    const matchRows = await db
+      .select({
+        matchId: matches.id,
+        createdAt: matches.createdAt,
+      })
+      .from(matches)
+      .where(and(...conditions))
+
+    for (const match of matchRows) {
+      const participation = participationByMatchId.get(match.matchId)
+      if (!participation) continue
+      rows.push({
+        matchId: match.matchId,
+        team: participation.team,
+        placement: participation.placement,
+        createdAt: match.createdAt,
+      })
+    }
+  }
+
+  return rows.sort((left, right) => right.createdAt - left.createdAt || right.matchId.localeCompare(left.matchId))
+}
+
+async function listFfaRatingWinSnapshotRows(
+  db: Database,
+  playerId: string,
+  seasonId: string | null,
+): Promise<ModeRatingSnapshotRow[]> {
+  const conditions = [
+    eq(playerRatingEvents.playerId, playerId),
+    eq(playerRatingEvents.mode, 'ffa'),
+    eq(matches.status, 'completed'),
+  ]
+  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
+
+  return await db
+    .select({
+      gameMode: playerRatingEvents.gameMode,
+      draftData: sql<string | null>`null`,
+      ratingBeforeMu: playerRatingEvents.ratingBeforeMu,
+      ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
+      ratingAfterMu: playerRatingEvents.ratingAfterMu,
+      ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+    })
+    .from(playerRatingEvents)
+    .innerJoin(matches, eq(playerRatingEvents.matchId, matches.id))
+    .where(and(...conditions))
+}
+
+async function listRecentPlayerMatches(
+  db: Database,
+  playerId: string,
+  matchIds: string[],
+): Promise<RecentPlayerMatchRow[]> {
+  if (matchIds.length === 0) return []
+
+  const [participantRows, tournamentRows] = await Promise.all([
+    db
+      .select({
+        matchId: matchParticipants.matchId,
+        playerId: matchParticipants.playerId,
+        team: matchParticipants.team,
+        placement: matchParticipants.placement,
+        civId: matchParticipants.civId,
+        ratingBeforeMu: matchParticipants.ratingBeforeMu,
+        ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+        ratingAfterMu: matchParticipants.ratingAfterMu,
+        ratingAfterSigma: matchParticipants.ratingAfterSigma,
+        gameMode: matches.gameMode,
+        draftData: matches.draftData,
+        isOld: matches.isOld,
+        createdAt: matches.createdAt,
+      })
+      .from(matchParticipants)
+      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+      .where(and(
+        eq(matchParticipants.playerId, playerId),
+        inArray(matchParticipants.matchId, matchIds),
+      )),
+    db
+      .select({
+        matchId: tournamentMatches.matchId,
+        sessionId: tournamentMatches.sessionId,
+      })
+      .from(tournamentMatches)
+      .where(or(
+        inArray(tournamentMatches.matchId, matchIds),
+        inArray(tournamentMatches.sessionId, matchIds),
+      )),
+  ])
+
+  const tournamentMatchIds = new Set<string>()
+  for (const row of tournamentRows) {
+    if (row.matchId) tournamentMatchIds.add(row.matchId)
+    if (row.sessionId) tournamentMatchIds.add(row.sessionId)
+  }
+
+  return participantRows
+    .map(({ createdAt, ...row }) => ({
+      ...row,
+      isTournament: tournamentMatchIds.has(row.matchId),
+      createdAt,
+    }))
+    .sort((left, right) => right.createdAt - left.createdAt || right.matchId.localeCompare(left.matchId))
+    .map(({ createdAt: _createdAt, ...row }) => row)
 }
 
 async function summarizeCommonPlayers(
