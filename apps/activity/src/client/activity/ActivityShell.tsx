@@ -33,7 +33,6 @@ import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/a
 ||||||| Common ancestor
 =======
 import { buildActivitySessionHeaders } from '../lib/activity-session'
-import { parseAutosaveUploadClientMetadata } from '../lib/autosave-upload-metadata'
 >>>>>>> Current commit: feat: catalog
 import { relayDevLog } from '../lib/dev-log'
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
@@ -121,11 +120,38 @@ type AutosaveUploadState
     | { status: 'error', message: string }
 
 interface AutosaveUploadResponse {
-  ok?: boolean
-  id?: string
   error?: string
 }
 >>>>>>> Current commit: feat: catalog
+
+interface AutosaveFolderFile {
+  file: File
+  relativePath: string
+}
+
+interface WebkitDataTransferItem {
+  webkitGetAsEntry?: () => WebkitFileSystemEntry | null
+}
+
+interface WebkitFileSystemEntry {
+  isFile: boolean
+  isDirectory: boolean
+  name: string
+}
+
+interface WebkitFileSystemFileEntry extends WebkitFileSystemEntry {
+  isFile: true
+  file: (success: (file: File) => void, error?: (error: DOMException) => void) => void
+}
+
+interface WebkitFileSystemDirectoryEntry extends WebkitFileSystemEntry {
+  isDirectory: true
+  createReader: () => WebkitFileSystemDirectoryReader
+}
+
+interface WebkitFileSystemDirectoryReader {
+  readEntries: (success: (entries: WebkitFileSystemEntry[]) => void, error?: (error: DOMException) => void) => void
+}
 
 let cachedOverviewTargets: ActivityTargetOption[] = []
 
@@ -383,13 +409,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       autosaveDragDepth = 0
       setAutosaveDragActive(false)
 
-      const files = event.dataTransfer?.files
-      if (!files || files.length === 0) return
-      if (files.length > 1) {
-        setAutosaveUploadMessage({ status: 'error', message: 'Drop one autosave zip at a time' })
-        return
-      }
-      void uploadAutosaveFile(files.item(0))
+      void handleAutosaveDrop(event.dataTransfer)
     }
 
     window.addEventListener('dragenter', handleDragEnter)
@@ -1118,6 +1138,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     autosaveFileInput?.click()
   }
 
+  const openAutosaveFolderUpload = () => {
+    if (autosaveUploadState().status === 'uploading') return
+    autosaveFolderInput?.click()
+  }
+
   const openAutosaveCatalog = () => {
     void startTransition(() => {
       navigate('/uploads', { scroll: false })
@@ -1160,7 +1185,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     setAutosaveUploadState({ status: 'uploading', fileName: file.name })
 
     try {
-      const metadata = await parseAutosaveMetadataForUpload(file)
       const response = await fetch('/api/uploads/autosaves', {
         method: 'POST',
         headers,
@@ -1168,7 +1192,6 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       })
       const payload = await response.json().catch(() => null) as AutosaveUploadResponse | null
       if (!response.ok) throw new Error(payload?.error ?? 'Upload failed')
-      if (payload?.id && metadata) void storeAutosaveUploadMetadata(payload.id, metadata)
       setAutosaveUploadMessage({ status: 'success', fileName: file.name })
     }
     catch (error) {
@@ -1179,40 +1202,58 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
   }
 
-  const parseAutosaveMetadataForUpload = async (file: File) => {
+  const uploadAutosaveFolder = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []).map(file => ({
+      file,
+      relativePath: file.webkitRelativePath || file.name,
+    }))
+
+    await uploadAutosaveFolderFiles(files)
+  }
+
+  const uploadAutosaveFolderFiles = async (files: readonly AutosaveFolderFile[]) => {
+    if (files.length === 0) return
+
+    const folderName = resolveFolderUploadName(files)
+    const zipName = `${folderName}.zip`
+    clearAutosaveUploadReset()
+    setAutosaveUploadState({ status: 'uploading', fileName: zipName })
+
     try {
-      const metadata = await parseAutosaveUploadClientMetadata(file)
-      console.debug('[autosave-upload] parsed metadata', {
-        fileName: file.name,
-        maxTurn: metadata.maxTurn,
-        playerCount: metadata.playerCount,
-        gameMode: metadata.gameMode,
-        bbgTitle: metadata.bbgTitle,
-        bbgVersion: metadata.bbgVersion,
-      })
-      return metadata
+      const zipFile = await zipAutosaveFolder(files, zipName)
+      await uploadAutosaveFile(zipFile)
     }
     catch (error) {
-      console.warn('[autosave-upload] metadata parse failed', { fileName: file.name }, error)
-      return null
+      setAutosaveUploadMessage({
+        status: 'error',
+        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Failed to zip folder',
+      }, 6500)
     }
   }
 
-  const storeAutosaveUploadMetadata = async (uploadId: string, metadata: Awaited<ReturnType<typeof parseAutosaveUploadClientMetadata>>) => {
+  const handleAutosaveDrop = async (dataTransfer: DataTransfer | null) => {
+    if (!dataTransfer) return
+
     try {
-      const response = await fetch(`/api/uploads/autosaves/${encodeURIComponent(uploadId)}/metadata`, {
-        method: 'POST',
-        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(metadata),
-      })
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(payload?.error ?? `Metadata update failed (${response.status})`)
+      const folderFiles = await readDroppedFolderFiles(dataTransfer)
+      if (folderFiles) {
+        await uploadAutosaveFolderFiles(folderFiles)
+        return
       }
-      console.debug('[autosave-upload] stored metadata', { uploadId })
+
+      const files = dataTransfer.files
+      if (!files || files.length === 0) return
+      if (files.length > 1) {
+        setAutosaveUploadMessage({ status: 'error', message: 'Drop one autosave zip or folder at a time' })
+        return
+      }
+      await uploadAutosaveFile(files.item(0))
     }
     catch (error) {
-      console.warn('[autosave-upload] metadata update failed', { uploadId }, error)
+      setAutosaveUploadMessage({
+        status: 'error',
+        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Drop failed',
+      }, 6500)
     }
   }
 
@@ -1989,8 +2030,8 @@ function AutosaveDropOverlay(props: { visible: boolean }) {
       <div class="fixed inset-0 z-[80] flex items-center justify-center bg-black/72 backdrop-blur-sm pointer-events-none">
         <div class="mx-6 max-w-md rounded-3xl border border-sky-300/60 bg-sky-950/70 px-8 py-7 text-center shadow-[0_0_60px_rgba(56,189,248,0.28)]">
           <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-sky-200" />
-          <div class="text-xl font-bold text-white">Drop autosave zip</div>
-          <div class="mt-2 text-sm text-sky-100/80">One zipped Civ 6 autosave folder at a time.</div>
+          <div class="text-xl font-bold text-white">Drop autosaves</div>
+          <div class="mt-2 text-sm text-sky-100/80">One Civ 6 autosave zip or folder at a time.</div>
         </div>
       </div>
     </Show>
@@ -2040,6 +2081,123 @@ function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () 
       </div>
     </Show>
   )
+}
+
+async function zipAutosaveFolder(files: readonly AutosaveFolderFile[], fileName: string): Promise<File> {
+  const zipWriter = new ZipWriter(new BlobWriter('application/zip'))
+  const usedEntryNames = new Set<string>()
+
+  for (const entry of files) {
+    const entryName = dedupeZipEntryName(normalizeFolderUploadEntryPath(entry), usedEntryNames)
+    await zipWriter.add(entryName, new BlobReader(entry.file), {
+      lastModDate: Number.isFinite(entry.file.lastModified) ? new Date(entry.file.lastModified) : undefined,
+    })
+  }
+
+  const blob = await zipWriter.close()
+  return new File([blob], fileName, { type: 'application/zip', lastModified: Date.now() })
+}
+
+function resolveFolderUploadName(files: readonly AutosaveFolderFile[]): string {
+  const relativePath = files.find(entry => entry.relativePath)?.relativePath ?? ''
+  const root = relativePath.split(/[\\/]+/).find(segment => segment.trim().length > 0) ?? ''
+  return sanitizeFolderUploadBaseName(root || 'autosaves')
+}
+
+function sanitizeFolderUploadBaseName(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120)
+
+  return normalized.length > 0 ? normalized : 'autosaves'
+}
+
+function normalizeFolderUploadEntryPath(entry: AutosaveFolderFile): string {
+  const path = entry.relativePath || entry.file.name
+  const segments = path
+    .split(/[\\/]+/)
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..')
+
+  return segments.length > 0 ? segments.join('/') : 'autosave-file'
+}
+
+function dedupeZipEntryName(entryName: string, usedEntryNames: Set<string>): string {
+  if (!usedEntryNames.has(entryName)) {
+    usedEntryNames.add(entryName)
+    return entryName
+  }
+
+  const extensionIndex = entryName.lastIndexOf('.')
+  const base = extensionIndex > 0 ? entryName.slice(0, extensionIndex) : entryName
+  const extension = extensionIndex > 0 ? entryName.slice(extensionIndex) : ''
+  let index = 2
+  let candidate = `${base}_${index}${extension}`
+  while (usedEntryNames.has(candidate)) {
+    index += 1
+    candidate = `${base}_${index}${extension}`
+  }
+  usedEntryNames.add(candidate)
+  return candidate
+}
+
+async function readDroppedFolderFiles(dataTransfer: DataTransfer): Promise<AutosaveFolderFile[] | null> {
+  const entries = Array.from(dataTransfer.items ?? [])
+    .filter(item => item.kind === 'file')
+    .map(item => (item as unknown as WebkitDataTransferItem).webkitGetAsEntry?.() ?? null)
+    .filter((entry): entry is WebkitFileSystemEntry => entry != null)
+
+  const directories = entries.filter(isWebkitDirectoryEntry)
+  if (directories.length === 0) return null
+  if (entries.length !== 1 || directories.length !== 1) throw new Error('Drop one autosave folder at a time')
+  const directory = directories[0]
+  if (!directory) throw new Error('Drop one autosave folder at a time')
+
+  return readDroppedDirectoryEntries(directory, directory.name)
+}
+
+async function readDroppedDirectoryEntries(directory: WebkitFileSystemDirectoryEntry, relativePath: string): Promise<AutosaveFolderFile[]> {
+  const entries = await readAllDirectoryEntries(directory)
+  const files = await Promise.all(entries.map(async (entry) => {
+    const childPath = `${relativePath}/${entry.name}`
+    if (isWebkitFileEntry(entry)) {
+      return [{ file: await readDroppedFileEntry(entry), relativePath: childPath }]
+    }
+    if (isWebkitDirectoryEntry(entry)) return readDroppedDirectoryEntries(entry, childPath)
+    return []
+  }))
+
+  return files.flat()
+}
+
+async function readAllDirectoryEntries(directory: WebkitFileSystemDirectoryEntry): Promise<WebkitFileSystemEntry[]> {
+  const reader = directory.createReader()
+  const entries: WebkitFileSystemEntry[] = []
+
+  while (true) {
+    const batch = await new Promise<WebkitFileSystemEntry[]>((resolve, reject) => {
+      reader.readEntries(resolve, reject)
+    })
+    if (batch.length === 0) return entries
+    entries.push(...batch)
+  }
+}
+
+async function readDroppedFileEntry(entry: WebkitFileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => {
+    entry.file(resolve, reject)
+  })
+}
+
+function isWebkitFileEntry(entry: WebkitFileSystemEntry): entry is WebkitFileSystemFileEntry {
+  return entry.isFile
+}
+
+function isWebkitDirectoryEntry(entry: WebkitFileSystemEntry): entry is WebkitFileSystemDirectoryEntry {
+  return entry.isDirectory
 }
 
 function validateAutosaveUploadFile(file: File): string | null {

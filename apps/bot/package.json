@@ -33,8 +33,13 @@
     "r:migrate": "bun run d1:migrate:remote"
   },
   "dependencies": {
+<<<<<<< New base: fix: /stats perf
     "@civup/civ6-mod": "workspace:*",
     "@civup/civ6-save-metadata": "workspace:*",
+||||||| Common ancestor
+=======
+    "@civup/civ6-save-metadata": "workspace:*",
+>>>>>>> Current commit: feat: parse in worker
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",
     "@civup/rating": "workspace:*",
@@ -44,6 +49,7 @@
     "@resvg/resvg-wasm": "^2.6.2",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",
+    "fflate": "^0.8.2",
     "hono": "^4.11.8",
     "nanoid": "^5.1.6",
     "partyserver": "^0.1.5"
