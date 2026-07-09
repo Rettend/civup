@@ -127,7 +127,21 @@
       "name": "@civup/civ6-save-metadata",
       "version": "0.0.0",
     },
+<<<<<<< New base: fix: multiple r2
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+=======
+    "packages/civup-analyzer": {
+      "name": "@civup/analyzer",
+      "version": "0.0.0",
+      "bin": {
+        "civup": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@civup/civ6-save-metadata": "workspace:*",
+      },
+    },
+>>>>>>> Current commit: feat: save file analyzer
     "packages/db": {
       "name": "@civup/db",
       "version": "0.0.0",
@@ -211,6 +225,7 @@
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
+<<<<<<< New base: fix: multiple r2
 <<<<<<< New base: chore: update leader desc
     "@civup/analyzer": ["@civup/analyzer@workspace:packages/civup-analyzer"],
 
@@ -220,6 +235,11 @@
 
 ||||||| Common ancestor
 =======
+||||||| Common ancestor
+=======
+    "@civup/analyzer": ["@civup/analyzer@workspace:packages/civup-analyzer"],
+
+>>>>>>> Current commit: feat: save file analyzer
     "@civup/civ6-save-metadata": ["@civup/civ6-save-metadata@workspace:packages/civ6-save-metadata"],
 
 >>>>>>> Current commit: feat: catalog
