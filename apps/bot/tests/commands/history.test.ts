@@ -108,6 +108,55 @@ describe('history command payload', () => {
     }
   })
 
+  test('formats CivBlitz history with unranked result markers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Target', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Opponent', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values([
+        {
+          id: 'civblitz-history-win',
+          gameMode: '1v1',
+          status: 'completed',
+          isOld: false,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+          createdAt: Date.UTC(2026, 0, 1) - 1,
+          completedAt: Date.UTC(2026, 0, 1),
+        },
+        {
+          id: 'civblitz-history-loss',
+          gameMode: '1v1',
+          status: 'completed',
+          isOld: false,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+          createdAt: Date.UTC(2026, 0, 2) - 1,
+          completedAt: Date.UTC(2026, 0, 2),
+        },
+      ])
+      await db.insert(matchParticipants).values([
+        participant('p1', 0, 'japan-hojo-tokimune', 1, 'civblitz-history-win'),
+        participant('p2', 1, 'russia-peter', 2, 'civblitz-history-win'),
+        participant('p1', 0, 'russia-peter', 2, 'civblitz-history-loss'),
+        participant('p2', 1, 'japan-hojo-tokimune', 1, 'civblitz-history-loss'),
+      ])
+
+      const payload = await buildPlayerHistoryCommandPayload(db, 'p1', 'all')
+      const embed = firstEmbedJson(payload)
+
+      expect(embed.fields?.[0]?.name).toContain('`  -` 📉')
+      expect(embed.fields?.[1]?.name).toContain('`  +` 📈')
+      expect(JSON.stringify(embed.fields)).not.toContain('❔ `(   ?)`')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('paginates history at ten matches per page', async () => {
     const { db, sqlite } = await createTestDatabase()
 

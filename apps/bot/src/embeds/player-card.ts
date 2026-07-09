@@ -10,7 +10,7 @@ import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
-import { formatDisplayRatingChange } from './rating-change.ts'
+import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
@@ -582,9 +582,12 @@ function formatRecentRatingChange(match: {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  gameMode: string
+  draftData: string | null
   isTournament?: boolean
 }): string {
   if (match.isTournament) return `${formatTournamentResultEmoji(match.placement)} \`Tournament\``
+  if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null

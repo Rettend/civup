@@ -86,7 +86,7 @@ export const leaderTagsById = {
   'swahili-al-hasan-ibn-sulaiman': ['econ:gold', 'spike:mid', 'role:backline', 'other:naval'],
   'sweden-kristina': ['econ:gold', 'econ:production', 'win:culture', 'spike:late', 'role:backline', 'other:greatpeople', 'other:greatworks'],
   'taino-anacaona': ['econ:faith', 'econ:gold', 'econ:food', 'win:culture', 'spike:late', 'role:flex', 'other:greatpeople'],
-  'teotihuacan-spearthrower-owl': ['econ:gold', 'win:domination', 'spike:mid', 'role:flex', 'other:diplo'],
+  'teotihuacan-spearthrower-owl': ['econ:gold', 'win:science', 'win:culture', 'spike:mid', 'role:flex', 'other:diplo'],
   'thule-kiviuq': ['econ:gold', 'econ:food', 'win:domination', 'spike:early', 'role:flex', 'other:naval', 'other:defense'],
   'tibet-trisong-detsen': ['econ:faith', 'win:domination', 'spike:mid', 'role:flex', 'other:defense'],
   'vietnam-ba-trieu': ['win:domination', 'win:culture', 'spike:mid', 'role:frontline', 'other:defense'],

@@ -22,6 +22,7 @@ import { buildActivitySessionHeaders } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import {
   connectionStatus,
+  connectionCloseReason,
   connectToSession,
   disconnect,
   draftStore,
@@ -398,6 +399,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
 
     setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode, reported: nextReported })
+    if (nextReported) {
+      const shouldKeepTerminalDraft = isSameMatch && hasTerminalDraft
+      disconnect()
+      if (!shouldKeepTerminalDraft) resetDraft()
+      return
+    }
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
@@ -1117,6 +1124,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       appStatus: current.status,
       currentMatchId: current.status === 'authenticated' ? current.matchId : null,
       connectionStatus: connectionStatus(),
+      connectionCloseReason: connectionCloseReason(),
       draftState: draftStore.state,
     })
 

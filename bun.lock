@@ -83,6 +83,16 @@
       "name": "@civup/civ6-save-metadata",
       "version": "0.0.0",
     },
+    "packages/civup-analyzer": {
+      "name": "@civup/analyzer",
+      "version": "0.0.0",
+      "bin": {
+        "civup": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@civup/civ6-save-metadata": "workspace:*",
+      },
+    },
     "packages/db": {
       "name": "@civup/db",
       "version": "0.0.0",
@@ -165,6 +175,8 @@
     "@babel/traverse": ["@babel/traverse@7.27.7", "", { "dependencies": { "@babel/code-frame": "^7.27.1", "@babel/generator": "^7.27.5", "@babel/parser": "^7.27.7", "@babel/template": "^7.27.2", "@babel/types": "^7.27.7", "debug": "^4.3.1", "globals": "^11.1.0" } }, "sha512-X6ZlfR/O/s5EQ/SnUSLzr+6kGnkg8HXGMzpgsMsrJVcfDtH1vIp6ctCN4eZ1LS5c0+te5Cb6Y514fASjMRJ1nw=="],
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
+
+    "@civup/analyzer": ["@civup/analyzer@workspace:packages/civup-analyzer"],
 
     "@civup/civ6-save-metadata": ["@civup/civ6-save-metadata@workspace:packages/civ6-save-metadata"],
 

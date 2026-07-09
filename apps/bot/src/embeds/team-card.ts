@@ -12,7 +12,7 @@ import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
-import { formatDisplayRatingChange } from './rating-change.ts'
+import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -336,11 +336,15 @@ function formatBlankPlacementCode(): string {
 }
 
 function formatRecentRatingChange(match: {
+  placement: number | null
   ratingBeforeMu: number | null
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  gameMode: string
+  draftData: string | null
 }): string {
+  if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null
