@@ -12,6 +12,7 @@ import { clearSelections } from './ui-store'
 // ── Types ──────────────────────────────────────────────────
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
+export type ReportMatchResult = { ok: true } | { ok: false, error: string, reason?: 'processing' | 'finalizing' }
 
 export interface MatchStateSnapshot {
   match: {
@@ -236,6 +237,7 @@ export interface SessionSocketTarget {
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
 export const [connectionError, setConnectionError] = createSignal<string | null>(null)
+export const [connectionCloseReason, setConnectionCloseReason] = createSignal<string | null>(null)
 
 const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
@@ -278,6 +280,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   setConnectionStatus('connecting')
   setConnectionError(null)
+  setConnectionCloseReason(null)
 
   const activitySessionToken = getActivitySessionToken()
   if (!activitySessionToken) {
@@ -310,6 +313,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
+    setConnectionCloseReason(null)
   })
 
   nextSocket.addEventListener('message', (event) => {
@@ -332,11 +336,10 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     if (socket !== nextSocket) return
 
     const code = typeof event.code === 'number' ? event.code : -1
-    const reason = typeof event.reason === 'string' && event.reason.length > 0
+    const closeReason = typeof event.reason === 'string' && event.reason.length > 0
       ? event.reason
-      : typeof event.type === 'string'
-        ? event.type
-        : '-'
+      : null
+    const reason = closeReason ?? (typeof event.type === 'string' ? event.type : '-')
 
     if (code !== 1000) {
       if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
@@ -362,6 +365,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
       lastSocketActivityAt = 0
       setConnectionStatus('error')
       setConnectionError(formatSessionSocketCloseError(code, reason, lastServerErrorMessage))
+      setConnectionCloseReason(closeReason)
       return
     }
 
@@ -370,6 +374,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
+    setConnectionCloseReason(closeReason)
   })
 
   nextSocket.addEventListener('error', () => {
@@ -396,6 +401,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     lastSocketActivityAt = 0
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
+    setConnectionCloseReason(null)
   })
 }
 
@@ -414,6 +420,7 @@ export function disconnect() {
     pendingConfigAck = null
   }
   setConnectionStatus('disconnected')
+  setConnectionCloseReason(null)
 }
 
 function startStaleDraftReconnectWatchdog() {
@@ -978,15 +985,17 @@ export async function reportMatchResult(
   reporterId: string,
   placements: string,
   leaderAssignments?: Record<string, string>,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<ReportMatchResult> {
   try {
     const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
     if (data.reportProcessing) {
+      const reason = data.reportFinalizing ? 'finalizing' : 'processing'
       return {
         ok: false,
+        reason,
         error: data.reportFinalizing
           ? 'Match is finalizing leader swaps. Try again in a moment.'
-          : 'Match is already being reported.',
+          : 'Another player is already reporting this result. Finalizing the report...',
       }
     }
     if (data.ok === false) return { ok: false, error: data.error ?? 'Failed to report result' }

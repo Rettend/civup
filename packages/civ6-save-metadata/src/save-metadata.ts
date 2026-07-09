@@ -6,6 +6,8 @@ const COMPRESSED_DATA_END = marker([0x00, 0x00, 0xFF, 0xFF])
 const GAME_DATA = {
   GAME_TURN: marker([0x9D, 0x2C, 0xE6, 0xBD]),
   GAME_SPEED: marker([0x99, 0xB0, 0xD9, 0x05]),
+  GAME_RANDOM_SEED: marker([0x8C, 0x54, 0xEE, 0x04]),
+  MAP_RANDOM_SEED: marker([0x7C, 0xC7, 0xC5, 0x96]),
   MOD_BLOCK_1: marker([0x5C, 0xAE, 0x27, 0x84]),
   MOD_BLOCK_2: marker([0xC8, 0xD1, 0x8C, 0x1B]),
   MOD_BLOCK_3: marker([0x44, 0x7F, 0xD4, 0xFE]),
@@ -14,6 +16,11 @@ const GAME_DATA = {
   MOD_TITLE: marker([0x72, 0xE1, 0x34, 0x30]),
   MAP_FILE: marker([0x5A, 0x87, 0xD8, 0x63]),
   MAP_SIZE: marker([0x40, 0x5C, 0x83, 0x0B]),
+} as const
+
+const PACKET_DATA = {
+  PLAYER_ID: 0x1A96522F,
+  TEAM: 0x0D8AB454,
 } as const
 
 const SLOT_HEADERS = [
@@ -73,6 +80,7 @@ interface ParsedSave {
 
 export interface Civ6SavePlayerMetadata {
   slot: number
+  team: number | null
   playerName: string | null
   leader: string | null
   civilization: string | null
@@ -95,6 +103,8 @@ export interface Civ6SaveMetadata {
   mapSize: string | null
   mapFile: string | null
   gameSpeed: string | null
+  gameRandomSeed: number | null
+  mapRandomSeed: number | null
   mods: Civ6SaveModMetadata[]
   bbgDetected: boolean
   bbgTitle: string | null
@@ -148,12 +158,16 @@ export function parseCiv6SaveMetadata(bytes: Uint8Array): Civ6SaveMetadata {
     }
   }
 
+  addFallbackGameInt(parsed.game, 'GAME_RANDOM_SEED', GAME_DATA.GAME_RANDOM_SEED, findPacketInt32(bytes, GAME_DATA.GAME_RANDOM_SEED))
+  addFallbackGameInt(parsed.game, 'MAP_RANDOM_SEED', GAME_DATA.MAP_RANDOM_SEED, findPacketInt32(bytes, GAME_DATA.MAP_RANDOM_SEED))
+
   parsed.CIVS = collectCivilizationActors(parsed.ACTORS)
-  return buildMetadata(parsed)
+  return buildMetadata(parsed, bytes)
 }
 
-function buildMetadata(parsed: ParsedSave): Civ6SaveMetadata {
-  const players = parsed.CIVS.map(buildPlayerMetadata)
+function buildMetadata(parsed: ParsedSave, bytes: Uint8Array): Civ6SaveMetadata {
+  const packetPlayers = collectPacketPlayerMetadata(bytes)
+  const players = parsed.CIVS.map(actor => buildPlayerMetadata(actor, packetPlayers))
   const leaders = uniqueStrings(players.map(player => player.leader))
   const civs = uniqueStrings(players.map(player => player.civilization))
   const mods = collectMods(parsed.game)
@@ -169,6 +183,8 @@ function buildMetadata(parsed: ParsedSave): Civ6SaveMetadata {
     mapSize: stringData(parsed.game.MAP_SIZE),
     mapFile: stringData(parsed.game.MAP_FILE),
     gameSpeed: stringData(parsed.game.GAME_SPEED),
+    gameRandomSeed: int32Data(parsed.game.GAME_RANDOM_SEED),
+    mapRandomSeed: int32Data(parsed.game.MAP_RANDOM_SEED),
     mods,
     bbgDetected: bbg.detected,
     bbgTitle: bbg.title,
@@ -191,16 +207,119 @@ function collectCivilizationActors(actors: ActorRecord[]): ActorRecord[] {
   return civs
 }
 
-function buildPlayerMetadata(actor: ActorRecord): Civ6SavePlayerMetadata {
+function buildPlayerMetadata(actor: ActorRecord, packetPlayers: Map<number, Civ6SavePacketPlayerMetadata>): Civ6SavePlayerMetadata {
   const aiHuman = numberData(actor.ACTOR_AI_HUMAN)
+  const slot = resolveSlotIndex(actor.SLOT_HEADER?.marker)
   return {
-    slot: resolveSlotIndex(actor.SLOT_HEADER?.marker),
+    slot,
+    team: packetPlayers.get(slot)?.team ?? null,
     playerName: stringData(actor.PLAYER_NAME),
     leader: stringData(actor.LEADER_NAME),
     civilization: stringData(actor.ACTOR_NAME),
     isHuman: aiHuman === 3 ? true : aiHuman === 1 ? false : null,
     alive: booleanData(actor.PLAYER_ALIVE),
   }
+}
+
+interface Civ6SavePacketPlayerMetadata {
+  playerId: number
+  team: number | null
+}
+
+interface PacketNode {
+  marker: number
+  intValue: number | null
+  children: PacketNode[]
+}
+
+function collectPacketPlayerMetadata(bytes: Uint8Array): Map<number, Civ6SavePacketPlayerMetadata> {
+  try {
+    const players = new Map<number, Civ6SavePacketPlayerMetadata>()
+    for (const node of parsePlayerInfoPacketArray(bytes)) {
+      const playerId = childInt(node, PACKET_DATA.PLAYER_ID)
+      if (playerId == null || playerId < 0 || playerId > 63) continue
+      players.set(playerId, {
+        playerId,
+        team: childInt(node, PACKET_DATA.TEAM),
+      })
+    }
+    return players
+  }
+  catch {
+    return new Map()
+  }
+}
+
+function parsePlayerInfoPacketArray(bytes: Uint8Array): PacketNode[] {
+  const state: ParserState = { pos: 4 }
+  state.pos += 4
+  skipPacketArray(bytes, state)
+  state.pos += 4
+  state.pos += 4
+  skipPacketArray(bytes, state)
+  state.pos += 4
+  return readPacketArray(bytes, state)
+}
+
+function skipPacketArray(bytes: Uint8Array, state: ParserState) {
+  readPacketArray(bytes, state)
+}
+
+function readPacketArray(bytes: Uint8Array, state: ParserState): PacketNode[] {
+  const count = readUint32(bytes, state.pos)
+  state.pos += 4
+  const nodes: PacketNode[] = []
+  for (let index = 0; index < count; index += 1) nodes.push(readPacketEntry(bytes, state, null))
+  return nodes
+}
+
+function readPacketEntry(bytes: Uint8Array, state: ParserState, arrayIndex: number | null): PacketNode {
+  const markerValue = arrayIndex == null ? readUint32(bytes, state.pos) : arrayIndex
+  if (arrayIndex == null) state.pos += 4
+  const type = readUint32(bytes, state.pos)
+  state.pos += 4
+  const length = readUint24(bytes, state.pos)
+  state.pos += 3
+  state.pos += 1
+  state.pos += 4
+
+  if (type === DATA_TYPES.BOOLEAN || type === DATA_TYPES.INTEGER || type === 3) {
+    const intValue = readUint32(bytes, state.pos)
+    state.pos += 4
+    return { marker: markerValue, intValue, children: [] }
+  }
+  if (type === DATA_TYPES.ARRAY_START || type === 0x0B) {
+    const count = readUint32(bytes, state.pos)
+    state.pos += 4
+    const children: PacketNode[] = []
+    for (let index = 0; index < count; index += 1) children.push(readPacketEntry(bytes, state, type === 0x0B ? index : null))
+    return { marker: markerValue, intValue: null, children }
+  }
+
+  if (type === 4 || type === DATA_TYPES.STRING) state.pos += length || 4
+  else if (type === DATA_TYPES.UTF_STRING) state.pos += length * 2
+  else if (type === 0x14) state.pos += 8
+  else if (type === 0x15 || type === 0x0D) state.pos += 8
+  else if (type === 0x18) skipPacketCompressed(state, length)
+  else throw new Error(`Unsupported packet type ${type}`)
+  return { marker: markerValue, intValue: null, children: [] }
+}
+
+function skipPacketCompressed(state: ParserState, packetLength: number) {
+  state.pos += 12
+  let remaining = packetLength - 12
+  while (remaining > 0) {
+    const chunkLength = Math.min(remaining, 65536)
+    state.pos += chunkLength
+    remaining -= chunkLength
+    if (remaining === 0) break
+    state.pos += 4
+    remaining -= 4
+  }
+}
+
+function childInt(node: PacketNode, markerValue: number): number | null {
+  return node.children.find(child => child.marker === markerValue)?.intValue ?? null
 }
 
 function collectMods(game: ParsedGameData): Civ6SaveModMetadata[] {
@@ -445,6 +564,21 @@ function addParsedGameEntry(game: ParsedGameData, key: string, entry: ParsedEntr
   game[candidate] = entry
 }
 
+function addFallbackGameInt(game: ParsedGameData, key: string, markerBytes: Uint8Array, value: number | null) {
+  if (value == null || numberData(game[key]) != null) return
+  game[key] = { marker: markerBytes, type: DATA_TYPES.INTEGER, data: value }
+}
+
+function findPacketInt32(bytes: Uint8Array, markerBytes: Uint8Array): number | null {
+  for (let offset = 0; offset <= bytes.length - 20; offset += 1) {
+    if (!markerEquals(bytes.subarray(offset, offset + 4), markerBytes)) continue
+    const type = readUint32(bytes, offset + 4)
+    if (type !== DATA_TYPES.INTEGER && type !== 3) continue
+    return readUint32(bytes, offset + 16) | 0
+  }
+  return null
+}
+
 function findMarkerKey(markerBytes: Uint8Array, markers: MarkerMap): string | null {
   for (const [key, value] of Object.entries(markers)) {
     if (markerEquals(markerBytes, value)) return key
@@ -460,6 +594,11 @@ function resolveSlotIndex(markerBytes: Uint8Array | undefined): number {
 
 function numberData(entry: ParsedEntry | undefined): number | null {
   return typeof entry?.data === 'number' && Number.isFinite(entry.data) ? entry.data : null
+}
+
+function int32Data(entry: ParsedEntry | undefined): number | null {
+  const value = numberData(entry)
+  return value == null ? null : value | 0
 }
 
 function stringData(entry: ParsedEntry | undefined): string | null {

@@ -10,7 +10,7 @@ import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { clampPageIndex } from '../services/response/pagination.ts'
-import { formatDisplayRatingChange } from './rating-change.ts'
+import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type PlayerHistoryModeFilter = 'all' | GameMode
 
@@ -580,6 +580,7 @@ function formatPlacementCode(placement: number | null): string {
 
 function formatRatingChange(row: PlayerHistoryTargetRow): string {
   if (row.isTournament) return `${formatTournamentResultEmoji(row.placement)} \`Tournament\``
+  if (getStoredGameModeContext(row.gameMode, row.draftData)?.civBlitz) return formatUnrankedResultMarker(row.placement)
   if (
     row.ratingBeforeMu == null
     || row.ratingBeforeSigma == null

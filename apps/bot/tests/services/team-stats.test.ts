@@ -270,6 +270,55 @@ describe('team stats embed', () => {
     sqlite.close()
   })
 
+  test('renders CivBlitz recent team matches with unranked result markers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    for (const [playerId, displayName] of [
+      [HERO_ID, 'Hero'],
+      [MATE_ID, 'Mate'],
+      [OPP1_ID, 'Opp 1'],
+      [OPP2_ID, 'Opp 2'],
+    ] as const) {
+      await seedPlayerIdentity(db, playerId, displayName)
+    }
+
+    await seedCompletedMatch(db, {
+      matchId: 'civblitz-team-win',
+      gameMode: '2v2',
+      completedAt: NOW - 2_000,
+      draftData: JSON.stringify({ civBlitz: true }),
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'japan-hojo-tokimune', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 1, civId: 'babylon-hammurabi', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 2, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'civblitz-team-loss',
+      gameMode: '2v2',
+      completedAt: NOW - 1_000,
+      draftData: JSON.stringify({ civBlitz: true }),
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'rome-trajan', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: MATE_ID, team: 0, placement: 2, civId: 'macedon-alexander', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP1_ID, team: 1, placement: 1, civId: 'japan-hojo-tokimune', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { playerId: OPP2_ID, team: 1, placement: 1, civId: 'babylon-hammurabi', ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ],
+    })
+
+    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
+    const value = recentMatchesField?.value ?? ''
+
+    expect(value).toContain('`  +` 📈')
+    expect(value).toContain('`  -` 📉')
+    expect(value).not.toContain('❔ `(   ?)`')
+
+    sqlite.close()
+  })
+
   test('shows no games played yet for lineups without shared matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -563,6 +612,7 @@ async function seedCompletedMatch(
     gameMode: '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
     completedAt: number
     isOld?: boolean
+    draftData?: string | null
     participants: Array<{
       playerId: string
       team: number
@@ -581,7 +631,7 @@ async function seedCompletedMatch(
     status: 'completed',
     isOld: input.isOld ?? false,
     seasonId: null,
-    draftData: null,
+    draftData: input.draftData ?? null,
     createdAt: input.completedAt - 10_000,
     completedAt: input.completedAt,
   })

@@ -9,6 +9,7 @@ export {
   cancelLobby,
   canFillLobbyWithTestPlayers,
   connectionError,
+  connectionCloseReason,
   connectionStatus,
   connectToSession,
   disconnect,

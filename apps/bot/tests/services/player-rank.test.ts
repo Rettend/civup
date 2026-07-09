@@ -427,6 +427,43 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
+  test('renders CivBlitz recent matches with unranked result markers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedPlayerIdentity(db, '100010000000000098')
+    await seedCompletedMatch(db, {
+      matchId: 'civblitz-win',
+      gameMode: '1v1',
+      completedAt: NOW - 2_000,
+      draftData: JSON.stringify({ civBlitz: true }),
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 1, civId: 'babylon-hammurabi' },
+        { playerId: '100010000000000098', team: 1, placement: 2, civId: 'rome-trajan' },
+      ],
+    })
+    await seedCompletedMatch(db, {
+      matchId: 'civblitz-loss',
+      gameMode: '1v1',
+      completedAt: NOW - 1_000,
+      draftData: JSON.stringify({ civBlitz: true }),
+      participants: [
+        { playerId: HERO_ID, team: 0, placement: 2, civId: 'rome-trajan' },
+        { playerId: '100010000000000098', team: 1, placement: 1, civId: 'babylon-hammurabi' },
+      ],
+    })
+
+    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
+    const value = recentMatchesField?.value ?? ''
+
+    expect(value).toContain('`  +` 📈')
+    expect(value).toContain('`  -` 📉')
+    expect(value).not.toContain('❔ `(   ?)`')
+
+    sqlite.close()
+  })
+
   test('renders tournament recent matches with result direction emoji', async () => {
     const { db, sqlite } = await createTestDatabase()
 
@@ -1278,6 +1315,7 @@ async function seedCompletedMatch(
     createdAt?: number
     completedAt: number
     isOld?: boolean
+    draftData?: string | null
     participants: Array<{
       playerId: string
       team: number | null
@@ -1292,7 +1330,7 @@ async function seedCompletedMatch(
     status: 'completed',
     isOld: row.isOld ?? false,
     seasonId: row.seasonId ?? null,
-    draftData: null,
+    draftData: row.draftData ?? null,
     createdAt: row.createdAt ?? row.completedAt - 10_000,
     completedAt: row.completedAt,
   })

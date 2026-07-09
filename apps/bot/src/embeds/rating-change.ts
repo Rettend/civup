@@ -8,3 +8,7 @@ export function formatDisplayRatingChange(before: number, after: number): string
 
   return `\`${deltaText}\` ${trendEmoji} \`${updatedElo}\``
 }
+
+export function formatUnrankedResultMarker(placement: number | null | undefined): string {
+  return placement === 1 ? '`  +` 📈' : '`  -` 📉'
+}

@@ -46,6 +46,7 @@
     "deploy:prod:full": "bun run deploy:prod && bun run bot:register:prod",
     "cf:usage:snapshot": "bun scripts/cloudflare-usage.ts snapshot",
     "cf:usage:diff": "bun scripts/cloudflare-usage.ts diff",
+    "civup": "bun packages/civup-analyzer/src/cli.ts",
     "autosave:parse": "bun scripts/autosave-parse.ts",
     "clean": "bun scripts/clean.ts",
     "update": "taze latest -wr"

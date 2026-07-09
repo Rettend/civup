@@ -505,7 +505,7 @@ function PlayerRow(props: { leader: CatalogLeaderCard }) {
 function splitPlayerColumns(leaders: CatalogLeaderCard[]): { left: CatalogLeaderCard[], right: CatalogLeaderCard[] } | null {
   if (leaders.length < 2 || leaders.length % 2 !== 0) return null
 
-  const sorted = [...leaders].sort((left, right) => (left.slot ?? Number.MAX_SAFE_INTEGER) - (right.slot ?? Number.MAX_SAFE_INTEGER))
+  const sorted = normalizeCatalogTeamDisplayOrder([...leaders].sort((left, right) => (left.slot ?? Number.MAX_SAFE_INTEGER) - (right.slot ?? Number.MAX_SAFE_INTEGER)))
   const columns: { left: CatalogLeaderCard[], right: CatalogLeaderCard[] } = { left: [], right: [] }
   sorted.forEach((leader, index) => {
     const team = TEAM_SLOT_PATTERN[index % TEAM_SLOT_PATTERN.length]
@@ -513,6 +513,11 @@ function splitPlayerColumns(leaders: CatalogLeaderCard[]): { left: CatalogLeader
     else columns.right.push(leader)
   })
   return columns
+}
+
+function normalizeCatalogTeamDisplayOrder(leaders: CatalogLeaderCard[]): CatalogLeaderCard[] {
+  if (leaders.length !== 6) return leaders
+  return [leaders[0]!, leaders[1]!, leaders[2]!, leaders[3]!, leaders[5]!, leaders[4]!]
 }
 
 function formatCatalogPlayerName(leader: CatalogLeaderCard): string {
