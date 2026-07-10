@@ -76,8 +76,8 @@ export const command_admin = factory.command<AdminVar>(
         new SubCommand('edit', 'Edit the current tournament settings'),
         new SubCommand('status', 'Show current tournament status'),
       ),
-      new SubCommand('setup', 'View or toggle system channels').options(
-        new Option('target', 'Channel role to configure').choices(
+      new SubCommand('setup', 'View or configure server features').options(
+        new Option('target', 'Feature to configure').choices(
           { name: 'Draft', value: 'draft' },
           { name: 'Archive', value: 'archive' },
           { name: 'Bot Commands', value: 'commands' },
@@ -89,6 +89,11 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Tournament Draft', value: 'tournament-draft' },
           { name: 'Tournament Archive', value: 'tournament-archive' },
           { name: 'Tournament Leaderboard', value: 'tournament-leaderboard' },
+          { name: 'Browser Access', value: 'browser' },
+        ),
+        new Option('value', 'Value for features that require one').choices(
+          { name: 'On', value: 'on' },
+          { name: 'Off', value: 'off' },
         ),
       ),
       new SubCommand('config', 'View or update configuration').options(

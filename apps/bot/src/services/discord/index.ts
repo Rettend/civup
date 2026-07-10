@@ -42,6 +42,18 @@ export interface DiscordInteractionFollowupPayload {
 export interface DiscordGuildRolePayload {
   name: string
   color?: number
+  hoist?: boolean
+  mentionable?: boolean
+  permissions?: string
+}
+
+export interface DiscordGuildRoleResponse {
+  id: string
+  name?: string
+  hoist?: boolean
+  managed?: boolean
+  mentionable?: boolean
+  permissions?: string
 }
 
 export interface DiscordGuildMemberResponse {
@@ -56,10 +68,6 @@ export interface DiscordGuildMemberResponse {
 }
 
 interface DiscordMessageResponse {
-  id: string
-}
-
-interface DiscordGuildRoleResponse {
   id: string
 }
 
@@ -369,6 +377,27 @@ export async function createGuildRole(
   )
 
   return response.json<DiscordGuildRoleResponse>()
+}
+
+export async function fetchGuildRoles(
+  token: string,
+  guildId: string,
+): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord(
+    'fetch guild roles',
+    `https://discord.com/api/v10/guilds/${guildId}/roles`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+  const payload = await response.json<unknown>()
+  if (!Array.isArray(payload)) return []
+  return payload.filter((role): role is DiscordGuildRoleResponse => {
+    return role != null && typeof role === 'object' && typeof (role as { id?: unknown }).id === 'string'
+  })
 }
 
 export async function deleteGuildRole(

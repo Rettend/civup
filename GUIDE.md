@@ -47,6 +47,8 @@ When the lobby is full, use the `Start Draft` button.
 
 ## Joining an existing draft
 
+If Discord Activities do not work on your device, run `/settings` and choose **Web browser**. The existing Join and Browse buttons will then return a private **Open in Browser** link. The browser uses the same CivUp lobby and draft UI and asks you to sign in with Discord the first time. Discord Activity remains the default.
+
 There are 3 ways to join a lobby:
 
 - **Clicking the `Join` button on the lobby embed**: this opens the Activity and adds you to the lobby.

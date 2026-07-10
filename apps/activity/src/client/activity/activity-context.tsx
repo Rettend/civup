@@ -19,6 +19,8 @@ export type ActivityState
     }
 
 export interface ActivityControllerContextValue {
+  canSwitchTargets: boolean
+  canResumeSelection: () => boolean
   state: Accessor<ActivityState>
   availableTargets: Accessor<ActivityTargetOption[]>
   pickerBusy: Accessor<boolean>
@@ -54,7 +56,7 @@ export function ActivityLoadingPage(): JSX.Element {
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
       <div class="text-center">
         <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-        <div class="text-sm text-fg-muted">Connecting to Discord...</div>
+        <div class="text-sm text-fg-muted">Connecting to CivUp...</div>
       </div>
     </main>
   )

@@ -9,6 +9,7 @@ import {
   preloadLobbyOverviewRoute,
   preloadLobbyWaitingRoute,
   preloadPracticePage,
+  preloadWebSessionRoute,
 } from './activity/route-preloads'
 import { UiScaleController } from './components/ui/UiScaleController'
 
@@ -20,6 +21,7 @@ const DraftActivityRoute = lazy(preloadDraftActivityRoute)
 const LobbyOverviewRoute = lazy(preloadLobbyOverviewRoute)
 const LobbyWaitingRoute = lazy(preloadLobbyWaitingRoute)
 const PracticePage = lazy(preloadPracticePage)
+const WebSessionRoute = lazy(preloadWebSessionRoute)
 
 export default function App() {
   return (
@@ -34,6 +36,10 @@ export default function App() {
             <Route path="/uploads" component={AutosaveCatalogPage} />
             <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
             <Route path="/draft/:matchId" component={DraftActivityRoute} />
+          </Route>
+          <Route path="/web" component={ActivityShell}>
+            <Route path="/channel/:channelId" component={LobbyOverviewRoute} />
+            <Route path="/session/:sessionId" component={WebSessionRoute} />
           </Route>
           <Route path="*all" component={ActivityRedirectRoute} />
         </Router>
