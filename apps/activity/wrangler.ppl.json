@@ -8,9 +8,19 @@
   ],
   "main": "src/server/index.ts",
   "vars": {
+<<<<<<< New base: feat: save file analyzer
     "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.thepeace.workers.dev",
     "ALLOWED_DISCORD_GUILD_ID": "1234044388733095946",
     "DISCORD_CLIENT_ID": "1484646041096552600"
+||||||| Common ancestor
+    "DISCORD_CLIENT_ID": "1469447716751933533",
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev"
+=======
+    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
+    "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+    "DISCORD_CLIENT_ID": "1469447716751933533",
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev"
+>>>>>>> Current commit: feat: external browser draft WIP
   },
   "services": [
     {
@@ -19,8 +29,13 @@
     }
   ],
   "assets": {
+<<<<<<< New base: feat: save file analyzer
     "binding": "ASSETS",
     "directory": "./dist/client",
+||||||| Common ancestor
+=======
+    "binding": "ASSETS",
+>>>>>>> Current commit: feat: external browser draft WIP
     "not_found_handling": "single-page-application"
   },
   "observability": {

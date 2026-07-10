@@ -201,6 +201,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
+<<<<<<< New base: feat: save file analyzer
             const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
             if (!launch.ok) return privateLaunchError(c, launch.error)
             const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
@@ -212,6 +213,22 @@ export const command_match = factory.command<MatchVar>(
               activityTarget: { kind: 'match', id: userMatchId },
               launch,
             })
+||||||| Common ancestor
+            await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, { kind: 'match', id: userMatchId })
+            return c.resActivity()
+=======
+            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+            if (!launch.ok) return privateLaunchError(c, launch.error)
+            const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
+            if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match to a CivUp session. Please try its current Join button.')
+            return respondWithPreferredLaunch(c, {
+              destination: { kind: 'session', sessionId },
+              activityChannelId: interactionChannelId,
+              activityUserId: identity.userId,
+              activityTarget: { kind: 'match', id: userMatchId },
+              launch,
+            })
+>>>>>>> Current commit: feat: external browser draft WIP
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/match create\` first.`, 'error')

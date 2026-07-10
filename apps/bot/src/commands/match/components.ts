@@ -57,6 +57,7 @@ export const component_match_join = factory.component(
         : clickedLobby.matchId ?? clickedLobby.id
       : await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId, db)
 
+<<<<<<< New base: feat: save file analyzer
     const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles)
     if (!launch.ok) return privateLaunchError(c, launch.error)
     const canonicalSessionId = launch.mode === 'browser'
@@ -65,6 +66,19 @@ export const component_match_join = factory.component(
     if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this session. Please use a current lobby message and try again.')
     const activityTarget = clickedLobby?.status === 'open'
       ? { kind: 'lobby' as const, id: clickedLobby.id }
+||||||| Common ancestor
+    await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby?.channelId ?? null, identity.userId, clickedLobby?.status === 'open'
+      ? { kind: 'lobby', id: clickedLobby.id }
+=======
+    const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles)
+    if (!launch.ok) return privateLaunchError(c, launch.error)
+    const canonicalSessionId = launch.mode === 'browser'
+      ? clickedLobby?.id ?? (clickedMatchId ? await resolveCanonicalSessionId(db, clickedMatchId) : null)
+      : clickedLobby?.id ?? lobbyId
+    if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this CivUp session. Please use a current lobby message and try again.')
+    const activityTarget = clickedLobby?.status === 'open'
+      ? { kind: 'lobby' as const, id: clickedLobby.id }
+>>>>>>> Current commit: feat: external browser draft WIP
       : clickedMatchId
         ? { kind: 'match' as const, id: clickedMatchId }
         : { kind: 'lobby' as const, id: lobbyId }
@@ -174,6 +188,7 @@ export const component_draft_activity = factory.component(
     if (identity && channelId && messageId) {
       const matchId = await getMatchIdForMessage(createDb(c.env.DB), messageId).catch(() => null)
       if (matchId) {
+<<<<<<< New base: feat: save file analyzer
         const sessionId = launch.mode === 'browser'
           ? await resolveCanonicalSessionId(createDb(c.env.DB), matchId)
           : matchId
@@ -185,6 +200,21 @@ export const component_draft_activity = factory.component(
           activityTarget: { kind: 'match', id: matchId },
           launch,
         })
+||||||| Common ancestor
+        await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, channelId, identity.userId, { kind: 'match', id: matchId })
+=======
+        const sessionId = launch.mode === 'browser'
+          ? await resolveCanonicalSessionId(createDb(c.env.DB), matchId)
+          : matchId
+        if (!sessionId) return privateLaunchError(c, 'Could not resolve this draft to a CivUp session. Please use a current lobby message.')
+        return respondWithPreferredLaunch(c, {
+          destination: { kind: 'session', sessionId },
+          activityChannelId: channelId,
+          activityUserId: identity.userId,
+          activityTarget: { kind: 'match', id: matchId },
+          launch,
+        })
+>>>>>>> Current commit: feat: external browser draft WIP
       }
     }
     if (launch.mode === 'activity') return c.resActivity()

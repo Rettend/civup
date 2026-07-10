@@ -402,6 +402,7 @@ export async function createGuildRole(
   return response.json<DiscordGuildRoleResponse>()
 }
 
+<<<<<<< New base: feat: save file analyzer
 export async function updateGuildRole(
   token: string,
   guildId: string,
@@ -445,6 +446,30 @@ export async function fetchGuildRoles(
   })
 }
 
+||||||| Common ancestor
+=======
+export async function fetchGuildRoles(
+  token: string,
+  guildId: string,
+): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord(
+    'fetch guild roles',
+    `https://discord.com/api/v10/guilds/${guildId}/roles`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bot ${token}`,
+      },
+    },
+  )
+  const payload = await response.json<unknown>()
+  if (!Array.isArray(payload)) return []
+  return payload.filter((role): role is DiscordGuildRoleResponse => {
+    return role != null && typeof role === 'object' && typeof (role as { id?: unknown }).id === 'string'
+  })
+}
+
+>>>>>>> Current commit: feat: external browser draft WIP
 export async function deleteGuildRole(
   token: string,
   guildId: string,

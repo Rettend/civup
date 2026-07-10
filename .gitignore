@@ -48,7 +48,14 @@ cloudflared.dev.yml
 .DS_Store
 
 # Other
+<<<<<<< New base: feat: save file analyzer
 /docs/
+||||||| Common ancestor
+docs
+=======
+docs/*
+!docs/PLAN.md
+>>>>>>> Current commit: feat: external browser draft WIP
 
 # preset build artifacts
 mods/dist/

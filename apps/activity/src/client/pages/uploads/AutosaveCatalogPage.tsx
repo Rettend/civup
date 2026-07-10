@@ -775,8 +775,8 @@ import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } fr
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } from 'solid-js'
 import { useActivityController } from '~/client/activity/activity-context'
 import { Dropdown } from '~/client/components/ui/Dropdown'
-import { discordSdk } from '~/client/discord'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '~/client/lib/activity-session'
+import { openExternalLink } from '~/client/platform/external-links'
 import { isMiniView } from '~/client/stores'
 
 interface AutosaveUploadCatalogRow {
@@ -934,12 +934,12 @@ export default function AutosaveCatalogPage() {
     try {
       const url = buildExternalDownloadUrl(row)
       console.debug('[autosave-catalog] download open', { id: row.id, fileName: row.fileName, url })
-      const response = await discordSdk.commands.openExternalLink({ url })
-      if (response?.opened !== true) window.open(url, '_blank', 'noopener')
+      const opened = await openExternalLink(url)
+      if (!opened) window.open(url, '_blank', 'noopener')
       setUploads(current => current.map(candidate => candidate.id === row.id
         ? { ...candidate, downloadCount: candidate.downloadCount + 1 }
         : candidate))
-      console.debug('[autosave-catalog] download opened', { id: row.id, opened: response?.opened ?? null })
+      console.debug('[autosave-catalog] download opened', { id: row.id, opened })
     }
     catch (err) {
       console.error('[autosave-catalog] download failed', { id: row.id, fileName: row.fileName }, err)

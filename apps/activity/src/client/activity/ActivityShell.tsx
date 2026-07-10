@@ -18,6 +18,7 @@ import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { useLocation, useNavigate } from '@solidjs/router'
 <<<<<<< New base: chore: update leader desc
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
+<<<<<<< New base: feat: save file analyzer
 ||||||| Common ancestor
 import { batch, createEffect, createSignal, onCleanup, onMount, startTransition, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from '../discord'
@@ -25,6 +26,10 @@ import { discordSdk, setupDiscordSdk } from '../discord'
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
 import { discordSdk, setupDiscordSdk } from '../discord'
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+import { discordSdk, setupDiscordSdk } from '../discord'
+=======
+>>>>>>> Current commit: feat: external browser draft WIP
 import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
 <<<<<<< New base: chore: update leader desc
 import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
@@ -35,9 +40,15 @@ import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/a
 import { buildActivitySessionHeaders } from '../lib/activity-session'
 >>>>>>> Current commit: feat: catalog
 import { relayDevLog } from '../lib/dev-log'
+<<<<<<< New base: feat: save file analyzer
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
 import { openExternalLink } from '../platform/external-links'
+||||||| Common ancestor
+=======
+import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
+import { bootstrapDiscordPlatform } from '../platform/discord-platform'
+>>>>>>> Current commit: feat: external browser draft WIP
 import {
   connectionStatus,
   connectionCloseReason,
@@ -201,6 +212,7 @@ type LiveRoute
 export default function ActivityShell(props: { children?: JSX.Element }) {
   const navigate = useNavigate()
   const location = useLocation()
+<<<<<<< New base: feat: save file analyzer
   const surface = location.pathname.startsWith('/web/') ? 'web' as const : 'discord-embedded' as const
   const browserRoute = () => surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
   const directBrowserSessionId = () => {
@@ -213,6 +225,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     return path ? parseBrowserLaunchRoute(path) : null
   }
   const browserRouteKey = () => `${location.pathname}${location.search}`
+||||||| Common ancestor
+=======
+  const surface = location.pathname.startsWith('/web/') ? 'web' as const : 'discord-embedded' as const
+  const initialBrowserRoute = surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
+  const directBrowserSessionId = initialBrowserRoute?.kind === 'session' ? initialBrowserRoute.sessionId : null
+  const browserReturnPath = initialBrowserRoute?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
+  const browserReturnRoute = browserReturnPath ? parseBrowserLaunchRoute(browserReturnPath) : null
+>>>>>>> Current commit: feat: external browser draft WIP
   const [state, setState] = createSignal<ActivityState>({ status: 'loading' })
   const [availableTargets, setAvailableTargets] = createSignal<ActivityTargetOption[]>(cachedOverviewTargets)
   const [pickerBusy, setPickerBusy] = createSignal(false)
@@ -402,6 +422,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
   onMount(() => {
+    if (surface === 'web') return
     const handleDragEnter = (event: DragEvent) => {
       if (!isFileDrag(event)) return
       event.preventDefault()
@@ -641,11 +662,19 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
+<<<<<<< New base: feat: save file analyzer
     const directSessionId = directBrowserSessionId()
     if (current.status === 'lobby-waiting' && directSessionId) {
       connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
       return
     }
+||||||| Common ancestor
+=======
+    if (current.status === 'lobby-waiting' && directBrowserSessionId) {
+      connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
+>>>>>>> Current commit: feat: external browser draft WIP
     if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch) startActivityWatch(activeChannelId, activeUserId)
   }
 
@@ -714,10 +743,17 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       disconnect()
+<<<<<<< New base: feat: save file analyzer
       const directSessionId = directBrowserSessionId()
       if (directSessionId) {
         connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
       }
+||||||| Common ancestor
+=======
+      if (directBrowserSessionId) {
+        connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+      }
+>>>>>>> Current commit: feat: external browser draft WIP
       return
     }
 
@@ -759,6 +795,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
+<<<<<<< New base: feat: save file analyzer
     const route = browserRoute()
     if (surface === 'web' && route?.kind === 'channel') {
       const bootstrap = await bootstrapBrowserChannel(route.channelId)
@@ -766,6 +803,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
       return
     }
+||||||| Common ancestor
+=======
+    if (surface === 'web' && initialBrowserRoute?.kind === 'channel') {
+      const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+      if (activeChannelId !== channelId || activeUserId !== userId) return
+      hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
+      return
+    }
+>>>>>>> Current commit: feat: external browser draft WIP
     const requestVersion = ++launchSnapshotRequestVersion
     const liveStateRevisionAtStart = liveStateRevision
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
@@ -787,6 +833,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const requestActivityLaunchSnapshotRefresh = async () => {
+<<<<<<< New base: feat: save file analyzer
     const directSessionId = directBrowserSessionId()
     if (directSessionId) {
       if (refreshInFlight) return
@@ -808,6 +855,29 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       }
       return
     }
+||||||| Common ancestor
+=======
+    if (directBrowserSessionId) {
+      if (refreshInFlight) return
+      refreshInFlight = true
+      try {
+        const bootstrap = await bootstrapBrowserSession(directBrowserSessionId)
+        if (bootstrap.context.status === 'ended') {
+          setState({ status: 'error', message: 'This CivUp session has ended.' })
+          clearDraftConnection()
+          return
+        }
+        hydrateActivityLaunchSnapshot({
+          selection: bootstrap.context.selection,
+          options: [bootstrap.context.selection.option],
+        }, true)
+      }
+      finally {
+        refreshInFlight = false
+      }
+      return
+    }
+>>>>>>> Current commit: feat: external browser draft WIP
     const channelId = activeChannelId
     const userId = activeUserId
     if (!channelId || !userId || refreshInFlight) return
@@ -822,11 +892,20 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const navigateToSelectionFromOverview = (selection: ActivityLaunchSelection, options: { auto?: boolean } = {}) => {
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web') {
       const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
       void startTransition(() => navigate(browserSessionPath(sessionId), { scroll: false }))
       return
     }
+||||||| Common ancestor
+=======
+    if (surface === 'web') {
+      const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
+      window.location.assign(browserSessionPath(sessionId))
+      return
+    }
+>>>>>>> Current commit: feat: external browser draft WIP
     if (options.auto || state().status !== 'overview') return
     if (parseLiveRoute(location.pathname)?.kind !== 'overview') return
 
@@ -838,6 +917,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openOverview = (options: { replace?: boolean } = {}) => {
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web') {
       const channelId = activeChannelId
       if (!channelId) return
@@ -845,6 +925,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
+||||||| Common ancestor
+=======
+    if (surface === 'web') {
+      if (!activeChannelId) return
+      window.location.assign(browserChannelPath(activeChannelId, directBrowserSessionId ?? undefined))
+      return
+    }
+
+>>>>>>> Current commit: feat: external browser draft WIP
     const current = state()
     const replace = options.replace ?? false
     pendingTargetSelectionKey = null
@@ -874,6 +963,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openPractice = () => {
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web') {
       const channelId = activeChannelId
       if (!channelId) return
@@ -882,6 +972,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
+||||||| Common ancestor
+=======
+    if (surface === 'web') {
+      if (!activeChannelId) return
+      window.location.assign(browserPracticePath(activeChannelId, browserReturnRoute?.kind === 'session' ? browserReturnRoute.sessionId : undefined))
+      return
+    }
+
+>>>>>>> Current commit: feat: external browser draft WIP
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = null
     selectionRequestVersion += 1
@@ -1170,7 +1269,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
   const canViewAutosaveCatalog = () => {
     const userId = authenticatedUserId()
-    return userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
+    return surface === 'discord-embedded' && userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
   }
 
   const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
@@ -1423,10 +1522,18 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
 >>>>>>> Current commit: feat: catalog
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web') {
       void startTransition(() => navigate(browserSessionPath(option.lobbyId), { scroll: false }))
       return
     }
+||||||| Common ancestor
+=======
+    if (surface === 'web') {
+      window.location.assign(browserSessionPath(option.lobbyId))
+      return
+    }
+>>>>>>> Current commit: feat: external browser draft WIP
     const channelId = activeChannelId
     const currentUserId = activeUserId
     if (!channelId || !currentUserId) return
@@ -1650,11 +1757,17 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const current = state()
     const channelId = activeChannelId
     const userId = activeUserId
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web' && loadedBrowserRouteKey() !== browserRouteKey()) {
       stopActivityWatch()
       return
     }
     if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: current.status }) || !channelId || !userId) {
+||||||| Common ancestor
+    if ((current.status !== 'overview' && current.status !== 'lobby-waiting') || !channelId || !userId) {
+=======
+    if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId, status: current.status }) || !channelId || !userId) {
+>>>>>>> Current commit: feat: external browser draft WIP
       stopActivityWatch()
       return
     }
@@ -1678,12 +1791,21 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const restoreLastSelection = async () => {
+<<<<<<< New base: feat: save file analyzer
     if (surface === 'web') {
       const returnPath = browserReturnPath()
       if (returnPath) void startTransition(() => navigate(returnPath, { scroll: false }))
       return
     }
 
+||||||| Common ancestor
+=======
+    if (surface === 'web') {
+      if (browserReturnPath) window.location.assign(browserReturnPath)
+      return
+    }
+
+>>>>>>> Current commit: feat: external browser draft WIP
     const lastSelection = lastResolvedSelection()
     if (!lastSelection) return
     suppressAutoSelection = false
@@ -1698,6 +1820,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     await requestTargetSelection(lastSelection.option)
   }
 
+<<<<<<< New base: feat: save file analyzer
   const canResumeSelection = () => browserReturnPath() != null || lastResolvedSelection() != null
 
   createEffect(() => {
@@ -1762,12 +1885,56 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })
   })
 
+||||||| Common ancestor
+=======
+  const canResumeSelection = () => browserReturnPath != null || lastResolvedSelection() != null
+
+>>>>>>> Current commit: feat: external browser draft WIP
   onMount(async () => {
     if (surface === 'web') return
     try {
+<<<<<<< New base: feat: save file analyzer
       const bootstrap = await bootstrapDiscordPlatform()
       setAuthenticatedUser(bootstrap.identity)
       const channelId = bootstrap.channelId
+||||||| Common ancestor
+      const auth = await setupDiscordSdk()
+      setAuthenticatedUser(auth)
+      const channelId = discordSdk.channelId
+=======
+      if (surface === 'web') {
+        if (!initialBrowserRoute) throw new Error('Invalid CivUp browser URL')
+        if (initialBrowserRoute.kind === 'session') {
+          const bootstrap = await bootstrapBrowserSession(initialBrowserRoute.sessionId)
+          setAuthenticatedUser(bootstrap.identity)
+          activeUserId = bootstrap.identity.userId
+          setAuthenticatedUserId(bootstrap.identity.userId)
+          if (bootstrap.context.status === 'ended') {
+            setState({ status: 'error', message: 'This CivUp session has ended.' })
+            return
+          }
+          activeChannelId = bootstrap.context.selection.option.channelId
+          hydrateActivityLaunchSnapshot({
+            selection: bootstrap.context.selection,
+            options: [bootstrap.context.selection.option],
+          }, true)
+          return
+        }
+
+        const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+        setAuthenticatedUser(bootstrap.identity)
+        activeChannelId = bootstrap.context.channelId
+        activeUserId = bootstrap.identity.userId
+        setAuthenticatedUserId(bootstrap.identity.userId)
+        setOverviewPinned(true)
+        hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
+        return
+      }
+
+      const bootstrap = await bootstrapDiscordPlatform()
+      setAuthenticatedUser(bootstrap.identity)
+      const channelId = bootstrap.channelId
+>>>>>>> Current commit: feat: external browser draft WIP
 
       if (!channelId) {
         setState({ status: 'error', message: 'No channel ID found - start from Discord' })
@@ -1775,6 +1942,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       }
 
       activeChannelId = channelId
+<<<<<<< New base: feat: save file analyzer
 <<<<<<< New base: chore: update leader desc
       activeUserId = bootstrap.identity.userId
       void refreshAdminCapabilities()
@@ -1784,6 +1952,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       activeUserId = auth.user.id
       setAuthenticatedUserId(auth.user.id)
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+      activeUserId = auth.user.id
+      setAuthenticatedUserId(auth.user.id)
+=======
+      activeUserId = bootstrap.identity.userId
+      setAuthenticatedUserId(bootstrap.identity.userId)
+>>>>>>> Current commit: feat: external browser draft WIP
       const initialRoute = parseLiveRoute(location.pathname)
       if (initialRoute?.kind === 'overview') {
         setOverviewPinned(true)
@@ -1815,10 +1990,18 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         clearLaunchSnapshotFallback()
         return
       }
+<<<<<<< New base: feat: save file analyzer
       if (directBrowserSessionId()) {
         reconnectVisibleSelection()
         return
       }
+||||||| Common ancestor
+=======
+      if (directBrowserSessionId) {
+        reconnectVisibleSelection()
+        return
+      }
+>>>>>>> Current commit: feat: external browser draft WIP
       if (state().status === 'overview' || state().status === 'lobby-waiting') {
         if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
         void requestActivityLaunchSnapshotRefresh()
@@ -1903,8 +2086,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   return (
     <ActivityControllerContext.Provider
       value={{
+<<<<<<< New base: feat: save file analyzer
         canSwitchTargets: true,
         canResumeSelection,
+||||||| Common ancestor
+=======
+        canSwitchTargets: surface === 'discord-embedded' || directBrowserSessionId != null,
+        canResumeSelection,
+>>>>>>> Current commit: feat: external browser draft WIP
         state,
         availableTargets,
         pickerBusy,

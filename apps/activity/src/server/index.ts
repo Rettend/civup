@@ -40,9 +40,14 @@ interface ActivityProxySession {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+<<<<<<< New base: feat: save file analyzer
   guildId: string | null
   guildPermissions: string | null
   source: 'header' | 'query' | 'cookie' | 'download-ticket'
+||||||| Common ancestor
+=======
+  source: 'header' | 'query' | 'cookie'
+>>>>>>> Current commit: feat: external browser draft WIP
 }
 
 export default {
@@ -64,12 +69,19 @@ export default {
       if (url.pathname.startsWith('/api/parties/')) {
         return await handlePartyProxy(request, url, env)
       }
+<<<<<<< New base: feat: save file analyzer
       if (url.pathname.startsWith('/api/browser/')) {
         return await handleBrowserBootstrap(request, url, env)
       }
       if (request.method === 'POST' && getCivBlitzDownloadTicketMatchId(url.pathname)) {
         return await handleCivBlitzDownloadTicket(request, url, env)
       }
+||||||| Common ancestor
+=======
+      if (url.pathname.startsWith('/api/browser/')) {
+        return await handleBrowserBootstrap(request, url, env)
+      }
+>>>>>>> Current commit: feat: external browser draft WIP
       if (
         url.pathname.startsWith('/api/activity/')
         || url.pathname.startsWith('/api/match/')
@@ -125,6 +137,7 @@ async function handleDevLog(request: Request): Promise<Response> {
   }
 }
 
+<<<<<<< New base: feat: save file analyzer
 async function handleAuthMe(request: Request, env: Env): Promise<Response> {
   const session = await requireActivitySession(request, env)
   if (session instanceof Response) return session
@@ -163,6 +176,52 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
   return response
 }
 
+||||||| Common ancestor
+=======
+async function handleAuthMe(request: Request, env: Env): Promise<Response> {
+  const session = await requireActivitySession(request, env)
+  if (session instanceof Response) return session
+  const response = json({ userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
+async function handleAuthLogout(request: Request, env: Env): Promise<Response> {
+  const config = resolveBrowserAccessConfiguration(env)
+  if (!config) return json({ error: 'Browser access is not configured' }, 503)
+  if (!hasExactBrowserOrigin(request, config)) return json({ error: 'Invalid request origin' }, 403)
+  return new Response(null, {
+    status: 204,
+    headers: { 'Set-Cookie': clearBrowserSessionCookie(), 'Cache-Control': 'no-store' },
+  })
+}
+
+async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Promise<Response> {
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
+  if (!resolveBrowserAccessConfiguration(env)) return json({ error: 'Browser access is not configured' }, 503)
+  const session = await requireActivitySession(request, env)
+  if (session instanceof Response) return session
+
+  const targetPath = buildTargetPath(url, url.pathname.replace(/^\/api\/browser/, '/api/activity'))
+  let upstream: Response
+  if (env.BOT && shouldUseBotServiceBinding(request, env)) {
+    upstream = await env.BOT.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
+  }
+  else {
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+    upstream = await fetch(buildProxyRequest(`${botHost}${targetPath}`, request, env, session))
+  }
+  const payload = await upstream.json<unknown>().catch(() => null)
+  if (!upstream.ok) return json(payload ?? { error: 'Browser context failed' }, upstream.status)
+  const response = json({
+    identity: { userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl },
+    context: payload,
+  })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
+>>>>>>> Current commit: feat: external browser draft WIP
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
@@ -494,11 +553,21 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
     if (!identity.ok) return json({ error: identity.error }, identity.status)
 
     const sessionToken = await createActivitySession(internalSecret, {
+<<<<<<< New base: feat: save file analyzer
       userId: identity.userId,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
       guildId: identity.guildId,
       guildPermissions: identity.guildPermissions,
+||||||| Common ancestor
+      userId,
+      displayName: resolveDiscordDisplayName(discordUser),
+      avatarUrl: buildDiscordIdentityAvatarUrl(discordUser, userId),
+=======
+      userId: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
+>>>>>>> Current commit: feat: external browser draft WIP
     })
 
     const response = json({
@@ -535,9 +604,14 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     userId: session.sub,
     displayName: session.name || null,
     avatarUrl: session.avatarUrl,
+<<<<<<< New base: feat: save file analyzer
     guildId: session.guildId,
     guildPermissions: session.guildPermissions,
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
+||||||| Common ancestor
+=======
+    source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
+>>>>>>> Current commit: feat: external browser draft WIP
   }
 }
 
@@ -566,6 +640,7 @@ function getCivBlitzDownloadTicketMatchId(pathname: string): string | null {
   return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download-ticket$/, pathname)
 }
 
+<<<<<<< New base: feat: save file analyzer
 function getCivBlitzDownloadMatchId(pathname: string): string | null {
   return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download$/, pathname)
 }
@@ -588,6 +663,74 @@ function json(data: unknown, status = 200): Response {
   })
 }
 
+||||||| Common ancestor
+async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResponse | Response> {
+  const url = allowedGuildId
+    ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
+    : 'https://discord.com/api/v10/users/@me'
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    console.error(allowedGuildId ? 'Discord guild member lookup failed:' : 'Discord user lookup failed:', {
+      guildId: allowedGuildId,
+      status: response.status,
+      detail,
+    })
+
+    if (allowedGuildId && (response.status === 403 || response.status === 404)) {
+      return json({ error: 'This activity is only available in the configured Discord server' }, 403)
+    }
+
+    return json({ error: 'Failed to verify Discord user' }, 502)
+  }
+
+  if (!allowedGuildId) {
+    return response.json<DiscordIdentityResponse>()
+  }
+
+  const member = await response.json<DiscordGuildMemberResponse>()
+  if (!member.user) {
+    console.error('Discord guild member lookup returned no user payload', { guildId: allowedGuildId })
+    return json({ error: 'Failed to verify Discord user' }, 502)
+  }
+
+  return {
+    ...member.user,
+    nick: member.nick ?? null,
+    guildAvatar: member.avatar ?? null,
+    guildId: allowedGuildId,
+  }
+}
+
+function resolveDiscordDisplayName(user: DiscordIdentityResponse): string | null {
+  return normalizeOptionalDiscordName(user.nick)
+    ?? normalizeOptionalDiscordName(user.global_name)
+    ?? normalizeOptionalDiscordName(user.username)
+}
+
+function normalizeOptionalDiscordName(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
+function buildDiscordIdentityAvatarUrl(user: DiscordIdentityResponse, userId: string): string {
+  if (user.guildId && user.guildAvatar) return buildDiscordGuildMemberAvatarUrl(user.guildId, userId, user.guildAvatar)
+  return buildDiscordAvatarUrl(userId, user.avatar ?? null)
+}
+
+function buildDiscordGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string): string {
+  const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
+  return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
+}
+
+=======
+>>>>>>> Current commit: feat: external browser draft WIP
 function normalizeGuildId(value: string | undefined): string | null {
   const normalized = value?.trim() ?? ''
   return normalized.length > 0 ? normalized : null

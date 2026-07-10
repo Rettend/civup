@@ -104,6 +104,7 @@ interface ActivityRuntimeOptions {
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
+<<<<<<< New base: feat: save file analyzer
   app.get('/api/activity/session/:sessionId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -191,6 +192,96 @@ export function registerActivityRoutes(app: Hono<Env>) {
     })
   })
 
+||||||| Common ancestor
+=======
+  app.get('/api/activity/session/:sessionId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const sessionId = c.req.param('sessionId')
+    const db = createDb(c.env.DB)
+    const directory = await getActivitySessionByStableId(db, sessionId)
+    if (!directory) return c.json({ error: 'CivUp session not found' }, 404)
+
+    const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, directory).catch(() => null)
+    const session = record ? buildDirectoryEntryFromRecord(record) : directory
+    if (session.guildId !== c.env.ALLOWED_DISCORD_GUILD_ID?.trim()) {
+      return c.json({ error: 'CivUp session is not in the configured Discord server' }, 403)
+    }
+
+    if (session.phase === 'cancelled') {
+      return c.json({
+        status: 'ended',
+        sessionId: session.sessionId,
+        matchId: session.matchId,
+        phase: 'cancelled',
+      })
+    }
+
+    const kv = getKvStore(c.env)
+    const launchState = await loadActivityLaunchState(kv, [session])
+    const option = record
+      ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
+      : buildActivityOverviewOptions(session)[0]
+    if (!option) return c.json({ error: 'CivUp session is unavailable' }, 404)
+    const target: ChannelActivityTarget = {
+      session,
+      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
+      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
+      option: {
+        ...option,
+        isMember: option.memberPlayerIds.includes(auth.identity.userId),
+        isHost: option.hostId === auth.identity.userId,
+      },
+    }
+    const selection = await serializeActivityLaunchSelection(
+      c.env.DISCORD_TOKEN,
+      c.env.CIVUP_SECRET,
+      kv,
+      auth.identity.userId,
+      { targets: [target] },
+      { target, pendingJoin: false },
+      c.env.DB,
+      c.env.SessionDO,
+    )
+
+    return c.json({
+      status: 'available',
+      sessionId: session.sessionId,
+      matchId: session.matchId,
+      phase: session.phase,
+      selection,
+    })
+  })
+
+  app.get('/api/activity/channel/:channelId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const channelId = c.req.param('channelId')
+    const context = await loadActivityLaunchContext(
+      getKvStore(c.env),
+      channelId,
+      auth.identity.userId,
+      c.env.DB,
+      c.env.SessionDO,
+      c.env.ALLOWED_DISCORD_GUILD_ID,
+    )
+    return c.json({
+      status: 'available',
+      channelId,
+      snapshot: {
+        selection: null,
+        options: context.targets.map(target => target.option),
+      },
+    })
+  })
+
+>>>>>>> Current commit: feat: external browser draft WIP
   app.get('/api/match/:channelId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
