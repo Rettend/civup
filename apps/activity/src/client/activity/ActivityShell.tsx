@@ -228,11 +228,30 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
   const surface = location.pathname.startsWith('/web/') ? 'web' as const : 'discord-embedded' as const
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
   const initialBrowserRoute = surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
   const directBrowserSessionId = initialBrowserRoute?.kind === 'session' ? initialBrowserRoute.sessionId : null
   const browserReturnPath = initialBrowserRoute?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
   const browserReturnRoute = browserReturnPath ? parseBrowserLaunchRoute(browserReturnPath) : null
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+  const initialBrowserRoute = surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
+  const directBrowserSessionId = initialBrowserRoute?.kind === 'session' ? initialBrowserRoute.sessionId : null
+  const browserReturnPath = initialBrowserRoute?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
+  const browserReturnRoute = browserReturnPath ? parseBrowserLaunchRoute(browserReturnPath) : null
+=======
+  const browserRoute = () => surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
+  const directBrowserSessionId = () => {
+    const route = browserRoute()
+    return route?.kind === 'session' ? route.sessionId : null
+  }
+  const browserReturnPath = () => browserRoute()?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
+  const browserReturnRoute = () => {
+    const path = browserReturnPath()
+    return path ? parseBrowserLaunchRoute(path) : null
+  }
+  const browserRouteKey = () => `${location.pathname}${location.search}`
+>>>>>>> Current commit: fix: external browser router
   const [state, setState] = createSignal<ActivityState>({ status: 'loading' })
   const [availableTargets, setAvailableTargets] = createSignal<ActivityTargetOption[]>(cachedOverviewTargets)
   const [pickerBusy, setPickerBusy] = createSignal(false)
@@ -255,7 +274,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const [autosaveDragActive, setAutosaveDragActive] = createSignal(false)
   const [autosaveUploadState, setAutosaveUploadState] = createSignal<AutosaveUploadState>({ status: 'idle' })
   const [authenticatedUserId, setAuthenticatedUserId] = createSignal<string | null>(null)
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+=======
+  const [loadedBrowserRouteKey, setLoadedBrowserRouteKey] = createSignal<string | null>(null)
+>>>>>>> Current commit: fix: external browser router
   let activityWatch: LobbyStateWatch | null = null
   let launchSnapshotFallbackTimeout: ReturnType<typeof setTimeout> | null = null
 <<<<<<< New base: chore: update leader desc
@@ -276,10 +300,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   let selectionRequestVersion = 0
   let liveStateRevision = 0
   let launchSnapshotRequestVersion = 0
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
   let browserRouteRequestVersion = 0
   let adminCapabilitiesRequestVersion = 0
   let playerDataExportRequestVersion = 0
   let pendingPlayerDataExport: PlayerDataExportFile | null = null
+||||||| Common ancestor
+=======
+  let browserRouteRequestVersion = 0
+>>>>>>> Current commit: fix: external browser router
   let overviewPushSourcePath: string | null = null
   let pendingLiveRoutePath: string | null = null
   let suppressAutoSelection = false
@@ -335,6 +364,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     clearLaunchSnapshotFallback()
 <<<<<<< New base: chore: update leader desc
     clearAutosaveUploadReset()
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
     browserRouteRequestVersion += 1
     adminCapabilitiesRequestVersion += 1
     playerDataExportRequestVersion += 1
@@ -343,6 +373,10 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     clearAutosaveUploadReset()
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+=======
+    browserRouteRequestVersion += 1
+>>>>>>> Current commit: fix: external browser router
     stopActivityWatch()
     clearDraftConnection()
   })
@@ -662,6 +696,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       return
     }
 
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
     const directSessionId = directBrowserSessionId()
     if (current.status === 'lobby-waiting' && directSessionId) {
@@ -672,6 +707,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     if (current.status === 'lobby-waiting' && directBrowserSessionId) {
       connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+||||||| Common ancestor
+    if (current.status === 'lobby-waiting' && directBrowserSessionId) {
+      connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+=======
+    const directSessionId = directBrowserSessionId()
+    if (current.status === 'lobby-waiting' && directSessionId) {
+      connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+>>>>>>> Current commit: fix: external browser router
       return
     }
 >>>>>>> Current commit: feat: external browser draft WIP
@@ -743,6 +786,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       disconnect()
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
       const directSessionId = directBrowserSessionId()
       if (directSessionId) {
@@ -752,6 +796,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
       if (directBrowserSessionId) {
         connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+||||||| Common ancestor
+      if (directBrowserSessionId) {
+        connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+=======
+      const directSessionId = directBrowserSessionId()
+      if (directSessionId) {
+        connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+>>>>>>> Current commit: fix: external browser router
       }
 >>>>>>> Current commit: feat: external browser draft WIP
       return
@@ -795,6 +847,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
     const route = browserRoute()
     if (surface === 'web' && route?.kind === 'channel') {
@@ -807,6 +860,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     if (surface === 'web' && initialBrowserRoute?.kind === 'channel') {
       const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+||||||| Common ancestor
+    if (surface === 'web' && initialBrowserRoute?.kind === 'channel') {
+      const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+=======
+    const route = browserRoute()
+    if (surface === 'web' && route?.kind === 'channel') {
+      const bootstrap = await bootstrapBrowserChannel(route.channelId)
+>>>>>>> Current commit: fix: external browser router
       if (activeChannelId !== channelId || activeUserId !== userId) return
       hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
       return
@@ -833,6 +894,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const requestActivityLaunchSnapshotRefresh = async () => {
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
     const directSessionId = directBrowserSessionId()
     if (directSessionId) {
@@ -858,10 +920,16 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
     if (directBrowserSessionId) {
+||||||| Common ancestor
+    if (directBrowserSessionId) {
+=======
+    const directSessionId = directBrowserSessionId()
+    if (directSessionId) {
+>>>>>>> Current commit: fix: external browser router
       if (refreshInFlight) return
       refreshInFlight = true
       try {
-        const bootstrap = await bootstrapBrowserSession(directBrowserSessionId)
+        const bootstrap = await bootstrapBrowserSession(directSessionId)
         if (bootstrap.context.status === 'ended') {
           setState({ status: 'error', message: 'This CivUp session has ended.' })
           clearDraftConnection()
@@ -902,7 +970,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     if (surface === 'web') {
       const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
-      window.location.assign(browserSessionPath(sessionId))
+      void startTransition(() => navigate(browserSessionPath(sessionId), { scroll: false }))
       return
     }
 >>>>>>> Current commit: feat: external browser draft WIP
@@ -928,8 +996,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
     if (surface === 'web') {
-      if (!activeChannelId) return
-      window.location.assign(browserChannelPath(activeChannelId, directBrowserSessionId ?? undefined))
+      const channelId = activeChannelId
+      if (!channelId) return
+      void startTransition(() => navigate(browserChannelPath(channelId, directBrowserSessionId() ?? undefined), { scroll: false }))
       return
     }
 
@@ -975,8 +1044,10 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
     if (surface === 'web') {
-      if (!activeChannelId) return
-      window.location.assign(browserPracticePath(activeChannelId, browserReturnRoute?.kind === 'session' ? browserReturnRoute.sessionId : undefined))
+      const channelId = activeChannelId
+      if (!channelId) return
+      const returnRoute = browserReturnRoute()
+      void startTransition(() => navigate(browserPracticePath(channelId, returnRoute?.kind === 'session' ? returnRoute.sessionId : undefined), { scroll: false }))
       return
     }
 
@@ -1530,7 +1601,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
     if (surface === 'web') {
-      window.location.assign(browserSessionPath(option.lobbyId))
+      void startTransition(() => navigate(browserSessionPath(option.lobbyId), { scroll: false }))
       return
     }
 >>>>>>> Current commit: feat: external browser draft WIP
@@ -1757,6 +1828,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const current = state()
     const channelId = activeChannelId
     const userId = activeUserId
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
     if (surface === 'web' && loadedBrowserRouteKey() !== browserRouteKey()) {
       stopActivityWatch()
@@ -1768,6 +1840,15 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId, status: current.status }) || !channelId || !userId) {
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+    if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId, status: current.status }) || !channelId || !userId) {
+=======
+    if (surface === 'web' && loadedBrowserRouteKey() !== browserRouteKey()) {
+      stopActivityWatch()
+      return
+    }
+    if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: current.status }) || !channelId || !userId) {
+>>>>>>> Current commit: fix: external browser router
       stopActivityWatch()
       return
     }
@@ -1801,7 +1882,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
     if (surface === 'web') {
-      if (browserReturnPath) window.location.assign(browserReturnPath)
+      const returnPath = browserReturnPath()
+      if (returnPath) void startTransition(() => navigate(returnPath, { scroll: false }))
       return
     }
 
@@ -1820,6 +1902,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     await requestTargetSelection(lastSelection.option)
   }
 
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
   const canResumeSelection = () => browserReturnPath() != null || lastResolvedSelection() != null
 
@@ -1888,7 +1971,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
   const canResumeSelection = () => browserReturnPath != null || lastResolvedSelection() != null
+||||||| Common ancestor
+  const canResumeSelection = () => browserReturnPath != null || lastResolvedSelection() != null
+=======
+  const canResumeSelection = () => browserReturnPath() != null || lastResolvedSelection() != null
+>>>>>>> Current commit: fix: external browser router
 
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 >>>>>>> Current commit: feat: external browser draft WIP
   onMount(async () => {
     if (surface === 'web') return
@@ -1906,14 +1995,44 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         if (!initialBrowserRoute) throw new Error('Invalid CivUp browser URL')
         if (initialBrowserRoute.kind === 'session') {
           const bootstrap = await bootstrapBrowserSession(initialBrowserRoute.sessionId)
+||||||| Common ancestor
+  onMount(async () => {
+    try {
+      if (surface === 'web') {
+        if (!initialBrowserRoute) throw new Error('Invalid CivUp browser URL')
+        if (initialBrowserRoute.kind === 'session') {
+          const bootstrap = await bootstrapBrowserSession(initialBrowserRoute.sessionId)
+=======
+  createEffect(() => {
+    if (surface !== 'web') return
+    const route = browserRoute()
+    const routeKey = browserRouteKey()
+    const requestVersion = ++browserRouteRequestVersion
+
+    stopActivityWatch()
+    clearLaunchSnapshotFallback()
+    clearDraftConnection()
+    setPickerBusy(false)
+    setPickerError(null)
+    setState({ status: 'loading' })
+
+    void untrack(async () => {
+      try {
+        if (!route) throw new Error('Invalid CivUp browser URL')
+        if (route.kind === 'session') {
+          const bootstrap = await bootstrapBrowserSession(route.sessionId)
+          if (requestVersion !== browserRouteRequestVersion) return
+>>>>>>> Current commit: fix: external browser router
           setAuthenticatedUser(bootstrap.identity)
           activeUserId = bootstrap.identity.userId
           setAuthenticatedUserId(bootstrap.identity.userId)
           if (bootstrap.context.status === 'ended') {
+            setLoadedBrowserRouteKey(routeKey)
             setState({ status: 'error', message: 'This CivUp session has ended.' })
             return
           }
           activeChannelId = bootstrap.context.selection.option.channelId
+          setLoadedBrowserRouteKey(routeKey)
           hydrateActivityLaunchSnapshot({
             selection: bootstrap.context.selection,
             options: [bootstrap.context.selection.option],
@@ -1921,16 +2040,35 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           return
         }
 
-        const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+        const bootstrap = await bootstrapBrowserChannel(route.channelId)
+        if (requestVersion !== browserRouteRequestVersion) return
         setAuthenticatedUser(bootstrap.identity)
         activeChannelId = bootstrap.context.channelId
         activeUserId = bootstrap.identity.userId
         setAuthenticatedUserId(bootstrap.identity.userId)
         setOverviewPinned(true)
+        setLoadedBrowserRouteKey(routeKey)
         hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
-        return
       }
+      catch (err) {
+        if (requestVersion !== browserRouteRequestVersion) return
+        console.error('Browser app setup failed:', err)
+        relayDevLog('error', 'Browser app setup failed', err)
+        setState({
+          status: 'error',
+          message: err instanceof Error && err.message.trim().length > 0
+            ? err.message
+            : typeof err === 'string' && err.trim().length > 0
+              ? err
+              : 'Unknown error',
+        })
+      }
+    })
+  })
 
+  onMount(async () => {
+    if (surface === 'web') return
+    try {
       const bootstrap = await bootstrapDiscordPlatform()
       setAuthenticatedUser(bootstrap.identity)
       const channelId = bootstrap.channelId
@@ -1990,6 +2128,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         clearLaunchSnapshotFallback()
         return
       }
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
       if (directBrowserSessionId()) {
         reconnectVisibleSelection()
@@ -1998,6 +2137,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 ||||||| Common ancestor
 =======
       if (directBrowserSessionId) {
+||||||| Common ancestor
+      if (directBrowserSessionId) {
+=======
+      if (directBrowserSessionId()) {
+>>>>>>> Current commit: fix: external browser router
         reconnectVisibleSelection()
         return
       }
@@ -2086,12 +2230,18 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   return (
     <ActivityControllerContext.Provider
       value={{
+<<<<<<< New base: fix: leave rejoin ranked role fix, /stats self heals
 <<<<<<< New base: feat: save file analyzer
         canSwitchTargets: true,
         canResumeSelection,
 ||||||| Common ancestor
 =======
         canSwitchTargets: surface === 'discord-embedded' || directBrowserSessionId != null,
+||||||| Common ancestor
+        canSwitchTargets: surface === 'discord-embedded' || directBrowserSessionId != null,
+=======
+        canSwitchTargets: true,
+>>>>>>> Current commit: fix: external browser router
         canResumeSelection,
 >>>>>>> Current commit: feat: external browser draft WIP
         state,
