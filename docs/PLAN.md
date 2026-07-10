@@ -617,7 +617,7 @@ Reconsider Gau only if CivUp later needs multi-provider accounts, account linkin
 - [x] Add `/web/session/:sessionId`.
 - [x] Reuse the existing lobby overview, lobby setup, draft, reporting, and socket stores.
 - [x] Keep stable browser URLs across open, draft, revert, active, and reported transitions.
-- [x] Navigate direct browser sessions back to the channel overview with a full route load so the selected-session socket is replaced by the channel feed.
+- [x] Use SPA navigation between direct sessions and channel overview while explicitly replacing the selected-session socket with the channel feed.
 - [x] Navigate browser overview selections to stable session routes.
 - [ ] Handle context/socket lifecycle races by refreshing direct context instead of redirecting.
 - [x] Add native browser external-link behavior.
