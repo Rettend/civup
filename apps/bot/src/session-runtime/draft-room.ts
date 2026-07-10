@@ -231,7 +231,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const requestUrl = new URL(req.url)
     const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      sessionId: room.state.matchId,
+      sessionId: await this.getSessionAccessId(room),
       userId: activityUserId,
     })
     if (!hasAccess) {
@@ -257,6 +257,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
   protected async getRoomRecord(): Promise<RoomRecord | null> {
     return normalizeStoredRoomRecord(await this.ctx.storage.get<unknown>(ROOM_RECORD_KEY))
+  }
+
+  protected async getSessionAccessId(room: RoomRecord): Promise<string> {
+    return room.state.matchId
   }
 
   protected async requireRoomRecord(): Promise<RoomRecord> {
@@ -391,7 +395,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const requestUrl = new URL(ctx.request.url)
     const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      sessionId: room.state.matchId,
+      sessionId: await this.getSessionAccessId(room),
       userId: playerId,
     })
     if (!hasAccess) {

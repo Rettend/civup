@@ -10,7 +10,8 @@ import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyDraftingEmbed, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getMatchForUser } from '../../services/activity/index.ts'
-import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
+import { resolveInteractionLaunchMode } from '../../services/activity/browser-access.ts'
+import { privateLaunchError, respondWithPreferredLaunch } from '../../services/activity/launch-response.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
@@ -30,6 +31,7 @@ import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, isMat
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
+import { resolveCanonicalSessionId } from './components.ts'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch, LOBBY_STATUS_LABELS, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from './shared.ts'
 
 const MATCH_MODE_CHOICES = GAME_MODE_CHOICES
@@ -199,8 +201,17 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
-            await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, { kind: 'match', id: userMatchId })
-            return c.resActivity()
+            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+            if (!launch.ok) return privateLaunchError(c, launch.error)
+            const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
+            if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match to a CivUp session. Please try its current Join button.')
+            return respondWithPreferredLaunch(c, {
+              destination: { kind: 'session', sessionId },
+              activityChannelId: interactionChannelId,
+              activityUserId: identity.userId,
+              activityTarget: { kind: 'match', id: userMatchId },
+              launch,
+            })
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/match create\` first.`, 'error')

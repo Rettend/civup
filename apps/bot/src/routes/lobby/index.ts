@@ -1577,7 +1577,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         idempotent: true,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: lobby.matchId,
+          sessionId: lobby.id,
           channelId: lobby.channelId,
         }),
       })
@@ -1619,7 +1619,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         matchId,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: matchId,
+          sessionId: started.record.id,
           channelId: lobbyForMessage.channelId,
         }),
       })
@@ -1700,7 +1700,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         matchId,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: matchId,
+          sessionId: repeated.record.id,
           channelId: lobbyForMessage.channelId,
         }),
       })

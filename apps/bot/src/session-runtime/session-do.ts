@@ -43,6 +43,7 @@ interface SessionDOEnv extends DraftRuntimeEnv {
   DISCORD_TOKEN?: string
   BOT_HOST?: string
   CIVUP_SECRET?: string
+  ALLOWED_DISCORD_GUILD_ID?: string
 }
 
 interface CreateSessionFromLobbyRequest {
@@ -422,6 +423,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
+      if (record && !isAllowedSessionGuild(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID)) {
+        connection.close(4403, 'Forbidden')
+        return
+      }
       if (record?.phase === 'open') {
         await this.handleOpenSessionConnect(connection, ctx, record)
         return
@@ -466,8 +471,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return await this.runSerializedOperation(operation)
   }
 
-  private async getRecord(): Promise<SessionRecord | null> {
+  protected async getRecord(): Promise<SessionRecord | null> {
     return await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
+  }
+
+  protected override async getSessionAccessId(room: RoomRecord): Promise<string> {
+    return (await this.getRecord())?.id ?? room.state.matchId
   }
 
   private async handleOpenSessionConnect(connection: Connection, ctx: ConnectionContext, record: OpenSessionRecord): Promise<void> {
@@ -2663,7 +2672,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const sessionAccessToken = playerId && this.env.CIVUP_SECRET
       ? await createSessionAccessToken(this.env.CIVUP_SECRET, {
           userId: playerId,
-          sessionId: record.matchId,
+          sessionId: record.id,
           channelId: record.projectionState.channelId,
         })
       : null
@@ -2692,7 +2701,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const requestUrl = new URL(ctx.request.url)
     const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      sessionId: record.matchId,
+      sessionId: record.id,
       userId: playerId,
     })
     if (!hasAccess) {
@@ -3613,6 +3622,11 @@ function isGameMode(value: unknown): value is GameMode {
 function readActivityUserId(headers: Headers): string | null {
   const userId = headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)?.trim() ?? ''
   return userId.length > 0 ? userId : null
+}
+
+function isAllowedSessionGuild(sessionGuildId: string | null, configuredGuildId: string | undefined): boolean {
+  const allowedGuildId = configuredGuildId?.trim() ?? ''
+  return allowedGuildId.length === 0 || sessionGuildId === allowedGuildId
 }
 
 function getLeaderPoolSizeError(

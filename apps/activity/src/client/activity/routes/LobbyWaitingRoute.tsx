@@ -21,7 +21,7 @@ export default function LobbyWaitingRoute() {
           lobby={state().lobby}
           showJoinPending={state().joinPending}
           joinEligibility={state().joinEligibility}
-          onSwitchTarget={activity.openOverview}
+          onSwitchTarget={activity.canSwitchTargets ? activity.openOverview : undefined}
           onLobbyStarted={(matchId, steamLobbyLink, sessionAccessToken) => {
             activity.transitionToDraft(matchId, true, steamLobbyLink, sessionAccessToken)
           }}

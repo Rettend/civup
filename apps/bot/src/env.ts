@@ -9,6 +9,7 @@ export interface Env {
     DISCORD_PUBLIC_KEY: string
     DISCORD_TOKEN: string
     ALLOWED_DISCORD_GUILD_ID?: string
+    ACTIVITY_PUBLIC_ORIGIN?: string
     BOT_HOST?: string
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string

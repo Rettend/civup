@@ -16,10 +16,11 @@ import type { ActivityState } from './activity-context'
 import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { useLocation, useNavigate } from '@solidjs/router'
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
-import { discordSdk, setupDiscordSdk } from '../discord'
 import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
 import { buildActivitySessionHeaders } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
+import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
+import { bootstrapDiscordPlatform } from '../platform/discord-platform'
 import {
   connectionStatus,
   connectionCloseReason,
@@ -35,6 +36,7 @@ import {
   watchLobbyState,
 } from '../stores'
 import { ActivityControllerContext } from './activity-context'
+import { browserChannelPath, browserPracticePath, browserSessionPath, parseBrowserLaunchRoute, parseBrowserReturnPath, shouldWatchChannelFeed } from './route-policy'
 
 const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
   || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
@@ -137,6 +139,11 @@ type LiveRoute
 export default function ActivityShell(props: { children?: JSX.Element }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const surface = location.pathname.startsWith('/web/') ? 'web' as const : 'discord-embedded' as const
+  const initialBrowserRoute = surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
+  const directBrowserSessionId = initialBrowserRoute?.kind === 'session' ? initialBrowserRoute.sessionId : null
+  const browserReturnPath = initialBrowserRoute?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
+  const browserReturnRoute = browserReturnPath ? parseBrowserLaunchRoute(browserReturnPath) : null
   const [state, setState] = createSignal<ActivityState>({ status: 'loading' })
   const [availableTargets, setAvailableTargets] = createSignal<ActivityTargetOption[]>(cachedOverviewTargets)
   const [pickerBusy, setPickerBusy] = createSignal(false)
@@ -250,6 +257,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   })
 
   onMount(() => {
+    if (surface === 'web') return
     const handleDragEnter = (event: DragEvent) => {
       if (!isFileDrag(event)) return
       event.preventDefault()
@@ -408,7 +416,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
 
     resetDraft()
-    connectToSession(SESSION_SOCKET_TARGET, matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+    connectToSession(SESSION_SOCKET_TARGET, nextLobbyId ?? matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
   }
 
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
@@ -484,10 +492,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })) { return }
 
     if (current.status === 'authenticated') {
-      connectToSession(SESSION_SOCKET_TARGET, current.matchId, current.sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+      connectToSession(SESSION_SOCKET_TARGET, current.lobbyId ?? current.matchId, current.sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
       return
     }
 
+    if (current.status === 'lobby-waiting' && directBrowserSessionId) {
+      connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+      return
+    }
     if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch) startActivityWatch(activeChannelId, activeUserId)
   }
 
@@ -556,6 +568,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
       disconnect()
+      if (directBrowserSessionId) {
+        connectToSession(SESSION_SOCKET_TARGET, directBrowserSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+      }
       return
     }
 
@@ -597,6 +612,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
+    if (surface === 'web' && initialBrowserRoute?.kind === 'channel') {
+      const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+      if (activeChannelId !== channelId || activeUserId !== userId) return
+      hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
+      return
+    }
     const requestVersion = ++launchSnapshotRequestVersion
     const liveStateRevisionAtStart = liveStateRevision
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
@@ -618,6 +639,26 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const requestActivityLaunchSnapshotRefresh = async () => {
+    if (directBrowserSessionId) {
+      if (refreshInFlight) return
+      refreshInFlight = true
+      try {
+        const bootstrap = await bootstrapBrowserSession(directBrowserSessionId)
+        if (bootstrap.context.status === 'ended') {
+          setState({ status: 'error', message: 'This CivUp session has ended.' })
+          clearDraftConnection()
+          return
+        }
+        hydrateActivityLaunchSnapshot({
+          selection: bootstrap.context.selection,
+          options: [bootstrap.context.selection.option],
+        }, true)
+      }
+      finally {
+        refreshInFlight = false
+      }
+      return
+    }
     const channelId = activeChannelId
     const userId = activeUserId
     if (!channelId || !userId || refreshInFlight) return
@@ -632,6 +673,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const navigateToSelectionFromOverview = (selection: ActivityLaunchSelection, options: { auto?: boolean } = {}) => {
+    if (surface === 'web') {
+      const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
+      window.location.assign(browserSessionPath(sessionId))
+      return
+    }
     if (options.auto || state().status !== 'overview') return
     if (parseLiveRoute(location.pathname)?.kind !== 'overview') return
 
@@ -643,6 +689,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openOverview = (options: { replace?: boolean } = {}) => {
+    if (surface === 'web') {
+      if (!activeChannelId) return
+      window.location.assign(browserChannelPath(activeChannelId, directBrowserSessionId ?? undefined))
+      return
+    }
+
     const current = state()
     const replace = options.replace ?? false
     pendingTargetSelectionKey = null
@@ -672,6 +724,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openPractice = () => {
+    if (surface === 'web') {
+      if (!activeChannelId) return
+      window.location.assign(browserPracticePath(activeChannelId, browserReturnRoute?.kind === 'session' ? browserReturnRoute.sessionId : undefined))
+      return
+    }
+
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = null
     selectionRequestVersion += 1
@@ -703,7 +761,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
   const canViewAutosaveCatalog = () => {
     const userId = authenticatedUserId()
-    return userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
+    return surface === 'discord-embedded' && userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
   }
 
   const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
@@ -955,6 +1013,10 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
+    if (surface === 'web') {
+      window.location.assign(browserSessionPath(option.lobbyId))
+      return
+    }
     const channelId = activeChannelId
     const currentUserId = activeUserId
     if (!channelId || !currentUserId) return
@@ -1178,7 +1240,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const current = state()
     const channelId = activeChannelId
     const userId = activeUserId
-    if ((current.status !== 'overview' && current.status !== 'lobby-waiting') || !channelId || !userId) {
+    if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId, status: current.status }) || !channelId || !userId) {
       stopActivityWatch()
       return
     }
@@ -1202,6 +1264,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const restoreLastSelection = async () => {
+    if (surface === 'web') {
+      if (browserReturnPath) window.location.assign(browserReturnPath)
+      return
+    }
+
     const lastSelection = lastResolvedSelection()
     if (!lastSelection) return
     suppressAutoSelection = false
@@ -1216,11 +1283,42 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     await requestTargetSelection(lastSelection.option)
   }
 
+  const canResumeSelection = () => browserReturnPath != null || lastResolvedSelection() != null
+
   onMount(async () => {
     try {
-      const auth = await setupDiscordSdk()
-      setAuthenticatedUser(auth)
-      const channelId = discordSdk.channelId
+      if (surface === 'web') {
+        if (!initialBrowserRoute) throw new Error('Invalid CivUp browser URL')
+        if (initialBrowserRoute.kind === 'session') {
+          const bootstrap = await bootstrapBrowserSession(initialBrowserRoute.sessionId)
+          setAuthenticatedUser(bootstrap.identity)
+          activeUserId = bootstrap.identity.userId
+          setAuthenticatedUserId(bootstrap.identity.userId)
+          if (bootstrap.context.status === 'ended') {
+            setState({ status: 'error', message: 'This CivUp session has ended.' })
+            return
+          }
+          activeChannelId = bootstrap.context.selection.option.channelId
+          hydrateActivityLaunchSnapshot({
+            selection: bootstrap.context.selection,
+            options: [bootstrap.context.selection.option],
+          }, true)
+          return
+        }
+
+        const bootstrap = await bootstrapBrowserChannel(initialBrowserRoute.channelId)
+        setAuthenticatedUser(bootstrap.identity)
+        activeChannelId = bootstrap.context.channelId
+        activeUserId = bootstrap.identity.userId
+        setAuthenticatedUserId(bootstrap.identity.userId)
+        setOverviewPinned(true)
+        hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
+        return
+      }
+
+      const bootstrap = await bootstrapDiscordPlatform()
+      setAuthenticatedUser(bootstrap.identity)
+      const channelId = bootstrap.channelId
 
       if (!channelId) {
         setState({ status: 'error', message: 'No channel ID found - start from Discord' })
@@ -1228,8 +1326,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       }
 
       activeChannelId = channelId
-      activeUserId = auth.user.id
-      setAuthenticatedUserId(auth.user.id)
+      activeUserId = bootstrap.identity.userId
+      setAuthenticatedUserId(bootstrap.identity.userId)
       const initialRoute = parseLiveRoute(location.pathname)
       if (initialRoute?.kind === 'overview') {
         setOverviewPinned(true)
@@ -1261,6 +1359,10 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         clearLaunchSnapshotFallback()
         return
       }
+      if (directBrowserSessionId) {
+        reconnectVisibleSelection()
+        return
+      }
       if (state().status === 'overview' || state().status === 'lobby-waiting') {
         if (!activityWatch) startActivityWatch(activeChannelId, activeUserId)
         void requestActivityLaunchSnapshotRefresh()
@@ -1279,6 +1381,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   let routeRestoreAttemptKey: string | null = null
 
   createEffect(() => {
+    if (surface === 'web') return
     const route = parseLiveRoute(location.pathname)
     const current = state()
     if (current.status === 'loading' || current.status === 'error') return
@@ -1311,6 +1414,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   })
 
   createEffect(() => {
+    if (surface === 'web') return
     const current = state()
     const canonicalPath = getCanonicalLivePath(current)
     if (!canonicalPath) return
@@ -1343,6 +1447,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   return (
     <ActivityControllerContext.Provider
       value={{
+        canSwitchTargets: surface === 'discord-embedded' || directBrowserSessionId != null,
+        canResumeSelection,
         state,
         availableTargets,
         pickerBusy,

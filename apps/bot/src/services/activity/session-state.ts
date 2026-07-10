@@ -98,7 +98,7 @@ export interface RepeatDraftSnapshot {
 
 export interface ActivitySessionDirectoryEntry {
   sessionId: string
-  phase: Extract<SessionPhase, 'open' | 'draft' | 'swap' | 'active' | 'reported'>
+  phase: SessionPhase
   mode: GameMode
   guildId: string | null
   channelId: string
@@ -124,14 +124,15 @@ const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<string>(['open', 'closed', 'draf
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
   channelId: string,
+  options: { guildId?: string | null } = {},
 ): Promise<ActivityOverviewSnapshot | null> {
-  const sessions = await getActivitySessionsByChannel(db, channelId)
-  const options = sessions
+  const sessions = await getActivitySessionsByChannel(db, channelId, options)
+  const snapshotOptions = sessions
     .flatMap(session => buildActivityOverviewOptions(session))
     .sort(compareActivityOverviewOptions)
 
-  if (options.length === 0) return null
-  return { channelId, options }
+  if (snapshotOptions.length === 0) return null
+  return { channelId, options: snapshotOptions }
 }
 
 export function mergeActivityOverviewSnapshotForSessionUpdate(
@@ -151,11 +152,13 @@ export function mergeActivityOverviewSnapshotForSessionUpdate(
 export async function getActivitySessionsByChannel(
   db: Database,
   channelId: string,
+  options: { guildId?: string | null } = {},
 ): Promise<ActivitySessionDirectoryEntry[]> {
-  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map(phase => db.select().from(sessionDirectory).where(and(
-    eq(sessionDirectory.channelId, channelId),
-    eq(sessionDirectory.phase, phase),
-  )).orderBy(desc(sessionDirectory.updatedAt))))
+  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map((phase) => {
+    const conditions = [eq(sessionDirectory.channelId, channelId), eq(sessionDirectory.phase, phase)]
+    if (options.guildId) conditions.push(eq(sessionDirectory.guildId, options.guildId))
+    return db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
+  }))
 
   const rows = rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc)
 
@@ -180,6 +183,14 @@ export async function getActivitySessionById(
     inArray(sessionDirectory.phase, [...ACTIVITY_TARGET_PHASES]),
   )).limit(1)
 
+  return row ? parseActivitySessionDirectoryEntry(row)[0] ?? null : null
+}
+
+export async function getActivitySessionByStableId(
+  db: Database,
+  sessionId: string,
+): Promise<ActivitySessionDirectoryEntry | null> {
+  const [row] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, sessionId)).limit(1)
   return row ? parseActivitySessionDirectoryEntry(row)[0] ?? null : null
 }
 
@@ -646,7 +657,7 @@ function countFilledSlots(slots: readonly (string | null)[]): number {
 }
 
 function isActivitySessionPhase(value: string): value is ActivitySessionDirectoryEntry['phase'] {
-  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active' || value === 'reported'
+  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active' || value === 'reported' || value === 'cancelled'
 }
 
 function isGameMode(value: unknown): value is GameMode {
