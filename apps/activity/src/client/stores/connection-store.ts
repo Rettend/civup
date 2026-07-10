@@ -5,6 +5,7 @@ import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
+import { getAuthTransport } from '../platform/runtime'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
 import { draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
@@ -283,7 +284,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
   setConnectionCloseReason(null)
 
   const activitySessionToken = getActivitySessionToken()
-  if (!activitySessionToken) {
+  if (getAuthTransport() === 'token' && !activitySessionToken) {
     setConnectionStatus('error')
     setConnectionError('Missing activity session. Reopen the activity.')
     return
@@ -292,9 +293,8 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
   currentSessionConnection = { target, sessionId, sessionAccessToken, onStateChanged: options.onStateChanged }
   startStaleDraftReconnectWatchdog()
 
-  const query: Record<string, string> = {
-    [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-  }
+  const query: Record<string, string> = {}
+  if (getAuthTransport() === 'token' && activitySessionToken) query[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = activitySessionToken
   if (sessionAccessToken) query.accessToken = sessionAccessToken
 
   const nextSocket = new PartySocket({
@@ -463,7 +463,7 @@ function stopStaleDraftReconnectWatchdog() {
 export function watchLobbyState(target: SessionSocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
   const activitySessionToken = getActivitySessionToken()
-  if (!activitySessionToken) {
+  if (getAuthTransport() === 'token' && !activitySessionToken) {
     queueMicrotask(() => {
       if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
     })
@@ -475,9 +475,9 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     party: 'activity',
     prefix: target.prefix ?? 'api/parties',
     room: options.channelId,
-    query: {
-      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-    },
+    query: getAuthTransport() === 'token' && activitySessionToken
+      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
+      : {},
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
 

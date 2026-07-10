@@ -1,5 +1,4 @@
 import {
-  buildDiscordAvatarUrl,
   CIVUP_ACTIVITY_AVATAR_URL_HEADER,
   CIVUP_ACTIVITY_DISPLAY_NAME_HEADER,
   CIVUP_ACTIVITY_SESSION_HEADER,
@@ -11,12 +10,16 @@ import {
   normalizeHost,
   verifyActivitySession,
 } from '@civup/utils'
+import { BROWSER_SESSION_COOKIE, clearBrowserSessionCookie, handleBrowserOAuthRequest, hasExactBrowserOrigin, readCookie, resolveBrowserAccessConfiguration } from './browser-auth.ts'
+import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
 
 interface Env {
+  ACTIVITY_PUBLIC_ORIGIN?: string
   ALLOWED_DISCORD_GUILD_ID?: string
   CIVUP_SECRET?: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
+  ASSETS?: Fetcher
   BOT?: Fetcher
   BOT_HOST?: string
 }
@@ -30,39 +33,11 @@ interface DevLogPayload {
   meta?: unknown
 }
 
-interface DiscordTokenSuccessResponse {
-  access_token?: string
-  expires_in?: number
-}
-
-interface DiscordTokenErrorResponse {
-  error?: string
-  error_description?: string
-}
-
-interface DiscordUserResponse {
-  id?: string
-  username?: string
-  global_name?: string | null
-  avatar?: string | null
-}
-
-interface DiscordIdentityResponse extends DiscordUserResponse {
-  nick?: string | null
-  guildAvatar?: string | null
-  guildId?: string | null
-}
-
-interface DiscordGuildMemberResponse {
-  nick?: string | null
-  avatar?: string | null
-  user?: DiscordUserResponse | null
-}
-
 interface ActivityProxySession {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+  source: 'header' | 'query' | 'cookie'
 }
 
 export default {
@@ -70,6 +45,10 @@ export default {
     const url = new URL(request.url)
 
     try {
+      const browserOAuthResponse = await handleBrowserOAuthRequest(request, env)
+      if (browserOAuthResponse) return browserOAuthResponse
+      if (url.pathname === '/api/auth/me' && request.method === 'GET') return await handleAuthMe(request, env)
+      if (url.pathname === '/api/auth/logout' && request.method === 'POST') return await handleAuthLogout(request, env)
       // POST /api/token — Discord OAuth code → access_token exchange
       if (url.pathname === '/api/token' && request.method === 'POST') {
         return await handleTokenExchange(request, env)
@@ -80,6 +59,9 @@ export default {
       if (url.pathname.startsWith('/api/parties/')) {
         return await handlePartyProxy(request, url, env)
       }
+      if (url.pathname.startsWith('/api/browser/')) {
+        return await handleBrowserBootstrap(request, url, env)
+      }
       if (
         url.pathname.startsWith('/api/activity/')
         || url.pathname.startsWith('/api/match/')
@@ -89,7 +71,7 @@ export default {
       ) {
         return await handleMatchProxy(request, url, env)
       }
-      return new Response(null, { status: 404 })
+      return serveSpaNavigation(request, url, env)
     }
     catch (error) {
       console.error('[activity:req:error]', request.method, url.pathname, error)
@@ -97,6 +79,14 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+function serveSpaNavigation(request: Request, url: URL, env: Env): Response | Promise<Response> {
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || !url.pathname.startsWith('/web/') || !env.ASSETS) {
+    return new Response(null, { status: 404 })
+  }
+
+  return env.ASSETS.fetch(new Request(new URL('/', url), request))
+}
 
 async function handleDevLog(request: Request): Promise<Response> {
   try {
@@ -127,11 +117,56 @@ async function handleDevLog(request: Request): Promise<Response> {
   }
 }
 
+async function handleAuthMe(request: Request, env: Env): Promise<Response> {
+  const session = await requireActivitySession(request, env)
+  if (session instanceof Response) return session
+  const response = json({ userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
+async function handleAuthLogout(request: Request, env: Env): Promise<Response> {
+  const config = resolveBrowserAccessConfiguration(env)
+  if (!config) return json({ error: 'Browser access is not configured' }, 503)
+  if (!hasExactBrowserOrigin(request, config)) return json({ error: 'Invalid request origin' }, 403)
+  return new Response(null, {
+    status: 204,
+    headers: { 'Set-Cookie': clearBrowserSessionCookie(), 'Cache-Control': 'no-store' },
+  })
+}
+
+async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Promise<Response> {
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
+  if (!resolveBrowserAccessConfiguration(env)) return json({ error: 'Browser access is not configured' }, 503)
+  const session = await requireActivitySession(request, env)
+  if (session instanceof Response) return session
+
+  const targetPath = buildTargetPath(url, url.pathname.replace(/^\/api\/browser/, '/api/activity'))
+  let upstream: Response
+  if (env.BOT && shouldUseBotServiceBinding(request, env)) {
+    upstream = await env.BOT.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
+  }
+  else {
+    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+    upstream = await fetch(buildProxyRequest(`${botHost}${targetPath}`, request, env, session))
+  }
+  const payload = await upstream.json<unknown>().catch(() => null)
+  if (!upstream.ok) return json(payload ?? { error: 'Browser context failed' }, upstream.status)
+  const response = json({
+    identity: { userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl },
+    context: payload,
+  })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
     const session = await requireActivitySession(request, env)
     if (session instanceof Response) return session
+    const originError = validateCookieAuthenticatedRequest(request, session, env)
+    if (originError) return originError
 
     const targetPath = buildTargetPath(url)
     let response: Response
@@ -217,6 +252,8 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
   try {
     const session = await requireActivitySession(request, env)
     if (session instanceof Response) return session
+    const originError = validateCookieAuthenticatedRequest(request, session, env)
+    if (originError) return originError
 
     const targetPath = buildPartyProxyTargetPath(url)
     const resolvedTargetPath = buildTargetPath(url, targetPath)
@@ -333,84 +370,40 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       return json({ error: 'Activity auth is not configured' }, 503)
     }
 
-    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: env.DISCORD_CLIENT_ID,
-        client_secret: env.DISCORD_CLIENT_SECRET,
-        grant_type: 'authorization_code',
-        code: body.code,
-        redirect_uri: redirectUri,
-      }),
-    })
-
-    const retryAfter = tokenResponse.headers.get('Retry-After')
-      ?? tokenResponse.headers.get('X-RateLimit-Reset-After')
-
-    if (!tokenResponse.ok) {
-      const detailRaw = await tokenResponse.text()
-      let detailJson: DiscordTokenErrorResponse | null = null
-      try {
-        detailJson = JSON.parse(detailRaw) as DiscordTokenErrorResponse
-      }
-      catch {}
-
-      const detailMessage = detailJson?.error_description
-        ?? detailJson?.error
-        ?? detailRaw
-        ?? 'Token exchange failed'
-
-      const isRateLimited = tokenResponse.status === 429
-        || /rate limit/i.test(detailMessage)
-
+    const token = await exchangeDiscordAuthorizationCode(env, { code: body.code, redirectUri })
+    if (!token.ok) {
       console.error('Discord token exchange failed:', {
-        status: tokenResponse.status,
-        retryAfter,
+        status: token.status,
+        retryAfter: token.retryAfter,
         redirectUri,
-        detail: detailMessage,
+        detail: token.detail,
       })
-
       const response = json(
         {
           error: 'Token exchange failed',
-          detail: detailMessage,
-          retry_after: retryAfter ?? undefined,
-          rate_limited: isRateLimited,
+          detail: token.detail,
+          retry_after: token.retryAfter ?? undefined,
+          rate_limited: token.rateLimited,
         },
-        isRateLimited ? 429 : tokenResponse.status,
+        token.rateLimited ? 429 : token.status,
       )
-
-      if (retryAfter) response.headers.set('Retry-After', retryAfter)
+      if (token.retryAfter) response.headers.set('Retry-After', token.retryAfter)
       return response
     }
 
-    const payload = await tokenResponse.json<DiscordTokenSuccessResponse>()
-
-    if (!payload.access_token) {
-      console.error('Discord token exchange succeeded without access_token')
-      return json({ error: 'Token exchange returned no access token' }, 502)
-    }
-
     const allowedGuildId = normalizeGuildId(env.ALLOWED_DISCORD_GUILD_ID)
-    const discordUserResult = await loadDiscordUser(payload.access_token, allowedGuildId)
-    if (discordUserResult instanceof Response) return discordUserResult
-    const discordUser = discordUserResult
-    const userId = typeof discordUser.id === 'string' ? discordUser.id.trim() : ''
-    if (!userId) {
-      console.error('Discord user lookup returned no user ID')
-      return json({ error: 'Failed to verify Discord user' }, 502)
-    }
+    const identity = await loadDiscordIdentity(token.accessToken, allowedGuildId)
+    if (!identity.ok) return json({ error: identity.error }, identity.status)
 
     const sessionToken = await createActivitySession(internalSecret, {
-      userId,
-      displayName: resolveDiscordDisplayName(discordUser),
-      avatarUrl: buildDiscordIdentityAvatarUrl(discordUser, userId),
+      userId: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
     })
 
     const response = json({
-      access_token: payload.access_token,
-      expires_in: payload.expires_in,
+      access_token: token.accessToken,
+      expires_in: token.expiresIn,
       activity_session_token: sessionToken,
       activity_session_expires_in: 8 * 60 * 60,
     })
@@ -425,8 +418,12 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
 
 async function requireActivitySession(request: Request, env: Env): Promise<ActivityProxySession | Response> {
   const requestUrl = new URL(request.url)
-  const token = request.headers.get(CIVUP_ACTIVITY_SESSION_HEADER)
-    ?? requestUrl.searchParams.get(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)
+  const headerToken = request.headers.get(CIVUP_ACTIVITY_SESSION_HEADER)
+  const queryToken = requestUrl.searchParams.get(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)
+  const explicitToken = headerToken ?? queryToken
+  const config = resolveBrowserAccessConfiguration(env)
+  const cookieToken = explicitToken ? null : config ? readCookie(request, BROWSER_SESSION_COOKIE) : null
+  const token = explicitToken ?? cookieToken
   const session = await verifyActivitySession(env.CIVUP_SECRET, token)
   if (!session) {
     const response = json({ error: 'Unauthorized activity session' }, 401)
@@ -438,7 +435,21 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     userId: session.sub,
     displayName: session.name || null,
     avatarUrl: session.avatarUrl,
+    source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
   }
+}
+
+function validateCookieAuthenticatedRequest(request: Request, session: ActivityProxySession, env: Env): Response | null {
+  if (session.source !== 'cookie') return null
+  const method = request.method.toUpperCase()
+  const isWebSocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
+  if (!isWebSocket && (method === 'GET' || method === 'HEAD' || method === 'OPTIONS')) return null
+
+  const config = resolveBrowserAccessConfiguration(env)
+  if (config && hasExactBrowserOrigin(request, config)) return null
+  const response = json({ error: 'Invalid request origin' }, 403)
+  response.headers.set('Cache-Control', 'no-store')
+  return response
 }
 
 function buildTargetPath(url: URL, pathname = url.pathname): string {
@@ -453,71 +464,6 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
-}
-
-async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResponse | Response> {
-  const url = allowedGuildId
-    ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
-    : 'https://discord.com/api/v10/users/@me'
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-
-  if (!response.ok) {
-    const detail = await response.text()
-    console.error(allowedGuildId ? 'Discord guild member lookup failed:' : 'Discord user lookup failed:', {
-      guildId: allowedGuildId,
-      status: response.status,
-      detail,
-    })
-
-    if (allowedGuildId && (response.status === 403 || response.status === 404)) {
-      return json({ error: 'This activity is only available in the configured Discord server' }, 403)
-    }
-
-    return json({ error: 'Failed to verify Discord user' }, 502)
-  }
-
-  if (!allowedGuildId) {
-    return response.json<DiscordIdentityResponse>()
-  }
-
-  const member = await response.json<DiscordGuildMemberResponse>()
-  if (!member.user) {
-    console.error('Discord guild member lookup returned no user payload', { guildId: allowedGuildId })
-    return json({ error: 'Failed to verify Discord user' }, 502)
-  }
-
-  return {
-    ...member.user,
-    nick: member.nick ?? null,
-    guildAvatar: member.avatar ?? null,
-    guildId: allowedGuildId,
-  }
-}
-
-function resolveDiscordDisplayName(user: DiscordIdentityResponse): string | null {
-  return normalizeOptionalDiscordName(user.nick)
-    ?? normalizeOptionalDiscordName(user.global_name)
-    ?? normalizeOptionalDiscordName(user.username)
-}
-
-function normalizeOptionalDiscordName(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-}
-
-function buildDiscordIdentityAvatarUrl(user: DiscordIdentityResponse, userId: string): string {
-  if (user.guildId && user.guildAvatar) return buildDiscordGuildMemberAvatarUrl(user.guildId, userId, user.guildAvatar)
-  return buildDiscordAvatarUrl(userId, user.avatar ?? null)
-}
-
-function buildDiscordGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string): string {
-  const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
-  return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
 }
 
 function normalizeGuildId(value: string | undefined): string | null {
