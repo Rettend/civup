@@ -54,6 +54,44 @@ describe('player rank views', () => {
     sqlite.close()
   })
 
+  test('stats repair metadata uses the persisted assignment rather than the live preview', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: {
+        [HERO_ID]: { tier: TIER_2, sourceMode: null, appliedRoleId: '66666666666666666' },
+      },
+    }))
+
+    await seedPlayers(db, 'duel', 8, { prefix: 'duel' })
+    await seedPlayerIdentity(db, HERO_ID)
+    await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
+
+    const result = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+
+    expect(result.rankProfile.overallTier).toBe(TIER_1)
+    expect(result.rankedRoleRepair?.desiredRoleId).toBe('44444444444444444')
+    expect(result.rankedRoleRepair?.managedRoleIds).toEqual([
+      '55555555555555555',
+      '44444444444444444',
+      '33333333333333333',
+      '22222222222222222',
+      '11111111111111111',
+      '66666666666666666',
+    ])
+
+    sqlite.close()
+  })
+
   test('renders ranked role data in stats and rank embeds', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

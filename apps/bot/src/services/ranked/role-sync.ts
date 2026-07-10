@@ -514,6 +514,73 @@ export async function applyPendingRankedRoleDiscordChanges(options: {
   return applyCurrentRankRoles(options.kv, options.guildId, token, { maxPlayers: options.maxPlayers })
 }
 
+export function rankedRoleMembershipNeedsRepair(options: {
+  currentRoleIds: string[]
+  desiredRoleId: string
+  managedRoleIds: string[]
+}): boolean {
+  const currentRoleIds = new Set(options.currentRoleIds)
+  if (!currentRoleIds.has(options.desiredRoleId)) return true
+  return options.managedRoleIds.some(roleId => roleId !== options.desiredRoleId && currentRoleIds.has(roleId))
+}
+
+export async function repairRankedRoleMembership(options: {
+  token: string
+  guildId: string
+  playerId: string
+  currentRoleIds: string[]
+  desiredRoleId: string
+  managedRoleIds: string[]
+}): Promise<boolean> {
+  const token = options.token.trim()
+  if (!token) throw new Error('Cannot repair ranked roles without a Discord bot token.')
+
+  const plan = planKnownRankRoleChange({
+    currentRoleIds: new Set(options.currentRoleIds),
+    previousRoleId: null,
+    nextRoleId: options.desiredRoleId,
+    managedRoleIds: new Set(options.managedRoleIds),
+  })
+  if (!plannedRankRoleChangeHasChanges(plan)) return false
+
+  return applyKnownRankRoleChange({
+    token,
+    guildId: options.guildId,
+    playerId: options.playerId,
+    plan,
+  })
+}
+
+export async function repairCurrentRankedRoleMembership(options: {
+  kv: KVNamespace
+  token: string
+  guildId: string
+  playerId: string
+  currentRoleIds: string[]
+}): Promise<boolean> {
+  const [assignments, config] = await Promise.all([
+    getFreshCurrentRankAssignments(options.kv, options.guildId),
+    getRankedRoleConfig(options.kv, options.guildId),
+  ])
+  const assignment = assignments.byPlayerId[options.playerId]
+  if (!assignment) return false
+
+  const desiredRoleId = getConfiguredRankedRoleId(config, assignment.tier)
+  if (!desiredRoleId) return false
+
+  const managedRoleIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
+  if (assignment.appliedRoleId) managedRoleIds.push(assignment.appliedRoleId)
+
+  return repairRankedRoleMembership({
+    token: options.token,
+    guildId: options.guildId,
+    playerId: options.playerId,
+    currentRoleIds: options.currentRoleIds,
+    desiredRoleId,
+    managedRoleIds,
+  })
+}
+
 export async function listRankedRoleMatchUpdateLines(options: {
   kv: KVNamespace
   guildId: string
@@ -591,6 +658,10 @@ export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string
   const cached = getCachedCurrentRankAssignments(kv, guildId, now)
   if (cached) return cached
 
+  return getFreshCurrentRankAssignments(kv, guildId, now)
+}
+
+async function getFreshCurrentRankAssignments(kv: KVNamespace, guildId: string, now = Date.now()): Promise<RankedRoleAssignments> {
   const key = currentRankAssignmentsKey(guildId)
   const raw = await kv.get(key, 'json')
   const assignments = normalizeRankedRoleAssignments(raw)
@@ -1792,18 +1863,32 @@ async function planTrackedRankRoleChange(options: {
   managedRoleIds: Set<string>
 }): Promise<PlannedRankRoleChange> {
   const currentRoleIds = new Set(await fetchGuildMemberRoleIds(options.token, options.guildId, options.playerId))
+  return planKnownRankRoleChange({
+    currentRoleIds,
+    previousRoleId: options.previousRoleId,
+    nextRoleId: options.nextRoleId,
+    managedRoleIds: options.managedRoleIds,
+  })
+}
+
+function planKnownRankRoleChange(options: {
+  currentRoleIds: Set<string>
+  previousRoleId: string | null
+  nextRoleId: string | null
+  managedRoleIds: Set<string>
+}): PlannedRankRoleChange {
   const removeRoleIds = new Set<string>()
 
-  for (const roleId of currentRoleIds) {
+  for (const roleId of options.currentRoleIds) {
     if (options.managedRoleIds.has(roleId) && roleId !== options.nextRoleId) removeRoleIds.add(roleId)
   }
-  if (options.previousRoleId && options.previousRoleId !== options.nextRoleId && currentRoleIds.has(options.previousRoleId)) {
+  if (options.previousRoleId && options.previousRoleId !== options.nextRoleId && options.currentRoleIds.has(options.previousRoleId)) {
     removeRoleIds.add(options.previousRoleId)
   }
 
   return {
     removeRoleIds: [...removeRoleIds].sort((left, right) => left.localeCompare(right)),
-    addRoleId: options.nextRoleId && !currentRoleIds.has(options.nextRoleId) ? options.nextRoleId : null,
+    addRoleId: options.nextRoleId && !options.currentRoleIds.has(options.nextRoleId) ? options.nextRoleId : null,
   }
 }
 
@@ -1832,6 +1917,32 @@ async function applyPlannedRankRoleChange(options: {
   if (options.plan.addRoleId) {
     try {
       await addGuildMemberRole(options.token, options.guildId, options.playerId, options.plan.addRoleId)
+      changed = true
+    }
+    catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404)) throw error
+    }
+  }
+
+  return changed
+}
+
+async function applyKnownRankRoleChange(options: {
+  token: string
+  guildId: string
+  playerId: string
+  plan: PlannedRankRoleChange
+}): Promise<boolean> {
+  let changed = false
+
+  if (options.plan.addRoleId) {
+    await addGuildMemberRole(options.token, options.guildId, options.playerId, options.plan.addRoleId)
+    changed = true
+  }
+
+  for (const roleId of options.plan.removeRoleIds) {
+    try {
+      await removeGuildMemberRole(options.token, options.guildId, options.playerId, roleId)
       changed = true
     }
     catch (error) {

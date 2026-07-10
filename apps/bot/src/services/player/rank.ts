@@ -43,13 +43,18 @@ export interface PlayerRankProfile {
   modes: Record<LeaderboardMode, PlayerRankModeSummary>
 }
 
+export interface PlayerRankedRoleRepair {
+  desiredRoleId: string
+  managedRoleIds: string[]
+}
+
 export async function getPlayerStatsRankProfile(
   db: Database,
   kv: KVNamespace,
   guildId: string,
   playerId: string,
   now = Date.now(),
-): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[] }> {
+): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[], rankedRoleRepair: PlayerRankedRoleRepair | null }> {
   const [preview, ratingRows] = await Promise.all([
     previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
@@ -59,6 +64,7 @@ export async function getPlayerStatsRankProfile(
   return {
     rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config),
     ratingRows,
+    rankedRoleRepair: buildPlayerRankedRoleRepair(previewPlayer, preview.config),
   }
 }
 
@@ -113,6 +119,25 @@ function buildPlayerRankProfile(
     overallRoleId: overall?.tier ? getConfiguredRankedRoleId(config, overall.tier) : null,
     overallLabel: overall?.tier ? getConfiguredRankedRoleLabel(config, overall.tier) : 'Unranked',
     modes,
+  }
+}
+
+function buildPlayerRankedRoleRepair(
+  previewPlayer: RankedRolePlayerPreview | null,
+  config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+): PlayerRankedRoleRepair | null {
+  const assignment = previewPlayer?.previousAssignment
+  if (!assignment) return null
+
+  const desiredRoleId = getConfiguredRankedRoleId(config, assignment.tier)
+  if (!desiredRoleId) return null
+
+  const managedRoleIds = new Set(config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : []))
+  if (assignment.appliedRoleId) managedRoleIds.add(assignment.appliedRoleId)
+
+  return {
+    desiredRoleId,
+    managedRoleIds: [...managedRoleIds],
   }
 }
 
