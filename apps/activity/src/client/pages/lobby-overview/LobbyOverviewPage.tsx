@@ -70,11 +70,15 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
                   type="button"
                   class="text-sm text-emerald-200 font-bold px-4 py-2 border border-emerald-400/35 rounded-full bg-emerald-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(52,211,153,0.16)] transition items-center hover:text-emerald-100 hover:border-emerald-400/60 hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-70"
                   disabled={props.playerDataExportState?.status === 'loading'}
-                  aria-label="Export player data"
+                  aria-label={props.playerDataExportState?.status === 'ready' ? 'Download data again' : 'Export data'}
                   onClick={() => props.onExportData?.()}
                 >
                   <span class={props.playerDataExportState?.status === 'loading' ? 'i-ph-spinner-gap-bold text-lg animate-spin' : 'i-ph-file-xls-bold text-lg'} />
-                  Player Data
+                  {props.playerDataExportState?.status === 'ready'
+                    ? 'Download Again'
+                    : props.playerDataExportState?.status === 'loading'
+                      ? 'Exporting Data'
+                      : 'Export Data'}
                 </button>
               </Show>
               <PlayerDataExportStatus state={props.playerDataExportState} />
@@ -102,13 +106,7 @@ function PlayerDataExportStatus(props: { state?: PlayerDataExportState }) {
     <Show when={props.state?.status === 'ready' || message()}>
       <div class="text-xs text-fg-muted basis-full text-center break-words" role="status">
         <Show when={props.state?.status === 'ready'} fallback={message()}>
-          <a
-            class="text-emerald-200 font-semibold underline underline-offset-2 hover:text-emerald-100"
-            href={props.state?.status === 'ready' ? props.state.url : undefined}
-            download={props.state?.status === 'ready' ? props.state.filename : undefined}
-          >
-            Download {props.state?.status === 'ready' ? props.state.filename : 'export'} again
-          </a>
+          <span>{props.state?.status === 'ready' ? `${props.state.filename} is ready.` : ''}</span>
         </Show>
       </div>
     </Show>

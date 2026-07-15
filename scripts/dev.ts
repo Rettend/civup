@@ -24,7 +24,7 @@ const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
   ? ['bun', 'x', 'vite', '--force', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
-  : ['bun', 'x', 'wrangler', 'dev', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
+  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [
   {

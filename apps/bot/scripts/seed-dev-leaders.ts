@@ -429,7 +429,7 @@ function resolveLocalD1SqlitePath(): string {
     }
   }
 
-  throw new Error(`Could not find a local CivUp D1 SQLite file in ${d1Dir}`)
+  throw new Error(`Could not find a local D1 SQLite file in ${d1Dir}`)
 }
 
 function sqlString(value: string): string {

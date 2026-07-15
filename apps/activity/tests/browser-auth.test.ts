@@ -67,7 +67,7 @@ describe('browser Discord OAuth', () => {
     expect(validateBrowserReturnPath('/web/../api/auth/discord/callback')).toBeNull()
   })
 
-  test('completes OAuth with PKCE, verifies guild membership, and stores only a CivUp cookie', async () => {
+  test('completes OAuth with PKCE, verifies guild membership, and stores only the signed session cookie', async () => {
     const env = createEnv()
     const start = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/stable-session')}`), env)
     const authorization = new URL(start.headers.get('Location')!)
