@@ -175,6 +175,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       prompt: 'none',
       scope: [
         'identify',
+        'guilds',
         'guilds.members.read',
       ],
     })

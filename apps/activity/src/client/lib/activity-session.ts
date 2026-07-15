@@ -1,7 +1,7 @@
 import { CIVUP_ACTIVITY_SESSION_HEADER } from '@civup/utils'
 import { getAuthTransport } from '../platform/runtime'
 
-const ACTIVITY_SESSION_CACHE_KEY = 'civup.activity.session-token'
+const ACTIVITY_SESSION_CACHE_KEY = 'civup.activity.session-token.v2'
 const DEFAULT_ACTIVITY_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000
 
 interface CachedActivitySession {

@@ -39,7 +39,7 @@ import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { buildLobbyRankSnapshot } from '../../services/lobby/rank.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
-import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
+import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleDisplayConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
@@ -202,7 +202,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const rankedRoleConfig = lobby.guildId
-      ? await getRankedRoleConfig(kv, lobby.guildId)
+      ? await getRankedRoleDisplayConfig(kv, lobby.guildId)
       : emptyRankedRoleConfig()
     const visuals = buildRankedRoleVisuals(rankedRoleConfig)
 

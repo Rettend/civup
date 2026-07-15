@@ -1,6 +1,8 @@
 import {
   CIVUP_ACTIVITY_AVATAR_URL_HEADER,
   CIVUP_ACTIVITY_DISPLAY_NAME_HEADER,
+  CIVUP_ACTIVITY_GUILD_ID_HEADER,
+  CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
   CIVUP_ACTIVITY_SESSION_HEADER,
   CIVUP_ACTIVITY_SESSION_QUERY_PARAM,
   CIVUP_ACTIVITY_USER_ID_HEADER,
@@ -35,6 +37,8 @@ interface ActivityProxySession {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+  guildId: string | null
+  guildPermissions: string | null
   source: 'header' | 'query' | 'cookie'
 }
 
@@ -306,6 +310,8 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, session.userId)
   if (session.displayName) headers.set(CIVUP_ACTIVITY_DISPLAY_NAME_HEADER, encodeURIComponent(session.displayName))
   if (session.avatarUrl) headers.set(CIVUP_ACTIVITY_AVATAR_URL_HEADER, session.avatarUrl)
+  if (session.guildId) headers.set(CIVUP_ACTIVITY_GUILD_ID_HEADER, session.guildId)
+  if (session.guildPermissions) headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, session.guildPermissions)
 
   const upgrade = request.headers.get('upgrade')
   if (upgrade) {
@@ -390,6 +396,8 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       userId: identity.userId,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
+      guildId: identity.guildId,
+      guildPermissions: identity.guildPermissions,
     })
 
     const response = json({
@@ -426,6 +434,8 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     userId: session.sub,
     displayName: session.name || null,
     avatarUrl: session.avatarUrl,
+    guildId: session.guildId,
+    guildPermissions: session.guildPermissions,
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
   }
 }
