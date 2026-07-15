@@ -25,6 +25,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .dev.vars
 .prod.vars
 .prod.secrets
+.ppl.env
+.ppl.secrets
+.ppl.vars
 
 # Cloudflare Workers local secrets
 .dev.vars
@@ -47,6 +50,7 @@ cloudflared.dev.yml
 # Other
 docs/*
 !docs/PLAN.md
+!docs/PLAYER-DATA-EXPORT.md
 
 # preset build artifacts
 mods/dist/

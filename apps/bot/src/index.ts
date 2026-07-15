@@ -42,7 +42,7 @@ const worker: ExportedHandler<Env['Bindings']> = {
 
     const disallowedGuildResponse = await rejectDisallowedDiscordGuildInteraction(request, env)
     if (disallowedGuildResponse) return disallowedGuildResponse
-    return app.fetch(request, env, ctx)
+    return app.fetch(request, { ...env, CIVUP_INTERACTION_ENDPOINT_URL: request.url }, ctx)
   },
   scheduled(controller, env, ctx) {
     const cronEvent = {

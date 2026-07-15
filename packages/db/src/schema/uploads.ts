@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const autosaveUploads = sqliteTable('autosave_uploads', {
@@ -10,6 +11,9 @@ export const autosaveUploads = sqliteTable('autosave_uploads', {
   fileName: text('file_name').notNull(),
   fileSizeBytes: integer('file_size_bytes', { mode: 'number' }).notNull(),
   r2Key: text('r2_key').notNull(),
+  multipartUploadId: text('multipart_upload_id'),
+  multipartOperationId: text('multipart_operation_id'),
+  multipartStateUpdatedAt: integer('multipart_state_updated_at', { mode: 'number' }),
   etag: text('etag'),
   status: text('status').notNull().default('uploaded'),
   downloadCount: integer('download_count', { mode: 'number' }).notNull().default(0),
@@ -36,4 +40,8 @@ export const autosaveUploads = sqliteTable('autosave_uploads', {
   index('autosave_uploads_game_mode_idx').on(table.gameMode),
   index('autosave_uploads_bbg_version_idx').on(table.bbgVersion),
   index('autosave_uploads_parse_status_idx').on(table.parseStatus, table.uploadedAt),
+  index('autosave_uploads_cleanup_state_idx').on(table.status, table.multipartStateUpdatedAt),
+  uniqueIndex('autosave_uploads_active_uploader_idx')
+    .on(table.uploaderUserId)
+    .where(sql`${table.status} IN ('initializing','pending_upload','completing','cleanup_pending','cleaning')`),
 ])

@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'bun'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const botRoot = resolve(repoRoot, 'apps', 'bot')
 const activityRoot = resolve(repoRoot, 'apps', 'activity')
-const activityPreviewConfig = resolve(activityRoot, 'dist', 'civup_activity', 'wrangler.json')
+const activityPreviewEntry = resolve(activityRoot, 'dist', 'client', 'index.html')
 
 interface Service {
   name: string
@@ -24,7 +24,7 @@ const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
   ? ['bun', 'x', 'vite', '--force', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
-  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
+  : ['bun', 'x', 'wrangler', 'dev', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
 
 const services: Service[] = [
   {
@@ -43,9 +43,9 @@ const services: Service[] = [
 let shuttingDown = false
 
 if (rebuildActivity) {
-  runCommand('activity build', ['bun', 'x', 'vite', 'build'], activityRoot)
+  runCommand('activity build', ['bun', 'run', 'build'], activityRoot)
 }
-else if (!activityLive && !existsSync(activityPreviewConfig)) {
+else if (!activityLive && !existsSync(activityPreviewEntry)) {
   console.error('[dev] Activity preview bundle is missing. Run `bun run dev:new` or `bun run a:dev:new` first.')
   process.exit(1)
 }

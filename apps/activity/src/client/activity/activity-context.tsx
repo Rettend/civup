@@ -1,4 +1,5 @@
 import type { Accessor, JSX } from 'solid-js'
+import type { PlayerDataExportState } from '../lib/player-data-export'
 import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
 import { createContext, useContext } from 'solid-js'
 
@@ -33,6 +34,9 @@ export interface ActivityControllerContextValue {
   openAutosaveFolderUpload: () => void
   openAutosaveCatalog: () => void
   canViewAutosaveCatalog: () => boolean
+  canExportPlayerData: () => boolean
+  exportPlayerData: () => Promise<void>
+  playerDataExportState: Accessor<PlayerDataExportState>
   handleTargetSelection: (option: ActivityTargetOption) => Promise<void>
   restoreLastSelection: () => Promise<void>
   transitionToDraft: (

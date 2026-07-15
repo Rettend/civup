@@ -1,4 +1,5 @@
 import type { JSX } from 'solid-js'
+import type { PlayerDataExportState } from '../lib/player-data-export'
 import type { ActivityTargetDescriptor } from '../lib/activity-targets'
 import type {
   ActivityLaunchSelection,
@@ -17,7 +18,9 @@ import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { useLocation, useNavigate } from '@solidjs/router'
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
 import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
+import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { buildActivitySessionHeaders } from '../lib/activity-session'
+import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/autosave-upload'
 import { relayDevLog } from '../lib/dev-log'
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
@@ -38,17 +41,13 @@ import {
 import { ActivityControllerContext } from './activity-context'
 import { browserChannelPath, browserPracticePath, browserSessionPath, parseBrowserLaunchRoute, parseBrowserReturnPath, shouldWatchChannelFeed } from './route-policy'
 
-const ACTIVITY_HOST = (import.meta.env.VITE_ACTIVITY_HOST as string | undefined)
-  || (typeof window !== 'undefined' ? window.location.host : 'localhost:5173')
 const SESSION_SOCKET_TARGET = resolveSessionSocketTarget()
 const MINI_VIEW_MAX_WIDTH = 430
 const MINI_VIEW_MAX_HEIGHT = 260
 const MINI_VIEW_MIN_ASPECT_RATIO = 1.5
 const MOBILE_LAYOUT_BREAKPOINT = 640
 const AUTOSAVE_UPLOAD_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
-const MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
-const DISCORD_R2_UPLOAD_PROXY_PREFIX = '/r2-upload'
-const AUTOSAVE_CATALOG_USER_IDS = new Set(['361534796830081024'])
+const MAX_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
 
 type AutosaveUploadState
   = | { status: 'idle' }
@@ -56,29 +55,10 @@ type AutosaveUploadState
     | { status: 'success', fileName: string }
     | { status: 'error', message: string }
 
-interface DirectAutosaveUploadInitResponse {
+interface AutosaveUploadInitResponse {
   id?: string
-  uploadMode?: 'single' | 'multipart'
-  uploadUrl?: string
-  headers?: Record<string, string>
-  multipartUploadId?: string
   partSizeBytes?: number
   error?: string
-}
-
-interface DirectAutosaveUploadCompleteResponse {
-  error?: string
-}
-
-interface MultipartAutosaveUploadPartResponse {
-  partNumber?: number
-  etag?: string
-  error?: string
-}
-
-interface MultipartAutosaveUploadedPart {
-  partNumber: number
-  etag: string
 }
 
 interface AutosaveFolderFile {
@@ -164,7 +144,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const [liveLobbySnapshotVersion, setLiveLobbySnapshotVersion] = createSignal(0)
   const [autosaveDragActive, setAutosaveDragActive] = createSignal(false)
   const [autosaveUploadState, setAutosaveUploadState] = createSignal<AutosaveUploadState>({ status: 'idle' })
-  const [authenticatedUserId, setAuthenticatedUserId] = createSignal<string | null>(null)
+  const [adminCapabilities, setAdminCapabilities] = createSignal(NO_ACTIVITY_ADMIN_CAPABILITIES)
+  const [playerDataExportState, setPlayerDataExportState] = createSignal<PlayerDataExportState>({ status: 'idle' })
   const [loadedBrowserRouteKey, setLoadedBrowserRouteKey] = createSignal<string | null>(null)
   let activityWatch: LobbyStateWatch | null = null
   let launchSnapshotFallbackTimeout: ReturnType<typeof setTimeout> | null = null
@@ -180,6 +161,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   let liveStateRevision = 0
   let launchSnapshotRequestVersion = 0
   let browserRouteRequestVersion = 0
+  let adminCapabilitiesRequestVersion = 0
+  let playerDataExportRequestVersion = 0
+  let playerDataExportObjectUrl: string | null = null
   let overviewPushSourcePath: string | null = null
   let pendingLiveRoutePath: string | null = null
   let suppressAutoSelection = false
@@ -235,6 +219,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     clearLaunchSnapshotFallback()
     clearAutosaveUploadReset()
     browserRouteRequestVersion += 1
+    adminCapabilitiesRequestVersion += 1
+    playerDataExportRequestVersion += 1
+    if (playerDataExportObjectUrl) URL.revokeObjectURL(playerDataExportObjectUrl)
     stopActivityWatch()
     clearDraftConnection()
   })
@@ -777,8 +764,68 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const canViewAutosaveCatalog = () => {
-    const userId = authenticatedUserId()
-    return surface === 'discord-embedded' && userId != null && AUTOSAVE_CATALOG_USER_IDS.has(userId)
+    return surface === 'discord-embedded' && adminCapabilities().autosaveCatalog
+  }
+
+  const canExportPlayerData = () => adminCapabilities().playerDataExport
+
+  const refreshAdminCapabilities = async () => {
+    const requestVersion = ++adminCapabilitiesRequestVersion
+    setAdminCapabilities(NO_ACTIVITY_ADMIN_CAPABILITIES)
+    const capabilities = await fetchActivityAdminCapabilities()
+    if (requestVersion === adminCapabilitiesRequestVersion) setAdminCapabilities(capabilities)
+  }
+
+  const exportPlayerData = async () => {
+    if (!canExportPlayerData() || playerDataExportState().status === 'loading') return
+    const requestVersion = ++playerDataExportRequestVersion
+    if (playerDataExportObjectUrl) {
+      URL.revokeObjectURL(playerDataExportObjectUrl)
+      playerDataExportObjectUrl = null
+    }
+    setPlayerDataExportState({
+      status: 'loading',
+      phase: 'players',
+      players: 0,
+      ratings: 0,
+      matches: 0,
+      participants: 0,
+      bans: 0,
+    })
+
+    try {
+      const { createPlayerDataExport, triggerPlayerDataDownload } = await import('../lib/player-data-export')
+      const result = await createPlayerDataExport({
+        onProgress(progress) {
+          if (requestVersion === playerDataExportRequestVersion) setPlayerDataExportState({ status: 'loading', ...progress })
+        },
+      })
+      if (requestVersion !== playerDataExportRequestVersion) return
+      const url = URL.createObjectURL(result.blob)
+      playerDataExportObjectUrl = url
+      setPlayerDataExportState({
+        status: 'ready',
+        filename: result.filename,
+        url,
+        players: result.source.players.length,
+        matches: result.source.matches.length,
+      })
+      try {
+        triggerPlayerDataDownload(url, result.filename)
+      }
+      catch (error) {
+        console.error('Automatic player data download failed:', error)
+      }
+    }
+    catch (error) {
+      if (requestVersion !== playerDataExportRequestVersion) return
+      setPlayerDataExportState({
+        status: 'error',
+        message: error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : 'Player data export failed.',
+      })
+    }
   }
 
   const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
@@ -804,7 +851,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     setAutosaveUploadState({ status: 'uploading', fileName: file.name })
 
     try {
-      await uploadAutosaveFileDirect(file)
+      await uploadAutosaveFileMultipart(file)
       setAutosaveUploadMessage({ status: 'success', fileName: file.name })
     }
     catch (error) {
@@ -815,7 +862,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
   }
 
-  const uploadAutosaveFileDirect = async (file: File) => {
+  const uploadAutosaveFileMultipart = async (file: File) => {
     const current = state()
     const initResponse = await fetch('/api/uploads/autosaves/init', {
       method: 'POST',
@@ -828,150 +875,27 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         matchId: current.status === 'authenticated' ? current.matchId : null,
       }),
     })
-    const initPayload = await initResponse.json().catch(() => null) as DirectAutosaveUploadInitResponse | null
+    const initPayload = await initResponse.json().catch(() => null) as AutosaveUploadInitResponse | null
     if (!initResponse.ok) {
       throw new Error(getAutosaveUploadErrorMessage(initResponse.status, initPayload?.error))
     }
     if (!initPayload?.id) throw new Error('Upload init returned an invalid response')
 
-    if (initPayload.uploadMode === 'multipart') {
-      const partSizeBytes = normalizeAutosaveMultipartPartSize(initPayload.partSizeBytes)
-      if (!initPayload.multipartUploadId || partSizeBytes == null) throw new Error('Upload init returned an invalid multipart response')
-      await uploadAutosaveFileMultipart(file, initPayload.id, initPayload.multipartUploadId, partSizeBytes)
-      return
+    const partSizeBytes = normalizeAutosaveMultipartPartSize(initPayload.partSizeBytes)
+    if (partSizeBytes == null) {
+      await fetch(`/api/uploads/autosaves/${encodeURIComponent(initPayload.id)}/abort`, {
+        method: 'POST',
+        headers: buildActivitySessionHeaders(),
+      }).catch(() => null)
+      throw new Error('Upload init returned an invalid multipart response')
     }
-
-    if (!initPayload.uploadUrl) throw new Error('Upload init returned an invalid response')
-
-    const rawUploadUrl = new URL(initPayload.uploadUrl)
-    const uploadUrl = resolveAutosaveUploadUrl(rawUploadUrl)
-    relayDevLog('warn', '[autosave-upload] init ok', {
+    relayDevLog('warn', '[autosave-upload] multipart init ok', {
       id: initPayload.id,
       fileName: file.name,
       fileSizeBytes: file.size,
-      pageOrigin: window.location.origin,
-      rawUploadOrigin: rawUploadUrl.origin,
-      uploadOrigin: uploadUrl.origin,
-      uploadPath: uploadUrl.pathname,
-    })
-
-    const uploadHeaders = new Headers(initPayload.headers ?? undefined)
-    if (!uploadHeaders.has('Content-Type')) uploadHeaders.set('Content-Type', file.type || 'application/zip')
-    relayDevLog('warn', '[autosave-upload] R2 PUT start', {
-      id: initPayload.id,
-      rawUploadOrigin: rawUploadUrl.origin,
-      uploadOrigin: uploadUrl.origin,
-      uploadPath: uploadUrl.pathname,
-      contentType: uploadHeaders.get('Content-Type'),
-    })
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: uploadHeaders,
-      body: file,
-    }).catch((error: unknown) => {
-      relayDevLog('error', '[autosave-upload] R2 PUT failed before response', {
-        id: initPayload.id,
-        pageOrigin: window.location.origin,
-        rawUploadOrigin: rawUploadUrl.origin,
-        uploadOrigin: uploadUrl.origin,
-        uploadPath: uploadUrl.pathname,
-        error,
-      })
-      throw new Error('Saved game uploads are not available right now. Please try again later.')
-    })
-    relayDevLog('warn', '[autosave-upload] R2 PUT response', {
-      id: initPayload.id,
-      ok: uploadResponse.ok,
-      status: uploadResponse.status,
-      statusText: uploadResponse.statusText,
-      responseType: uploadResponse.type,
-      etag: uploadResponse.headers.get('etag'),
-    })
-    if (!uploadResponse.ok) {
-      const body = await uploadResponse.text().catch(() => '')
-      relayDevLog('error', '[autosave-upload] R2 PUT rejected', {
-        id: initPayload.id,
-        status: uploadResponse.status,
-        statusText: uploadResponse.statusText,
-        body: body.slice(0, 500),
-      })
-      throw new Error('Saved game uploads are not available right now. Please try again later.')
-    }
-
-    relayDevLog('warn', '[autosave-upload] complete start', { id: initPayload.id })
-    const completeResponse = await fetch(`/api/uploads/autosaves/${encodeURIComponent(initPayload.id)}/complete`, {
-      method: 'POST',
-      headers: buildActivitySessionHeaders(),
-    })
-    const completePayload = await completeResponse.json().catch(() => null) as DirectAutosaveUploadCompleteResponse | null
-    relayDevLog('warn', '[autosave-upload] complete response', {
-      id: initPayload.id,
-      ok: completeResponse.ok,
-      status: completeResponse.status,
-      error: completePayload?.error ?? null,
-    })
-    if (!completeResponse.ok) throw new Error(getAutosaveUploadErrorMessage(completeResponse.status, completePayload?.error))
-  }
-
-  const uploadAutosaveFileMultipart = async (file: File, uploadId: string, multipartUploadId: string, partSizeBytes: number) => {
-    const partCount = Math.ceil(file.size / partSizeBytes)
-    const parts: MultipartAutosaveUploadedPart[] = []
-
-    relayDevLog('warn', '[autosave-upload] multipart start', {
-      id: uploadId,
-      fileSizeBytes: file.size,
       partSizeBytes,
-      partCount,
     })
-
-    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
-      const start = (partNumber - 1) * partSizeBytes
-      const end = Math.min(start + partSizeBytes, file.size)
-      const chunk = file.slice(start, end)
-      const partUrl = `/api/uploads/autosaves/${encodeURIComponent(uploadId)}/parts/${partNumber}?uploadId=${encodeURIComponent(multipartUploadId)}`
-
-      relayDevLog('warn', '[autosave-upload] multipart part start', {
-        id: uploadId,
-        partNumber,
-        partCount,
-        sizeBytes: chunk.size,
-      })
-
-      const response = await fetch(partUrl, {
-        method: 'PUT',
-        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/octet-stream' }),
-        body: chunk,
-      })
-      const payload = await response.json().catch(() => null) as MultipartAutosaveUploadPartResponse | null
-      relayDevLog(response.ok ? 'warn' : 'error', '[autosave-upload] multipart part response', {
-        id: uploadId,
-        partNumber,
-        ok: response.ok,
-        status: response.status,
-        error: payload?.error ?? null,
-      })
-      if (!response.ok) throw new Error(getAutosaveUploadErrorMessage(response.status, payload?.error))
-      if (payload?.partNumber !== partNumber || !payload.etag) throw new Error('Upload part returned an invalid response')
-      parts.push({ partNumber, etag: payload.etag })
-    }
-
-    relayDevLog('warn', '[autosave-upload] multipart complete start', {
-      id: uploadId,
-      partCount: parts.length,
-    })
-    const completeResponse = await fetch(`/api/uploads/autosaves/${encodeURIComponent(uploadId)}/complete`, {
-      method: 'POST',
-      headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ multipartUploadId, parts }),
-    })
-    const completePayload = await completeResponse.json().catch(() => null) as DirectAutosaveUploadCompleteResponse | null
-    relayDevLog(completeResponse.ok ? 'warn' : 'error', '[autosave-upload] multipart complete response', {
-      id: uploadId,
-      ok: completeResponse.ok,
-      status: completeResponse.status,
-      error: completePayload?.error ?? null,
-    })
-    if (!completeResponse.ok) throw new Error(getAutosaveUploadErrorMessage(completeResponse.status, completePayload?.error))
+    await uploadAutosaveMultipart({ file, uploadId: initPayload.id, partSizeBytes })
   }
 
   const uploadAutosaveFolder = async (fileList: FileList | null) => {
@@ -1328,7 +1252,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           if (requestVersion !== browserRouteRequestVersion) return
           setAuthenticatedUser(bootstrap.identity)
           activeUserId = bootstrap.identity.userId
-          setAuthenticatedUserId(bootstrap.identity.userId)
+          void refreshAdminCapabilities()
           if (bootstrap.context.status === 'ended') {
             setLoadedBrowserRouteKey(routeKey)
             setState({ status: 'error', message: 'This CivUp session has ended.' })
@@ -1348,7 +1272,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         setAuthenticatedUser(bootstrap.identity)
         activeChannelId = bootstrap.context.channelId
         activeUserId = bootstrap.identity.userId
-        setAuthenticatedUserId(bootstrap.identity.userId)
+        void refreshAdminCapabilities()
         setOverviewPinned(true)
         setLoadedBrowserRouteKey(routeKey)
         hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
@@ -1383,7 +1307,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
       activeChannelId = channelId
       activeUserId = bootstrap.identity.userId
-      setAuthenticatedUserId(bootstrap.identity.userId)
+      void refreshAdminCapabilities()
       const initialRoute = parseLiveRoute(location.pathname)
       if (initialRoute?.kind === 'overview') {
         setOverviewPinned(true)
@@ -1517,6 +1441,9 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         openAutosaveFolderUpload,
         openAutosaveCatalog,
         canViewAutosaveCatalog,
+        canExportPlayerData,
+        exportPlayerData,
+        playerDataExportState,
         handleTargetSelection,
         restoreLastSelection,
         transitionToDraft,
@@ -1740,26 +1667,8 @@ function isWebkitDirectoryEntry(entry: WebkitFileSystemEntry): entry is WebkitFi
 function validateAutosaveUploadFile(file: File): string | null {
   if (!file.name.trim().toLowerCase().endsWith('.zip')) return 'Please upload one .zip file'
   if (file.size <= 0) return 'Selected zip is empty'
-  if (file.size > MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES) return 'This upload path supports autosave zips up to 512 MB'
+  if (file.size > MAX_AUTOSAVE_UPLOAD_BYTES) return 'This upload path supports autosave zips up to 512 MB'
   return null
-}
-
-function getAutosaveUploadErrorMessage(status: number, serverMessage: string | undefined): string {
-  if (status === 400) return serverMessage?.trim() || 'That saved game zip could not be uploaded.'
-  if (status === 401 || status === 403) return 'Please reopen CivUp in Discord and try again.'
-  if (status === 413) return 'That saved game zip is too large.'
-  if (status === 404 || status === 503) return 'Saved game uploads are not available right now. Please try again later.'
-  return 'Upload failed. Please try again later.'
-}
-
-function resolveAutosaveUploadUrl(rawUploadUrl: URL): URL {
-  if (typeof window === 'undefined') return rawUploadUrl
-  if (!window.location.hostname.endsWith('.discordsays.com')) return rawUploadUrl
-
-  const proxiedUrl = new URL(window.location.origin)
-  proxiedUrl.pathname = `${DISCORD_R2_UPLOAD_PROXY_PREFIX}${rawUploadUrl.pathname}`
-  proxiedUrl.search = rawUploadUrl.search
-  return proxiedUrl
 }
 
 function normalizeAutosaveMultipartPartSize(value: unknown): number | null {
@@ -1811,7 +1720,7 @@ function getCanonicalLivePath(state: ActivityState): string | null {
 
 function resolveSessionSocketTarget(): SessionSocketTarget {
   return {
-    host: typeof window !== 'undefined' ? window.location.host : ACTIVITY_HOST,
+    host: typeof window !== 'undefined' ? window.location.host : 'localhost:5173',
     prefix: 'api/parties',
     label: 'activity-origin',
   }

@@ -79,6 +79,27 @@ describe('browser cookie proxy', () => {
     expect(forwarded).toHaveLength(1)
   })
 
+  test('streams player-data export pages without buffering them in the Activity Worker', async () => {
+    const forwarded: Request[] = []
+    const token = await createActivitySession(SECRET, { userId: 'data-admin', displayName: null, avatarUrl: null })
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode('{"phase":"players"}'))
+        controller.close()
+      },
+    })
+    const upstream = new Response(body, { headers: { 'Content-Type': 'application/json', ETag: 'page-etag' } })
+
+    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/admin/player-data-export?cursor=next`, {
+      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+    }), createEnv(forwarded, upstream))
+
+    expect(await response.text()).toBe('{"phase":"players"}')
+    expect(new URL(forwarded[0]!.url).searchParams.get('cursor')).toBe('next')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('ETag')).toBe('page-etag')
+  })
+
   test('returns browser identity without exposing the session and clears logout only for exact origin', async () => {
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player', avatarUrl: null })
     const env = createEnv([], new Response('ok'))
@@ -118,7 +139,6 @@ function createEnv(forwarded: Request[], upstream: Response): ActivityEnv {
     CIVUP_SECRET: SECRET,
     DISCORD_CLIENT_ID: '222222222222222222',
     DISCORD_CLIENT_SECRET: 'client-secret',
-    BOT_HOST: 'https://bot.example.com',
     BOT: {
       async fetch(request: Request) {
         forwarded.push(request)

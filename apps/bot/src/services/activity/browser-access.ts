@@ -27,6 +27,12 @@ interface StoredBrowserAccessState {
   preferenceRoleId?: unknown
 }
 
+export interface BrowserAccessIntent {
+  enabled: boolean
+  preferenceRoleId: string | null
+  valid: boolean
+}
+
 const BROWSER_ACCESS_STATE_KEY = 'system:browser-access'
 const BROWSER_ACCESS_STATE_CACHE_MS = 60_000
 let browserAccessStateCache = new WeakMap<KVNamespace, BrowserAccessStateCacheEntry>()
@@ -39,6 +45,17 @@ export async function getBrowserAccessState(kv: KVNamespace): Promise<BrowserAcc
   const state = normalizeBrowserAccessState(stored)
   cacheBrowserAccessState(kv, state)
   return state
+}
+
+export async function getBrowserAccessIntent(kv: KVNamespace): Promise<BrowserAccessIntent> {
+  const stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+  const enabled = stored?.enabled === true
+  const preferenceRoleId = normalizeDiscordId(stored?.preferenceRoleId)
+  return {
+    enabled,
+    preferenceRoleId,
+    valid: !enabled || preferenceRoleId != null,
+  }
 }
 
 export async function setBrowserAccessState(kv: KVNamespace, state: BrowserAccessState): Promise<void> {
@@ -104,6 +121,18 @@ export function normalizePublicOrigin(value: string | undefined): string | null 
 export function normalizeDiscordId(value: unknown): string | null {
   const normalized = typeof value === 'string' ? value.trim() : ''
   return /^\d{17,20}$/.test(normalized) ? normalized : null
+}
+
+export function isSafeBrowserPreferenceRole(role: {
+  hoist?: unknown
+  managed?: unknown
+  mentionable?: unknown
+  permissions?: unknown
+}): boolean {
+  return role.managed === false
+    && role.permissions === '0'
+    && role.hoist === false
+    && role.mentionable === false
 }
 
 export function resetBrowserAccessStateCache(): void {

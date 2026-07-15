@@ -3,11 +3,16 @@ import {
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import activityWorker from '../src/server'
 
 const SECRET = 'server-party-proxy-secret'
 type ActivityEnv = Parameters<typeof activityWorker.fetch>[1]
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
 
 describe('activity party proxy', () => {
   test('proxies launch lookups through the bot service binding', async () => {
@@ -84,6 +89,77 @@ describe('activity party proxy', () => {
     expect(forwardedRequests).toHaveLength(1)
     expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/parties/activity/1496817844812386365')
   })
+
+  test('uses the fixed local bot origin for recognized development hosts', async () => {
+    const forwardedRequests: Request[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      forwardedRequests.push(new Request(input, init))
+      return new Response('local')
+    }) as typeof fetch
+    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+
+    const response = await activityWorker.fetch(new Request(
+      'http://activity-dev.localhost/api/activity/launch/channel/player-1',
+      { headers: { 'x-civup-activity-session': token } },
+    ), { ...createEnv([]), BOT: undefined })
+
+    expect(response.status).toBe(200)
+    expect(forwardedRequests).toHaveLength(1)
+    expect(forwardedRequests[0]!.url).toBe('http://127.0.0.1:8787/api/activity/launch/channel/player-1')
+  })
+
+  test('returns 503 instead of using public fetch when the production binding is absent', async () => {
+    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const response = await activityWorker.fetch(new Request(
+      'https://activity.example.com/api/activity/launch/channel/player-1',
+      { headers: { 'x-civup-activity-session': token } },
+    ), { ...createEnv([]), BOT: undefined })
+
+    expect(response.status).toBe(503)
+    expect(await response.json() as unknown).toEqual({ error: 'Bot service is not configured' })
+  })
+
+  test('streams upload bodies and init metadata through the service binding', async () => {
+    const forwardedRequests: Request[] = []
+    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const metadata = { fileName: 'autosaves.zip', fileSizeBytes: 123, channelId: 'channel-1', matchId: 'match-1' }
+    const response = await activityWorker.fetch(new Request(
+      'https://activity.example.com/api/uploads/autosaves/init',
+      {
+        method: 'POST',
+        headers: { 'x-civup-activity-session': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(metadata),
+      },
+    ), createEnv(forwardedRequests))
+
+    expect(response.status).toBe(200)
+    const forwarded = requireForwardedRequest(forwardedRequests)
+    expect(forwarded.method).toBe('POST')
+    expect(forwarded.headers.get('Content-Type')).toBe('application/json')
+    expect(await forwarded.json() as unknown).toEqual(metadata)
+  })
+
+  test('preserves a safe upload part content length through the service binding', async () => {
+    const forwardedRequests: Request[] = []
+    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const response = await activityWorker.fetch(new Request(
+      'https://activity.example.com/api/uploads/autosaves/upload-1/parts/1',
+      {
+        method: 'PUT',
+        headers: {
+          'x-civup-activity-session': token,
+          'Content-Length': '4',
+          'Content-Type': 'application/octet-stream',
+        },
+        body: new Uint8Array([1, 2, 3, 4]),
+      },
+    ), createEnv(forwardedRequests))
+
+    expect(response.status).toBe(200)
+    const forwarded = requireForwardedRequest(forwardedRequests)
+    expect(forwarded.headers.get('Content-Length')).toBe('4')
+    expect(new Uint8Array(await forwarded.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+  })
 })
 
 function createEnv(forwardedRequests: Request[]): ActivityEnv {
@@ -94,7 +170,6 @@ function createEnv(forwardedRequests: Request[]): ActivityEnv {
         return new Response('ok')
       },
     } as unknown as Fetcher,
-    BOT_HOST: 'https://civup-bot.thepeace.workers.dev',
     CIVUP_SECRET: SECRET,
     DISCORD_CLIENT_ID: 'test-client',
     DISCORD_CLIENT_SECRET: 'test-client-secret',

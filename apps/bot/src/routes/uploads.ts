@@ -1,22 +1,35 @@
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
-import type { ZipByteReader } from '@civup/civ6-save-metadata'
-import { createAutosaveZipIndex, parseCiv6SaveMetadata, parseZipEntriesFromReader, pickLatestAutosaveZipEntry, readZipEntryDataFromReader } from '@civup/civ6-save-metadata'
 import { autosaveUploads, createDb } from '@civup/db'
-import { betaLeaderDataVersionLabel, liveLeaderDataVersionLabel } from '@civup/game'
 import { desc, eq, sql } from 'drizzle-orm'
-import { inflateSync } from 'fflate'
 import { requireAuthenticatedActivity } from './auth.ts'
+import { isActivityDataAdmin } from '../services/activity/data-admin.ts'
+import { parseAndStoreAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
+import {
+  claimMultipartOperation,
+  cleanupAutosaveUpload,
+  finalizeCompletedMultipartRow,
+  getMultipartUploadRow,
+  multipartOperationLeaseExpired,
+  reconcileCompletedMultipartObject,
+  recordInitializedMultipartUpload,
+  recoverStaleMultipartCompletion,
+  recoverUnrecordedInitializedMultipartUpload,
+  releaseMultipartCompletionClaim,
+  retryAutosaveUploadCleanup,
+  type MultipartCleanupRecovery,
+  type MultipartUploadRow,
+  type UploadDb,
+  waitForCompletedMultipartObject,
+} from '../services/uploads/multipart.ts'
+import {
+  MAX_AUTOSAVE_OBJECTS_PER_USER,
+  MAX_AUTOSAVE_STORAGE_BYTES_PER_USER,
+  MAX_AUTOSAVE_UPLOAD_BYTES,
+  MULTIPART_AUTOSAVE_PART_BYTES,
+} from '../services/uploads/policy.ts'
 
-const MAX_AUTOSAVE_UPLOAD_BYTES = 100 * 1024 * 1024
-const MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
-const MAX_SINGLE_DIRECT_AUTOSAVE_UPLOAD_BYTES = 80 * 1024 * 1024
-const MULTIPART_AUTOSAVE_PART_BYTES = 80 * 1024 * 1024
-const UPLOAD_FILE_NAME_HEADER = 'x-civup-upload-filename'
-const UPLOAD_CHANNEL_ID_HEADER = 'x-civup-upload-channel-id'
-const UPLOAD_MATCH_ID_HEADER = 'x-civup-upload-match-id'
-const DEFAULT_AUTOSAVE_ADMIN_USER_IDS = new Set(['361534796830081024'])
-const DIRECT_UPLOAD_URL_TTL_SECONDS = 15 * 60
+const UPLOADS_NOT_CONFIGURED_ERROR = 'Saved game uploads are not configured'
 
 interface AutosaveUploadCatalogRow {
   id: string
@@ -48,7 +61,7 @@ interface AutosaveUploadCatalogRow {
   notes: string | null
 }
 
-interface DirectAutosaveUploadInitPayload {
+interface AutosaveUploadInitPayload {
   fileName?: unknown
   fileSizeBytes?: unknown
   contentType?: unknown
@@ -56,23 +69,15 @@ interface DirectAutosaveUploadInitPayload {
   matchId?: unknown
 }
 
-interface DirectAutosaveUploadCompletePayload {
-  multipartUploadId?: unknown
+interface AutosaveUploadCompletePayload {
   parts?: unknown
-}
-
-interface R2DirectUploadConfig {
-  accountId: string
-  bucketName: string
-  accessKeyId: string
-  secretAccessKey: string
 }
 
 export function registerUploadRoutes(app: Hono<Env>) {
   app.get('/api/uploads/autosaves', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
 
     const uploads: AutosaveUploadCatalogRow[] = await createDb(c.env.DB)
       .select({
@@ -115,10 +120,10 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.get('/api/uploads/autosaves/:id/download', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
 
     const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
     // eslint-disable-next-line no-console
@@ -166,11 +171,11 @@ export function registerUploadRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
-    let body: DirectAutosaveUploadInitPayload
+    let body: AutosaveUploadInitPayload
     try {
-      body = await c.req.json<DirectAutosaveUploadInitPayload>()
+      body = await c.req.json<AutosaveUploadInitPayload>()
     }
     catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
@@ -181,7 +186,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
 
     const fileSizeBytes = normalizeUploadSize(body.fileSizeBytes)
     if (fileSizeBytes == null) return c.json({ error: 'Invalid upload size' }, 400)
-    if (fileSizeBytes > MAX_DIRECT_AUTOSAVE_UPLOAD_BYTES) {
+    if (fileSizeBytes > MAX_AUTOSAVE_UPLOAD_BYTES) {
       return c.json({ error: 'Autosave zip is too large for the current upload limit' }, 413)
     }
 
@@ -193,73 +198,158 @@ export function registerUploadRoutes(app: Hono<Env>) {
     const matchId = normalizeMetadataValue(typeof body.matchId === 'string' ? body.matchId : null)
     const contentType = normalizeContentType(typeof body.contentType === 'string' ? body.contentType : undefined)
     const key = buildAutosaveUploadKey(now, userId, uploadId, safeFileName)
-    const uploadMode = fileSizeBytes > MAX_SINGLE_DIRECT_AUTOSAVE_UPLOAD_BYTES ? 'multipart' : 'single'
-    const directConfig = uploadMode === 'single' ? getR2DirectUploadConfig(c.env) : null
-    if (uploadMode === 'single' && !directConfig) {
-      console.error('[autosave-upload] direct R2 upload config is missing', { missing: getMissingR2DirectUploadConfigKeys(c.env) })
-      return c.json({ error: 'Saved game uploads are not available right now' }, 503)
-    }
-
-    console.log('[autosave-upload] init direct upload', {
+    const db = createDb(c.env.DB)
+    const initializationOperationId = crypto.randomUUID()
+    console.log('[autosave-upload] init multipart upload', {
       id: uploadId,
       userId,
       fileSizeBytes,
       contentType,
-      uploadMode,
       origin: c.req.header('origin') ?? null,
-      bucket: directConfig?.bucketName ?? c.env.AUTOSAVE_UPLOAD_BUCKET ?? null,
     })
 
-    await createDb(c.env.DB).insert(autosaveUploads).values({
-      id: uploadId,
-      uploadedAt: now.getTime(),
-      uploaderUserId: userId,
-      uploaderDisplayName: normalizeMetadataValue(auth.identity.displayName),
-      channelId,
-      matchId,
-      fileName: safeFileName,
-      fileSizeBytes,
-      r2Key: key,
-      etag: null,
-      status: 'pending_upload',
-      parseStatus: 'pending',
-      parseError: null,
-    })
-
-    if (uploadMode === 'multipart') {
-      const multipartUpload = await bucket.createMultipartUpload(key, {
-        httpMetadata: { contentType },
-      })
-      console.log('[autosave-upload] init multipart upload created', {
-        id: uploadId,
-        key,
-        uploadId: multipartUpload.uploadId,
-        partSizeBytes: MULTIPART_AUTOSAVE_PART_BYTES,
-      })
-      return c.json({
-        ok: true,
-        id: uploadId,
-        uploadMode,
-        multipartUploadId: multipartUpload.uploadId,
-        partSizeBytes: MULTIPART_AUTOSAVE_PART_BYTES,
-      })
+    let storedBytes = 0
+    let storedObjectCount = 0
+    let activeUploadCount = 0
+    try {
+      const [usage] = await db
+        .select({
+          storedBytes: sql<number>`COALESCE(SUM(${autosaveUploads.fileSizeBytes}), 0)`,
+          storedObjectCount: sql<number>`COUNT(*)`,
+          activeUploadCount: sql<number>`COALESCE(SUM(CASE WHEN ${autosaveUploads.status} <> 'uploaded' THEN 1 ELSE 0 END), 0)`,
+        })
+        .from(autosaveUploads)
+        .where(eq(autosaveUploads.uploaderUserId, userId))
+      storedBytes = Number(usage?.storedBytes ?? 0)
+      storedObjectCount = Number(usage?.storedObjectCount ?? 0)
+      activeUploadCount = Number(usage?.activeUploadCount ?? 0)
+    }
+    catch (error) {
+      console.error('[autosave-upload] failed to check uploader limits', { userId }, error)
+      return c.json({ error: 'Saved game upload limits could not be checked' }, 500)
     }
 
-    const uploadUrl = await createR2PresignedPutUrl(directConfig!, key, DIRECT_UPLOAD_URL_TTL_SECONDS)
-    console.log('[autosave-upload] init direct upload signed', {
+    if (activeUploadCount > 0) {
+      return c.json({ error: 'Finish or cancel your current saved-game upload before starting another' }, 429)
+    }
+    if (storedObjectCount >= MAX_AUTOSAVE_OBJECTS_PER_USER) {
+      return c.json({ error: 'Your 100 saved-game upload limit is full; ask an admin to delete an older upload' }, 413)
+    }
+    if (storedBytes + fileSizeBytes > MAX_AUTOSAVE_STORAGE_BYTES_PER_USER) {
+      return c.json({ error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' }, 413)
+    }
+
+    try {
+      await db.insert(autosaveUploads).values({
+        id: uploadId,
+        uploadedAt: now.getTime(),
+        uploaderUserId: userId,
+        uploaderDisplayName: normalizeMetadataValue(auth.identity.displayName),
+        channelId,
+        matchId,
+        fileName: safeFileName,
+        fileSizeBytes,
+        r2Key: key,
+        multipartUploadId: null,
+        multipartOperationId: initializationOperationId,
+        multipartStateUpdatedAt: now.getTime(),
+        etag: null,
+        status: 'initializing',
+        parseStatus: 'pending',
+        parseError: null,
+      })
+    }
+    catch (error) {
+      const limit = classifyAutosaveUploadInitLimitError(error)
+      if (limit === 'active') {
+        return c.json({ error: 'Finish or cancel your current saved-game upload before starting another' }, 429)
+      }
+      if (limit === 'count') {
+        return c.json({ error: 'Your 100 saved-game upload limit is full; ask an admin to delete an older upload' }, 413)
+      }
+      if (limit === 'quota') {
+        return c.json({ error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' }, 413)
+      }
+      console.error('[autosave-upload] failed to create initializing catalog row', { id: uploadId, key }, error)
+      return c.json({ error: 'Saved game upload could not be started' }, 500)
+    }
+
+    let multipartUpload: R2MultipartUpload
+    try {
+      multipartUpload = await bucket.createMultipartUpload(key, {
+        httpMetadata: { contentType },
+      })
+    }
+    catch (error) {
+      console.warn('[autosave-upload] multipart initialization failed', { id: uploadId, key }, error)
+      const row = await getMultipartUploadRow(db, uploadId)
+      if (row) {
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row, { forceInitializingOperationId: initializationOperationId })
+        if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
+      }
+      return c.json({ error: 'Saved game upload could not be started' }, 502)
+    }
+
+    if (!await recordInitializedMultipartUpload(db, uploadId, initializationOperationId, multipartUpload.uploadId, 'pending_upload')) {
+      console.error('[autosave-upload] failed to record initialized multipart upload', { id: uploadId, key })
+      let abortedLocally = false
+      let cleanupPersisted = await recordInitializedMultipartUpload(
+        db,
+        uploadId,
+        initializationOperationId,
+        multipartUpload.uploadId,
+        'cleanup_pending',
+      )
+
+      if (!cleanupPersisted) {
+        abortedLocally = await abortMultipartUpload(multipartUpload, { id: uploadId, key, action: 'initialization recovery' }, 3)
+        if (!abortedLocally) {
+          cleanupPersisted = await recordInitializedMultipartUpload(
+            db,
+            uploadId,
+            initializationOperationId,
+            multipartUpload.uploadId,
+            'cleanup_pending',
+          )
+        }
+      }
+
+      const row = await getMultipartUploadRow(db, uploadId).catch(() => null)
+      if (cleanupPersisted && row) {
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row)
+        if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
+      }
+      else if (abortedLocally && row) {
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
+          forceInitializingOperationId: initializationOperationId,
+          storageAlreadyCleaned: true,
+        })
+        if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
+      }
+      else if (row) {
+        console.error('[autosave-upload] could not persist or abort initialized multipart upload', { id: uploadId, key })
+        c.executionCtx.waitUntil(recoverUnrecordedInitializedMultipartUpload(
+          c.env,
+          uploadId,
+          initializationOperationId,
+          multipartUpload,
+        ).catch(backgroundError =>
+          console.error('[autosave-upload] unrecorded initialization cleanup failed', { id: uploadId, key }, backgroundError),
+        ))
+      }
+      return c.json({ error: 'Saved game upload initialization cleanup failed' }, 502)
+    }
+
+    console.log('[autosave-upload] init multipart upload created', {
       id: uploadId,
       key,
-      expiresInSeconds: DIRECT_UPLOAD_URL_TTL_SECONDS,
+      uploadId: multipartUpload.uploadId,
+      partSizeBytes: MULTIPART_AUTOSAVE_PART_BYTES,
     })
     return c.json({
       ok: true,
       id: uploadId,
-      uploadMode,
-      uploadUrl,
-      headers: {
-        'Content-Type': contentType,
-      },
-      expiresInSeconds: DIRECT_UPLOAD_URL_TTL_SECONDS,
+      partSizeBytes: MULTIPART_AUTOSAVE_PART_BYTES,
     })
   })
 
@@ -268,28 +358,23 @@ export function registerUploadRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
     const partNumber = parseMultipartPartNumber(c.req.param('partNumber'))
-    if (partNumber == null) return c.json({ error: 'Invalid upload part number' }, 400)
-
-    const multipartUploadId = normalizeMultipartUploadId(c.req.query('uploadId'))
-    if (!multipartUploadId) return c.json({ error: 'Invalid multipart upload id' }, 400)
-
     const contentLength = parseContentLength(c.req.header('content-length'))
-    if (contentLength != null && contentLength > MULTIPART_AUTOSAVE_PART_BYTES) {
-      return c.json({ error: 'Upload part is too large' }, 413)
-    }
-
     const body = c.req.raw.body
-    if (!body) return c.json({ error: 'Upload part is empty' }, 400)
-
     const db = createDb(c.env.DB)
     const [row] = await db
       .select({
+        id: autosaveUploads.id,
         uploaderUserId: autosaveUploads.uploaderUserId,
         r2Key: autosaveUploads.r2Key,
+        multipartUploadId: autosaveUploads.multipartUploadId,
+        multipartOperationId: autosaveUploads.multipartOperationId,
+        multipartStateUpdatedAt: autosaveUploads.multipartStateUpdatedAt,
+        fileSizeBytes: autosaveUploads.fileSizeBytes,
+        etag: autosaveUploads.etag,
         status: autosaveUploads.status,
       })
       .from(autosaveUploads)
@@ -297,21 +382,44 @@ export function registerUploadRoutes(app: Hono<Env>) {
       .limit(1)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
-    if (row.uploaderUserId !== auth.identity.userId && !isAutosaveAdmin(c.env, auth.identity.userId)) {
+    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     if (row.status !== 'pending_upload') return c.json({ error: 'Upload is not accepting parts' }, 409)
+    if (!row.multipartUploadId) return c.json({ error: 'Upload is missing multipart state' }, 409)
+    const expectedPartSize = partNumber == null ? null : expectedMultipartPartSize(row.fileSizeBytes, partNumber)
+    if (partNumber == null || expectedPartSize == null) {
+      return cleanupInvalidMultipartPart(c, bucket, db, row, 'Invalid upload part number', 400)
+    }
+    if (!body) return cleanupInvalidMultipartPart(c, bucket, db, row, 'Upload part is empty', 400)
+    if (contentLength != null && contentLength !== expectedPartSize) {
+      return cleanupInvalidMultipartPart(
+        c,
+        bucket,
+        db,
+        row,
+        contentLength > expectedPartSize ? 'Upload part is larger than expected' : 'Upload part is smaller than expected',
+        contentLength > expectedPartSize ? 413 : 400,
+      )
+    }
+
+    const countedBody = createExactLengthUploadStream(body, expectedPartSize)
 
     console.log('[autosave-upload] multipart part upload start', {
       id,
       key: row.r2Key,
       partNumber,
       contentLength,
+      expectedPartSize,
     })
 
     try {
-      const upload = bucket.resumeMultipartUpload(row.r2Key, multipartUploadId)
-      const part = await upload.uploadPart(partNumber, body)
+      const upload = bucket.resumeMultipartUpload(row.r2Key, row.multipartUploadId)
+      const part = await upload.uploadPart(partNumber, countedBody.stream)
+      if (countedBody.bytesRead !== expectedPartSize) {
+        countedBody.mismatch = countedBody.bytesRead > expectedPartSize ? 'long' : 'short'
+        throw new Error('R2 accepted an upload part without consuming its declared bytes')
+      }
       console.log('[autosave-upload] multipart part upload accepted', {
         id,
         partNumber: part.partNumber,
@@ -320,7 +428,19 @@ export function registerUploadRoutes(app: Hono<Env>) {
       return c.json({ ok: true, partNumber: part.partNumber, etag: part.etag })
     }
     catch (error) {
-      console.warn('[autosave-upload] multipart part upload failed', { id, partNumber }, error)
+      console.warn('[autosave-upload] multipart part upload failed', {
+        id,
+        partNumber,
+        expectedPartSize,
+        bytesRead: countedBody.bytesRead,
+      }, error)
+      const cleanup = await cleanupAutosaveUpload(bucket, db, row)
+      if (!cleanup.ok) {
+        if (cleanup.status === 502) scheduleUploadCleanup(c, id, cleanup.recovery)
+        return c.json({ error: cleanup.error }, cleanup.status)
+      }
+      if (countedBody.mismatch === 'long') return c.json({ error: 'Upload part is larger than expected' }, 413)
+      if (countedBody.mismatch === 'short') return c.json({ error: 'Upload part is smaller than expected' }, 400)
       return c.json({ error: 'Upload part failed' }, 502)
     }
   })
@@ -330,120 +450,166 @@ export function registerUploadRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
 
     const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
-    let completePayload: DirectAutosaveUploadCompletePayload | null = null
-    if (c.req.header('content-type')?.toLowerCase().includes('application/json')) {
-      try {
-        completePayload = await c.req.json<DirectAutosaveUploadCompletePayload>()
-      }
-      catch {
-        return c.json({ error: 'Invalid JSON payload' }, 400)
-      }
-    }
-    console.log('[autosave-upload] complete direct upload start', {
+    console.log('[autosave-upload] complete multipart upload start', {
       id,
       userId: auth.identity.userId,
       origin: c.req.header('origin') ?? null,
-      multipart: completePayload != null,
     })
     const db = createDb(c.env.DB)
-    const [row] = await db
-      .select({
-        uploaderUserId: autosaveUploads.uploaderUserId,
-        r2Key: autosaveUploads.r2Key,
-        status: autosaveUploads.status,
-      })
-      .from(autosaveUploads)
-      .where(eq(autosaveUploads.id, id))
-      .limit(1)
+    let row = await getMultipartUploadRow(db, id)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
-    if (row.uploaderUserId !== auth.identity.userId && !isAutosaveAdmin(c.env, auth.identity.userId)) {
+    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
 
-    if (row.status === 'uploaded') {
-      console.log('[autosave-upload] complete direct upload already uploaded', { id })
-      return c.json({ ok: true, id })
+    if (row.status === 'uploaded') return completedUploadResponse(c, row)
+
+    let operationId: string | null = null
+    if (row.status === 'pending_upload') operationId = await claimMultipartOperation(db, row, 'completing')
+    else if (row.status === 'completing') return respondToExistingMultipartCompletion(c, bucket, db, row)
+    else return c.json({ error: 'Upload is not accepting completion' }, 409)
+
+    if (!operationId) {
+      row = await getMultipartUploadRow(db, id)
+      if (!row) return c.json({ error: 'Upload not found' }, 404)
+      if (row.status === 'uploaded') return completedUploadResponse(c, row)
+      if (row.status === 'completing') return respondToExistingMultipartCompletion(c, bucket, db, row)
+      return c.json({ error: 'Upload completion is in progress' }, 409)
     }
 
-    if (completePayload) {
-      const multipartUploadId = normalizeMultipartUploadId(completePayload.multipartUploadId)
-      if (!multipartUploadId) return c.json({ error: 'Invalid multipart upload id' }, 400)
+    row = await getMultipartUploadRow(db, id)
+    if (!row) return c.json({ error: 'Upload not found' }, 404)
+    if (row.status !== 'completing' || row.multipartOperationId !== operationId) {
+      return c.json({ error: 'Upload state changed; retry completion' }, 409)
+    }
+    if (!row.multipartUploadId) return c.json({ error: 'Upload is missing multipart state' }, 409)
 
-      const parts = normalizeMultipartUploadedParts(completePayload.parts)
-      if (!parts) return c.json({ error: 'Invalid multipart upload parts' }, 400)
+    let completePayload: AutosaveUploadCompletePayload
+    try {
+      completePayload = await c.req.json<AutosaveUploadCompletePayload>()
+    }
+    catch {
+      await releaseMultipartCompletionClaim(db, id, operationId)
+      return c.json({ error: 'Invalid JSON payload' }, 400)
+    }
 
-      try {
-        const upload = bucket.resumeMultipartUpload(row.r2Key, multipartUploadId)
-        const object = await upload.complete(parts)
-        console.log('[autosave-upload] complete multipart upload accepted', {
-          id,
-          key: row.r2Key,
-          size: object.size,
-          etag: object.etag,
-          partCount: parts.length,
-        })
+    const parts = normalizeMultipartUploadedParts(completePayload.parts, row.fileSizeBytes)
+    if (!parts) {
+      await releaseMultipartCompletionClaim(db, id, operationId)
+      return c.json({ error: 'Invalid multipart upload parts' }, 400)
+    }
 
-        await db
-          .update(autosaveUploads)
-          .set({
-            status: 'uploaded',
-            fileSizeBytes: object.size,
-            etag: object.etag,
-            parseStatus: 'pending',
-            parseError: null,
-          })
-          .where(eq(autosaveUploads.id, id))
-
-        c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
-        return c.json({ ok: true, id, size: object.size, etag: object.etag })
+    try {
+      const upload = bucket.resumeMultipartUpload(row.r2Key, row.multipartUploadId)
+      const object = await upload.complete(parts)
+      if (object.size !== row.fileSizeBytes) return cleanupInvalidCompletedUpload(c, bucket, db, row)
+      if (!await finalizeCompletedMultipartRow(db, row, object, operationId)) {
+        const reconciled = await reconcileCompletedMultipartObject(bucket, db, row)
+        if (reconciled.kind === 'completed') return reconciledUploadResponse(c, row, reconciled)
+        if (reconciled.kind === 'mismatch') return cleanupInvalidCompletedUpload(c, bucket, db, row)
+        return c.json({ error: 'Upload state changed; retry completion' }, 409)
       }
-      catch (error) {
-        console.warn('[autosave-upload] complete multipart upload failed', { id, key: row.r2Key }, error)
-        return c.json({ error: 'Multipart upload could not be completed' }, 400)
-      }
-    }
 
-    const object = await bucket.head(row.r2Key)
-    if (!object) {
-      console.warn('[autosave-upload] complete direct upload missing R2 object', { id, key: row.r2Key })
-      await db
-        .update(autosaveUploads)
-        .set({ status: 'upload_failed', parseStatus: 'parse_failed', parseError: 'Upload object not found' })
-        .where(eq(autosaveUploads.id, id))
-      return c.json({ error: 'Upload object not found' }, 404)
-    }
-
-    console.log('[autosave-upload] complete direct upload found R2 object', {
-      id,
-      key: row.r2Key,
-      size: object.size,
-      etag: object.etag,
-    })
-
-    await db
-      .update(autosaveUploads)
-      .set({
-        status: 'uploaded',
-        fileSizeBytes: object.size,
+      console.log('[autosave-upload] complete multipart upload accepted', {
+        id,
+        key: row.r2Key,
+        size: object.size,
         etag: object.etag,
-        parseStatus: 'pending',
-        parseError: null,
+        partCount: parts.length,
       })
-      .where(eq(autosaveUploads.id, id))
+      c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
+      return c.json({ ok: true, id, size: object.size, etag: object.etag })
+    }
+    catch (error) {
+      console.warn('[autosave-upload] complete multipart upload failed', { id, key: row.r2Key }, error)
+      let reconciled
+      try {
+        reconciled = await reconcileCompletedMultipartObject(bucket, db, row)
+      }
+      catch (reconcileError) {
+        console.error('[autosave-upload] could not reconcile failed multipart completion', { id, key: row.r2Key }, reconcileError)
+        return c.json({ error: 'Multipart upload completion is being recovered' }, 502)
+      }
+      if (reconciled.kind === 'completed') {
+        return reconciledUploadResponse(c, row, reconciled)
+      }
+      if (reconciled.kind === 'mismatch') return cleanupInvalidCompletedUpload(c, bucket, db, row)
+      if (reconciled.kind === 'state_changed') return c.json({ error: 'Upload state changed; retry completion' }, 409)
+      await releaseMultipartCompletionClaim(db, id, operationId)
+      return c.json({ error: 'Multipart upload could not be completed' }, 502)
+    }
+  })
 
-    c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
-    console.log('[autosave-upload] complete direct upload accepted', { id })
-    return c.json({ ok: true, id, size: object.size, etag: object.etag })
+  app.post('/api/uploads/autosaves/:id/abort', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const bucket = c.env.AUTOSAVE_UPLOADS
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
+
+    const id = c.req.param('id')
+    const db = createDb(c.env.DB)
+    let row = await getMultipartUploadRow(db, id)
+
+    if (!row) return c.json({ ok: true })
+    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    if (row.status === 'uploaded') return c.json({ ok: true, completed: true })
+
+    if (row.status === 'completing') {
+      const existingObject = await waitForCompletedMultipartObject(bucket, db, row)
+      if (existingObject.kind === 'completed') {
+        scheduleMetadataParseIfNewlyFinalized(c, row, existingObject.newlyFinalized)
+        return c.json({ ok: true, completed: true })
+      }
+      if (existingObject.kind === 'mismatch') {
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row, { forceCompletingOperationId: row.multipartOperationId ?? undefined })
+        if (!cleanup.ok) {
+          if (cleanup.status === 502) scheduleUploadCleanup(c, id, cleanup.recovery)
+          return c.json({ error: cleanup.error }, cleanup.status)
+        }
+        return c.json({ ok: true, aborted: true })
+      }
+      if (existingObject.kind === 'state_changed') return c.json({ error: 'Upload state changed; retry abort' }, 409)
+      if (!multipartOperationLeaseExpired(row)) return c.json({ error: 'Upload completion is in progress' }, 409)
+
+      const recovered = await recoverStaleMultipartCompletion(bucket, db, row)
+      if (recovered.kind === 'completed') {
+        scheduleMetadataParseIfNewlyFinalized(c, row, recovered.newlyFinalized)
+        return c.json({ ok: true, completed: true })
+      }
+      if (recovered.kind === 'cleaned') return c.json({ ok: true, aborted: true })
+      if (recovered.kind === 'cleanup_failed') {
+        if (recovered.cleanup.status === 502) scheduleUploadCleanup(c, id, recovered.cleanup.recovery)
+        return c.json({ error: recovered.cleanup.error }, recovered.cleanup.status)
+      }
+      if (recovered.kind === 'pending') return c.json({ error: 'Upload completion is still being recovered' }, 502)
+      return c.json({ error: 'Upload state changed; retry abort' }, 409)
+    }
+
+    const cleanup = await cleanupAutosaveUpload(bucket, db, row)
+    if (!cleanup.ok) {
+      if (cleanup.status === 502) scheduleUploadCleanup(c, id, cleanup.recovery)
+      if (cleanup.status === 409) {
+        row = await getMultipartUploadRow(db, id)
+        if (!row) return c.json({ ok: true })
+        if (row.status === 'uploaded') return c.json({ ok: true, completed: true })
+      }
+      return c.json({ error: cleanup.error }, cleanup.status)
+    }
+    return c.json({ ok: true, aborted: true })
   })
 
   app.post('/api/uploads/autosaves/:id/reparse', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!c.env.AUTOSAVE_UPLOADS) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
     const db = createDb(c.env.DB)
@@ -467,298 +633,125 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.delete('/api/uploads/autosaves/:id', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isAutosaveAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
 
     const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
+    if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
     const db = createDb(c.env.DB)
-    const [row] = await db
-      .select({ r2Key: autosaveUploads.r2Key })
-      .from(autosaveUploads)
-      .where(eq(autosaveUploads.id, id))
-      .limit(1)
+    const row = await getMultipartUploadRow(db, id)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
+    if (row.status !== 'uploaded') {
+      return c.json({ error: 'Active uploads must be aborted before they can be deleted' }, 409)
+    }
 
     await bucket.delete(row.r2Key)
     await db.delete(autosaveUploads).where(eq(autosaveUploads.id, id))
     return c.json({ ok: true })
   })
 
-  app.post('/api/uploads/autosaves', async (c) => {
-    const auth = requireAuthenticatedActivity(c)
-    if (!auth.ok) return auth.response
+}
 
-    const bucket = c.env.AUTOSAVE_UPLOADS
-    if (!bucket) return c.json({ error: 'Autosave upload storage is not configured' }, 503)
-
-    const contentLength = parseContentLength(c.req.header('content-length'))
-    if (contentLength != null && contentLength > MAX_AUTOSAVE_UPLOAD_BYTES) {
-      return c.json({ error: 'Autosave zip is too large for the current upload path' }, 413)
-    }
-
-    const originalFileName = readEncodedHeader(c.req.raw.headers, UPLOAD_FILE_NAME_HEADER) ?? 'autosaves.zip'
-    if (!isZipFileName(originalFileName)) return c.json({ error: 'Please upload one .zip file' }, 400)
-
-    const body = c.req.raw.body
-    if (!body) return c.json({ error: 'Missing upload body' }, 400)
-
-    const now = new Date()
-    const uploadId = crypto.randomUUID()
-    const safeFileName = sanitizeFileName(originalFileName)
-    const userId = auth.identity.userId
-    const channelId = normalizeMetadataValue(c.req.header(UPLOAD_CHANNEL_ID_HEADER))
-    const matchId = normalizeMetadataValue(c.req.header(UPLOAD_MATCH_ID_HEADER))
-    const key = buildAutosaveUploadKey(now, userId, uploadId, safeFileName)
-
-    const object = await bucket.put(key, body, {
-      httpMetadata: {
-        contentType: normalizeContentType(c.req.header('content-type')),
-      },
-      customMetadata: {
-        discordUserId: userId,
-        discordDisplayName: normalizeMetadataValue(auth.identity.displayName) ?? '',
-        channelId: channelId ?? '',
-        matchId: matchId ?? '',
-        originalFileName: normalizeMetadataValue(originalFileName) ?? 'autosaves.zip',
-        uploadedAt: now.toISOString(),
-      },
-    })
-
+async function abortMultipartUpload(
+  upload: R2MultipartUpload,
+  context: { id: string, key: string, action: string },
+  attempts = 1,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      await createDb(c.env.DB).insert(autosaveUploads).values({
-        id: uploadId,
-        uploadedAt: now.getTime(),
-        uploaderUserId: userId,
-        uploaderDisplayName: normalizeMetadataValue(auth.identity.displayName),
-        channelId,
-        matchId,
-        fileName: safeFileName,
-        fileSizeBytes: object.size,
-        r2Key: key,
-        etag: object.etag,
-        status: 'uploaded',
-      })
+      await upload.abort()
+      return true
     }
     catch (error) {
-      try {
-        await bucket.delete(key)
-      }
-      catch (deleteError) {
-        console.error('[autosave-upload] failed to delete orphaned object after catalog insert failure', { key }, deleteError)
-      }
-      throw error
+      console.error(`[autosave-upload] failed to abort multipart upload after ${context.action}`, { id: context.id, key: context.key }, error)
     }
+  }
+  return false
+}
 
-    c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, uploadId, key))
+function completedUploadResponse(c: Context<Env>, row: MultipartUploadRow) {
+  console.log('[autosave-upload] complete multipart upload already uploaded', { id: row.id })
+  return c.json({ ok: true, id: row.id, size: row.fileSizeBytes, etag: row.etag })
+}
 
-    return c.json({
-      ok: true,
-      id: uploadId,
-      key,
-      size: object.size,
-      etag: object.etag,
-    })
+function reconciledUploadResponse(
+  c: Context<Env>,
+  row: MultipartUploadRow,
+  reconciled: { object: R2Object, newlyFinalized: boolean },
+) {
+  scheduleMetadataParseIfNewlyFinalized(c, row, reconciled.newlyFinalized)
+  return c.json({ ok: true, id: row.id, size: reconciled.object.size, etag: reconciled.object.etag })
+}
+
+async function respondToExistingMultipartCompletion(
+  c: Context<Env>,
+  bucket: R2Bucket,
+  db: UploadDb,
+  row: MultipartUploadRow,
+): Promise<Response> {
+  const reconciled = await waitForCompletedMultipartObject(bucket, db, row)
+  if (reconciled.kind === 'completed') return reconciledUploadResponse(c, row, reconciled)
+  if (reconciled.kind === 'mismatch') return cleanupInvalidCompletedUpload(c, bucket, db, row)
+  if (reconciled.kind === 'state_changed') return c.json({ error: 'Upload state changed; retry completion' }, 409)
+  if (!multipartOperationLeaseExpired(row)) return c.json({ error: 'Upload completion is in progress' }, 409)
+
+  const recovered = await recoverStaleMultipartCompletion(bucket, db, row)
+  if (recovered.kind === 'completed') return reconciledUploadResponse(c, row, recovered)
+  if (recovered.kind === 'cleaned') {
+    return recovered.invalidObject
+      ? c.json({ error: 'Completed upload size does not match the declared size' }, 400)
+      : c.json({ error: 'Upload completion expired; please start the upload again' }, 409)
+  }
+  if (recovered.kind === 'cleanup_failed') {
+    if (recovered.cleanup.status === 502) scheduleUploadCleanup(c, row.id, recovered.cleanup.recovery)
+    return c.json({ error: recovered.cleanup.error }, recovered.cleanup.status)
+  }
+  if (recovered.kind === 'pending') return c.json({ error: 'Multipart upload completion is being recovered' }, 502)
+  return c.json({ error: 'Upload state changed; retry completion' }, 409)
+}
+
+function scheduleMetadataParseIfNewlyFinalized(c: Context<Env>, row: MultipartUploadRow, newlyFinalized: boolean): void {
+  if (newlyFinalized) c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, row.id, row.r2Key))
+}
+
+async function cleanupInvalidCompletedUpload(
+  c: Context<Env>,
+  bucket: R2Bucket,
+  db: UploadDb,
+  row: MultipartUploadRow,
+) {
+  const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
+    forceCompletingOperationId: row.multipartOperationId ?? undefined,
   })
-}
-
-async function parseAndStoreAutosaveUploadMetadata(env: Env['Bindings'], uploadId: string, key: string): Promise<void> {
-  const db = createDb(env.DB)
-  try {
-    const bucket = env.AUTOSAVE_UPLOADS
-    if (!bucket) throw new Error('Autosave upload storage is not configured')
-
-    const object = await bucket.head(key)
-    if (!object) throw new Error('Upload object not found')
-
-    const reader = createR2ZipReader(bucket, key, object.size)
-    const zipEntries = await parseZipEntriesFromReader(reader)
-    const zipIndex = createAutosaveZipIndex(zipEntries)
-    const latestSave = pickLatestAutosaveZipEntry(zipEntries)
-    if (!latestSave) throw new Error('No .Civ6Save entries found in zip')
-
-    const saveBytes = await readZipEntryDataFromReader(reader, latestSave, inflateRaw)
-    const metadata = parseCiv6SaveMetadata(saveBytes)
-    const bbgVersion = resolveBbgVersion(metadata.bbgDetected, metadata.bbgTitle, metadata.bbgVersion)
-
-    await db
-      .update(autosaveUploads)
-      .set({
-        parseStatus: 'parsed',
-        parseError: null,
-        saveCount: zipIndex.saveCount,
-        maxTurn: zipIndex.maxTurn,
-        latestSaveName: latestSave.name,
-        playerCount: metadata.playerCount,
-        gameMode: metadata.gameMode,
-        leadersJson: JSON.stringify(metadata.leaders),
-        civsJson: JSON.stringify(metadata.civs),
-        playersJson: JSON.stringify(metadata.players),
-        mapFile: metadata.mapFile,
-        modsJson: JSON.stringify(metadata.mods),
-        bbgDetected: metadata.bbgDetected,
-        bbgTitle: metadata.bbgTitle,
-        bbgVersion,
-      })
-      .where(eq(autosaveUploads.id, uploadId))
-
-    // eslint-disable-next-line no-console
-    console.log('[autosave-parse] parsed upload', {
-      id: uploadId,
-      maxTurn: zipIndex.maxTurn,
-      playerCount: metadata.playerCount,
-      gameMode: metadata.gameMode,
-      bbgTitle: metadata.bbgTitle,
-      bbgVersion,
-    })
+  if (!cleanup.ok) {
+    if (cleanup.status === 502) scheduleUploadCleanup(c, row.id, cleanup.recovery)
+    return c.json({ error: cleanup.error }, cleanup.status)
   }
-  catch (error) {
-    const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Parse failed'
-    console.warn('[autosave-parse] failed', { id: uploadId, key, error: message })
-    await db
-      .update(autosaveUploads)
-      .set({
-        parseStatus: 'parse_failed',
-        parseError: normalizeMetadataValue(message),
-      })
-      .where(eq(autosaveUploads.id, uploadId))
+  return c.json({ error: 'Completed upload size does not match the declared size' }, 400)
+}
+
+function scheduleUploadCleanup(c: Context<Env>, id: string, recovery?: MultipartCleanupRecovery): void {
+  c.executionCtx.waitUntil(retryAutosaveUploadCleanup(c.env, id, 3, recovery).catch(error =>
+    console.error('[autosave-upload] background cleanup retry failed', { id }, error),
+  ))
+}
+
+async function cleanupInvalidMultipartPart(
+  c: Context<Env>,
+  bucket: R2Bucket,
+  db: UploadDb,
+  row: MultipartUploadRow,
+  error: string,
+  status: 400 | 413,
+): Promise<Response> {
+  const cleanup = await cleanupAutosaveUpload(bucket, db, row)
+  if (!cleanup.ok) {
+    if (cleanup.status === 502) scheduleUploadCleanup(c, row.id, cleanup.recovery)
+    return c.json({ error: cleanup.error }, cleanup.status)
   }
-}
-
-function createR2ZipReader(bucket: R2Bucket, key: string, size: number): ZipByteReader {
-  return {
-    size,
-    async read(offset, length) {
-      if (length === 0) return new Uint8Array()
-
-      const object = await bucket.get(key, { range: { offset, length } })
-      if (!object) throw new Error('Upload object range not found')
-
-      return new Uint8Array(await object.arrayBuffer())
-    },
-  }
-}
-
-function inflateRaw(bytes: Uint8Array): Uint8Array {
-  return inflateSync(bytes)
-}
-
-function resolveBbgVersion(detected: boolean, title: string | null, parsedVersion: string | null): string | null {
-  if (parsedVersion) return parsedVersion
-  if (!detected) return null
-  if (title?.toLowerCase().includes('beta')) return betaLeaderDataVersionLabel
-  return liveLeaderDataVersionLabel
-}
-
-function getR2DirectUploadConfig(env: Env['Bindings']): R2DirectUploadConfig | null {
-  const accountId = env.R2_ACCOUNT_ID?.trim() ?? ''
-  const bucketName = env.AUTOSAVE_UPLOAD_BUCKET?.trim() ?? ''
-  const accessKeyId = env.R2_UPLOAD_ACCESS_KEY_ID?.trim() ?? ''
-  const secretAccessKey = env.R2_UPLOAD_SECRET_ACCESS_KEY?.trim() ?? ''
-  if (!accountId || !bucketName || !accessKeyId || !secretAccessKey) return null
-  return { accountId, bucketName, accessKeyId, secretAccessKey }
-}
-
-function getMissingR2DirectUploadConfigKeys(env: Env['Bindings']): string[] {
-  const entries: Array<[string, string | undefined]> = [
-    ['R2_ACCOUNT_ID', env.R2_ACCOUNT_ID],
-    ['AUTOSAVE_UPLOAD_BUCKET', env.AUTOSAVE_UPLOAD_BUCKET],
-    ['R2_UPLOAD_ACCESS_KEY_ID', env.R2_UPLOAD_ACCESS_KEY_ID],
-    ['R2_UPLOAD_SECRET_ACCESS_KEY', env.R2_UPLOAD_SECRET_ACCESS_KEY],
-  ]
-  return entries
-    .filter(([, value]) => !value?.trim())
-    .map(([key]) => key)
-}
-
-async function createR2PresignedPutUrl(config: R2DirectUploadConfig, key: string, expiresInSeconds: number): Promise<string> {
-  const host = `${config.accountId}.r2.cloudflarestorage.com`
-  const now = new Date()
-  const amzDate = formatAmzDate(now)
-  const dateStamp = amzDate.slice(0, 8)
-  const credentialScope = `${dateStamp}/auto/s3/aws4_request`
-  const signedHeaders = 'host'
-  const canonicalUri = `/${awsEncodePath(config.bucketName)}/${awsEncodePath(key)}`
-  const queryParams: [string, string][] = [
-    ['X-Amz-Algorithm', 'AWS4-HMAC-SHA256'],
-    ['X-Amz-Credential', `${config.accessKeyId}/${credentialScope}`],
-    ['X-Amz-Date', amzDate],
-    ['X-Amz-Expires', String(expiresInSeconds)],
-    ['X-Amz-SignedHeaders', signedHeaders],
-  ]
-  const canonicalQuery = buildCanonicalQueryString(queryParams)
-  const canonicalHeaders = `host:${host}\n`
-  const canonicalRequest = [
-    'PUT',
-    canonicalUri,
-    canonicalQuery,
-    canonicalHeaders,
-    signedHeaders,
-    'UNSIGNED-PAYLOAD',
-  ].join('\n')
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    credentialScope,
-    await sha256Hex(canonicalRequest),
-  ].join('\n')
-  const signingKey = await getAwsSigningKey(config.secretAccessKey, dateStamp)
-  const signature = toHex(await hmacBytes(signingKey, stringToSign))
-  const signedQuery = `${canonicalQuery}&X-Amz-Signature=${signature}`
-  return `https://${host}${canonicalUri}?${signedQuery}`
-}
-
-async function getAwsSigningKey(secretAccessKey: string, dateStamp: string): Promise<Uint8Array> {
-  const dateKey = await hmacBytes(`AWS4${secretAccessKey}`, dateStamp)
-  const regionKey = await hmacBytes(dateKey, 'auto')
-  const serviceKey = await hmacBytes(regionKey, 's3')
-  return hmacBytes(serviceKey, 'aws4_request')
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return toHex(new Uint8Array(digest))
-}
-
-async function hmacBytes(key: string | Uint8Array, value: string): Promise<Uint8Array> {
-  const keyBytes = typeof key === 'string' ? new TextEncoder().encode(key) : key
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value))
-  return new Uint8Array(signature)
-}
-
-function formatAmzDate(value: Date): string {
-  return value.toISOString().replace(/[:-]|\.\d{3}/g, '')
-}
-
-function buildCanonicalQueryString(params: [string, string][]): string {
-  return [...params]
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
-      const keyCompare = leftKey.localeCompare(rightKey)
-      return keyCompare !== 0 ? keyCompare : leftValue.localeCompare(rightValue)
-    })
-    .map(([key, value]) => `${awsEncode(key)}=${awsEncode(value)}`)
-    .join('&')
-}
-
-function awsEncodePath(value: string): string {
-  return value.split('/').map(awsEncode).join('/')
-}
-
-function awsEncode(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
-}
-
-function toHex(bytes: Uint8Array): string {
-  return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-function isAutosaveAdmin(env: Env['Bindings'], userId: string): boolean {
-  if (DEFAULT_AUTOSAVE_ADMIN_USER_IDS.has(userId)) return true
-  const configuredIds = env.AUTOSAVE_ADMIN_USER_IDS?.split(',') ?? []
-  return configuredIds.some(id => id.trim() === userId)
+  return c.json({ error }, status)
 }
 
 function buildAttachmentDisposition(fileName: string): string {
@@ -772,20 +765,54 @@ function parseContentLength(value: string | undefined): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
+function expectedMultipartPartSize(fileSizeBytes: number, partNumber: number): number | null {
+  const partCount = Math.ceil(fileSizeBytes / MULTIPART_AUTOSAVE_PART_BYTES)
+  if (partNumber < 1 || partNumber > partCount) return null
+  if (partNumber < partCount) return MULTIPART_AUTOSAVE_PART_BYTES
+  return fileSizeBytes - (partCount - 1) * MULTIPART_AUTOSAVE_PART_BYTES
+}
+
+interface CountedUploadStream {
+  stream: ReadableStream<Uint8Array>
+  bytesRead: number
+  mismatch: 'short' | 'long' | null
+}
+
+function createExactLengthUploadStream(body: ReadableStream<Uint8Array>, expectedBytes: number): CountedUploadStream {
+  const counted: CountedUploadStream = {
+    stream: null as unknown as ReadableStream<Uint8Array>,
+    bytesRead: 0,
+    mismatch: null,
+  }
+  counted.stream = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      counted.bytesRead += chunk.byteLength
+      if (counted.bytesRead > expectedBytes) {
+        counted.mismatch = 'long'
+        throw new Error(`Upload part exceeds expected size ${expectedBytes}`)
+      }
+      controller.enqueue(chunk)
+    },
+    flush() {
+      if (counted.bytesRead !== expectedBytes) {
+        counted.mismatch = counted.bytesRead > expectedBytes ? 'long' : 'short'
+        throw new Error(`Upload part size ${counted.bytesRead} does not match expected size ${expectedBytes}`)
+      }
+    },
+  }))
+  return counted
+}
+
 function parseMultipartPartNumber(value: string | undefined): number | null {
   if (!value || !/^\d+$/.test(value)) return null
   const parsed = Number.parseInt(value, 10)
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 10_000 ? parsed : null
 }
 
-function normalizeMultipartUploadId(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim()
-  return normalized.length > 0 && normalized.length <= 1024 ? normalized : null
-}
-
-function normalizeMultipartUploadedParts(value: unknown): R2UploadedPart[] | null {
+function normalizeMultipartUploadedParts(value: unknown, fileSizeBytes: number): R2UploadedPart[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 10_000) return null
+  const expectedPartCount = Math.ceil(fileSizeBytes / MULTIPART_AUTOSAVE_PART_BYTES)
+  if (value.length !== expectedPartCount) return null
 
   const seen = new Set<number>()
   const parts: R2UploadedPart[] = []
@@ -800,7 +827,9 @@ function normalizeMultipartUploadedParts(value: unknown): R2UploadedPart[] | nul
     parts.push({ partNumber, etag: etag.trim() })
   }
 
-  return parts.sort((left, right) => left.partNumber - right.partNumber)
+  const sorted = parts.sort((left, right) => left.partNumber - right.partNumber)
+  if (sorted.some((part, index) => part.partNumber !== index + 1)) return null
+  return sorted
 }
 
 function normalizeUploadSize(value: unknown): number | null {
@@ -814,17 +843,6 @@ function buildAutosaveUploadKey(now: Date, userId: string, uploadId: string, saf
     sanitizeKeySegment(userId),
     `${uploadId}-${safeFileName}`,
   ].join('/')
-}
-
-function readEncodedHeader(headers: Headers, name: string): string | null {
-  const value = headers.get(name)
-  if (!value) return null
-  try {
-    return decodeURIComponent(value)
-  }
-  catch {
-    return value
-  }
 }
 
 function isZipFileName(value: string): boolean {
@@ -857,4 +875,21 @@ function normalizeContentType(value: string | undefined): string {
 function normalizeMetadataValue(value: string | null | undefined): string | null {
   const normalized = value?.trim().replace(/[^\x20-\x7E]/g, '_').slice(0, 200) ?? ''
   return normalized.length > 0 ? normalized : null
+}
+
+function classifyAutosaveUploadInitLimitError(error: unknown): 'active' | 'count' | 'quota' | null {
+  const messages: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    messages.push(current instanceof Error ? current.message : String(current))
+    current = current instanceof Error ? current.cause : null
+  }
+  const message = messages.join(' ').toLowerCase()
+  if (message.includes('autosave_upload_count_quota_exceeded')) return 'count'
+  if (message.includes('autosave_upload_quota_exceeded')) return 'quota'
+  if (
+    message.includes('autosave_uploads_active_uploader_idx')
+    || message.includes('unique constraint failed: autosave_uploads.uploader_user_id')
+  ) return 'active'
+  return null
 }

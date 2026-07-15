@@ -4,12 +4,14 @@ import { register } from 'discord-hono'
 import * as commands from './commands/index.ts'
 import { factory } from './setup.ts'
 
-const DISCORD_APPLICATION_ID = process.env.DISCORD_APPLICATION_ID
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN
-const ALLOWED_DISCORD_GUILD_ID = process.env.ALLOWED_DISCORD_GUILD_ID
+const registration = {
+  applicationId: process.env.DISCORD_APPLICATION_ID?.trim() ?? '',
+  guildId: process.env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? '',
+}
 
-if (!DISCORD_APPLICATION_ID || !DISCORD_TOKEN) {
-  console.error('Missing DISCORD_APPLICATION_ID or DISCORD_TOKEN in environment')
+if (!/^\d{17,20}$/.test(registration.applicationId) || !/^\d{17,20}$/.test(registration.guildId) || !DISCORD_TOKEN) {
+  console.error('Registration requires a valid Discord application ID, guild ID, and DISCORD_TOKEN')
   process.exit(1)
 }
 
@@ -22,9 +24,9 @@ for (const cmd of commandsForRegistration) {
 
 await register(
   commandsForRegistration,
-  DISCORD_APPLICATION_ID,
+  registration.applicationId,
   DISCORD_TOKEN,
-  ALLOWED_DISCORD_GUILD_ID, // omit for global registration
+  registration.guildId,
 )
 
 console.log('Done!')

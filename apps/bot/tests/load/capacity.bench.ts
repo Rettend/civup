@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { Env } from '../../src/env.ts'
 import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
@@ -30,6 +31,7 @@ import { activateDraftMatch, reportMatch } from '../../src/services/match/index.
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { clearCurrentRankAssignmentsCache, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipart.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
@@ -48,6 +50,7 @@ import {
   startTestSessionDraft,
 } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 import {
@@ -438,6 +441,10 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
 
     await pruneInactiveOpenLobbies(kv, 'token')
     await pruneAbandonedMatches(db, kv)
+    await recoverStaleAutosaveUploads({
+      DB: createSqliteD1Database(sqlite),
+      AUTOSAVE_UPLOADS: {} as R2Bucket,
+    } as Env['Bindings'])
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length

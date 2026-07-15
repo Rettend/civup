@@ -8,6 +8,7 @@ import { resetUiMocks, uiMockState } from './ui-mocks'
 const onSelect = mock(() => {})
 const onResume = mock(() => {})
 const onPractice = mock(() => {})
+const onExportData = mock(() => {})
 
 const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview')
 
@@ -17,6 +18,7 @@ describe('LobbyOverviewPage UI', () => {
     onSelect.mockClear()
     onResume.mockClear()
     onPractice.mockClear()
+    onExportData.mockClear()
   })
 
   test('shows the empty overview state and return affordance', () => {
@@ -77,6 +79,42 @@ describe('LobbyOverviewPage UI', () => {
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
 
     expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
+  })
+
+  test('shows the responsive Player Data action only with an export capability handler', () => {
+    const rendered = render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'idle' }}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export player data' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
+
+    document.body.innerHTML = ''
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'loading', phase: 'matches', players: 53, ratings: 53, matches: 12, participants: 12, bans: 3 }}
+      />
+    ))
+    expect(screen.getByText('Loading matches: 12')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Export player data' }).hasAttribute('disabled')).toBe(true)
+
+    document.body.innerHTML = ''
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
+    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
+
+    document.body.innerHTML = ''
+    uiMockState.isMiniView = true
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
+    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
   })
 
   test('shows closed lobby cards under the open filter', () => {

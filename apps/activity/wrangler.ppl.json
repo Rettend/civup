@@ -1,14 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "civup-activity",
-  "account_id": "bee9950f4935b08fbc80f8e9ea881286",
+  "account_id": "70ddb8b3ce4aca3b3b639335223699f2",
   "compatibility_date": "2025-01-01",
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
   "main": "src/server/index.ts",
   "vars": {
-    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
-    "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
-    "DISCORD_CLIENT_ID": "1469447716751933533",
-    "BOT_HOST": "https://civup-bot.rettend.workers.dev"
+    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.thepeace.workers.dev",
+    "ALLOWED_DISCORD_GUILD_ID": "1234044388733095946",
+    "DISCORD_CLIENT_ID": "1484646041096552600"
   },
   "services": [
     {
@@ -18,6 +20,7 @@
   ],
   "assets": {
     "binding": "ASSETS",
+    "directory": "./dist/client",
     "not_found_handling": "single-page-application"
   },
   "observability": {

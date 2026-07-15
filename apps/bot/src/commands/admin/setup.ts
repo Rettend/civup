@@ -1,6 +1,6 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
-import { getBrowserAccessState, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
 import { createGuildRole, fetchGuildRoles } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import {
@@ -184,16 +184,4 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
       await sendTransientEphemeralResponse(c, 'Could not verify or create the Browser Access preference role. Check the bot role permissions and try again.', 'error')
     }
   })
-}
-
-function isSafeBrowserPreferenceRole(role: {
-  hoist?: boolean
-  managed?: boolean
-  mentionable?: boolean
-  permissions?: string
-}): boolean {
-  return role.managed === false
-    && role.permissions === '0'
-    && role.hoist === false
-    && role.mentionable === false
 }
