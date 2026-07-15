@@ -10,13 +10,9 @@ export interface Env {
     DISCORD_TOKEN: string
     ALLOWED_DISCORD_GUILD_ID?: string
     ACTIVITY_PUBLIC_ORIGIN?: string
-    BOT_HOST?: string
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
+    CIVUP_INTERACTION_ENDPOINT_URL?: string
     AUTOSAVE_ADMIN_USER_IDS?: string
-    AUTOSAVE_UPLOAD_BUCKET?: string
-    R2_ACCOUNT_ID?: string
-    R2_UPLOAD_ACCESS_KEY_ID?: string
-    R2_UPLOAD_SECRET_ACCESS_KEY?: string
   }
 }

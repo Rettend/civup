@@ -1,3 +1,5 @@
+import { Inflate } from 'fflate'
+
 const EOCD_SIGNATURE = 0x06054B50
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034B50
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014B50
@@ -6,6 +8,14 @@ const ZIP64_SENTINEL_32 = 0xFFFFFFFF
 const MAX_EOCD_SEARCH_BYTES = 65_535 + 22
 const ZIP_METHOD_STORE = 0
 const ZIP_METHOD_DEFLATE = 8
+
+export const MAX_AUTOSAVE_ZIP_ENTRY_COUNT = 4_096
+export const MAX_AUTOSAVE_ZIP_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024
+export const MAX_CIV6_SAVE_COMPRESSED_BYTES = 64 * 1024 * 1024
+export const MAX_CIV6_SAVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+export const DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES = 8 * 1024 * 1024
+export const MAX_ZIP_ENTRY_RANGE_CHUNK_BYTES = 8 * 1024 * 1024
+const INFLATE_PUSH_CHUNK_BYTES = 4 * 1024
 
 export interface ZipEntry {
   name: string
@@ -42,6 +52,17 @@ export interface AutosaveZipIndex {
 
 export interface AutosaveZipIndexOptions {
   includeEntries?: boolean
+}
+
+export interface ZipParseLimits {
+  maxEntries?: number
+  maxCentralDirectoryBytes?: number
+}
+
+export interface ZipEntryReadLimits {
+  maxCompressedSizeBytes?: number
+  maxUncompressedSizeBytes?: number
+  rangeChunkSizeBytes?: number
 }
 
 interface EndOfCentralDirectory {
@@ -105,7 +126,24 @@ export function readZipEntryData(bytes: Uint8Array, entry: ZipEntry, inflateRaw?
   return inflateZipEntryData(compressed, entry, inflateRaw)
 }
 
-export async function readZipEntryDataFromReader(reader: ZipByteReader, entry: ZipEntry, inflateRaw?: InflateRaw): Promise<Uint8Array> {
+export async function readZipEntryDataFromReader(
+  reader: ZipByteReader,
+  entry: ZipEntry,
+  limits: ZipEntryReadLimits = {},
+): Promise<Uint8Array> {
+  const maxCompressedSizeBytes = limits.maxCompressedSizeBytes ?? MAX_CIV6_SAVE_COMPRESSED_BYTES
+  const maxUncompressedSizeBytes = limits.maxUncompressedSizeBytes ?? MAX_CIV6_SAVE_UNCOMPRESSED_BYTES
+  const rangeChunkSizeBytes = limits.rangeChunkSizeBytes ?? DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES
+  validateByteLimit(maxCompressedSizeBytes, 'compressed zip entry limit')
+  validateByteLimit(maxUncompressedSizeBytes, 'uncompressed zip entry limit')
+  validateRangeChunkSize(rangeChunkSizeBytes)
+  if (entry.compressedSize > maxCompressedSizeBytes) {
+    throw new Error(`Zip entry compressed size exceeds ${maxCompressedSizeBytes} bytes`)
+  }
+  if (entry.uncompressedSize > maxUncompressedSizeBytes) {
+    throw new Error(`Zip entry uncompressed size exceeds ${maxUncompressedSizeBytes} bytes`)
+  }
+
   const localHeader = await readZipRange(reader, entry.localHeaderOffset, 30, 'local file header')
   if (readUint32(localHeader, 0) !== LOCAL_FILE_HEADER_SIGNATURE) {
     throw new Error(`Invalid local file header signature at offset ${entry.localHeaderOffset}`)
@@ -114,9 +152,16 @@ export async function readZipEntryDataFromReader(reader: ZipByteReader, entry: Z
   const fileNameLength = readUint16(localHeader, 26)
   const extraLength = readUint16(localHeader, 28)
   const dataOffset = entry.localHeaderOffset + 30 + fileNameLength + extraLength
-  const compressed = await readZipRange(reader, dataOffset, entry.compressedSize, 'zip entry data')
 
-  return inflateZipEntryData(compressed, entry, inflateRaw)
+  if (entry.compressionMethod === ZIP_METHOD_STORE) {
+    if (entry.compressedSize !== entry.uncompressedSize) throw new Error('Stored zip entry size does not match its declaration')
+    return readStoredZipEntryFromReader(reader, dataOffset, entry.uncompressedSize, rangeChunkSizeBytes)
+  }
+  if (entry.compressionMethod !== ZIP_METHOD_DEFLATE) {
+    throw new Error(`Unsupported zip compression method ${entry.compressionMethod}`)
+  }
+
+  return inflateZipEntryFromReader(reader, dataOffset, entry, rangeChunkSizeBytes)
 }
 
 function inflateZipEntryData(compressed: Uint8Array, entry: ZipEntry, inflateRaw?: InflateRaw): Uint8Array {
@@ -129,16 +174,91 @@ function inflateZipEntryData(compressed: Uint8Array, entry: ZipEntry, inflateRaw
   throw new Error(`Unsupported zip compression method ${entry.compressionMethod}`)
 }
 
-export function parseZipEntries(bytes: Uint8Array): ZipEntry[] {
+export function parseZipEntries(bytes: Uint8Array, limits: ZipParseLimits = {}): ZipEntry[] {
   const eocd = findEndOfCentralDirectory(bytes)
+  validateCentralDirectoryLimits(eocd, limits)
   const centralDirectory = bytes.subarray(eocd.centralDirectoryOffset, eocd.centralDirectoryOffset + eocd.centralDirectorySize)
   return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
 }
 
-export async function parseZipEntriesFromReader(reader: ZipByteReader): Promise<ZipEntry[]> {
+export async function parseZipEntriesFromReader(reader: ZipByteReader, limits: ZipParseLimits = {}): Promise<ZipEntry[]> {
   const eocd = await findEndOfCentralDirectoryFromReader(reader)
+  validateCentralDirectoryLimits(eocd, limits)
   const centralDirectory = await readZipRange(reader, eocd.centralDirectoryOffset, eocd.centralDirectorySize, 'central directory')
   return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
+}
+
+async function readStoredZipEntryFromReader(
+  reader: ZipByteReader,
+  dataOffset: number,
+  size: number,
+  rangeChunkSizeBytes: number,
+): Promise<Uint8Array> {
+  const output = new Uint8Array(size)
+  let offset = 0
+  while (offset < size) {
+    const length = Math.min(rangeChunkSizeBytes, size - offset)
+    output.set(await readZipRange(reader, dataOffset + offset, length, 'zip entry data'), offset)
+    offset += length
+  }
+  return output
+}
+
+async function inflateZipEntryFromReader(
+  reader: ZipByteReader,
+  dataOffset: number,
+  entry: ZipEntry,
+  rangeChunkSizeBytes: number,
+): Promise<Uint8Array> {
+  const output = new Uint8Array(entry.uncompressedSize)
+  let outputOffset = 0
+  const inflate = new Inflate((chunk) => {
+    if (outputOffset + chunk.length > entry.uncompressedSize) {
+      throw new Error('Inflated zip entry exceeds its declared uncompressed size')
+    }
+    output.set(chunk, outputOffset)
+    outputOffset += chunk.length
+  })
+
+  let compressedOffset = 0
+  while (compressedOffset < entry.compressedSize) {
+    const rangeLength = Math.min(rangeChunkSizeBytes, entry.compressedSize - compressedOffset)
+    const range = await readZipRange(reader, dataOffset + compressedOffset, rangeLength, 'zip entry data')
+    let rangeOffset = 0
+    while (rangeOffset < range.length) {
+      const pushLength = Math.min(INFLATE_PUSH_CHUNK_BYTES, range.length - rangeOffset)
+      rangeOffset += pushLength
+      const final = compressedOffset + rangeOffset === entry.compressedSize
+      inflate.push(range.subarray(rangeOffset - pushLength, rangeOffset), final)
+    }
+    compressedOffset += rangeLength
+  }
+  if (entry.compressedSize === 0) inflate.push(new Uint8Array(), true)
+  if (outputOffset !== entry.uncompressedSize) {
+    throw new Error(`Inflated zip entry size ${outputOffset} does not match declared size ${entry.uncompressedSize}`)
+  }
+  return output
+}
+
+function validateCentralDirectoryLimits(eocd: EndOfCentralDirectory, limits: ZipParseLimits): void {
+  const maxEntries = limits.maxEntries ?? MAX_AUTOSAVE_ZIP_ENTRY_COUNT
+  const maxCentralDirectoryBytes = limits.maxCentralDirectoryBytes ?? MAX_AUTOSAVE_ZIP_CENTRAL_DIRECTORY_BYTES
+  validateByteLimit(maxEntries, 'zip entry count limit')
+  validateByteLimit(maxCentralDirectoryBytes, 'zip central directory limit')
+  if (eocd.totalEntries > maxEntries) throw new Error(`Zip contains more than ${maxEntries} entries`)
+  if (eocd.centralDirectorySize > maxCentralDirectoryBytes) {
+    throw new Error(`Zip central directory exceeds ${maxCentralDirectoryBytes} bytes`)
+  }
+}
+
+function validateByteLimit(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Invalid ${label} ${value}`)
+}
+
+function validateRangeChunkSize(value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_ZIP_ENTRY_RANGE_CHUNK_BYTES) {
+    throw new Error(`Zip entry range chunk size must be between 1 and ${MAX_ZIP_ENTRY_RANGE_CHUNK_BYTES} bytes`)
+  }
 }
 
 function parseZipEntriesFromCentralDirectory(bytes: Uint8Array, eocd: EndOfCentralDirectory): ZipEntry[] {

@@ -6,7 +6,7 @@ import { relayDevLog } from './lib/dev-log'
 
 export type Auth = CommandResponse<'authenticate'>
 
-const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID as string
+const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID
 const AUTH_TOKEN_CACHE_KEY = 'civup.discord.access-token'
 const TOKEN_EXPIRY_SAFETY_MS = 30_000
 const FALLBACK_TOKEN_LIFETIME_MS = 5 * 60 * 1000
@@ -175,9 +175,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       prompt: 'none',
       scope: [
         'identify',
-        'guilds',
         'guilds.members.read',
-        'rpc.voice.read',
       ],
     })
     code = response.code

@@ -208,7 +208,6 @@ function createEnv(): ActivityEnv {
     CIVUP_SECRET: 'browser-auth-secret',
     DISCORD_CLIENT_ID: '222222222222222222',
     DISCORD_CLIENT_SECRET: 'client-secret',
-    BOT_HOST: 'https://bot.example.com',
   }
 }
 

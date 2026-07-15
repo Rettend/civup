@@ -8,6 +8,10 @@ const nativeFetch = globalThis.fetch
 const NativeHeaders = globalThis.Headers
 const NativeRequest = globalThis.Request
 const NativeResponse = globalThis.Response
+const NativeBlob = globalThis.Blob
+const NativeReadableStream = globalThis.ReadableStream
+const NativeTransformStream = globalThis.TransformStream
+const NativeWritableStream = globalThis.WritableStream
 
 const solidTransformPlugin = solid()
 const solidTransform = (
@@ -46,6 +50,10 @@ Object.assign(globalThis, {
   Headers: NativeHeaders,
   Request: NativeRequest,
   Response: NativeResponse,
+  Blob: NativeBlob,
+  ReadableStream: NativeReadableStream,
+  TransformStream: NativeTransformStream,
+  WritableStream: NativeWritableStream,
 })
 
 if (!('__ASSET_REVISION_MAP__' in globalThis)) {

@@ -41,7 +41,6 @@ interface SessionDOEnv extends DraftRuntimeEnv {
   KV?: KVNamespace
   Activity?: DurableObjectNamespace
   DISCORD_TOKEN?: string
-  BOT_HOST?: string
   CIVUP_SECRET?: string
   ALLOWED_DISCORD_GUILD_ID?: string
 }
