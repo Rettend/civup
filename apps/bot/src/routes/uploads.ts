@@ -4,6 +4,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { autosaveUploads, createDb } from '@civup/db'
 import { desc, eq, sql } from 'drizzle-orm'
+<<<<<<< New base: chore: cleanup and simplify setup
 import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 import { parseAndStoreAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import {
@@ -991,6 +992,12 @@ import { autosaveUploads, createDb } from '@civup/db'
 import { desc, eq, sql } from 'drizzle-orm'
 import { requireAuthenticatedActivity } from './auth.ts'
 import { isActivityDataAdmin } from '../services/activity/data-admin.ts'
+||||||| Common ancestor
+import { requireAuthenticatedActivity } from './auth.ts'
+import { isActivityDataAdmin } from '../services/activity/data-admin.ts'
+=======
+import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
+>>>>>>> Current commit: fix: refresh ranked role colors
 import { parseAndStoreAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import {
   claimMultipartOperation,
@@ -1064,7 +1071,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.get('/api/uploads/autosaves', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
 
     const uploads: AutosaveUploadCatalogRow[] = await createDb(c.env.DB)
       .select({
@@ -1107,7 +1114,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.get('/api/uploads/autosaves/:id/download', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
 
     const bucket = c.env.AUTOSAVE_UPLOADS
     if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
@@ -1369,7 +1376,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
       .limit(1)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
-    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
+    if (row.uploaderUserId !== auth.identity.userId && !hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     if (row.status !== 'pending_upload') return c.json({ error: 'Upload is not accepting parts' }, 409)
@@ -1449,7 +1456,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     let row = await getMultipartUploadRow(db, id)
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
-    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
+    if (row.uploaderUserId !== auth.identity.userId && !hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
 
@@ -1543,7 +1550,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     let row = await getMultipartUploadRow(db, id)
 
     if (!row) return c.json({ ok: true })
-    if (row.uploaderUserId !== auth.identity.userId && !isActivityDataAdmin(c.env, auth.identity.userId)) {
+    if (row.uploaderUserId !== auth.identity.userId && !hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     if (row.status === 'uploaded') return c.json({ ok: true, completed: true })
@@ -1595,7 +1602,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.post('/api/uploads/autosaves/:id/reparse', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
     if (!c.env.AUTOSAVE_UPLOADS) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)
 
     const id = c.req.param('id')
@@ -1620,7 +1627,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
   app.delete('/api/uploads/autosaves/:id', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
 
     const bucket = c.env.AUTOSAVE_UPLOADS
     if (!bucket) return c.json({ error: UPLOADS_NOT_CONFIGURED_ERROR }, 503)

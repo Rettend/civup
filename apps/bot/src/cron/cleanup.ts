@@ -2,7 +2,14 @@ import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
+<<<<<<< New base: chore: cleanup and simplify setup
 import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
+||||||| Common ancestor
+import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
+=======
+import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
+import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
+>>>>>>> Current commit: fix: refresh ranked role colors
 import { factory } from '../setup.ts'
 <<<<<<< New base: fix: mod resolve
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
@@ -84,8 +91,60 @@ export const cron_ranked_roles = factory.cron(
   async (c) => {
     const action = new Date(c.interaction.scheduledTime).getUTCHours() === 0 ? 'sync' : 'apply-pending'
     try {
+<<<<<<< New base: chore: cleanup and simplify setup
       const result = await requestRankedRoleMaintenance(c.env.MaintenanceDO, action)
       if (action === 'sync' && result.guilds > 0) {
+||||||| Common ancestor
+      const guildIds = await listRankedRoleConfigGuildIds(kv)
+      let syncedGuilds = 0
+      for (const guildId of guildIds) {
+        const result = await syncRankedRoles({
+          db,
+          kv,
+          guildId,
+          token: c.env.DISCORD_TOKEN,
+          applyDiscord: true,
+          advanceDemotionWindow: true,
+          maxDiscordRoleSyncPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,
+        })
+        if (result.pendingDiscordChanges === 0 && await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
+        syncedGuilds += 1
+      }
+
+      if (syncedGuilds > 0) {
+=======
+      const guildIds = await listRankedRoleConfigGuildIds(kv)
+      let syncedGuilds = 0
+      for (const guildId of guildIds) {
+        try {
+          const refresh = await refreshRankedRoleDisplayMetadata(kv, guildId, c.env.DISCORD_TOKEN)
+          if (refresh.refreshed) {
+            // eslint-disable-next-line no-console
+            console.log(`[cron] Refreshed ranked role display metadata for guild ${guildId}${refresh.updated ? '' : ' (unchanged)'}`)
+          }
+          if (refresh.missingRoleIds.length > 0) {
+            console.error(`[cron] Ranked role display refresh could not find ${refresh.missingRoleIds.length} configured role(s) in guild ${guildId}`)
+          }
+        }
+        catch (error) {
+          console.error(`[cron] Failed to refresh ranked role display metadata for guild ${guildId}:`, error)
+        }
+
+        const result = await syncRankedRoles({
+          db,
+          kv,
+          guildId,
+          token: c.env.DISCORD_TOKEN,
+          applyDiscord: true,
+          advanceDemotionWindow: true,
+          maxDiscordRoleSyncPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,
+        })
+        if (result.pendingDiscordChanges === 0 && await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
+        syncedGuilds += 1
+      }
+
+      if (syncedGuilds > 0) {
+>>>>>>> Current commit: fix: refresh ranked role colors
         // eslint-disable-next-line no-console
         console.log(`[cron] Synced ranked roles for ${result.guilds} guild(s); qualified ${result.qualifiedPlayers}, attempted ${result.attemptedDiscordChanges}, applied ${result.appliedDiscordChanges}, pending ${result.pendingDiscordChanges}; ${result.elapsedMs}ms`)
       }

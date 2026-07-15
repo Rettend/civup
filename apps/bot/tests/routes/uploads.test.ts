@@ -1027,7 +1027,12 @@ function createDeferred(): Deferred {
 =======
 import type { Env } from '../../src/env.ts'
 import { MAX_CIV6_SAVE_UNCOMPRESSED_BYTES } from '@civup/civ6-save-metadata'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import {
+  CIVUP_ACTIVITY_GUILD_ID_HEADER,
+  CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
+  CIVUP_ACTIVITY_USER_ID_HEADER,
+  CIVUP_INTERNAL_SECRET_HEADER,
+} from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { registerUploadRoutes } from '../../src/routes/uploads.ts'
@@ -1037,6 +1042,7 @@ import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const SECRET = 'upload-test-secret'
+const GUILD_ID = '1234044388733095946'
 const MIB = 1024 * 1024
 const PART_SIZE = 80 * MIB
 const openDatabases: Array<Awaited<ReturnType<typeof createTestDatabase>>['sqlite']> = []
@@ -1125,7 +1131,8 @@ describe('autosave upload routes', () => {
     })
 
     const deleted = await harness.request('/api/uploads/autosaves/stored-0', { method: 'DELETE' }, {
-      userId: '361534796830081024',
+      userId: 'catalog-admin',
+      permissions: '8',
     })
     expect(deleted.status).toBe(200)
     expect((await initializeResponse(harness, 1, 'after-delete.zip')).status).toBe(200)
@@ -1645,7 +1652,8 @@ describe('autosave upload routes', () => {
     const { id } = await initialize(harness, 1, 'active-delete.zip')
 
     const response = await harness.request(`/api/uploads/autosaves/${id}`, { method: 'DELETE' }, {
-      userId: '361534796830081024',
+      userId: 'catalog-admin',
+      permissions: '8',
     })
     expect(response.status).toBe(409)
     expect(harness.row(id)).toMatchObject({ status: 'pending_upload', multipart_upload_id: 'r2-upload-1' })
@@ -1655,7 +1663,7 @@ describe('autosave upload routes', () => {
 })
 
 interface Harness {
-  request: (path: string, init: RequestInit, options?: { userId?: string, authenticated?: boolean }) => Promise<Response>
+  request: (path: string, init: RequestInit, options?: { userId?: string, permissions?: string, authenticated?: boolean }) => Promise<Response>
   row: (id: string) => Record<string, unknown> | null
   onlyRow: () => Record<string, unknown> | null
   rowCount: () => number
@@ -1705,6 +1713,7 @@ async function createHarness(
     DISCORD_PUBLIC_KEY: 'a'.repeat(64),
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: SECRET,
+    ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
   }
   return {
     request(path, init, requestOptions = {}) {
@@ -1713,6 +1722,8 @@ async function createHarness(
       if (requestOptions.authenticated !== false) {
         headers.set(CIVUP_INTERNAL_SECRET_HEADER, SECRET)
         headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, requestOptions.userId ?? 'owner-user')
+        headers.set(CIVUP_ACTIVITY_GUILD_ID_HEADER, GUILD_ID)
+        headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, requestOptions.permissions ?? '0')
       }
       return app.fetch(new Request(`https://bot.test${path}`, { ...init, headers }), env, {
         waitUntil(task) { backgroundTasks.push(task) },

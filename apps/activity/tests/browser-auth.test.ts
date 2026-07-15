@@ -250,7 +250,7 @@ describe('browser Discord OAuth', () => {
     const authorization = new URL(first.headers.get('Location')!)
     expect(authorization.origin).toBe('https://discord.com')
     expect(authorization.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/api/auth/discord/callback`)
-    expect(authorization.searchParams.get('scope')).toBe('identify guilds.members.read')
+    expect(authorization.searchParams.get('scope')).toBe('identify guilds guilds.members.read')
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authorization.searchParams.get('code_challenge')).toMatch(/^[\w-]{43}$/)
     expect(authorization.searchParams.get('state')).not.toBe(new URL(second.headers.get('Location')!).searchParams.get('state'))
@@ -307,6 +307,9 @@ describe('browser Discord OAuth', () => {
       if (request.url.endsWith('/oauth2/token')) {
         return Response.json({ access_token: 'provider-secret', expires_in: 3600 })
       }
+      if (request.url.includes('/users/@me/guilds?')) {
+        return Response.json([{ id: GUILD_ID, permissions: '32' }])
+      }
       return Response.json({
         nick: 'PPL Player',
         avatar: 'guild-avatar',
@@ -328,11 +331,14 @@ describe('browser Discord OAuth', () => {
       sub: '111111111111111111',
       name: 'PPL Player',
       avatarUrl: `https://cdn.discordapp.com/guilds/${GUILD_ID}/users/111111111111111111/avatars/guild-avatar.png?size=128`,
+      guildId: GUILD_ID,
+      guildPermissions: '32',
     }))
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain('code_verifier=')
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(`${ORIGIN}/api/auth/discord/callback`)}`)
     expect(requests[1]!.url).toContain(`/users/@me/guilds/${GUILD_ID}/member`)
+    expect(requests[2]!.url).toContain('/users/@me/guilds?limit=200')
   })
 
   test('guild rejection and callback errors render a terminal no-store retry page without redirecting', async () => {
@@ -411,6 +417,7 @@ describe('browser Discord OAuth', () => {
       const request = new Request(input, init)
       requests.push(request)
       if (request.url.endsWith('/oauth2/token')) return Response.json({ access_token: 'embedded-provider-token', expires_in: 3600 })
+      if (request.url.includes('/users/@me/guilds?')) return Response.json([{ id: GUILD_ID, permissions: '8' }])
       return Response.json({ user: { id: '111111111111111111', username: 'Player', avatar: null } })
     }) as typeof fetch
 
@@ -422,7 +429,7 @@ describe('browser Discord OAuth', () => {
     expect(response.status).toBe(200)
     const payload = await response.json<any>()
     expect(payload.access_token).toBe('embedded-provider-token')
-    expect(payload.activity_session_token).toStartWith('session.v1.')
+    expect(payload.activity_session_token).toStartWith('session.v2.')
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(ORIGIN)}`)
     expect(tokenBody).not.toContain('code_verifier')

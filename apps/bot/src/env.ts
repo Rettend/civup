@@ -33,6 +33,7 @@ export interface Env {
 ||||||| Common ancestor
 =======
     CIVUP_INTERACTION_ENDPOINT_URL?: string
+<<<<<<< New base: chore: cleanup and simplify setup
 >>>>>>> Current commit: chore: cleanup and simplify setup
     AUTOSAVE_ADMIN_USER_IDS?: string
 <<<<<<< New base: fix: mod resolve
@@ -52,5 +53,9 @@ export interface Env {
     R2_UPLOAD_SECRET_ACCESS_KEY?: string
 =======
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+    AUTOSAVE_ADMIN_USER_IDS?: string
+=======
+>>>>>>> Current commit: fix: refresh ranked role colors
   }
 }

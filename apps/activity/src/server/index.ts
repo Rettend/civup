@@ -40,12 +40,18 @@ interface ActivityProxySession {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+<<<<<<< New base: chore: cleanup and simplify setup
 <<<<<<< New base: feat: save file analyzer
   guildId: string | null
   guildPermissions: string | null
   source: 'header' | 'query' | 'cookie' | 'download-ticket'
 ||||||| Common ancestor
 =======
+||||||| Common ancestor
+=======
+  guildId: string | null
+  guildPermissions: string | null
+>>>>>>> Current commit: fix: refresh ranked role colors
   source: 'header' | 'query' | 'cookie'
 >>>>>>> Current commit: feat: external browser draft WIP
 }
@@ -583,6 +589,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       userId: identity.userId,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
+<<<<<<< New base: chore: cleanup and simplify setup
       guildId: identity.guildId,
       guildPermissions: identity.guildPermissions,
 ||||||| Common ancestor
@@ -594,6 +601,11 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+=======
+      guildId: identity.guildId,
+      guildPermissions: identity.guildPermissions,
+>>>>>>> Current commit: fix: refresh ranked role colors
     })
 
     const response = json({
@@ -630,12 +642,18 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     userId: session.sub,
     displayName: session.name || null,
     avatarUrl: session.avatarUrl,
+<<<<<<< New base: chore: cleanup and simplify setup
 <<<<<<< New base: feat: save file analyzer
     guildId: session.guildId,
     guildPermissions: session.guildPermissions,
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
 ||||||| Common ancestor
 =======
+||||||| Common ancestor
+=======
+    guildId: session.guildId,
+    guildPermissions: session.guildPermissions,
+>>>>>>> Current commit: fix: refresh ranked role colors
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
 >>>>>>> Current commit: feat: external browser draft WIP
   }

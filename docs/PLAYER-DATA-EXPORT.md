@@ -1,8 +1,8 @@
 # Player data export
 
-Activity data admins can export player and match history from **Player Data** at the bottom of the full lobby overview. The action is hidden in the mini view and from users without the server-provided capability. **Saved Games** uses the same capability check and remains available only in the embedded Discord Activity.
+Server administrators can export player and match history from **Player Data** at the bottom of the full lobby overview. The action is hidden in the mini view and from users without the server-provided capability. **Saved Games** uses the same capability check and remains available only in the embedded Discord Activity.
 
-The data-admin allowlist consists of the built-in PPL administrator plus comma-separated IDs in the existing `AUTOSAVE_ADMIN_USER_IDS` bot variable. The bot exposes authenticated capabilities at `GET /api/activity/admin/capabilities`; every export-feed request separately requires an authenticated allowlisted user.
+The Activity requests the Discord `guilds` OAuth scope at sign-in and stores the configured guild's permission bitset in its signed session. Permissions are refreshed when the eight-hour Activity session is issued. The bot exposes authenticated capabilities at `GET /api/activity/admin/capabilities`; every export-feed request separately requires Administrator or Manage Server permission for `ALLOWED_DISCORD_GUILD_ID`.
 
 `GET /api/activity/admin/player-data-export` returns a creation-time-cutoff keyset feed in server-enforced pages of 50 parents. It emits players and their ratings first, followed by matches with participants and bans. Mutable rows can change while the multi-request export runs, so this is a best-effort consistent export rather than a transactional snapshot. SQLite extracts legacy bans for only the current page; draft JSON is never returned to or parsed by the Worker. The feed does not use offsets or full-table counts.
 
