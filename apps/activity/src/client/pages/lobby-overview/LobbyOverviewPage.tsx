@@ -1,4 +1,5 @@
 import type { ActivityTargetOption } from '~/client/stores'
+import type { PlayerDataExportState } from '~/client/lib/player-data-export'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { isMiniView, isMobileLayout } from '~/client/stores'
@@ -15,6 +16,8 @@ export interface LobbyOverviewPageProps {
   onUpload?: () => void
   onFolderUpload?: () => void
   onCatalog?: () => void
+  onExportData?: () => void
+  playerDataExportState?: PlayerDataExportState
 }
 
 export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
@@ -37,11 +40,11 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
               <span class="i-ph-arrow-right-bold text-base" />
             </button>
           </Show>
-          <div class="mx-auto px-4 py-4 pb-24 w-full max-w-[1600px] sm:px-6">
+          <div class="mx-auto px-4 py-4 pb-44 w-full max-w-[1600px] sm:px-6 sm:pb-32">
             <TargetPickerPanel {...props} />
           </div>
-          <Show when={props.onPractice || props.onCatalog}>
-            <div class="flex gap-3 bottom-6 left-1/2 absolute z-20 -translate-x-1/2">
+          <Show when={props.onPractice || props.onCatalog || props.onExportData}>
+            <div class="px-4 flex flex-wrap justify-center gap-3 bottom-4 left-0 right-0 absolute z-20" data-overview-actions>
               <Show when={props.onCatalog}>
                 <button
                   type="button"
@@ -62,12 +65,52 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
                   Practice
                 </button>
               </Show>
+              <Show when={props.onExportData}>
+                <button
+                  type="button"
+                  class="text-sm text-emerald-200 font-bold px-4 py-2 border border-emerald-400/35 rounded-full bg-emerald-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(52,211,153,0.16)] transition items-center hover:text-emerald-100 hover:border-emerald-400/60 hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-70"
+                  disabled={props.playerDataExportState?.status === 'loading'}
+                  aria-label="Export player data"
+                  onClick={() => props.onExportData?.()}
+                >
+                  <span class={props.playerDataExportState?.status === 'loading' ? 'i-ph-spinner-gap-bold text-lg animate-spin' : 'i-ph-file-xls-bold text-lg'} />
+                  Player Data
+                </button>
+              </Show>
+              <PlayerDataExportStatus state={props.playerDataExportState} />
             </div>
           </Show>
         </main>
       )}
     >
       <TargetPickerPanel {...props} mini />
+    </Show>
+  )
+}
+
+function PlayerDataExportStatus(props: { state?: PlayerDataExportState }) {
+  const message = () => {
+    const state = props.state
+    if (!state || state.status === 'idle' || state.status === 'ready') return null
+    if (state.status === 'error') return state.message
+    if (state.phase === 'players') return `Loading players: ${state.players.toLocaleString()}`
+    if (state.phase === 'matches') return `Loading matches: ${state.matches.toLocaleString()}`
+    return `Building workbook from ${state.players.toLocaleString()} players and ${state.matches.toLocaleString()} matches...`
+  }
+
+  return (
+    <Show when={props.state?.status === 'ready' || message()}>
+      <div class="text-xs text-fg-muted basis-full text-center break-words" role="status">
+        <Show when={props.state?.status === 'ready'} fallback={message()}>
+          <a
+            class="text-emerald-200 font-semibold underline underline-offset-2 hover:text-emerald-100"
+            href={props.state?.status === 'ready' ? props.state.url : undefined}
+            download={props.state?.status === 'ready' ? props.state.filename : undefined}
+          >
+            Download {props.state?.status === 'ready' ? props.state.filename : 'export'} again
+          </a>
+        </Show>
+      </div>
     </Show>
   )
 }

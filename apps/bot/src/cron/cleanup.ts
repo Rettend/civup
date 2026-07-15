@@ -5,6 +5,8 @@ import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { factory } from '../setup.ts'
+import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
+import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
 
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
 const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
@@ -14,6 +16,18 @@ export const cron_cleanup = factory.cron(
   async (c) => {
     const kv = getKvStore(c.env)
     const db = createDb(c.env.DB)
+
+    try {
+      const uploadRecovery = await recoverStaleAutosaveUploads(c.env)
+      await parseRecoveredAutosaveUploadMetadata(c.env, uploadRecovery.completed)
+      if (uploadRecovery.cleaned > 0 || uploadRecovery.completed.length > 0 || uploadRecovery.pending > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[cron] Recovered ${uploadRecovery.cleaned} abandoned upload(s), completed ${uploadRecovery.completed.length}, pending ${uploadRecovery.pending}`)
+      }
+    }
+    catch (error) {
+      console.error('[cron] Failed to recover saved-game uploads:', error)
+    }
 
     const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN, { db, sessionNamespace: c.env.SessionDO })
     const prunedMatches = await pruneAbandonedMatches(db, kv, { sessionNamespace: c.env.SessionDO })

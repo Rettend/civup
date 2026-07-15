@@ -17,10 +17,8 @@
   "vars": {
     "ACTIVITY_PUBLIC_ORIGIN": "https://activity-1.example.invalid",
     "ALLOWED_DISCORD_GUILD_ID": "9222089226492061636",
-    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
-    "ENABLE_DEBUG_LOBBY_FILL": "1",
-    "R2_ACCOUNT_ID": "44ca252afa99dc6d23fe013ebffefdee",
-    "AUTOSAVE_UPLOAD_BUCKET": "civup-autosave-uploads"
+    "DISCORD_APPLICATION_ID": "9606055819354065576",
+    "DISCORD_PUBLIC_KEY": "REPLACE_WITH_64_CHARACTER_DISCORD_PUBLIC_KEY"
   },
 
   "durable_objects": {
@@ -66,8 +64,7 @@
   "r2_buckets": [
     {
       "binding": "AUTOSAVE_UPLOADS",
-      "bucket_name": "civup-autosave-uploads",
-      "remote": true
+      "bucket_name": "civup-autosave-uploads"
     }
   ],
 

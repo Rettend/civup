@@ -20,6 +20,8 @@ export default function LobbyOverviewRoute() {
         onUpload={activity.openAutosaveUpload}
         onFolderUpload={activity.openAutosaveFolderUpload}
         onCatalog={activity.canViewAutosaveCatalog() ? activity.openAutosaveCatalog : undefined}
+        onExportData={activity.canExportPlayerData() ? activity.exportPlayerData : undefined}
+        playerDataExportState={activity.playerDataExportState()}
       />
     )
   }

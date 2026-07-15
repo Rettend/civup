@@ -7,8 +7,7 @@
   "vars": {
     "ACTIVITY_PUBLIC_ORIGIN": "https://activity-1.example.invalid",
     "ALLOWED_DISCORD_GUILD_ID": "9222089226492061636",
-    "DISCORD_CLIENT_ID": "9606055819354065576",
-    "BOT_HOST": "https://civup-bot.rettend.workers.dev"
+    "DISCORD_CLIENT_ID": "9606055819354065576"
   },
   "services": [
     {
@@ -18,6 +17,7 @@
   ],
   "assets": {
     "binding": "ASSETS",
+    "directory": "./dist/client",
     "not_found_handling": "single-page-application"
   },
   "observability": {

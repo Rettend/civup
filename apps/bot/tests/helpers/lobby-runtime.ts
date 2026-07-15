@@ -391,7 +391,6 @@ async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabas
     DB: d1,
     KV: kv,
     DISCORD_TOKEN: 'token',
-    BOT_HOST: 'https://bot.test',
     CIVUP_SECRET: 'secret',
   })
 
