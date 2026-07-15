@@ -379,6 +379,28 @@ export async function createGuildRole(
   return response.json<DiscordGuildRoleResponse>()
 }
 
+export async function updateGuildRole(
+  token: string,
+  guildId: string,
+  roleId: string,
+  payload: DiscordGuildRolePayload,
+): Promise<DiscordGuildRoleResponse> {
+  const response = await requestDiscord(
+    'update guild role',
+    `https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+  )
+
+  return response.json<DiscordGuildRoleResponse>()
+}
+
 export async function fetchGuildRoles(
   token: string,
   guildId: string,

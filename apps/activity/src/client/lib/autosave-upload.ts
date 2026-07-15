@@ -106,7 +106,7 @@ function delay(ms: number): Promise<void> {
 
 export function getAutosaveUploadErrorMessage(status: number, serverMessage: string | undefined): string {
   if (status === 400) return serverMessage?.trim() || 'That saved game zip could not be uploaded.'
-  if (status === 401 || status === 403) return 'Please reopen CivUp in Discord and try again.'
+  if (status === 401 || status === 403) return 'Please reopen the Activity in Discord and try again.'
   if (status === 413) return serverMessage?.trim() || 'That saved game zip is too large.'
   if (status === 503) return serverMessage?.trim() || 'Saved game uploads are not configured'
   if (status === 404) return 'Saved game uploads are not available right now. Please try again later.'

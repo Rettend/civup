@@ -204,7 +204,7 @@ export const command_match = factory.command<MatchVar>(
             const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
             if (!launch.ok) return privateLaunchError(c, launch.error)
             const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
-            if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match to a CivUp session. Please try its current Join button.')
+            if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match session. Please try its current Join button.')
             return respondWithPreferredLaunch(c, {
               destination: { kind: 'session', sessionId },
               activityChannelId: interactionChannelId,

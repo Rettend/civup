@@ -21,14 +21,14 @@ describe('browser cookie proxy', () => {
       ASSETS: {
         async fetch(request: Request) {
           assetRequests.push(request)
-          return new Response('<!doctype html><title>CivUp</title>', { headers: { 'Content-Type': 'text/html' } })
+          return new Response('<!doctype html><title>Draft</title>', { headers: { 'Content-Type': 'text/html' } })
         },
       } as unknown as Fetcher,
     }
     const response = await activityWorker.fetch(new Request(`${ORIGIN}/web/session/stable-session`), env)
 
     expect(response.status).toBe(200)
-    expect(await response.text()).toContain('<title>CivUp</title>')
+    expect(await response.text()).toContain('<title>Draft</title>')
     expect(new URL(assetRequests[0]!.url).pathname).toBe('/')
   })
 

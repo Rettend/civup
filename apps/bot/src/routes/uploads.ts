@@ -25,10 +25,13 @@ import {
   MAX_AUTOSAVE_OBJECTS_PER_USER,
   MAX_AUTOSAVE_STORAGE_BYTES_PER_USER,
   MAX_AUTOSAVE_UPLOAD_BYTES,
+  MAX_PLAYER_DATA_EXPORT_BYTES,
   MULTIPART_AUTOSAVE_PART_BYTES,
 } from '../services/uploads/policy.ts'
 
 const UPLOADS_NOT_CONFIGURED_ERROR = 'Saved game uploads are not configured'
+const EXPORTS_NOT_CONFIGURED_ERROR = 'Data exports are not configured'
+const PLAYER_DATA_EXPORT_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 interface AutosaveUploadCatalogRow {
   id: string
@@ -73,6 +76,69 @@ interface AutosaveUploadCompletePayload {
 }
 
 export function registerUploadRoutes(app: Hono<Env>) {
+  app.post('/api/uploads/player-data-export', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
+
+    const bucket = c.env.AUTOSAVE_UPLOADS
+    if (!bucket) return c.json({ error: EXPORTS_NOT_CONFIGURED_ERROR }, 503)
+    if (c.req.header('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !== PLAYER_DATA_EXPORT_CONTENT_TYPE) {
+      return c.json({ error: 'Expected an XLSX workbook' }, 415)
+    }
+
+    const contentLength = parseContentLength(c.req.header('content-length'))
+    if (contentLength != null && contentLength > MAX_PLAYER_DATA_EXPORT_BYTES) {
+      return c.json({ error: 'Export workbook is too large' }, 413)
+    }
+    const body = c.req.raw.body
+    if (!body) return c.json({ error: 'Export workbook is empty' }, 400)
+
+    const filename = sanitizePlayerDataExportFileName(c.req.query('filename'))
+    const key = playerDataExportKey(auth.identity.userId)
+    let object: R2Object
+    try {
+      object = await bucket.put(key, body, {
+        httpMetadata: { contentType: PLAYER_DATA_EXPORT_CONTENT_TYPE },
+        customMetadata: { filename },
+      })
+    }
+    catch (error) {
+      console.error('[player-data-export] failed to store workbook', { key, userId: auth.identity.userId }, error)
+      return c.json({ error: 'Export workbook could not be prepared for download' }, 502)
+    }
+
+    if (object.size > MAX_PLAYER_DATA_EXPORT_BYTES) {
+      await bucket.delete(key).catch(error => console.error('[player-data-export] failed to remove oversized workbook', { key }, error))
+      return c.json({ error: 'Export workbook is too large' }, 413)
+    }
+
+    c.header('Cache-Control', 'no-store')
+    return c.json({ ok: true, filename, size: object.size })
+  })
+
+  app.get('/api/uploads/player-data-export/download', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
+
+    const bucket = c.env.AUTOSAVE_UPLOADS
+    if (!bucket) return c.json({ error: EXPORTS_NOT_CONFIGURED_ERROR }, 503)
+    const object = await bucket.get(playerDataExportKey(auth.identity.userId))
+    if (!object) return c.json({ error: 'Export workbook not found' }, 404)
+
+    const filename = sanitizePlayerDataExportFileName(object.customMetadata?.filename)
+    const headers = new Headers({
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': buildPlayerDataExportDisposition(filename),
+      'Content-Length': String(object.size),
+      'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
+      ETag: object.httpEtag,
+    })
+    object.writeHttpMetadata(headers)
+    return new Response(object.body, { headers })
+  })
+
   app.get('/api/uploads/autosaves', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -758,6 +824,11 @@ function buildAttachmentDisposition(fileName: string): string {
   return `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
 }
 
+function buildPlayerDataExportDisposition(fileName: string): string {
+  const asciiFileName = sanitizePlayerDataExportFileName(fileName).replace(/["\\]/g, '_')
+  return `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+}
+
 function parseContentLength(value: string | undefined): number | null {
   if (!value) return null
   const parsed = Number(value)
@@ -863,6 +934,19 @@ function sanitizeFileName(value: string): string {
 function sanitizeKeySegment(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80)
   return sanitized.length > 0 ? sanitized : 'unknown'
+}
+
+function playerDataExportKey(userId: string): string {
+  return `player-data-exports/${sanitizeKeySegment(userId)}/latest.xlsx`
+}
+
+function sanitizePlayerDataExportFileName(value: string | null | undefined): string {
+  const sanitized = value
+    ?.trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .slice(0, 120) ?? ''
+  if (sanitized.toLowerCase().endsWith('.xlsx')) return sanitized
+  return `export-${new Date().toISOString().slice(0, 10)}.xlsx`
 }
 
 function normalizeContentType(value: string | undefined): string {
