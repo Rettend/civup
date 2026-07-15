@@ -18,10 +18,21 @@
     "items:normalize-icons": "bun ./scripts/normalize-bbg-item-icons.ts",
     "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
     "portraits:normalize-icons": "bun ./scripts/normalize-leader-grid-icons.ts",
+<<<<<<< New base: fix: mod resolve
     "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
     "deploy:prod": "bun run deploy",
     "deploy:ppl": "bun run build:ppl && wrangler deploy --config wrangler.ppl.json",
     "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --config wrangler.json"
+||||||| Common ancestor
+    "deploy": "bun run deploy:prod",
+    "deploy:prod": "bun run build:prod && wrangler deploy",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets"
+=======
+    "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
+    "deploy:prod": "bun run deploy",
+    "deploy:ppl": "bun run build:ppl && wrangler deploy --config wrangler.ppl.json",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets --config wrangler.json"
+>>>>>>> Current commit: chore: cleanup and simplify setup
   },
   "dependencies": {
     "@civup/game": "workspace:*",

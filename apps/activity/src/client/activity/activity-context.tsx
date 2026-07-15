@@ -35,6 +35,7 @@ export interface ActivityControllerContextValue {
   openAutosaveFolderUpload: () => void
   openAutosaveCatalog: () => void
   canViewAutosaveCatalog: () => boolean
+<<<<<<< New base: fix: mod resolve
   canExportPlayerData: () => boolean
   exportPlayerData: () => Promise<void>
   playerDataExportState: Accessor<PlayerDataExportState>
@@ -44,6 +45,12 @@ export interface ActivityControllerContextValue {
   openAutosaveCatalog: () => void
   canViewAutosaveCatalog: () => boolean
 >>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+=======
+  canExportPlayerData: () => boolean
+  exportPlayerData: () => Promise<void>
+  playerDataExportState: Accessor<PlayerDataExportState>
+>>>>>>> Current commit: chore: cleanup and simplify setup
   handleTargetSelection: (option: ActivityTargetOption) => Promise<void>
   restoreLastSelection: () => Promise<void>
   transitionToDraft: (

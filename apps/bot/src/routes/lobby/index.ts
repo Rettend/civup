@@ -151,7 +151,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+<<<<<<< New base: fix: mod resolve
     if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+||||||| Common ancestor
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+=======
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+>>>>>>> Current commit: chore: cleanup and simplify setup
     return new Response(null, { status: 204 })
   })
 
@@ -1395,7 +1401,13 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
+<<<<<<< New base: fix: mod resolve
     if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+||||||| Common ancestor
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+=======
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+>>>>>>> Current commit: chore: cleanup and simplify setup
       return c.json({ error: 'Not found' }, 404)
     }
 
@@ -2008,10 +2020,27 @@ function openLobbyMessageRenderStateChanged(
     || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 
+<<<<<<< New base: fix: mod resolve
 export function isDebugLobbyFillEnabled(
   enabled: string | undefined,
+||||||| Common ancestor
+function isDebugLobbyFillEnabled(
+  requestUrl: string,
+  botHost: string | undefined,
+  forceEnabled: string | undefined,
+=======
+export function isDebugLobbyFillEnabled(
+  requestUrl: string,
+  enabled: string | undefined,
+>>>>>>> Current commit: chore: cleanup and simplify setup
 ): boolean {
+<<<<<<< New base: fix: mod resolve
   return isTruthyEnvFlag(enabled)
+||||||| Common ancestor
+  return isTruthyEnvFlag(forceEnabled) || isDev({ host: requestUrl, configuredHosts: [botHost] })
+=======
+  return isTruthyEnvFlag(enabled) && isDev({ host: requestUrl })
+>>>>>>> Current commit: chore: cleanup and simplify setup
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {

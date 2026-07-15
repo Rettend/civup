@@ -81,6 +81,7 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
   })
 
+<<<<<<< New base: fix: mod resolve
   test('shows the responsive Export Data action only with an export capability handler', () => {
     const rendered = render(() => (
       <LobbyOverviewPage
@@ -162,6 +163,45 @@ describe('LobbyOverviewPage UI', () => {
     expect(onExportData).toHaveBeenCalledTimes(1)
   })
 
+||||||| Common ancestor
+=======
+  test('shows the responsive Player Data action only with an export capability handler', () => {
+    const rendered = render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'idle' }}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export player data' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
+
+    document.body.innerHTML = ''
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'loading', phase: 'matches', players: 53, ratings: 53, matches: 12, participants: 12, bans: 3 }}
+      />
+    ))
+    expect(screen.getByText('Loading matches: 12')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Export player data' }).hasAttribute('disabled')).toBe(true)
+
+    document.body.innerHTML = ''
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
+    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
+
+    document.body.innerHTML = ''
+    uiMockState.isMiniView = true
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
+    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
+  })
+
+>>>>>>> Current commit: chore: cleanup and simplify setup
   test('shows closed lobby cards under the open filter', () => {
     const openLobby = createActivityTargetOption({ id: 'open-lobby', status: 'open' })
     const closedLobby = createActivityTargetOption({ id: 'closed-lobby', status: 'closed', players: [{ playerId: 'host-closed', displayName: 'Closed Host', avatarUrl: null }] })

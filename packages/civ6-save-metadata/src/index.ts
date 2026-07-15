@@ -13,6 +13,7 @@ export {
   type InflateRaw,
   type ZipByteReader,
   type ZipEntry,
+<<<<<<< New base: fix: mod resolve
 <<<<<<< New base: fix: sonner design
   type ZipEntryReadLimits,
   type ZipParseLimits,
@@ -22,6 +23,17 @@ export {
   MAX_CIV6_SAVE_COMPRESSED_BYTES,
   MAX_CIV6_SAVE_UNCOMPRESSED_BYTES,
   MAX_ZIP_ENTRY_RANGE_CHUNK_BYTES,
+||||||| Common ancestor
+=======
+  type ZipEntryReadLimits,
+  type ZipParseLimits,
+  DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES,
+  MAX_AUTOSAVE_ZIP_CENTRAL_DIRECTORY_BYTES,
+  MAX_AUTOSAVE_ZIP_ENTRY_COUNT,
+  MAX_CIV6_SAVE_COMPRESSED_BYTES,
+  MAX_CIV6_SAVE_UNCOMPRESSED_BYTES,
+  MAX_ZIP_ENTRY_RANGE_CHUNK_BYTES,
+>>>>>>> Current commit: chore: cleanup and simplify setup
   createAutosaveZipIndex,
 ||||||| Common ancestor
 =======

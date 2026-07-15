@@ -1,5 +1,10 @@
+<<<<<<< New base: fix: mod resolve
 <<<<<<< New base: chore: update leader desc
 import { sql } from 'drizzle-orm'
+||||||| Common ancestor
+=======
+import { sql } from 'drizzle-orm'
+>>>>>>> Current commit: chore: cleanup and simplify setup
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const autosaveUploads = sqliteTable('autosave_uploads', {

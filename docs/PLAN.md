@@ -514,8 +514,8 @@ Files to update during implementation:
 - `apps/bot/wrangler.ppl.jsonc`
 - `apps/bot/.dev.vars.example`
 - `apps/bot/.prod.secrets.example` if the project keeps the guild ID there
-- `apps/activity/wrangler.jsonc`
-- `apps/activity/wrangler.ppl.jsonc`
+- `apps/activity/wrangler.json`
+- `apps/activity/wrangler.ppl.json`
 - `apps/activity/.dev.vars.example`
 - `apps/activity/.prod.secrets.example` or vars example as appropriate
 - `PPL.md`
@@ -757,8 +757,8 @@ Do not use `bun run lint` for this work. Do not deploy or register commands as p
 
 - `apps/activity/src/server/index.ts`
 - new browser-auth/cookie helpers if extraction keeps the entry file focused
-- `apps/activity/wrangler.jsonc`
-- `apps/activity/wrangler.ppl.jsonc`
+- `apps/activity/wrangler.json`
+- `apps/activity/wrangler.ppl.json`
 - Activity environment examples
 
 ### Bot Worker

@@ -83,7 +83,6 @@
         "@resvg/resvg-wasm": "^2.6.2",
         "discord-hono": "^0.20.0",
         "drizzle-orm": "^0.45.1",
-        "fflate": "^0.8.2",
         "hono": "^4.11.8",
         "nanoid": "^5.1.6",
         "partyserver": "^0.1.5",

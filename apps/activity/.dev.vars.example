@@ -4,6 +4,7 @@ CIVUP_SECRET=
 <<<<<<< New base: feat: save file analyzer
 ACTIVITY_PUBLIC_ORIGIN=https://your-activity.example.com
 ALLOWED_DISCORD_GUILD_ID=
+<<<<<<< New base: fix: mod resolve
 ||||||| Common ancestor
 BOT_HOST=http://127.0.0.1:8787
 VITE_ACTIVITY_HOST=
@@ -13,3 +14,8 @@ ALLOWED_DISCORD_GUILD_ID=
 BOT_HOST=http://127.0.0.1:8787
 VITE_ACTIVITY_HOST=
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+BOT_HOST=http://127.0.0.1:8787
+VITE_ACTIVITY_HOST=
+=======
+>>>>>>> Current commit: chore: cleanup and simplify setup

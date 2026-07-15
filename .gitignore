@@ -55,7 +55,12 @@ docs
 =======
 docs/*
 !docs/PLAN.md
+<<<<<<< New base: fix: mod resolve
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+=======
+!docs/PLAYER-DATA-EXPORT.md
+>>>>>>> Current commit: chore: cleanup and simplify setup
 
 # preset build artifacts
 mods/dist/

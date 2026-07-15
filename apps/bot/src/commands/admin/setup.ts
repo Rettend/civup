@@ -1,11 +1,17 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
+<<<<<<< New base: fix: mod resolve
 <<<<<<< New base: feat: save file analyzer
 import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
 import { createGuildRole, fetchGuildRoles, updateGuildRole } from '../../services/discord/index.ts'
 ||||||| Common ancestor
 =======
 import { getBrowserAccessState, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+||||||| Common ancestor
+import { getBrowserAccessState, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+=======
+import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+>>>>>>> Current commit: chore: cleanup and simplify setup
 import { createGuildRole, fetchGuildRoles } from '../../services/discord/index.ts'
 >>>>>>> Current commit: feat: external browser draft WIP
 import { getKvStore } from '../../services/kv/batch.ts'
@@ -262,6 +268,7 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
     }
   })
 }
+<<<<<<< New base: fix: mod resolve
 
 function isSafeBrowserPreferenceRole(role: {
   hoist?: boolean
@@ -275,3 +282,18 @@ function isSafeBrowserPreferenceRole(role: {
     && role.mentionable === false
 }
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+
+function isSafeBrowserPreferenceRole(role: {
+  hoist?: boolean
+  managed?: boolean
+  mentionable?: boolean
+  permissions?: string
+}): boolean {
+  return role.managed === false
+    && role.permissions === '0'
+    && role.hoist === false
+    && role.mentionable === false
+}
+=======
+>>>>>>> Current commit: chore: cleanup and simplify setup

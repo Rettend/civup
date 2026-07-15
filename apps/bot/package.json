@@ -15,8 +15,15 @@
     "register": "bun run register:dev",
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",
+<<<<<<< New base: fix: mod resolve
     "register:ppl": "bun --env-file=.ppl.secrets src/register.ts",
     "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts bot .prod.secrets --config wrangler.jsonc",
+||||||| Common ancestor
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
+=======
+    "register:ppl": "bun --env-file=.ppl.secrets src/register.ts",
+    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
+>>>>>>> Current commit: chore: cleanup and simplify setup
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
@@ -49,7 +56,6 @@
     "@resvg/resvg-wasm": "^2.6.2",
     "discord-hono": "^0.20.0",
     "drizzle-orm": "^0.45.1",
-    "fflate": "^0.8.2",
     "hono": "^4.11.8",
     "nanoid": "^5.1.6",
     "partyserver": "^0.1.5"

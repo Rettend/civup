@@ -73,6 +73,10 @@ Object.assign(globalThis, {
   Headers: NativeHeaders,
   Request: NativeRequest,
   Response: NativeResponse,
+  Blob: NativeBlob,
+  ReadableStream: NativeReadableStream,
+  TransformStream: NativeTransformStream,
+  WritableStream: NativeWritableStream,
 })
 
 >>>>>>> Current commit: feat: external browser draft WIP

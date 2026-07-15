@@ -4,8 +4,20 @@ import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
 import { factory } from '../setup.ts'
+<<<<<<< New base: fix: mod resolve
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
+||||||| Common ancestor
+
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
+const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
+=======
+import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
+import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
+
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
+const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
+>>>>>>> Current commit: chore: cleanup and simplify setup
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour

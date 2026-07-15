@@ -203,14 +203,9 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
   if (session instanceof Response) return session
 
   const targetPath = buildTargetPath(url, url.pathname.replace(/^\/api\/browser/, '/api/activity'))
-  let upstream: Response
-  if (env.BOT && shouldUseBotServiceBinding(request, env)) {
-    upstream = await env.BOT.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
-  }
-  else {
-    const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
-    upstream = await fetch(buildProxyRequest(`${botHost}${targetPath}`, request, env, session))
-  }
+  const proxy = await fetchBotUpstream(request, targetPath, env, session)
+  if ('error' in proxy) return proxy.error
+  const upstream = proxy.response
   const payload = await upstream.json<unknown>().catch(() => null)
   if (!upstream.ok) return json(payload ?? { error: 'Browser context failed' }, upstream.status)
   const response = json({
@@ -231,6 +226,7 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     if (originError) return originError
 
     const targetPath = buildTargetPath(url)
+<<<<<<< New base: fix: mod resolve
     const proxy = await fetchBotUpstream(request, targetPath, env, session)
     if ('error' in proxy) return proxy.error
     targetUrl = proxy.targetUrl
@@ -239,6 +235,25 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     if (shouldStreamProxyResponse(request, url, response)) {
       return streamProxyResponse(response)
     }
+||||||| Common ancestor
+    let response: Response
+    const botService = env.BOT
+
+    if (botService && shouldUseBotServiceBinding(request, env)) {
+      targetUrl = `service:civup-bot${targetPath}`
+      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
+    }
+    else {
+      const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
+      targetUrl = `${botHost}${targetPath}`
+      response = await fetch(buildProxyRequest(targetUrl, request, env, session))
+    }
+=======
+    const proxy = await fetchBotUpstream(request, targetPath, env, session)
+    if ('error' in proxy) return proxy.error
+    targetUrl = proxy.targetUrl
+    const response = proxy.response
+>>>>>>> Current commit: chore: cleanup and simplify setup
 
     if (shouldStreamProxyResponse(request, url, response)) {
       return streamProxyResponse(response)
@@ -338,8 +353,10 @@ function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
 function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
   return request.method.toUpperCase() === 'GET'
     && response.ok
-    && url.pathname.startsWith('/api/uploads/')
-    && url.pathname.endsWith('/download')
+    && (
+      (url.pathname.startsWith('/api/uploads/') && url.pathname.endsWith('/download'))
+      || url.pathname === '/api/activity/admin/player-data-export'
+    )
 }
 
 function streamProxyResponse(response: Response): Response {
@@ -355,6 +372,7 @@ function streamProxyResponse(response: Response): Response {
   })
 }
 
+<<<<<<< New base: fix: mod resolve
 function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
   if (!env.BOT) return false
   if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
@@ -373,6 +391,16 @@ function streamProxyResponse(response: Response): Response {
   })
 }
 
+||||||| Common ancestor
+function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
+  if (!env.BOT) return false
+  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
+
+  return true
+}
+
+=======
+>>>>>>> Current commit: chore: cleanup and simplify setup
 function getImportMetaDev(): boolean | undefined {
   return import.meta.env?.DEV
 }
@@ -455,11 +483,9 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   for (const name of [
     'accept',
     'accept-language',
+    'content-length',
     'content-type',
     'user-agent',
-    'x-civup-upload-filename',
-    'x-civup-upload-channel-id',
-    'x-civup-upload-match-id',
   ]) {
 >>>>>>> Current commit: feat: catalog
     const value = request.headers.get(name)
