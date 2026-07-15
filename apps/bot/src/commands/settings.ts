@@ -93,7 +93,7 @@ const SETTINGS_ACTIVITY_BUTTON_ID = 'settings-open-activity'
 const SETTINGS_BROWSER_BUTTON_ID = 'settings-open-browser'
 
 export const command_settings = factory.command(
-  new Command('settings', 'Choose how CivUp launch buttons open'),
+  new Command('settings', 'Choose how the draft launch buttons open'),
   async (c) => {
     return c.flags('EPHEMERAL').resDefer(async (deferred) => {
       await deferred.followup(await buildSettingsPanel(c.env, c.interaction.member?.roles))

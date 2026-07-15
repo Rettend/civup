@@ -81,6 +81,7 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
   })
 
+<<<<<<< New base: fix: refresh ranked role colors
 <<<<<<< New base: fix: mod resolve
   test('shows the responsive Export Data action only with an export capability handler', () => {
     const rendered = render(() => (
@@ -166,6 +167,11 @@ describe('LobbyOverviewPage UI', () => {
 ||||||| Common ancestor
 =======
   test('shows the responsive Player Data action only with an export capability handler', () => {
+||||||| Common ancestor
+  test('shows the responsive Player Data action only with an export capability handler', () => {
+=======
+  test('shows the responsive Export Data action only with an export capability handler', () => {
+>>>>>>> Current commit: feat: export data in activity
     const rendered = render(() => (
       <LobbyOverviewPage
         options={[]}
@@ -175,7 +181,7 @@ describe('LobbyOverviewPage UI', () => {
       />
     ))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export player data' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Export data' }))
     expect(onExportData).toHaveBeenCalledTimes(1)
     expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
 
@@ -189,16 +195,31 @@ describe('LobbyOverviewPage UI', () => {
       />
     ))
     expect(screen.getByText('Loading matches: 12')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Export player data' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Export data' }).hasAttribute('disabled')).toBe(true)
 
     document.body.innerHTML = ''
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
-    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
 
     document.body.innerHTML = ''
     uiMockState.isMiniView = true
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
-    expect(screen.queryByRole('button', { name: 'Export player data' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
+  })
+
+  test('turns a completed export into an explicit download retry', () => {
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'ready', filename: 'export-2026-07-15.xlsx', url: 'https://example.com/export', players: 10, matches: 5 }}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download data again' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('export-2026-07-15.xlsx is ready.')).toBeTruthy()
   })
 
 >>>>>>> Current commit: chore: cleanup and simplify setup

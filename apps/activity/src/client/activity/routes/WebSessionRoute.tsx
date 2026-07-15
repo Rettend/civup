@@ -131,7 +131,7 @@ function WebSessionStatus(props: { state: Accessor<ActivityState> }) {
   }
 
   return (
-    <Switch fallback={<ActivityErrorPage message="This CivUp session is unavailable." />}>
+    <Switch fallback={<ActivityErrorPage message="This session is unavailable." />}>
       <Match when={props.state().status === 'loading'}>
         <ActivityLoadingPage />
       </Match>

@@ -98,7 +98,7 @@ async function browserBootstrap<T>(url: string): Promise<BrowserBootstrapRespons
     return new Promise<BrowserBootstrapResponse<T>>(() => {})
   }
   const payload = await response.json().catch(() => null) as (BrowserBootstrapResponse<T> & { error?: string }) | null
-  if (!response.ok || !payload) throw new Error(payload?.error ?? `CivUp browser context failed (${response.status})`)
+  if (!response.ok || !payload) throw new Error(payload?.error ?? `Browser context failed (${response.status})`)
   return payload
 }
 >>>>>>> Current commit: feat: external browser draft WIP

@@ -1,10 +1,16 @@
 import type { JSX } from 'solid-js'
+<<<<<<< New base: fix: refresh ranked role colors
 <<<<<<< New base: fix: mod resolve
 import type { PlayerDataExportFile, PlayerDataExportState } from '../lib/player-data-export'
 ||||||| Common ancestor
 =======
 import type { PlayerDataExportState } from '../lib/player-data-export'
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+import type { PlayerDataExportState } from '../lib/player-data-export'
+=======
+import type { PlayerDataExportFile, PlayerDataExportState } from '../lib/player-data-export'
+>>>>>>> Current commit: feat: export data in activity
 import type { ActivityTargetDescriptor } from '../lib/activity-targets'
 import type {
   ActivityLaunchSelection,
@@ -58,12 +64,17 @@ import { relayDevLog } from '../lib/dev-log'
 <<<<<<< New base: feat: save file analyzer
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
+<<<<<<< New base: fix: refresh ranked role colors
 import { openExternalLink } from '../platform/external-links'
 ||||||| Common ancestor
 =======
 import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+=======
+import { openExternalLink } from '../platform/external-links'
+>>>>>>> Current commit: feat: export data in activity
 import {
   connectionStatus,
   connectionCloseReason,
@@ -315,8 +326,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
   let adminCapabilitiesRequestVersion = 0
   let playerDataExportRequestVersion = 0
+<<<<<<< New base: fix: refresh ranked role colors
   let playerDataExportObjectUrl: string | null = null
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+  let playerDataExportObjectUrl: string | null = null
+=======
+  let pendingPlayerDataExport: PlayerDataExportFile | null = null
+>>>>>>> Current commit: feat: export data in activity
   let overviewPushSourcePath: string | null = null
   let pendingLiveRoutePath: string | null = null
   let suppressAutoSelection = false
@@ -390,8 +407,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 =======
     adminCapabilitiesRequestVersion += 1
     playerDataExportRequestVersion += 1
+<<<<<<< New base: fix: refresh ranked role colors
     if (playerDataExportObjectUrl) URL.revokeObjectURL(playerDataExportObjectUrl)
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+    if (playerDataExportObjectUrl) URL.revokeObjectURL(playerDataExportObjectUrl)
+=======
+    pendingPlayerDataExport = null
+>>>>>>> Current commit: feat: export data in activity
     stopActivityWatch()
     clearDraftConnection()
   })
@@ -946,7 +969,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       try {
         const bootstrap = await bootstrapBrowserSession(directSessionId)
         if (bootstrap.context.status === 'ended') {
-          setState({ status: 'error', message: 'This CivUp session has ended.' })
+          setState({ status: 'error', message: 'This session has ended.' })
           clearDraftConnection()
           return
         }
@@ -1226,45 +1249,56 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const exportPlayerData = async () => {
-    if (!canExportPlayerData() || playerDataExportState().status === 'loading') return
-    const requestVersion = ++playerDataExportRequestVersion
-    if (playerDataExportObjectUrl) {
-      URL.revokeObjectURL(playerDataExportObjectUrl)
-      playerDataExportObjectUrl = null
+    if (!canExportPlayerData()) return
+    const currentState = playerDataExportState()
+    if (currentState.status === 'loading') return
+    if (currentState.status === 'ready') {
+      await openPlayerDataExportDownload(currentState.url)
+      return
     }
-    setPlayerDataExportState({
-      status: 'loading',
-      phase: 'players',
-      players: 0,
-      ratings: 0,
-      matches: 0,
-      participants: 0,
-      bans: 0,
-    })
+
+    const requestVersion = ++playerDataExportRequestVersion
+    const existingExport = pendingPlayerDataExport
+    setPlayerDataExportState(existingExport
+      ? {
+          status: 'loading',
+          phase: 'workbook',
+          players: existingExport.source.players.length,
+          ratings: existingExport.source.ratings.length,
+          matches: existingExport.source.matches.length,
+          participants: existingExport.source.participants.length,
+          bans: existingExport.source.bans.length,
+        }
+      : {
+          status: 'loading',
+          phase: 'players',
+          players: 0,
+          ratings: 0,
+          matches: 0,
+          participants: 0,
+          bans: 0,
+        })
 
     try {
-      const { createPlayerDataExport, triggerPlayerDataDownload } = await import('../lib/player-data-export')
-      const result = await createPlayerDataExport({
+      const { createPlayerDataExport, publishPlayerDataExport } = await import('../lib/player-data-export')
+      const result = existingExport ?? await createPlayerDataExport({
         onProgress(progress) {
           if (requestVersion === playerDataExportRequestVersion) setPlayerDataExportState({ status: 'loading', ...progress })
         },
       })
       if (requestVersion !== playerDataExportRequestVersion) return
-      const url = URL.createObjectURL(result.blob)
-      playerDataExportObjectUrl = url
+      pendingPlayerDataExport = result
+      const published = await publishPlayerDataExport(result)
+      if (requestVersion !== playerDataExportRequestVersion) return
+      pendingPlayerDataExport = null
       setPlayerDataExportState({
         status: 'ready',
-        filename: result.filename,
-        url,
+        filename: published.filename,
+        url: published.url,
         players: result.source.players.length,
         matches: result.source.matches.length,
       })
-      try {
-        triggerPlayerDataDownload(url, result.filename)
-      }
-      catch (error) {
-        console.error('Automatic player data download failed:', error)
-      }
+      await openPlayerDataExportDownload(published.url)
     }
     catch (error) {
       if (requestVersion !== playerDataExportRequestVersion) return
@@ -1276,6 +1310,17 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       })
     }
 >>>>>>> Current commit: chore: cleanup and simplify setup
+  }
+
+  const openPlayerDataExportDownload = async (url: string) => {
+    try {
+      const opened = await openExternalLink(url)
+      if (!opened) window.open(url, '_blank', 'noopener')
+    }
+    catch (error) {
+      console.error('Player data download failed:', error)
+      window.open(url, '_blank', 'noopener')
+    }
   }
 
   const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
@@ -2127,7 +2172,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
     void untrack(async () => {
       try {
-        if (!route) throw new Error('Invalid CivUp browser URL')
+        if (!route) throw new Error('Invalid browser URL')
         if (route.kind === 'session') {
           const bootstrap = await bootstrapBrowserSession(route.sessionId)
           if (requestVersion !== browserRouteRequestVersion) return
@@ -2137,7 +2182,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           void refreshAdminCapabilities()
           if (bootstrap.context.status === 'ended') {
             setLoadedBrowserRouteKey(routeKey)
-            setState({ status: 'error', message: 'This CivUp session has ended.' })
+            setState({ status: 'error', message: 'This session has ended.' })
             return
           }
           activeChannelId = bootstrap.context.selection.option.channelId

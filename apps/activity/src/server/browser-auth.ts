@@ -494,7 +494,7 @@ function isForwardedHttps(request: Request): boolean {
 function oauthError(message: string, returnTo: string): Response {
   const retryPath = validateBrowserReturnPath(returnTo) ?? '/web/'
   const retry = `/api/auth/discord?returnTo=${encodeURIComponent(retryPath)}`
-  const body = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>CivUp sign-in failed</title><body><main><h1>CivUp sign-in failed</h1><p>${escapeHtml(message)}</p><p><a href="${escapeHtml(retry)}">Try Discord sign-in again</a></p></main></body></html>`
+  const body = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign-in failed</title><body><main><h1>Sign-in failed</h1><p>${escapeHtml(message)}</p><p><a href="${escapeHtml(retry)}">Try Discord sign-in again</a></p></main></body></html>`
   return new Response(body, {
     status: 400,
     headers: {

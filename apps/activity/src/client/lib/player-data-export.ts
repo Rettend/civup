@@ -1043,11 +1043,13 @@ function escapeXmlText(value: string): string {
 =======
 import { BlobWriter, TextReader, ZipWriter } from '@zip.js/zip.js'
 import { getLeader } from '@civup/game'
-import { buildActivitySessionHeaders } from './activity-session'
+import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
+import { buildActivitySessionHeaders, getActivitySessionToken } from './activity-session'
 
 export const PLAYER_DATA_EXPORT_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const EXPORT_ENDPOINT = '/api/activity/admin/player-data-export'
+const EXPORT_UPLOAD_ENDPOINT = '/api/uploads/player-data-export'
 const EXPORT_VERSION = 1
 const EXPORT_PARENT_PAGE_SIZE = 50
 const MAX_RATINGS_PER_PAGE = 1_000
@@ -1161,6 +1163,11 @@ interface ExportRequestOptions {
   onProgress?: (progress: PlayerDataExportProgress) => void
 }
 
+export interface PublishedPlayerDataExport {
+  filename: string
+  url: string
+}
+
 interface ExportPageBase {
   version: number
   generatedAt: number
@@ -1217,6 +1224,31 @@ export async function createPlayerDataExport(options: ExportRequestOptions = {})
   }
 }
 
+export async function publishPlayerDataExport(
+  file: PlayerDataExportFile,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PublishedPlayerDataExport> {
+  const response = await fetchImpl(`${EXPORT_UPLOAD_ENDPOINT}?filename=${encodeURIComponent(file.filename)}`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: buildActivitySessionHeaders({
+      Accept: 'application/json',
+      'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
+    }),
+    body: file.blob,
+  })
+  const payload: unknown = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(readPayloadError(payload) ?? `Export download preparation failed (${response.status}).`)
+  if (!payload || typeof payload !== 'object') throw new Error('Export download preparation returned malformed data.')
+  const filename = (payload as { filename?: unknown }).filename
+  if (typeof filename !== 'string' || filename.length === 0) throw new Error('Export download preparation returned malformed data.')
+
+  const url = new URL(`${EXPORT_UPLOAD_ENDPOINT}/download`, window.location.origin)
+  const sessionToken = getActivitySessionToken()
+  if (sessionToken) url.searchParams.set(CIVUP_ACTIVITY_SESSION_QUERY_PARAM, sessionToken)
+  return { filename, url: url.toString() }
+}
+
 export async function fetchPlayerDataExport(options: ExportRequestOptions = {}): Promise<PlayerDataExportSource> {
   const fetchImpl = options.fetchImpl ?? fetch
   const source: PlayerDataExportSource = {
@@ -1242,8 +1274,8 @@ export async function fetchPlayerDataExport(options: ExportRequestOptions = {}):
       cache: 'no-store',
       headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
     })
-    if (response.status === 401) throw new Error('Your CivUp session expired. Reopen CivUp and try the export again.')
-    if (response.status === 403) throw new Error('Player data export is only available to Activity data admins.')
+    if (response.status === 401) throw new Error('Your session expired. Reopen the Activity and try the export again.')
+    if (response.status === 403) throw new Error('Player data export is only available to server administrators.')
 
     const payload: unknown = await response.json().catch(() => null)
     if (!response.ok) throw new Error(readPayloadError(payload) ?? `Player data export failed (${response.status}).`)
@@ -1358,17 +1390,6 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       },
     },
   ]
-}
-
-export function triggerPlayerDataDownload(url: string, filename: string): void {
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.rel = 'noopener'
-  anchor.style.display = 'none'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
 }
 
 async function createStreamingXlsxWorkbook(worksheets: StreamingXlsxWorksheet[]): Promise<Blob> {

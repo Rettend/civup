@@ -3,6 +3,7 @@ import { createDb } from '@civup/db'
 <<<<<<< New base: fix: mod resolve
 <<<<<<< New base: feat: save file analyzer
 import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+<<<<<<< New base: fix: refresh ranked role colors
 import { createGuildRole, fetchGuildRoles, updateGuildRole } from '../../services/discord/index.ts'
 ||||||| Common ancestor
 =======
@@ -14,6 +15,11 @@ import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrig
 >>>>>>> Current commit: chore: cleanup and simplify setup
 import { createGuildRole, fetchGuildRoles } from '../../services/discord/index.ts'
 >>>>>>> Current commit: feat: external browser draft WIP
+||||||| Common ancestor
+import { createGuildRole, fetchGuildRoles } from '../../services/discord/index.ts'
+=======
+import { createGuildRole, fetchGuildRoles, updateGuildRole } from '../../services/discord/index.ts'
+>>>>>>> Current commit: feat: export data in activity
 import { getKvStore } from '../../services/kv/batch.ts'
 import {
   markLeaderboardsDirty,
@@ -31,7 +37,7 @@ const BROWSER_PREFERENCE_ROLE_NAME = 'Web Browser'
 ||||||| Common ancestor
 =======
 const BROWSER_ACCESS_TARGET = 'browser'
-const BROWSER_PREFERENCE_ROLE_NAME = 'CivUp Web Browser'
+const BROWSER_PREFERENCE_ROLE_NAME = 'Web Browser'
 
 >>>>>>> Current commit: feat: external browser draft WIP
 export function handleSetup(c: AdminCommandContext) {
@@ -250,12 +256,16 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
         ? roles.find(role => role.id === current.preferenceRoleId && isSafeBrowserPreferenceRole(role))
         : null
       const namedRole = roles.find(role => role.name === BROWSER_PREFERENCE_ROLE_NAME && isSafeBrowserPreferenceRole(role))
-      const role = storedRole ?? namedRole ?? await createGuildRole(c.env.DISCORD_TOKEN, guildId, {
-        name: BROWSER_PREFERENCE_ROLE_NAME,
-        permissions: '0',
-        hoist: false,
-        mentionable: false,
-      })
+      const role = storedRole
+        ? storedRole.name === BROWSER_PREFERENCE_ROLE_NAME
+          ? storedRole
+          : await updateGuildRole(c.env.DISCORD_TOKEN, guildId, storedRole.id, { name: BROWSER_PREFERENCE_ROLE_NAME })
+        : namedRole ?? await createGuildRole(c.env.DISCORD_TOKEN, guildId, {
+            name: BROWSER_PREFERENCE_ROLE_NAME,
+            permissions: '0',
+            hoist: false,
+            mentionable: false,
+          })
       if (!role.id) throw new Error('Discord returned a role without an ID')
 
       await setBrowserAccessState(kv, { enabled: true, preferenceRoleId: role.id })

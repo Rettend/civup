@@ -307,7 +307,7 @@ describe('browser preference role', () => {
     expect(browserCalls).toEqual([])
   })
 
-  test('admin setup creates or verifies a zero-permission role and preserves it when disabled', async () => {
+  test('admin setup creates or renames a zero-permission role and preserves it when disabled', async () => {
     const kv = createKv()
     const requests: Request[] = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -320,7 +320,7 @@ describe('browser preference role', () => {
     await handleSetup(createAdminSetupContext(kv.namespace, 'on'))
     expect(requests.map(request => request.method)).toEqual(['GET', 'POST'])
     expect(await requests[1]!.json()).toEqual({
-      name: 'CivUp Web Browser',
+      name: 'Web Browser',
       permissions: '0',
       hoist: false,
       mentionable: false,
@@ -331,17 +331,21 @@ describe('browser preference role', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init)
       requests.push(request)
-      return Response.json([{
-        id: ROLE_ID,
-        name: 'CivUp Web Browser',
-        permissions: '0',
-        managed: false,
-        hoist: false,
-        mentionable: false,
-      }])
+      if (request.method === 'GET') {
+        return Response.json([{
+          id: ROLE_ID,
+          name: 'Legacy Browser',
+          permissions: '0',
+          managed: false,
+          hoist: false,
+          mentionable: false,
+        }])
+      }
+      return Response.json({ id: ROLE_ID, name: 'Web Browser' })
     }) as typeof fetch
     await handleSetup(createAdminSetupContext(kv.namespace, 'on'))
-    expect(requests.map(request => request.method)).toEqual(['GET'])
+    expect(requests.map(request => request.method)).toEqual(['GET', 'PATCH'])
+    expect(await requests[1]!.json()).toEqual({ name: 'Web Browser' })
 
     await handleSetup(createAdminSetupContext(kv.namespace, 'off'))
     expect(await getBrowserAccessState(kv.namespace)).toEqual({ enabled: false, preferenceRoleId: ROLE_ID })

@@ -75,7 +75,7 @@ export const component_match_join = factory.component(
     const canonicalSessionId = launch.mode === 'browser'
       ? clickedLobby?.id ?? (clickedMatchId ? await resolveCanonicalSessionId(db, clickedMatchId) : null)
       : clickedLobby?.id ?? lobbyId
-    if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this CivUp session. Please use a current lobby message and try again.')
+    if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this session. Please use a current lobby message and try again.')
     const activityTarget = clickedLobby?.status === 'open'
       ? { kind: 'lobby' as const, id: clickedLobby.id }
 >>>>>>> Current commit: feat: external browser draft WIP
@@ -206,7 +206,7 @@ export const component_draft_activity = factory.component(
         const sessionId = launch.mode === 'browser'
           ? await resolveCanonicalSessionId(createDb(c.env.DB), matchId)
           : matchId
-        if (!sessionId) return privateLaunchError(c, 'Could not resolve this draft to a CivUp session. Please use a current lobby message.')
+        if (!sessionId) return privateLaunchError(c, 'Could not resolve this draft session. Please use a current lobby message.')
         return respondWithPreferredLaunch(c, {
           destination: { kind: 'session', sessionId },
           activityChannelId: channelId,
