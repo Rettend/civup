@@ -1,11 +1,14 @@
 import type { Context } from 'hono'
 import type { Env } from '../env.ts'
 import { readAuthorizedActivityIdentity } from '@civup/utils'
+import { hasAdminPermission } from '../services/permissions/index.ts'
 
 export interface AuthenticatedActivityIdentity {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+  guildId: string | null
+  guildPermissions: string | null
 }
 
 export function requireAuthenticatedActivity(
@@ -29,8 +32,24 @@ export function requireAuthenticatedActivity(
 
   return {
     ok: true,
-    identity,
+    identity: {
+      userId: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
+      guildId: identity.guildId ?? null,
+      guildPermissions: identity.guildPermissions ?? null,
+    },
   }
+}
+
+export function hasAuthenticatedActivityAdminPermission(
+  env: Env['Bindings'],
+  identity: AuthenticatedActivityIdentity,
+): boolean {
+  const allowedGuildId = env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
+  return allowedGuildId.length > 0
+    && identity.guildId === allowedGuildId
+    && hasAdminPermission({ permissions: identity.guildPermissions ?? undefined })
 }
 
 export function rejectMismatchedActivityUser(c: Context<Env>, providedUserId: unknown, actualUserId: string): Response | null {

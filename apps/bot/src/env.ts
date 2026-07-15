@@ -13,6 +13,5 @@ export interface Env {
     ENABLE_DEBUG_LOBBY_FILL?: string
     CIVUP_SECRET?: string
     CIVUP_INTERACTION_ENDPOINT_URL?: string
-    AUTOSAVE_ADMIN_USER_IDS?: string
   }
 }

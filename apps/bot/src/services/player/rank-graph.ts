@@ -8,7 +8,7 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
-import { getConfiguredRankedRoleLabel, getRankedRoleConfig } from '../ranked/roles.ts'
+import { getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
 export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
@@ -229,7 +229,7 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<{ disp
 
 async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope): Promise<RankGraphBand[]> {
   const [config, scores] = await Promise.all([
-    getRankedRoleConfig(kv, guildId),
+    getRankedRoleDisplayConfig(kv, guildId),
     scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
   ])
   return buildRankGraphBands(config, scores)

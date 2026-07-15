@@ -34,12 +34,25 @@ interface DiscordGuildMemberResponse {
   user?: DiscordUserResponse | null
 }
 
+interface DiscordCurrentUserGuildResponse {
+  id?: string
+  owner?: boolean
+  permissions?: string
+}
+
 export type DiscordTokenExchangeResult
   = | { ok: true, accessToken: string, expiresIn?: number }
     | { ok: false, status: number, detail: string, retryAfter: string | null, rateLimited: boolean }
 
 export type DiscordIdentityResult
-  = | { ok: true, userId: string, displayName: string | null, avatarUrl: string }
+  = | {
+    ok: true
+    userId: string
+    displayName: string | null
+    avatarUrl: string
+    guildId: string | null
+    guildPermissions: string | null
+  }
     | { ok: false, status: 403 | 502, error: string }
 
 export async function exchangeDiscordAuthorizationCode(
@@ -86,24 +99,36 @@ export async function exchangeDiscordAuthorizationCode(
 }
 
 export async function loadDiscordIdentity(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResult> {
-  const url = allowedGuildId
-    ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
-    : 'https://discord.com/api/v10/users/@me'
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-  if (!response.ok) {
-    if (allowedGuildId && (response.status === 403 || response.status === 404)) {
-      return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
-    }
-    return { ok: false, status: 502, error: 'Failed to verify Discord user' }
-  }
-
   let user: DiscordIdentityResponse
+  let guildPermissions: string | null = null
   if (allowedGuildId) {
-    const member = await response.json<DiscordGuildMemberResponse>()
+    const authorization = { Authorization: `Bearer ${accessToken}` }
+    const [memberResponse, guildsResponse] = await Promise.all([
+      fetch(`https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`, { headers: authorization }),
+      fetch('https://discord.com/api/v10/users/@me/guilds?limit=200', { headers: authorization }),
+    ])
+    if (!memberResponse.ok) {
+      if (memberResponse.status === 403 || memberResponse.status === 404) {
+        return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
+      }
+      return { ok: false, status: 502, error: 'Failed to verify Discord user' }
+    }
+    if (!guildsResponse.ok) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
+
+    const guilds = await guildsResponse.json<DiscordCurrentUserGuildResponse[]>()
+    if (!Array.isArray(guilds)) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
+    const guild = guilds.find(candidate => candidate.id === allowedGuildId)
+    if (!guild) return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
+    guildPermissions = normalizeDiscordPermissions(guild.permissions, guild.owner === true)
+    if (!guildPermissions) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
+
+    const member = await memberResponse.json<DiscordGuildMemberResponse>()
     if (!member.user) return { ok: false, status: 502, error: 'Failed to verify Discord user' }
     user = { ...member.user, nick: member.nick ?? null, guildAvatar: member.avatar ?? null, guildId: allowedGuildId }
   }
   else {
+    const response = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (!response.ok) return { ok: false, status: 502, error: 'Failed to verify Discord user' }
     user = await response.json<DiscordIdentityResponse>()
   }
 
@@ -114,6 +139,19 @@ export async function loadDiscordIdentity(accessToken: string, allowedGuildId: s
     userId,
     displayName: resolveDiscordDisplayName(user),
     avatarUrl: buildDiscordIdentityAvatarUrl(user, userId),
+    guildId: allowedGuildId,
+    guildPermissions,
+  }
+}
+
+function normalizeDiscordPermissions(value: string | undefined, isOwner: boolean): string | null {
+  if (!value || !/^\d+$/.test(value)) return null
+  try {
+    const permissions = BigInt(value)
+    return (isOwner ? permissions | (1n << 3n) : permissions).toString()
+  }
+  catch {
+    return null
   }
 }
 

@@ -1,4 +1,10 @@
-import { CIVUP_ACTIVITY_SESSION_HEADER, CIVUP_INTERNAL_SECRET_HEADER, createActivitySession } from '@civup/utils'
+import {
+  CIVUP_ACTIVITY_GUILD_ID_HEADER,
+  CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
+  CIVUP_ACTIVITY_SESSION_HEADER,
+  CIVUP_INTERNAL_SECRET_HEADER,
+  createActivitySession,
+} from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
 import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE } from '../src/server/browser-auth'
@@ -81,7 +87,13 @@ describe('browser cookie proxy', () => {
 
   test('streams player-data export pages without buffering them in the Activity Worker', async () => {
     const forwarded: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'data-admin', displayName: null, avatarUrl: null })
+    const token = await createActivitySession(SECRET, {
+      userId: 'data-admin',
+      displayName: null,
+      avatarUrl: null,
+      guildId: '1234044388733095946',
+      guildPermissions: '32',
+    })
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
         controller.enqueue(new TextEncoder().encode('{"phase":"players"}'))
@@ -96,6 +108,8 @@ describe('browser cookie proxy', () => {
 
     expect(await response.text()).toBe('{"phase":"players"}')
     expect(new URL(forwarded[0]!.url).searchParams.get('cursor')).toBe('next')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)).toBe('1234044388733095946')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER)).toBe('32')
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.headers.get('ETag')).toBe('page-etag')
   })

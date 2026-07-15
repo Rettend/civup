@@ -2,8 +2,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
 import { createDb, matches, matchParticipants, playerRatings, players } from '@civup/db'
 import { and, asc, gt, inArray, lte } from 'drizzle-orm'
-import { isActivityDataAdmin } from '../services/activity/data-admin.ts'
-import { requireAuthenticatedActivity } from './auth.ts'
+import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 
 const EXPORT_VERSION = 1
 const EXPORT_PAGE_SIZE = 50
@@ -37,7 +36,7 @@ export function registerActivityAdminRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    const isAdmin = isActivityDataAdmin(c.env, auth.identity.userId)
+    const isAdmin = hasAuthenticatedActivityAdminPermission(c.env, auth.identity)
     return c.json({
       autosaveCatalog: isAdmin,
       playerDataExport: isAdmin,
@@ -48,7 +47,7 @@ export function registerActivityAdminRoutes(app: Hono<Env>) {
     c.header('Cache-Control', 'no-store')
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
-    if (!isActivityDataAdmin(c.env, auth.identity.userId)) return c.json({ error: 'Forbidden' }, 403)
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
 
     const rawCursor = c.req.query('cursor')
     const cursor = rawCursor === undefined ? createInitialCursor() : decodeExportCursor(rawCursor)

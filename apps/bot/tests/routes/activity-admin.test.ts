@@ -1,7 +1,12 @@
 import type { Database as SqliteDatabase } from 'bun:sqlite'
 import type { Env } from '../../src/env.ts'
 import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import {
+  CIVUP_ACTIVITY_GUILD_ID_HEADER,
+  CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
+  CIVUP_ACTIVITY_USER_ID_HEADER,
+  CIVUP_INTERNAL_SECRET_HEADER,
+} from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { registerActivityAdminRoutes } from '../../src/routes/activity-admin.ts'
@@ -9,7 +14,8 @@ import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const SECRET = 'activity-admin-test-secret'
-const DEFAULT_ADMIN_ID = '361534796830081024'
+const GUILD_ID = '1234044388733095946'
+const ADMIN_USER_ID = 'admin-user'
 const openDatabases: SqliteDatabase[] = []
 
 afterEach(() => {
@@ -24,23 +30,26 @@ describe('Activity admin routes', () => {
     expect(unauthenticated.status).toBe(401)
     expect(unauthenticated.headers.get('Cache-Control')).toBe('no-store')
 
-    const capabilities = await harness.request('/api/activity/admin/capabilities', 'ordinary-user')
+    const capabilities = await harness.request('/api/activity/admin/capabilities', 'ordinary-user', '0')
     expect(capabilities.status).toBe(200)
     expect(await capabilities.json()).toEqual({ autosaveCatalog: false, playerDataExport: false })
 
-    const forbidden = await harness.request('/api/activity/admin/player-data-export', 'ordinary-user')
+    const forbidden = await harness.request('/api/activity/admin/player-data-export', 'ordinary-user', '0')
     expect(forbidden.status).toBe(403)
+
+    const wrongGuild = await harness.request('/api/activity/admin/capabilities', 'other-guild-admin', '32', '999999999999999999')
+    expect(await wrongGuild.json()).toEqual({ autosaveCatalog: false, playerDataExport: false })
   })
 
-  test('recognizes both the default and configured Activity data admins', async () => {
-    const harness = await createHarness(' configured-admin, another-admin ')
+  test('recognizes Administrator and Manage Server permissions', async () => {
+    const harness = await createHarness()
 
-    for (const userId of [DEFAULT_ADMIN_ID, 'configured-admin']) {
-      const capabilities = await harness.request('/api/activity/admin/capabilities', userId)
+    for (const [userId, permissions] of [['administrator', '8'], ['manage-server', '32']] as const) {
+      const capabilities = await harness.request('/api/activity/admin/capabilities', userId, permissions)
       expect(capabilities.status).toBe(200)
       expect(await capabilities.json()).toEqual({ autosaveCatalog: true, playerDataExport: true })
 
-      const data = await harness.request('/api/activity/admin/player-data-export', userId)
+      const data = await harness.request('/api/activity/admin/player-data-export', userId, permissions)
       expect(data.status).toBe(200)
       expect((await data.json() as { phase: string }).phase).toBe('players')
     }
@@ -48,11 +57,11 @@ describe('Activity admin routes', () => {
 
   test('rejects malformed and unbounded cursors', async () => {
     const harness = await createHarness()
-    const malformed = await harness.request('/api/activity/admin/player-data-export?cursor=not!base64', DEFAULT_ADMIN_ID)
+    const malformed = await harness.request('/api/activity/admin/player-data-export?cursor=not!base64', ADMIN_USER_ID)
     expect(malformed.status).toBe(400)
     expect(await malformed.json()).toEqual({ error: 'Invalid player data export cursor' })
 
-    const oversized = await harness.request(`/api/activity/admin/player-data-export?cursor=${'a'.repeat(1025)}`, DEFAULT_ADMIN_ID)
+    const oversized = await harness.request(`/api/activity/admin/player-data-export?cursor=${'a'.repeat(1025)}`, ADMIN_USER_ID)
     expect(oversized.status).toBe(400)
 
     const futureCursor = encodeCursor({
@@ -62,7 +71,7 @@ describe('Activity admin routes', () => {
       phase: 'matches',
       lastParentId: null,
     })
-    const future = await harness.request(`/api/activity/admin/player-data-export?cursor=${futureCursor}`, DEFAULT_ADMIN_ID)
+    const future = await harness.request(`/api/activity/admin/player-data-export?cursor=${futureCursor}`, ADMIN_USER_ID)
     expect(future.status).toBe(400)
   })
 
@@ -84,7 +93,7 @@ describe('Activity admin routes', () => {
       const path = cursor == null
         ? '/api/activity/admin/player-data-export'
         : `/api/activity/admin/player-data-export?cursor=${encodeURIComponent(cursor)}`
-      const response = await harness.request(path, DEFAULT_ADMIN_ID)
+      const response = await harness.request(path, ADMIN_USER_ID)
       expect(response.status).toBe(200)
       expect(response.headers.get('Cache-Control')).toBe('no-store')
       const page = await response.json() as Record<string, any>
@@ -149,7 +158,7 @@ describe('Activity admin routes', () => {
   })
 })
 
-async function createHarness(configuredAdminIds?: string) {
+async function createHarness() {
   const { db, sqlite } = await createTestDatabase()
   openDatabases.push(sqlite)
   const app = new Hono<Env>()
@@ -161,16 +170,18 @@ async function createHarness(configuredAdminIds?: string) {
     DISCORD_PUBLIC_KEY: 'a'.repeat(64),
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: SECRET,
-    AUTOSAVE_ADMIN_USER_IDS: configuredAdminIds,
+    ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
   }
 
   return {
     db,
-    request(path: string, userId?: string) {
+    request(path: string, userId?: string, permissions = '8', guildId = GUILD_ID) {
       const headers = new Headers()
       if (userId) {
         headers.set(CIVUP_INTERNAL_SECRET_HEADER, SECRET)
         headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, userId)
+        headers.set(CIVUP_ACTIVITY_GUILD_ID_HEADER, guildId)
+        headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, permissions)
       }
       return app.fetch(new Request(`https://bot.test${path}`, { headers }), env)
     },

@@ -109,7 +109,7 @@ async function startBrowserOAuth(request: Request, env: BrowserAuthEnvironment):
     client_id: config.clientId,
     response_type: 'code',
     redirect_uri: config.callbackUri,
-    scope: 'identify guilds.members.read',
+    scope: 'identify guilds guilds.members.read',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
