@@ -7,7 +7,9 @@ import {
   createPlayerDataWorkbook,
   fetchPlayerDataExport,
   PLAYER_DATA_EXPORT_CONTENT_TYPE,
+  publishPlayerDataExport,
 } from '../src/client/lib/player-data-export'
+import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 
 describe('Activity player data export', () => {
   test('fetches every cursor page sequentially and accumulates progress', async () => {
@@ -52,10 +54,37 @@ describe('Activity player data export', () => {
 
   test('reports authorization and malformed payload failures clearly', async () => {
     const forbiddenFetch = (async () => Response.json({ error: 'Forbidden' }, { status: 403 })) as unknown as typeof fetch
-    await expect(fetchPlayerDataExport({ fetchImpl: forbiddenFetch })).rejects.toThrow('only available to Activity data admins')
+    await expect(fetchPlayerDataExport({ fetchImpl: forbiddenFetch })).rejects.toThrow('only available to server administrators')
 
     const malformedFetch = (async () => Response.json({ phase: 'players', players: [] })) as unknown as typeof fetch
     await expect(fetchPlayerDataExport({ fetchImpl: malformedFetch })).rejects.toThrow('malformed data')
+  })
+
+  test('publishes the completed workbook and builds an authenticated external download URL', async () => {
+    cacheActivitySessionToken('signed-session', 3600)
+    try {
+      const requests: Array<{ input: string, init?: RequestInit }> = []
+      const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ input: String(input), init })
+        return Response.json({ ok: true, filename: 'export-2026-07-15.xlsx', size: 4 })
+      }) as typeof fetch
+      const published = await publishPlayerDataExport({
+        blob: new Blob(['xlsx'], { type: PLAYER_DATA_EXPORT_CONTENT_TYPE }),
+        filename: 'export-2026-07-15.xlsx',
+        source: sampleSource(),
+      }, fetchImpl)
+
+      expect(requests[0]!.input).toBe('/api/uploads/player-data-export?filename=export-2026-07-15.xlsx')
+      expect(new Headers(requests[0]!.init?.headers).get('X-CivUp-Activity-Session')).toBe('signed-session')
+      expect(await new Response(requests[0]!.init?.body).text()).toBe('xlsx')
+      expect(published).toEqual({
+        filename: 'export-2026-07-15.xlsx',
+        url: 'http://localhost/api/uploads/player-data-export/download?activitySession=signed-session',
+      })
+    }
+    finally {
+      clearActivitySessionToken()
+    }
   })
 
   test('builds reduced, deterministic sheets and a valid formula-safe compressed XLSX', async () => {

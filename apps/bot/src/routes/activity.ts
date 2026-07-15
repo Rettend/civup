@@ -113,12 +113,12 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const sessionId = c.req.param('sessionId')
     const db = createDb(c.env.DB)
     const directory = await getActivitySessionByStableId(db, sessionId)
-    if (!directory) return c.json({ error: 'CivUp session not found' }, 404)
+    if (!directory) return c.json({ error: 'Session not found' }, 404)
 
     const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, directory).catch(() => null)
     const session = record ? buildDirectoryEntryFromRecord(record) : directory
     if (session.guildId !== c.env.ALLOWED_DISCORD_GUILD_ID?.trim()) {
-      return c.json({ error: 'CivUp session is not in the configured Discord server' }, 403)
+      return c.json({ error: 'Session is not in the configured Discord server' }, 403)
     }
 
     if (session.phase === 'cancelled') {
@@ -135,7 +135,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const option = record
       ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
       : buildActivityOverviewOptions(session)[0]
-    if (!option) return c.json({ error: 'CivUp session is unavailable' }, 404)
+    if (!option) return c.json({ error: 'Session is unavailable' }, 404)
     const target: ChannelActivityTarget = {
       session,
       balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),

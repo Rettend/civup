@@ -123,7 +123,7 @@ export async function runHealthChecks(env: Env['Bindings'], options: HealthOptio
 }
 
 export function formatHealthReport(results: readonly HealthCheckResult[]): string {
-  return ['CivUp health', ...results.map((result) => {
+  return ['Health check', ...results.map((result) => {
     const reason = result.reason ? ` — ${sanitizeReason(result.reason)}` : ''
     return `${result.status} ${result.name}${reason}`
   })].join('\n')
