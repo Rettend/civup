@@ -4,6 +4,7 @@ import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
+import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
 import { factory } from '../setup.ts'
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
@@ -86,6 +87,20 @@ export const cron_ranked_roles = factory.cron(
       const guildIds = await listRankedRoleConfigGuildIds(kv)
       let syncedGuilds = 0
       for (const guildId of guildIds) {
+        try {
+          const refresh = await refreshRankedRoleDisplayMetadata(kv, guildId, c.env.DISCORD_TOKEN)
+          if (refresh.refreshed) {
+            // eslint-disable-next-line no-console
+            console.log(`[cron] Refreshed ranked role display metadata for guild ${guildId}${refresh.updated ? '' : ' (unchanged)'}`)
+          }
+          if (refresh.missingRoleIds.length > 0) {
+            console.error(`[cron] Ranked role display refresh could not find ${refresh.missingRoleIds.length} configured role(s) in guild ${guildId}`)
+          }
+        }
+        catch (error) {
+          console.error(`[cron] Failed to refresh ranked role display metadata for guild ${guildId}:`, error)
+        }
+
         const result = await syncRankedRoles({
           db,
           kv,

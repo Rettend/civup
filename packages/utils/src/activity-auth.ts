@@ -4,8 +4,10 @@ export const CIVUP_INTERNAL_SECRET_HEADER = 'X-CivUp-Internal-Secret'
 export const CIVUP_ACTIVITY_USER_ID_HEADER = 'X-CivUp-Activity-User-Id'
 export const CIVUP_ACTIVITY_DISPLAY_NAME_HEADER = 'X-CivUp-Activity-Display-Name'
 export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
+export const CIVUP_ACTIVITY_GUILD_ID_HEADER = 'X-CivUp-Activity-Guild-Id'
+export const CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER = 'X-CivUp-Activity-Guild-Permissions'
 
-const ACTIVITY_SESSION_VERSION = 'session.v1'
+const ACTIVITY_SESSION_VERSION = 'session.v2'
 const SESSION_ACCESS_VERSION = 'session-access.v1'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
 const DEFAULT_SESSION_ACCESS_TTL_SECONDS = 8 * 60 * 60
@@ -17,6 +19,8 @@ export interface ActivitySessionClaims {
   sub: string
   name: string
   avatarUrl: string | null
+  guildId: string | null
+  guildPermissions: string | null
   iat: number
   exp: number
 }
@@ -25,6 +29,8 @@ export interface ActivityIdentity {
   userId: string
   displayName: string | null
   avatarUrl: string | null
+  guildId?: string | null
+  guildPermissions?: string | null
 }
 
 export interface SessionAccessClaims {
@@ -49,6 +55,8 @@ export async function createActivitySession(
     sub: identity.userId,
     name: identity.displayName ?? '',
     avatarUrl: identity.avatarUrl ?? null,
+    guildId: identity.guildId ?? null,
+    guildPermissions: identity.guildPermissions ?? null,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
   }
@@ -139,11 +147,15 @@ export function readAuthorizedActivityIdentity(headers: Headers, expectedSecret:
 
   const displayName = decodeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_DISPLAY_NAME_HEADER))
   const avatarUrl = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_AVATAR_URL_HEADER))
+  const guildId = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER))
+  const guildPermissions = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER))
 
   return {
     userId,
     displayName,
     avatarUrl,
+    guildId,
+    guildPermissions,
   }
 }
 
@@ -223,6 +235,11 @@ function isActivitySessionClaims(value: unknown): value is ActivitySessionClaims
   if (typeof claims.sub !== 'string' || claims.sub.trim().length === 0) return false
   if (typeof claims.name !== 'string') return false
   if (claims.avatarUrl !== null && claims.avatarUrl !== undefined && typeof claims.avatarUrl !== 'string') return false
+  if (claims.guildId !== null && typeof claims.guildId !== 'string') return false
+  if (claims.guildPermissions !== null && typeof claims.guildPermissions !== 'string') return false
+  if ((claims.guildId === null) !== (claims.guildPermissions === null)) return false
+  if (typeof claims.guildId === 'string' && claims.guildId.trim().length === 0) return false
+  if (typeof claims.guildPermissions === 'string' && !/^\d+$/.test(claims.guildPermissions)) return false
   if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false
   return true
