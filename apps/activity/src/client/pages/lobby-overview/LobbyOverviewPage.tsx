@@ -167,16 +167,12 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
                 <button
                   type="button"
                   class="text-sm text-emerald-200 font-bold px-4 py-2 border border-emerald-400/35 rounded-full bg-emerald-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(52,211,153,0.16)] transition items-center hover:text-emerald-100 hover:border-emerald-400/60 hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-70"
-                  disabled={props.playerDataExportState?.status === 'loading'}
-                  aria-label={props.playerDataExportState?.status === 'ready' ? 'Download data again' : 'Export data'}
+                  disabled={props.playerDataExportState?.status === 'loading' || props.playerDataExportState?.status === 'estimating'}
+                  aria-label={exportButtonAriaLabel()}
                   onClick={() => props.onExportData?.()}
                 >
-                  <span class={props.playerDataExportState?.status === 'loading' ? 'i-ph-spinner-gap-bold text-lg animate-spin' : 'i-ph-file-xls-bold text-lg'} />
-                  {props.playerDataExportState?.status === 'ready'
-                    ? 'Download Again'
-                    : props.playerDataExportState?.status === 'loading'
-                      ? 'Exporting Data'
-                      : 'Export Data'}
+                  <span class={props.playerDataExportState?.status === 'loading' || props.playerDataExportState?.status === 'estimating' ? 'i-gg:spinner text-lg' : 'i-ph-file-xls-bold text-lg'} />
+                  {exportButtonLabel()}
                 </button>
               </Show>
               <PlayerDataExportStatus state={props.playerDataExportState} />
@@ -240,6 +236,8 @@ function PlayerDataExportStatus(props: { state?: PlayerDataExportState }) {
     const state = props.state
     if (!state || state.status === 'idle' || state.status === 'ready') return null
     if (state.status === 'error') return state.message
+    if (state.status === 'estimating') return 'Estimating export size and capacity...'
+    if (state.status === 'estimate') return exportEstimateMessage(state.estimate)
     if (state.phase === 'players') return `Loading players: ${state.players.toLocaleString()}`
     if (state.phase === 'matches') return `Loading matches: ${state.matches.toLocaleString()}`
     return `Building workbook from ${state.players.toLocaleString()} players and ${state.matches.toLocaleString()} matches...`
@@ -256,7 +254,29 @@ function PlayerDataExportStatus(props: { state?: PlayerDataExportState }) {
   )
 }
 
+<<<<<<< New base: fix: deploy config
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+=======
+function exportEstimateMessage(estimate: Extract<PlayerDataExportState, { status: 'estimate' }>['estimate']): string {
+  const d1Share = formatAllowanceRange(
+    estimate.d1RowsRead.lowEstimate,
+    estimate.d1RowsRead.highEstimate,
+    estimate.dailyFreeAllowance.d1RowsRead,
+  )
+  return `Estimate: ${estimate.rows.players.toLocaleString()} players, ${estimate.rows.matches.toLocaleString()} matches, ${estimate.rows.participants.toLocaleString()} participants; ${estimate.d1RowsRead.lowEstimate.toLocaleString()}-${estimate.d1RowsRead.highEstimate.toLocaleString()} database reads (${d1Share} of the daily allowance).`
+}
+
+function formatAllowanceRange(low: number, high: number, allowance: number): string {
+  const lowPercentage = low / allowance * 100
+  const highPercentage = high / allowance * 100
+  if (highPercentage > 0 && highPercentage < 0.1) return 'under 0.1%'
+  const roundedLow = Math.round(lowPercentage * 10) / 10
+  const roundedHigh = Math.round(highPercentage * 10) / 10
+  return roundedLow === roundedHigh ? `${roundedHigh}%` : `${roundedLow}-${roundedHigh}%`
+}
+
+>>>>>>> Current commit: feat: maintenance do
 function TargetPickerPanel(props: LobbyOverviewPageProps & { mini?: boolean }) {
   return (
     <div class="flex flex-col gap-4">

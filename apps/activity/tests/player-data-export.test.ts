@@ -1,3 +1,4 @@
+<<<<<<< New base: fix: deploy config
 <<<<<<< New base: fix: mod resolve
 import type { PlayerDataExportEstimate, PlayerDataExportSource } from '../src/client/lib/player-data-export'
 import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
@@ -281,6 +282,11 @@ function excelDate(timestampMs: number): { type: 'date', value: number } {
 |||||||
 =======
 import type { PlayerDataExportSource } from '../src/client/lib/player-data-export'
+||||||| Common ancestor
+import type { PlayerDataExportSource } from '../src/client/lib/player-data-export'
+=======
+import type { PlayerDataExportEstimate, PlayerDataExportSource } from '../src/client/lib/player-data-export'
+>>>>>>> Current commit: feat: maintenance do
 import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
 import { describe, expect, test } from 'bun:test'
 import {
@@ -288,12 +294,36 @@ import {
   createPlayerDataExport,
   createPlayerDataWorkbook,
   fetchPlayerDataExport,
+  fetchPlayerDataExportEstimate,
   PLAYER_DATA_EXPORT_CONTENT_TYPE,
   publishPlayerDataExport,
 } from '../src/client/lib/player-data-export'
 import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 
 describe('Activity player data export', () => {
+  test('fetches and validates the cheap export estimate separately from data pages', async () => {
+    const requests: string[] = []
+    const payload = {
+      version: 1,
+      estimatedAt: Date.parse('2026-07-15T12:00:00.000Z'),
+      rows: { players: 1_000, ratings: 4_000, matches: 10_000, participants: 60_000, storedBans: 5_000 },
+      dataPageRequests: 220,
+      workerRequests: 440,
+      d1RowsRead: { lowEstimate: 100_000, highEstimate: 230_000 },
+      dailyFreeAllowance: { workerRequests: 100_000, d1RowsRead: 5_000_000 },
+    } satisfies PlayerDataExportEstimate
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      return Response.json(payload)
+    }) as typeof fetch
+
+    expect(await fetchPlayerDataExportEstimate(fetchImpl)).toEqual(payload)
+    expect(requests).toEqual(['/api/activity/admin/player-data-export-estimate'])
+
+    const malformedFetch = (async () => Response.json({ ...payload, workerRequests: -1 })) as unknown as typeof fetch
+    await expect(fetchPlayerDataExportEstimate(malformedFetch)).rejects.toThrow('malformed data')
+  })
+
   test('fetches every cursor page sequentially and accumulates progress', async () => {
     const generatedAt = Date.parse('2026-07-15T12:00:00.000Z')
     const requests: string[] = []

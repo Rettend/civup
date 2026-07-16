@@ -107,6 +107,7 @@ describe('LobbyOverviewPage UI', () => {
       />
     ))
     expect(screen.getByText('Loading matches: 12')).toBeTruthy()
+<<<<<<< New base: fix: deploy config
     const loadingButton = screen.getByRole('button', { name: 'Export data' })
     expect(loadingButton.hasAttribute('disabled')).toBe(true)
     expect(loadingButton.querySelector('span')?.className).toContain('i-gg:spinner')
@@ -196,6 +197,14 @@ describe('LobbyOverviewPage UI', () => {
     ))
     expect(screen.getByText('Loading matches: 12')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Export data' }).hasAttribute('disabled')).toBe(true)
+||||||| Common ancestor
+    expect(screen.getByRole('button', { name: 'Export data' }).hasAttribute('disabled')).toBe(true)
+=======
+    const loadingButton = screen.getByRole('button', { name: 'Export data' })
+    expect(loadingButton.hasAttribute('disabled')).toBe(true)
+    expect(loadingButton.querySelector('span')?.className).toContain('i-gg:spinner')
+    expect(loadingButton.querySelector('span')?.className).not.toContain('animate-spin')
+>>>>>>> Current commit: feat: maintenance do
 
     document.body.innerHTML = ''
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
@@ -222,7 +231,38 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('export-2026-07-15.xlsx is ready.')).toBeTruthy()
   })
 
+<<<<<<< New base: fix: deploy config
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+=======
+  test('shows the cheap capacity estimate before confirming an export', () => {
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{
+          status: 'estimate',
+          estimate: {
+            version: 1,
+            estimatedAt: Date.parse('2026-07-15T12:00:00.000Z'),
+            rows: { players: 1_000, ratings: 4_000, matches: 10_000, participants: 60_000, storedBans: 5_000 },
+            dataPageRequests: 220,
+            workerRequests: 440,
+            d1RowsRead: { lowEstimate: 100_000, highEstimate: 230_000 },
+            dailyFreeAllowance: { workerRequests: 100_000, d1RowsRead: 5_000_000 },
+          },
+        }}
+      />
+    ))
+
+    expect(screen.getByText(/Estimate: 1,000 players, 10,000 matches, 60,000 participants/)).toBeTruthy()
+    expect(screen.getByText(/100,000-230,000 database reads \(2-4.6% of the daily allowance\)/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm data export' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+  })
+
+>>>>>>> Current commit: feat: maintenance do
   test('shows closed lobby cards under the open filter', () => {
     const openLobby = createActivityTargetOption({ id: 'open-lobby', status: 'open' })
     const closedLobby = createActivityTargetOption({ id: 'closed-lobby', status: 'closed', players: [{ playerId: 'host-closed', displayName: 'Closed Host', avatarUrl: null }] })

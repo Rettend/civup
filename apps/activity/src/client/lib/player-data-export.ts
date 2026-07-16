@@ -1049,6 +1049,7 @@ import { buildActivitySessionHeaders, getActivitySessionToken } from './activity
 export const PLAYER_DATA_EXPORT_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const EXPORT_ENDPOINT = '/api/activity/admin/player-data-export'
+const EXPORT_ESTIMATE_ENDPOINT = '/api/activity/admin/player-data-export-estimate'
 const EXPORT_UPLOAD_ENDPOINT = '/api/uploads/player-data-export'
 const EXPORT_VERSION = 1
 const EXPORT_PARENT_PAGE_SIZE = 50
@@ -1127,6 +1128,8 @@ export type PlayerDataExportProgress = {
 
 export type PlayerDataExportState
   = | { status: 'idle' }
+    | { status: 'estimating' }
+    | { status: 'estimate', estimate: PlayerDataExportEstimate }
     | ({ status: 'loading' } & PlayerDataExportProgress)
     | {
       status: 'ready'
@@ -1135,7 +1138,29 @@ export type PlayerDataExportState
       players: number
       matches: number
     }
-    | { status: 'error', message: string }
+    | { status: 'error', message: string, retry: 'estimate' | 'export' }
+
+export interface PlayerDataExportEstimate {
+  version: typeof EXPORT_VERSION
+  estimatedAt: number
+  rows: {
+    players: number
+    ratings: number
+    matches: number
+    participants: number
+    storedBans: number
+  }
+  dataPageRequests: number
+  workerRequests: number
+  d1RowsRead: {
+    lowEstimate: number
+    highEstimate: number
+  }
+  dailyFreeAllowance: {
+    workerRequests: number
+    d1RowsRead: number
+  }
+}
 
 export interface PlayerDataExportFile {
   blob: Blob
@@ -1166,6 +1191,21 @@ interface ExportRequestOptions {
 export interface PublishedPlayerDataExport {
   filename: string
   url: string
+}
+
+export async function fetchPlayerDataExportEstimate(fetchImpl: typeof fetch = fetch): Promise<PlayerDataExportEstimate> {
+  const response = await fetchImpl(EXPORT_ESTIMATE_ENDPOINT, {
+    cache: 'no-store',
+    headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
+  })
+  if (response.status === 401) throw new Error('Your session expired. Reopen the Activity and try the export again.')
+  if (response.status === 403) throw new Error('Player data export is only available to server administrators.')
+
+  const payload: unknown = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(readPayloadError(payload) ?? `Player data export estimate failed (${response.status}).`)
+  const estimate = parseExportEstimate(payload)
+  if (!estimate) throw new Error('Player data export estimate returned malformed data.')
+  return estimate
 }
 
 interface ExportPageBase {
@@ -1802,6 +1842,50 @@ function parseExportPage(payload: unknown): ExportPage | null {
   return { ...base, phase: 'matches', matches: payload.matches, participants: payload.participants, bans: payload.bans }
 }
 
+function parseExportEstimate(payload: unknown): PlayerDataExportEstimate | null {
+  if (!hasExactKeys(payload, ['version', 'estimatedAt', 'rows', 'dataPageRequests', 'workerRequests', 'd1RowsRead', 'dailyFreeAllowance'])) return null
+  if (payload.version !== EXPORT_VERSION || !isSafeTimestamp(payload.estimatedAt)) return null
+  if (!hasExactKeys(payload.rows, ['players', 'ratings', 'matches', 'participants', 'storedBans'])) return null
+  if (!hasExactKeys(payload.d1RowsRead, ['lowEstimate', 'highEstimate'])) return null
+  if (!hasExactKeys(payload.dailyFreeAllowance, ['workerRequests', 'd1RowsRead'])) return null
+
+  if (!isNonnegativeSafeInteger(payload.rows.players)
+    || !isNonnegativeSafeInteger(payload.rows.ratings)
+    || !isNonnegativeSafeInteger(payload.rows.matches)
+    || !isNonnegativeSafeInteger(payload.rows.participants)
+    || !isNonnegativeSafeInteger(payload.rows.storedBans)
+    || !isNonnegativeSafeInteger(payload.dataPageRequests)
+    || !isNonnegativeSafeInteger(payload.workerRequests)
+    || !isNonnegativeSafeInteger(payload.d1RowsRead.lowEstimate)
+    || !isNonnegativeSafeInteger(payload.d1RowsRead.highEstimate)
+    || !isNonnegativeSafeInteger(payload.dailyFreeAllowance.workerRequests)
+    || !isNonnegativeSafeInteger(payload.dailyFreeAllowance.d1RowsRead)) return null
+  if (payload.dataPageRequests === 0 || payload.dailyFreeAllowance.workerRequests === 0 || payload.dailyFreeAllowance.d1RowsRead === 0) return null
+  if (payload.d1RowsRead.highEstimate < payload.d1RowsRead.lowEstimate) return null
+
+  return {
+    version: EXPORT_VERSION,
+    estimatedAt: payload.estimatedAt,
+    rows: {
+      players: payload.rows.players,
+      ratings: payload.rows.ratings,
+      matches: payload.rows.matches,
+      participants: payload.rows.participants,
+      storedBans: payload.rows.storedBans,
+    },
+    dataPageRequests: payload.dataPageRequests,
+    workerRequests: payload.workerRequests,
+    d1RowsRead: {
+      lowEstimate: payload.d1RowsRead.lowEstimate,
+      highEstimate: payload.d1RowsRead.highEstimate,
+    },
+    dailyFreeAllowance: {
+      workerRequests: payload.dailyFreeAllowance.workerRequests,
+      d1RowsRead: payload.dailyFreeAllowance.d1RowsRead,
+    },
+  }
+}
+
 function assertCanAppendPage(source: PlayerDataExportSource, page: ExportPage): void {
   assertSourceRowLimits({
     players: { length: source.players.length + (page.phase === 'players' ? page.players.length : 0) },
@@ -1906,6 +1990,10 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
 
 function isSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value)
+}
+
+function isNonnegativeSafeInteger(value: unknown): value is number {
+  return isSafeInteger(value) && value >= 0
 }
 
 function isNullableSafeInteger(value: unknown): value is number | null {

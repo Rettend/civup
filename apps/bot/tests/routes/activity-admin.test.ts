@@ -348,12 +348,19 @@ describe('Activity admin routes', () => {
     expect(unauthenticated.status).toBe(401)
     expect(unauthenticated.headers.get('Cache-Control')).toBe('no-store')
 
+    const unauthenticatedEstimate = await harness.request('/api/activity/admin/player-data-export-estimate')
+    expect(unauthenticatedEstimate.status).toBe(401)
+    expect(unauthenticatedEstimate.headers.get('Cache-Control')).toBe('no-store')
+
     const capabilities = await harness.request('/api/activity/admin/capabilities', 'ordinary-user', '0')
     expect(capabilities.status).toBe(200)
     expect(await capabilities.json()).toEqual({ autosaveCatalog: false, playerDataExport: false })
 
     const forbidden = await harness.request('/api/activity/admin/player-data-export', 'ordinary-user', '0')
     expect(forbidden.status).toBe(403)
+
+    const forbiddenEstimate = await harness.request('/api/activity/admin/player-data-export-estimate', 'ordinary-user', '0')
+    expect(forbiddenEstimate.status).toBe(403)
 
     const wrongGuild = await harness.request('/api/activity/admin/capabilities', 'other-guild-admin', '32', '999999999999999999')
     expect(await wrongGuild.json()).toEqual({ autosaveCatalog: false, playerDataExport: false })
@@ -391,6 +398,36 @@ describe('Activity admin routes', () => {
     })
     const future = await harness.request(`/api/activity/admin/player-data-export?cursor=${futureCursor}`, ADMIN_USER_ID)
     expect(future.status).toBe(400)
+  })
+
+  test('estimates export capacity from row ID upper bounds without counting tables', async () => {
+    const harness = await createHarness()
+    await seedPagedExport(harness.db)
+
+    const response = await harness.request('/api/activity/admin/player-data-export-estimate', ADMIN_USER_ID)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(await response.json()).toEqual({
+      version: 1,
+      estimatedAt: expect.any(Number),
+      rows: {
+        players: 54,
+        ratings: 53,
+        matches: 54,
+        participants: 53,
+        storedBans: 1,
+      },
+      dataPageRequests: 4,
+      workerRequests: 8,
+      d1RowsRead: {
+        lowEstimate: 330,
+        highEstimate: 1_100,
+      },
+      dailyFreeAllowance: {
+        workerRequests: 100_000,
+        d1RowsRead: 5_000_000,
+      },
+    })
   })
 
   test('paginates without gaps, transitions phases, bounds children, and projects safe fields', async () => {
