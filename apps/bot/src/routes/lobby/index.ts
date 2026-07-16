@@ -4,7 +4,7 @@ import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
 import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
-import { createSessionAccessToken, isDev } from '@civup/utils'
+import { createSessionAccessToken } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
@@ -181,7 +181,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
     return new Response(null, { status: 204 })
   })
 
@@ -1425,7 +1425,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) {
       return c.json({ error: 'Not found' }, 404)
     }
 
@@ -2042,10 +2042,9 @@ function openLobbyMessageRenderStateChanged(
 }
 
 export function isDebugLobbyFillEnabled(
-  requestUrl: string,
   enabled: string | undefined,
 ): boolean {
-  return isTruthyEnvFlag(enabled) && isDev({ host: requestUrl })
+  return isTruthyEnvFlag(enabled)
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
