@@ -21,7 +21,7 @@
     "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
     "deploy:prod": "bun run deploy",
     "deploy:alternate": "bun run build:alternate && wrangler deploy --config wrangler.alternate.json",
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets --config wrangler.json"
+    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --config wrangler.json"
   },
   "dependencies": {
     "@civup/game": "workspace:*",
