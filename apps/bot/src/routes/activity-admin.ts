@@ -6,6 +6,8 @@ import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity }
 
 const EXPORT_VERSION = 1
 const EXPORT_PAGE_SIZE = 50
+const FREE_D1_ROWS_READ_PER_DAY = 5_000_000
+const FREE_WORKER_REQUESTS_PER_DAY = 100_000
 const MAX_RATINGS_PER_PAGE = 1_000
 const MAX_PARTICIPANTS_PER_PAGE = 2_000
 const MAX_BANS_PER_PAGE = 5_000
@@ -28,6 +30,14 @@ interface ExportBanRow {
   civId: string
   bannedBy: string
   phase: number
+}
+
+interface ExportRowUpperBounds {
+  players: number
+  ratings: number
+  matches: number
+  participants: number
+  storedBans: number
 }
 
 export function registerActivityAdminRoutes(app: Hono<Env>) {
@@ -57,6 +67,69 @@ export function registerActivityAdminRoutes(app: Hono<Env>) {
       ? playerExportPage(c, cursor)
       : matchExportPage(c, cursor)
   })
+
+  app.get('/api/activity/admin/player-data-export-estimate', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
+
+    const rows = await loadExportRowUpperBounds(c.env.DB)
+    const dataPageRequests = Math.max(1, Math.ceil(rows.players / EXPORT_PAGE_SIZE))
+      + Math.max(1, Math.ceil(rows.matches / EXPORT_PAGE_SIZE))
+    const sourceRows = rows.players + rows.ratings + rows.matches + rows.participants + rows.storedBans
+    // Legacy draft JSON expands by ban count, so bracket its cost with conservative per-match multipliers.
+    const d1LowEstimate = roundUpEstimate(sourceRows + rows.matches * 2)
+    const d1HighEstimate = roundUpEstimate(sourceRows + rows.matches * 15 + rows.storedBans)
+
+    return c.json({
+      version: EXPORT_VERSION,
+      estimatedAt: Date.now(),
+      rows,
+      dataPageRequests,
+      workerRequests: dataPageRequests * 2,
+      d1RowsRead: {
+        lowEstimate: d1LowEstimate,
+        highEstimate: Math.max(d1LowEstimate, d1HighEstimate),
+      },
+      dailyFreeAllowance: {
+        workerRequests: FREE_WORKER_REQUESTS_PER_DAY,
+        d1RowsRead: FREE_D1_ROWS_READ_PER_DAY,
+      },
+    })
+  })
+}
+
+async function loadExportRowUpperBounds(d1: D1Database): Promise<ExportRowUpperBounds> {
+  const row = await d1.prepare(`
+    SELECT
+      COALESCE((SELECT MAX(rowid) FROM players), 0) AS players,
+      COALESCE((SELECT MAX(rowid) FROM player_ratings), 0) AS ratings,
+      COALESCE((SELECT MAX(rowid) FROM matches), 0) AS matches,
+      COALESCE((SELECT MAX(rowid) FROM match_participants), 0) AS participants,
+      COALESCE((SELECT MAX(rowid) FROM match_bans), 0) AS storedBans
+  `).bind().first<Record<keyof ExportRowUpperBounds, unknown>>()
+  if (!row) throw new Error('Player data export estimate returned no data')
+
+  return {
+    players: parseRowUpperBound(row.players),
+    ratings: parseRowUpperBound(row.ratings),
+    matches: parseRowUpperBound(row.matches),
+    participants: parseRowUpperBound(row.participants),
+    storedBans: parseRowUpperBound(row.storedBans),
+  }
+}
+
+function parseRowUpperBound(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('Player data export estimate returned invalid data')
+  return parsed
+}
+
+function roundUpEstimate(value: number): number {
+  if (value <= 0) return 0
+  const unit = 10 ** Math.max(0, Math.floor(Math.log10(value)) - 1)
+  return Math.ceil(value / unit) * unit
 }
 
 async function playerExportPage(c: Context<Env>, cursor: ExportCursor) {

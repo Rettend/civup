@@ -4,6 +4,7 @@ export interface Env {
     KV: KVNamespace
     AUTOSAVE_UPLOADS?: R2Bucket
     Activity?: DurableObjectNamespace
+    MaintenanceDO?: DurableObjectNamespace
     SessionDO?: DurableObjectNamespace
     DISCORD_APPLICATION_ID: string
     DISCORD_PUBLIC_KEY: string

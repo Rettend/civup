@@ -42,12 +42,16 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
-  version: 7
+  version: 8
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
     inactiveLobbyCleanupCronRunsPerDay: number
     rankedRoleCronRunsPerDay: number
+    rankedRoleRetryCronRunsPerDay: number
+    maintenanceDoRequestsPerDay: number
+    estimatedMaintenanceSyncDoGbSecondsPerRun: number
+    estimatedMaintenanceRetryDoGbSecondsPerRun: number
     architectureModel: string
     currentArchitectureModel: string
     targetArchitectureModel: string

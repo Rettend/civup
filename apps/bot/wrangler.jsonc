@@ -31,6 +31,10 @@
       {
         "name": "SessionDO",
         "class_name": "SessionDO"
+      },
+      {
+        "name": "MaintenanceDO",
+        "class_name": "MaintenanceDO"
       }
     ]
   },
@@ -43,6 +47,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["Activity"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["MaintenanceDO"]
     }
   ],
 
@@ -73,7 +81,7 @@
     "crons": [
       "0 * * * *", // every hour
       "*/15 * * * *", // every 15 minutes
-      "0 0 * * *" // every day at 0:00 UTC
+      "0 0,2,4,6,8,10,12,14,16,18,20 * * *" // daily ranked role sync and retries
     ]
   },
 
