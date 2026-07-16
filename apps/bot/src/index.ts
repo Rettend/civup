@@ -4,6 +4,7 @@ import { routePartykitRequest } from 'partyserver'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
 import { registerApiRoutes } from './routes/index.ts'
+import { MaintenanceDO } from './maintenance/maintenance-do.ts'
 import { Activity } from './session-runtime/activity-feed.ts'
 import { SessionDO } from './session-runtime/session-do.ts'
 import { factory } from './setup.ts'
@@ -24,7 +25,7 @@ const discordApp = factory.discord().loader([
 
 const app = new Hono<Env>()
 
-export { Activity, SessionDO }
+export { Activity, MaintenanceDO, SessionDO }
 
 app.onError((error, c) => {
   console.error('[bot:unhandled]', c.req.method, new URL(c.req.url).pathname, error)
