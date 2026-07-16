@@ -16,7 +16,7 @@
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",
     "register:ppl": "bun --env-file=.ppl.secrets src/register.ts",
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
+    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts bot .prod.secrets --config wrangler.jsonc",
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
