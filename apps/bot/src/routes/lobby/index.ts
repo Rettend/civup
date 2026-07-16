@@ -151,6 +151,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
+<<<<<<< New base: feat: export data in activity
 <<<<<<< New base: fix: mod resolve
     if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
 ||||||| Common ancestor
@@ -158,6 +159,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 =======
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+=======
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+>>>>>>> Current commit: fix: deploy config
     return new Response(null, { status: 204 })
   })
 
@@ -1401,6 +1407,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
+<<<<<<< New base: feat: export data in activity
 <<<<<<< New base: fix: mod resolve
     if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) {
 ||||||| Common ancestor
@@ -1408,6 +1415,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 =======
     if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+    if (!isDebugLobbyFillEnabled(c.req.url, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+=======
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+>>>>>>> Current commit: fix: deploy config
       return c.json({ error: 'Not found' }, 404)
     }
 
@@ -2030,10 +2042,10 @@ function isDebugLobbyFillEnabled(
   forceEnabled: string | undefined,
 =======
 export function isDebugLobbyFillEnabled(
-  requestUrl: string,
   enabled: string | undefined,
 >>>>>>> Current commit: chore: cleanup and simplify setup
 ): boolean {
+<<<<<<< New base: feat: export data in activity
 <<<<<<< New base: fix: mod resolve
   return isTruthyEnvFlag(enabled)
 ||||||| Common ancestor
@@ -2041,6 +2053,11 @@ export function isDebugLobbyFillEnabled(
 =======
   return isTruthyEnvFlag(enabled) && isDev({ host: requestUrl })
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+  return isTruthyEnvFlag(enabled) && isDev({ host: requestUrl })
+=======
+  return isTruthyEnvFlag(enabled)
+>>>>>>> Current commit: fix: deploy config
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {

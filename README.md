@@ -239,6 +239,7 @@ cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
 cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
 ```
 
+<<<<<<< New base: feat: export data in activity
 <<<<<<< New base: fix: mod resolve
 The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
 ||||||| Common ancestor
@@ -246,6 +247,11 @@ Inactivity cleanup:
 =======
 The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
 >>>>>>> Current commit: chore: cleanup and simplify setup
+||||||| Common ancestor
+The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
+=======
+The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
+>>>>>>> Current commit: fix: deploy config
 
 ```bash
 bun run bot:secrets:prod

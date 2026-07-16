@@ -31,7 +31,7 @@
     "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
     "deploy:prod": "bun run deploy",
     "deploy:ppl": "bun run build:ppl && wrangler deploy --config wrangler.ppl.json",
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets --config wrangler.json"
+    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --config wrangler.json"
 >>>>>>> Current commit: chore: cleanup and simplify setup
   },
   "dependencies": {
