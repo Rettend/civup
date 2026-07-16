@@ -780,11 +780,36 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const exportPlayerData = async () => {
     if (!canExportPlayerData()) return
     const currentState = playerDataExportState()
-    if (currentState.status === 'loading') return
+    if (currentState.status === 'loading' || currentState.status === 'estimating') return
     if (currentState.status === 'ready') {
       await openPlayerDataExportDownload(currentState.url)
       return
     }
+
+    const shouldEstimate = currentState.status === 'idle'
+      || (currentState.status === 'error' && currentState.retry === 'estimate')
+    if (shouldEstimate) {
+      const requestVersion = ++playerDataExportRequestVersion
+      setPlayerDataExportState({ status: 'estimating' })
+      try {
+        const { fetchPlayerDataExportEstimate } = await import('../lib/player-data-export')
+        const estimate = await fetchPlayerDataExportEstimate()
+        if (requestVersion === playerDataExportRequestVersion) setPlayerDataExportState({ status: 'estimate', estimate })
+      }
+      catch (error) {
+        if (requestVersion !== playerDataExportRequestVersion) return
+        setPlayerDataExportState({
+          status: 'error',
+          retry: 'estimate',
+          message: error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : 'Player data export estimate failed.',
+        })
+      }
+      return
+    }
+
+    if (currentState.status !== 'estimate' && !(currentState.status === 'error' && currentState.retry === 'export')) return
 
     const requestVersion = ++playerDataExportRequestVersion
     const existingExport = pendingPlayerDataExport
@@ -833,6 +858,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       if (requestVersion !== playerDataExportRequestVersion) return
       setPlayerDataExportState({
         status: 'error',
+        retry: 'export',
         message: error instanceof Error && error.message.trim().length > 0
           ? error.message
           : 'Player data export failed.',
