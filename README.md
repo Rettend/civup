@@ -17,13 +17,13 @@ No privileged Discord Gateway intents are needed.
 
 Do this once for each Discord app.
 
-1. Copy the **Application ID**, **Public Key**, bot token, and OAuth client secret from the Developer Portal.
-2. Under **Installation**, enable Guild Install with the `applications.commands` and `bot` scopes.
-3. Give the bot View Channels, Send Messages, Embed Links, Attach Files, and Manage Roles.
+1. Under **General Information**, copy the **Application ID** and **Public Key**. Copy the token from **Bot** and the client secret from **OAuth2**.
+2. Under **Installation**, enable **Guild Install** under **Installation Contexts**. **User Install** is optional. Select **Discord Provided Link**, then add the `applications.commands` and `bot` scopes under **Default Install Settings** > **Guild Install**.
+3. In the Guild Install bot permissions, select View Channels, Send Messages, Embed Links, Attach Files, and Manage Roles.
 4. After installing it, keep the CivUp bot role above every role it manages.
-5. Enable Activities and Activity Web support. Keep Discord's global **Launch** command.
-6. Add the Activity origin itself and `<activity origin>/api/auth/discord/callback` as OAuth redirects.
-7. Add a root (`/`) Activity URL mapping to the Activity origin.
+5. Under **Activities** > **Settings**, turn on **Enable Activities** and select **Supported Platforms** > **Web**. Keep Discord's global **Launch** command.
+6. Under **OAuth2** > **Redirects**, add the Activity origin itself and `<activity origin>/api/auth/discord/callback`.
+7. Under **Activities** > **URL Mappings**, add prefix `/` with the Activity hostname as its target. The target must omit `https://`.
 
 Use the development app only with local tunnels. Use the production app only with deployed Workers.
 
@@ -70,7 +70,7 @@ Use the development app only with local tunnels. Use the production app only wit
    bun run dev:new
    ```
 
-6. In the development Discord app, set the Interactions Endpoint URL to the bot tunnel URL. Set the redirects and root Activity mapping to the Activity tunnel URL.
+6. In the development Discord app, set the Interactions Endpoint URL to the bot tunnel URL. Add the Activity tunnel origin and callback under **OAuth2** > **Redirects**, then map `/` under **Activities** > **URL Mappings** to the Activity tunnel hostname without `https://`.
 7. Install the development app in the configured server, then register its guild commands.
 
    ```bash
@@ -90,9 +90,11 @@ Pick the Cloudflare account first. Confirm it with `bunx wrangler whoami`, then 
 - `apps/bot/wrangler.jsonc`
 - `apps/activity/wrangler.json`
 
-The account ID, guild ID, and Activity origin must match. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID. Replace the checked-in `DISCORD_PUBLIC_KEY` placeholder in the bot config with the production app's 64-character public key before deploying.
+The account ID, guild ID, and Activity origin must match. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID, and the bot `DISCORD_PUBLIC_KEY` must be that app's 64-character public key.
 
-Keep the Activity `BOT` service binding pointed at the bot Worker's `name`. Production traffic does not use a public bot host.
+Find or change the account's `workers.dev` subdomain on the Cloudflare **Workers & Pages** page under **Your subdomain**. With the checked-in Worker names, the Activity origin is `https://civup-activity.<account subdomain>.workers.dev`.
+
+Keep the Activity `BOT` service binding pointed at the bot Worker's `name`. Activity-to-bot traffic uses this binding; Discord interactions still use the bot Worker's public URL.
 
 ### 2. Create Cloudflare storage
 
@@ -103,19 +105,13 @@ bun run bot:d1:create
 bun run bot:kv:create
 ```
 
-Saved-game uploads are optional. To enable them, keep the `AUTOSAVE_UPLOADS` R2 binding and create its bucket once:
+Autosave uploads are optional. To enable this niche feature, keep the `AUTOSAVE_UPLOADS` R2 binding and create its bucket once:
 
 ```bash
 bun run bot:r2:create
 ```
 
-To disable uploads, remove the `r2_buckets` block. Everything else keeps working and `/admin health` reports a warning. Durable Objects are created automatically when the bot Worker deploys.
-
-Failed and abandoned multipart uploads keep a D1 cleanup record. The bot retries cleanup in the background and during the hourly cleanup job, so recovery does not depend on the browser staying open.
-
-Each member may have one multipart upload in progress and retain up to 100 saved-game uploads or 2 GiB, whichever comes first. Individual zip files are limited to 512 MiB; an admin can delete older uploads to free quota.
-
-Migration `0022` removes legacy non-uploaded catalog rows because those rows predate persisted multipart IDs. Any corresponding pre-migration R2 objects or multipart fragments require bucket lifecycle or manual cleanup; completed uploaded rows are preserved.
+Otherwise, remove the `r2_buckets` block. The rest of the bot works normally and `/admin health` reports only a warning. Durable Objects are created automatically when the bot Worker deploys.
 
 ### 3. Upload the small secret set
 
@@ -141,13 +137,13 @@ For the first deployment, run:
 bun run deploy:prod
 ```
 
-The command keeps the existing order: remote D1 migration, bot deploy, Activity build, then Activity deploy. Check the public Wrangler values and replace the bot public-key placeholder before running it.
+The command keeps the existing order: remote D1 migration, bot deploy, Activity build, then Activity deploy. Check the public Wrangler values before running it.
 
 After both URLs exist:
 
-1. set the production Interactions Endpoint URL to the bot Worker URL;
-2. add the Activity origin and browser callback OAuth redirects;
-3. add the root Activity URL mapping;
+1. under **General Information**, set **Interactions Endpoint URL** to the bot Worker URL;
+2. under **OAuth2** > **Redirects**, add the Activity origin and browser callback;
+3. under **Activities** > **URL Mappings**, map `/` to the Activity hostname without `https://`;
 4. install the app in the configured server;
 5. register guild commands with `bun run bot:register:prod`.
 
@@ -193,7 +189,3 @@ Daily ranked-role sync at 00:00 UTC:
 ```bash
 curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=0+0+%2A+%2A+%2A"
 ```
-
-## Cleaning up old remote values
-
-After the new deployment passes its smoke tests, explicitly delete the obsolete public bot-host setting, R2 account/bucket vars, and R2 upload-key secrets from both Workers in Cloudflare. Revoke the old R2 API token and remove any old `/r2-upload` Discord URL mapping. This repository never changes deployed Worker settings for you.
