@@ -174,6 +174,43 @@ describe('DraftPage UI', () => {
     expect(screen.getByRole('button', { name: 'Open leader grid' })).toBeTruthy()
   })
 
+  test('offers one shared mod after a standard CivBlitz draft completes', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createCompleteDraftState({
+      formatId: 'civblitz-ffa',
+      civBlitz: createCivBlitzState(true),
+    })
+
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+
+    expect(screen.getByRole('button', { name: 'Download match mod' })).toBeTruthy()
+    expect(screen.getByText('Everyone installs this same mod.')).toBeTruthy()
+  })
+
+  test('does not offer a broken mod download for BBG Expanded or spectators', () => {
+    let unmount = () => {}
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createCompleteDraftState({
+      formatId: 'civblitz-ffa',
+      civBlitz: createCivBlitzState(false),
+    })
+
+    ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />))
+    expect(screen.getByText('Shared mod download is not available for BBG Expanded drafts.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Download match mod' })).toBeNull()
+
+    unmount()
+    uiMockState.isSpectator = true
+    uiMockState.draftState = createCompleteDraftState({
+      formatId: 'civblitz-ffa',
+      civBlitz: createCivBlitzState(true),
+    })
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    expect(screen.queryByRole('button', { name: 'Download match mod' })).toBeNull()
+  })
+
   test('supports selecting the winning team from the completed draft page slot strip', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.userId = 'host-1'
@@ -303,3 +340,30 @@ describe('DraftPage UI', () => {
     expect(onSwitchTarget).toHaveBeenCalledTimes(1)
   })
 })
+
+function createCivBlitzState(excludeBbgExpanded: boolean): NonNullable<ReturnType<typeof createCompleteDraftState>['civBlitz']> {
+  const options = {
+    civilizationAbility: ['civblitz:civilizationAbility:america'],
+    leaderAbility: ['civblitz:leaderAbility:rome-trajan'],
+    infrastructure: ['civblitz:infrastructure:hansa'],
+    unit: ['civblitz:unit:mamluk'],
+  }
+  return {
+    optionCount: 4,
+    excludeBbgExpanded,
+    componentPools: options,
+    optionsBySeat: { 0: options },
+    submissions: {},
+    lockedKits: {
+      0: {
+        civilizationAbility: options.civilizationAbility[0],
+        leaderAbility: options.leaderAbility[0],
+        infrastructure: options.infrastructure[0],
+        unit: options.unit[0],
+      },
+    },
+    reveal: null,
+    conflictBans: [],
+    maxRedrafts: 3,
+  }
+}

@@ -28,6 +28,30 @@ const BBG_EXPANDED_CIV_BLITZ_SOURCE_LEADER_IDS = [
   'tibet-trisong-detsen',
 ] as const satisfies readonly string[]
 
+// These remain resolvable for persisted drafts, but cannot be dealt as independent
+// components because they are unsafe, aliases, or already granted by another card.
+const UNDRAFTABLE_CIV_BLITZ_COMPONENT_IDS = new Set([
+  'civblitz:civilizationAbility:babylon',
+  'civblitz:civilizationAbility:byzantium',
+  'civblitz:infrastructure:copacabana',
+  'civblitz:infrastructure:feitoria',
+  'civblitz:infrastructure:p',
+  'civblitz:infrastructure:qhapaq-an',
+  'civblitz:infrastructure:queens-bibliotheque',
+  'civblitz:leaderAbility:france-eleanor-of-aquitaine-france',
+  'civblitz:leaderAbility:mongolia-kublai-khan-mongolia',
+  'civblitz:unit:black-army',
+  'civblitz:unit:comandante-general',
+  'civblitz:unit:hetairos',
+  'civblitz:unit:janissary',
+  'civblitz:unit:p-51-mustang',
+  'civblitz:unit:redcoat',
+  'civblitz:unit:rough-rider',
+  'civblitz:unit:tagma',
+  'civblitz:unit:u-boat',
+  'civblitz:unit:viking-longship',
+])
+
 const CIVILIZATION_ICON_FILES: Record<string, string> = {
   America: 'American.png',
   Arabia: 'Arabian.png',
@@ -121,7 +145,7 @@ export function getCivBlitzRegistry(
     if (componentMap.has(component.id)) return
     componentMap.set(component.id, component)
     components.push(component)
-    pools[component.category].push(component.id)
+    if (!UNDRAFTABLE_CIV_BLITZ_COMPONENT_IDS.has(component.id)) pools[component.category].push(component.id)
   }
 
   const civAbilityCivilizations = new Set<string>()
@@ -181,7 +205,8 @@ export function getCivBlitzComponentIds(
   version: LeaderDataVersion = 'live',
   options: { excludeBbgExpanded?: boolean } = {},
 ): string[] {
-  return getCivBlitzRegistry(version, options).components.map(component => component.id)
+  const pools = getCivBlitzRegistry(version, options).componentPools
+  return CIV_BLITZ_CATEGORIES.flatMap(category => pools[category])
 }
 
 export function getCivBlitzStepCategories(step: Pick<DraftStep, 'civBlitzCategories' | 'civBlitzCategoriesBySeat'>, seatIndex: number): CivBlitzComponentCategory[] {

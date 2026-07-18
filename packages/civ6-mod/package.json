@@ -1,0 +1,19 @@
+{
+  "name": "@civup/civ6-mod",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "bun@1.3.7",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsgo --noEmit",
+    "generate": "bun ./scripts/generate-catalog.ts",
+    "test": "bun test",
+    "vendor:upstream": "bun ./scripts/vendor-upstream.ts"
+  },
+  "dependencies": {
+    "@civup/game": "workspace:*"
+  }
+}

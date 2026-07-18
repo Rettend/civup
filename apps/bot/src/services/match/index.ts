@@ -1,5 +1,5 @@
 export { pruneAbandonedMatches } from './cleanup.ts'
-export { getCompletedAtFromDraftData, getHiddenDraftFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
+export { getCivBlitzFromDraftData, getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 export { handleDraftLifecyclePayload } from './draft-lifecycle.ts'
 export { activateDraftMatch, cancelDraftMatch, createDraftMatch } from './draft.ts'
 export { createManualReportedMatch } from './manual.ts'
