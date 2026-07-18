@@ -1,0 +1,5 @@
+Civ Blitz
+https://github.com/rossturner/civ-blitz
+Commit: 413d329664183ab13b5f889df0bea62dc2131131
+
+These are the minimum source resources used to reproduce @civup/civ6-mod data.
