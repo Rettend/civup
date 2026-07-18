@@ -945,7 +945,7 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
   try {
     createdMessage = await createChannelMessage(env.DISCORD_TOKEN, draftChannelId, {
       embeds: [embed],
-      components: [],
+      components: lobbyComponents(mode, lobbyId),
       allowed_mentions: { parse: [] },
     })
     createdLobby = await createLobby(kv, {
@@ -974,13 +974,6 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     const lobby = reusedExisting && steamLobbyLink !== null
       ? (await setLobbySteamLobbyLink(kv, reconciledLobby.id, steamLobbyLink, reconciledLobby, { db, sessionNamespace: env.SessionDO }) ?? reconciledLobby)
       : reconciledLobby
-
-    if (!reusedExisting) {
-      await upsertLobbyMessage(kv, env.DISCORD_TOKEN, lobby, {
-        embeds: [embed],
-        components: lobbyComponents(mode, lobby.id),
-      }, { db, sessionNamespace: env.SessionDO })
-    }
 
     if (reusedExisting) {
       return {
@@ -1040,6 +1033,9 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     if (recovery === 'recovered') {
       return { kind: 'message', message: `Lobby was created in <#${draftChannelId}>, but a follow-up update failed. I kept the lobby message; use \`/match bump\` if it looks stale.`, tone: 'info' }
     }
+    if (recovery === 'repair-failed') {
+      return { kind: 'message', message: `Lobby was created in <#${draftChannelId}> with Join and Browse available, but a follow-up repair failed. Use \`/match bump\` if the message looks stale.`, tone: 'info' }
+    }
     if (recovery === 'unknown') {
       return { kind: 'message', message: `Failed to finish creating the lobby, and I could not confirm whether Cloudflare saved it. I left the Discord message in <#${draftChannelId}> instead of deleting it; retry or use \`/match bump\` if the lobby appears.`, tone: 'error' }
     }
@@ -1047,7 +1043,7 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
   }
 }
 
-type CreatedMatchLobbyRecovery = 'recovered' | 'unknown' | 'missing'
+type CreatedMatchLobbyRecovery = 'recovered' | 'repair-failed' | 'unknown' | 'missing'
 
 async function recoverCreatedMatchLobbyMessage(input: {
   env: Env['Bindings']
@@ -1071,6 +1067,7 @@ async function recoverCreatedMatchLobbyMessage(input: {
   }
   catch (error) {
     console.error(`Failed to repair created lobby message ${input.createdMessageId} for lobby ${input.lobbyId}:`, error)
+    return 'repair-failed'
   }
 
   return 'recovered'
