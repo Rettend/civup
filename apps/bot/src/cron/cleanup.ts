@@ -2,6 +2,7 @@ import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
+<<<<<<< New base: fix: keep lobby join buttons available
 <<<<<<< New base: fix: deploy config
 <<<<<<< New base: chore: cleanup and simplify setup
 import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
@@ -17,12 +18,18 @@ import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
 =======
 import { requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
 >>>>>>> Current commit: feat: maintenance do
+||||||| Common ancestor
+import { requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
+=======
+import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
+>>>>>>> Current commit: fix: move leaderboard to DO
 import { factory } from '../setup.ts'
 <<<<<<< New base: fix: mod resolve
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
 ||||||| Common ancestor
 
+<<<<<<< New base: fix: keep lobby join buttons available
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
 const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
 =======
@@ -38,6 +45,11 @@ const RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE = 16
 =======
 >>>>>>> Current commit: feat: maintenance do
 
+||||||| Common ancestor
+const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
+
+=======
+>>>>>>> Current commit: fix: move leaderboard to DO
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
   async (c) => {
