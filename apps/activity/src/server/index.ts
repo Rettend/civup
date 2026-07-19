@@ -6,10 +6,13 @@ import {
   CIVUP_ACTIVITY_SESSION_HEADER,
   CIVUP_ACTIVITY_SESSION_QUERY_PARAM,
   CIVUP_ACTIVITY_USER_ID_HEADER,
+  CIVUP_CIVBLITZ_DOWNLOAD_TICKET_QUERY_PARAM,
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
+  createCivBlitzDownloadTicket,
   isDev,
   verifyActivitySession,
+  verifyCivBlitzDownloadTicket,
 } from '@civup/utils'
 import { BROWSER_SESSION_COOKIE, clearBrowserSessionCookie, handleBrowserOAuthRequest, hasExactBrowserOrigin, readCookie, resolveBrowserAccessConfiguration } from './browser-auth.ts'
 import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
@@ -39,7 +42,7 @@ interface ActivityProxySession {
   avatarUrl: string | null
   guildId: string | null
   guildPermissions: string | null
-  source: 'header' | 'query' | 'cookie'
+  source: 'header' | 'query' | 'cookie' | 'download-ticket'
 }
 
 export default {
@@ -63,6 +66,9 @@ export default {
       }
       if (url.pathname.startsWith('/api/browser/')) {
         return await handleBrowserBootstrap(request, url, env)
+      }
+      if (request.method === 'POST' && getCivBlitzDownloadTicketMatchId(url.pathname)) {
+        return await handleCivBlitzDownloadTicket(request, url, env)
       }
       if (
         url.pathname.startsWith('/api/activity/')
@@ -160,7 +166,7 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
-    const session = await requireActivitySession(request, env)
+    const session = await resolveMatchProxySession(request, url, env)
     if (session instanceof Response) return session
     const originError = validateCookieAuthenticatedRequest(request, session, env)
     if (originError) return originError
@@ -201,6 +207,52 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
   }
 }
 
+async function handleCivBlitzDownloadTicket(request: Request, url: URL, env: Env): Promise<Response> {
+  const matchId = getCivBlitzDownloadTicketMatchId(url.pathname)
+  if (!matchId) return json({ error: 'Invalid CivBlitz download ticket request' }, 400)
+
+  const session = await requireActivitySession(request, env)
+  if (session instanceof Response) return session
+  const originError = validateCookieAuthenticatedRequest(request, session, env)
+  if (originError) return originError
+
+  const secret = env.CIVUP_SECRET?.trim() ?? ''
+  if (!secret) return json({ error: 'Activity auth is not configured' }, 503)
+
+  const ticket = await createCivBlitzDownloadTicket(secret, { userId: session.userId, matchId })
+  const response = json({ ticket, expiresIn: 2 * 60 })
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
+async function resolveMatchProxySession(request: Request, url: URL, env: Env): Promise<ActivityProxySession | Response> {
+  const matchId = request.method === 'GET' ? getCivBlitzDownloadMatchId(url.pathname) : null
+  const ticket = matchId ? url.searchParams.get(CIVUP_CIVBLITZ_DOWNLOAD_TICKET_QUERY_PARAM) : null
+  if (!matchId) return requireActivitySession(request, env)
+  if (!ticket) {
+    if (!url.searchParams.has(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)) return requireActivitySession(request, env)
+    const response = json({ error: 'A scoped download ticket is required' }, 401)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
+
+  const claims = await verifyCivBlitzDownloadTicket(env.CIVUP_SECRET, ticket, { matchId })
+  if (!claims) {
+    const response = json({ error: 'Invalid or expired download ticket' }, 401)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
+
+  return {
+    userId: claims.sub,
+    displayName: null,
+    avatarUrl: null,
+    guildId: null,
+    guildPermissions: null,
+    source: 'download-ticket',
+  }
+}
+
 function isNullBodyStatus(status: number): boolean {
   return status === 204 || status === 205 || status === 304
 }
@@ -211,6 +263,7 @@ function shouldStreamProxyResponse(request: Request, url: URL, response: Respons
     && (
       (url.pathname.startsWith('/api/uploads/') && url.pathname.endsWith('/download'))
       || url.pathname === '/api/activity/admin/player-data-export'
+      || /^\/api\/match\/[^/]+\/civblitz\/download$/.test(url.pathname)
     )
 }
 
@@ -456,8 +509,28 @@ function validateCookieAuthenticatedRequest(request: Request, session: ActivityP
 function buildTargetPath(url: URL, pathname = url.pathname): string {
   const searchParams = new URLSearchParams(url.search)
   searchParams.delete(CIVUP_ACTIVITY_SESSION_QUERY_PARAM)
+  searchParams.delete(CIVUP_CIVBLITZ_DOWNLOAD_TICKET_QUERY_PARAM)
   const search = searchParams.toString()
   return `${pathname}${search ? `?${search}` : ''}`
+}
+
+function getCivBlitzDownloadTicketMatchId(pathname: string): string | null {
+  return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download-ticket$/, pathname)
+}
+
+function getCivBlitzDownloadMatchId(pathname: string): string | null {
+  return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download$/, pathname)
+}
+
+function decodePathMatch(pattern: RegExp, pathname: string): string | null {
+  const encoded = pattern.exec(pathname)?.[1]
+  if (!encoded) return null
+  try {
+    return decodeURIComponent(encoded)
+  }
+  catch {
+    return null
+  }
 }
 
 function json(data: unknown, status = 200): Response {

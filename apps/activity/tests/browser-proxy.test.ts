@@ -2,6 +2,7 @@ import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
   CIVUP_ACTIVITY_SESSION_HEADER,
+  CIVUP_ACTIVITY_USER_ID_HEADER,
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
@@ -112,6 +113,52 @@ describe('browser cookie proxy', () => {
     expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER)).toBe('32')
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.headers.get('ETag')).toBe('page-etag')
+  })
+
+  test('streams CivBlitz ZIP downloads through a short-lived match-scoped ticket', async () => {
+    const forwarded: Request[] = []
+    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const bytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0x80, 0x01])
+    const upstream = new Response(bytes, {
+      headers: {
+        'Content-Disposition': 'attachment; filename="civblitz-match.zip"',
+        'Content-Length': String(bytes.byteLength),
+        'Content-Type': 'application/zip',
+        ETag: 'mod-etag',
+      },
+    })
+
+    const ticketResponse = await activityWorker.fetch(new Request(`${ORIGIN}/api/match/match-1/civblitz/download-ticket`, {
+      method: 'POST',
+      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+    }), createEnv(forwarded, upstream))
+    const ticketPayload = await ticketResponse.json<{ ticket: string }>()
+    expect(ticketResponse.status).toBe(200)
+    expect(typeof ticketPayload.ticket).toBe('string')
+
+    const response = await activityWorker.fetch(new Request(
+      `${ORIGIN}/api/match/match-1/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
+    ), createEnv(forwarded, upstream))
+
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
+    expect(response.headers.get('Content-Type')).toBe('application/zip')
+    expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="civblitz-match.zip"')
+    expect(response.headers.get('Content-Length')).toBe(String(bytes.byteLength))
+    expect(response.headers.get('ETag')).toBe('mod-etag')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(new URL(forwarded[0]!.url).pathname).toBe('/api/match/match-1/civblitz/download')
+    expect(new URL(forwarded[0]!.url).search).toBe('')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
+
+    const wrongMatch = await activityWorker.fetch(new Request(
+      `${ORIGIN}/api/match/match-2/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
+    ), createEnv([], upstream))
+    expect(wrongMatch.status).toBe(401)
+
+    const reusableSessionUrl = await activityWorker.fetch(new Request(
+      `${ORIGIN}/api/match/match-1/civblitz/download?activitySession=${encodeURIComponent(token)}`,
+    ), createEnv([], upstream))
+    expect(reusableSessionUrl.status).toBe(401)
   })
 
   test('returns browser identity without exposing the session and clears logout only for exact origin', async () => {
