@@ -65,6 +65,11 @@ export function generateCivBlitzModZip(input: CivBlitzModInput): Uint8Array {
   return createStoredZip(generateCivBlitzModFiles(input).files)
 }
 
+export function generateCivBlitzModArchive(input: CivBlitzModInput): GeneratedCivBlitzModFiles & { data: Uint8Array } {
+  const generated = generateCivBlitzModFiles(input)
+  return { ...generated, data: createStoredZip(generated.files) }
+}
+
 function validateInput(value: CivBlitzModInput): CivBlitzModInput {
   if (!value || typeof value !== 'object') invalid('The CivBlitz mod request must be an object.')
   const matchId = validText(value.matchId, 'matchId', 256)
