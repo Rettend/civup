@@ -77,6 +77,7 @@ interface DiscordDmChannelResponse {
 
 interface DiscordErrorPayload {
   retry_after?: number
+  code?: number
 }
 
 const MAX_DISCORD_RETRIES = 2
@@ -84,12 +85,15 @@ const MAX_DISCORD_RETRIES = 2
 export class DiscordApiError extends Error {
   status: number
   detail: string
+  code?: number
 
   constructor(action: string, status: number, detail: string) {
     super(`Discord ${action} failed: ${status} ${detail}`)
     this.name = 'DiscordApiError'
     this.status = status
     this.detail = detail
+    const code = parseDiscordErrorPayload(detail)?.code
+    this.code = typeof code === 'number' ? code : undefined
   }
 }
 
@@ -97,6 +101,10 @@ export function isDiscordApiError(error: unknown, status?: number): error is Dis
   if (!(error instanceof DiscordApiError)) return false
   if (status == null) return true
   return error.status === status
+}
+
+export function isDiscordApiErrorCode(error: unknown, code: number): error is DiscordApiError {
+  return error instanceof DiscordApiError && error.code === code
 }
 
 export async function createChannelMessage(
@@ -283,6 +291,21 @@ export async function deleteChannelMessage(
       headers: {
         Authorization: `Bot ${token}`,
       },
+    },
+  )
+}
+
+export async function unarchiveThread(token: string, channelId: string): Promise<void> {
+  await requestDiscord(
+    'unarchive thread',
+    `https://discord.com/api/v10/channels/${channelId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bot ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archived: false }),
     },
   )
 }

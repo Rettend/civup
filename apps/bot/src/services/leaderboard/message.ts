@@ -6,7 +6,7 @@ import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { eq, inArray } from 'drizzle-orm'
 import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
-import { createChannelMessage, createChannelMessageWithFile, deleteChannelMessage, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
+import { createChannelMessage, createChannelMessageWithFile, deleteChannelMessage, editChannelMessage, editChannelMessageWithFile, isDiscordApiError, isDiscordApiErrorCode, unarchiveThread } from '../discord/index.ts'
 import { loadAvatarDataUris } from '../image/avatar.ts'
 import {
   getSystemChannel,
@@ -120,14 +120,14 @@ export async function archiveSeasonLeaderboards(
     const existing = await getLeaderboardMessageState(db, image.scope)
     if (existing?.channelId === leaderboardChannelId) {
       try {
-        await editChannelMessageWithFile({
+        await withArchivedThreadRecovery(token, leaderboardChannelId, () => editChannelMessageWithFile({
           token,
           channelId: leaderboardChannelId,
           messageId: existing.messageId,
           filename: image.filename,
           contentType: 'image/png',
           data: image.data,
-        })
+        }))
         continue
       }
       catch (error) {
@@ -135,13 +135,13 @@ export async function archiveSeasonLeaderboards(
       }
     }
 
-    await createChannelMessageWithFile({
+    await withArchivedThreadRecovery(token, leaderboardChannelId, () => createChannelMessageWithFile({
       token,
       channelId: leaderboardChannelId,
       filename: image.filename,
       contentType: 'image/png',
       data: image.data,
-    })
+    }))
   }
 
   await upsertLeaderboardMessagesForChannel(db, kv, token, leaderboardChannelId, {
@@ -364,10 +364,10 @@ async function upsertScopedLeaderboardMessage(
 
   if (previousMessageId) {
     try {
-      await editChannelMessage(token, channelId, previousMessageId, {
+      await withArchivedThreadRecovery(token, channelId, () => editChannelMessage(token, channelId, previousMessageId, {
         content: null,
         embeds,
-      })
+      }))
 
       const state: LeaderboardMessageState = {
         channelId,
@@ -382,7 +382,7 @@ async function upsertScopedLeaderboardMessage(
     }
   }
 
-  const created = await createChannelMessage(token, channelId, { embeds })
+  const created = await withArchivedThreadRecovery(token, channelId, () => createChannelMessage(token, channelId, { embeds }))
   const state: LeaderboardMessageState = {
     channelId,
     messageId: created.id,
@@ -408,14 +408,14 @@ async function upsertScopedLeaderboardImageMessage(
 
   if (previousMessageId) {
     try {
-      await editChannelMessageWithFile({
+      await withArchivedThreadRecovery(token, channelId, () => editChannelMessageWithFile({
         token,
         channelId,
         messageId: previousMessageId,
         filename,
         contentType: 'image/png',
         data,
-      })
+      }))
 
       const state: LeaderboardMessageState = {
         channelId,
@@ -430,13 +430,13 @@ async function upsertScopedLeaderboardImageMessage(
     }
   }
 
-  const created = await createChannelMessageWithFile({
+  const created = await withArchivedThreadRecovery(token, channelId, () => createChannelMessageWithFile({
     token,
     channelId,
     filename,
     contentType: 'image/png',
     data,
-  })
+  }))
   const state: LeaderboardMessageState = {
     channelId,
     messageId: created.id,
@@ -457,7 +457,7 @@ async function deleteUnusedCivLeaderboardMessages(
     const existing = await getLeaderboardMessageState(db, scope)
     if (existing?.channelId === channelId) {
       try {
-        await deleteChannelMessage(token, channelId, existing.messageId)
+        await withArchivedThreadRecovery(token, channelId, () => deleteChannelMessage(token, channelId, existing.messageId))
       }
       catch (error) {
         if (!isDiscordApiError(error, 404)) throw error
@@ -471,13 +471,24 @@ async function deleteLeaderboardMessage(db: Database, token: string, channelId: 
   const existing = await getLeaderboardMessageState(db, scope)
   if (existing?.channelId === channelId) {
     try {
-      await deleteChannelMessage(token, channelId, existing.messageId)
+      await withArchivedThreadRecovery(token, channelId, () => deleteChannelMessage(token, channelId, existing.messageId))
     }
     catch (error) {
       if (!isDiscordApiError(error, 404)) throw error
     }
   }
   await deleteLeaderboardMessageState(db, scope)
+}
+
+async function withArchivedThreadRecovery<T>(token: string, channelId: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action()
+  }
+  catch (error) {
+    if (!isDiscordApiErrorCode(error, 50083)) throw error
+    await unarchiveThread(token, channelId)
+    return action()
+  }
 }
 
 function getDirtyScopes(options: MarkLeaderboardsDirtyOptions | undefined): string[] {
