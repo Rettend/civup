@@ -4,7 +4,7 @@ import type { CivLeaderboardModeScope } from './civ-snapshot.ts'
 import type { LeaderboardDirtyState, LeaderboardMessageState, SystemChannelType } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
 import { createChannelMessage, createChannelMessageWithFile, deleteChannelMessage, editChannelMessage, editChannelMessageWithFile, isDiscordApiError, isDiscordApiErrorCode, unarchiveThread } from '../discord/index.ts'
 import { loadAvatarDataUris } from '../image/avatar.ts'
@@ -56,7 +56,13 @@ export async function markLeaderboardsDirty(db: Database, reason: string, option
       dirtyAt,
       reason: normalizedReason,
     })))
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: leaderboardDirtyStates.scope,
+      set: {
+        dirtyAt: sql`max(${leaderboardDirtyStates.dirtyAt}, excluded.dirty_at)`,
+        reason: sql`case when excluded.dirty_at >= ${leaderboardDirtyStates.dirtyAt} then excluded.reason else ${leaderboardDirtyStates.reason} end`,
+      },
+    })
 
   const [state] = await listLeaderboardDirtyStates(db, scopes)
   return state ?? {
