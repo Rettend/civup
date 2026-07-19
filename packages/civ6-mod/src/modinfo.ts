@@ -42,7 +42,6 @@ export function generateModInfo(input: ModInfoInput): string {
     <Name>${xmlEscape(input.title)}</Name>
     <Description>${xmlEscape(input.description)}</Description>
     <Teaser>${xmlEscape(input.description)}</Teaser>
-    <Authors>Rocket Jump Technology and contributors</Authors>
     <CompatibleVersions>2.0</CompatibleVersions>
   </Properties>
   <Dependencies>

@@ -27,17 +27,16 @@ const MAX_SEATS = 64
 
 export function generateCivBlitzModFiles(input: CivBlitzModInput): GeneratedCivBlitzModFiles {
   const normalized = validateInput(input)
-  const identity = canonicalIdentity(normalized)
+  const canonicalSeats = canonicalizeSeats(normalized.seats)
+  const identity = canonicalIdentity(normalized, canonicalSeats)
   const digest = sha1Hex(identity)
   const modId = civBlitzModUuid(identity)
   const artId = civBlitzModUuid(`${identity}\0art`)
-  const seats = resolveSeats(normalized.seats, identity)
-  const archiveFilename = `civblitz-${archiveSlug(normalized.matchName)}-${digest.slice(0, 12)}.zip`
+  const seats = resolveSeats(canonicalSeats, identity)
+  const archiveFilename = `civblitz-match-${digest.slice(0, 12)}.zip`
   const modInfoPath = `CivBlitz-${digest.slice(0, 12)}.modinfo`
-  const title = normalized.matchName ? `CivBlitz - ${normalized.matchName}` : `CivBlitz - ${digest.slice(0, 8)}`
-  const description = normalized.matchName
-    ? `Combined CivBlitz seat kits for ${normalized.matchName}.`
-    : `Combined CivBlitz seat kits for match ${normalized.matchId}.`
+  const title = `CivBlitz leaders mod for match ${normalized.matchId}`
+  const description = title
 
   const files: CivBlitzModFile[] = [
     { path: 'Art.dep', content: generateArtDep(`CivBlitz${digest.slice(0, 12)}`, artId) },
@@ -52,7 +51,7 @@ export function generateCivBlitzModFiles(input: CivBlitzModInput): GeneratedCivB
     { path: 'Gameplay.sql', content: generateGameplaySql(seats) },
     { path: 'Icons.sql', content: generateIconsSql(seats) },
     { path: 'Locale.sql', content: generateLocaleSql(seats) },
-    { path: 'NOTICE.txt', content: noticeText() },
+    { path: 'LICENSE.txt', content: upstreamLicenseText },
     { path: 'lua/LeaderScene_layeredBg.lua', content: leaderSceneLua },
   ]
   const paths = files.map(file => file.path).sort()
@@ -73,7 +72,6 @@ export function generateCivBlitzModArchive(input: CivBlitzModInput): GeneratedCi
 function validateInput(value: CivBlitzModInput): CivBlitzModInput {
   if (!value || typeof value !== 'object') invalid('The CivBlitz mod request must be an object.')
   const matchId = validText(value.matchId, 'matchId', 256)
-  const matchName = value.matchName == null ? undefined : validText(value.matchName, 'matchName', 120)
   if (value.leaderDataVersion !== 'live' && value.leaderDataVersion !== 'beta') invalid('leaderDataVersion must be live or beta.')
   if (typeof value.excludeBbgExpanded !== 'boolean') invalid('excludeBbgExpanded must be a boolean.')
   if (!value.excludeBbgExpanded) {
@@ -121,7 +119,7 @@ function validateInput(value: CivBlitzModInput): CivBlitzModInput {
     }
     return { seatIndex: position, displayName, kit }
   })
-  return { matchId, ...(matchName ? { matchName } : {}), leaderDataVersion: value.leaderDataVersion, excludeBbgExpanded: true, seats }
+  return { matchId, leaderDataVersion: value.leaderDataVersion, excludeBbgExpanded: true, seats }
 }
 
 function resolveSeats(seats: readonly CivBlitzModSeatInput[], identity: string): ResolvedCivBlitzModSeat[] {
@@ -158,13 +156,23 @@ function requiredComponent(id: string): CivBlitzModComponentMetadata {
   return component
 }
 
-function canonicalIdentity(input: CivBlitzModInput): string {
+function canonicalizeSeats(seats: readonly CivBlitzModSeatInput[]): CivBlitzModSeatInput[] {
+  return [...seats]
+    .sort((left, right) => compareText(kitIdentity(left), kitIdentity(right)))
+    .map((seat, seatIndex) => ({ ...seat, seatIndex }))
+}
+
+function kitIdentity(seat: CivBlitzModSeatInput): string {
+  return CATEGORIES.map(category => seat.kit[category]).join('\0')
+}
+
+function canonicalIdentity(input: CivBlitzModInput, seats: readonly CivBlitzModSeatInput[]): string {
   return JSON.stringify({
-    format: 1,
+    format: 2,
     matchId: input.matchId,
     leaderDataVersion: input.leaderDataVersion,
     excludeBbgExpanded: input.excludeBbgExpanded,
-    seats: input.seats.map(seat => ({
+    seats: seats.map(seat => ({
       seatIndex: seat.seatIndex,
       kit: CATEGORIES.map(category => seat.kit[category]),
     })),
@@ -178,33 +186,6 @@ function validText(value: unknown, field: string, maxLength: number): string {
     invalid(`${field} must contain between 1 and ${maxLength} valid text characters.`)
   }
   return trimmed
-}
-
-function archiveSlug(value: string | undefined): string {
-  if (!value) return 'match'
-  const slug = value.normalize('NFKD')
-    .replace(/[\u0300-\u036F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-    .replace(/-+$/g, '')
-  return slug || 'match'
-}
-
-function noticeText(): string {
-  return `CivBlitz generator attribution
-================================
-
-The normal four-component generator behavior, catalog data, SQL fixes, art aliases,
-and LeaderScene integration are copied or substantially derived from Civ Blitz:
-https://github.com/rossturner/civ-blitz
-commit 413d329664183ab13b5f889df0bea62dc2131131.
-
-The LeaderScene integration retains its in-file Firaxis copyright notice.
-
-${upstreamLicenseText}
-`
 }
 
 function invalid(message: string): never {

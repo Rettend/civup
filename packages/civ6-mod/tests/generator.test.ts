@@ -5,7 +5,6 @@ import { CivBlitzModError, generateCivBlitzModFiles, generateCivBlitzModZip } fr
 
 const singleInput = {
   matchId: 'match-42',
-  matchName: 'Friday Final',
   leaderDataVersion: 'live',
   excludeBbgExpanded: true,
   seats: [{
@@ -22,7 +21,6 @@ const singleInput = {
 
 const multiInput = {
   matchId: '9007199254740991',
-  matchName: 'Grand <Final> & "Invitational"',
   leaderDataVersion: 'beta',
   excludeBbgExpanded: true,
   seats: [
@@ -59,7 +57,7 @@ describe('@civup/civ6-mod generator', () => {
     const paths = generated.files.map(file => file.path)
     const modInfoPath = paths.find(path => path.endsWith('.modinfo'))
 
-    expect(generated.archiveFilename).toMatch(/^civblitz-friday-final-[a-f0-9]{12}\.zip$/)
+    expect(generated.archiveFilename).toMatch(/^civblitz-match-[a-f0-9]{12}\.zip$/)
     expect(generated.modId).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-5[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
     expect(paths).toEqual([...paths].sort())
     expect(paths).toEqual([
@@ -75,8 +73,8 @@ describe('@civup/civ6-mod generator', () => {
       'Frontend.sql',
       'Gameplay.sql',
       'Icons.sql',
+      'LICENSE.txt',
       'Locale.sql',
-      'NOTICE.txt',
       'lua/LeaderScene_layeredBg.lua',
     ])
     expect(paths.filter(path => path.endsWith('.modinfo'))).toHaveLength(1)
@@ -93,6 +91,9 @@ describe('@civup/civ6-mod generator', () => {
     expect(frontend).toContain('\'UNIT_AMERICAN_ROUGH_RIDER\'')
     expect(frontend).toContain('\'DISTRICT_HANSA\'')
     expect(frontend).toContain('\'UNIT_ARABIAN_MAMLUK\'')
+    expect(frontend.indexOf('\'UNIT_ARABIAN_MAMLUK\'')).toBeLessThan(frontend.indexOf('\'DISTRICT_HANSA\''))
+    expect(textFile(generated.files, 'Locale.sql')).toContain('Roosevelt Corollary (Ejército Patriota)')
+    expect(textFile(generated.files, 'Locale.sql')).not.toContain('Alice')
     expect(leaderArt).toContain(blpEntryXml(
       'Leader_BLP_Entry',
       'LEAD_AMER_TheodoreRoughRider',
@@ -160,6 +161,18 @@ describe('@civup/civ6-mod generator', () => {
     expect(modInfo.match(/<File>Art\.dep<\/File>/g)).toHaveLength(2)
   })
 
+  test('produces the same shared mod before and after players swap kits', () => {
+    const swapped = structuredClone(multiInput) as CivBlitzModInput
+    const firstKit = swapped.seats[0]!.kit
+    swapped.seats[0]!.kit = swapped.seats[1]!.kit
+    swapped.seats[1]!.kit = firstKit
+    swapped.seats[0]!.displayName = 'Different Player One'
+    swapped.seats[1]!.displayName = 'Different Player Two'
+
+    expect(generateCivBlitzModFiles(swapped)).toEqual(generateCivBlitzModFiles(multiInput))
+    expect(generateCivBlitzModZip(swapped)).toEqual(generateCivBlitzModZip(multiInput))
+  })
+
   test('emits every player item represented by a selected trait', () => {
     const input = structuredClone(singleInput) as CivBlitzModInput
     input.seats[0]!.kit.infrastructure = 'civblitz:infrastructure:street-carnival'
@@ -180,26 +193,37 @@ describe('@civup/civ6-mod generator', () => {
     expect(() => generateCivBlitzModFiles(streetCarnivalAliases)).toThrow('TRAIT_CIVILIZATION_STREET_CARNIVAL')
   })
 
-  test('escapes SQL and XML while keeping IDs independent of display names', () => {
+  test('keeps player names out of generated files and attributes upstream code only in the license', () => {
     const generated = generateCivBlitzModFiles(multiInput)
     const locale = textFile(generated.files, 'Locale.sql')
     const modInfo = textFile(generated.files, generated.files.find(file => file.path.endsWith('.modinfo'))!.path)
-    const notice = textFile(generated.files, 'NOTICE.txt')
+    const license = textFile(generated.files, 'LICENSE.txt')
     const renamed = generateCivBlitzModFiles({
       ...multiInput,
-      matchName: 'A different display name',
       seats: multiInput.seats.map((seat, index) => ({ ...seat, displayName: `Renamed ${index}` })),
     })
 
-    expect(locale).toContain('O\'\'Connor <&>')
-    expect(locale).toContain('Zoë & Co.')
-    expect(modInfo).toContain('Grand &lt;Final&gt; &amp; &quot;Invitational&quot;')
-    expect(modInfo).not.toContain('Grand <Final>')
-    expect(modInfo).toContain('<Authors>Rocket Jump Technology and contributors</Authors>')
-    for (const visibleText of [modInfo, locale, notice]) expect(visibleText).not.toMatch(/CivUp|—/)
+    expect(locale).toContain('Trajan\'\'s Column (Founding Fathers)')
+    expect(locale).toContain('Catherine\'\'s Flying Squadron (The Last Prophet)')
+    expect(locale).not.toContain('O\'\'Connor <&>')
+    expect(locale).not.toContain('Zoë & Co.')
+    expect(modInfo).toContain('<Name>CivBlitz leaders mod for match 9007199254740991</Name>')
+    expect(modInfo).toContain('<Description>CivBlitz leaders mod for match 9007199254740991</Description>')
+    expect(modInfo).toContain('<Teaser>CivBlitz leaders mod for match 9007199254740991</Teaser>')
+    expect(modInfo).not.toContain('<Authors>')
+    for (const visibleText of [modInfo, locale]) expect(visibleText).not.toMatch(/CivUp|Rocket Jump Technology|—/)
+    expect(license).toContain('Copyright (c) 2021 Rocket Jump Technology')
     expect(renamed.modId).toBe(generated.modId)
     expect(customIds(textFile(renamed.files, 'Gameplay.sql'))).toEqual(customIds(textFile(generated.files, 'Gameplay.sql')))
-    expect(renamed.archiveFilename.split('-').at(-1)).toBe(generated.archiveFilename.split('-').at(-1))
+    expect(renamed).toEqual(generated)
+  })
+
+  test('escapes the match ID in modinfo text', () => {
+    const generated = generateCivBlitzModFiles({ ...singleInput, matchId: 'match-<&"' })
+    const modInfo = textFile(generated.files, generated.files.find(file => file.path.endsWith('.modinfo'))!.path)
+
+    expect(modInfo).toContain('CivBlitz leaders mod for match match-&lt;&amp;&quot;')
+    expect(modInfo).not.toContain('match-<&"')
   })
 
   test('returns safe typed validation errors', () => {
