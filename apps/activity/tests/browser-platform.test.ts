@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildActivitySessionHeaders, cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
+import { openExternalLink } from '../src/client/platform/external-links'
 import { bootstrapBrowserSession } from '../src/client/platform/browser-platform'
 import { configureClientPlatform, getAuthTransport } from '../src/client/platform/runtime'
 
 const originalFetch = globalThis.fetch
+const originalOpen = window.open
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  window.open = originalOpen
   clearActivitySessionToken()
   configureClientPlatform('discord-embedded', 'token')
 })
@@ -37,5 +40,17 @@ describe('browser client platform', () => {
 
     configureClientPlatform('discord-embedded', 'token')
     expect(buildActivitySessionHeaders().get('X-CivUp-Activity-Session')).toBe('embedded-secret')
+  })
+
+  test('treats one web navigation attempt as definitive even when noopener returns null', async () => {
+    const opened: string[] = []
+    window.open = ((url?: string | URL) => {
+      opened.push(String(url))
+      return null
+    }) as typeof window.open
+    configureClientPlatform('web', 'cookie')
+
+    await expect(openExternalLink('https://example.com/download')).resolves.toBe(true)
+    expect(opened).toEqual(['https://example.com/download'])
   })
 })
