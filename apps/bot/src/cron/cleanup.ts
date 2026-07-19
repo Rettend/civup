@@ -1,14 +1,11 @@
 import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
-import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
 import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
-import { requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
+import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../maintenance/maintenance-client.ts'
 import { factory } from '../setup.ts'
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
-
-const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
@@ -57,14 +54,9 @@ export const cron_cleanup = factory.cron(
 export const cron_leaderboards = factory.cron(
   '*/15 * * * *', // every 15 minutes
   async (c) => {
-    const db = createDb(c.env.DB)
-    const kv = getKvStore(c.env)
     try {
-      const refreshed = await refreshDirtyLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
-        minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
-        playerModeLimit: 1,
-      })
-      if (refreshed) {
+      const result = await requestLeaderboardMaintenance(c.env.MaintenanceDO)
+      if (result.refreshed) {
         // eslint-disable-next-line no-console
         console.log('[cron] Refreshed dirty leaderboards')
       }
