@@ -56,6 +56,7 @@
       "name": "civup-bot",
       "version": "0.0.0",
       "dependencies": {
+        "@civup/civ6-mod": "workspace:*",
         "@civup/civ6-save-metadata": "workspace:*",
         "@civup/db": "workspace:*",
         "@civup/game": "workspace:*",
@@ -76,6 +77,13 @@
         "@types/node": "^25.2.1",
         "unicode-emoji-json": "^0.9.0",
         "wrangler": "^4.22.0",
+      },
+    },
+    "packages/civ6-mod": {
+      "name": "@civup/civ6-mod",
+      "version": "0.0.0",
+      "dependencies": {
+        "@civup/game": "workspace:*",
       },
     },
     "packages/civ6-save-metadata": {
@@ -179,6 +187,8 @@
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
     "@civup/analyzer": ["@civup/analyzer@workspace:packages/civup-analyzer"],
+
+    "@civup/civ6-mod": ["@civup/civ6-mod@workspace:packages/civ6-mod"],
 
     "@civup/civ6-save-metadata": ["@civup/civ6-save-metadata@workspace:packages/civ6-save-metadata"],
 

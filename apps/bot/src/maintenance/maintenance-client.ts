@@ -1,4 +1,5 @@
 import type { RankedRoleMaintenanceAction, RankedRoleMaintenanceResult } from './ranked-role-maintenance.ts'
+import type { CivBlitzModInput } from '@civup/civ6-mod'
 
 const MAINTENANCE_OBJECT_NAME = 'global'
 
@@ -20,6 +21,20 @@ export async function requestLeaderboardMaintenance(
   const result = await response.json<LeaderboardMaintenanceResult>()
   if (typeof result.refreshed !== 'boolean') throw new Error('Leaderboard maintenance returned an invalid response')
   return result
+}
+
+export async function requestCivBlitzModArchive(
+  namespace: DurableObjectNamespace | null | undefined,
+  input: CivBlitzModInput,
+): Promise<Response> {
+  if (!namespace) throw new Error('MaintenanceDO binding is required')
+
+  const stub = namespace.get(namespace.idFromName(`civblitz:${input.matchId}`))
+  return stub.fetch(new Request('https://maintenance.local/civblitz/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }))
 }
 
 export async function requestRankedRoleMaintenance(

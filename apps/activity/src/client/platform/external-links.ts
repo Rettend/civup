@@ -2,7 +2,8 @@ import { getClientSurface } from './runtime'
 
 export async function openExternalLink(url: string): Promise<boolean> {
   if (getClientSurface() === 'web') {
-    return window.open(url, '_blank', 'noopener') != null
+    window.open(url, '_blank', 'noopener')
+    return true
   }
 
   try {
