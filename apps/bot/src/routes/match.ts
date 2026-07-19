@@ -2,9 +2,9 @@ import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/game'
 import type { CivBlitzModInput } from '@civup/civ6-mod'
-import { createDb, matches, matchParticipants, sessionDirectory } from '@civup/db'
+import { createDb, matches, matchParticipants } from '@civup/db'
 import { CIV_BLITZ_CATEGORIES } from '@civup/game'
-import { desc, eq, or } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
@@ -77,16 +77,6 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     if (match.status === 'cancelled') return c.json({ error: 'Cancelled matches do not have a mod.' }, 409)
-
-    const [directory] = await db
-      .select({ phase: sessionDirectory.phase })
-      .from(sessionDirectory)
-      .where(or(eq(sessionDirectory.matchId, matchId), eq(sessionDirectory.sessionId, matchId)))
-      .orderBy(desc(sessionDirectory.updatedAt))
-      .limit(1)
-    if (directory && (directory.phase === 'open' || directory.phase === 'draft' || directory.phase === 'swap')) {
-      return c.json({ error: 'The match mod will be available after the draft and swaps are finalized.' }, 409)
-    }
 
     if (!getCivBlitzFromDraftData(match.draftData)) {
       return c.json({ error: 'This match is not a CivBlitz draft.' }, 422)

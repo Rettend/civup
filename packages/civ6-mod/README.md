@@ -1,6 +1,6 @@
 # `@civup/civ6-mod`
 
-Worker-compatible TypeScript generation of one combined Civilization VI CivBlitz mod ZIP for all finalized seats in a match. Runtime code uses only web-platform primitives; it does not read the filesystem, call CivBlitz, or require a local Civilization VI install.
+Worker-compatible TypeScript generation of one combined Civilization VI CivBlitz mod ZIP for all completed kits in a match. Runtime code uses only web-platform primitives; it does not read the filesystem, call CivBlitz, or require a local Civilization VI install.
 
 ## Public API
 
@@ -21,7 +21,7 @@ import {
 - `generateCivBlitzModFiles(input): GeneratedCivBlitzModFiles` returns `archiveFilename`, the deterministic mod UUID as `modId`, and sorted `{ path, content }` files.
 - `generateCivBlitzModZip(input): Uint8Array` writes those files as a deterministic, standards-compliant stored ZIP suitable for a Worker `Response`.
 - `CivBlitzModError` exposes `code`, `status`, and `safeMessage`. `isCivBlitzModError()` is the corresponding type guard.
-- `CivBlitzModInput` contains `matchId`, optional `matchName`, `leaderDataVersion`, `excludeBbgExpanded`, and contiguous seat-ordered entries with `seatIndex`, `displayName`, and a complete `CivBlitzKit`.
+- `CivBlitzModInput` contains `matchId`, `leaderDataVersion`, `excludeBbgExpanded`, and contiguous seat-ordered entries with `seatIndex`, `displayName`, and a complete `CivBlitzKit`. Player display names are validated for diagnostics but are not written into the shared mod.
 
 ```ts
 const zip = generateCivBlitzModZip(input)
@@ -33,7 +33,7 @@ return new Response(zip, {
 })
 ```
 
-The mod UUID and bounded `CIVILIZATION_IMP_*` / `LEADER_IMP_*` IDs derive only from the normalized `matchId`, data version, finalized kits, and seat indexes. Human-facing match and player names do not affect those IDs.
+The mod UUID and bounded `CIVILIZATION_IMP_*` / `LEADER_IMP_*` IDs derive only from the normalized `matchId`, data version, and canonical set of completed kits. Moving kits between players during the teammate swap window does not change the archive. Player names do not affect its IDs or contents. The `.modinfo` title, description, and teaser identify the match by `matchId`.
 
 ## Support policy
 
@@ -65,4 +65,4 @@ bun run --cwd packages/civ6-mod vendor:upstream C:/path/to/civ-blitz
 bun run --cwd packages/civ6-mod generate
 ```
 
-See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) and [`vendor/civ-blitz/LICENSE.txt`](./vendor/civ-blitz/LICENSE.txt). The same attribution and MIT text are included as `NOTICE.txt` in every generated mod.
+See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) and [`vendor/civ-blitz/LICENSE.txt`](./vendor/civ-blitz/LICENSE.txt). Every generated mod includes the required MIT text as `LICENSE.txt`; repository-level provenance remains in `THIRD_PARTY_NOTICES.md`.

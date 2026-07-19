@@ -41,7 +41,7 @@ WHERE Name = ${sqlString(seat.sourceLeader.leaderIcon)};`).join('\n\n')}\n`
 
 export function generateLocaleSql(seats: readonly ResolvedCivBlitzModSeat[]): string {
   return `${seats.map((seat) => {
-    const label = `${seat.input.displayName} - ${seat.leaderAbility.displayName} (${seat.civilizationAbility.displayName})`
+    const label = `${seat.leaderAbility.displayName} (${seat.civilizationAbility.displayName})`
     return `INSERT OR REPLACE INTO LocalizedText (Tag, Language, Text)
 VALUES (${sqlString(seat.leaderNameTag)}, 'en_US', ${sqlString(label)});`
   }).join('\n')}\n`
@@ -210,8 +210,8 @@ function playerItems(seat: ResolvedCivBlitzModSeat): { civilizationType: string,
   const components: CivBlitzModComponentMetadata[] = [
     seat.civilizationAbility,
     seat.leaderAbility,
-    seat.infrastructure,
     seat.unit,
+    seat.infrastructure,
   ]
   const items: { civilizationType: string, itemType: string }[] = []
   for (const component of components) {
