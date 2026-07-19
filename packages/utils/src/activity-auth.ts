@@ -1,5 +1,6 @@
 export const CIVUP_ACTIVITY_SESSION_HEADER = 'X-CivUp-Activity-Session'
 export const CIVUP_ACTIVITY_SESSION_QUERY_PARAM = 'activitySession'
+export const CIVUP_CIVBLITZ_DOWNLOAD_TICKET_QUERY_PARAM = 'civBlitzDownloadTicket'
 export const CIVUP_INTERNAL_SECRET_HEADER = 'X-CivUp-Internal-Secret'
 export const CIVUP_ACTIVITY_USER_ID_HEADER = 'X-CivUp-Activity-User-Id'
 export const CIVUP_ACTIVITY_DISPLAY_NAME_HEADER = 'X-CivUp-Activity-Display-Name'
@@ -7,8 +8,10 @@ export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
 
 const ACTIVITY_SESSION_VERSION = 'session.v1'
 const SESSION_ACCESS_VERSION = 'session-access.v1'
+const CIVBLITZ_DOWNLOAD_TICKET_VERSION = 'civblitz-download.v1'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
 const DEFAULT_SESSION_ACCESS_TTL_SECONDS = 8 * 60 * 60
+const DEFAULT_CIVBLITZ_DOWNLOAD_TICKET_TTL_SECONDS = 2 * 60
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
@@ -31,6 +34,13 @@ export interface SessionAccessClaims {
   sub: string
   sessionId: string
   channelId: string
+  iat: number
+  exp: number
+}
+
+export interface CivBlitzDownloadTicketClaims {
+  sub: string
+  matchId: string
   iat: number
   exp: number
 }
@@ -122,6 +132,39 @@ export async function verifySessionAccessToken(
   if (options?.channelId && claims.channelId !== options.channelId) return null
   if (options?.userId && claims.sub !== options.userId) return null
 
+  return claims
+}
+
+export async function createCivBlitzDownloadTicket(
+  secret: string,
+  input: { userId: string, matchId: string },
+  options?: { ttlSeconds?: number, nowMs?: number },
+): Promise<string> {
+  const nowSeconds = Math.floor((options?.nowMs ?? Date.now()) / 1000)
+  const ttlSeconds = normalizePositiveInteger(options?.ttlSeconds) ?? DEFAULT_CIVBLITZ_DOWNLOAD_TICKET_TTL_SECONDS
+  const claims: CivBlitzDownloadTicketClaims = {
+    sub: input.userId,
+    matchId: input.matchId,
+    iat: nowSeconds,
+    exp: nowSeconds + ttlSeconds,
+  }
+  const payload = toBase64Url(JSON.stringify(claims))
+  const signature = await signString(secret, `${CIVBLITZ_DOWNLOAD_TICKET_VERSION}.${payload}`)
+  return `${CIVBLITZ_DOWNLOAD_TICKET_VERSION}.${payload}.${signature}`
+}
+
+export async function verifyCivBlitzDownloadTicket(
+  secret: string | undefined,
+  token: string | null,
+  options: { matchId: string, nowMs?: number },
+): Promise<CivBlitzDownloadTicketClaims | null> {
+  const claims = await verifySignedClaimsToken(secret, token, CIVBLITZ_DOWNLOAD_TICKET_VERSION)
+  if (!claims || !isCivBlitzDownloadTicketClaims(claims)) return null
+
+  const nowSeconds = Math.floor((options.nowMs ?? Date.now()) / 1000)
+  if (claims.exp <= nowSeconds) return null
+  if (claims.iat > nowSeconds + 30) return null
+  if (claims.matchId !== options.matchId) return null
   return claims
 }
 
@@ -234,6 +277,16 @@ function isSessionAccessClaims(value: unknown): value is SessionAccessClaims {
   if (typeof claims.sub !== 'string' || claims.sub.trim().length === 0) return false
   if (typeof claims.sessionId !== 'string' || claims.sessionId.trim().length === 0) return false
   if (typeof claims.channelId !== 'string' || claims.channelId.trim().length === 0) return false
+  if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
+  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false
+  return true
+}
+
+function isCivBlitzDownloadTicketClaims(value: unknown): value is CivBlitzDownloadTicketClaims {
+  if (!value || typeof value !== 'object') return false
+  const claims = value as Partial<CivBlitzDownloadTicketClaims>
+  if (typeof claims.sub !== 'string' || claims.sub.trim().length === 0) return false
+  if (typeof claims.matchId !== 'string' || claims.matchId.trim().length === 0) return false
   if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false
   return true

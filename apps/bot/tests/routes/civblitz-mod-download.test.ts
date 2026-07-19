@@ -5,6 +5,7 @@ import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER } from '@ci
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { registerMatchRoutes } from '../../src/routes/match.ts'
+import { generateCivBlitzModResponse } from '../../src/maintenance/civblitz-maintenance.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -63,9 +64,17 @@ describe('CivBlitz match mod download', () => {
       error: 'BBG Expanded CivBlitz kits are not supported because their dependency and art metadata is not bundled.',
     })
   })
+
+  test('rejects malformed persisted draft state without throwing', async () => {
+    const harness = await createHarness({ malformedDraft: true })
+    const response = await harness.request('player-1')
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'The CivBlitz draft is not complete.' })
+  })
 })
 
-async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExpanded?: boolean } = {}) {
+async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExpanded?: boolean, malformedDraft?: boolean } = {}) {
   const { db, sqlite } = await createTestDatabase()
   openDatabases.push(sqlite)
   await db.insert(players).values([
@@ -76,7 +85,9 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
     id: MATCH_ID,
     gameMode: 'ffa',
     status: 'active',
-    draftData: createDraftData(options.excludeBbgExpanded ?? true),
+    draftData: options.malformedDraft
+      ? JSON.stringify({ civBlitz: true, state: { status: 'complete', civBlitz: { lockedKits: null } } })
+      : createDraftData(options.excludeBbgExpanded ?? true),
     createdAt: 1,
   })
   await db.insert(matchParticipants).values({ matchId: MATCH_ID, playerId: 'player-1', team: null, civId: null })
@@ -109,6 +120,18 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
     DISCORD_PUBLIC_KEY: 'a'.repeat(64),
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: SECRET,
+    MaintenanceDO: {
+      idFromName(name: string) {
+        return { name }
+      },
+      get() {
+        return {
+          async fetch(request: Request) {
+            return generateCivBlitzModResponse(await request.json())
+          },
+        }
+      },
+    } as unknown as DurableObjectNamespace,
   }
 
   return {

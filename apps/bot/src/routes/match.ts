@@ -4,8 +4,8 @@ import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/ga
 import type { CivBlitzModInput } from '@civup/civ6-mod'
 import { createDb, matches, matchParticipants, sessionDirectory } from '@civup/db'
 import { CIV_BLITZ_CATEGORIES } from '@civup/game'
-import { generateCivBlitzModFiles, generateCivBlitzModZip, isCivBlitzModError } from '@civup/civ6-mod'
 import { desc, eq, or } from 'drizzle-orm'
+import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
@@ -93,7 +93,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     const state = getDraftStateFromDraftData(match.draftData)
-    if (!state || state.status !== 'complete' || !state.civBlitz) {
+    if (!state || state.status !== 'complete' || !state.civBlitz || !Array.isArray(state.seats) || !isRecord(state.civBlitz.lockedKits)) {
       return c.json({ error: 'The CivBlitz draft is not complete.' }, 409)
     }
 
@@ -115,21 +115,10 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     try {
-      const generated = generateCivBlitzModFiles(input)
-      const zip = generateCivBlitzModZip(input)
-      return new Response(zip, {
-        headers: {
-          'Cache-Control': 'private, no-store',
-          'Content-Disposition': `attachment; filename="${generated.archiveFilename}"`,
-          'Content-Length': String(zip.byteLength),
-          'Content-Type': 'application/zip',
-          ETag: `"${generated.modId}"`,
-        },
-      })
+      return await requestCivBlitzModArchive(c.env.MaintenanceDO, input)
     }
     catch (error) {
-      if (isCivBlitzModError(error)) return c.json({ error: error.safeMessage, code: error.code }, error.status)
-      console.error(`Failed to generate CivBlitz mod for match ${matchId}:`, error)
+      console.error(`Failed to request CivBlitz mod for match ${matchId}:`, error)
       return c.json({ error: 'Failed to generate the match mod.' }, 500)
     }
   })
@@ -349,6 +338,10 @@ function isLiveLobbyProjection(lobby: { status: string } | null): boolean {
 function isStringRecord(value: unknown): value is Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   return Object.values(value).every(entry => typeof entry === 'string')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isCompleteCivBlitzKit(value: CivBlitzPartialKit | undefined): value is CivBlitzKit {

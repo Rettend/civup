@@ -1,4 +1,4 @@
-export { generateCivBlitzModFiles, generateCivBlitzModZip } from './generator.ts'
+export { generateCivBlitzModArchive, generateCivBlitzModFiles, generateCivBlitzModZip } from './generator.ts'
 export { CivBlitzModError, isCivBlitzModError } from './types.ts'
 export type {
   CivBlitzKit,
