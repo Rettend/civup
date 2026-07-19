@@ -15,6 +15,26 @@ describe('leaderboard message service', () => {
     globalThis.fetch = originalFetch
   })
 
+  test('advances an existing dirty scope when later matches are reported', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await markLeaderboardsDirty(db, 'first-report', { modes: ['duel'], now: NOW })
+      await markLeaderboardsDirty(db, 'later-report', { modes: ['duel'], now: NOW + 100 })
+      await markLeaderboardsDirty(db, 'out-of-order-report', { modes: ['duel'], now: NOW + 50 })
+
+      const rows = await db.select().from(leaderboardDirtyStates)
+      expect(rows).toEqual([{
+        scope: 'player:duel',
+        dirtyAt: NOW + 100,
+        reason: 'later-report',
+      }])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('archives the current leaderboard and creates a fresh live message on season end', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -79,13 +99,14 @@ describe('leaderboard message service', () => {
     sqlite.close()
   })
 
-  test('legacy player snapshots without a cache version rebuild from D1', async () => {
+  test('older player snapshot versions rebuild from D1', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
     try {
       await seedDuelRating(db, '100010000000000002', 10)
       await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify({
+        version: 2,
         updatedAt: NOW - 1,
         rows: [{
           playerId: '100010000000000002',
@@ -145,6 +166,62 @@ describe('leaderboard message service', () => {
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
       expect(dirtyRows).toHaveLength(0)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('unarchives a leaderboard thread and retries the message update', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await kv.put('system:channel:leaderboard', 'channel-leaderboard')
+
+    let messageEditAttempts = 0
+    const requests: Array<{ method: string, path: string, body: unknown }> = []
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      const body = init?.body instanceof FormData
+        ? JSON.parse(String(init.body.get('payload_json')))
+        : init?.body ? JSON.parse(String(init.body)) : null
+      requests.push({ method, path: url.pathname, body })
+
+      if (method === 'PATCH' && url.pathname === '/api/v10/channels/channel-leaderboard') {
+        return Response.json({ id: 'channel-leaderboard', archived: false })
+      }
+      if (method === 'PATCH' && url.pathname === '/api/v10/channels/channel-leaderboard/messages/leaderboard-message-1') {
+        messageEditAttempts += 1
+        if (messageEditAttempts === 1) {
+          return Response.json({ message: 'Thread is archived', code: 50083 }, { status: 400 })
+        }
+        return Response.json({ id: 'leaderboard-message-1' })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+
+    try {
+      await seedDuelRating(db, '100010000000000037', 10)
+      await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW)
+      await db.insert(leaderboardMessageStates).values({
+        scope: 'player:duel',
+        channelId: 'channel-leaderboard',
+        messageId: 'leaderboard-message-1',
+        updatedAt: NOW,
+      })
+      await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW + 1 })
+
+      await expect(refreshDirtyLeaderboards(db, kv, 'token', {
+        modes: ['duel'],
+        now: NOW + 1,
+      })).resolves.toBe(true)
+
+      expect(requests.map(request => `${request.method} ${request.path}`)).toEqual([
+        'PATCH /api/v10/channels/channel-leaderboard/messages/leaderboard-message-1',
+        'PATCH /api/v10/channels/channel-leaderboard',
+        'PATCH /api/v10/channels/channel-leaderboard/messages/leaderboard-message-1',
+      ])
+      expect(requests[1]?.body).toEqual({ archived: false })
     }
     finally {
       sqlite.close()
