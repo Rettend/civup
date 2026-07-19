@@ -3,15 +3,14 @@ import type { CivBlitzKit, LeaderDataVersion } from '@civup/game'
 export interface CivBlitzModSeatInput {
   /** Zero-based seat index. Seats must be supplied contiguously in this order. */
   seatIndex: number
+  /** Validated for caller diagnostics, but deliberately excluded from generated archive contents. */
   displayName: string
   kit: CivBlitzKit
 }
 
 export interface CivBlitzModInput {
-  /** Stable match identifier. It, the seats, and the finalized kits determine all generated IDs. */
+  /** Stable match identifier. It, the data version, and the canonical kit set determine all generated IDs. */
   matchId: string
-  /** Optional human-facing match name. It never participates in database IDs or the mod UUID. */
-  matchName?: string
   leaderDataVersion: LeaderDataVersion
   /** BBG Expanded is intentionally unsupported and this must currently be true. */
   excludeBbgExpanded: boolean

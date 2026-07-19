@@ -46,12 +46,12 @@ describe('CivBlitz match mod download', () => {
     expect(new TextDecoder().decode(firstBytes)).toContain('CivBlitz-')
   })
 
-  test('waits for the swap phase to finalize', async () => {
+  test('allows downloads while the teammate swap window is open', async () => {
     const harness = await createHarness({ phase: 'swap' })
     const response = await harness.request('player-1')
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({ error: 'The match mod will be available after the draft and swaps are finalized.' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('application/zip')
   })
 
   test('rejects BBG Expanded drafts with a safe generator error', async () => {

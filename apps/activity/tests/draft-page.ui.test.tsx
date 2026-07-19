@@ -177,6 +177,7 @@ describe('DraftPage UI', () => {
   test('offers one shared mod after a standard CivBlitz draft completes', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftSeatIndex = 0
+    uiMockState.swapWindowOpen = true
     uiMockState.draftState = createCompleteDraftState({
       formatId: 'civblitz-ffa',
       civBlitz: createCivBlitzState(true),
@@ -184,8 +185,9 @@ describe('DraftPage UI', () => {
 
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
 
-    expect(screen.getByRole('button', { name: 'Download match mod' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Download leaders mod' })).toBeTruthy()
     expect(screen.getByText('Everyone installs this same mod.')).toBeTruthy()
+    expect(screen.queryByText('Finalizing player swaps...')).toBeNull()
   })
 
   test('does not offer a broken mod download for BBG Expanded or spectators', () => {
@@ -199,7 +201,7 @@ describe('DraftPage UI', () => {
 
     ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />))
     expect(screen.getByText('Shared mod download is not available for BBG Expanded drafts.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Download match mod' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download leaders mod' })).toBeNull()
 
     unmount()
     uiMockState.isSpectator = true
@@ -208,7 +210,7 @@ describe('DraftPage UI', () => {
       civBlitz: createCivBlitzState(true),
     })
     render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
-    expect(screen.queryByRole('button', { name: 'Download match mod' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Download leaders mod' })).toBeNull()
   })
 
   test('supports selecting the winning team from the completed draft page slot strip', () => {

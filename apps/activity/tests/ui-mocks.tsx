@@ -610,7 +610,9 @@ mock.module('~/client/stores', () => ({
     get permanentAlly() {
       return uiMockState.permanentAlly
     },
-    swapState: null,
+    get swapState() {
+      return uiMockState.swapWindowOpen ? { completedSwaps: [] } : null
+    },
     initVersion: 1,
   },
   favoriteLeaderIds: () => uiMockState.favoriteLeaderIds,

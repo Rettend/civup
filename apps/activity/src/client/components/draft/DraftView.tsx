@@ -140,7 +140,6 @@ export function DraftView(props: DraftViewProps) {
   const isCompleteCivBlitz = () => state()?.status === 'complete' && state()?.civBlitz != null
   const canDownloadCivBlitzMod = () => isCompleteCivBlitz()
     && state()?.civBlitz?.excludeBbgExpanded === true
-    && draftStore.swapState == null
     && !isSpectator()
 
   createEffect(() => {
@@ -315,22 +314,17 @@ export function DraftView(props: DraftViewProps) {
                           when={state()?.civBlitz?.excludeBbgExpanded === true}
                           fallback={<span class="text-sm text-fg/80">Shared mod download is not available for BBG Expanded drafts.</span>}
                         >
-                          <Show
-                            when={draftStore.swapState == null}
-                            fallback={<span class="text-sm text-fg/80">Finalizing player swaps...</span>}
-                          >
-                            <Show when={!isSpectator()}>
-                              <button
-                                type="button"
-                                class="text-bg bg-accent rounded-md flex gap-2 px-3 py-1.5 text-sm font-semibold cursor-pointer transition-opacity items-center hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-                                disabled={!canDownloadCivBlitzMod() || modDownloadPending()}
-                                onClick={() => void handleModDownload()}
-                              >
-                                <span class={modDownloadPending() ? 'i-ph-spinner-gap-bold animate-spin' : 'i-ph-download-simple-bold'} />
-                                {modDownloadPending() ? 'Opening download...' : 'Download match mod'}
-                              </button>
-                              <span class="text-xs text-fg/70">Everyone installs this same mod.</span>
-                            </Show>
+                          <Show when={!isSpectator()}>
+                            <button
+                              type="button"
+                              class="text-bg bg-accent rounded-md flex gap-2 px-3 py-1.5 text-sm font-semibold cursor-pointer transition-opacity items-center hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                              disabled={!canDownloadCivBlitzMod() || modDownloadPending()}
+                              onClick={() => void handleModDownload()}
+                            >
+                              <span class={modDownloadPending() ? 'i-ph-spinner-gap-bold animate-spin' : 'i-ph-download-simple-bold'} />
+                              {modDownloadPending() ? 'Opening download...' : 'Download leaders mod'}
+                            </button>
+                            <span class="text-xs text-fg/70">Everyone installs this same mod.</span>
                           </Show>
                         </Show>
                       </Show>
