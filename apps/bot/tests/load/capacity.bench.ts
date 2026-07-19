@@ -161,6 +161,7 @@ const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 15
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
 const RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY = 10
+const ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN = 0.128
 const ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN = 0.128
 const ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN = ESTIMATED_DO_GB_SECONDS_PER_REQUEST
 const RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER = 0
@@ -262,7 +263,7 @@ describe('capacity models', () => {
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
       expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
-      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
+      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
       if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
@@ -421,7 +422,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const doRequests = 0
+    const doRequests = 1
 
     return {
       workersRequests: 1,
@@ -437,7 +438,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
       kvLists,
       doRequests,
       doRequestsRaw: doRequests,
-      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+      doDurationGbSeconds: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     }
   }
   finally {
@@ -1569,14 +1570,15 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 8,
+    version: 9,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
       rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-      maintenanceDoRequestsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
       architectureModel: TARGET_ARCHITECTURE_MODEL,
@@ -1730,7 +1732,8 @@ function printReports(reports: ScenarioReport[]): void {
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
     rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-    maintenanceDoRequestsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
     architectureModel: TARGET_ARCHITECTURE_MODEL,
