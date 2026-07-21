@@ -1,4 +1,4 @@
-import { matches, players, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import { matches } from '@civup/db'
 import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -573,7 +573,7 @@ describe('lobby routes', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Shuffle teams is only available in team lobbies.' })
   })
 
-  test('start route randomizes first pick for tournament 1v1 lobbies', async () => {
+  test('start route randomizes first pick for regular 1v1 lobbies', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -602,43 +602,6 @@ describe('lobby routes', () => {
 
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, [hostId, opponentId], lobby)
     await setLobbySlots(kv, lobby.id, [hostId, opponentId], withMembers ?? lobby)
-
-    const { db } = getExistingTestLobbyRuntime(kv)
-    const now = Date.now()
-    await db.insert(players).values([
-      { id: hostId, displayName: 'Host', avatarUrl: null, createdAt: now },
-      { id: opponentId, displayName: 'Player 2', avatarUrl: null, createdAt: now },
-    ])
-    await db.insert(tournaments).values({
-      id: 'tournament-route-test',
-      name: 'Test Cup',
-      mode: '1v1',
-      status: 'qualifier',
-      scoring: 'open_win_rate',
-      rematchPolicy: 'warn',
-      minGames: 6,
-      topCut: 8,
-      roleId: null,
-      createdById: 'admin',
-      createdAt: now,
-      updatedAt: now,
-    })
-    await db.insert(tournamentPlayers).values([
-      { tournamentId: 'tournament-route-test', seed: 1, playerId: hostId, displayName: 'Host', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
-      { tournamentId: 'tournament-route-test', seed: 2, playerId: opponentId, displayName: 'Player 2', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
-    ])
-    await db.insert(tournamentMatches).values({
-      sessionId: lobby.id,
-      tournamentId: 'tournament-route-test',
-      matchId: null,
-      stage: 'qualifier',
-      status: 'open',
-      playerOneId: hostId,
-      playerTwoId: null,
-      winnerId: null,
-      createdAt: now,
-      updatedAt: now,
-    })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
