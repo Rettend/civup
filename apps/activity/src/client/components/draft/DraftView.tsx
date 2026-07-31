@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { openCivBlitzModDownload } from '~/client/lib/civblitz-mod-download'
 import { cn } from '~/client/lib/css'
 import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
 import {
@@ -47,6 +48,7 @@ export function DraftView(props: DraftViewProps) {
   const [autoOpenedGridToken, setAutoOpenedGridToken] = createSignal<string | null>(null)
   const [autoOpenedMapVoteToken, setAutoOpenedMapVoteToken] = createSignal<string | null>(null)
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
+  const [modDownloadPending, setModDownloadPending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
   const hostId = () => draftStore.hostId
   const amHost = () => {
@@ -135,6 +137,10 @@ export function DraftView(props: DraftViewProps) {
   const isMapVoteVoting = () => mapVotePhase() === 'voting'
   const isMapVoteReveal = () => mapVotePhase() === 'reveal'
   const canReviewCompleteDraft = () => state()?.status === 'complete' && !isHiddenDraftComplete()
+  const isCompleteCivBlitz = () => state()?.status === 'complete' && state()?.civBlitz != null
+  const canDownloadCivBlitzMod = () => isCompleteCivBlitz()
+    && state()?.civBlitz?.excludeBbgExpanded === true
+    && !isSpectator()
 
   createEffect(() => {
     const current = state()
@@ -212,6 +218,20 @@ export function DraftView(props: DraftViewProps) {
     }
   }
 
+  const handleModDownload = async () => {
+    if (!canDownloadCivBlitzMod() || modDownloadPending()) return
+    setModDownloadPending(true)
+    try {
+      await openCivBlitzModDownload(props.matchId)
+    }
+    catch (error) {
+      console.error('Failed to open the match mod download:', error)
+    }
+    finally {
+      setModDownloadPending(false)
+    }
+  }
+
   return (
     <Show
       when={state()?.status === 'cancelled'}
@@ -284,9 +304,30 @@ export function DraftView(props: DraftViewProps) {
                 {/* Post-draft message */}
                 <Show when={state()?.status === 'complete'}>
                   <div class="flex pointer-events-none inset-x-0 top-16 justify-center absolute z-50">
-                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-1 pointer-events-auto shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
-                      <span class="text-base text-accent font-bold">You can close the activity!</span>
-                      <span class="text-sm text-fg/80">Don't forget to report the result</span>
+                    <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-2 pointer-events-auto shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
+                      <span class="text-base text-accent font-bold">{isCompleteCivBlitz() ? 'Draft complete' : 'You can close the activity!'}</span>
+                      <Show
+                        when={isCompleteCivBlitz()}
+                        fallback={<span class="text-sm text-fg/80">Don't forget to report the result</span>}
+                      >
+                        <Show
+                          when={state()?.civBlitz?.excludeBbgExpanded === true}
+                          fallback={<span class="text-sm text-fg/80">Shared mod download is not available for BBG Expanded drafts.</span>}
+                        >
+                          <Show when={!isSpectator()}>
+                            <button
+                              type="button"
+                              class="text-bg bg-accent rounded-md flex gap-2 px-3 py-1.5 text-sm font-semibold cursor-pointer transition-opacity items-center hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                              disabled={!canDownloadCivBlitzMod() || modDownloadPending()}
+                              onClick={() => void handleModDownload()}
+                            >
+                              <span class={modDownloadPending() ? 'i-ph-spinner-gap-bold animate-spin' : 'i-ph-download-simple-bold'} />
+                              {modDownloadPending() ? 'Opening download...' : 'Download leaders mod'}
+                            </button>
+                            <span class="text-xs text-fg/70">Everyone installs this same mod.</span>
+                          </Show>
+                        </Show>
+                      </Show>
                     </div>
                   </div>
                 </Show>

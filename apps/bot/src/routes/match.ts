@@ -1,14 +1,17 @@
 import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
-import type { LeaderboardMode } from '@civup/game'
+import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/game'
+import type { CivBlitzModInput } from '@civup/civ6-mod'
 import { createDb, matches, matchParticipants } from '@civup/db'
+import { CIV_BLITZ_CATEGORIES } from '@civup/game'
 import { eq } from 'drizzle-orm'
+import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
-import { buildRankByPlayer, cancelMatchByModerator, getHostIdFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
+import { buildRankByPlayer, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
@@ -45,6 +48,69 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     return c.json({ match, participants })
+  })
+
+  app.get('/api/match/:matchId/civblitz/download', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+
+    const matchId = c.req.param('matchId')
+    const db = createDb(c.env.DB)
+    const [match] = await db
+      .select({
+        id: matches.id,
+        status: matches.status,
+        draftData: matches.draftData,
+      })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1)
+
+    if (!match) return c.json({ error: 'Match not found' }, 404)
+
+    const participants = await db
+      .select({ playerId: matchParticipants.playerId })
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, matchId))
+    if (!participants.some(participant => participant.playerId === auth.identity.userId)) {
+      return c.json({ error: 'Only match participants can download this mod.' }, 403)
+    }
+
+    if (match.status === 'cancelled') return c.json({ error: 'Cancelled matches do not have a mod.' }, 409)
+
+    if (!getCivBlitzFromDraftData(match.draftData)) {
+      return c.json({ error: 'This match is not a CivBlitz draft.' }, 422)
+    }
+
+    const state = getDraftStateFromDraftData(match.draftData)
+    if (!state || state.status !== 'complete' || !state.civBlitz || !Array.isArray(state.seats) || !isRecord(state.civBlitz.lockedKits)) {
+      return c.json({ error: 'The CivBlitz draft is not complete.' }, 409)
+    }
+
+    const seats: CivBlitzModInput['seats'][number][] = []
+    for (let seatIndex = 0; seatIndex < state.seats.length; seatIndex += 1) {
+      const seat = state.seats[seatIndex]
+      const kit = state.civBlitz.lockedKits[seatIndex]
+      if (!seat || !isCompleteCivBlitzKit(kit)) {
+        return c.json({ error: 'The finalized CivBlitz draft is missing a complete player kit.' }, 422)
+      }
+      seats.push({ seatIndex, displayName: seat.displayName, kit })
+    }
+
+    const input: CivBlitzModInput = {
+      matchId,
+      leaderDataVersion: getLeaderDataVersionFromDraftData(match.draftData),
+      excludeBbgExpanded: state.civBlitz.excludeBbgExpanded,
+      seats,
+    }
+
+    try {
+      return await requestCivBlitzModArchive(c.env.MaintenanceDO, input)
+    }
+    catch (error) {
+      console.error(`Failed to request CivBlitz mod for match ${matchId}:`, error)
+      return c.json({ error: 'Failed to generate the match mod.' }, 500)
+    }
   })
 
   app.post('/api/match/:matchId/report', async (c) => {
@@ -262,6 +328,14 @@ function isLiveLobbyProjection(lobby: { status: string } | null): boolean {
 function isStringRecord(value: unknown): value is Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   return Object.values(value).every(entry => typeof entry === 'string')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isCompleteCivBlitzKit(value: CivBlitzPartialKit | undefined): value is CivBlitzKit {
+  return value != null && CIV_BLITZ_CATEGORIES.every(category => typeof value[category] === 'string' && value[category]!.length > 0)
 }
 
 async function releaseReportedMatchClaimIfNeeded(
