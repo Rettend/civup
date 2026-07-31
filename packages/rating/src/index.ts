@@ -84,6 +84,18 @@ function scaleRatingUpdates(updates: RatingUpdate[], weight: number): RatingUpda
 /** Minimum games required to appear on player leaderboards. */
 export const LEADERBOARD_MIN_GAMES = 5
 
+/** Only raw top placements are eligible for an activity adjustment. */
+export const LEADERBOARD_ACTIVITY_TOP_RANK_LIMIT = 20
+
+/** Inactivity does not affect placement during this grace period. */
+export const LEADERBOARD_ACTIVITY_GRACE_MS = 90 * 24 * 60 * 60 * 1_000
+
+/** Each full interval after the grace period adds one placement offset. */
+export const LEADERBOARD_ACTIVITY_STEP_MS = 30 * 24 * 60 * 60 * 1_000
+
+/** Activity adjustments cannot move a player more than this many places. */
+export const LEADERBOARD_ACTIVITY_MAX_OFFSET = 20
+
 /** Minimum weighted evidence required before ranked roles are managed. */
 export const RANKED_ROLE_MIN_EFFECTIVE_GAMES = 8
 
@@ -442,6 +454,23 @@ export interface LeaderboardEntry {
   winRate: number
 }
 
+export interface ActivityLeaderboardPlayer {
+  playerId: string
+  mu: number
+  sigma: number
+  gamesPlayed: number
+  wins?: number
+  lastPlayedAt: number | null
+}
+
+export type ActivityAdjustedLeaderboardEntry<T extends ActivityLeaderboardPlayer = ActivityLeaderboardPlayer> = T & {
+  displayRating: number
+  winRate: number
+  rawRank: number
+  rank: number
+  inactivityOffset: number
+}
+
 /**
  * Build a sorted leaderboard from player rating rows.
  * Filters out players with fewer than the minimum games.
@@ -468,7 +497,75 @@ export function buildLeaderboard(
       displayRating: displayRating(p.mu, p.sigma),
       winRate: p.gamesPlayed > 0 ? p.wins / p.gamesPlayed : 0,
     }))
-    .sort((a, b) => b.displayRating - a.displayRating)
+    .sort((a, b) => b.displayRating - a.displayRating || a.playerId.localeCompare(b.playerId))
+}
+
+/** Calculate the placement-only inactivity offset for a recorded activity timestamp. */
+export function getLeaderboardInactivityOffset(lastPlayedAt: number | null, now: number): number {
+  if (lastPlayedAt == null) return LEADERBOARD_ACTIVITY_MAX_OFFSET
+
+  const inactivityAfterGrace = Math.max(0, now - lastPlayedAt - LEADERBOARD_ACTIVITY_GRACE_MS)
+  return Math.min(LEADERBOARD_ACTIVITY_MAX_OFFSET, Math.floor(inactivityAfterGrace / LEADERBOARD_ACTIVITY_STEP_MS))
+}
+
+/** Return the next instant when a recorded activity timestamp gains an offset. */
+export function getNextLeaderboardInactivityAdjustmentAt(lastPlayedAt: number | null, now: number): number | null {
+  if (lastPlayedAt == null) return null
+
+  const currentOffset = getLeaderboardInactivityOffset(lastPlayedAt, now)
+  if (currentOffset >= LEADERBOARD_ACTIVITY_MAX_OFFSET) return null
+
+  return lastPlayedAt
+    + LEADERBOARD_ACTIVITY_GRACE_MS
+    + ((currentOffset + 1) * LEADERBOARD_ACTIVITY_STEP_MS)
+}
+
+/**
+ * Build per-mode leaderboard placements with an in-memory activity adjustment.
+ * Rating values are copied unchanged; only the returned order and rank metadata differ.
+ */
+export function buildActivityAdjustedLeaderboard<T extends ActivityLeaderboardPlayer>(
+  players: readonly T[],
+  minGames: number,
+  now: number,
+): ActivityAdjustedLeaderboardEntry<T>[] {
+  const raw = players
+    .filter(player => player.gamesPlayed >= minGames)
+    .map(player => ({
+      ...player,
+      displayRating: displayRating(player.mu, player.sigma),
+      winRate: player.gamesPlayed > 0 ? (player.wins ?? 0) / player.gamesPlayed : 0,
+    }))
+    .sort(compareActivityLeaderboardRawEntry)
+    .map((entry, index) => {
+      const rawRank = index + 1
+      return {
+        ...entry,
+        rawRank,
+        rank: rawRank,
+        inactivityOffset: rawRank <= LEADERBOARD_ACTIVITY_TOP_RANK_LIMIT
+          ? getLeaderboardInactivityOffset(entry.lastPlayedAt, now)
+          : 0,
+      }
+    })
+
+  raw.sort((left, right) => {
+    return (left.rawRank + left.inactivityOffset) - (right.rawRank + right.inactivityOffset)
+      || left.inactivityOffset - right.inactivityOffset
+      || left.rawRank - right.rawRank
+      || left.playerId.localeCompare(right.playerId)
+  })
+
+  return raw.map((entry, index) => ({ ...entry, rank: index + 1 }))
+}
+
+function compareActivityLeaderboardRawEntry(
+  left: ActivityLeaderboardPlayer & { displayRating: number },
+  right: ActivityLeaderboardPlayer & { displayRating: number },
+): number {
+  return right.displayRating - left.displayRating
+    || (right.lastPlayedAt ?? Number.NEGATIVE_INFINITY) - (left.lastPlayedAt ?? Number.NEGATIVE_INFINITY)
+    || left.playerId.localeCompare(right.playerId)
 }
 
 // ── Season Reset ────────────────────────────────────────────

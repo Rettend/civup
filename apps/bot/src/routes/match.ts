@@ -12,7 +12,7 @@ import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapsh
 import { createStatsContext } from '../services/stats/context.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
-import { buildRankByPlayer, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
+import { buildSimulatedReportedRankContext, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
@@ -145,6 +145,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const db = createDb(c.env.DB)
+    const now = Date.now()
     const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
     const owningGuildId = await resolveMatchOriginGuildId(db, c.req.param('matchId'))
     const result = await reportMatch(db, kv, {
@@ -157,6 +158,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       rankedRoleGuildId: owningGuildId,
       primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
       minimalResult: true,
+      now,
     })
 
     if ('error' in result) {
@@ -194,6 +196,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       matchDraftData: result.match.draftData,
       lobby,
       originGuildId,
+      placementEvaluatedAt: now,
       archivePolicy: result.idempotent ? 'if-missing' : 'always',
       reporter: result.idempotent
         ? null
@@ -370,6 +373,7 @@ function queueActivityReportProjectionTasks(
     matchDraftData: string | null
     lobby: Parameters<typeof syncReportedMatchDiscordMessages>[0]['lobby']
     originGuildId: string
+    placementEvaluatedAt: number
     archivePolicy: Parameters<typeof syncReportedMatchDiscordMessages>[0]['archivePolicy']
     reporter: Parameters<typeof syncReportedMatchDiscordMessages>[0]['reporter']
   },
@@ -390,6 +394,7 @@ function queueActivityReportProjectionTasks(
           input.reportedContext.leaderboardMode,
           input.participants,
           createStatsContext(input.originGuildId, context.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+          input.placementEvaluatedAt,
         )
         const discordSync = await syncReportedMatchDiscordMessages({
           db: input.db,
@@ -456,29 +461,14 @@ async function hydrateLeaderboardRanksForDiscord(
   leaderboardMode: LeaderboardMode | null,
   participants: Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants'],
   statsContext: ReturnType<typeof createStatsContext>,
+  now: number,
 ): Promise<Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants']> {
   if (!leaderboardMode) return participants
 
   const snapshot = await getStoredLeaderboardModeSnapshot(kv, statsContext, leaderboardMode)
   if (!snapshot) return participants
 
-  const beforeRankByPlayer = buildRankByPlayer(snapshot.rows, leaderboardMode)
-  const rowsByPlayerId = new Map(snapshot.rows.map(row => [row.playerId, row]))
-  for (const participant of participants) {
-    if (participant.ratingAfterMu == null || participant.ratingAfterSigma == null) continue
-    const previous = rowsByPlayerId.get(participant.playerId)
-    rowsByPlayerId.set(participant.playerId, {
-      playerId: participant.playerId,
-      mode: leaderboardMode,
-      mu: participant.ratingAfterMu,
-      sigma: participant.ratingAfterSigma,
-      gamesPlayed: (previous?.gamesPlayed ?? 0) + 1,
-      wins: previous?.wins ?? 0,
-      lastPlayedAt: previous?.lastPlayedAt ?? null,
-    })
-  }
-
-  const afterRankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode)
+  const { beforeRankByPlayer, afterRankByPlayer } = buildSimulatedReportedRankContext(snapshot.rows, leaderboardMode, participants, now, false)
   return participants.map(participant => ({
     ...participant,
     leaderboardBeforeRank: beforeRankByPlayer.get(participant.playerId) ?? null,

@@ -318,6 +318,17 @@ The bot keeps separate ratings for each game mode:
 
 Every ranked game also updates the player's overall ranked rating which Discord ranked roles use.
 
+### Activity-adjusted leaderboard placement
+
+Current per-mode leaderboard placement discourages inactivity at the top without changing ratings:
+
+- only the raw top 20 can receive an inactivity placement adjustment
+- the first one-place adjustment occurs after 120 days without a current, non-imported game in that mode, then increases by one place per 30 days up to 20
+- playing and reporting a current game clears the adjustment for that mode; imported or historical games do not
+- the displayed Elo, rating uncertainty, rating history, and ranked Discord roles remain unchanged
+
+Leaderboard images mark adjusted rows with `↓N`. Persistent images pick up time-based placement changes when that mode is next refreshed by the dirty-check flow, rather than exactly when a boundary is crossed.
+
 ### Leader ranks
 
 Leader ranks use a smoothed win rate plus current global elo and a volume bonus:
@@ -427,7 +438,7 @@ Promotions can happen immediately with the daily sync.
 
 Ranked roles and leaderboards are not updated after every single report. The bot periodically checks if it needs to make updates.
 
-- **Leaderboard embeds**: every 2 minutes
+- **Leaderboard embeds**: dirty updates are checked every 15 minutes
 - **Ranked roles**: every day at 0:00 UTC, or when `/admin ranked sync` is used
 - **Inactive lobby cleanup**: every hour
 

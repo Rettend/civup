@@ -5,7 +5,7 @@ import type { DbBatchItem } from '../db/batch.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, playerRatings as legacyPlayerRatings, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
-import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, calculateRatings, createRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
@@ -16,6 +16,7 @@ interface LeaderboardSnapshotRow {
   mu: number
   sigma: number
   gamesPlayed: number
+  lastPlayedAt: number | null
 }
 
 interface StoredSeasonRow {
@@ -98,16 +99,41 @@ const REPLAY_WRITE_BATCH_SIZE = 100
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
-export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: LeaderboardMode): Map<string, number> {
-  const ranked = rows
-    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
-    .map(row => ({
-      playerId: row.playerId,
-      display: displayRating(row.mu, row.sigma),
-    }))
-    .sort((a, b) => b.display - a.display)
+export function buildRankByPlayer(rows: readonly LeaderboardSnapshotRow[], mode: LeaderboardMode, now = Date.now()): Map<string, number> {
+  const ranked = buildActivityAdjustedLeaderboard(rows, getLeaderboardMinGames(mode), now)
+  return new Map(ranked.map(row => [row.playerId, row.rank]))
+}
 
-  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
+export function buildSimulatedReportedRankContext(
+  rows: readonly LeaderboardSnapshotRow[],
+  mode: LeaderboardMode,
+  participants: readonly {
+    playerId: string
+    ratingAfterMu: number | null
+    ratingAfterSigma: number | null
+  }[],
+  now: number,
+  importedMatch: boolean,
+): { beforeRankByPlayer: Map<string, number>, afterRankByPlayer: Map<string, number> } {
+  const beforeRankByPlayer = buildRankByPlayer(rows, mode, now)
+  const rowsByPlayerId = new Map(rows.map(row => [row.playerId, row]))
+
+  for (const participant of participants) {
+    if (participant.ratingAfterMu == null || participant.ratingAfterSigma == null) continue
+    const previous = rowsByPlayerId.get(participant.playerId)
+    rowsByPlayerId.set(participant.playerId, {
+      playerId: participant.playerId,
+      mu: participant.ratingAfterMu,
+      sigma: participant.ratingAfterSigma,
+      gamesPlayed: (previous?.gamesPlayed ?? 0) + 1,
+      lastPlayedAt: importedMatch ? (previous?.lastPlayedAt ?? null) : now,
+    })
+  }
+
+  return {
+    beforeRankByPlayer,
+    afterRankByPlayer: buildRankByPlayer([...rowsByPlayerId.values()], mode, now),
+  }
 }
 
 export async function recalculateLeaderboardMode(

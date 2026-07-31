@@ -1,6 +1,7 @@
 import type { PlayerRating } from '../src/index.ts'
 import { describe, expect, test } from 'bun:test'
 import {
+  buildActivityAdjustedLeaderboard,
   buildLeaderboard,
   calculateFfaRatings,
   calculateRatings,
@@ -12,6 +13,8 @@ import {
   DISPLAY_RATING_SCALE,
   displayRating,
   getLeaderboardMinGames,
+  getLeaderboardInactivityOffset,
+  LEADERBOARD_ACTIVITY_MAX_OFFSET,
   LEADERBOARD_MIN_GAMES,
 
   predictWinProbabilities,
@@ -275,6 +278,123 @@ describe('buildLeaderboard', () => {
 
     expect(buildLeaderboard(players, 3)).toHaveLength(1)
     expect(buildLeaderboard(players, 5)).toHaveLength(0)
+  })
+
+  test('uses player id as a deterministic score tie-breaker', () => {
+    const players = [
+      { playerId: 'z', mu: 30, sigma: 4, gamesPlayed: 5, wins: 3 },
+      { playerId: 'a', mu: 30, sigma: 8, gamesPlayed: 5, wins: 3 },
+    ]
+
+    expect(buildLeaderboard(players).map(player => player.playerId)).toEqual(['a', 'z'])
+  })
+})
+
+describe('buildActivityAdjustedLeaderboard', () => {
+  const DAY_MS = 24 * 60 * 60 * 1_000
+  const NOW = 200 * DAY_MS
+  const player = (playerId: string, rawRank: number, lastPlayedAt: number | null = NOW) => ({
+    playerId,
+    mu: 50 - rawRank,
+    sigma: 4 + (rawRank / 100),
+    gamesPlayed: 10,
+    wins: 6,
+    lastPlayedAt,
+  })
+
+  test('does not move placements before the first full post-grace interval', () => {
+    const players = [
+      player('high', 1, NOW - (119 * DAY_MS)),
+      player('challenger', 2, NOW),
+    ]
+
+    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
+
+    expect(ranked.map(entry => entry.playerId)).toEqual(['high', 'challenger'])
+    expect(ranked.map(entry => entry.inactivityOffset)).toEqual([0, 0])
+    expect(getLeaderboardInactivityOffset(NOW - (89 * DAY_MS), NOW)).toBe(0)
+    expect(getLeaderboardInactivityOffset(NOW - (90 * DAY_MS), NOW)).toBe(0)
+  })
+
+  test('applies the first one-place offset at exactly 120 days', () => {
+    const players = [
+      player('high', 1, NOW - (120 * DAY_MS)),
+      player('challenger', 2, NOW),
+    ]
+
+    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
+
+    expect(ranked.map(entry => entry.playerId)).toEqual(['challenger', 'high'])
+    expect(ranked.find(entry => entry.playerId === 'high')).toMatchObject({ rawRank: 1, rank: 2, inactivityOffset: 1 })
+  })
+
+  test('only gives raw top-20 players an offset', () => {
+    const players = Array.from({ length: 22 }, (_, index) => player(`p${String(index + 1).padStart(2, '0')}`, index + 1, index === 20 ? null : NOW))
+
+    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
+    const rawTwentyOne = ranked.find(entry => entry.rawRank === 21)
+
+    expect(rawTwentyOne).toMatchObject({ playerId: 'p21', inactivityOffset: 0, rank: 21 })
+  })
+
+  test('caps the offset and lets at most 20 active challengers pass', () => {
+    const players = Array.from({ length: 22 }, (_, index) => player(`p${String(index + 1).padStart(2, '0')}`, index + 1, index === 0 ? NOW - (1_000 * DAY_MS) : NOW))
+
+    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
+    const staleLeader = ranked.find(entry => entry.playerId === 'p01')
+
+    expect(getLeaderboardInactivityOffset(NOW - (1_000 * DAY_MS), NOW)).toBe(LEADERBOARD_ACTIVITY_MAX_OFFSET)
+    expect(staleLeader).toMatchObject({ rawRank: 1, rank: 21, inactivityOffset: 20 })
+    expect(ranked.at(-1)?.playerId).toBe('p22')
+  })
+
+  test('raw ties use newest activity and then player id deterministically', () => {
+    const players = [
+      { ...player('z-old', 1, NOW - DAY_MS), mu: 30 },
+      { ...player('z-new', 1, NOW), mu: 30 },
+      { ...player('b', 1, NOW), mu: 30 },
+      { ...player('a', 1, NOW), mu: 30 },
+    ]
+
+    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
+
+    expect([...ranked].sort((left, right) => left.rawRank - right.rawRank).map(entry => entry.playerId)).toEqual(['a', 'b', 'z-new', 'z-old'])
+  })
+
+  test('treats null activity as max offset and future activity as current', () => {
+    const ranked = buildActivityAdjustedLeaderboard([
+      player('missing', 1, null),
+      player('future', 2, NOW + DAY_MS),
+    ], 5, NOW)
+
+    expect(ranked.map(entry => entry.playerId)).toEqual(['future', 'missing'])
+    expect(ranked.find(entry => entry.playerId === 'missing')?.inactivityOffset).toBe(20)
+    expect(ranked.find(entry => entry.playerId === 'future')?.inactivityOffset).toBe(0)
+  })
+
+  test('filters by minimum games without changing rating or visible Elo data', () => {
+    const input = {
+      playerId: 'stale',
+      mu: 37.25,
+      sigma: 6.75,
+      gamesPlayed: 5,
+      wins: 4,
+      lastPlayedAt: null,
+    }
+    const ineligible = { ...input, playerId: 'new', gamesPlayed: 4 }
+
+    const ranked = buildActivityAdjustedLeaderboard([input, ineligible], 5, NOW)
+
+    expect(ranked).toHaveLength(1)
+    expect(ranked[0]).toMatchObject({ mu: input.mu, sigma: input.sigma, displayRating: displayRating(input.mu, input.sigma) })
+    expect(input).toEqual({
+      playerId: 'stale',
+      mu: 37.25,
+      sigma: 6.75,
+      gamesPlayed: 5,
+      wins: 4,
+      lastPlayedAt: null,
+    })
   })
 })
 

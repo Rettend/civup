@@ -3,7 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import type { LeaderboardSnapshotRow } from './snapshot.ts'
 import { players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { buildLeaderboard, getLeaderboardMinGames } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { inArray } from 'drizzle-orm'
@@ -56,6 +56,8 @@ interface AvatarPlayer {
 
 export interface PlayerLeaderboardImageRow extends AvatarPlayer {
   rank: number
+  rawRank: number
+  inactivityOffset: number
   displayRating: number
   gamesPlayed: number
   wins: number
@@ -71,6 +73,7 @@ export interface PlayerLeaderboardImageData {
 export interface PlayerLeaderboardImageDataOptions {
   titlePrefix?: string
   rowLimit?: number
+  now?: number
 }
 
 export interface PlayerLeaderboardImageDataInput {
@@ -100,11 +103,12 @@ export async function buildPlayerLeaderboardImageDataBatch(
   db: Database,
   inputs: readonly PlayerLeaderboardImageDataInput[],
 ): Promise<PlayerLeaderboardImageData[]> {
+  const now = Date.now()
   const prepared = inputs.map((input) => {
     const limit = Math.max(0, Math.round(input.options?.rowLimit ?? ROW_LIMIT))
     return {
       input,
-      entries: buildLeaderboard([...input.rows], getLeaderboardMinGames(input.mode)).slice(0, limit),
+      entries: buildActivityAdjustedLeaderboard(input.rows, getLeaderboardMinGames(input.mode), input.options?.now ?? now).slice(0, limit),
     }
   })
   const profiles = await getLeaderboardPlayerProfiles(db, prepared.flatMap(item => item.entries.map(entry => entry.playerId)))
@@ -112,13 +116,15 @@ export async function buildPlayerLeaderboardImageDataBatch(
   return prepared.map(({ input, entries }) => ({
     mode: input.mode,
     titlePrefix: input.options?.titlePrefix,
-    rows: entries.map((entry, index) => {
+    rows: entries.map((entry) => {
       const profile = profiles.get(entry.playerId)
       return {
         playerId: entry.playerId,
         displayName: profile?.displayName?.trim() || entry.playerId,
         avatarUrl: profile?.avatarUrl ?? null,
-        rank: index + 1,
+        rank: entry.rank,
+        rawRank: entry.rawRank,
+        inactivityOffset: entry.inactivityOffset,
         displayRating: entry.displayRating,
         gamesPlayed: entry.gamesPlayed,
         wins: entry.wins,
@@ -154,6 +160,7 @@ export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageDat
   <rect width="${IMAGE_WIDTH}" height="${height}" fill="url(#playerLeaderboardBg)" />
   <rect x="0" y="0" width="${IMAGE_WIDTH}" height="${HEADER_HEIGHT}" fill="url(#playerLeaderboardAccent)" />
   <text x="${SIDE_PAD}" y="76" fill="${COLORS.fg}" font-size="50" font-weight="900" letter-spacing="0.8">${escapeXml(title)}</text>
+  <text x="${IMAGE_WIDTH - SIDE_PAD}" y="96" text-anchor="end" fill="${COLORS.muted}" font-size="15" font-weight="700">↓N = activity placement adjustment</text>
   ${renderTableHeader(data.rows.length)}
   ${data.rows.length > 0 ? renderRows(data.rows, avatarData, accent) : renderEmptyState()}
 </svg>`
@@ -200,7 +207,8 @@ function renderRows(rows: readonly PlayerLeaderboardImageRow[], avatarData: Map<
     return `
       <rect x="${x}" y="${y}" width="${COLUMN_WIDTH}" height="${ROW_HEIGHT}" rx="15" fill="${rowFill}" />
       <rect x="${x}" y="${y}" width="${COLUMN_WIDTH}" height="${ROW_HEIGHT}" rx="15" fill="none" stroke="${row.rank <= 3 ? rankColor : COLORS.borderSubtle}" stroke-width="1" />
-      <text x="${x + 36}" y="${y + 33}" text-anchor="middle" fill="${row.rank <= 3 ? rankColor : COLORS.muted}" font-size="23" font-weight="900">#${row.rank}</text>
+      <text x="${x + (row.inactivityOffset > 0 ? 28 : 36)}" y="${y + 33}" text-anchor="middle" fill="${row.rank <= 3 ? rankColor : COLORS.muted}" font-size="23" font-weight="900">#${row.rank}</text>
+      ${row.inactivityOffset > 0 ? `<text x="${x + 52}" y="${y + 19}" text-anchor="middle" fill="${COLORS.muted}" font-size="13" font-weight="900">↓${row.inactivityOffset}</text>` : ''}
       ${renderAvatar(row, x + 68, y + 7, 36, avatarClipId(row), avatarData.get(avatarKey(row)))}
       ${renderText(name, positions.nameX, y + 33, positions.nameMaxWidth, 22, 900, COLORS.fg)}
       <text x="${positions.ratingX}" y="${y + 33}" text-anchor="end" fill="${COLORS.fg}" font-size="22" font-weight="900">${Math.round(row.displayRating)}</text>

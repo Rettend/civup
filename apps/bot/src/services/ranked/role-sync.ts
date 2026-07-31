@@ -4,7 +4,7 @@ import type { RankedRoleConfig } from './roles.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
@@ -889,6 +889,7 @@ async function buildRankedRolePreviewState({
       mode,
       config,
       rankedMinGames,
+      now,
     ))
   }
   const modeRatingsByPlayerId = buildModeRatingsByPlayerId(ratings)
@@ -1104,15 +1105,16 @@ function buildLadderSnapshots(
   mode: LeaderboardMode,
   config: RankedRoleConfig,
   rankedMinGames: number,
+  now: number,
 ): LadderSnapshots {
-  const ranked = rows
-    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
+  const placements = buildActivityAdjustedLeaderboard(rows, getLeaderboardMinGames(mode), now)
+  const ranked = [...placements]
+    .sort((left, right) => left.rawRank - right.rawRank)
     .map(row => ({
       playerId: row.playerId,
-      score: displayRating(row.mu, row.sigma),
+      score: row.displayRating,
       lastPlayedAt: row.lastPlayedAt,
     }))
-    .sort(compareLadderEntry)
   const qualifiedPlayerIds = new Set(rows
     .filter(row => row.gamesPlayed >= rankedMinGames)
     .map(row => row.playerId))
@@ -1120,7 +1122,7 @@ function buildLadderSnapshots(
   return {
     earn: buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
     keep: buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
-    ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
+    ranks: new Map(placements.map(entry => [entry.playerId, entry.rank])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }

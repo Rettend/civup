@@ -30,6 +30,7 @@ interface ReportMatchOptions {
   rankedRoleGuildId?: string | null
   minimalResult?: boolean
   primaryGuildId?: string
+  now?: number
 }
 
 interface RatedReportMatchContext {
@@ -512,16 +513,15 @@ async function finalizeReportedMatch(
     return finalizeReportedUnrankedMatch(db, match, participantRows, originalParticipantRows, reporterId, options)
   }
 
+  const now = options.now ?? Date.now()
   const cachedLeaderboardSnapshot = options.minimalResult ? null : await getStoredLeaderboardModeSnapshot(kv, statsContext, leaderboardMode)
-  const beforeRankByPlayer = buildCachedRankByPlayer(cachedLeaderboardSnapshot, leaderboardMode)
+  const beforeRankByPlayer = buildCachedRankByPlayer(cachedLeaderboardSnapshot, leaderboardMode, now)
   const existingRatingsByScope = await listPlayerRatingsForPlayers(
     db,
     statsContext,
     [leaderboardMode, GLOBAL_RATING_SCOPE],
     participantRows.map(participant => participant.playerId),
   )
-
-  const now = Date.now()
 
   await runDbBatch(db, participantRows.map(participant => db
     .insert(players)
@@ -573,7 +573,7 @@ async function finalizeReportedMatch(
   const updatedRatingsByPlayerId = cachedLeaderboardSnapshot
     ? await listPlayerRatingsForPlayers(db, statsContext, leaderboardMode, updatedParticipants.map(participant => participant.playerId))
     : new Map<RatingScope, Map<string, StoredRatingSummaryRow>>()
-  const afterRankContext = buildCachedRankContext(cachedLeaderboardSnapshot, leaderboardMode, updatedRatingsByPlayerId.get(leaderboardMode) ?? new Map())
+  const afterRankContext = buildCachedRankContext(cachedLeaderboardSnapshot, leaderboardMode, updatedRatingsByPlayerId.get(leaderboardMode) ?? new Map(), now)
 
   const participantsWithLeaderboardRanks: ParticipantRow[] = updatedParticipants.map(participant => ({
     ...participant,
@@ -608,14 +608,16 @@ async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
 function buildCachedRankByPlayer(
   snapshot: LeaderboardModeSnapshot | null,
   leaderboardMode: LeaderboardMode,
+  now: number,
 ): Map<string, number> {
-  return snapshot ? buildRankByPlayer(snapshot.rows, leaderboardMode) : new Map()
+  return snapshot ? buildRankByPlayer(snapshot.rows, leaderboardMode, now) : new Map()
 }
 
 function buildCachedRankContext(
   snapshot: LeaderboardModeSnapshot | null,
   leaderboardMode: LeaderboardMode,
   updatedRatingsByPlayerId: Map<string, StoredRatingSummaryRow>,
+  now: number,
 ): { rankByPlayer: Map<string, number>, eligibleCount: number } | null {
   if (!snapshot) return null
 
@@ -632,7 +634,7 @@ function buildCachedRankContext(
     })
   }
 
-  const rankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode)
+  const rankByPlayer = buildRankByPlayer([...rowsByPlayerId.values()], leaderboardMode, now)
   return { rankByPlayer, eligibleCount: rankByPlayer.size }
 }
 

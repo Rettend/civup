@@ -8,7 +8,12 @@ import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
-import { displayRating, getLeaderboardMinGames } from '@civup/rating'
+import {
+  buildActivityAdjustedLeaderboard,
+  getLeaderboardMinGames,
+  getNextLeaderboardInactivityAdjustmentAt,
+  LEADERBOARD_ACTIVITY_TOP_RANK_LIMIT,
+} from '@civup/rating'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -18,8 +23,12 @@ import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../match/retention.ts'
 import { createStatsContext } from '../stats/context.ts'
 
-const LEADERBOARD_RANK_CACHE_MAX_ENTRIES = 16
-const leaderboardRankCache = new Map<string, Map<string, number>>()
+const leaderboardRankCache = new WeakMap<LeaderboardModeSnapshot, {
+  mode: LeaderboardMode
+  evaluatedAt: number
+  expiresAt: number | null
+  rankByPlayerId: Map<string, number>
+}>()
 
 export interface ActivityOverviewOptionSnapshot {
   kind: 'lobby' | 'match'
@@ -457,37 +466,28 @@ function createOptionalStatsContext(guildId: string | null, primaryGuildId: stri
   }
 }
 
-function getLeaderboardRankByPlayer(
+export function getLeaderboardRankByPlayer(
   snapshot: LeaderboardModeSnapshot,
   mode: LeaderboardMode,
+  now = Date.now(),
 ): Map<string, number> {
-  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}`
-  const cached = leaderboardRankCache.get(cacheKey)
-  if (cached) return cached
+  const cached = leaderboardRankCache.get(snapshot)
+  if (
+    cached?.mode === mode
+    && now >= cached.evaluatedAt
+    && (cached.expiresAt == null || now < cached.expiresAt)
+  ) return cached.rankByPlayerId
 
-  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode)
-  leaderboardRankCache.set(cacheKey, rankByPlayerId)
-  while (leaderboardRankCache.size > LEADERBOARD_RANK_CACHE_MAX_ENTRIES) {
-    const oldestKey = leaderboardRankCache.keys().next().value
-    if (!oldestKey) break
-    leaderboardRankCache.delete(oldestKey)
-  }
+  const ranked = buildActivityAdjustedLeaderboard(snapshot.rows, getLeaderboardMinGames(mode), now)
+  const rankByPlayerId = new Map(ranked.map(row => [row.playerId, row.rank]))
+  const nextAdjustments = ranked
+    .filter(row => row.rawRank <= LEADERBOARD_ACTIVITY_TOP_RANK_LIMIT)
+    .map(row => getNextLeaderboardInactivityAdjustmentAt(row.lastPlayedAt, now))
+    .filter((expiresAt): expiresAt is number => expiresAt != null)
+  const expiresAt = nextAdjustments.length > 0 ? Math.min(...nextAdjustments) : null
+
+  leaderboardRankCache.set(snapshot, { mode, evaluatedAt: now, expiresAt, rankByPlayerId })
   return rankByPlayerId
-}
-
-function buildLeaderboardRankByPlayer(
-  rows: LeaderboardModeSnapshot['rows'],
-  mode: LeaderboardMode,
-): Map<string, number> {
-  const ranked = rows
-    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
-    .map(row => ({
-      playerId: row.playerId,
-      display: displayRating(row.mu, row.sigma),
-    }))
-    .sort((left, right) => right.display - left.display)
-
-  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
 
 export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {

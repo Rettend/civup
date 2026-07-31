@@ -130,6 +130,52 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('activity placement changes visible mode rank without changing raw tier or role assignment', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const topPlayerId = playerIdFor('activity-role', 1)
+
+    for (let index = 1; index <= 21; index++) {
+      const playerId = playerIdFor('activity-role', index)
+      await seedPlayerIdentity(db, playerId)
+      await seedRating(db, {
+        playerId,
+        mode: 'duel',
+        mu: 60 - index,
+        sigma: 5,
+        gamesPlayed: 20,
+        lastPlayedAt: index === 1 ? NOW - (1_000 * DAY_MS) : NOW,
+      })
+      await seedRating(db, {
+        playerId,
+        mode: 'global',
+        mu: 60 - index,
+        sigma: 5,
+        gamesPlayed: 20,
+        effectiveGames: 20,
+        winsVsTier1: index === 1 ? 1 : 0,
+        winsVsTier2Plus: index === 1 ? 4 : 0,
+        lastPlayedAt: NOW,
+      })
+    }
+
+    const preview = await previewRankedRoles({
+      db,
+      kv,
+      guildId: 'guild-1',
+      now: NOW,
+      playerIds: [topPlayerId],
+      includePlayerIdentities: false,
+    })
+    const topPlayer = preview.playerPreviews[0]
+
+    expect(topPlayer?.ladderRanks.duel).toBe(21)
+    expect(topPlayer?.ladderTiers.duel).toBe(TIER_1)
+    expect(topPlayer?.assignment).toEqual({ tier: TIER_1, sourceMode: null })
+
+    sqlite.close()
+  })
+
   test('repeated effective quality wins can floor a tier-4 candidate to tier 3', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

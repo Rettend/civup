@@ -3,7 +3,9 @@ import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -183,6 +185,65 @@ describe('match reporter identity', () => {
       expect(result.participants.find(player => player.playerId === 'p1')?.ratingBeforeMu).toBe(40)
       expect(result.participants.find(player => player.playerId === 'p2')?.ratingBeforeMu).toBe(30)
       expect(await db.select().from(playerRatings)).toHaveLength(4)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('current reports clear participant activity adjustment in before and after ranks', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const now = 200 * 86_400_000
+    const statsContext = createStatsContext(GUILD_ID, GUILD_ID)
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'activity-reset',
+        guildId: GUILD_ID,
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 1,
+        draftData: JSON.stringify({ completedAt: 2 }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'activity-reset', playerId: 'p1', team: 0 },
+        { matchId: 'activity-reset', playerId: 'p2', team: 1 },
+      ])
+      await db.insert(playerRatings).values([
+        { statsKey: STATS_KEY, playerId: 'p1', mode: 'duel', mu: 40, sigma: 5, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
+        { statsKey: STATS_KEY, playerId: 'p1', mode: 'global', mu: 40, sigma: 5, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
+        { statsKey: STATS_KEY, playerId: 'p2', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
+        { statsKey: STATS_KEY, playerId: 'p2', mode: 'global', mu: 30, sigma: 5, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
+      ])
+      await kv.put(leaderboardModeSnapshotKey(statsContext, 'duel'), JSON.stringify({
+        version: 3,
+        updatedAt: 1,
+        rows: [
+          { playerId: 'p1', mu: 40, sigma: 5, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
+          { playerId: 'challenger', mu: 39, sigma: 5, gamesPlayed: 10, wins: 6, lastPlayedAt: now },
+          { playerId: 'p2', mu: 30, sigma: 5, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
+        ],
+      }))
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'activity-reset',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      }, { ...directTerminalOptions, now })
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.participants.find(player => player.playerId === 'p1')).toMatchObject({
+        leaderboardBeforeRank: 2,
+        leaderboardAfterRank: 1,
+      })
+      const modeRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+      expect(modeRatings.find(row => row.playerId === 'p1')?.lastPlayedAt).toBe(now)
     }
     finally {
       sqlite.close()
