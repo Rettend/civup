@@ -479,7 +479,7 @@ function openLocalD1Sqlite(config: string): SqliteDatabase {
     }
   }
 
-  throw new Error(`Could not find a local CivUp D1 SQLite file in ${d1Dir}`)
+  throw new Error(`Could not find a local D1 SQLite file in ${d1Dir}`)
 }
 
 function eligibleContributionSql(alias: string): string {

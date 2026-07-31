@@ -29,7 +29,7 @@ interface StoredLeaderboardModeSnapshot {
 }
 
 const LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX = 'leaderboard:snapshot:'
-const LEADERBOARD_MODE_SNAPSHOT_VERSION = 2
+const LEADERBOARD_MODE_SNAPSHOT_VERSION = 3
 
 export function leaderboardModeSnapshotKey(mode: LeaderboardMode): string {
   return `${LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX}${mode}`

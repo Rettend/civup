@@ -231,7 +231,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const requestUrl = new URL(req.url)
     const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      sessionId: room.state.matchId,
+      sessionId: await this.getSessionAccessId(room),
       userId: activityUserId,
     })
     if (!hasAccess) {
@@ -251,11 +251,16 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
       steamLobbyLink: room.config.steamLobbyLink ?? null,
       permanentAlly: room.config.permanentAlly === true,
+      hiddenDraft: room.config.hiddenDraft === true,
     })
   }
 
   protected async getRoomRecord(): Promise<RoomRecord | null> {
     return normalizeStoredRoomRecord(await this.ctx.storage.get<unknown>(ROOM_RECORD_KEY))
+  }
+
+  protected async getSessionAccessId(room: RoomRecord): Promise<string> {
+    return room.state.matchId
   }
 
   protected async requireRoomRecord(): Promise<RoomRecord> {
@@ -361,6 +366,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       room.mapVote,
       room.config.steamLobbyLink ?? null,
       room.config.permanentAlly === true,
+      room.config.hiddenDraft === true,
     )
   }
 
@@ -389,7 +395,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const requestUrl = new URL(ctx.request.url)
     const hasAccess = await verifySessionAccessToken(this.env.CIVUP_SECRET, requestUrl.searchParams.get('accessToken'), {
-      sessionId: room.state.matchId,
+      sessionId: await this.getSessionAccessId(room),
       userId: playerId,
     })
     if (!hasAccess) {
@@ -422,6 +428,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
       swapState: room.swapWindowOpen ? this.getNormalizedSwapState(room) : null,
       steamLobbyLink: room.config.steamLobbyLink ?? null,
+      permanentAlly: room.config.permanentAlly === true,
+      hiddenDraft: room.config.hiddenDraft === true,
     })
 
     if (room.swapWindowOpen && seatIndex >= 0 && room.swapDisconnectFinalizeAt != null) {
@@ -1287,6 +1295,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     mapVoteState: StoredMapVoteState,
     steamLobbyLink: string | null,
     permanentAlly: boolean,
+    hiddenDraft: boolean,
   ) {
     const sanitizedPreviews = sanitizeDraftPreviews(state, previews)
     const previewCache = new Map<number, DraftPreviewState>()
@@ -1310,6 +1319,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         swapState,
         steamLobbyLink,
         permanentAlly,
+        hiddenDraft,
       })
     }
   }
@@ -1534,6 +1544,20 @@ export function censorDraftStateForSeat(state: DraftState, seatIndex: number): D
     }
   }
 
+  if (step?.action === 'ban' && state.pendingBlindBans.length > 0 && state.status === 'active') {
+    const submissions: DraftState['submissions'] = {}
+    for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
+      const submittedSeatIndex = Number(rawSeatIndex)
+      submissions[submittedSeatIndex] = canViewBlindPickSubmission(state, seatIndex, submittedSeatIndex)
+        ? [...civIds]
+        : Array.from({ length: civIds.length }, () => '__blind__')
+    }
+    nextState = {
+      ...nextState,
+      submissions,
+    }
+  }
+
   if (state.civBlitz && state.status === 'active') {
     const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
     nextState = {
@@ -1555,7 +1579,7 @@ export function censorDraftStateForSeat(state: DraftState, seatIndex: number): D
     nextState = {
       ...nextState,
       pendingBlindBans: state.pendingBlindBans.filter(
-        b => b.seatIndex === seatIndex,
+        b => canViewBlindPickSubmission(state, seatIndex, b.seatIndex),
       ),
     }
   }

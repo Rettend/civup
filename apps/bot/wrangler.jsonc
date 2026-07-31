@@ -15,7 +15,10 @@
   ],
 
   "vars": {
-    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+    "ACTIVITY_PUBLIC_ORIGIN": "https://activity-1.example.invalid",
+    "ALLOWED_DISCORD_GUILD_ID": "9222089226492061636",
+    "DISCORD_APPLICATION_ID": "9606055819354065576",
+    "DISCORD_PUBLIC_KEY": "063414669898e09c38a618575daf8cdbe9bad8bca7e23803a99abb1997c5f5b9",
     "ENABLE_DEBUG_LOBBY_FILL": "1"
   },
 
@@ -28,6 +31,10 @@
       {
         "name": "SessionDO",
         "class_name": "SessionDO"
+      },
+      {
+        "name": "MaintenanceDO",
+        "class_name": "MaintenanceDO"
       }
     ]
   },
@@ -40,6 +47,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["Activity"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["MaintenanceDO"]
     }
   ],
 
@@ -59,11 +70,18 @@
     }
   ],
 
+  "r2_buckets": [
+    {
+      "binding": "AUTOSAVE_UPLOADS",
+      "bucket_name": "civup-autosave-uploads"
+    }
+  ],
+
   "triggers": {
     "crons": [
       "0 * * * *", // every hour
       "*/15 * * * *", // every 15 minutes
-      "0 0 * * *" // every day at 0:00 UTC
+      "0 0,2,4,6,8,10,12,14,16,18,20 * * *" // daily ranked role sync and retries
     ]
   },
 

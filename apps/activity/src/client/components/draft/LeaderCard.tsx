@@ -95,7 +95,11 @@ function useLeaderCardState(props: LeaderCardProps) {
   const state = () => draftStore.state
   const step = currentStep
 
-  const isBanned = (): boolean => state()?.bans.some(b => b.civId === props.leader.id) ?? false
+  const isBanned = (): boolean => {
+    const current = state()
+    if (!current) return false
+    return current.bans.some(ban => ban.civId === props.leader.id) || (current.blindPickBans?.some(ban => ban.civId === props.leader.id) ?? false)
+  }
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
   const isUnavailable = (): boolean => props.unavailable === true || isDraftCardUnavailable(state(), props.leader.id)
   const isSelected = (): boolean => props.selected === true || selectedLeader() === props.leader.id

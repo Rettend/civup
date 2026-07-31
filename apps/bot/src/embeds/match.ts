@@ -3,7 +3,7 @@ import { formatMapVoteResultLabel, formatModeLabel, getLeader, hasBetaLeaderData
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { formatDisplayRatingChange } from './rating-change.ts'
+import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 interface LobbyParticipant {
   playerId: string
@@ -435,10 +435,6 @@ function formatReportedRating(participant: LobbyParticipant, unranked = false): 
   const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
 
   return formatDisplayRatingChange(before, after)
-}
-
-function formatUnrankedResultMarker(placement: number | null | undefined): string {
-  return placement === 1 ? '`  +` 📈' : '`  -` 📉'
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {

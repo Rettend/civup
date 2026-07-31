@@ -125,13 +125,11 @@ export async function resolveMatchByModerator(
         includeActiveBoundary: previousStatus !== 'completed',
       })
       if ('error' in recalculated) {
-        const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
+        const rollbackError = await rollbackResolvedMatchRows(db, {
           input,
           match,
           participants,
           bans: originalBans,
-          leaderboardMode,
-          rankedRoleGuildId: options.rankedRoleGuildId,
         })
         if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculated
@@ -470,6 +468,39 @@ async function rollbackResolvedMatchModeration(
     rankedRoleGuildId?: string | null
   },
 ): Promise<string | null> {
+  const rowRollbackError = await rollbackResolvedMatchRows(db, options)
+  if (rowRollbackError) return rowRollbackError
+
+  try {
+    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+      fromMatchId: options.input.matchId,
+      includeFromMatch: options.match.status === 'completed',
+    })
+    if ('error' in recalculated) return recalculated.error
+    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      fromMatchId: options.input.matchId,
+      includeFromMatch: options.match.status === 'completed',
+      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+    })
+    if ('error' in recalculatedGlobal) return recalculatedGlobal.error
+
+    await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+    return null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function rollbackResolvedMatchRows(
+  db: Database,
+  options: {
+    input: ResolveMatchInput
+    match: MatchRow
+    participants: ParticipantRow[]
+    bans: MatchBanRow[]
+  },
+): Promise<string | null> {
   try {
     const rollbackQueries: DbBatchItem[] = options.participants.map(participant => db
       .update(matchParticipants)
@@ -480,12 +511,10 @@ async function rollbackResolvedMatchModeration(
         ratingAfterMu: participant.ratingAfterMu,
         ratingAfterSigma: participant.ratingAfterSigma,
       })
-      .where(
-        and(
-          eq(matchParticipants.matchId, options.input.matchId),
-          eq(matchParticipants.playerId, participant.playerId),
-        ),
-      ))
+      .where(and(
+        eq(matchParticipants.matchId, options.input.matchId),
+        eq(matchParticipants.playerId, participant.playerId),
+      )))
 
     rollbackQueries.push(
       db
@@ -503,20 +532,6 @@ async function rollbackResolvedMatchModeration(
     await runDbBatch(db, rollbackQueries)
     await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
     await reconcilePlayerCivStatMatchContribution(db, options.input.matchId)
-
-    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
-      fromMatchId: options.input.matchId,
-      includeFromMatch: options.match.status === 'completed',
-    })
-    if ('error' in recalculated) return recalculated.error
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
-      fromMatchId: options.input.matchId,
-      includeFromMatch: options.match.status === 'completed',
-      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
-    })
-    if ('error' in recalculatedGlobal) return recalculatedGlobal.error
-
-    await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null
   }
   catch (error) {

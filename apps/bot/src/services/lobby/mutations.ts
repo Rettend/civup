@@ -36,6 +36,7 @@ export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): bo
 export async function createLobby(
   kv: KVNamespace,
   input: {
+    id?: string
     mode: GameMode
     guildId?: string | null
     hostId: string
@@ -52,7 +53,7 @@ export async function createLobby(
   slots[0] = input.hostId
 
   const lobby: LobbyState = {
-    id: nanoid(10),
+    id: input.id?.trim() || nanoid(10),
     mode: input.mode,
     status: 'open',
     guildId: input.guildId?.trim() || null,

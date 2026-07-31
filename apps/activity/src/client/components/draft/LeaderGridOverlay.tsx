@@ -374,12 +374,17 @@ export function LeaderGridOverlay() {
   const completeReviewMode = () => state()?.status === 'complete' && !reportAssignmentMode()
   const reportSeatCount = () => state()?.seats.length ?? 0
   const isReportLeaderSelected = (leaderId: string): boolean => hiddenDraftLeaderSelections().includes(leaderId)
+  const isBanSelectionAvailable = (civId: string): boolean => {
+    const current = state()
+    return current?.availableCivIds.includes(civId) === true && !isDraftCardUnavailable(current, civId)
+  }
   const currentHydrationToken = () => {
     const current = state()
     const seatIndex = step()?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
     return current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
   }
   const [hoverTooltip, setHoverTooltip] = createSignal<HoverTooltip | null>(null)
+  const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
   const [filtersOpen, setFiltersOpen] = createSignal(false)
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
@@ -559,15 +564,25 @@ export function LeaderGridOverlay() {
       return
     }
 
-    const serverBanPreview = draftStore.previews.bans[seatIndex] ?? []
+    const localBanSelections = banSelections()
+    const serverBanPreview = (draftStore.previews.bans[seatIndex] ?? []).filter(isBanSelectionAvailable)
     if (banSelectionStepToken() !== hydrationToken) {
-      if (!sameCivIdList(banSelections(), serverBanPreview)) {
+      if (!sameCivIdList(localBanSelections, serverBanPreview)) {
         setBanSelections([...serverBanPreview])
       }
       setBanSelectionStepToken(hydrationToken)
       setHydratedBanPreviewToken(serverBanPreview.length > 0 ? hydrationToken : null)
+      return
     }
-    else if (banSelections().length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
+
+    const prunedLocalBanSelections = localBanSelections.filter(isBanSelectionAvailable)
+    if (!sameCivIdList(localBanSelections, prunedLocalBanSelections)) {
+      setBanSelections(prunedLocalBanSelections)
+      clearHoverTooltip()
+      return
+    }
+
+    if (prunedLocalBanSelections.length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
       setBanSelections([...serverBanPreview])
       setHydratedBanPreviewToken(hydrationToken)
     }
@@ -679,6 +694,7 @@ export function LeaderGridOverlay() {
     return new Set([
       ...draftState.availableCivIds,
       ...draftState.bans.map(selection => selection.civId),
+      ...(draftState.blindPickBans ?? []).map(selection => selection.civId),
       ...draftState.picks.map(selection => selection.civId),
     ])
   })
@@ -702,7 +718,6 @@ export function LeaderGridOverlay() {
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
 
   const showRandomInList = () => state()?.status === 'active' && !reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()
-  const [hoveredListIndex, setHoveredListIndex] = createSignal<number | null>(null)
   const [multiListColumns, setMultiListColumns] = createSignal(1)
 
   const listItemIds = createMemo(() => {
@@ -973,9 +988,11 @@ export function LeaderGridOverlay() {
   }
 
   const canConfirmBan = () => {
-    if (step()?.action !== 'ban') return false
-    if (isRandomSelected()) return true
-    return banSelections().length === step()!.count
+    const currentStep = step()
+    if (currentStep?.action !== 'ban') return false
+    if (isRandomSelected()) return canUseRandom()
+    const selections = banSelections()
+    return selections.length === currentStep.count && selections.every(isBanSelectionAvailable)
   }
 
   const handleToggleRandom = () => {
@@ -1034,6 +1051,8 @@ export function LeaderGridOverlay() {
   }
 
   const handleConfirmBan = () => {
+    if (!canConfirmBan()) return
+
     if (isRandomSelected()) {
       const s = step()
       if (!s) return

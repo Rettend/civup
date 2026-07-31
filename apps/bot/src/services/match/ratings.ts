@@ -46,6 +46,8 @@ interface StoredParticipantRow {
 
 interface HistoricalParticipantRow {
   matchId: string
+  gameMode: string
+  draftData: string | null
   createdAt: number
   completedAt: number | null
   isOld: boolean
@@ -230,7 +232,6 @@ async function recalculateGlobalRatingsFromScratch(
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
-  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE))
 
   for (const match of completedMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
@@ -245,6 +246,7 @@ async function recalculateGlobalRatingsFromScratch(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE))
   await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
 
@@ -355,8 +357,6 @@ async function recalculateGlobalRatingsFromBoundary(
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
-  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
-
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
   for (const match of replayMatches) {
@@ -372,6 +372,7 @@ async function recalculateGlobalRatingsFromBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
   await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
 
@@ -384,7 +385,7 @@ async function recalculateLeaderboardModeFromScratch(
   gameModes: readonly string[],
   seasonRows: StoredSeasonRow[],
 ): Promise<{ matchIds: string[] } | { error: string }> {
-  const completedMatches = await db
+  const completedMatchCandidates = await db
     .select({
       id: matches.id,
       gameMode: matches.gameMode,
@@ -401,33 +402,13 @@ async function recalculateLeaderboardModeFromScratch(
     ))
     .orderBy(asc(matches.createdAt), asc(matches.id))
 
-  const allParticipantRows = completedMatches.length > 0
-    ? await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          civId: matchParticipants.civId,
-          placement: matchParticipants.placement,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-        })
-        .from(matchParticipants)
-        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-        .where(and(
-          eq(matches.status, 'completed'),
-          inArray(matches.gameMode, gameModes),
-          excludeTournamentMatchesCondition(),
-        ))
-    : []
+  const completedMatches = completedMatchCandidates.filter(match => matchBelongsToLeaderboard(match, leaderboardMode))
+  const allParticipantRows = await listReplayParticipantRows(db, completedMatches.map(match => match.id))
 
   const { ratingStateByPlayer } = createReplayStates()
   const seasonProgress: SeasonProgress = { value: 0 }
   const participantsByMatchId = buildParticipantsByMatchId(allParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
-  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, leaderboardMode))
 
   for (const match of completedMatches) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
@@ -440,6 +421,7 @@ async function recalculateLeaderboardModeFromScratch(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, leaderboardMode))
   await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer)
 
@@ -495,7 +477,7 @@ async function recalculateLeaderboardModeFromBoundary(
     ? or(boundaryReplayCondition, inArray(matches.id, extraReplayMatchIds))
     : boundaryReplayCondition
 
-  const [boundaryParticipants, replayMatches] = await Promise.all([
+  const [boundaryParticipants, replayMatchCandidates] = await Promise.all([
     db
       .select({ playerId: matchParticipants.playerId })
       .from(matchParticipants)
@@ -518,6 +500,7 @@ async function recalculateLeaderboardModeFromBoundary(
       .orderBy(asc(matches.createdAt), asc(matches.id)),
   ])
 
+  const replayMatches = replayMatchCandidates.filter(match => matchBelongsToLeaderboard(match, leaderboardMode))
   const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
   const affectedPlayerIds = [...new Set([
@@ -526,7 +509,7 @@ async function recalculateLeaderboardModeFromBoundary(
     ...extraAffectedPlayerIds,
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, gameModes, affectedPlayerIds, boundaryMatch)
+  const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, leaderboardMode, gameModes, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -554,8 +537,6 @@ async function recalculateLeaderboardModeFromBoundary(
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
-  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
-
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
   for (const match of replayMatches) {
@@ -569,6 +550,7 @@ async function recalculateLeaderboardModeFromBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
+  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
   await flushReplayWriteQueries(db, replayWriteQueries)
   await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
 
@@ -634,6 +616,7 @@ async function listEarlierGlobalRatingEventRows(
 
 async function listEarlierLeaderboardParticipantRows(
   db: Database,
+  leaderboardMode: LeaderboardMode,
   gameModes: readonly string[],
   playerIds: string[],
   boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
@@ -643,6 +626,8 @@ async function listEarlierLeaderboardParticipantRows(
     rows.push(...await db
       .select({
         matchId: matchParticipants.matchId,
+        gameMode: matches.gameMode,
+        draftData: matches.draftData,
         createdAt: matches.createdAt,
         completedAt: matches.completedAt,
         isOld: matches.isOld,
@@ -663,7 +648,9 @@ async function listEarlierLeaderboardParticipantRows(
       )))
   }
 
-  return rows.sort(compareHistoricalParticipantRows)
+  return rows
+    .filter(row => matchBelongsToLeaderboard(row, leaderboardMode))
+    .sort(compareHistoricalParticipantRows)
 }
 
 function chunkArray<T>(items: readonly T[], size: number): T[][] {
@@ -703,6 +690,13 @@ function buildParticipantsByMatchId(rows: StoredParticipantRow[]): Map<string, S
   }
 
   return participantsByMatchId
+}
+
+function matchBelongsToLeaderboard(
+  match: Pick<StoredMatchRow, 'gameMode' | 'draftData'>,
+  leaderboardMode: LeaderboardMode,
+): boolean {
+  return getStoredGameModeContext(match.gameMode, match.draftData)?.leaderboardMode === leaderboardMode
 }
 
 function applySeasonResetsUntil(
