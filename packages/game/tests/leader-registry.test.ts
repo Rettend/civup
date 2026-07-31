@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { allLeaderIds, CIV_BLITZ_MAX_OPTION_COUNT, getCivBlitzOptionCountMaximum, getCivBlitzRegistry, getFaction, getLeader, getLeaders } from '../src/index.ts'
+import { allLeaderIds, CIV_BLITZ_MAX_OPTION_COUNT, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getCivBlitzRegistry, getFaction, getLeader, getLeaders } from '../src/index.ts'
 import { leaders as betaLeaders } from '../src/leaders-beta.ts'
 import { leaders as liveLeaders } from '../src/leaders.ts'
 
@@ -23,6 +23,28 @@ const bbgExpandedLeaderIds = [
   'teotihuacan-spearthrower-owl',
   'thule-kiviuq',
   'tibet-trisong-detsen',
+]
+
+const undraftableCivBlitzComponentIds = [
+  'civblitz:civilizationAbility:babylon',
+  'civblitz:civilizationAbility:byzantium',
+  'civblitz:infrastructure:copacabana',
+  'civblitz:infrastructure:feitoria',
+  'civblitz:infrastructure:p',
+  'civblitz:infrastructure:qhapaq-an',
+  'civblitz:infrastructure:queens-bibliotheque',
+  'civblitz:leaderAbility:france-eleanor-of-aquitaine-france',
+  'civblitz:leaderAbility:mongolia-kublai-khan-mongolia',
+  'civblitz:unit:black-army',
+  'civblitz:unit:comandante-general',
+  'civblitz:unit:hetairos',
+  'civblitz:unit:janissary',
+  'civblitz:unit:p-51-mustang',
+  'civblitz:unit:redcoat',
+  'civblitz:unit:rough-rider',
+  'civblitz:unit:tagma',
+  'civblitz:unit:u-boat',
+  'civblitz:unit:viking-longship',
 ]
 
 describe('leader registry', () => {
@@ -76,6 +98,19 @@ describe('leader registry', () => {
     for (const leaderId of bbgExpandedLeaderIds) {
       expect(includedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(true)
       expect(excludedRegistry.components.some(component => component.sourceLeaderId === leaderId)).toBe(false)
+    }
+  })
+
+  test('CivBlitz keeps unsafe and implicitly granted components out of future draft pools', () => {
+    for (const version of ['live', 'beta'] as const) {
+      const registry = getCivBlitzRegistry(version)
+      const draftableIds = getCivBlitzComponentIds(version)
+
+      for (const componentId of undraftableCivBlitzComponentIds) {
+        expect(registry.componentMap.has(componentId)).toBe(true)
+        expect(draftableIds).not.toContain(componentId)
+        expect(Object.values(registry.componentPools).flat()).not.toContain(componentId)
+      }
     }
   })
 

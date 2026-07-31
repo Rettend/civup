@@ -241,6 +241,48 @@ describe('draft room domain', () => {
     ])
   })
 
+  test('persists draft completion before broadcasting an open swap window', () => {
+    const seats: DraftSeat[] = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2', team: 0 },
+      { playerId: 'b2', displayName: 'B2', team: 1 },
+    ]
+    const format = draftFormatMap.get('default-2v2')
+    expect(format).toBeDefined()
+    if (!format) return
+
+    const started = applyDraftInput(createDraft('match-complete-swap', format, seats, allLeaderIds.slice(0, 12)), { type: 'START' }, format.blindBans)
+    const completeState: DraftState = {
+      ...started,
+      status: 'complete',
+      currentStepIndex: started.steps.length,
+      picks: seats.map((_, seatIndex) => ({
+        civId: allLeaderIds[seatIndex]!,
+        seatIndex,
+        stepIndex: seatIndex,
+      })),
+    }
+    const room = createRoomRecord({
+      matchId: 'match-complete-swap',
+      hostId: 'a1',
+      formatId: 'default-2v2',
+      seats,
+      civPool: allLeaderIds.slice(0, 12),
+    }, started, EMPTY_STORED_MAP_VOTE_STATE)
+
+    const transition = applyDraftResultCommand(room, {
+      type: 'apply-draft-result',
+      nextState: completeState,
+      events: [],
+      now: 1_000,
+    })
+    const effectTypes = transition.effects.map(effect => effect.type)
+
+    expect(transition.room.swapWindowOpen).toBe(true)
+    expect(effectTypes.indexOf('sync-draft-lifecycle')).toBeLessThan(effectTypes.indexOf('broadcast-update'))
+  })
+
   test('finalizing a completed swap window syncs lifecycle and broadcasts cleared swap state before closing selected-session sockets', () => {
     const seats: DraftSeat[] = [
       { playerId: 'p1', displayName: 'Player One' },
