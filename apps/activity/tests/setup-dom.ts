@@ -4,6 +4,15 @@ import solid from 'vite-plugin-solid'
 
 import * as LeaderTags from '../src/client/lib/leader-tags'
 
+const nativeFetch = globalThis.fetch
+const NativeHeaders = globalThis.Headers
+const NativeRequest = globalThis.Request
+const NativeResponse = globalThis.Response
+const NativeBlob = globalThis.Blob
+const NativeReadableStream = globalThis.ReadableStream
+const NativeTransformStream = globalThis.TransformStream
+const NativeWritableStream = globalThis.WritableStream
+
 const solidTransformPlugin = solid()
 const solidTransform = (
   typeof solidTransformPlugin.transform === 'function'
@@ -35,6 +44,17 @@ if (!GlobalRegistrator.isRegistered) {
     url: 'http://localhost/',
   })
 }
+
+Object.assign(globalThis, {
+  fetch: nativeFetch,
+  Headers: NativeHeaders,
+  Request: NativeRequest,
+  Response: NativeResponse,
+  Blob: NativeBlob,
+  ReadableStream: NativeReadableStream,
+  TransformStream: NativeTransformStream,
+  WritableStream: NativeWritableStream,
+})
 
 if (!('__ASSET_REVISION_MAP__' in globalThis)) {
   Object.assign(globalThis, { __ASSET_REVISION_MAP__: {} })

@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "civup-activity",
+  "account_id": "bee9950f4935b08fbc80f8e9ea881286",
+  "compatibility_date": "2025-01-01",
+  "main": "src/server/index.ts",
+  "vars": {
+    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
+    "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+    "DISCORD_CLIENT_ID": "1469447716751933533"
+  },
+  "services": [
+    {
+      "binding": "BOT",
+      "service": "civup-bot"
+    }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

@@ -396,6 +396,16 @@ describe('activity target helpers', () => {
     })).toBe('match-1:connection-error')
   })
 
+  test('requests one repair refresh when the server closes a terminal session socket', () => {
+    expect(getBrokenMatchRefreshKey({
+      appStatus: 'authenticated',
+      currentMatchId: 'match-1',
+      connectionStatus: 'disconnected',
+      connectionCloseReason: 'Session closed',
+      draftState: null,
+    })).toBe('match-1:session-closed')
+  })
+
   test('does not request a repair refresh for healthy or manually scrubbed drafts', () => {
     expect(getBrokenMatchRefreshKey({
       appStatus: 'authenticated',

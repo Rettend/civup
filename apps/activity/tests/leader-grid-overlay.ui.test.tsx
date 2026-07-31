@@ -160,6 +160,21 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.isRandomSelected).toBe(false)
   })
 
+  test('shows blind-pick conflicts as banned cards in the leader pool', () => {
+    uiMockState.draftState = createActiveDraftState({
+      currentStepIndex: 1,
+      availableCivIds: [TEST_LEADER_IDS.johnCurtin],
+      blindPickBans: [{ seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    const conflictedCard = screen.getByAltText('Abraham Lincoln').closest('button') as HTMLButtonElement
+
+    expect(conflictedCard.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('✕')).toBeTruthy()
+  })
+
   test('supports ban selections and confirmation through the shared overlay flow', async () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
@@ -186,6 +201,45 @@ describe('LeaderGridOverlay UI', () => {
     expect(storeSpies.sendPreview.mock.calls.some(call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0)).toBe(false)
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.banSelections).toEqual([])
+  })
+
+  test('prunes stale visible FFA ban selections reserved by another player', () => {
+    const steps: DraftStep[] = [
+      { action: 'ban', count: 1, timer: 60, seats: 'all' },
+      { action: 'pick', count: 1, timer: 90, seats: [0] },
+    ]
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'default-ffa-visible-bans',
+      currentStepIndex: 0,
+      steps,
+    })
+
+    const mount = createMount()
+
+    mount()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln])
+    expect(screen.getByRole('button', { name: 'Confirm Bans (1/1)' }).hasAttribute('disabled')).toBe(false)
+
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'default-ffa-visible-bans',
+      currentStepIndex: 0,
+      steps,
+      submissions: { 1: [TEST_LEADER_IDS.abrahamLincoln] },
+    })
+    mount()
+
+    expect(uiMockState.banSelections).toEqual([])
+    expect(screen.getByRole('button', { name: 'Confirm Bans (0/1)' }).hasAttribute('disabled')).toBe(true)
+
+    fireEvent.click(screen.getByAltText('John Curtin').closest('button')!)
+    mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (1/1)' }))
+
+    expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.johnCurtin])
   })
 
   test('lets a team captain confirm a pick for a teammate through the shared overlay flow', () => {

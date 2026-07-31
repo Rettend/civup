@@ -15,8 +15,13 @@ export default function LobbyOverviewRoute() {
         selectedKey={activity.currentTargetKey()}
         error={activity.pickerError()}
         onSelect={activity.handleTargetSelection}
-        onResume={activity.lastResolvedSelection() ? activity.restoreLastSelection : undefined}
+        onResume={activity.canResumeSelection() ? activity.restoreLastSelection : undefined}
         onPractice={activity.openPractice}
+        onUpload={activity.openAutosaveUpload}
+        onFolderUpload={activity.openAutosaveFolderUpload}
+        onCatalog={activity.canViewAutosaveCatalog() ? activity.openAutosaveCatalog : undefined}
+        onExportData={activity.canExportPlayerData() ? activity.exportPlayerData : undefined}
+        playerDataExportState={activity.playerDataExportState()}
       />
     )
   }

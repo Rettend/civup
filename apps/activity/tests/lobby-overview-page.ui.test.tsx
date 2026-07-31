@@ -8,6 +8,7 @@ import { resetUiMocks, uiMockState } from './ui-mocks'
 const onSelect = mock(() => {})
 const onResume = mock(() => {})
 const onPractice = mock(() => {})
+const onExportData = mock(() => {})
 
 const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview')
 
@@ -17,6 +18,7 @@ describe('LobbyOverviewPage UI', () => {
     onSelect.mockClear()
     onResume.mockClear()
     onPractice.mockClear()
+    onExportData.mockClear()
   })
 
   test('shows the empty overview state and return affordance', () => {
@@ -77,6 +79,87 @@ describe('LobbyOverviewPage UI', () => {
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
 
     expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
+  })
+
+  test('shows the responsive Export Data action only with an export capability handler', () => {
+    const rendered = render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'idle' }}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export data' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
+
+    document.body.innerHTML = ''
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'loading', phase: 'matches', players: 53, ratings: 53, matches: 12, participants: 12, bans: 3 }}
+      />
+    ))
+    expect(screen.getByText('Loading matches: 12')).toBeTruthy()
+    const loadingButton = screen.getByRole('button', { name: 'Export data' })
+    expect(loadingButton.hasAttribute('disabled')).toBe(true)
+    expect(loadingButton.querySelector('span')?.className).toContain('i-gg:spinner')
+    expect(loadingButton.querySelector('span')?.className).not.toContain('animate-spin')
+
+    document.body.innerHTML = ''
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
+
+    document.body.innerHTML = ''
+    uiMockState.isMiniView = true
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
+  })
+
+  test('turns a completed export into an explicit download retry', () => {
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{ status: 'ready', filename: 'export-2026-07-15.xlsx', url: 'https://example.com/export', players: 10, matches: 5 }}
+      />
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download data again' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('export-2026-07-15.xlsx is ready.')).toBeTruthy()
+  })
+
+  test('shows the cheap capacity estimate before confirming an export', () => {
+    render(() => (
+      <LobbyOverviewPage
+        options={[]}
+        onSelect={onSelect}
+        onExportData={onExportData}
+        playerDataExportState={{
+          status: 'estimate',
+          estimate: {
+            version: 1,
+            estimatedAt: Date.parse('2026-07-15T12:00:00.000Z'),
+            rows: { players: 1_000, ratings: 4_000, matches: 10_000, participants: 60_000, storedBans: 5_000 },
+            dataPageRequests: 220,
+            workerRequests: 440,
+            d1RowsRead: { lowEstimate: 100_000, highEstimate: 230_000 },
+            dailyFreeAllowance: { workerRequests: 100_000, d1RowsRead: 5_000_000 },
+          },
+        }}
+      />
+    ))
+
+    expect(screen.getByText(/Estimate: 1,000 players, 10,000 matches, 60,000 participants/)).toBeTruthy()
+    expect(screen.getByText(/100,000-230,000 database reads \(2-4.6% of the daily allowance\)/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm data export' }))
+    expect(onExportData).toHaveBeenCalledTimes(1)
   })
 
   test('shows closed lobby cards under the open filter', () => {

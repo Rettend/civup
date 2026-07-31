@@ -5,6 +5,7 @@ import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
+import { getAuthTransport } from '../platform/runtime'
 import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
 import { draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
@@ -12,6 +13,7 @@ import { clearSelections } from './ui-store'
 // ── Types ──────────────────────────────────────────────────
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
+export type ReportMatchResult = { ok: true } | { ok: false, error: string, reason?: 'processing' | 'finalizing' }
 
 export interface MatchStateSnapshot {
   match: {
@@ -236,6 +238,7 @@ export interface SessionSocketTarget {
 
 export const [connectionStatus, setConnectionStatus] = createSignal<ConnectionStatus>('disconnected')
 export const [connectionError, setConnectionError] = createSignal<string | null>(null)
+export const [connectionCloseReason, setConnectionCloseReason] = createSignal<string | null>(null)
 
 const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
@@ -278,9 +281,10 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   setConnectionStatus('connecting')
   setConnectionError(null)
+  setConnectionCloseReason(null)
 
   const activitySessionToken = getActivitySessionToken()
-  if (!activitySessionToken) {
+  if (getAuthTransport() === 'token' && !activitySessionToken) {
     setConnectionStatus('error')
     setConnectionError('Missing activity session. Reopen the activity.')
     return
@@ -289,9 +293,8 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
   currentSessionConnection = { target, sessionId, sessionAccessToken, onStateChanged: options.onStateChanged }
   startStaleDraftReconnectWatchdog()
 
-  const query: Record<string, string> = {
-    [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-  }
+  const query: Record<string, string> = {}
+  if (getAuthTransport() === 'token' && activitySessionToken) query[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = activitySessionToken
   if (sessionAccessToken) query.accessToken = sessionAccessToken
 
   const nextSocket = new PartySocket({
@@ -310,6 +313,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
+    setConnectionCloseReason(null)
   })
 
   nextSocket.addEventListener('message', (event) => {
@@ -332,11 +336,10 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     if (socket !== nextSocket) return
 
     const code = typeof event.code === 'number' ? event.code : -1
-    const reason = typeof event.reason === 'string' && event.reason.length > 0
+    const closeReason = typeof event.reason === 'string' && event.reason.length > 0
       ? event.reason
-      : typeof event.type === 'string'
-        ? event.type
-        : '-'
+      : null
+    const reason = closeReason ?? (typeof event.type === 'string' ? event.type : '-')
 
     if (code !== 1000) {
       if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
@@ -362,6 +365,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
       lastSocketActivityAt = 0
       setConnectionStatus('error')
       setConnectionError(formatSessionSocketCloseError(code, reason, lastServerErrorMessage))
+      setConnectionCloseReason(closeReason)
       return
     }
 
@@ -370,6 +374,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
+    setConnectionCloseReason(closeReason)
   })
 
   nextSocket.addEventListener('error', () => {
@@ -396,6 +401,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     lastSocketActivityAt = 0
     setConnectionStatus('error')
     setConnectionError('WebSocket connection failed')
+    setConnectionCloseReason(null)
   })
 }
 
@@ -414,6 +420,7 @@ export function disconnect() {
     pendingConfigAck = null
   }
   setConnectionStatus('disconnected')
+  setConnectionCloseReason(null)
 }
 
 function startStaleDraftReconnectWatchdog() {
@@ -456,7 +463,7 @@ function stopStaleDraftReconnectWatchdog() {
 export function watchLobbyState(target: SessionSocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
   const activitySessionToken = getActivitySessionToken()
-  if (!activitySessionToken) {
+  if (getAuthTransport() === 'token' && !activitySessionToken) {
     queueMicrotask(() => {
       if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
     })
@@ -468,9 +475,9 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     party: 'activity',
     prefix: target.prefix ?? 'api/parties',
     room: options.channelId,
-    query: {
-      [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken,
-    },
+    query: getAuthTransport() === 'token' && activitySessionToken
+      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
+      : {},
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
 
@@ -978,15 +985,17 @@ export async function reportMatchResult(
   reporterId: string,
   placements: string,
   leaderAssignments?: Record<string, string>,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<ReportMatchResult> {
   try {
     const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
     if (data.reportProcessing) {
+      const reason = data.reportFinalizing ? 'finalizing' : 'processing'
       return {
         ok: false,
+        reason,
         error: data.reportFinalizing
           ? 'Match is finalizing leader swaps. Try again in a moment.'
-          : 'Match is already being reported.',
+          : 'Another player is already reporting this result. Finalizing the report...',
       }
     }
     if (data.ok === false) return { ok: false, error: data.error ?? 'Failed to report result' }
@@ -1082,7 +1091,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -1090,7 +1099,7 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()

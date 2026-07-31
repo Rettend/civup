@@ -1,0 +1,16 @@
+{
+  "name": "@civup/civ6-save-metadata",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "bun@1.3.7",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  }
+}

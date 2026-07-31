@@ -205,6 +205,7 @@ describe('system scenarios', () => {
     })
     expect(configured.status).toBe(200)
 
+    world.runtime.random.seed(0)
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
@@ -223,28 +224,29 @@ describe('system scenarios', () => {
     expect(match?.status).toBe('drafting')
     expect(hostUpdate).toMatchObject({ type: 'update', state: { status: 'active' } })
     expect(opponentUpdate).toMatchObject({ type: 'update', state: { status: 'active' } })
-    expect(hostUpdate?.state.dealtCivIds).toHaveLength(2)
-    expect(opponentUpdate?.state.dealtCivIds).toBeNull()
-    expect(opponentUpdate?.state.availableCivIds).toEqual([])
+    expect(hostUpdate?.state.dealtCivIds).toBeNull()
+    expect(hostUpdate?.state.availableCivIds).toEqual([])
+    expect(opponentUpdate?.state.dealtCivIds).toHaveLength(2)
     expect(hostSocket.closed).toBeNull()
     expect(opponentSocket.closed).toBeNull()
   })
 
-  test('starting a valid 2v2 lobby keeps the expected seat and team order', async () => {
+  test('starting a valid 2v2 lobby randomizes team position without splitting teams', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '2v2',
       players: createPlayers(4),
     })
 
+    world.runtime.random.seed(0)
     const started = await world.lobby.start('2v2', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
     expect(findDraftRuntimeConfig(world, started.matchId)?.seats).toEqual([
-      expect.objectContaining({ playerId: 'p1', team: 0 }),
-      expect.objectContaining({ playerId: 'p3', team: 1 }),
-      expect.objectContaining({ playerId: 'p2', team: 0 }),
-      expect.objectContaining({ playerId: 'p4', team: 1 }),
+      expect.objectContaining({ playerId: 'p3', team: 0 }),
+      expect.objectContaining({ playerId: 'p1', team: 1 }),
+      expect.objectContaining({ playerId: 'p4', team: 0 }),
+      expect.objectContaining({ playerId: 'p2', team: 1 }),
     ])
   })
 
@@ -414,10 +416,7 @@ describe('system scenarios', () => {
     expect(messageIds).toEqual([expect.any(String)])
     expect((await world.match.get(started.matchId))?.status).toBe('active')
     expect(bansAfterFinalized).toEqual(bansBeforeFinalized)
-    expect(afterFinalized.get('p1')).toBe(beforeFinalized.get('p2'))
-    expect(afterFinalized.get('p2')).toBe(beforeFinalized.get('p1'))
-    expect(afterFinalized.get('p3')).toBe(beforeFinalized.get('p3'))
-    expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
+    expectOnlySeatPickSwap(beforeFinalized, afterFinalized, findDraftRuntimeConfig(world, started.matchId)?.seats, 0, 2)
   })
 
   test('terminal cancellation during swap cancels the active match and clears the lobby', async () => {
@@ -532,10 +531,7 @@ describe('system scenarios', () => {
 
     const afterFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
 
-    expect(afterFinalized.get('p1')).toBe(beforeFinalized.get('p2'))
-    expect(afterFinalized.get('p2')).toBe(beforeFinalized.get('p1'))
-    expect(afterFinalized.get('p3')).toBe(beforeFinalized.get('p3'))
-    expect(afterFinalized.get('p4')).toBe(beforeFinalized.get('p4'))
+    expectOnlySeatPickSwap(beforeFinalized, afterFinalized, findDraftRuntimeConfig(world, started.matchId)?.seats, 0, 2)
     expect(world.discord.requests().length).toBeGreaterThan(requestsAfterActivation)
   })
 
@@ -1163,7 +1159,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('revert cancel lifecycle sync restores the original roster and lobby targeting', async () => {
+  test('revert cancel lifecycle sync restores the randomized roster and lobby targeting', async () => {
     const world = await createTrackedWorld()
     const players = createPlayers(4, 'revert')
     const lobby = await world.lobby.createOpen({
@@ -1172,6 +1168,7 @@ describe('system scenarios', () => {
       channelId: 'channel-revert',
     })
 
+    world.runtime.random.seed(0)
     const started = await world.lobby.start('2v2', { hostId: 'revert1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
@@ -1184,7 +1181,7 @@ describe('system scenarios', () => {
     expect(reopenedLobby?.status).toBe('open')
     expect(reopenedLobby?.matchId).toBeNull()
     expect(reopenedLobby?.memberPlayerIds).toEqual(players.map(player => player.id))
-    expect(reopenedLobby?.slots).toEqual(players.map(player => player.id))
+    expect(reopenedLobby?.slots).toEqual(['revert3', 'revert4', 'revert1', 'revert2'])
     await expectQueuePlayers(world, '2v2', players.map(player => player.id))
     expect(await world.inspect.matchMapping('revert1')).toBeNull()
     expect(await world.inspect.lobbyMapping('revert1')).toBe(lobby.id)
@@ -3256,6 +3253,24 @@ function lastMessageOfType(messages: readonly unknown[], type: string): any | nu
     if (message && typeof message === 'object' && (message as { type?: unknown }).type === type) return message as any
   }
   return null
+}
+
+function expectOnlySeatPickSwap(
+  before: ReadonlyMap<string, string | null>,
+  after: ReadonlyMap<string, string | null>,
+  seats: readonly { playerId: string }[] | undefined,
+  leftSeatIndex: number,
+  rightSeatIndex: number,
+) {
+  const leftPlayerId = seats?.[leftSeatIndex]?.playerId
+  const rightPlayerId = seats?.[rightSeatIndex]?.playerId
+  if (!leftPlayerId || !rightPlayerId) throw new Error('Expected both swapped draft seats')
+
+  expect(after.get(leftPlayerId)).toBe(before.get(rightPlayerId))
+  expect(after.get(rightPlayerId)).toBe(before.get(leftPlayerId))
+  for (const playerId of before.keys()) {
+    if (playerId !== leftPlayerId && playerId !== rightPlayerId) expect(after.get(playerId)).toBe(before.get(playerId))
+  }
 }
 
 async function runSeededArrangeScenario(seed: string, channelId: string) {

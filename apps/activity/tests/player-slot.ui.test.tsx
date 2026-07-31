@@ -200,6 +200,38 @@ describe('PlayerSlot UI', () => {
     expect(screen.queryByText('Submitted')).toBeNull()
   })
 
+  test('flashes conflicted blind-pick reveal slots in red at reveal start', async () => {
+    uiMockState.timerEndsAt = Date.now() + 5000
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'default-ffa-blind-pick',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: [0, 1], count: 0, timer: 5, reveal: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3], redraftTimer: 60 }],
+      picks: [],
+      submissions: {},
+      blindPickReveal: {
+        round: 0,
+        picks: [
+          { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 0 },
+          { seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 0 },
+        ],
+        conflictCivIds: [TEST_LEADER_IDS.abrahamLincoln],
+        conflictedSeatIndexes: [0, 1],
+        maxRedrafts: 2,
+      },
+    })
+
+    const { container, unmount } = render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getByAltText('Abraham Lincoln')).toBeTruthy()
+    const flash = await screen.findByTestId('slot-conflict-reveal-flash')
+    expect(flash.className).toContain('anim-swap-focus-flash')
+    expect(container.firstElementChild?.className).toContain('slot-accent-red')
+    expect(container.querySelectorAll('.anim-glow-breathe')).toHaveLength(2)
+    expect(container.querySelectorAll('.anim-bar-breathe')).toHaveLength(1)
+
+    unmount()
+  })
+
   test('keeps CivBlitz slot icons square and unique icon backgrounds transparent', () => {
     const registry = getCivBlitzRegistry()
     const kit = createTestCivBlitzKit()

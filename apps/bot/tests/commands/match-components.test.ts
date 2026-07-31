@@ -1,6 +1,6 @@
-import { matches, matchParticipants, players } from '@civup/db'
+import { matches, matchParticipants, players, sessionDirectory } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
-import { resolveJoinButtonLiveMatchId, shouldJoinOpenLobbyFromActivityButton } from '../../src/commands/match/components.ts'
+import { resolveCanonicalSessionId, resolveJoinButtonLiveMatchId, shouldJoinOpenLobbyFromActivityButton } from '../../src/commands/match/components.ts'
 import { lobbyComponents } from '../../src/embeds/match.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -22,6 +22,36 @@ describe('resolveJoinButtonLiveMatchId', () => {
       await storeMatchMessageMapping(db, 'message-1', 'match-from-message')
 
       await expect(resolveJoinButtonLiveMatchId(createTestD1Adapter(db), 'p1', 'message-1', db)).resolves.toBe('match-from-message')
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+})
+
+describe('browser launch canonicalization', () => {
+  test('resolves a match ID to its distinct canonical session ID', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await db.insert(sessionDirectory).values({
+        sessionId: 'stable-session-id',
+        phase: 'active',
+        mode: '1v1',
+        guildId: 'guild-1',
+        channelId: 'channel-1',
+        hostId: 'host-1',
+        messageId: 'message-1',
+        matchId: 'different-match-id',
+        steamLobbyLink: null,
+        version: 2,
+        rosterJson: JSON.stringify({ participants: [], slots: [] }),
+        configJson: '{}',
+        createdAt: 1,
+        updatedAt: 2,
+        lastActivityAt: 2,
+        closedAt: null,
+      })
+      await expect(resolveCanonicalSessionId(db, 'different-match-id')).resolves.toBe('stable-session-id')
     }
     finally {
       sqlite.close()

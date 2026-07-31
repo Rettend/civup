@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
+import type { Env } from '../../src/env.ts'
 import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
@@ -18,6 +19,7 @@ import {
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
+import { runRankedRoleMaintenance } from '../../src/maintenance/ranked-role-maintenance.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
 import { getLobbyBalanceSnapshot } from '../../src/routes/lobby/snapshot.ts'
 import { getLobbyForUser, getMatchForUser } from '../../src/services/activity/index.ts'
@@ -28,8 +30,9 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { clearCurrentRankAssignmentsCache, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { clearCurrentRankAssignmentsCache, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipart.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
@@ -48,6 +51,7 @@ import {
   startTestSessionDraft,
 } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 import {
@@ -64,6 +68,13 @@ const CHANNEL_ID = 'channel-draft'
 const GUILD_ID = 'guild-1'
 const HOST_ID = 'p1'
 const ACTIVITY_SECRET = 'capacity-test-secret'
+const RANKED_ROLE_IDS = {
+  tier5: '11111111111111111',
+  tier4: '22222222222222222',
+  tier3: '33333333333333333',
+  tier2: '44444444444444444',
+  tier1: '55555555555555555',
+} as const
 
 const CAPACITY_SCENARIOS: CapacityScenario[] = [
   {
@@ -146,9 +157,13 @@ const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
 const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
 const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
 const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
-const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 30
+const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 15
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
+const RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY = 10
+const ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN = 0.128
+const ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN = 0.128
+const ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN = ESTIMATED_DO_GB_SECONDS_PER_REQUEST
 const RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER = 0
 const RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER = 0
 const RANKED_FINISH_EVENT_WRITES_PER_PLAYER = 0
@@ -219,14 +234,18 @@ describe('capacity models', () => {
     const leaderboardCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureLeaderboardCronRunUsage)
     const inactiveLobbyCleanupCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureInactiveLobbyCleanupCronRunUsage)
     const rankedRoleCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleCronRunUsage)
+    const rankedRoleRetryCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleRetryCronRunUsage)
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
     const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
     const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
-    const currentBackgroundCronUsage = addUsage(
+    const rankedRoleRetryCronBackgroundUsage = multiplyUsage(rankedRoleRetryCronRunUsage, RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
+    const projectedLegacyBackgroundUsage = projectBackgroundUsageToTargetArchitecture(
       addUsage(leaderboardCronBackgroundUsage, inactiveLobbyCleanupBackgroundUsage),
-      rankedRoleCronBackgroundUsage,
     )
-    const backgroundCronUsage = projectBackgroundUsageToTargetArchitecture(currentBackgroundCronUsage)
+    const backgroundCronUsage = addUsage(
+      projectedLegacyBackgroundUsage,
+      addUsage(rankedRoleCronBackgroundUsage, rankedRoleRetryCronBackgroundUsage),
+    )
     const reports: ScenarioReport[] = []
     for (const mode of CAPACITY_SCENARIOS) {
       reports.push(await buildScenarioReport(mode, backgroundCronUsage))
@@ -243,7 +262,8 @@ describe('capacity models', () => {
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(0)
+      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
+      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
       if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
@@ -402,7 +422,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const doRequests = 0
+    const doRequests = 1
 
     return {
       workersRequests: 1,
@@ -418,7 +438,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
       kvLists,
       doRequests,
       doRequestsRaw: doRequests,
-      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+      doDurationGbSeconds: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     }
   }
   finally {
@@ -438,6 +458,10 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
 
     await pruneInactiveOpenLobbies(kv, 'token')
     await pruneAbandonedMatches(db, kv)
+    await recoverStaleAutosaveUploads({
+      DB: createSqliteD1Database(sqlite),
+      AUTOSAVE_UPLOADS: {} as R2Bucket,
+    } as Env['Bindings'])
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
@@ -469,45 +493,47 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
 }
 
 async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
+  return measureRankedRoleMaintenanceRunUsage('sync')
+}
+
+async function measureRankedRoleRetryCronRunUsage(): Promise<DailyUsage> {
+  return measureRankedRoleMaintenanceRunUsage('apply-pending')
+}
+
+async function measureRankedRoleMaintenanceRunUsage(action: 'sync' | 'apply-pending'): Promise<DailyUsage> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
   const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
+  const originalFetch = globalThis.fetch
 
   try {
+    globalThis.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (request.method === 'GET' && new URL(request.url).pathname.endsWith('/roles')) {
+        return Response.json(Object.entries(RANKED_ROLE_IDS).map(([tier, id]) => ({ id, name: tier, color: 0 })))
+      }
+      if (request.method === 'GET') return Response.json({ roles: [] })
+      return new Response(null, { status: 204 })
+    }
     await seedRankedRoleCronState(db, kv)
-
-    await syncRankedRoles({
-      db,
-      kv,
-      guildId: GUILD_ID,
-      token: 'token',
-      applyDiscord: true,
-      advanceDemotionWindow: true,
-      now: NOW,
-    })
+    const env = {
+      DB: createSqliteD1Database(sqlite),
+      KV: kv,
+      DISCORD_TOKEN: 'token',
+    } as Env['Bindings']
+    await runRankedRoleMaintenance(env, 'sync', NOW)
     clearCurrentRankAssignmentsCache(kv)
 
     resetOperations()
     sqlTracker.reset()
 
-    const guildIds = await listRankedRoleConfigGuildIds(kv)
-    for (const guildId of guildIds) {
-      await syncRankedRoles({
-        db,
-        kv,
-        guildId,
-        token: 'token',
-        applyDiscord: true,
-        advanceDemotionWindow: true,
-      })
-    }
-    if (await getRankedRolesDirtyState(kv)) await clearRankedRolesDirtyState(kv)
+    await runRankedRoleMaintenance(env, action, NOW + 24 * 60 * 60 * 1000)
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
     const kvDeletes = operations.filter(op => op.type === 'delete').length
     const kvLists = operations.filter(op => op.type === 'list').length
-    const doRequests = 0
+    const doRequests = 1
 
     return {
       workersRequests: 1,
@@ -523,10 +549,13 @@ async function measureRankedRoleCronRunUsage(): Promise<DailyUsage> {
       kvLists,
       doRequests,
       doRequestsRaw: doRequests,
-      doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
+      doDurationGbSeconds: action === 'sync'
+        ? ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN
+        : ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
     }
   }
   finally {
+    globalThis.fetch = originalFetch
     sqlTracker.restore()
     sqlite.close()
   }
@@ -536,15 +565,9 @@ async function seedRankedRoleCronState(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   kv: KVNamespace,
 ): Promise<void> {
-  const playerIds = Array.from({ length: 8 }, (_value, index) => `ranked-role-cron-${index + 1}`)
+  const playerIds = Array.from({ length: 8 }, (_value, index) => `103010000000000${String(index + 1).padStart(2, '0')}`)
 
-  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
-    tier5: '11111111111111111',
-    tier4: '22222222222222222',
-    tier3: '33333333333333333',
-    tier2: '44444444444444444',
-    tier1: '55555555555555555',
-  })
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLE_IDS)
 
   await db.insert(players).values(playerIds.map((playerId, index) => ({
     id: playerId,
@@ -1203,9 +1226,9 @@ function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyU
     doSqliteRowsWritten: 0,
     kvDeletes: 0,
     kvLists: 0,
-    doRequests: 0,
-    doRequestsRaw: 0,
-    doDurationGbSeconds: 0,
+    doRequests: current.doRequests,
+    doRequestsRaw: current.doRequestsRaw,
+    doDurationGbSeconds: current.doDurationGbSeconds,
   }
 }
 
@@ -1547,12 +1570,17 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-    version: 7,
+    version: 9,
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
+      rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
+      estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
+      estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
       architectureModel: TARGET_ARCHITECTURE_MODEL,
       currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
       targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,
@@ -1703,6 +1731,11 @@ function printReports(reports: ScenarioReport[]): void {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
+    rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
+    estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
+    estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
     architectureModel: TARGET_ARCHITECTURE_MODEL,
     currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
     targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,

@@ -19,6 +19,7 @@ interface PlayerSlotProps {
 }
 
 const SLOT_BREATHE_CYCLE_MS = 3000
+const CONFLICT_REVEAL_FLASH_MS = 420
 const BAN_PREVIEW_HORIZONTAL_RATIO = 0.92
 const CIV_BLITZ_SLOT_ICONS: Record<CivBlitzComponentCategory, string> = {
   civilizationAbility: 'i-ph:flag-duotone',
@@ -114,6 +115,16 @@ export function PlayerSlot(props: PlayerSlotProps) {
 
   const filled = () => !!pick()
   const revealPick = () => state()?.blindPickReveal?.picks.find(p => p.seatIndex === props.seatIndex) ?? null
+  const isBlindPickConflictReveal = (): boolean => {
+    const s = state()
+    if (!s || s.status !== 'active') return false
+    const step = s.steps[s.currentStepIndex]
+    const reveal = s.blindPickReveal
+    if (!step || step.action !== 'pick' || !step.reveal || step.civBlitz || !reveal) return false
+    if (!reveal.conflictedSeatIndexes.includes(props.seatIndex)) return false
+    const pick = reveal.picks.find(p => p.seatIndex === props.seatIndex)
+    return pick != null && reveal.conflictCivIds.includes(pick.civId)
+  }
   const revealLeader = (): Leader | null => {
     const p = revealPick()
     if (!p) return null
@@ -197,6 +208,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
   const shouldAnimatePickedPortrait = () => state()?.status !== 'complete' || seatJustSwapped(props.seatIndex)
 
   const accent = () => phaseAccent()
+  const slotAccent = () => isBlindPickConflictReveal() ? 'red' : accent()
+  const showSlotGlow = () => isActive() || isBlindPickConflictReveal()
   const seatAvatarUrl = () => seat()?.avatarUrl ?? null
   const seatPlayerId = () => seat()?.playerId ?? null
   const seatTeam = () => seat()?.team ?? null
@@ -261,7 +274,7 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
   const activeBreatheAnimationStyle = createMemo<StableBreatheAnimationStyle>(
     () => createStableBreatheAnimationStyle({
-      active: isActive(),
+      active: showSlotGlow(),
       endsAt: draftStore.timerEndsAt,
       durationSeconds: activeStepDurationSeconds(),
       nowMs: draftNow(),
@@ -271,7 +284,23 @@ export function PlayerSlot(props: PlayerSlotProps) {
   )
 
   const [wasEverActive, setWasEverActive] = createSignal(false)
-  createEffect(() => { if (isActive()) setWasEverActive(true) })
+  createEffect(() => { if (showSlotGlow()) setWasEverActive(true) })
+
+  const conflictRevealFlashRemainingMs = (): number => {
+    const s = state()
+    const step = s?.steps[s.currentStepIndex]
+    if (!step || draftStore.timerEndsAt == null || step.timer <= 0) return CONFLICT_REVEAL_FLASH_MS
+    const revealStartedAt = draftStore.timerEndsAt - (step.timer * 1000)
+    return (revealStartedAt + CONFLICT_REVEAL_FLASH_MS) - draftNow()
+  }
+
+  const conflictRevealFlashKey = createMemo((): string | null => {
+    const s = state()
+    const reveal = s?.blindPickReveal
+    if (!s || !reveal || !isBlindPickConflictReveal()) return null
+    if (draftStore.timerEndsAt != null && conflictRevealFlashRemainingMs() <= 0) return null
+    return `${s.currentStepIndex}:${reveal.round}:${props.seatIndex}:${draftStore.timerEndsAt ?? 'no-timer'}`
+  })
 
   createEffect(() => {
     if (!hasBanPreview()) {
@@ -414,8 +443,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
         canSelectResult() && (isFfaPlacementMode() || isTeamResultMode()) && 'cursor-pointer',
       )}
       classList={{
-        'slot-accent-gold': isActive() && accent() === 'gold',
-        'slot-accent-red': isActive() && accent() === 'red',
+        'slot-accent-gold': showSlotGlow() && slotAccent() === 'gold',
+        'slot-accent-red': showSlotGlow() && slotAccent() === 'red',
       }}
       onClick={() => {
         if (isHiddenDraftLeaderAssignmentMode() && canSelectResult()) return
@@ -427,8 +456,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <div
         class="w-6 pointer-events-none inset-y-0 left-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-r"
         classList={{
-          'anim-glow-breathe': isActive(),
-          'anim-glow-fade-out': wasEverActive() && !isActive(),
+          'anim-glow-breathe': showSlotGlow(),
+          'anim-glow-fade-out': wasEverActive() && !showSlotGlow(),
           'opacity-0': !wasEverActive(),
         }}
         style={{
@@ -440,8 +469,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <div
         class="w-6 pointer-events-none inset-y-0 right-0 absolute z-10 from-[var(--slot-glow)] to-transparent bg-gradient-to-l"
         classList={{
-          'anim-glow-breathe': isActive(),
-          'anim-glow-fade-out': wasEverActive() && !isActive(),
+          'anim-glow-breathe': showSlotGlow(),
+          'anim-glow-fade-out': wasEverActive() && !showSlotGlow(),
           'opacity-0': !wasEverActive(),
         }}
         style={{
@@ -455,8 +484,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
       <div
         class="rounded-full bg-[var(--slot-glow)] h-[2px] pointer-events-none left-1/2 top-2 absolute z-10 -translate-x-1/2"
         classList={{
-          'anim-bar-breathe': isActive(),
-          'anim-bar-fade-out': wasEverActive() && !isActive(),
+          'anim-bar-breathe': showSlotGlow(),
+          'anim-bar-fade-out': wasEverActive() && !showSlotGlow(),
           'opacity-0 w-0': !wasEverActive(),
         }}
         style={activeBreatheAnimationStyle().style}
@@ -497,6 +526,18 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <Show when={anyFfaPlaced() && !isPlaced()}>
           <div class="bg-black/50 pointer-events-none inset-0 absolute z-25" />
         </Show>
+      </Show>
+
+      <Show when={conflictRevealFlashKey()} keyed>
+        {(_key) => (
+          <div
+            data-testid="slot-conflict-reveal-flash"
+            class="anim-swap-focus-flash pointer-events-none inset-0 absolute z-30"
+            style={{
+              background: 'radial-gradient(ellipse at center, rgba(232,64,87,0.28) 0%, rgba(232,64,87,0.16) 48%, rgba(232,64,87,0.06) 100%)',
+            }}
+          />
+        )}
       </Show>
 
       {/* Small swap button on teammate portraits */}

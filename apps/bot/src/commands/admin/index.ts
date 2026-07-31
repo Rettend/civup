@@ -5,7 +5,7 @@ import { ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS, hasAdminPermission } from '..
 import { factory } from '../../setup.ts'
 import { component_admin_show_response } from './components.ts'
 import { handleConfig } from './config.ts'
-import { handleExport } from './export.ts'
+import { handleHealth } from './health.ts'
 import { handlePermissionAdd, handlePermissionList, handlePermissionRemove } from './permission.ts'
 import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handleRankedSync, handleReset } from './ranked.ts'
 import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
@@ -76,8 +76,8 @@ export const command_admin = factory.command<AdminVar>(
         new SubCommand('edit', 'Edit the current tournament settings'),
         new SubCommand('status', 'Show current tournament status'),
       ),
-      new SubCommand('setup', 'View or toggle system channels').options(
-        new Option('target', 'Channel role to configure').choices(
+      new SubCommand('setup', 'View or configure server features').options(
+        new Option('target', 'Feature to configure').choices(
           { name: 'Draft', value: 'draft' },
           { name: 'Archive', value: 'archive' },
           { name: 'Bot Commands', value: 'commands' },
@@ -89,6 +89,11 @@ export const command_admin = factory.command<AdminVar>(
           { name: 'Tournament Draft', value: 'tournament-draft' },
           { name: 'Tournament Archive', value: 'tournament-archive' },
           { name: 'Tournament Leaderboard', value: 'tournament-leaderboard' },
+          { name: 'Browser Access', value: 'browser' },
+        ),
+        new Option('value', 'Value for features that require one').choices(
+          { name: 'On', value: 'on' },
+          { name: 'Off', value: 'off' },
         ),
       ),
       new SubCommand('config', 'View or update configuration').options(
@@ -98,7 +103,7 @@ export const command_admin = factory.command<AdminVar>(
         ),
         new Option('value', 'New value'),
       ),
-      new SubCommand('export', 'Export player and match data as an Excel file'),
+      new SubCommand('health', 'Check the installation'),
       new SubCommand('reset', 'Reset a player\'s rating').options(
         new Option('player', 'Player to reset', 'User').required(),
         new Option('mode', 'Rating mode to reset').choices(...LEADERBOARD_MODE_CHOICES).required(),
@@ -128,7 +133,7 @@ export const command_admin = factory.command<AdminVar>(
     if (c.sub.string === 'tournament status') return handleTournamentStatus(c)
     if (c.sub.string === 'setup') return handleSetup(c)
     if (c.sub.string === 'config') return handleConfig(c)
-    if (c.sub.string === 'export') return handleExport(c)
+    if (c.sub.string === 'health') return handleHealth(c)
     if (c.sub.string === 'reset') return handleReset(c)
 
     return c.flags('EPHEMERAL').resDefer(async (c) => {

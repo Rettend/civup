@@ -19,7 +19,7 @@ export default function DraftActivityRoute() {
         lobbyId={state.lobbyId}
         lobbyMode={state.lobbyMode}
         reported={state.reported}
-        onSwitchTarget={activity.openOverview}
+        onSwitchTarget={activity.canSwitchTargets ? activity.openOverview : undefined}
       />
     )
   }

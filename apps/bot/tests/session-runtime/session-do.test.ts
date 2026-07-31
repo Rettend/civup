@@ -131,7 +131,7 @@ describe('SessionDO open session commands', () => {
       expect(body.record.matchId).toBe(openLobby.id)
       expect(body.record.config.pickTimerSeconds).toBe(30)
       expect(body.record.roster.participants.map((member: any) => member.playerId)).toEqual(['p1', 'p2'])
-      expect(body.record.roster.slots).toEqual(['p1', 'p2'])
+      expect(body.record.roster.slots).toEqual(expect.arrayContaining(['p1', 'p2']))
 
       const [finalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(finalDirectoryRow?.phase).toBe('active')
@@ -156,6 +156,7 @@ describe('SessionDO open session commands', () => {
       slots: playerIds,
       draftConfig: { ...DEFAULT_DRAFT_CONFIG, permanentAlly: false },
     })
+    const originalRandom = Math.random
 
     try {
       await createSessionFromLobby(room, openLobby, playerIds.map((playerId, index) => ({
@@ -165,10 +166,13 @@ describe('SessionDO open session commands', () => {
         joinedAt: 10 + index,
       })))
 
+      Math.random = () => 0
       const started = await startDraft(room, { hostId: 'p1', now: 20 })
-      expect(started.seats).toHaveLength(7)
+      expect(started.seats.map((seat: DraftSeat) => seat.playerId)).toEqual(['p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p1'])
+      expect(started.record.lastArrange).toEqual({ strategy: 'randomize', at: 20 })
     }
     finally {
+      Math.random = originalRandom
       sqlite.close()
     }
   })
@@ -484,6 +488,7 @@ describe('SessionDO open session commands', () => {
       memberPlayerIds: ['p1', 'p2'],
       slots: ['p1', 'p2'],
     })
+    const originalRandom = Math.random
 
     try {
       await createSessionFromLobby(room, openLobby, [
@@ -491,18 +496,23 @@ describe('SessionDO open session commands', () => {
         { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
       ])
 
+      Math.random = () => 0
       const firstStart = await startDraft(room, { hostId: 'p1', now: 20 })
+      Math.random = () => 0.999
       const retryStart = await startDraft(room, { hostId: 'p1', now: 21 })
 
       expect(firstStart.matchId).toBe(openLobby.id)
-      expect(firstStart.seats).toHaveLength(2)
+      expect(firstStart.seats.map((seat: DraftSeat) => seat.playerId)).toEqual(['p2', 'p1'])
       expect(retryStart).toMatchObject({ matchId: openLobby.id, idempotent: true })
       expect(retryStart.seats).toEqual(firstStart.seats)
       const record = await getSessionRecordBody(room)
       expect(record.phase).toBe('draft')
       expect(record.version).toBe(2)
+      expect(record.roster.slots).toEqual(['p2', 'p1'])
+      expect(record.lastArrange).toEqual({ strategy: 'shuffle-teams', at: 20 })
     }
     finally {
+      Math.random = originalRandom
       sqlite.close()
     }
   })
@@ -1383,6 +1393,7 @@ describe('SessionDO open session commands', () => {
     const kv = createTestKv()
     const d1 = createFailingQueryD1(createSqliteD1Database(sqlite), query => query.toLowerCase().includes('insert into') && query.toLowerCase().includes('matches'))
     const originalConsoleWarn = console.warn
+    const originalRandom = Math.random
     console.warn = (() => {}) as typeof console.warn
     const room = new SessionDO(createFakeDurableObjectState(), {
       DB: d1.database,
@@ -1399,6 +1410,7 @@ describe('SessionDO open session commands', () => {
         { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
       ])
 
+      Math.random = () => 0
       d1.failNextMatchingQuery()
       const failedStart = await room.fetch(sessionRequest('/commands/start-draft', {
         method: 'POST',
@@ -1408,17 +1420,23 @@ describe('SessionDO open session commands', () => {
       const pending = await getSessionRecordBody(room)
       expect(pending.phase).toBe('draft')
       expect(pending.draftStartSync).toMatchObject({ attempts: 1 })
+      expect(pending.roster.slots).toEqual(['p2', 'p1'])
       expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(0)
 
+      Math.random = () => 0.999
       const retried = await startDraft(room, { hostId: 'p1', now: 21 })
       expect(retried.matchId).toBe(openLobby.id)
       const record = await getSessionRecordBody(room)
       expect(record.phase).toBe('draft')
       expect(record.draftStartSync).toBeNull()
+      expect(record.roster.slots).toEqual(['p2', 'p1'])
       expect(await db.select().from(matches).where(eq(matches.id, openLobby.id))).toHaveLength(1)
+      const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
+      expect(JSON.parse(directoryRow!.rosterJson).slots).toEqual(['p2', 'p1'])
     }
     finally {
       console.warn = originalConsoleWarn
+      Math.random = originalRandom
       sqlite.close()
     }
   })

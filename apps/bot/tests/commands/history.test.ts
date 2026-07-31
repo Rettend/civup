@@ -52,9 +52,8 @@ describe('history command payload', () => {
       expect(embed.fields?.[0]?.value).not.toContain('Team 0')
       expect(embed.fields?.[0]?.value).not.toContain('Team 1')
       expect(embed.fields?.[0]?.value).not.toContain('Team 2')
-      expect(embed.fields?.[0]?.value).not.toContain('**')
       expect(fieldLine(embed.fields?.[0]?.value, 0)).toStartWith(`${LEADING_INDENT_GUARD}${INDENT}`)
-      expect(fieldLine(embed.fields?.[0]?.value, 0)).toContain('<:leader:1470104020193382522> Target')
+      expect(fieldLine(embed.fields?.[0]?.value, 0)).toContain('<:leader:1470104020193382522> **Target**')
       expect(fieldLine(embed.fields?.[0]?.value, 0)).toContain('<:leader:1470104043702583531> Opponent One')
       expect(fieldLine(embed.fields?.[0]?.value, 1)).toStartWith(`${LEADING_INDENT_GUARD}${INDENT}`)
       expect(fieldLine(embed.fields?.[0]?.value, 1)).toContain('<:leader:1470102755308863632> Team Mate')
@@ -62,17 +61,18 @@ describe('history command payload', () => {
       expect(embed.fields?.[1]?.name).toContain('1v1 - `2026-01-02`')
       expect(embed.fields?.[1]?.value).not.toContain('Team')
       expect(fieldLine(embed.fields?.[1]?.value, 0)).toStartWith(`${LEADING_INDENT_GUARD}${INDENT}`)
-      expect(fieldLine(embed.fields?.[1]?.value, 0)).toContain('<:leader:1470102755308863632> Target')
+      expect(fieldLine(embed.fields?.[1]?.value, 0)).toContain('<:leader:1470102755308863632> **Target**')
       expect(fieldLine(embed.fields?.[1]?.value, 0)).toContain('<:leader:1470104043702583531> Opponent One')
       expect(embed.fields?.[2]?.name).toContain('FFA - `2026-01-01`')
       expect(fieldLine(embed.fields?.[2]?.value, 0)).toStartWith(`${LEADING_INDENT_GUARD}${INDENT}`)
       expect(embed.fields?.[2]?.value).toContain(`${LEADING_INDENT_GUARD}${INDENT}\`#1 \` <:leader:1470104043702583531> Ffa Opponent`)
-      expect(embed.fields?.[2]?.value).toContain(`${INDENT}\`#4 \` <:leader:1470101497164337318> Target`)
+      expect(embed.fields?.[2]?.value).toContain(`${INDENT}\`#4 \` <:leader:1470101497164337318> **Target**`)
       expect(JSON.stringify(embed.fields)).not.toContain('You')
       expect(JSON.stringify(embed.fields)).not.toContain('<@p2>')
       expect(JSON.stringify(embed.fields)).not.toContain('Trajan')
       expect(JSON.stringify(embed.fields)).not.toContain('Hammurabi')
-      expect(JSON.stringify(embed.fields)).not.toContain('**Target**')
+      expect(JSON.stringify(embed.fields)).toContain('**Target**')
+      expect(JSON.stringify(embed.fields)).not.toContain('**Opponent')
     }
     finally {
       sqlite.close()
@@ -105,6 +105,55 @@ describe('history command payload', () => {
         completedAt: input.completedAt,
       })
       await db.insert(matchParticipants).values(input.participants.map(row => ({ ...row, matchId: input.id })))
+    }
+  })
+
+  test('formats CivBlitz history with unranked result markers', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Target', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Opponent', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values([
+        {
+          id: 'civblitz-history-win',
+          gameMode: '1v1',
+          status: 'completed',
+          isOld: false,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+          createdAt: Date.UTC(2026, 0, 1) - 1,
+          completedAt: Date.UTC(2026, 0, 1),
+        },
+        {
+          id: 'civblitz-history-loss',
+          gameMode: '1v1',
+          status: 'completed',
+          isOld: false,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+          createdAt: Date.UTC(2026, 0, 2) - 1,
+          completedAt: Date.UTC(2026, 0, 2),
+        },
+      ])
+      await db.insert(matchParticipants).values([
+        participant('p1', 0, 'japan-hojo-tokimune', 1, 'civblitz-history-win'),
+        participant('p2', 1, 'russia-peter', 2, 'civblitz-history-win'),
+        participant('p1', 0, 'russia-peter', 2, 'civblitz-history-loss'),
+        participant('p2', 1, 'japan-hojo-tokimune', 1, 'civblitz-history-loss'),
+      ])
+
+      const payload = await buildPlayerHistoryCommandPayload(db, 'p1', 'all')
+      const embed = firstEmbedJson(payload)
+
+      expect(embed.fields?.[0]?.name).toContain('`  -` 📉')
+      expect(embed.fields?.[1]?.name).toContain('`  +` 📈')
+      expect(JSON.stringify(embed.fields)).not.toContain('❔ `(   ?)`')
+    }
+    finally {
+      sqlite.close()
     }
   })
 
