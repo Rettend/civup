@@ -853,7 +853,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Black%20Queen).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Catherine\'s Flying Squadron',
@@ -884,11 +884,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Catherine%20de%20Medici%20(Magnificence).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Catherine’s Magnificences',
-      description: 'Improved resources receive +1 :culture: Culture after unlocking Craftsmanship. Improved resources adjacent to a Theater Square receive +1 :culture: Culture. Chateau adjacent to a luxury resource receive +1 :amenities: Amenity. Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in any city with a Theater Square district.',
+      description: 'Improved resources provide additional bonus yields: - +1 :culture: Culture at Craftsmanship - +1 :culture: Culture if adjacent to a Theater Square. - +1 :amenities: Amenity if adjacent to a Chateau(luxury resources only) Happy cities gain +5% Culture, doubled if the city is ecstatic, tripled if the city is euphoric (+8 amenity). Cities with a Theater Square gain these great people based on happiness level: +1 :greatwriter: Great Writer point if happy, +1 :greatartist: Great Artist point if ecstatic, and +1 :greatmusician: Great Musician point if euphoric. May initiate the Court Festival unique project in cities with a Theater Square.',
     },
     uniqueUnits: [
       {
@@ -915,7 +915,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/France%20Eleanor%20of%20Aquitaine%20(France).webp',
     civilizationAbility: {
       name: 'Grand Tour',
-      description: 'Receives a free Spy (and extra spy capacity) with the Castles technology. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
+      description: 'Receives a free Spy (and extra spy capacity) at Castles. All spies start with a :promotion: free promotion. +20% :production: Production toward Medieval, Renaissance, and Industrial era Wonders. +50% :tourism: Tourism from Wonders of any era. - Bias: T4 Rivers.',
     },
     ability: {
       name: 'Court of Love',

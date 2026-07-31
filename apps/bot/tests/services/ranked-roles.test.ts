@@ -1,6 +1,12 @@
-import { describe, expect, test } from 'bun:test'
-import { getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { getRankedRoleConfig, getRankedRoleDisplayConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS, refreshRankedRoleDisplayMetadata, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
 
 describe('ranked role config service', () => {
   test('stores and loads current ranked role mappings', async () => {
@@ -89,5 +95,97 @@ describe('ranked role config service', () => {
     expect(config.tiers).toHaveLength(4)
     expect(config.tiers[3]?.roleId).toBe('44444444444444444')
     expect(config.tiers[4]).toBeUndefined()
+  })
+
+  test('refreshes cached role labels and colors from Discord when due', async () => {
+    const kv = createTestKv()
+    const guildId = '99999999999999999'
+    const roleId = '11111111111111111'
+    await updateRankedRoleConfig(kv, guildId, {
+      tierRoleIdsByRank: [roleId],
+    }, new Map([[roleId, { name: 'Old role', color: '#010203' }]]))
+    let fetchCount = 0
+    globalThis.fetch = (async () => {
+      fetchCount += 1
+      return new Response(JSON.stringify([{ id: roleId, name: 'Elite', color: 0xC92A2A }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    const result = await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })
+    const config = await getRankedRoleDisplayConfig(kv, guildId)
+
+    expect(result).toEqual({ refreshed: true, updated: true, missingRoleIds: [] })
+    expect(config.tiers[0]).toEqual({ roleId, label: 'Elite', color: '#C92A2A' })
+    expect((await getRankedRoleConfig(kv, guildId)).tiers[0]).toEqual({ roleId, label: 'Old role', color: '#010203' })
+    expect(fetchCount).toBe(1)
+
+    const cached = await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', {
+      now: 1_000 + RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS - 1,
+    })
+    expect(cached).toEqual({ refreshed: false, updated: false, missingRoleIds: [] })
+    expect(fetchCount).toBe(1)
+  })
+
+  test('refreshes again after the display metadata interval', async () => {
+    const kv = createTestKv()
+    const guildId = '99999999999999999'
+    const roleId = '11111111111111111'
+    await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [roleId] })
+    let fetchCount = 0
+    globalThis.fetch = (async () => {
+      fetchCount += 1
+      return new Response(JSON.stringify([{ id: roleId, name: 'Elite', color: 0 }]), { status: 200 })
+    }) as typeof fetch
+
+    await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })
+    const result = await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', {
+      now: 1_000 + RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS,
+    })
+
+    expect(result).toEqual({ refreshed: true, updated: false, missingRoleIds: [] })
+    expect(fetchCount).toBe(2)
+  })
+
+  test('retries on the next call after a failed refresh', async () => {
+    const kv = createTestKv()
+    const guildId = '99999999999999999'
+    const roleId = '11111111111111111'
+    await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [roleId] })
+    globalThis.fetch = (async () => new Response('forbidden', { status: 403 })) as typeof fetch
+
+    await expect(refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })).rejects.toThrow('Discord fetch guild roles failed: 403 forbidden')
+
+    globalThis.fetch = (async () => new Response(JSON.stringify([
+      { id: roleId, name: 'Elite', color: 0xC92A2A },
+    ]), { status: 200 })) as typeof fetch
+    const result = await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })
+
+    expect(result).toEqual({ refreshed: true, updated: true, missingRoleIds: [] })
+  })
+
+  test('does not overwrite role mapping changes made while Discord roles are loading', async () => {
+    const kv = createTestKv()
+    const guildId = '99999999999999999'
+    const oldRoleId = '11111111111111111'
+    const newRoleId = '22222222222222222'
+    await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [oldRoleId] })
+    globalThis.fetch = (async () => {
+      await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [newRoleId] })
+      return new Response(JSON.stringify([
+        { id: oldRoleId, name: 'Old role', color: 0x010203 },
+        { id: newRoleId, name: 'New role', color: 0xAABBCC },
+      ]), { status: 200 })
+    }) as typeof fetch
+
+    await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })
+
+    expect((await getRankedRoleConfig(kv, guildId)).tiers[0]?.roleId).toBe(newRoleId)
+    expect((await getRankedRoleDisplayConfig(kv, guildId)).tiers[0]).toEqual({
+      roleId: newRoleId,
+      label: 'New role',
+      color: '#AABBCC',
+    })
   })
 })

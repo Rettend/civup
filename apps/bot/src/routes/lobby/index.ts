@@ -4,7 +4,7 @@ import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, playerRatings } from '@civup/db'
 import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
-import { createSessionAccessToken, isDev } from '@civup/utils'
+import { createSessionAccessToken } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
@@ -39,7 +39,7 @@ import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { buildLobbyRankSnapshot } from '../../services/lobby/rank.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
-import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
+import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleDisplayConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
@@ -144,36 +144,6 @@ function parseSessionDraftCommandError(error: unknown): { status: 400 | 403 | 40
   }
 }
 
-async function randomizeTournamentFirstPickBeforeStart(
-  c: Context<Env>,
-  db: ReturnType<typeof createDb>,
-  kv: KVNamespace,
-  mode: GameMode,
-  lobby: LobbyState,
-): Promise<LobbyState | { error: string, status: 400 | 409 }> {
-  if (mode !== '1v1') return lobby
-
-  const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
-  if (!tournamentMatch) return lobby
-
-  const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
-  const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
-  const arranged = arrangeLobbySlots({
-    mode,
-    slots,
-    queueEntries: lobbyQueueEntries,
-    strategy: 'shuffle-teams',
-  })
-  if ('error' in arranged) return { error: arranged.error, status: 400 }
-
-  const nextLobby = await setLobbyArranged(kv, lobby.id, {
-    slots: arranged.slots,
-    strategy: 'shuffle-teams',
-  }, lobby, lobbySessionMutationOptions(c, lobbyQueueEntries))
-
-  return nextLobby ?? { error: 'Session changed before draft start.', status: 409 }
-}
-
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {
     const auth = requireAuthenticatedActivity(c)
@@ -181,7 +151,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mode = parseGameMode(c.req.param('mode'))
     if (!mode) return c.json({ error: 'Invalid game mode' }, 400)
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) return c.json({ error: 'Not found' }, 404)
     return new Response(null, { status: 204 })
   })
 
@@ -202,7 +172,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const rankedRoleConfig = lobby.guildId
-      ? await getRankedRoleConfig(kv, lobby.guildId)
+      ? await getRankedRoleDisplayConfig(kv, lobby.guildId)
       : emptyRankedRoleConfig()
     const visuals = buildRankedRoleVisuals(rankedRoleConfig)
 
@@ -1425,7 +1395,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
-    if (!isDebugLobbyFillEnabled(c.req.url, c.env.BOT_HOST, c.env.ENABLE_DEBUG_LOBBY_FILL)) {
+    if (!isDebugLobbyFillEnabled(c.env.ENABLE_DEBUG_LOBBY_FILL)) {
       return c.json({ error: 'Not found' }, 404)
     }
 
@@ -1577,7 +1547,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         idempotent: true,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: lobby.matchId,
+          sessionId: lobby.id,
           channelId: lobby.channelId,
         }),
       })
@@ -1588,17 +1558,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     try {
-      const lobbyToStart = await randomizeTournamentFirstPickBeforeStart(c, db, kv, mode, lobby)
-      if ('error' in lobbyToStart) return c.json({ error: lobbyToStart.error }, lobbyToStart.status)
-
-      const started = await startSessionDraft(c.env.SessionDO, lobbyToStart.id, {
-        expectedVersion: lobbyToStart.revision,
+      const started = await startSessionDraft(c.env.SessionDO, lobby.id, {
+        expectedVersion: lobby.revision,
         hostId: auth.identity.userId,
       })
       if (started.record.mode !== mode) return c.json({ error: 'Session mode does not match lobby route.' }, 409)
 
       const { matchId, seats } = started
-      const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobbyToStart)
+      const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobby)
 
       await syncLobbyDerivedState(kv, lobbyForMessage)
       await markTournamentMatchDrafting(db, lobby.id, matchId)
@@ -1619,7 +1586,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         matchId,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: matchId,
+          sessionId: started.record.id,
           channelId: lobbyForMessage.channelId,
         }),
       })
@@ -1700,7 +1667,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         matchId,
         sessionAccessToken: await createSessionAccessToken(internalSecret, {
           userId: auth.identity.userId,
-          sessionId: matchId,
+          sessionId: repeated.record.id,
           channelId: lobbyForMessage.channelId,
         }),
       })
@@ -2041,12 +2008,10 @@ function openLobbyMessageRenderStateChanged(
     || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 
-function isDebugLobbyFillEnabled(
-  requestUrl: string,
-  botHost: string | undefined,
-  forceEnabled: string | undefined,
+export function isDebugLobbyFillEnabled(
+  enabled: string | undefined,
 ): boolean {
-  return isTruthyEnvFlag(forceEnabled) || isDev({ host: requestUrl, configuredHosts: [botHost] })
+  return isTruthyEnvFlag(enabled)
 }
 
 function isTruthyEnvFlag(value: string | undefined): boolean {

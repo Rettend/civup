@@ -1,6 +1,6 @@
 import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -663,6 +663,102 @@ describe('ranked role sync service', () => {
     expect(putCalls).toHaveLength(0)
 
     sqlite.close()
+  })
+
+  test('known member roles avoid Discord work when the ranked role is already correct', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('Discord should not be called for a correct ranked membership.')
+    }) as typeof fetch
+
+    const input = {
+      currentRoleIds: ['44444444444444444', '77777777777777777'],
+      desiredRoleId: '44444444444444444',
+      managedRoleIds: ['11111111111111111', '22222222222222222', '33333333333333333', '44444444444444444', '55555555555555555'],
+    }
+
+    expect(rankedRoleMembershipNeedsRepair(input)).toBe(false)
+    expect(await repairRankedRoleMembership({
+      token: 'token',
+      guildId: 'guild-1',
+      playerId: playerIdFor('self-heal', 1),
+      ...input,
+    })).toBe(false)
+  })
+
+  test('known member roles replace a stale ranked role without fetching the member', async () => {
+    const playerId = playerIdFor('self-heal', 2)
+    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
+      [playerId, new Set(['11111111111111111'])],
+    ]))
+    const input = {
+      currentRoleIds: ['11111111111111111'],
+      desiredRoleId: '44444444444444444',
+      managedRoleIds: ['11111111111111111', '22222222222222222', '33333333333333333', '44444444444444444', '55555555555555555'],
+    }
+
+    expect(rankedRoleMembershipNeedsRepair(input)).toBe(true)
+    expect(await repairRankedRoleMembership({
+      token: 'token',
+      guildId: 'guild-1',
+      playerId,
+      ...input,
+    })).toBe(true)
+    expect(getCalls).toHaveLength(0)
+    expect(deleteCalls).toEqual([{ userId: playerId, roleId: '11111111111111111' }])
+    expect(putCalls).toEqual([{ userId: playerId, roleId: '44444444444444444' }])
+  })
+
+  test('known member role repair keeps the existing role when adding the desired role fails', async () => {
+    const calls: Array<{ method: string, roleId: string }> = []
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      calls.push({ method, roleId: url.pathname.split('/').at(-1) ?? '' })
+      return new Response('missing permissions', { status: 403 })
+    }) as typeof fetch
+
+    await expect(repairRankedRoleMembership({
+      token: 'token',
+      guildId: 'guild-1',
+      playerId: playerIdFor('self-heal', 3),
+      currentRoleIds: ['11111111111111111'],
+      desiredRoleId: '44444444444444444',
+      managedRoleIds: ['11111111111111111', '44444444444444444'],
+    })).rejects.toThrow('Discord add guild member role failed: 403')
+    expect(calls).toEqual([{ method: 'PUT', roleId: '44444444444444444' }])
+  })
+
+  test('stats repair bypasses the assignment cache before changing known member roles', async () => {
+    const kv = createTestKv()
+    const playerId = playerIdFor('self-heal', 4)
+    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+      tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
+    })
+    await seedPreviousAssignment(kv, 'guild-1', playerId, { tier: TIER_2, sourceMode: null })
+    await getCurrentRankAssignments(kv, 'guild-1')
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: {
+        [playerId]: { tier: TIER_3, sourceMode: null },
+      },
+    }))
+
+    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
+      [playerId, new Set(['11111111111111111'])],
+    ]))
+    expect(await repairCurrentRankedRoleMembership({
+      kv,
+      token: 'token',
+      guildId: 'guild-1',
+      playerId,
+      currentRoleIds: ['11111111111111111'],
+    })).toBe(true)
+    expect(getCalls).toHaveLength(0)
+    expect(putCalls).toEqual([{ userId: playerId, roleId: '33333333333333333' }])
+    expect(deleteCalls).toEqual([{ userId: playerId, roleId: '11111111111111111' }])
   })
 
   test('pending Discord retry is read-only when nothing is pending', async () => {

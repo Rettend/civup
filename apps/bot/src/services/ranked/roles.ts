@@ -31,6 +31,15 @@ interface RankedRoleDisplaySource {
   color: string | null
 }
 
+interface StoredRankedRoleDisplayRefreshState {
+  version?: unknown
+  lastSuccessAt?: unknown
+  roles?: Record<string, {
+    name?: unknown
+    color?: unknown
+  }>
+}
+
 export interface RankedRoleVisual {
   tier: CompetitiveTier
   rank: number
@@ -40,6 +49,9 @@ export interface RankedRoleVisual {
 }
 
 export const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
+export const RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000
+const RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX = 'ranked-roles:display-refresh:'
+const RANKED_ROLE_DISPLAY_REFRESH_VERSION = 1
 export const DEFAULT_RANKED_ROLE_TIER_COUNT = 5
 export const MIN_RANKED_ROLE_TIER_COUNT = 3
 export const MAX_RANKED_ROLE_TIER_COUNT = 10
@@ -78,6 +90,21 @@ export function normalizeRankedRoleTierId(value: unknown): CompetitiveTier | nul
 export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
   const stored = await kv.get(configKey(guildId), 'json') as StoredRankedRoleConfig | null
   return normalizeRankedRoleConfig(stored)
+}
+
+export async function getRankedRoleDisplayConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
+  const [config, displayState] = await Promise.all([
+    getRankedRoleConfig(kv, guildId),
+    getRankedRoleDisplayRefreshState(kv, guildId, Date.now()),
+  ])
+  if (!displayState) return config
+
+  return {
+    tiers: config.tiers.map((slot) => {
+      const display = slot.roleId ? displayState.displayByRoleId.get(slot.roleId) : null
+      return display ? { ...slot, label: display.name, color: display.color } : slot
+    }),
+  }
 }
 
 export async function setRankedRoleTierCount(
@@ -235,6 +262,50 @@ export async function resolveRankedRoleVisuals(
   return buildRankedRoleVisuals(config, displayByRoleId)
 }
 
+export async function refreshRankedRoleDisplayMetadata(
+  kv: KVNamespace,
+  guildId: string,
+  token: string,
+  options: { force?: boolean, now?: number } = {},
+): Promise<{ refreshed: boolean, updated: boolean, missingRoleIds: string[] }> {
+  const now = typeof options.now === 'number' && Number.isFinite(options.now) ? options.now : Date.now()
+  const currentState = await getRankedRoleDisplayRefreshState(kv, guildId, now)
+  if (!options.force) {
+    if (currentState && now - currentState.lastSuccessAt < RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS) {
+      return { refreshed: false, updated: false, missingRoleIds: [] }
+    }
+  }
+
+  const initialConfig = await getRankedRoleConfig(kv, guildId)
+  if (!initialConfig.tiers.some(slot => slot.roleId)) {
+    const updated = (currentState?.displayByRoleId.size ?? 0) > 0
+    await setRankedRoleDisplayRefreshState(kv, guildId, now, new Map())
+    return { refreshed: true, updated, missingRoleIds: [] }
+  }
+
+  const roles = await fetchGuildRoles(token, guildId)
+  const roleById = new Map(roles.map(role => [role.id, role]))
+  const currentConfig = await getRankedRoleConfig(kv, guildId)
+  const displayByRoleId = new Map<string, RankedRoleDisplaySource>()
+  const missingRoleIds: string[] = []
+
+  for (const slot of currentConfig.tiers) {
+    if (!slot.roleId) continue
+    const role = roleById.get(slot.roleId)
+    if (!role) {
+      missingRoleIds.push(slot.roleId)
+      const previous = currentState?.displayByRoleId.get(slot.roleId)
+      if (previous) displayByRoleId.set(slot.roleId, previous)
+      continue
+    }
+    displayByRoleId.set(slot.roleId, { name: role.name, color: role.color })
+  }
+
+  const updated = !areRankedRoleDisplaysEqual(currentState?.displayByRoleId, displayByRoleId)
+  await setRankedRoleDisplayRefreshState(kv, guildId, now, displayByRoleId)
+  return { refreshed: true, updated, missingRoleIds }
+}
+
 export function formatRankedRoleSlotLabel(tierOrRank: CompetitiveTier | number): string {
   const rank = typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : Math.max(1, rankedRoleNumber(tierOrRank))
   return `Role ${rank}`
@@ -307,6 +378,57 @@ export async function fetchGuildRoles(token: string, guildId: string): Promise<A
 
 function configKey(guildId: string): string {
   return `${RANKED_ROLE_CONFIG_KEY_PREFIX}${guildId}`
+}
+
+async function getRankedRoleDisplayRefreshState(
+  kv: KVNamespace,
+  guildId: string,
+  now: number,
+): Promise<{ lastSuccessAt: number, displayByRoleId: Map<string, RankedRoleDisplaySource> } | null> {
+  const stored = await kv.get(`${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`, 'json') as StoredRankedRoleDisplayRefreshState | null
+  if (stored?.version !== RANKED_ROLE_DISPLAY_REFRESH_VERSION) return null
+  if (typeof stored.lastSuccessAt !== 'number' || !Number.isFinite(stored.lastSuccessAt)) return null
+  if (stored.lastSuccessAt < 0 || stored.lastSuccessAt > now) return null
+
+  const displayByRoleId = new Map<string, RankedRoleDisplaySource>()
+  if (stored.roles && typeof stored.roles === 'object') {
+    for (const [rawRoleId, rawDisplay] of Object.entries(stored.roles)) {
+      const roleId = normalizeRoleId(rawRoleId)
+      const name = normalizeOptionalLabel(rawDisplay?.name)
+      if (!roleId || !name) continue
+      displayByRoleId.set(roleId, {
+        name,
+        color: normalizeOptionalLabel(rawDisplay?.color),
+      })
+    }
+  }
+
+  return { lastSuccessAt: stored.lastSuccessAt, displayByRoleId }
+}
+
+async function setRankedRoleDisplayRefreshState(
+  kv: KVNamespace,
+  guildId: string,
+  lastSuccessAt: number,
+  displayByRoleId: Map<string, RankedRoleDisplaySource>,
+): Promise<void> {
+  await kv.put(`${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`, JSON.stringify({
+    version: RANKED_ROLE_DISPLAY_REFRESH_VERSION,
+    lastSuccessAt,
+    roles: Object.fromEntries(displayByRoleId),
+  }))
+}
+
+function areRankedRoleDisplaysEqual(
+  previous: Map<string, RankedRoleDisplaySource> | undefined,
+  current: Map<string, RankedRoleDisplaySource>,
+): boolean {
+  if ((previous?.size ?? 0) !== current.size) return false
+  for (const [roleId, display] of current) {
+    const previousDisplay = previous?.get(roleId)
+    if (previousDisplay?.name !== display.name || previousDisplay.color !== display.color) return false
+  }
+  return true
 }
 
 function getRankedRoleTierConfig(config: RankedRoleConfig, tier: CompetitiveTier): RankedRoleTierConfig | null {

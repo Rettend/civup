@@ -24,7 +24,7 @@ import { createTestDatabase } from '../../helpers/test-env.ts'
 import { createTrackedKv } from '../../helpers/tracked-kv.ts'
 import { createRuntimeControls } from './runtime-controls.ts'
 
-const BOT_HOST = 'https://bot.test'
+const BOT_ORIGIN = 'https://bot.test'
 const CIVUP_SECRET = 'secret'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
@@ -200,12 +200,11 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const env = buildBotTestEnv({
     DB: d1,
     KV: kv,
-    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', BOT_HOST, CIVUP_SECRET }),
+    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', CIVUP_SECRET }),
     Activity: createTestActivityNamespace(),
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
-    BOT_HOST,
     CIVUP_SECRET,
   })
 
@@ -215,13 +214,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   const restoreFetchHandler = installFetchHandler(async (request) => {
     const url = new URL(request.url)
 
-    if (url.origin === BOT_HOST && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
+    if (url.origin === BOT_ORIGIN && request.method === 'POST' && /^\/parties\/main\/[^/]+$/.test(url.pathname)) {
       const body = await request.json() as DraftRuntimeConfig
       draftRuntimeRecords.set(body.matchId, createCapturedDraftRuntimeRecord(body, draftRuntimeRecords.get(body.matchId)))
       return jsonResponse({ ok: true })
     }
 
-    if (url.origin === BOT_HOST) {
+    if (url.origin === BOT_ORIGIN) {
       return app.fetch(request, env, execution.executionCtx)
     }
 
@@ -250,7 +249,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     headers.set('X-CivUp-Activity-User-Id', options.userId)
     headers.set('X-CivUp-Activity-Display-Name', encodeURIComponent(options.displayName ?? options.userId))
     if (options.avatarUrl) headers.set('X-CivUp-Activity-Avatar-Url', options.avatarUrl)
-    return app.fetch(new Request(`${BOT_HOST}${path}`, { ...init, headers }), env, execution.executionCtx)
+    return app.fetch(new Request(`${BOT_ORIGIN}${path}`, { ...init, headers }), env, execution.executionCtx)
   }
 
   const deliverDraftLifecycle = async (_room: CapturedDraftRuntimeRecord, payload: DraftLifecyclePayload): Promise<Response> => {
@@ -400,19 +399,20 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         const body = await response.json() as { ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean, error?: string }
         if (!response.ok) throw new Error(body.error ?? `Failed to start lobby: ${response.status}`)
         if (!body.idempotent && lobbyBeforeStart) {
-          const runtime = buildDraftRuntimeConfig(lobbyBeforeStart.mode, buildTestDraftEntries(lobbyBeforeStart), {
+          const lobbyAfterStart = await getLobbyById(kv, lobbyBeforeStart.id) ?? lobbyBeforeStart
+          const runtime = buildDraftRuntimeConfig(lobbyAfterStart.mode, buildTestDraftEntries(lobbyAfterStart), {
             matchId: body.matchId,
-            hostId: lobbyBeforeStart.hostId,
-            leaderDataVersion: lobbyBeforeStart.draftConfig.leaderDataVersion,
-            blindBans: lobbyBeforeStart.draftConfig.blindBans,
-            simultaneousPick: lobbyBeforeStart.draftConfig.simultaneousPick,
-            permanentAlly: lobbyBeforeStart.draftConfig.permanentAlly,
-            redDeath: lobbyBeforeStart.draftConfig.redDeath,
-            mapVoteEnabled: lobbyBeforeStart.draftConfig.mapVoteEnabled,
-            randomDraft: lobbyBeforeStart.draftConfig.randomDraft,
-            duplicateFactions: lobbyBeforeStart.draftConfig.duplicateFactions,
-            leaderPoolSize: lobbyBeforeStart.draftConfig.leaderPoolSize,
-            dealOptionsSize: lobbyBeforeStart.draftConfig.dealOptionsSize,
+            hostId: lobbyAfterStart.hostId,
+            leaderDataVersion: lobbyAfterStart.draftConfig.leaderDataVersion,
+            blindBans: lobbyAfterStart.draftConfig.blindBans,
+            simultaneousPick: lobbyAfterStart.draftConfig.simultaneousPick,
+            permanentAlly: lobbyAfterStart.draftConfig.permanentAlly,
+            redDeath: lobbyAfterStart.draftConfig.redDeath,
+            mapVoteEnabled: lobbyAfterStart.draftConfig.mapVoteEnabled,
+            randomDraft: lobbyAfterStart.draftConfig.randomDraft,
+            duplicateFactions: lobbyAfterStart.draftConfig.duplicateFactions,
+            leaderPoolSize: lobbyAfterStart.draftConfig.leaderPoolSize,
+            dealOptionsSize: lobbyAfterStart.draftConfig.dealOptionsSize,
           })
           draftRuntimeRecords.set(runtime.matchId, createCapturedDraftRuntimeRecord(runtime.config, draftRuntimeRecords.get(runtime.matchId)))
         }

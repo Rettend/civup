@@ -78,6 +78,7 @@ export type SessionServerMessage
     swapState?: LeaderSwapState | null
     steamLobbyLink?: string | null
     permanentAlly?: boolean
+    hiddenDraft?: boolean
   }
   | {
     type: 'update'
@@ -93,6 +94,7 @@ export type SessionServerMessage
     swapState?: LeaderSwapState | null
     steamLobbyLink?: string | null
     permanentAlly?: boolean
+    hiddenDraft?: boolean
   }
   | { type: 'preview', previews: DraftPreviewState }
   | { type: 'projection-update', steamLobbyLink: string | null }

@@ -3,7 +3,8 @@ import type { LobbyState } from '../../services/lobby/types.ts'
 import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
 import { getMatchForUser } from '../../services/activity/index.ts'
-import { storeActivityLaunchTargetSelection } from '../../services/activity/launch-target.ts'
+import { resolveInteractionLaunchMode } from '../../services/activity/browser-access.ts'
+import { privateLaunchError, respondWithPreferredLaunch } from '../../services/activity/launch-response.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
@@ -35,10 +36,6 @@ export const component_match_join = factory.component(
     const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
     const clickedTournamentMatch = clickedLobby ? await getTournamentMatchBySessionId(db, clickedLobby.id) : null
     if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
-      await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby.channelId, identity.userId, {
-        kind: 'match',
-        id: clickedLobby.matchId,
-      })
       queueBackgroundTask(c, async () => {
         await queueSessionReportedDiscordSync(env.SessionDO, clickedLobby.id, {
           matchId: clickedLobby.matchId ?? clickedLobby.id,
@@ -46,7 +43,12 @@ export const component_match_join = factory.component(
         })
       }, '[match-join] failed to queue completed match Discord repair:')
 
-      return c.resActivity()
+      return respondWithPreferredLaunch(c, {
+        destination: { kind: 'session', sessionId: clickedLobby.id },
+        activityChannelId: interactionChannelId ?? clickedLobby.channelId,
+        activityUserId: identity.userId,
+        activityTarget: { kind: 'match', id: clickedLobby.matchId },
+      })
     }
 
     const clickedMatchId = clickedLobby
@@ -55,11 +57,17 @@ export const component_match_join = factory.component(
         : clickedLobby.matchId ?? clickedLobby.id
       : await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId, db)
 
-    await storeActivityLaunchTargetSelection(env.Activity, env.CIVUP_SECRET, interactionChannelId ?? clickedLobby?.channelId ?? null, identity.userId, clickedLobby?.status === 'open'
-      ? { kind: 'lobby', id: clickedLobby.id }
+    const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles)
+    if (!launch.ok) return privateLaunchError(c, launch.error)
+    const canonicalSessionId = launch.mode === 'browser'
+      ? clickedLobby?.id ?? (clickedMatchId ? await resolveCanonicalSessionId(db, clickedMatchId) : null)
+      : clickedLobby?.id ?? lobbyId
+    if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this session. Please use a current lobby message and try again.')
+    const activityTarget = clickedLobby?.status === 'open'
+      ? { kind: 'lobby' as const, id: clickedLobby.id }
       : clickedMatchId
-        ? { kind: 'match', id: clickedMatchId }
-        : { kind: 'lobby', id: lobbyId })
+        ? { kind: 'match' as const, id: clickedMatchId }
+        : { kind: 'lobby' as const, id: lobbyId }
 
     queueBackgroundTask(c, async () => {
       const db = createDb(env.DB)
@@ -126,7 +134,13 @@ export const component_match_join = factory.component(
       }
     }, '[match-join] failed after activity launch:')
 
-    return c.resActivity()
+    return respondWithPreferredLaunch(c, {
+      destination: { kind: 'session', sessionId: canonicalSessionId },
+      activityChannelId: interactionChannelId ?? clickedLobby?.channelId ?? null,
+      activityUserId: identity.userId,
+      activityTarget,
+      launch,
+    })
   },
 )
 
@@ -134,27 +148,47 @@ export const component_match_browse = factory.component(
   new Button('match-browse', 'Browse', 'Secondary'),
   async (c) => {
     const identity = getIdentity(c)
-    if (identity) {
-      const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
-      await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, channelId, identity.userId, { kind: 'overview' })
-    }
-    return c.resActivity()
+    const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
+    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+    if (!launch.ok) return privateLaunchError(c, launch.error)
+    if ((!identity || !channelId) && launch.mode === 'activity') return c.resActivity()
+    if (!identity || !channelId) return privateLaunchError(c, 'Could not identify this Discord channel. Please try again in the server.')
+    return respondWithPreferredLaunch(c, {
+      destination: { kind: 'channel', channelId },
+      activityChannelId: channelId,
+      activityUserId: identity.userId,
+      activityTarget: { kind: 'overview' },
+      launch,
+    })
   },
 )
 
 export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
   async (c) => {
+    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+    if (!launch.ok) return privateLaunchError(c, launch.error)
     const identity = getIdentity(c)
     const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
     const messageId = c.interaction.message?.id ?? null
     if (identity && channelId && messageId) {
       const matchId = await getMatchIdForMessage(createDb(c.env.DB), messageId).catch(() => null)
       if (matchId) {
-        await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, channelId, identity.userId, { kind: 'match', id: matchId })
+        const sessionId = launch.mode === 'browser'
+          ? await resolveCanonicalSessionId(createDb(c.env.DB), matchId)
+          : matchId
+        if (!sessionId) return privateLaunchError(c, 'Could not resolve this draft session. Please use a current lobby message.')
+        return respondWithPreferredLaunch(c, {
+          destination: { kind: 'session', sessionId },
+          activityChannelId: channelId,
+          activityUserId: identity.userId,
+          activityTarget: { kind: 'match', id: matchId },
+          launch,
+        })
       }
     }
-    return c.resActivity()
+    if (launch.mode === 'activity') return c.resActivity()
+    return privateLaunchError(c, 'Could not resolve this draft. Please use a current lobby message.')
   },
 )
 
@@ -179,6 +213,13 @@ export async function resolveJoinButtonLiveMatchId(
 
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(d1, [userId])
   return blockingDraftMatchIds?.get(userId) ?? null
+}
+
+export async function resolveCanonicalSessionId(
+  db: ReturnType<typeof createDb>,
+  targetId: string,
+): Promise<string | null> {
+  return (await getSessionLobbyProjectionByMatch(db, targetId).catch(() => null))?.id ?? null
 }
 
 function queueBackgroundTask(context: { executionCtx: { waitUntil: (promise: Promise<unknown>) => void } }, run: () => Promise<void>, errorMessage: string): void {

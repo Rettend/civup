@@ -22,6 +22,8 @@ const STATS_WARMUP_SAMPLES = 1
 const STATS_STABILITY_SAMPLES = 3
 const LEADERBOARD_PLAYERS_PER_MODE = 250
 const COMMON_PLAYER_POOL_SIZE = 24
+const BACKGROUND_COMPLETED_MATCHES = 1_000
+const BACKGROUND_PLAYER_POOL_SIZE = 96
 const INSERT_BATCH_SIZE = 100
 
 const KNOWN_LEADER_IDS = [
@@ -94,6 +96,7 @@ interface StatsSnapshot {
     warmupSamples: number
     stabilitySamples: number
     leaderboardPlayersPerMode: number
+    backgroundCompletedMatches: number
     modeFilter: 'all'
   }
   scenarios: Array<{
@@ -388,10 +391,116 @@ async function seedStatsBenchmarkScenario(
     }))
   }
 
+  appendBackgroundCompletedMatches({
+    scenario,
+    allPlayerRows,
+    matchRows,
+    participantRows,
+  })
+
   await insertBatches(db, players, [...allPlayerRows.values()])
   await insertBatches(db, playerRatings, [...allRatingRows.values()])
   await insertBatches(db, matches, matchRows)
   await insertBatches(db, matchParticipants, participantRows)
+}
+
+function appendBackgroundCompletedMatches(input: {
+  scenario: StatsBenchmarkScenario
+  allPlayerRows: Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>
+  matchRows: Array<{
+    id: string
+    gameMode: GameMode
+    status: 'completed'
+    isOld: boolean
+    seasonId: string
+    draftData: null
+    createdAt: number
+    completedAt: number
+  }>
+  participantRows: Array<{
+    matchId: string
+    playerId: string
+    team: number | null
+    civId: string | null
+    placement: number
+    ratingBeforeMu: number | null
+    ratingBeforeSigma: number | null
+    ratingAfterMu: number | null
+    ratingAfterSigma: number | null
+  }>
+}): void {
+  const backgroundPlayers = Array.from({ length: BACKGROUND_PLAYER_POOL_SIZE }, (_value, index) => {
+    const playerId = playerIdFor(`${input.scenario.id}-bg`, index + 1)
+    addPlayerRow(input.allPlayerRows, playerId, `${input.scenario.label} Background ${index + 1}`)
+    return playerId
+  })
+
+  for (let matchIndex = 0; matchIndex < BACKGROUND_COMPLETED_MATCHES; matchIndex += 1) {
+    const matchId = `${input.scenario.id}-bg-${String(matchIndex + 1).padStart(4, '0')}`
+    const completedAt = NOW - ((input.scenario.matchCount + matchIndex + 1) * 60_000)
+    input.matchRows.push({
+      id: matchId,
+      gameMode: input.scenario.gameMode,
+      status: 'completed',
+      isOld: false,
+      seasonId: ACTIVE_SEASON_ID,
+      draftData: null,
+      createdAt: completedAt - 10_000,
+      completedAt,
+    })
+
+    input.participantRows.push(...buildBackgroundParticipants({
+      scenario: input.scenario,
+      matchId,
+      matchIndex,
+      playerPool: backgroundPlayers,
+    }))
+  }
+}
+
+function buildBackgroundParticipants(input: {
+  scenario: StatsBenchmarkScenario
+  matchId: string
+  matchIndex: number
+  playerPool: string[]
+}): Array<{
+  matchId: string
+  playerId: string
+  team: number | null
+  civId: string | null
+  placement: number
+  ratingBeforeMu: number | null
+  ratingBeforeSigma: number | null
+  ratingAfterMu: number | null
+  ratingAfterSigma: number | null
+}> {
+  if (input.scenario.gameMode === 'ffa') {
+    return Array.from({ length: input.scenario.participantsPerMatch }, (_value, index) => buildParticipantRow(
+      input.matchId,
+      cyclePick(input.playerPool, input.matchIndex + index),
+      null,
+      index + 1,
+      null,
+      input.matchIndex,
+    ))
+  }
+
+  const firstTeamWon = input.matchIndex % 2 === 0
+  const teamSize = input.scenario.participantsPerMatch / 2
+  return Array.from({ length: input.scenario.participantsPerMatch }, (_value, index) => {
+    const team = index < teamSize ? 0 : 1
+    const placement = team === 0
+      ? (firstTeamWon ? 1 : 2)
+      : (firstTeamWon ? 2 : 1)
+    return buildParticipantRow(
+      input.matchId,
+      cyclePick(input.playerPool, (input.matchIndex * input.scenario.participantsPerMatch) + index),
+      team,
+      placement,
+      null,
+      input.matchIndex,
+    )
+  })
 }
 
 function buildScenarioParticipants(input: {
@@ -573,6 +682,7 @@ function buildStatsSnapshot(reports: StatsScenarioReport[]): StatsSnapshot {
       warmupSamples: STATS_WARMUP_SAMPLES,
       stabilitySamples: STATS_STABILITY_SAMPLES,
       leaderboardPlayersPerMode: LEADERBOARD_PLAYERS_PER_MODE,
+      backgroundCompletedMatches: BACKGROUND_COMPLETED_MATCHES,
       modeFilter: 'all',
     },
     scenarios: reports.map(report => ({

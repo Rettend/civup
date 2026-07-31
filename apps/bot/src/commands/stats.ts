@@ -9,6 +9,7 @@ import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
@@ -48,6 +49,10 @@ export const command_stats = factory.autocomplete<Var>(
     const targetId = c.var.player
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
+    const invokingPlayerId = c.interaction.member?.user?.id ?? c.interaction.user?.id
+    const invokingRoleIds = targetId === invokingPlayerId && Array.isArray(c.interaction.member?.roles)
+      ? c.interaction.member.roles.filter((roleId): roleId is string => typeof roleId === 'string')
+      : null
     const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
@@ -91,6 +96,26 @@ export const command_stats = factory.autocomplete<Var>(
       const rankProfile = guildId
         ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
+
+      if (
+        guildId
+        && invokingRoleIds
+        && rankProfile?.rankedRoleRepair
+        && rankedRoleMembershipNeedsRepair({
+          currentRoleIds: invokingRoleIds,
+          ...rankProfile.rankedRoleRepair,
+        })
+      ) {
+        c.executionCtx.waitUntil(repairCurrentRankedRoleMembership({
+          kv,
+          token: c.env.DISCORD_TOKEN,
+          guildId,
+          playerId: targetId,
+          currentRoleIds: invokingRoleIds,
+        }).catch((error) => {
+          console.error(`Failed to repair ranked role from /stats for ${targetId}:`, error)
+        }))
+      }
 
       const visibleModes = mode === 'all'
         ? LEADERBOARD_MODES
