@@ -33,6 +33,7 @@
     "r:migrate": "bun run d1:migrate:remote"
   },
   "dependencies": {
+    "@civup/civ6-mod": "workspace:*",
     "@civup/civ6-save-metadata": "workspace:*",
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",

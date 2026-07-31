@@ -528,7 +528,7 @@ describe('activity target selection', () => {
       queueEntries: [hostQueueEntry],
     })
     await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
-      version: 2,
+      version: 3,
       updatedAt: Date.now(),
       rows: [
         { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },

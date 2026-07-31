@@ -399,19 +399,20 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         const body = await response.json() as { ok: boolean, matchId: string, sessionAccessToken: string | null, idempotent?: boolean, error?: string }
         if (!response.ok) throw new Error(body.error ?? `Failed to start lobby: ${response.status}`)
         if (!body.idempotent && lobbyBeforeStart) {
-          const runtime = buildDraftRuntimeConfig(lobbyBeforeStart.mode, buildTestDraftEntries(lobbyBeforeStart), {
+          const lobbyAfterStart = await getLobbyById(kv, lobbyBeforeStart.id) ?? lobbyBeforeStart
+          const runtime = buildDraftRuntimeConfig(lobbyAfterStart.mode, buildTestDraftEntries(lobbyAfterStart), {
             matchId: body.matchId,
-            hostId: lobbyBeforeStart.hostId,
-            leaderDataVersion: lobbyBeforeStart.draftConfig.leaderDataVersion,
-            blindBans: lobbyBeforeStart.draftConfig.blindBans,
-            simultaneousPick: lobbyBeforeStart.draftConfig.simultaneousPick,
-            permanentAlly: lobbyBeforeStart.draftConfig.permanentAlly,
-            redDeath: lobbyBeforeStart.draftConfig.redDeath,
-            mapVoteEnabled: lobbyBeforeStart.draftConfig.mapVoteEnabled,
-            randomDraft: lobbyBeforeStart.draftConfig.randomDraft,
-            duplicateFactions: lobbyBeforeStart.draftConfig.duplicateFactions,
-            leaderPoolSize: lobbyBeforeStart.draftConfig.leaderPoolSize,
-            dealOptionsSize: lobbyBeforeStart.draftConfig.dealOptionsSize,
+            hostId: lobbyAfterStart.hostId,
+            leaderDataVersion: lobbyAfterStart.draftConfig.leaderDataVersion,
+            blindBans: lobbyAfterStart.draftConfig.blindBans,
+            simultaneousPick: lobbyAfterStart.draftConfig.simultaneousPick,
+            permanentAlly: lobbyAfterStart.draftConfig.permanentAlly,
+            redDeath: lobbyAfterStart.draftConfig.redDeath,
+            mapVoteEnabled: lobbyAfterStart.draftConfig.mapVoteEnabled,
+            randomDraft: lobbyAfterStart.draftConfig.randomDraft,
+            duplicateFactions: lobbyAfterStart.draftConfig.duplicateFactions,
+            leaderPoolSize: lobbyAfterStart.draftConfig.leaderPoolSize,
+            dealOptionsSize: lobbyAfterStart.draftConfig.dealOptionsSize,
           })
           draftRuntimeRecords.set(runtime.matchId, createCapturedDraftRuntimeRecord(runtime.config, draftRuntimeRecords.get(runtime.matchId)))
         }

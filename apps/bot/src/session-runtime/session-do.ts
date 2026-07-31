@@ -17,6 +17,7 @@ import { buildDraftRuntimeConfig, buildDraftSeats } from '../services/activity/i
 import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
+import { arrangeLobbySlots } from '../services/lobby/arrange.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
@@ -704,9 +705,24 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const now = normalizePositiveInteger(body?.now, Date.now())
     const matchId = record.id
+    const arrangeStrategy = record.mode === 'ffa' ? 'randomize' : 'shuffle-teams'
+    const arranged = arrangeLobbySlots({
+      mode: record.mode,
+      slots: record.roster.slots,
+      queueEntries: buildSessionRosterQueueEntries(record),
+      strategy: arrangeStrategy,
+    })
+    if ('error' in arranged) return json({ error: arranged.error }, 400)
+
+    const randomized = applyOpenSessionPatch(record, {
+      slots: arranged.slots,
+      lastArrange: { strategy: arrangeStrategy, at: now },
+      lastActivityAt: now,
+      updatedAt: now,
+    })
 
     const next: DraftSessionRecord = {
-      ...record,
+      ...randomized,
       phase: 'draft',
       matchId,
       version: record.version + 1,
