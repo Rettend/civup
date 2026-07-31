@@ -1,4 +1,3 @@
-<<<<<<< New base: chore: cleanup and simplify setup
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
@@ -7,17 +6,6 @@ import {
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
-||||||| Common ancestor
-import { CIVUP_ACTIVITY_SESSION_HEADER, CIVUP_INTERNAL_SECRET_HEADER, createActivitySession } from '@civup/utils'
-=======
-import {
-  CIVUP_ACTIVITY_GUILD_ID_HEADER,
-  CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
-  CIVUP_ACTIVITY_SESSION_HEADER,
-  CIVUP_INTERNAL_SECRET_HEADER,
-  createActivitySession,
-} from '@civup/utils'
->>>>>>> Current commit: fix: refresh ranked role colors
 import { describe, expect, test } from 'bun:test'
 import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE } from '../src/server/browser-auth'
@@ -117,7 +105,6 @@ describe('browser cookie proxy', () => {
     expect(forwarded).toHaveLength(1)
   })
 
-<<<<<<< New base: fix: mod resolve
   test('streams player-data export pages without buffering them in the Activity Worker', async () => {
     const forwarded: Request[] = []
     const token = await createActivitySession(SECRET, {
@@ -204,38 +191,6 @@ describe('browser cookie proxy', () => {
     expect(reusableSessionUrl.status).toBe(401)
   })
 
-||||||| Common ancestor
-=======
-  test('streams player-data export pages without buffering them in the Activity Worker', async () => {
-    const forwarded: Request[] = []
-    const token = await createActivitySession(SECRET, {
-      userId: 'data-admin',
-      displayName: null,
-      avatarUrl: null,
-      guildId: '1234044388733095946',
-      guildPermissions: '32',
-    })
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(new TextEncoder().encode('{"phase":"players"}'))
-        controller.close()
-      },
-    })
-    const upstream = new Response(body, { headers: { 'Content-Type': 'application/json', ETag: 'page-etag' } })
-
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/admin/player-data-export?cursor=next`, {
-      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
-    }), createEnv(forwarded, upstream))
-
-    expect(await response.text()).toBe('{"phase":"players"}')
-    expect(new URL(forwarded[0]!.url).searchParams.get('cursor')).toBe('next')
-    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)).toBe('1234044388733095946')
-    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER)).toBe('32')
-    expect(response.headers.get('Cache-Control')).toBe('no-store')
-    expect(response.headers.get('ETag')).toBe('page-etag')
-  })
-
->>>>>>> Current commit: chore: cleanup and simplify setup
   test('returns browser identity without exposing the session and clears logout only for exact origin', async () => {
     const token = await createTestActivitySession({ userId: 'player-1', displayName: 'Player', avatarUrl: null })
     const env = createEnv([], new Response('ok'))

@@ -535,11 +535,6 @@ function isSpacedInitialism(value: string): boolean {
   return parts.length > 1 && parts.every(part => /^[A-Za-z0-9]$/u.test(part))
 }
 
-function isSpacedInitialism(value: string): boolean {
-  const parts = value.split(' ')
-  return parts.length > 1 && parts.every(part => /^[A-Za-z0-9]$/u.test(part))
-}
-
 function isRepeatedSingleCharacter(value: string): boolean {
   const chars = [...value]
   return chars.length > 1 && chars.every(char => char === chars[0])

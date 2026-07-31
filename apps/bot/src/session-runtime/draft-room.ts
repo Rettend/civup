@@ -1558,20 +1558,6 @@ export function censorDraftStateForSeat(state: DraftState, seatIndex: number): D
     }
   }
 
-  if (step?.action === 'ban' && state.pendingBlindBans.length > 0 && state.status === 'active') {
-    const submissions: DraftState['submissions'] = {}
-    for (const [rawSeatIndex, civIds] of Object.entries(state.submissions)) {
-      const submittedSeatIndex = Number(rawSeatIndex)
-      submissions[submittedSeatIndex] = canViewBlindPickSubmission(state, seatIndex, submittedSeatIndex)
-        ? [...civIds]
-        : Array.from({ length: civIds.length }, () => '__blind__')
-    }
-    nextState = {
-      ...nextState,
-      submissions,
-    }
-  }
-
   if (state.civBlitz && state.status === 'active') {
     const ownOptions = seatIndex >= 0 ? state.civBlitz.optionsBySeat[seatIndex] ?? null : null
     nextState = {

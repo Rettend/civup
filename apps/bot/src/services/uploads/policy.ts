@@ -1,4 +1,3 @@
-<<<<<<< New base: fix: mod resolve
 export const MIB = 1024 * 1024
 export const GIB = 1024 * MIB
 
@@ -7,13 +6,3 @@ export const MAX_PLAYER_DATA_EXPORT_BYTES = 90 * MIB
 export const MULTIPART_AUTOSAVE_PART_BYTES = 80 * MIB
 export const MAX_AUTOSAVE_STORAGE_BYTES_PER_USER = 2 * GIB
 export const MAX_AUTOSAVE_OBJECTS_PER_USER = 100
-|||||||
-=======
-export const MIB = 1024 * 1024
-export const GIB = 1024 * MIB
-
-export const MAX_AUTOSAVE_UPLOAD_BYTES = 512 * MIB
-export const MULTIPART_AUTOSAVE_PART_BYTES = 80 * MIB
-export const MAX_AUTOSAVE_STORAGE_BYTES_PER_USER = 2 * GIB
-export const MAX_AUTOSAVE_OBJECTS_PER_USER = 100
->>>>>>> Current commit: chore: cleanup and simplify setup

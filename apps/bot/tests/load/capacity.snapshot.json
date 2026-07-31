@@ -1,29 +1,15 @@
 {
-<<<<<<< New base: fix: deploy config
   "version": 9,
-||||||| Common ancestor
-  "version": 7,
-=======
-  "version": 8,
->>>>>>> Current commit: feat: maintenance do
   "globals": {
     "stabilitySamples": 3,
     "leaderboardCronRunsPerDay": 96,
     "inactiveLobbyCleanupCronRunsPerDay": 24,
     "rankedRoleCronRunsPerDay": 1,
-<<<<<<< New base: fix: deploy config
     "rankedRoleRetryCronRunsPerDay": 10,
     "maintenanceDoRequestsPerDay": 107,
     "estimatedLeaderboardMaintenanceDoGbSecondsPerRun": 0.128,
     "estimatedMaintenanceSyncDoGbSecondsPerRun": 0.128,
     "estimatedMaintenanceRetryDoGbSecondsPerRun": 0.0025,
-||||||| Common ancestor
-=======
-    "rankedRoleRetryCronRunsPerDay": 10,
-    "maintenanceDoRequestsPerDay": 11,
-    "estimatedMaintenanceSyncDoGbSecondsPerRun": 0.128,
-    "estimatedMaintenanceRetryDoGbSecondsPerRun": 0.0025,
->>>>>>> Current commit: feat: maintenance do
     "architectureModel": "target-session-do-v4-hibernating-selected-sockets",
     "currentArchitectureModel": "current-non-hibernating-selected-session-sockets",
     "targetArchitectureModel": "target-session-do-v4-hibernating-selected-sockets",
@@ -80,22 +66,10 @@
     "kvReads": 53,
     "kvWrites": 2,
     "kvDeletes": 0,
-<<<<<<< New base: fix: deploy config
     "kvLists": 11,
     "doRequests": 107,
     "doRequestsRaw": 107,
     "doDurationGbSeconds": 12.441
-||||||| Common ancestor
-    "kvLists": 0,
-    "doRequests": 0,
-    "doRequestsRaw": 0,
-    "doDurationGbSeconds": 0
-=======
-    "kvLists": 11,
-    "doRequests": 11,
-    "doRequestsRaw": 11,
-    "doDurationGbSeconds": 0.153
->>>>>>> Current commit: feat: maintenance do
   },
   "scenarios": [
     {
@@ -117,11 +91,11 @@
         "workersRequests": 10,
         "botWorkerRequests": 6,
         "activityWorkerRequests": 4,
-        "d1RowsRead": 64,
-        "d1RowsWritten": 63,
+        "d1RowsRead": 67,
+        "d1RowsWritten": 84,
         "doSqliteRowsRead": 18,
         "doSqliteRowsWritten": 14,
-        "kvReads": 26,
+        "kvReads": 27,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -137,7 +111,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -149,12 +123,12 @@
         "workersRequests": 14,
         "botWorkerRequests": 8,
         "activityWorkerRequests": 6,
-        "d1RowsReadBase": 80,
+        "d1RowsReadBase": 83,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 65,
+        "d1RowsWritten": 86,
         "doSqliteRowsRead": 22,
         "doSqliteRowsWritten": 18,
-        "kvReads": 34,
+        "kvReads": 33,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -164,103 +138,59 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 3076,
-          "draftsPerDay": 1538,
+          "playsPerDay": 2325,
+          "draftsPerDay": 1162.5,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 3020,
           "draftsPerDay": 1510,
-||||||| Common ancestor
-          "playsPerDay": 3030,
-          "draftsPerDay": 1515,
-=======
-          "playsPerDay": 3029,
-          "draftsPerDay": 1514.5,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 20192,
-          "draftsPerDay": 10096,
-          "overageUsd": 0.9997
-||||||| Common ancestor
-          "playsPerDay": 20196,
-          "draftsPerDay": 10098,
+          "playsPerDay": 20702,
+          "draftsPerDay": 10351,
           "overageUsd": 0.9998
-=======
-          "playsPerDay": 20194,
-          "draftsPerDay": 10097,
-          "overageUsd": 0.9999
->>>>>>> Current commit: feat: maintenance do
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 33329,
-          "draftsPerDay": 16664.5,
-          "overageUsd": 5
-||||||| Common ancestor
-          "playsPerDay": 33332,
-          "draftsPerDay": 16666,
+          "playsPerDay": 34170,
+          "draftsPerDay": 17085,
           "overageUsd": 4.9998
-=======
-          "playsPerDay": 33330,
-          "draftsPerDay": 16665,
-          "overageUsd": 4.9998
->>>>>>> Current commit: feat: maintenance do
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 3076,
-            "draftsPerDay": 1538
+            "playsPerDay": 2325,
+            "draftsPerDay": 1162.5
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 5879,
-            "draftsPerDay": 2939.5
+            "playsPerDay": 6057,
+            "draftsPerDay": 3028.5
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 9081,
             "draftsPerDay": 4540.5
-||||||| Common ancestor
-            "playsPerDay": 9090,
-            "draftsPerDay": 4545
-=======
-            "playsPerDay": 9089,
-            "draftsPerDay": 4544.5
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 3020,
             "draftsPerDay": 1510
-||||||| Common ancestor
-            "playsPerDay": 3030,
-            "draftsPerDay": 1515
-=======
-            "playsPerDay": 3029,
-            "draftsPerDay": 1514.5
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 19604,
-            "draftsPerDay": 9802
+            "playsPerDay": 20198,
+            "draftsPerDay": 10099
           },
           {
-            "metric": "workersRequests",
-            "playsPerDay": 47600,
-            "draftsPerDay": 23800
+            "metric": "d1RowsWritten",
+            "playsPerDay": 38759,
+            "draftsPerDay": 19379.5
           }
         ]
       }
@@ -284,11 +214,11 @@
         "workersRequests": 14,
         "botWorkerRequests": 8,
         "activityWorkerRequests": 6,
-        "d1RowsRead": 74,
-        "d1RowsWritten": 63,
+        "d1RowsRead": 77,
+        "d1RowsWritten": 84,
         "doSqliteRowsRead": 22,
         "doSqliteRowsWritten": 14,
-        "kvReads": 34,
+        "kvReads": 31,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -304,7 +234,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -316,12 +246,12 @@
         "workersRequests": 18,
         "botWorkerRequests": 10,
         "activityWorkerRequests": 8,
-        "d1RowsReadBase": 90,
+        "d1RowsReadBase": 93,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 65,
+        "d1RowsWritten": 86,
         "doSqliteRowsRead": 26,
         "doSqliteRowsWritten": 18,
-        "kvReads": 42,
+        "kvReads": 37,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -331,96 +261,54 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 3076,
-          "draftsPerDay": 1538,
+          "playsPerDay": 2325,
+          "draftsPerDay": 1162.5,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 2555,
           "draftsPerDay": 1277.5,
-||||||| Common ancestor
-          "playsPerDay": 2564,
-          "draftsPerDay": 1282,
-=======
-          "playsPerDay": 2563,
-          "draftsPerDay": 1281.5,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 16462,
-          "draftsPerDay": 8231,
-||||||| Common ancestor
-          "playsPerDay": 16465,
-          "draftsPerDay": 8232.5,
-=======
-          "playsPerDay": 16463,
-          "draftsPerDay": 8231.5,
->>>>>>> Current commit: feat: maintenance do
-          "overageUsd": 0.9998
+          "playsPerDay": 18299,
+          "draftsPerDay": 9149.5,
+          "overageUsd": 0.9997
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 27171,
-          "draftsPerDay": 13585.5,
-          "overageUsd": 4.9996
-||||||| Common ancestor
-          "playsPerDay": 27174,
-          "draftsPerDay": 13587,
-          "overageUsd": 4.9997
-=======
-          "playsPerDay": 27173,
-          "draftsPerDay": 13586.5,
-          "overageUsd": 5
->>>>>>> Current commit: feat: maintenance do
+          "playsPerDay": 30204,
+          "draftsPerDay": 15102,
+          "overageUsd": 4.9998
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 3076,
-            "draftsPerDay": 1538
+            "playsPerDay": 2325,
+            "draftsPerDay": 1162.5
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 4759,
-            "draftsPerDay": 2379.5
+            "playsPerDay": 5402,
+            "draftsPerDay": 2701
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 7684,
             "draftsPerDay": 3842
-||||||| Common ancestor
-            "playsPerDay": 7692,
-            "draftsPerDay": 3846
-=======
-            "playsPerDay": 7691,
-            "draftsPerDay": 3845.5
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 2555,
             "draftsPerDay": 1277.5
-||||||| Common ancestor
-            "playsPerDay": 2564,
-            "draftsPerDay": 1282
-=======
-            "playsPerDay": 2563,
-            "draftsPerDay": 1281.5
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 15870,
-            "draftsPerDay": 7935
+            "playsPerDay": 18015,
+            "draftsPerDay": 9007.5
           },
           {
             "metric": "workersRequests",
@@ -449,8 +337,8 @@
         "workersRequests": 15,
         "botWorkerRequests": 9,
         "activityWorkerRequests": 6,
-        "d1RowsRead": 120,
-        "d1RowsWritten": 96,
+        "d1RowsRead": 123,
+        "d1RowsWritten": 129,
         "doSqliteRowsRead": 28,
         "doSqliteRowsWritten": 20,
         "kvReads": 36,
@@ -469,7 +357,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -481,12 +369,12 @@
         "workersRequests": 19,
         "botWorkerRequests": 11,
         "activityWorkerRequests": 8,
-        "d1RowsReadBase": 148,
+        "d1RowsReadBase": 151,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 98,
+        "d1RowsWritten": 131,
         "doSqliteRowsRead": 32,
         "doSqliteRowsWritten": 24,
-        "kvReads": 44,
+        "kvReads": 42,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -496,103 +384,59 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 4081,
-          "draftsPerDay": 1020.25,
+          "playsPerDay": 3053,
+          "draftsPerDay": 763.25,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 4153,
           "draftsPerDay": 1038.25,
-||||||| Common ancestor
-          "playsPerDay": 4166,
-          "draftsPerDay": 1041.5,
-=======
-          "playsPerDay": 4165,
-          "draftsPerDay": 1041.25,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 30590,
-          "draftsPerDay": 7647.5,
+          "playsPerDay": 31776,
+          "draftsPerDay": 7944,
           "overageUsd": 0.9999
-||||||| Common ancestor
-          "playsPerDay": 30596,
-          "draftsPerDay": 7649,
-          "overageUsd": 1
-=======
-          "playsPerDay": 30592,
-          "draftsPerDay": 7648,
-          "overageUsd": 0.9998
->>>>>>> Current commit: feat: maintenance do
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 50491,
-          "draftsPerDay": 12622.75,
-          "overageUsd": 5
-||||||| Common ancestor
-          "playsPerDay": 50496,
-          "draftsPerDay": 12624,
-          "overageUsd": 4.9999
-=======
-          "playsPerDay": 50493,
-          "draftsPerDay": 12623.25,
-          "overageUsd": 4.9999
->>>>>>> Current commit: feat: maintenance do
+          "playsPerDay": 51146,
+          "draftsPerDay": 12786.5,
+          "overageUsd": 4.999
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 4081,
-            "draftsPerDay": 1020.25
+            "playsPerDay": 3053,
+            "draftsPerDay": 763.25
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 9086,
-            "draftsPerDay": 2271.5
+            "playsPerDay": 9518,
+            "draftsPerDay": 2379.5
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 12486,
             "draftsPerDay": 3121.5
-||||||| Common ancestor
-            "playsPerDay": 12500,
-            "draftsPerDay": 3125
-=======
-            "playsPerDay": 12498,
-            "draftsPerDay": 3124.5
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 4153,
             "draftsPerDay": 1038.25
-||||||| Common ancestor
-            "playsPerDay": 4166,
-            "draftsPerDay": 1041.5
-=======
-            "playsPerDay": 4165,
-            "draftsPerDay": 1041.25
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 30298,
-            "draftsPerDay": 7574.5
+            "playsPerDay": 31740,
+            "draftsPerDay": 7935
           },
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 68027,
-            "draftsPerDay": 17006.75
+            "playsPerDay": 50890,
+            "draftsPerDay": 12722.5
           }
         ]
       }
@@ -616,11 +460,11 @@
         "workersRequests": 19,
         "botWorkerRequests": 11,
         "activityWorkerRequests": 8,
-        "d1RowsRead": 167,
-        "d1RowsWritten": 126,
+        "d1RowsRead": 170,
+        "d1RowsWritten": 171,
         "doSqliteRowsRead": 34,
         "doSqliteRowsWritten": 22,
-        "kvReads": 42,
+        "kvReads": 40,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -636,7 +480,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -648,12 +492,12 @@
         "workersRequests": 23,
         "botWorkerRequests": 13,
         "activityWorkerRequests": 10,
-        "d1RowsReadBase": 207,
+        "d1RowsReadBase": 210,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 128,
+        "d1RowsWritten": 173,
         "doSqliteRowsRead": 38,
         "doSqliteRowsWritten": 26,
-        "kvReads": 50,
+        "kvReads": 46,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -663,103 +507,59 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 4687,
-          "draftsPerDay": 781.1667,
+          "playsPerDay": 3468,
+          "draftsPerDay": 578,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 5246,
           "draftsPerDay": 874.3333,
-||||||| Common ancestor
-          "playsPerDay": 5263,
-          "draftsPerDay": 877.1667,
-=======
-          "playsPerDay": 5261,
-          "draftsPerDay": 876.8333,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 40056,
-          "draftsPerDay": 6676,
-          "overageUsd": 0.9999
-||||||| Common ancestor
-          "playsPerDay": 40064,
-          "draftsPerDay": 6677.3333,
+          "playsPerDay": 40333,
+          "draftsPerDay": 6722.1667,
           "overageUsd": 1
-=======
-          "playsPerDay": 40059,
-          "draftsPerDay": 6676.5,
-          "overageUsd": 0.9999
->>>>>>> Current commit: feat: maintenance do
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 66115,
-          "draftsPerDay": 11019.1667,
-          "overageUsd": 4.9999
-||||||| Common ancestor
-          "playsPerDay": 66122,
-          "draftsPerDay": 11020.3333,
-          "overageUsd": 4.9999
-=======
-          "playsPerDay": 66118,
-          "draftsPerDay": 11019.6667,
-          "overageUsd": 5
->>>>>>> Current commit: feat: maintenance do
+          "playsPerDay": 59641,
+          "draftsPerDay": 9940.1667,
+          "overageUsd": 4.9992
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 4687,
-            "draftsPerDay": 781.1667
+            "playsPerDay": 3468,
+            "draftsPerDay": 578
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 11993,
-            "draftsPerDay": 1998.8333
+            "playsPerDay": 13036,
+            "draftsPerDay": 2172.6667
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 15772,
             "draftsPerDay": 2628.6667
-||||||| Common ancestor
-            "playsPerDay": 15789,
-            "draftsPerDay": 2631.5
-=======
-            "playsPerDay": 15787,
-            "draftsPerDay": 2631.1667
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 5246,
             "draftsPerDay": 874.3333
-||||||| Common ancestor
-            "playsPerDay": 5263,
-            "draftsPerDay": 877.1667
-=======
-            "playsPerDay": 5261,
-            "draftsPerDay": 876.8333
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 39993,
-            "draftsPerDay": 6665.5
+            "playsPerDay": 43471,
+            "draftsPerDay": 7245.1667
           },
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 78124,
-            "draftsPerDay": 13020.6667
+            "playsPerDay": 57803,
+            "draftsPerDay": 9633.8333
           }
         ]
       }
@@ -783,11 +583,11 @@
         "workersRequests": 23,
         "botWorkerRequests": 13,
         "activityWorkerRequests": 10,
-        "d1RowsRead": 214,
-        "d1RowsWritten": 156,
+        "d1RowsRead": 217,
+        "d1RowsWritten": 213,
         "doSqliteRowsRead": 40,
         "doSqliteRowsWritten": 24,
-        "kvReads": 48,
+        "kvReads": 44,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -803,7 +603,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -815,12 +615,12 @@
         "workersRequests": 27,
         "botWorkerRequests": 15,
         "activityWorkerRequests": 12,
-        "d1RowsReadBase": 266,
+        "d1RowsReadBase": 269,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 158,
+        "d1RowsWritten": 215,
         "doSqliteRowsRead": 44,
         "doSqliteRowsWritten": 28,
-        "kvReads": 56,
+        "kvReads": 50,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -830,101 +630,59 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 5063,
-          "draftsPerDay": 632.875,
+          "playsPerDay": 3720,
+          "draftsPerDay": 465,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 6041,
           "draftsPerDay": 755.125,
-||||||| Common ancestor
-          "playsPerDay": 6060,
-          "draftsPerDay": 757.5,
-=======
-          "playsPerDay": 6058,
-          "draftsPerDay": 757.25,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 46445,
           "draftsPerDay": 5805.625,
-||||||| Common ancestor
-          "playsPerDay": 46464,
-          "draftsPerDay": 5808,
-=======
-          "playsPerDay": 46462,
-          "draftsPerDay": 5807.75,
->>>>>>> Current commit: feat: maintenance do
           "overageUsd": 1
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 78217,
-          "draftsPerDay": 9777.125,
-          "overageUsd": 4.9999
-||||||| Common ancestor
-          "playsPerDay": 78226,
-          "draftsPerDay": 9778.25,
-          "overageUsd": 5
-=======
-          "playsPerDay": 78220,
-          "draftsPerDay": 9777.5,
-          "overageUsd": 4.9999
->>>>>>> Current commit: feat: maintenance do
+          "playsPerDay": 65043,
+          "draftsPerDay": 8130.375,
+          "overageUsd": 4.9998
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 5063,
-            "draftsPerDay": 632.875
+            "playsPerDay": 3720,
+            "draftsPerDay": 465
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 14278,
-            "draftsPerDay": 1784.75
+            "playsPerDay": 15991,
+            "draftsPerDay": 1998.875
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 18162,
             "draftsPerDay": 2270.25
-||||||| Common ancestor
-            "playsPerDay": 18181,
-            "draftsPerDay": 2272.625
-=======
-            "playsPerDay": 18179,
-            "draftsPerDay": 2272.375
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 6041,
             "draftsPerDay": 755.125
-||||||| Common ancestor
-            "playsPerDay": 6060,
-            "draftsPerDay": 757.5
-=======
-            "playsPerDay": 6058,
-            "draftsPerDay": 757.25
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 47611,
-            "draftsPerDay": 5951.375
+            "playsPerDay": 53324,
+            "draftsPerDay": 6665.5
           },
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 84388,
-            "draftsPerDay": 10548.5
+            "playsPerDay": 62015,
+            "draftsPerDay": 7751.875
           }
         ]
       }
@@ -948,11 +706,11 @@
         "workersRequests": 40,
         "botWorkerRequests": 26,
         "activityWorkerRequests": 14,
-        "d1RowsRead": 502,
-        "d1RowsWritten": 266,
+        "d1RowsRead": 505,
+        "d1RowsWritten": 365,
         "doSqliteRowsRead": 78,
         "doSqliteRowsWritten": 54,
-        "kvReads": 96,
+        "kvReads": 97,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -968,7 +726,7 @@
         "d1RowsWritten": 2,
         "doSqliteRowsRead": 4,
         "doSqliteRowsWritten": 4,
-        "kvReads": 8,
+        "kvReads": 6,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -980,12 +738,12 @@
         "workersRequests": 44,
         "botWorkerRequests": 28,
         "activityWorkerRequests": 16,
-        "d1RowsReadBase": 578,
+        "d1RowsReadBase": 581,
         "d1RowsReadPerLeaderboardPlayer": 1,
-        "d1RowsWritten": 268,
+        "d1RowsWritten": 367,
         "doSqliteRowsRead": 82,
         "doSqliteRowsWritten": 58,
-        "kvReads": 104,
+        "kvReads": 103,
         "kvWrites": 0,
         "kvDeletes": 0,
         "kvLists": 0,
@@ -995,101 +753,59 @@
       },
       "capacity": {
         "free": {
-          "playsPerDay": 4477,
-          "draftsPerDay": 373.0833,
+          "playsPerDay": 3269,
+          "draftsPerDay": 272.4167,
           "bottleneck": "d1RowsWritten"
         },
         "paidIncluded": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 4862,
           "draftsPerDay": 405.1667,
-||||||| Common ancestor
-          "playsPerDay": 4878,
-          "draftsPerDay": 406.5,
-=======
-          "playsPerDay": 4876,
-          "draftsPerDay": 406.3333,
->>>>>>> Current commit: feat: maintenance do
           "bottleneck": "doRequests"
         },
         "paid6": {
-<<<<<<< New base: fix: deploy config
           "playsPerDay": 37382,
           "draftsPerDay": 3115.1667,
-||||||| Common ancestor
-          "playsPerDay": 37398,
-          "draftsPerDay": 3116.5,
-=======
-          "playsPerDay": 37396,
-          "draftsPerDay": 3116.3333,
->>>>>>> Current commit: feat: maintenance do
           "overageUsd": 1
         },
         "paid10": {
-<<<<<<< New base: fix: deploy config
-          "playsPerDay": 63133,
-          "draftsPerDay": 5261.0833,
-          "overageUsd": 4.9999
-||||||| Common ancestor
-          "playsPerDay": 63140,
-          "draftsPerDay": 5261.6667,
-          "overageUsd": 4.9999
-=======
-          "playsPerDay": 63136,
-          "draftsPerDay": 5261.3333,
-          "overageUsd": 5
->>>>>>> Current commit: feat: maintenance do
+          "playsPerDay": 55848,
+          "draftsPerDay": 4654,
+          "overageUsd": 4.9996
         }
       },
       "breakpoints": {
         "free": [
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 4477,
-            "draftsPerDay": 373.0833
+            "playsPerDay": 3269,
+            "draftsPerDay": 272.4167
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 11532,
-            "draftsPerDay": 961
+            "playsPerDay": 11644,
+            "draftsPerDay": 970.3333
           },
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 14618,
             "draftsPerDay": 1218.1667
-||||||| Common ancestor
-            "playsPerDay": 14634,
-            "draftsPerDay": 1219.5
-=======
-            "playsPerDay": 14632,
-            "draftsPerDay": 1219.3333
->>>>>>> Current commit: feat: maintenance do
           }
         ],
         "paidIncluded": [
           {
             "metric": "doRequests",
-<<<<<<< New base: fix: deploy config
             "playsPerDay": 4862,
             "draftsPerDay": 405.1667
-||||||| Common ancestor
-            "playsPerDay": 4878,
-            "draftsPerDay": 406.5
-=======
-            "playsPerDay": 4876,
-            "draftsPerDay": 406.3333
->>>>>>> Current commit: feat: maintenance do
           },
           {
             "metric": "kvReads",
-            "playsPerDay": 38455,
-            "draftsPerDay": 3204.5833
+            "playsPerDay": 38828,
+            "draftsPerDay": 3235.6667
           },
           {
             "metric": "d1RowsWritten",
-            "playsPerDay": 74626,
-            "draftsPerDay": 6218.8333
+            "playsPerDay": 54495,
+            "draftsPerDay": 4541.25
           }
         ]
       }

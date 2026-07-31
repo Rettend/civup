@@ -47,23 +47,12 @@ interface ActivityProxySession {
   userId: string
   displayName: string | null
   avatarUrl: string | null
-<<<<<<< New base: chore: cleanup and simplify setup
-<<<<<<< New base: feat: save file analyzer
   guildId: string | null
   guildPermissions: string | null
   guildName: string | null
   guildIconUrl: string | null
   guildRoleIds: string[]
   source: 'header' | 'query' | 'cookie' | 'download-ticket'
-||||||| Common ancestor
-=======
-||||||| Common ancestor
-=======
-  guildId: string | null
-  guildPermissions: string | null
->>>>>>> Current commit: fix: refresh ranked role colors
-  source: 'header' | 'query' | 'cookie'
->>>>>>> Current commit: feat: external browser draft WIP
 }
 
 export default {
@@ -85,19 +74,12 @@ export default {
       if (url.pathname.startsWith('/api/parties/')) {
         return await handlePartyProxy(request, url, env)
       }
-<<<<<<< New base: feat: save file analyzer
       if (url.pathname.startsWith('/api/browser/')) {
         return await handleBrowserBootstrap(request, url, env)
       }
       if (request.method === 'POST' && getCivBlitzDownloadTicketMatchId(url.pathname)) {
         return await handleCivBlitzDownloadTicket(request, url, env)
       }
-||||||| Common ancestor
-=======
-      if (url.pathname.startsWith('/api/browser/')) {
-        return await handleBrowserBootstrap(request, url, env)
-      }
->>>>>>> Current commit: feat: external browser draft WIP
       if (
         url.pathname.startsWith('/api/activity/')
         || url.pathname.startsWith('/api/match/')
@@ -153,7 +135,6 @@ async function handleDevLog(request: Request): Promise<Response> {
   }
 }
 
-<<<<<<< New base: feat: save file analyzer
 async function handleAuthMe(request: Request, env: Env): Promise<Response> {
   const session = await requireActivitySession(request, env)
   if (session instanceof Response) return session
@@ -217,47 +198,6 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
   return response
 }
 
-||||||| Common ancestor
-=======
-async function handleAuthMe(request: Request, env: Env): Promise<Response> {
-  const session = await requireActivitySession(request, env)
-  if (session instanceof Response) return session
-  const response = json({ userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl })
-  response.headers.set('Cache-Control', 'no-store')
-  return response
-}
-
-async function handleAuthLogout(request: Request, env: Env): Promise<Response> {
-  const config = resolveBrowserAccessConfiguration(env)
-  if (!config) return json({ error: 'Browser access is not configured' }, 503)
-  if (!hasExactBrowserOrigin(request, config)) return json({ error: 'Invalid request origin' }, 403)
-  return new Response(null, {
-    status: 204,
-    headers: { 'Set-Cookie': clearBrowserSessionCookie(), 'Cache-Control': 'no-store' },
-  })
-}
-
-async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Promise<Response> {
-  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
-  if (!resolveBrowserAccessConfiguration(env)) return json({ error: 'Browser access is not configured' }, 503)
-  const session = await requireActivitySession(request, env)
-  if (session instanceof Response) return session
-
-  const targetPath = buildTargetPath(url, url.pathname.replace(/^\/api\/browser/, '/api/activity'))
-  const proxy = await fetchBotUpstream(request, targetPath, env, session)
-  if ('error' in proxy) return proxy.error
-  const upstream = proxy.response
-  const payload = await upstream.json<unknown>().catch(() => null)
-  if (!upstream.ok) return json(payload ?? { error: 'Browser context failed' }, upstream.status)
-  const response = json({
-    identity: { userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl },
-    context: payload,
-  })
-  response.headers.set('Cache-Control', 'no-store')
-  return response
-}
-
->>>>>>> Current commit: feat: external browser draft WIP
 async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<Response> {
   let targetUrl = ''
   try {
@@ -267,34 +207,10 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
     if (originError) return originError
 
     const targetPath = buildTargetPath(url)
-<<<<<<< New base: fix: mod resolve
     const proxy = await fetchBotUpstream(request, targetPath, env, session)
     if ('error' in proxy) return proxy.error
     targetUrl = proxy.targetUrl
     const response = proxy.response
-
-    if (shouldStreamProxyResponse(request, url, response)) {
-      return streamProxyResponse(response)
-    }
-||||||| Common ancestor
-    let response: Response
-    const botService = env.BOT
-
-    if (botService && shouldUseBotServiceBinding(request, env)) {
-      targetUrl = `service:civup-bot${targetPath}`
-      response = await botService.fetch(buildProxyRequest(`https://civup-bot.internal${targetPath}`, request, env, session))
-    }
-    else {
-      const botHost = normalizeHost(env.BOT_HOST, 'http://localhost:8787')
-      targetUrl = `${botHost}${targetPath}`
-      response = await fetch(buildProxyRequest(targetUrl, request, env, session))
-    }
-=======
-    const proxy = await fetchBotUpstream(request, targetPath, env, session)
-    if ('error' in proxy) return proxy.error
-    targetUrl = proxy.targetUrl
-    const response = proxy.response
->>>>>>> Current commit: chore: cleanup and simplify setup
 
     if (shouldStreamProxyResponse(request, url, response)) {
       return streamProxyResponse(response)
@@ -388,7 +304,6 @@ function isNullBodyStatus(status: number): boolean {
   return status === 204 || status === 205 || status === 304
 }
 
-<<<<<<< New base: chore: update leader desc
 function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
   return request.method.toUpperCase() === 'GET'
     && response.ok
@@ -398,19 +313,6 @@ function shouldStreamProxyResponse(request: Request, url: URL, response: Respons
       || /^\/api\/match\/[^/]+\/civblitz\/download$/.test(url.pathname)
     )
 }
-||||||| Common ancestor
-function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
-  if (!env.BOT) return false
-  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
-=======
-function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
-  return request.method.toUpperCase() === 'GET'
-    && response.ok
-    && (
-      (url.pathname.startsWith('/api/uploads/') && url.pathname.endsWith('/download'))
-      || url.pathname === '/api/activity/admin/player-data-export'
-    )
-}
 
 function streamProxyResponse(response: Response): Response {
   const headers = new Headers()
@@ -425,35 +327,6 @@ function streamProxyResponse(response: Response): Response {
   })
 }
 
-<<<<<<< New base: fix: mod resolve
-function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
-  if (!env.BOT) return false
-  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
->>>>>>> Current commit: feat: catalog
-
-function streamProxyResponse(response: Response): Response {
-  const headers = new Headers()
-  for (const name of ['content-type', 'content-length', 'content-disposition', 'etag']) {
-    const value = response.headers.get(name)
-    if (value) headers.set(name, value)
-  }
-  headers.set('Cache-Control', 'no-store')
-  return new Response(response.body, {
-    status: response.status,
-    headers,
-  })
-}
-
-||||||| Common ancestor
-function shouldUseBotServiceBinding(request: Request, env: Env): boolean {
-  if (!env.BOT) return false
-  if (isDev({ viteDev: getImportMetaDev(), host: request.url, configuredHosts: [env.BOT_HOST] })) return false
-
-  return true
-}
-
-=======
->>>>>>> Current commit: chore: cleanup and simplify setup
 function getImportMetaDev(): boolean | undefined {
   return import.meta.env?.DEV
 }
@@ -510,7 +383,6 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
 
   const headers = new Headers()
-<<<<<<< New base: chore: update leader desc
   for (const name of [
     'accept',
     'accept-language',
@@ -518,17 +390,6 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
     'content-type',
     'user-agent',
   ]) {
-||||||| Common ancestor
-  for (const name of ['accept', 'accept-language', 'content-type', 'user-agent']) {
-=======
-  for (const name of [
-    'accept',
-    'accept-language',
-    'content-length',
-    'content-type',
-    'user-agent',
-  ]) {
->>>>>>> Current commit: feat: catalog
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }
@@ -640,34 +501,14 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
     if (!identity.ok) return json({ error: identity.error }, identity.status)
 
     const sessionToken = await createActivitySession(internalSecret, {
-<<<<<<< New base: feat: save file analyzer
       userId: identity.userId,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
-<<<<<<< New base: chore: cleanup and simplify setup
       guildId: identity.guildId,
       guildPermissions: identity.guildPermissions,
-||||||| Common ancestor
-      userId,
-      displayName: resolveDiscordDisplayName(discordUser),
-      avatarUrl: buildDiscordIdentityAvatarUrl(discordUser, userId),
-=======
-      userId: identity.userId,
-      displayName: identity.displayName,
-      avatarUrl: identity.avatarUrl,
->>>>>>> Current commit: feat: external browser draft WIP
-||||||| Common ancestor
-=======
-      guildId: identity.guildId,
-      guildPermissions: identity.guildPermissions,
-<<<<<<< New base: feat: auto shuffle
->>>>>>> Current commit: fix: refresh ranked role colors
-||||||| Common ancestor
-=======
       guildName: identity.guildName,
       guildIconUrl: identity.guildIconUrl,
       guildRoleIds: identity.guildRoleIds,
->>>>>>> Current commit: feat: add multi-server foundations
     })
 
     const response = json({
@@ -716,27 +557,12 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     userId: session.sub,
     displayName: session.name || null,
     avatarUrl: session.avatarUrl,
-<<<<<<< New base: chore: cleanup and simplify setup
-<<<<<<< New base: feat: save file analyzer
     guildId: session.guildId,
     guildPermissions: session.guildPermissions,
-    source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
-||||||| Common ancestor
-=======
-||||||| Common ancestor
-=======
-    guildId: session.guildId,
-    guildPermissions: session.guildPermissions,
-<<<<<<< New base: feat: auto shuffle
->>>>>>> Current commit: fix: refresh ranked role colors
-||||||| Common ancestor
-=======
     guildName: session.guildName ?? null,
     guildIconUrl: session.guildIconUrl ?? null,
     guildRoleIds: session.guildRoleIds ?? [],
->>>>>>> Current commit: feat: add multi-server foundations
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
->>>>>>> Current commit: feat: external browser draft WIP
   }
 }
 
@@ -765,7 +591,6 @@ function getCivBlitzDownloadTicketMatchId(pathname: string): string | null {
   return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download-ticket$/, pathname)
 }
 
-<<<<<<< New base: feat: save file analyzer
 function getCivBlitzDownloadMatchId(pathname: string): string | null {
   return decodePathMatch(/^\/api\/match\/([^/]+)\/civblitz\/download$/, pathname)
 }
@@ -788,85 +613,7 @@ function json(data: unknown, status = 200): Response {
   })
 }
 
-<<<<<<< New base: feat: auto shuffle
-||||||| Common ancestor
-async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResponse | Response> {
-  const url = allowedGuildId
-    ? `https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`
-    : 'https://discord.com/api/v10/users/@me'
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-
-  if (!response.ok) {
-    const detail = await response.text()
-    console.error(allowedGuildId ? 'Discord guild member lookup failed:' : 'Discord user lookup failed:', {
-      guildId: allowedGuildId,
-      status: response.status,
-      detail,
-    })
-
-    if (allowedGuildId && (response.status === 403 || response.status === 404)) {
-      return json({ error: 'This activity is only available in the configured Discord server' }, 403)
-    }
-
-    return json({ error: 'Failed to verify Discord user' }, 502)
-  }
-
-  if (!allowedGuildId) {
-    return response.json<DiscordIdentityResponse>()
-  }
-
-  const member = await response.json<DiscordGuildMemberResponse>()
-  if (!member.user) {
-    console.error('Discord guild member lookup returned no user payload', { guildId: allowedGuildId })
-    return json({ error: 'Failed to verify Discord user' }, 502)
-  }
-
-  return {
-    ...member.user,
-    nick: member.nick ?? null,
-    guildAvatar: member.avatar ?? null,
-    guildId: allowedGuildId,
-  }
-}
-
-function resolveDiscordDisplayName(user: DiscordIdentityResponse): string | null {
-  return normalizeOptionalDiscordName(user.nick)
-    ?? normalizeOptionalDiscordName(user.global_name)
-    ?? normalizeOptionalDiscordName(user.username)
-}
-
-function normalizeOptionalDiscordName(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-}
-
-function buildDiscordIdentityAvatarUrl(user: DiscordIdentityResponse, userId: string): string {
-  if (user.guildId && user.guildAvatar) return buildDiscordGuildMemberAvatarUrl(user.guildId, userId, user.guildAvatar)
-  return buildDiscordAvatarUrl(userId, user.avatar ?? null)
-}
-
-function buildDiscordGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string): string {
-  const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
-  return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
-}
-
-=======
->>>>>>> Current commit: feat: external browser draft WIP
-function normalizeGuildId(value: string | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-||||||| Common ancestor
-function normalizeGuildId(value: string | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-=======
 function normalizeGuildId(value: unknown): string | null {
   const normalized = typeof value === 'string' ? value.trim() : ''
   return /^\d{17,20}$/.test(normalized) ? normalized : null
->>>>>>> Current commit: feat: add multi-server foundations
 }

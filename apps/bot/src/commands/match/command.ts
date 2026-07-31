@@ -205,14 +205,7 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
-<<<<<<< New base: feat: auto shuffle
-<<<<<<< New base: feat: save file analyzer
-            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
-||||||| Common ancestor
-            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
-=======
             const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles, c.interaction.guild_id)
->>>>>>> Current commit: feat: add multi-server foundations
             if (!launch.ok) return privateLaunchError(c, launch.error)
             const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
             if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match session. Please try its current Join button.')
@@ -223,22 +216,6 @@ export const command_match = factory.command<MatchVar>(
               activityTarget: { kind: 'match', id: userMatchId },
               launch,
             })
-||||||| Common ancestor
-            await storeActivityLaunchTargetSelection(c.env.Activity, c.env.CIVUP_SECRET, interactionChannelId, identity.userId, { kind: 'match', id: userMatchId })
-            return c.resActivity()
-=======
-            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
-            if (!launch.ok) return privateLaunchError(c, launch.error)
-            const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
-            if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match session. Please try its current Join button.')
-            return respondWithPreferredLaunch(c, {
-              destination: { kind: 'session', sessionId },
-              activityChannelId: interactionChannelId,
-              activityUserId: identity.userId,
-              activityTarget: { kind: 'match', id: userMatchId },
-              launch,
-            })
->>>>>>> Current commit: feat: external browser draft WIP
           }
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, `No active ${formatModeLabel(mode)} lobby. Use \`/match create\` first.`, 'error')
@@ -1068,7 +1045,6 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     if (recovery === 'recovered') {
       return { kind: 'message', message: `Lobby was created in <#${draftChannelId}>, but a follow-up update failed. I kept the lobby message; use \`/match bump\` if it looks stale.`, tone: 'info' }
     }
-<<<<<<< New base: fix: multiple r2
     if (recovery === 'repair-failed') {
       return { kind: 'message', message: `Lobby was created in <#${draftChannelId}> with Join and Browse available, but a follow-up repair failed. Use \`/match bump\` if the message looks stale.`, tone: 'info' }
     }
@@ -1104,70 +1080,6 @@ async function recoverCreatedMatchLobbyMessage(input: {
   catch (error) {
     console.error(`Failed to repair created lobby message ${input.createdMessageId} for lobby ${input.lobbyId}:`, error)
     return 'repair-failed'
-  }
-
-  return 'recovered'
-}
-
-async function readCreatedMatchLobby(
-  db: ReturnType<typeof createDb>,
-  sessionNamespace: DurableObjectNamespace | null | undefined,
-  lobbyId: string,
-): Promise<LobbyState | 'unknown' | null> {
-  let readFailed = false
-  try {
-    const projection = await getSessionLobbyProjectionByMatch(db, lobbyId)
-    if (projection) return projection
-||||||| Common ancestor
-    return { kind: 'message', message: 'Failed to create lobby message. Please try again.', tone: 'error' }
-=======
-    if (recovery === 'unknown') {
-      return { kind: 'message', message: `Failed to finish creating the lobby, and I could not confirm whether Cloudflare saved it. I left the Discord message in <#${draftChannelId}> instead of deleting it; retry or use \`/match bump\` if the lobby appears.`, tone: 'error' }
-    }
-    return { kind: 'message', message: 'Failed to create lobby. Please try again.', tone: 'error' }
->>>>>>> Current commit: feat: save file analyzer
-  }
-  catch (error) {
-    readFailed = true
-    console.error(`Failed to read session projection after lobby create failure for ${lobbyId}:`, error)
-  }
-
-  try {
-    const record = await getSessionRecord(sessionNamespace, lobbyId)
-    if (record) return buildLobbyProjectionFromSessionRecord(record)
-  }
-  catch (error) {
-    readFailed = true
-    console.error(`Failed to read SessionDO after lobby create failure for ${lobbyId}:`, error)
-  }
-
-  return readFailed ? 'unknown' : null
-}
-
-type CreatedMatchLobbyRecovery = 'recovered' | 'unknown' | 'missing'
-
-async function recoverCreatedMatchLobbyMessage(input: {
-  env: Env['Bindings']
-  kv: KVNamespace
-  db: ReturnType<typeof createDb>
-  mode: GameMode
-  lobbyId: string
-  createdMessageId: string
-  createdLobby: LobbyState | null
-  embed: unknown
-}): Promise<CreatedMatchLobbyRecovery> {
-  const lobby = input.createdLobby ?? await readCreatedMatchLobby(input.db, input.env.SessionDO, input.lobbyId)
-  if (lobby === 'unknown') return 'unknown'
-  if (!lobby) return 'missing'
-
-  try {
-    await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
-      embeds: [input.embed],
-      components: lobbyComponents(input.mode, lobby.id),
-    }, { db: input.db, sessionNamespace: input.env.SessionDO })
-  }
-  catch (error) {
-    console.error(`Failed to repair created lobby message ${input.createdMessageId} for lobby ${input.lobbyId}:`, error)
   }
 
   return 'recovered'

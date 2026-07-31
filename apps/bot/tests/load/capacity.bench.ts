@@ -162,17 +162,10 @@ const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
 const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 15
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
-<<<<<<< New base: fix: deploy config
 const RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY = 10
 const ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN = 0.128
 const ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN = 0.128
 const ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN = ESTIMATED_DO_GB_SECONDS_PER_REQUEST
-||||||| Common ancestor
-=======
-const RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY = 10
-const ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN = 0.128
-const ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN = ESTIMATED_DO_GB_SECONDS_PER_REQUEST
->>>>>>> Current commit: feat: maintenance do
 const RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER = 0
 const RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER = 0
 const RANKED_FINISH_EVENT_WRITES_PER_PLAYER = 0
@@ -271,15 +264,8 @@ describe('capacity models', () => {
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
       expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
       expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
-<<<<<<< New base: fix: deploy config
       expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
       expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
-||||||| Common ancestor
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(0)
-=======
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
-      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
->>>>>>> Current commit: feat: maintenance do
       if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
@@ -1597,31 +1583,17 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   return {
-<<<<<<< New base: fix: deploy config
     version: 9,
-||||||| Common ancestor
-    version: 7,
-=======
-    version: 8,
->>>>>>> Current commit: feat: maintenance do
     globals: {
       stabilitySamples: CAPACITY_STABILITY_SAMPLES,
       leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
-<<<<<<< New base: fix: deploy config
       rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
       maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
       estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
-||||||| Common ancestor
-=======
-      rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-      maintenanceDoRequestsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-      estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
-      estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
->>>>>>> Current commit: feat: maintenance do
       architectureModel: TARGET_ARCHITECTURE_MODEL,
       currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
       targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,
@@ -1772,19 +1744,11 @@ function printReports(reports: ScenarioReport[]): void {
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
-<<<<<<< New base: fix: deploy config
     rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
     maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
     estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
-||||||| Common ancestor
-=======
-    rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-    maintenanceDoRequestsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-    estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
-    estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
->>>>>>> Current commit: feat: maintenance do
     architectureModel: TARGET_ARCHITECTURE_MODEL,
     currentArchitectureModel: CURRENT_ARCHITECTURE_MODEL,
     targetArchitectureModel: TARGET_ARCHITECTURE_MODEL,

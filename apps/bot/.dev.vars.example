@@ -2,42 +2,7 @@ DISCORD_APPLICATION_ID=
 DISCORD_PUBLIC_KEY=
 DISCORD_TOKEN=
 ALLOWED_DISCORD_GUILD_ID=
-<<<<<<< New base: feat: auto shuffle
-<<<<<<< New base: feat: save file analyzer
-||||||| Common ancestor
-=======
-ALLOWED_DISCORD_GUILD_IDS=
->>>>>>> Current commit: feat: add multi-server foundations
+# For multiple servers, add ALLOWED_DISCORD_GUILD_IDS=id,id
 ACTIVITY_PUBLIC_ORIGIN=https://your-activity.example.com
-<<<<<<< New base: fix: mod resolve
-||||||| Common ancestor
-BOT_HOST=http://127.0.0.1:8787
-=======
-ACTIVITY_PUBLIC_ORIGIN=https://your-activity.example.com
-BOT_HOST=http://127.0.0.1:8787
->>>>>>> Current commit: feat: external browser draft WIP
-||||||| Common ancestor
-BOT_HOST=http://127.0.0.1:8787
-=======
->>>>>>> Current commit: chore: cleanup and simplify setup
 CIVUP_SECRET=
-<<<<<<< New base: chore: cleanup and simplify setup
-<<<<<<< New base: fix: mod resolve
-<<<<<<< New base: fix: sonner design
 ENABLE_DEBUG_LOBBY_FILL=1
-||||||| Common ancestor
-=======
-R2_UPLOAD_ACCESS_KEY_ID=
-R2_UPLOAD_SECRET_ACCESS_KEY=
->>>>>>> Current commit: fix: multiple r2
-||||||| Common ancestor
-R2_UPLOAD_ACCESS_KEY_ID=
-R2_UPLOAD_SECRET_ACCESS_KEY=
-=======
-AUTOSAVE_ADMIN_USER_IDS=
-||||||| Common ancestor
-AUTOSAVE_ADMIN_USER_IDS=
-=======
->>>>>>> Current commit: fix: refresh ranked role colors
-ENABLE_DEBUG_LOBBY_FILL=1
->>>>>>> Current commit: chore: cleanup and simplify setup

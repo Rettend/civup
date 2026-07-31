@@ -10,17 +10,19 @@ import type { SessionRecord } from '../session-runtime/session-record.ts'
 import type { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, toBalanceLeaderboardMode } from '@civup/game'
-import { createSessionAccessToken, getApprovedDiscordGuildIds, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
+import { createSessionAccessToken, getApprovedDiscordGuildIds, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getBrowserAccessState, normalizePublicOrigin } from '../services/activity/browser-access.ts'
 import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection } from '../services/activity/launch-target.ts'
 import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionByStableId, getActivitySessionsByChannel, getActivitySessionsForFeed, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
+import { getKnownGuildIdentities } from '../services/discord/guild-metadata.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { cacheCurrentRankAssignments, currentRankAssignmentsKey, getCachedCurrentRankAssignments, normalizeRankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
 
 export interface LobbyJoinEligibility {
@@ -35,9 +37,11 @@ interface ActivityTargetOption {
   lobbyId: string
   matchId: string | null
   channelId: string
+  originGuildId: string
   mode: GameMode
   status: 'open' | 'closed' | 'drafting' | 'completed'
   reported?: boolean
+  starting?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -48,6 +52,8 @@ interface ActivityTargetOption {
     playerId: string
     displayName: string
     avatarUrl?: string | null
+    team?: number | null
+    sourceGuild?: { id: string, name?: string | null, iconUrl?: string | null }
   }[]
   updatedAt: number
 }
@@ -106,7 +112,21 @@ interface ActivityRuntimeOptions {
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
-<<<<<<< New base: feat: save file analyzer
+  app.get('/api/activity/supported-servers', async (c) => {
+    if (!isAuthorizedInternalRequest(c.req.raw.headers, c.env.CIVUP_SECRET)) return c.json({ error: 'Unauthorized' }, 401)
+    const guildConfig = resolveApprovedDiscordGuildConfiguration(c.env)
+    if (!guildConfig.ok) return c.json({ error: 'Approved Discord server configuration is invalid' }, 503)
+
+    const identities = await getKnownGuildIdentities(c.env.KV, c.env.DISCORD_TOKEN, guildConfig.guildIds)
+    const byId = new Map(identities.map(identity => [identity.id, identity]))
+    return c.json({
+      servers: guildConfig.guildIds.map((id) => {
+        const identity = byId.get(id)
+        return { id, name: identity?.name ?? null, iconUrl: identity?.iconUrl ?? null }
+      }),
+    })
+  })
+
   app.get('/api/activity/session/:sessionId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -134,7 +154,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const kv = getKvStore(c.env)
-    const launchState = await loadActivityLaunchState(kv, [session])
+    const launchState = await loadActivityLaunchState(kv, [session], c.env.ALLOWED_DISCORD_GUILD_ID)
     const option = record
       ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
       : buildActivityOverviewOptions(session)[0]
@@ -185,94 +205,6 @@ export function registerActivityRoutes(app: Hono<Env>) {
       auth.identity.userId,
       c.env.DB,
       getApprovedDiscordGuildIds(c.env),
-    )
-    return c.json({
-      status: 'available',
-      channelId,
-      snapshot: {
-        selection: null,
-        options: context.targets.map(target => target.option),
-      },
-    })
-  })
-
-||||||| Common ancestor
-=======
-  app.get('/api/activity/session/:sessionId', async (c) => {
-    const auth = requireAuthenticatedActivity(c)
-    if (!auth.ok) return auth.response
-    const configError = await getBrowserContextConfigurationError(c.env)
-    if (configError) return c.json({ error: configError }, 503)
-
-    const sessionId = c.req.param('sessionId')
-    const db = createDb(c.env.DB)
-    const directory = await getActivitySessionByStableId(db, sessionId)
-    if (!directory) return c.json({ error: 'Session not found' }, 404)
-
-    const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, directory).catch(() => null)
-    const session = record ? buildDirectoryEntryFromRecord(record) : directory
-    if (session.guildId !== c.env.ALLOWED_DISCORD_GUILD_ID?.trim()) {
-      return c.json({ error: 'Session is not in the configured Discord server' }, 403)
-    }
-
-    if (session.phase === 'cancelled') {
-      return c.json({
-        status: 'ended',
-        sessionId: session.sessionId,
-        matchId: session.matchId,
-        phase: 'cancelled',
-      })
-    }
-
-    const kv = getKvStore(c.env)
-    const launchState = await loadActivityLaunchState(kv, [session])
-    const option = record
-      ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
-      : buildActivityOverviewOptions(session)[0]
-    if (!option) return c.json({ error: 'Session is unavailable' }, 404)
-    const target: ChannelActivityTarget = {
-      session,
-      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
-      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
-      option: {
-        ...option,
-        isMember: option.memberPlayerIds.includes(auth.identity.userId),
-        isHost: option.hostId === auth.identity.userId,
-      },
-    }
-    const selection = await serializeActivityLaunchSelection(
-      c.env.DISCORD_TOKEN,
-      c.env.CIVUP_SECRET,
-      kv,
-      auth.identity.userId,
-      { targets: [target] },
-      { target, pendingJoin: false },
-      c.env.DB,
-      c.env.SessionDO,
-    )
-
-    return c.json({
-      status: 'available',
-      sessionId: session.sessionId,
-      matchId: session.matchId,
-      phase: session.phase,
-      selection,
-    })
-  })
-
-  app.get('/api/activity/channel/:channelId', async (c) => {
-    const auth = requireAuthenticatedActivity(c)
-    if (!auth.ok) return auth.response
-    const configError = await getBrowserContextConfigurationError(c.env)
-    if (configError) return c.json({ error: configError }, 503)
-
-    const channelId = c.req.param('channelId')
-    const context = await loadActivityLaunchContext(
-      getKvStore(c.env),
-      channelId,
-      auth.identity.userId,
-      c.env.DB,
-      c.env.SessionDO,
       c.env.ALLOWED_DISCORD_GUILD_ID,
     )
     return c.json({
@@ -285,7 +217,6 @@ export function registerActivityRoutes(app: Hono<Env>) {
     })
   })
 
->>>>>>> Current commit: feat: external browser draft WIP
   app.get('/api/match/:channelId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -481,7 +412,7 @@ export async function selectActivityTargetForUser(
   },
   options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined)
   const selection = pickActivityLaunchSelectionForTarget(context.targets, target)
   if (!selection) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
@@ -506,7 +437,7 @@ export async function buildActivityLaunchSnapshot(
     legacyGuildId?: string | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
   if (launchTarget?.kind === 'overview') {
     await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
@@ -541,7 +472,7 @@ async function addRequestedReportedActivityTarget(
   if (!d1 || launchTarget?.kind !== 'match') return
   if (context.targets.some(candidate => candidate.option.kind === 'match' && candidate.option.id === launchTarget.id)) return
 
-  const session = await getActivitySessionById(createDb(d1), launchTarget.id)
+  const session = await getActivitySessionByStableId(createDb(d1), launchTarget.id)
   if (session?.phase !== 'reported') return
 
   const option = buildActivityOverviewOptions(session)[0]
@@ -847,11 +778,12 @@ async function loadActivityLaunchContext(
   userId: string,
   db: D1Database | null | undefined,
   guildIds: readonly string[] = [],
+  primaryGuildId?: string,
 ): Promise<ActivityLaunchContext> {
   if (!db) return { targets: [] }
 
   const channelSessions = await getActivitySessionsForFeed(createDb(db), { guildIds })
-  const launchState = await loadActivityLaunchState(kv, channelSessions)
+  const launchState = await loadActivityLaunchState(kv, channelSessions, primaryGuildId)
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
@@ -907,19 +839,25 @@ function buildDirectoryEntryFromRecord(record: SessionRecord): ActivitySessionDi
     updatedAt: record.updatedAt,
     lastActivityAt: record.lastActivityAt,
     closedAt: record.closedAt,
+    draftStartDeadlineAt: record.phase === 'draft' ? record.draftStartSync?.deadlineAt ?? null : null,
   }
 }
 
 async function loadActivityLaunchState(
   kv: KVNamespace,
   channelSessions: ActivitySessionDirectoryEntry[],
+  primaryGuildId: string | undefined,
 ): Promise<ActivityLaunchState> {
-  const requestedBalanceModes = [...new Set(
+  const requestedBalanceScopes = [...new Map(
     channelSessions
       .filter(session => session.phase === 'open')
-      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz }))
-      .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
-  )]
+      .flatMap((session) => {
+        const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz })
+        if (!mode || !session.guildId || !primaryGuildId) return []
+        const context = createStatsContext(session.guildId, primaryGuildId)
+        return [[`${session.guildId}:${mode}`, { mode, context }] as const]
+      }),
+  ).values()]
   const requestedGuildIds = [...new Set(channelSessions
     .filter(session => session.phase === 'open')
     .filter(session => !session.config.redDeath)
@@ -933,25 +871,25 @@ async function loadActivityLaunchState(
     return false
   })
 
-  if (requestedBalanceModes.length === 0 && uncachedGuildIds.length === 0) {
+  if (requestedBalanceScopes.length === 0 && uncachedGuildIds.length === 0) {
     return { balanceSnapshots: new Map(), rankAssignmentsByGuildId }
   }
 
   const rawState = await kvMget(kv, [
-    ...requestedBalanceModes.map(mode => ({ key: leaderboardModeSnapshotKey(mode), type: 'json' as const })),
+    ...requestedBalanceScopes.map(({ mode, context }) => ({ key: leaderboardModeSnapshotKey(context, mode), type: 'json' as const })),
     ...uncachedGuildIds.map(guildId => ({ key: currentRankAssignmentsKey(guildId), type: 'json' as const })),
   ])
 
   const balanceSnapshots = new Map<string, LeaderboardModeSnapshot>()
-  for (let index = 0; index < requestedBalanceModes.length; index++) {
-    const mode = requestedBalanceModes[index]
-    if (!mode) continue
-    const snapshot = normalizeLeaderboardModeSnapshot(mode, rawState[index])
+  for (let index = 0; index < requestedBalanceScopes.length; index++) {
+    const scope = requestedBalanceScopes[index]
+    if (!scope) continue
+    const snapshot = normalizeLeaderboardModeSnapshot(scope.mode, rawState[index])
     if (!snapshot) continue
-    balanceSnapshots.set(mode, snapshot)
+    balanceSnapshots.set(`${scope.context.guildId}:${scope.mode}`, snapshot)
   }
 
-  const assignmentsOffset = requestedBalanceModes.length
+  const assignmentsOffset = requestedBalanceScopes.length
   for (let index = 0; index < uncachedGuildIds.length; index++) {
     const guildId = uncachedGuildIds[index]
     if (!guildId) continue
@@ -970,7 +908,7 @@ function resolveSessionBalanceSnapshot(
 ): LeaderboardModeSnapshot | null {
   const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz })
   if (!mode) return null
-  return balanceSnapshots.get(mode) ?? null
+  return session.guildId ? balanceSnapshots.get(`${session.guildId}:${mode}`) ?? null : null
 }
 
 function resolveSessionRankAssignments(

@@ -48,18 +48,8 @@
     "deploy:prod:full": "bun run deploy:prod && bun run bot:register:prod",
     "cf:usage:snapshot": "bun scripts/cloudflare-usage.ts snapshot",
     "cf:usage:diff": "bun scripts/cloudflare-usage.ts diff",
-<<<<<<< New base: fix: multiple r2
-<<<<<<< New base: chore: update leader desc
     "civup": "bun packages/civup-analyzer/src/cli.ts",
-||||||| Common ancestor
-=======
-    "civup": "bun packages/civup-analyzer/src/cli.ts",
->>>>>>> Current commit: feat: save file analyzer
     "autosave:parse": "bun scripts/autosave-parse.ts",
-||||||| Common ancestor
-=======
-    "autosave:parse": "bun scripts/autosave-parse.ts",
->>>>>>> Current commit: feat: catalog
     "clean": "bun scripts/clean.ts",
     "update": "taze latest -wr"
   },

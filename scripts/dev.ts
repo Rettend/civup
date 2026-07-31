@@ -24,19 +24,7 @@ const activityLive = process.argv.includes('--activity-live')
 
 const activityCommand = activityLive
   ? ['bun', 'x', 'vite', '--force', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
-<<<<<<< New base: fix: refresh ranked role colors
-<<<<<<< New base: fix: mod resolve
   : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
-||||||| Common ancestor
-  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--cwd', 'dist/civup_activity', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
-=======
-  : ['bun', 'x', 'wrangler', 'dev', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
->>>>>>> Current commit: chore: cleanup and simplify setup
-||||||| Common ancestor
-  : ['bun', 'x', 'wrangler', 'dev', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
-=======
-  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
->>>>>>> Current commit: feat: export data in activity
 
 const services: Service[] = [
   {

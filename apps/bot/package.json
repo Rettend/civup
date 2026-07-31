@@ -15,21 +15,8 @@
     "register": "bun run register:dev",
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",
-<<<<<<< New base: fix: mod resolve
     "register:ppl": "bun --env-file=.ppl.secrets src/register.ts",
-<<<<<<< New base: feat: export data in activity
     "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts bot .prod.secrets --config wrangler.jsonc",
-||||||| Common ancestor
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
-=======
-    "register:ppl": "bun --env-file=.ppl.secrets src/register.ts",
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
->>>>>>> Current commit: chore: cleanup and simplify setup
-||||||| Common ancestor
-    "secret:bulk:prod": "wrangler secret bulk .prod.secrets",
-=======
-    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts bot .prod.secrets --config wrangler.jsonc",
->>>>>>> Current commit: fix: deploy config
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsgo --noEmit",
     "generate": "wrangler types",
@@ -47,13 +34,8 @@
     "r:migrate": "bun run d1:migrate:remote"
   },
   "dependencies": {
-<<<<<<< New base: fix: /stats perf
     "@civup/civ6-mod": "workspace:*",
     "@civup/civ6-save-metadata": "workspace:*",
-||||||| Common ancestor
-=======
-    "@civup/civ6-save-metadata": "workspace:*",
->>>>>>> Current commit: feat: parse in worker
     "@civup/db": "workspace:*",
     "@civup/game": "workspace:*",
     "@civup/rating": "workspace:*",

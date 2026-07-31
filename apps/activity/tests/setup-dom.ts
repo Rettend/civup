@@ -4,7 +4,6 @@ import solid from 'vite-plugin-solid'
 
 import * as LeaderTags from '../src/client/lib/leader-tags'
 
-<<<<<<< New base: feat: save file analyzer
 const nativeFetch = globalThis.fetch
 const NativeHeaders = globalThis.Headers
 const NativeRequest = globalThis.Request
@@ -14,14 +13,6 @@ const NativeReadableStream = globalThis.ReadableStream
 const NativeTransformStream = globalThis.TransformStream
 const NativeWritableStream = globalThis.WritableStream
 
-||||||| Common ancestor
-=======
-const nativeFetch = globalThis.fetch
-const NativeHeaders = globalThis.Headers
-const NativeRequest = globalThis.Request
-const NativeResponse = globalThis.Response
-
->>>>>>> Current commit: feat: external browser draft WIP
 const solidTransformPlugin = solid()
 const solidTransform = (
   typeof solidTransformPlugin.transform === 'function'
@@ -54,7 +45,6 @@ if (!GlobalRegistrator.isRegistered) {
   })
 }
 
-<<<<<<< New base: feat: save file analyzer
 Object.assign(globalThis, {
   fetch: nativeFetch,
   Headers: NativeHeaders,
@@ -66,20 +56,6 @@ Object.assign(globalThis, {
   WritableStream: NativeWritableStream,
 })
 
-||||||| Common ancestor
-=======
-Object.assign(globalThis, {
-  fetch: nativeFetch,
-  Headers: NativeHeaders,
-  Request: NativeRequest,
-  Response: NativeResponse,
-  Blob: NativeBlob,
-  ReadableStream: NativeReadableStream,
-  TransformStream: NativeTransformStream,
-  WritableStream: NativeWritableStream,
-})
-
->>>>>>> Current commit: feat: external browser draft WIP
 if (!('__ASSET_REVISION_MAP__' in globalThis)) {
   Object.assign(globalThis, { __ASSET_REVISION_MAP__: {} })
 }

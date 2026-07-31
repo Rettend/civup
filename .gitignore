@@ -48,27 +48,7 @@ cloudflared.dev.yml
 .DS_Store
 
 # Other
-<<<<<<< New base: fix: deploy config
-<<<<<<< New base: feat: save file analyzer
 /docs/
-||||||| Common ancestor
-docs
-=======
-docs/*
-!docs/PLAN.md
-<<<<<<< New base: fix: mod resolve
->>>>>>> Current commit: feat: external browser draft WIP
-||||||| Common ancestor
-=======
-!docs/PLAYER-DATA-EXPORT.md
->>>>>>> Current commit: chore: cleanup and simplify setup
-||||||| Common ancestor
-docs/*
-!docs/PLAN.md
-!docs/PLAYER-DATA-EXPORT.md
-=======
-/docs/
->>>>>>> Current commit: feat: maintenance do
 
 # preset build artifacts
 mods/dist/

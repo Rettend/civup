@@ -417,8 +417,6 @@ export async function createGuildRole(
   return response.json<DiscordGuildRoleResponse>()
 }
 
-<<<<<<< New base: fix: refresh ranked role colors
-<<<<<<< New base: feat: save file analyzer
 export async function updateGuildRole(
   token: string,
   guildId: string,
@@ -462,55 +460,6 @@ export async function fetchGuildRoles(
   })
 }
 
-||||||| Common ancestor
-=======
-||||||| Common ancestor
-=======
-export async function updateGuildRole(
-  token: string,
-  guildId: string,
-  roleId: string,
-  payload: DiscordGuildRolePayload,
-): Promise<DiscordGuildRoleResponse> {
-  const response = await requestDiscord(
-    'update guild role',
-    `https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
-  )
-
-  return response.json<DiscordGuildRoleResponse>()
-}
-
->>>>>>> Current commit: feat: export data in activity
-export async function fetchGuildRoles(
-  token: string,
-  guildId: string,
-): Promise<DiscordGuildRoleResponse[]> {
-  const response = await requestDiscord(
-    'fetch guild roles',
-    `https://discord.com/api/v10/guilds/${guildId}/roles`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bot ${token}`,
-      },
-    },
-  )
-  const payload = await response.json<unknown>()
-  if (!Array.isArray(payload)) return []
-  return payload.filter((role): role is DiscordGuildRoleResponse => {
-    return role != null && typeof role === 'object' && typeof (role as { id?: unknown }).id === 'string'
-  })
-}
-
->>>>>>> Current commit: feat: external browser draft WIP
 export async function deleteGuildRole(
   token: string,
   guildId: string,

@@ -6,7 +6,6 @@ This page is the setup guide. See the [Manual](MANUAL.md) for features and the [
 
 ## What you need
 
-<<<<<<< New base: fix: mod resolve
 - [Bun](https://bun.sh/)
 - a Cloudflare account
 - `cloudflared` for local tunnels
@@ -27,33 +26,6 @@ Do this once for each Discord app.
 7. Under **Activities** > **URL Mappings**, add prefix `/` with the Activity hostname as its target. The target must omit `https://`.
 
 Use the development app only with local tunnels. Use the production app only with deployed Workers.
-||||||| Common ancestor
-- Bun
-- Cloudflare account
-- Discord app created in the Discord Developer Portal
-- `cloudflared` locally for dev
-=======
-- [Bun](https://bun.sh/)
-- a Cloudflare account
-- `cloudflared` for local tunnels
-- two Discord apps: one for development and one for production
-
-No privileged Discord Gateway intents are needed.
-
-## Discord apps
-
-Do this once for each Discord app.
-
-1. Copy the **Application ID**, **Public Key**, bot token, and OAuth client secret from the Developer Portal.
-2. Under **Installation**, enable Guild Install with the `applications.commands` and `bot` scopes.
-3. Give the bot View Channels, Send Messages, Embed Links, Attach Files, and Manage Roles.
-4. After installing it, keep the CivUp bot role above every role it manages.
-5. Enable Activities and Activity Web support. Keep Discord's global **Launch** command.
-6. Add the Activity origin itself and `<activity origin>/api/auth/discord/callback` as OAuth redirects.
-7. Add a root (`/`) Activity URL mapping to the Activity origin.
-
-Use the development app only with local tunnels. Use the production app only with deployed Workers.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
 ## Local setup
 
@@ -69,13 +41,6 @@ Use the development app only with local tunnels. Use the production app only wit
 2. Generate one shared secret and put it in both `.dev.vars` files as `CIVUP_SECRET`.
 
    ```bash
-<<<<<<< New base: fix: mod resolve
-   bunx @rttnd/gau secret
-||||||| Common ancestor
-   cp cloudflared.dev.example.yml cloudflared.dev.yml
-   cp apps/bot/.dev.vars.example apps/bot/.dev.vars
-   cp apps/activity/.dev.vars.example apps/activity/.dev.vars
-=======
    bunx @rttnd/gau secret
    ```
 
@@ -87,34 +52,11 @@ Use the development app only with local tunnels. Use the production app only wit
    cloudflared tunnel create civup-dev
    cloudflared tunnel route dns civup-dev bot-dev.example.com
    cloudflared tunnel route dns civup-dev activity-dev.example.com
->>>>>>> Current commit: chore: cleanup and simplify setup
-   ```
-
-<<<<<<< New base: fix: mod resolve
-   Put the development app's public values and bot token in the bot file. Put its client ID and client secret in the Activity file. Both files need the same guild ID and Activity tunnel origin.
-||||||| Common ancestor
-   and fill them in. glhf
-=======
-   The bot hostname goes to port 8787 and the Activity hostname to 5173. Add your Activity hostname to `server.allowedHosts` in `apps/activity/vite.config.ts`.
->>>>>>> Current commit: chore: cleanup and simplify setup
-
-<<<<<<< New base: fix: mod resolve
-3. Create the tunnel, route your two development hostnames to it, and fill `cloudflared.dev.yml`.
-
-   ```bash
-   cloudflared tunnel create civup-dev
-   cloudflared tunnel route dns civup-dev bot-dev.example.com
-   cloudflared tunnel route dns civup-dev activity-dev.example.com
    ```
 
    The bot hostname goes to port 8787 and the Activity hostname to 5173. Add your Activity hostname to `server.allowedHosts` in `apps/activity/vite.config.ts`.
 
 4. Create the local database schema.
-||||||| Common ancestor
-3. Apply the local DB schema:
-=======
-4. Create the local database schema.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
    ```bash
    bun run bot:l:migrate
@@ -128,15 +70,8 @@ Use the development app only with local tunnels. Use the production app only wit
    bun run dev:new
    ```
 
-<<<<<<< New base: fix: mod resolve
 6. In the development Discord app, set the Interactions Endpoint URL to the bot tunnel URL. Add the Activity tunnel origin and callback under **OAuth2** > **Redirects**, then map `/` under **Activities** > **URL Mappings** to the Activity tunnel hostname without `https://`.
 7. Install the development app in the configured server, then register its guild commands.
-||||||| Common ancestor
-6. Register bot commands in your guild:
-=======
-6. In the development Discord app, set the Interactions Endpoint URL to the bot tunnel URL. Set the redirects and root Activity mapping to the Activity tunnel URL.
-7. Install the development app in the configured server, then register its guild commands.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
    ```bash
    bun run bot:register
@@ -150,7 +85,6 @@ Use the development app only with local tunnels. Use the production app only wit
 
 ### 1. Fill public config
 
-<<<<<<< New base: fix: mod resolve
 Pick the Cloudflare account first. Confirm it with `bunx wrangler whoami`, then fill both standard Wrangler files:
 
 - `apps/bot/wrangler.jsonc`
@@ -165,99 +99,30 @@ Keep the Activity `BOT` service binding pointed at the bot Worker's `name`. Acti
 ### 2. Create Cloudflare storage
 
 Create D1 and KV once, after selecting the right account.
-||||||| Common ancestor
-## Local commands
-=======
-Pick the Cloudflare account first. Confirm it with `bunx wrangler whoami`, then fill both standard Wrangler files:
-
-- `apps/bot/wrangler.jsonc`
-- `apps/activity/wrangler.json`
-
-The account ID, guild ID, and Activity origin must match. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID. Replace the checked-in `DISCORD_PUBLIC_KEY` placeholder in the bot config with the production app's 64-character public key before deploying.
-
-Keep the Activity `BOT` service binding pointed at the bot Worker's `name`. Production traffic does not use a public bot host.
-
-### 2. Create Cloudflare storage
-
-Create D1 and KV once, after selecting the right account.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
 ```bash
 bun run bot:d1:create
 bun run bot:kv:create
 ```
 
-<<<<<<< New base: fix: mod resolve
 Autosave uploads are optional. To enable this niche feature, keep the `AUTOSAVE_UPLOADS` R2 binding and create its bucket once:
 
 ```bash
 bun run bot:r2:create
-||||||| Common ancestor
-bun run bot:l:migrate
-bun run bot:dev
-bun run a:dev:new
-bun run a:dev
-bun run a:dev:live
-bun run tunnel
-bun run bot:kv:local
-=======
-Saved-game uploads are optional. To enable them, keep the `AUTOSAVE_UPLOADS` R2 binding and create its bucket once:
-
-```bash
-bun run bot:r2:create
->>>>>>> Current commit: chore: cleanup and simplify setup
 ```
 
-<<<<<<< New base: fix: mod resolve
 Otherwise, remove the `r2_buckets` block. The rest of the bot works normally and `/admin health` reports only a warning. Durable Objects are created automatically when the bot Worker deploys.
 
 ### 3. Upload the small secret set
-||||||| Common ancestor
-## Trigger cron locally
-=======
-To disable uploads, remove the `r2_buckets` block. Everything else keeps working and `/admin health` reports a warning. Durable Objects are created automatically when the bot Worker deploys.
-
-Failed and abandoned multipart uploads keep a D1 cleanup record. The bot retries cleanup in the background and during the hourly cleanup job, so recovery does not depend on the browser staying open.
-
-Each member may have one multipart upload in progress and retain up to 100 saved-game uploads or 2 GiB, whichever comes first. Individual zip files are limited to 512 MiB; an admin can delete older uploads to free quota.
->>>>>>> Current commit: chore: cleanup and simplify setup
-
-<<<<<<< New base: fix: mod resolve
-Copy the examples without committing the copies.
-||||||| Common ancestor
-Leaderboard:
-=======
-Migration `0022` removes legacy non-uploaded catalog rows because those rows predate persisted multipart IDs. Any corresponding pre-migration R2 objects or multipart fragments require bucket lifecycle or manual cleanup; completed uploaded rows are preserved.
-
-### 3. Upload the small secret set
 
 Copy the examples without committing the copies.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
 ```bash
 cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
 cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
 ```
 
-<<<<<<< New base: feat: auto shuffle
-<<<<<<< New base: feat: export data in activity
-<<<<<<< New base: fix: mod resolve
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
-||||||| Common ancestor
-Inactivity cleanup:
-=======
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
->>>>>>> Current commit: chore: cleanup and simplify setup
-||||||| Common ancestor
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
-=======
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
->>>>>>> Current commit: fix: deploy config
-||||||| Common ancestor
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
-=======
 Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
->>>>>>> Current commit: feat: add multi-server foundations
 
 The bot file also supplies command registration. Fill its application ID, token, primary guild ID, and optional supported-guild list; the guild values must match both Wrangler configs.
 
@@ -274,31 +139,15 @@ For the first deployment, run:
 bun run deploy:prod
 ```
 
-<<<<<<< New base: fix: mod resolve
 The command keeps the existing order: remote D1 migration, bot deploy, Activity build, then Activity deploy. Check the public Wrangler values before running it.
-||||||| Common ancestor
-2. Copy the production env files:
-=======
-The command keeps the existing order: remote D1 migration, bot deploy, Activity build, then Activity deploy. Check the public Wrangler values and replace the bot public-key placeholder before running it.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
 After both URLs exist:
 
-<<<<<<< New base: fix: mod resolve
 1. under **General Information**, set **Interactions Endpoint URL** to the bot Worker URL;
 2. under **OAuth2** > **Redirects**, add the Activity origin and browser callback;
 3. under **Activities** > **URL Mappings**, map `/` to the Activity hostname without `https://`;
 4. install the app in every configured supported server;
 5. register guild commands in all of them with `bun run bot:register:prod`.
-||||||| Common ancestor
-   fill them in again :)
-=======
-1. set the production Interactions Endpoint URL to the bot Worker URL;
-2. add the Activity origin and browser callback OAuth redirects;
-3. add the root Activity URL mapping;
-4. install the app in the configured server;
-5. register guild commands with `bun run bot:register:prod`.
->>>>>>> Current commit: chore: cleanup and simplify setup
 
 For later releases, this does deploy plus registration:
 
@@ -342,7 +191,6 @@ curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=0+%2A+%2A+%2A+%2A
 
 Leaderboard refresh every 15 minutes:
 
-<<<<<<< New base: fix: mod resolve
 ```bash
 curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F15+%2A+%2A+%2A+%2A"
 ```
@@ -352,22 +200,3 @@ Daily ranked-role sync at 00:00 UTC:
 ```bash
 curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=0+0+%2A+%2A+%2A"
 ```
-||||||| Common ancestor
-   ```bash
-   bun run deploy:prod:full
-   ```
-=======
-```bash
-curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=%2A%2F15+%2A+%2A+%2A+%2A"
-```
-
-Daily ranked-role sync at 00:00 UTC:
-
-```bash
-curl.exe "http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=0+0+%2A+%2A+%2A"
-```
-
-## Cleaning up old remote values
-
-After the new deployment passes its smoke tests, explicitly delete the obsolete public bot-host setting, R2 account/bucket vars, and R2 upload-key secrets from both Workers in Cloudflare. Revoke the old R2 API token and remove any old `/r2-upload` Discord URL mapping. This repository never changes deployed Worker settings for you.
->>>>>>> Current commit: chore: cleanup and simplify setup
