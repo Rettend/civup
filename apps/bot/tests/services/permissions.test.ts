@@ -4,6 +4,7 @@ import {
   addModRole,
   ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS,
   canUseModCommands,
+  canModerateSessionOrigin,
   getModRoleIds,
   hasAdminPermission,
   removeModRole,
@@ -12,6 +13,12 @@ import { factory } from '../../src/setup.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 describe('permissions service', () => {
+  test('keeps moderator authority scoped to the session origin guild', () => {
+    expect(canModerateSessionOrigin({ invokingGuildId: '111', originGuildId: '111' })).toBe(true)
+    expect(canModerateSessionOrigin({ invokingGuildId: '222', originGuildId: '111' })).toBe(false)
+    expect(canModerateSessionOrigin({ invokingGuildId: '222', originGuildId: null })).toBe(false)
+    expect(canModerateSessionOrigin({ invokingGuildId: '111', originGuildId: null })).toBe(false)
+  })
   test('recognizes admin permission bits', () => {
     const administratorBit = (1n << 3n).toString()
     const manageGuildBit = (1n << 5n).toString()

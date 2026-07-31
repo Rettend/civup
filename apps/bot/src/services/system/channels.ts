@@ -1,3 +1,5 @@
+import { resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
+
 export type SystemChannelType = 'draft' | 'archive' | 'leaderboard' | 'civ-leaderboard' | 'civ-leaderboard-all' | 'civ-leaderboard-duel' | 'civ-leaderboard-duo' | 'civ-leaderboard-squad' | 'commands' | 'tournament-draft' | 'tournament-archive' | 'tournament-leaderboard'
 
 export interface LeaderboardMessageState {
@@ -23,6 +25,7 @@ interface StoredLeaderboardDirtyState {
 }
 
 const SYSTEM_CHANNEL_KEY_PREFIX = 'system:channel:'
+const SYSTEM_CHANNEL_CLEARED_VALUE = '__cleared__'
 const LEADERBOARD_MESSAGE_STATE_KEY = 'system:leaderboard:messages'
 const LEADERBOARD_DIRTY_STATE_KEY = 'system:leaderboard:dirty'
 
@@ -30,15 +33,41 @@ function systemChannelKey(type: SystemChannelType): string {
   return `${SYSTEM_CHANNEL_KEY_PREFIX}${type}`
 }
 
-export async function getSystemChannel(kv: KVNamespace, type: SystemChannelType): Promise<string | null> {
+function scopedSystemChannelKey(type: SystemChannelType, guildId: string): string {
+  return `${SYSTEM_CHANNEL_KEY_PREFIX}${guildId}:${type}`
+}
+
+export interface SystemChannelScope {
+  guildId?: string | null
+  legacyGuildId?: string | null
+}
+
+export function primaryChannelScope(env: { ALLOWED_DISCORD_GUILD_ID?: string, ALLOWED_DISCORD_GUILD_IDS?: string }): SystemChannelScope {
+  const config = resolveApprovedDiscordGuildConfiguration(env)
+  if (!config.ok) throw new Error(`Invalid approved Discord guild configuration: ${config.error}`)
+  return {
+    guildId: config.primaryGuildId,
+    legacyGuildId: config.primaryGuildId,
+  }
+}
+
+export async function getSystemChannel(kv: KVNamespace, type: SystemChannelType, scope: SystemChannelScope = {}): Promise<string | null> {
+  if (!scope.guildId) return kv.get(systemChannelKey(type))
+  const scoped = await kv.get(scopedSystemChannelKey(type, scope.guildId))
+  if (scoped != null) return scoped === SYSTEM_CHANNEL_CLEARED_VALUE ? null : scoped
+  if (scope.guildId !== scope.legacyGuildId) return null
   return kv.get(systemChannelKey(type))
 }
 
-export async function setSystemChannel(kv: KVNamespace, type: SystemChannelType, channelId: string): Promise<void> {
-  await kv.put(systemChannelKey(type), channelId)
+export async function setSystemChannel(kv: KVNamespace, type: SystemChannelType, channelId: string, guildId?: string | null): Promise<void> {
+  await kv.put(guildId ? scopedSystemChannelKey(type, guildId) : systemChannelKey(type), channelId)
 }
 
-export async function clearSystemChannel(kv: KVNamespace, type: SystemChannelType): Promise<void> {
+export async function clearSystemChannel(kv: KVNamespace, type: SystemChannelType, guildId?: string | null): Promise<void> {
+  if (guildId) {
+    await kv.put(scopedSystemChannelKey(type, guildId), SYSTEM_CHANNEL_CLEARED_VALUE)
+    return
+  }
   await kv.delete(systemChannelKey(type))
 }
 

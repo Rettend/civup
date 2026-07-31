@@ -26,6 +26,12 @@ const PLAYER_POPOVER_VIEWPORT_PADDING = 8
 
 export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelState }) {
   const state = () => props.state
+  const showSourceGuild = createMemo(() => {
+    const rows = state().isTeamMode()
+      ? state().teamIndices().flatMap(team => state().teamRows(team))
+      : state().ffaColumns().flat()
+    return new Set(rows.flatMap(row => row.sourceGuild?.id ? [row.sourceGuild.id] : [])).size >= 2
+  })
 
   const elementsByPlayer = new Map<string, HTMLElement>()
   const prevRectByPlayer = new Map<string, DOMRect>()
@@ -245,7 +251,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
         fallback={(
           <div class="gap-3 grid grid-cols-2">
             <For each={state().ffaColumns()}>
-              {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip, openPlayerId(), openPlayerPopover, closePlayerPopover)} />}
+              {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())} />}
             </For>
           </div>
         )}
@@ -258,10 +264,25 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
             {team => (
               <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
                 <div class="mb-2 flex gap-3 items-center justify-between">
-                  <div class="text-xs text-accent tracking-wider font-bold">
-                    Team
-                    {' '}
-                    {String.fromCharCode(65 + team)}
+                  <div class="text-xs text-accent tracking-wider font-bold flex min-w-0 items-center gap-1.5">
+                    <span>
+                      Team
+                      {' '}
+                      {String.fromCharCode(65 + team)}
+                    </span>
+                    <Show when={state().teamGuild(team)}>
+                      {guild => (
+                        <span class="text-fg-muted normal-case tracking-normal font-medium min-w-0 flex items-center gap-1" title={`Locked to ${guild().name || guild().id}`}>
+                          <Show
+                            when={guild().iconUrl}
+                            fallback={<span class="rounded-sm bg-white/12 text-[7px] text-fg-subtle font-bold shrink-0 inline-flex h-4 w-4 items-center justify-center">{(guild().name || 'S').slice(0, 1).toUpperCase()}</span>}
+                          >
+                            {iconUrl => <img src={iconUrl()} alt="" draggable={false} class="rounded-sm shrink-0 h-4 w-4 object-cover" />}
+                          </Show>
+                          <span class="truncate max-w-28">{guild().name || guild().id}</span>
+                        </span>
+                      )}
+                    </Show>
                   </div>
                   <Show when={state().teamBalance(team)}>
                     {summary => (
@@ -291,7 +312,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
                   </Show>
                 </div>
                 <DraftSetupPlayerColumn
-                  {...createPlayerColumnProps(state(), state().teamRows(team), flip, openPlayerId(), openPlayerPopover, closePlayerPopover)}
+                  {...createPlayerColumnProps(state(), state().teamRows(team), flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())}
                 />
               </div>
             )}
@@ -417,6 +438,8 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
             showRemove={props.canRemoveSlot(row)}
             flip={props.flip}
             popoverOpen={props.openPlayerId === row.playerId}
+            showSourceGuild={props.showSourceGuild}
+            teamUnavailable={row.team != null && !props.canCurrentUserUseTeam(row.team)}
             onJoin={() => props.onJoin(row.slot)}
             onTransferHost={() => { if (row.playerId) props.onTransferHost(row.playerId) }}
             onRemove={() => props.onRemove(row.slot)}
@@ -444,6 +467,8 @@ function PlayerChip(props: {
   showRemove: boolean
   flip: PlayerFlipApi
   popoverOpen: boolean
+  showSourceGuild: boolean
+  teamUnavailable: boolean
   onJoin?: () => void
   onTransferHost?: () => void
   onRemove?: () => void
@@ -486,6 +511,7 @@ function PlayerChip(props: {
         'group flex items-center gap-2 rounded-md px-3 py-2 border transition-colors',
         props.row.empty ? 'bg-white/4 text-fg-subtle border-transparent' : 'bg-white/8 border-transparent',
         props.row.pendingSelf && 'opacity-45',
+        props.row.empty && props.teamUnavailable && 'opacity-45 cursor-not-allowed',
         props.row.empty && props.showJoin && !props.pending && 'hover:bg-white/8 cursor-pointer',
         !props.row.empty && !props.draggable && !props.row.pendingSelf && 'hover:bg-white/10 cursor-pointer',
         !props.row.empty && !props.draggable && !props.showRemove && !props.row.pendingSelf && 'cursor-default',
@@ -496,6 +522,7 @@ function PlayerChip(props: {
       tabIndex={(props.row.empty && !props.showJoin) || props.pending ? undefined : 0}
       aria-haspopup={!props.row.empty ? 'dialog' : undefined}
       aria-expanded={!props.row.empty ? props.popoverOpen : undefined}
+      title={props.row.empty && props.teamUnavailable ? 'This team is locked to another server.' : undefined}
       onPointerEnter={(event) => openPlayer(event.currentTarget)}
       onPointerLeave={() => props.onClosePlayer?.()}
       onFocus={(event) => openPlayer(event.currentTarget)}
@@ -551,7 +578,22 @@ function PlayerChip(props: {
         </Show>
       </div>
 
+      <Show when={props.showSourceGuild && !props.row.empty && props.row.sourceGuild}>
+        {guild => (
+          <Show
+            when={guild().iconUrl}
+            fallback={<span role="img" aria-label={guild().name || `Server ${guild().id}`} title={guild().name || `Server ${guild().id}`} class="rounded-sm bg-white/12 text-[7px] text-fg-subtle font-bold shrink-0 inline-flex h-4 w-4 items-center justify-center">{(guild().name || 'S').slice(0, 1).toUpperCase()}</span>}
+          >
+            {iconUrl => <img src={iconUrl()} alt={guild().name || `Server ${guild().id}`} title={guild().name || `Server ${guild().id}`} draggable={false} class="rounded-sm shrink-0 h-4 w-4 object-cover" />}
+          </Show>
+        )}
+      </Show>
+
       <span class="text-sm flex-1 truncate">{props.row.name}</span>
+
+      <Show when={props.row.empty && props.teamUnavailable}>
+        <span class="i-ph:lock-simple-bold text-xs text-fg-subtle" aria-hidden />
+      </Show>
 
       <Show when={!props.row.pendingSelf && !props.showJoin && !props.showRemove && props.row.isHost}>
         <span class="text-[10px] text-accent tracking-wider font-bold uppercase">Host</span>
@@ -711,16 +753,19 @@ function createPlayerColumnProps(
   openPlayerId: string | null,
   openPlayerPopover: (row: PlayerRow, anchor: HTMLElement) => void,
   closePlayerPopover: () => void,
+  showSourceGuild: boolean,
 ) {
   return {
     rows,
     flip,
     openPlayerId,
+    showSourceGuild,
     pending: state.pending.lobbyAction(),
     dragOverSlot: state.dragOverSlot(),
     canDragRow: state.permissions.canDragRow,
     canDropOnRow: state.permissions.canDropOnRow,
     canJoinSlot: state.permissions.canJoinSlot,
+    canCurrentUserUseTeam: state.canCurrentUserUseTeam,
     canTransferHostToRow: state.permissions.canTransferHostToRow,
     canRemoveSlot: state.permissions.canRemoveSlot,
     onJoin: state.actions.join,

@@ -37,6 +37,7 @@
     "bot:backfill:civ-leaderboard:prod:preview": "bun run --filter civup-bot backfill:civ-leaderboard preview --remote --repair",
     "bot:backfill:civ-leaderboard:prod:apply": "bun run --filter civup-bot backfill:civ-leaderboard apply --remote --repair --execute",
     "bot:backfill:player-civs": "bun run --filter civup-bot backfill:player-civs",
+    "bot:backfill:multi-server": "bun run --filter civup-bot backfill:multi-server",
     "bot:seed:dev:leaders": "bun run --filter civup-bot seed:dev:leaders",
     "bot:l:migrate": "bun run --filter civup-bot l:migrate",
     "bot:r:migrate": "bun run --filter civup-bot r:migrate",

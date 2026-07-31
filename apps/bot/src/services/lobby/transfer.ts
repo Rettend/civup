@@ -117,6 +117,7 @@ export async function leaveOpenLobbyForLobbyJoin(
   await syncLobbyDerivedState(kv, updatedLobby, {
     queueEntries: nextLobbyQueueEntries,
     slots: nextSlots,
+    legacyGuildId: options?.legacyGuildId,
   })
   if (token) {
     try {
@@ -219,6 +220,7 @@ export async function rollbackDeferredOpenLobbyTransferTarget(
       await syncLobbyDerivedState(kv, restored, {
         queueEntries: target.queueEntries,
         slots: target.lobby.slots,
+        legacyGuildId: options?.legacyGuildId,
       })
       targetRolledBack = true
     }

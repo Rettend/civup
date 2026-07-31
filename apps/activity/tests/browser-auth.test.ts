@@ -68,6 +68,37 @@ describe('browser Discord OAuth', () => {
     expect(validateBrowserReturnPath('/web/../api/auth/discord/callback')).toBeNull()
   })
 
+  test('shows approved server names and icons before raw browser sign-in', async () => {
+    const partnerGuildId = '333333333333333333'
+    const internalRequests: Request[] = []
+    const env: ActivityEnv = {
+      ...createEnv(),
+      ALLOWED_DISCORD_GUILD_IDS: partnerGuildId,
+      BOT: {
+        async fetch(input: RequestInfo | URL, init?: RequestInit) {
+          internalRequests.push(new Request(input, init))
+          return Response.json({
+            servers: [
+              { id: GUILD_ID, name: 'Primary Server', iconUrl: `https://cdn.discordapp.com/icons/${GUILD_ID}/primary.png?size=64` },
+              { id: partnerGuildId, name: 'Partner & Friends', iconUrl: null },
+            ],
+          })
+        },
+      } as Fetcher,
+    }
+
+    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/channel/channel-1')}`), env)
+    expect(response.status).toBe(200)
+    expect(internalRequests[0]?.url).toBe('https://civup-bot.internal/api/activity/supported-servers')
+    expect(internalRequests[0]?.headers.get('X-CivUp-Internal-Secret')).toBe('browser-auth-secret')
+    const body = await response.text()
+    expect(body).toContain('Primary Server')
+    expect(body).toContain('Partner &amp; Friends')
+    expect(body).toContain(`https://cdn.discordapp.com/icons/${GUILD_ID}/primary.png?size=64`)
+    expect(body).toContain(encodeURIComponent(`sourceGuild=${partnerGuildId}`))
+    expect(response.headers.get('Content-Security-Policy')).toContain('img-src https://cdn.discordapp.com')
+  })
+
   test('completes OAuth with PKCE, verifies guild membership, and stores only the signed session cookie', async () => {
     const env = createEnv()
     const start = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/stable-session')}`), env)
@@ -81,11 +112,12 @@ describe('browser Discord OAuth', () => {
         return Response.json({ access_token: 'provider-secret', expires_in: 3600 })
       }
       if (request.url.includes('/users/@me/guilds?')) {
-        return Response.json([{ id: GUILD_ID, permissions: '32' }])
+        return Response.json([{ id: GUILD_ID, name: 'PPL Server', icon: 'guild-icon', permissions: '32' }])
       }
       return Response.json({
         nick: 'PPL Player',
         avatar: 'guild-avatar',
+        roles: ['333333333333333333'],
         user: { id: '111111111111111111', username: 'player', global_name: 'Global Player', avatar: 'user-avatar' },
       })
     }) as typeof fetch
@@ -106,12 +138,15 @@ describe('browser Discord OAuth', () => {
       avatarUrl: `https://cdn.discordapp.com/guilds/${GUILD_ID}/users/111111111111111111/avatars/guild-avatar.png?size=128`,
       guildId: GUILD_ID,
       guildPermissions: '32',
+      guildName: 'PPL Server',
+      guildIconUrl: `https://cdn.discordapp.com/icons/${GUILD_ID}/guild-icon.png?size=64`,
+      guildRoleIds: ['333333333333333333'],
     }))
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain('code_verifier=')
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(`${ORIGIN}/api/auth/discord/callback`)}`)
-    expect(requests[1]!.url).toContain(`/users/@me/guilds/${GUILD_ID}/member`)
-    expect(requests[2]!.url).toContain('/users/@me/guilds?limit=200')
+    expect(requests[1]!.url).toContain('/users/@me/guilds?limit=200')
+    expect(requests[2]!.url).toContain(`/users/@me/guilds/${GUILD_ID}/member`)
   })
 
   test('guild rejection and callback errors render a terminal no-store retry page without redirecting', async () => {
@@ -197,7 +232,7 @@ describe('browser Discord OAuth', () => {
     const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: 'embedded-code', redirectUri: 'ignored-client-value' }),
+      body: JSON.stringify({ code: 'embedded-code', redirectUri: 'ignored-client-value', guildId: GUILD_ID }),
     }), createEnv())
     expect(response.status).toBe(200)
     const payload = await response.json<any>()
@@ -206,6 +241,64 @@ describe('browser Discord OAuth', () => {
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(ORIGIN)}`)
     expect(tokenBody).not.toContain('code_verifier')
+  })
+
+  test('rejects malformed embedded token exchange requests without contacting Discord', async () => {
+    let fetchCalled = false
+    globalThis.fetch = (async () => {
+      fetchCalled = true
+      return new Response('unexpected')
+    }) as unknown as typeof fetch
+
+    const malformedJson = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{',
+    }), createEnv())
+    expect(malformedJson.status).toBe(400)
+
+    const malformedGuildConfig = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'embedded-code', guildId: GUILD_ID }),
+    }), { ...createEnv(), ALLOWED_DISCORD_GUILD_IDS: ' ' })
+    expect(malformedGuildConfig.status).toBe(503)
+    expect(fetchCalled).toBe(false)
+  })
+
+  test('binds embedded auth to the verified approved launch guild and rejects unapproved launch guilds', async () => {
+    const partnerGuildId = '333333333333333333'
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth2/token')) return Response.json({ access_token: 'provider-token' })
+      if (url.includes('/users/@me/guilds?')) {
+        return Response.json([
+          { id: GUILD_ID, name: 'Primary', permissions: '0' },
+          { id: partnerGuildId, name: 'Partner', icon: null, permissions: '32' },
+        ])
+      }
+      return Response.json({ roles: [], user: { id: '111111111111111111', username: 'Player', avatar: null } })
+    }) as typeof fetch
+    const env = { ...createEnv(), ALLOWED_DISCORD_GUILD_IDS: partnerGuildId }
+
+    const approved = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'embedded-code', guildId: partnerGuildId }),
+    }), env)
+    expect(approved.status).toBe(200)
+    const approvedPayload = await approved.json<any>()
+    await expect(verifyActivitySession('browser-auth-secret', approvedPayload.activity_session_token)).resolves.toEqual(expect.objectContaining({
+      guildId: partnerGuildId,
+      guildName: 'Partner',
+    }))
+
+    const denied = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'embedded-code', guildId: '999999999999999999' }),
+    }), env)
+    expect(denied.status).toBe(403)
   })
 })
 

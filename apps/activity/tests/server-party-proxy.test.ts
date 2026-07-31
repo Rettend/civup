@@ -1,4 +1,5 @@
 import {
+  ACTIVITY_VERSION_OUTDATED_MESSAGE,
   CIVUP_ACTIVITY_USER_ID_HEADER,
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
@@ -7,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import activityWorker from '../src/server'
 
 const SECRET = 'server-party-proxy-secret'
+const GUILD_ID = '1234044388733095946'
 type ActivityEnv = Parameters<typeof activityWorker.fetch>[1]
 const originalFetch = globalThis.fetch
 
@@ -17,7 +19,7 @@ afterEach(() => {
 describe('activity party proxy', () => {
   test('proxies launch lookups through the bot service binding', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player One', avatarUrl: null })
+    const token = await createTestActivitySession('player-1', 'Player One')
 
     const response = await activityWorker.fetch(new Request(
       'https://civup-activity.thepeace.workers.dev/api/activity/launch/1496817844812386365/player-1',
@@ -37,12 +39,33 @@ describe('activity party proxy', () => {
     expect(forwarded.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
   })
 
-  test('rewrites stale main selected-session websocket paths to SessionDO', async () => {
+  test('rejects unsupported websocket namespaces', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player One', avatarUrl: null })
+    const token = await createTestActivitySession('player-1', 'Player One')
 
     const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
+      `https://civup-activity.thepeace.workers.dev/api/parties/unknown/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
+      {
+        headers: {
+          'connection': 'Upgrade',
+          'sec-websocket-key': 'test-key',
+          'sec-websocket-version': '13',
+          'upgrade': 'websocket',
+        },
+      },
+    ), createEnv(forwardedRequests))
+
+    expect(response.status).toBe(404)
+    expect(await response.json() as unknown).toEqual({ error: ACTIVITY_VERSION_OUTDATED_MESSAGE })
+    expect(forwardedRequests).toHaveLength(0)
+  })
+
+  test('forwards canonical selected-session websocket paths', async () => {
+    const forwardedRequests: Request[] = []
+    const token = await createTestActivitySession('player-1', 'Player One')
+
+    const response = await activityWorker.fetch(new Request(
+      `https://civup-activity.thepeace.workers.dev/api/parties/session/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
       {
         headers: {
           'connection': 'Upgrade',
@@ -64,30 +87,30 @@ describe('activity party proxy', () => {
     expect(forwarded.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
   })
 
-  test('rewrites stale main open-lobby rooms without access token to SessionDO', async () => {
+  test('forwards the canonical Activity feed room unchanged', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
 
     const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/lobby-short-id?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
+      `https://civup-activity.thepeace.workers.dev/api/parties/activity/overview?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
     ), createEnv(forwardedRequests))
 
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
-    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/parties/session/lobby-short-id')
+    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/parties/activity/overview')
   })
 
-  test('rewrites stale main Discord channel rooms to the activity feed', async () => {
+  test('rejects noncanonical Activity feed rooms', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
 
     const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/1496817844812386365?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
+      `https://civup-activity.thepeace.workers.dev/api/parties/activity/1496817844812386365?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
     ), createEnv(forwardedRequests))
 
-    expect(response.status).toBe(200)
-    expect(forwardedRequests).toHaveLength(1)
-    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/parties/activity/1496817844812386365')
+    expect(response.status).toBe(404)
+    expect(await response.json() as unknown).toEqual({ error: ACTIVITY_VERSION_OUTDATED_MESSAGE })
+    expect(forwardedRequests).toHaveLength(0)
   })
 
   test('uses the fixed local bot origin for recognized development hosts', async () => {
@@ -96,7 +119,7 @@ describe('activity party proxy', () => {
       forwardedRequests.push(new Request(input, init))
       return new Response('local')
     }) as typeof fetch
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
 
     const response = await activityWorker.fetch(new Request(
       'http://activity-dev.localhost/api/activity/launch/channel/player-1',
@@ -109,7 +132,7 @@ describe('activity party proxy', () => {
   })
 
   test('returns 503 instead of using public fetch when the production binding is absent', async () => {
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
     const response = await activityWorker.fetch(new Request(
       'https://activity.example.com/api/activity/launch/channel/player-1',
       { headers: { 'x-civup-activity-session': token } },
@@ -121,7 +144,7 @@ describe('activity party proxy', () => {
 
   test('streams upload bodies and init metadata through the service binding', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
     const metadata = { fileName: 'autosaves.zip', fileSizeBytes: 123, channelId: 'channel-1', matchId: 'match-1' }
     const response = await activityWorker.fetch(new Request(
       'https://activity.example.com/api/uploads/autosaves/init',
@@ -141,7 +164,7 @@ describe('activity party proxy', () => {
 
   test('preserves a safe upload part content length through the service binding', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession('player-1')
     const response = await activityWorker.fetch(new Request(
       'https://activity.example.com/api/uploads/autosaves/upload-1/parts/1',
       {
@@ -171,9 +194,20 @@ function createEnv(forwardedRequests: Request[]): ActivityEnv {
       },
     } as unknown as Fetcher,
     CIVUP_SECRET: SECRET,
+    ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
     DISCORD_CLIENT_ID: 'test-client',
     DISCORD_CLIENT_SECRET: 'test-client-secret',
   }
+}
+
+function createTestActivitySession(userId: string, displayName: string | null = null) {
+  return createActivitySession(SECRET, {
+    userId,
+    displayName,
+    avatarUrl: null,
+    guildId: GUILD_ID,
+    guildPermissions: '0',
+  })
 }
 
 function requireForwardedRequest(requests: Request[]): Request {

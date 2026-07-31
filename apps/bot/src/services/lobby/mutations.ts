@@ -26,6 +26,7 @@ export interface LobbySessionProjectionOptions {
   db?: Database | null
   sessionNamespace?: DurableObjectNamespace | null
   queueEntries?: readonly QueueEntry[] | null
+  legacyGuildId?: string | null
 }
 
 export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): boolean {

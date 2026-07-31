@@ -1,3 +1,4 @@
+import { players, scopedPlayerRatings } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { getRankedRoleConfig, resolveRankedRoleVisuals, setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -21,11 +22,11 @@ describe('system invariant runners', () => {
     })
   }
 
-  test('rank-gated join surfaces injected guild member lookup failures', async () => {
+  test('rank-gated joins use owning-server calculated ranks without Discord member lookups', async () => {
     const world = await createTrackedWorld()
-    const guildId = 'guild-ranked-member'
-    const hostId = 'rank-host'
-    const joinerId = 'rank-joiner'
+    const guildId = '1234044388733095946'
+    const hostId = '100010000000000001'
+    const joinerId = '100010000000000002'
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
       players: [{ id: hostId }],
@@ -36,7 +37,41 @@ describe('system invariant runners', () => {
 
     await setRankedRoleCurrentRoles(world.kv, guildId, {
       tier5: '11111111111111111',
+      tier4: '22222222222222222',
+      tier3: '33333333333333333',
+      tier2: '44444444444444444',
+      tier1: '55555555555555555',
     })
+    await world.db.insert(players).values([
+      { id: hostId, displayName: hostId, avatarUrl: null, createdAt: 1 },
+      { id: joinerId, displayName: joinerId, avatarUrl: null, createdAt: 1 },
+    ]).onConflictDoNothing()
+    await world.db.insert(scopedPlayerRatings).values([hostId, joinerId].flatMap((playerId, index) => [
+      {
+        statsKey: `server:${guildId}`,
+        playerId,
+        mode: 'ffa',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: 5,
+        effectiveGames: 10,
+        lastPlayedAt: 1,
+      },
+      {
+        statsKey: `server:${guildId}`,
+        playerId,
+        mode: 'global',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 25,
+        wins: 12,
+        effectiveGames: 25,
+        winsVsTier1: 1,
+        winsVsTier2Plus: 4,
+        lastPlayedAt: 1,
+      },
+    ]))
 
     const configured = await world.lobby.config('1v1', {
       hostId,
@@ -55,17 +90,19 @@ describe('system invariant runners', () => {
         SessionDO: world.env.SessionDO,
         DISCORD_TOKEN: world.env.DISCORD_TOKEN,
         CIVUP_SECRET: world.env.CIVUP_SECRET,
+        ALLOWED_DISCORD_GUILD_ID: guildId,
       },
     }, '1v1', [{
       playerId: joinerId,
       displayName: joinerId,
       avatarUrl: '',
-    }])).rejects.toThrow('Discord fetch guild member failed: 503')
+      sourceGuild: { id: guildId },
+    }])).resolves.toMatchObject({ stage: 'open' })
 
     await expectLobbyState(world, {
       lobbyId: lobby.id,
       status: 'open',
-      memberPlayerIds: [hostId],
+      memberPlayerIds: [hostId, joinerId],
     })
   })
 

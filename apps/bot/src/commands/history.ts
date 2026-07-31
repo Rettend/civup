@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import type { PlayerHistoryModeFilter } from '../embeds/player-history.ts'
+import type { StatsContext } from '../services/stats/context.ts'
 import { createDb } from '@civup/db'
 import { GAME_MODE_CHOICES, parseGameMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
@@ -9,6 +10,7 @@ import { paginationComponents } from '../services/response/pagination.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { factory } from '../setup.ts'
+import { resolveStatsContext } from '../services/stats/context.ts'
 import { getIdentityByUserId } from './identity.ts'
 
 const HISTORY_PAGINATION_NAMESPACE = 'history'
@@ -42,7 +44,7 @@ export const command_history = factory.command<Var>(
           avatarUrl: identity.avatarUrl,
         }])
       }
-      return buildPlayerHistoryCommandPayload(db, targetId, mode)
+      return buildPlayerHistoryCommandPayload(db, resolveStatsContext(c.interaction.guild_id, c.env), targetId, mode)
     }, {
       ephemeral: isDefaultSelfLookup,
     })
@@ -51,13 +53,14 @@ export const command_history = factory.command<Var>(
 
 export async function buildPlayerHistoryCommandPayload(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   mode: PlayerHistoryModeFilter,
   options: {
     pageIndex?: number
   } = {},
 ): Promise<DiscordMessagePayload> {
-  const page = await playerHistoryPageEmbed(db, playerId, mode, { pageIndex: options.pageIndex })
+  const page = await playerHistoryPageEmbed(db, statsContext, playerId, mode, { pageIndex: options.pageIndex })
   return {
     embeds: [page.embed],
     components: paginationComponents({

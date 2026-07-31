@@ -22,7 +22,7 @@ describe('general command response routing', () => {
 
   test('redirects output through an ephemeral deferred response', async () => {
     const kv = createTestKv()
-    await setSystemChannel(kv, 'commands', 'bot-commands')
+    await setSystemChannel(kv, 'commands', 'bot-commands', 'guild-1')
     const harness = createResponseHarness(kv, 'channel-1')
 
     await resDeferGeneralCommandResponse(harness.context, async () => 'hello world', {
@@ -47,7 +47,7 @@ describe('general command response routing', () => {
 
   test('keeps output local when already used in the bot-commands channel', async () => {
     const kv = createTestKv()
-    await setSystemChannel(kv, 'commands', 'bot-commands')
+    await setSystemChannel(kv, 'commands', 'bot-commands', 'guild-1')
     const harness = createResponseHarness(kv, 'bot-commands')
 
     await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
@@ -64,7 +64,7 @@ describe('general command response routing', () => {
 
   test('can force a local ephemeral response when redirect is configured', async () => {
     const kv = createTestKv()
-    await setSystemChannel(kv, 'commands', 'bot-commands')
+    await setSystemChannel(kv, 'commands', 'bot-commands', 'guild-1')
     const harness = createResponseHarness(kv, 'channel-1')
 
     await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {
@@ -82,7 +82,7 @@ describe('general command response routing', () => {
 
   test('shows an ephemeral error when redirected posting fails', async () => {
     const kv = createTestKv()
-    await setSystemChannel(kv, 'commands', 'bot-commands')
+    await setSystemChannel(kv, 'commands', 'bot-commands', 'guild-1')
     const harness = createResponseHarness(kv, 'channel-1')
 
     await resDeferGeneralCommandResponse(harness.context, async () => ({ content: 'hello world' }), {

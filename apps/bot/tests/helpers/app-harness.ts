@@ -14,7 +14,10 @@ export function createBotTestApp(): Hono<Env> {
 }
 
 export function buildBotTestEnv(bindings: Env['Bindings']): Env['Bindings'] {
-  return bindings
+  return {
+    ALLOWED_DISCORD_GUILD_ID: '1234044388733095946',
+    ...bindings,
+  }
 }
 
 export function createExecutionContextHarness(): ExecutionContextHarness {

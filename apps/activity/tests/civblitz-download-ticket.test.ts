@@ -9,12 +9,17 @@ describe('CivBlitz download tickets', () => {
     const ticket = await createCivBlitzDownloadTicket(SECRET, {
       userId: 'player-1',
       matchId: 'match-1',
+      guildId: '111111111111111111',
     }, { ttlSeconds: 120, nowMs: NOW })
 
     await expect(verifyCivBlitzDownloadTicket(SECRET, ticket, {
       matchId: 'match-1',
       nowMs: NOW + 119_000,
-    })).resolves.toEqual(expect.objectContaining({ sub: 'player-1', matchId: 'match-1' }))
+    })).resolves.toEqual(expect.objectContaining({
+      sub: 'player-1',
+      matchId: 'match-1',
+      guildId: '111111111111111111',
+    }))
     await expect(verifyCivBlitzDownloadTicket(SECRET, ticket, {
       matchId: 'match-2',
       nowMs: NOW,

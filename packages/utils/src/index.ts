@@ -1,5 +1,6 @@
 export * from './activity-auth.ts'
 export * from './api.ts'
 export * from './discord.ts'
+export * from './discord-guilds.ts'
 export * from './partyserver.ts'
 export * from './url.ts'

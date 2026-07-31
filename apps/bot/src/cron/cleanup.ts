@@ -1,7 +1,7 @@
 import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { pruneInactiveOpenLobbies } from '../services/lobby/index.ts'
-import { pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
+import { processPendingMatchRepairs, pruneAbandonedMatches, sendOverdueHostReportReminders } from '../services/match/index.ts'
 <<<<<<< New base: fix: keep lobby join buttons available
 <<<<<<< New base: fix: deploy config
 <<<<<<< New base: chore: cleanup and simplify setup
@@ -68,9 +68,42 @@ export const cron_cleanup = factory.cron(
       console.error('[cron] Failed to recover saved-game uploads:', error)
     }
 
-    const removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN, { db, sessionNamespace: c.env.SessionDO })
-    const prunedMatches = await pruneAbandonedMatches(db, kv, { sessionNamespace: c.env.SessionDO })
-    const reminderResult = await sendOverdueHostReportReminders(db, kv, c.env.DISCORD_TOKEN)
+    let removed: Awaited<ReturnType<typeof pruneInactiveOpenLobbies>> = []
+    let prunedMatches = { removedMatchIds: [] as string[], clearedLiveLobbyMatchIds: [] as string[], queuedRepairIds: [] as string[] }
+    let processedRepairs: Awaited<ReturnType<typeof processPendingMatchRepairs>> = { claimed: 0, completed: 0, retried: 0, attention: 0, superseded: 0 }
+    let reminderResult: Awaited<ReturnType<typeof sendOverdueHostReportReminders>> = { attemptedCount: 0, sentCount: 0 }
+    try {
+      removed = await pruneInactiveOpenLobbies(kv, c.env.DISCORD_TOKEN, { db, sessionNamespace: c.env.SessionDO })
+    }
+    catch (error) {
+      console.error('[cron] Failed to prune inactive lobbies:', error)
+    }
+    try {
+      prunedMatches = await pruneAbandonedMatches(db, kv, {
+        sessionNamespace: c.env.SessionDO,
+        activityNamespace: c.env.Activity,
+        internalSecret: c.env.CIVUP_SECRET,
+      })
+    }
+    catch (error) {
+      console.error('[cron] Failed to reconcile abandoned matches:', error)
+    }
+    try {
+      processedRepairs = await processPendingMatchRepairs(db, kv, {
+        sessionNamespace: c.env.SessionDO,
+        activityNamespace: c.env.Activity,
+        internalSecret: c.env.CIVUP_SECRET,
+      })
+    }
+    catch (error) {
+      console.error('[cron] Failed to process pending match repairs:', error)
+    }
+    try {
+      reminderResult = await sendOverdueHostReportReminders(db, kv, c.env.DISCORD_TOKEN)
+    }
+    catch (error) {
+      console.error('[cron] Failed to send report reminders:', error)
+    }
 
     if (removed.length > 0) {
       // eslint-disable-next-line no-console
@@ -85,6 +118,11 @@ export const cron_cleanup = factory.cron(
     if (prunedMatches.clearedLiveLobbyMatchIds.length > 0) {
       // eslint-disable-next-line no-console
       console.log(`[cron] Cleared ${prunedMatches.clearedLiveLobbyMatchIds.length} inconsistent live lobby(s)`)
+    }
+
+    if (processedRepairs.claimed > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[cron] Processed ${processedRepairs.claimed} match repair(s): ${processedRepairs.completed} completed, ${processedRepairs.retried} retried, ${processedRepairs.attention} need attention, ${processedRepairs.superseded} superseded`)
     }
 
     if (reminderResult.sentCount > 0) {

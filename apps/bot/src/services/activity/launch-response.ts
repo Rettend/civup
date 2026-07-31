@@ -14,6 +14,7 @@ interface LaunchInteractionContext {
   env: Env['Bindings']
   interaction: {
     member?: { roles?: unknown } | null
+    guild_id?: string | null
   }
   flags: (flag: 'EPHEMERAL') => any
   resActivity: () => Response
@@ -29,7 +30,7 @@ export async function respondWithPreferredLaunch(
     launch?: LaunchModeResolution
   },
 ): Promise<Response> {
-  const launch = input.launch ?? await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+  const launch = input.launch ?? await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles, c.interaction.guild_id)
   if (!launch.ok) return privateLaunchError(c, launch.error)
 
   if (launch.mode === 'activity') {

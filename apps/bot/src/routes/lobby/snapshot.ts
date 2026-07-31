@@ -2,7 +2,6 @@ import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
-import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
 import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
@@ -10,16 +9,18 @@ import { filterQueueEntriesForLobby, normalizeLobbySlots } from '../../services/
 import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
 import { getOpenSessionLobbyProjectionsByChannel, getOpenSessionLobbyProjectionsByMode } from '../../services/session/index.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 
 export async function buildOpenLobbySnapshot(
   kv: KVNamespace,
   mode: GameMode,
   lobby: LobbyState,
+  legacyGuildId?: string | null,
 ) {
-  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, legacyGuildId)
   const resolvedQueueEntries = buildLobbyQueueEntries(lobby)
   const resolvedSlots = normalizeLobbySlots(mode, lobby.slots, resolvedQueueEntries)
-  return buildOpenLobbySnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots, balanceSnapshot)
+  return buildOpenLobbySnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots, balanceSnapshot, legacyGuildId)
 }
 
 export async function buildOpenLobbySnapshotFromParts(
@@ -29,8 +30,9 @@ export async function buildOpenLobbySnapshotFromParts(
   queueEntries: QueueEntry[],
   slots: (string | null)[],
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  legacyGuildId?: string | null,
 ) {
-  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots, { legacyGuildId })
   return attachLobbyBalanceRatings(kv, mode, snapshot, balanceSnapshot)
 }
 
@@ -39,9 +41,12 @@ export async function getLobbyBalanceSnapshot(
   mode: GameMode,
   redDeath = false,
   civBlitz = false,
+  guildId?: string | null,
+  primaryGuildId?: string | null,
 ): Promise<LeaderboardModeSnapshot | null> {
   const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath, civBlitz })
-  return leaderboardMode ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode) : null
+  if (!leaderboardMode || !guildId || !primaryGuildId) return null
+  return getStoredLeaderboardModeSnapshot(kv, createStatsContext(guildId, primaryGuildId), leaderboardMode)
 }
 
 export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false, permanentAlly = false): number {
@@ -137,10 +142,4 @@ export function parseLobbyMaxRole(value: unknown): CompetitiveTier | null | unde
   if (value == null) return null
   if (typeof value === 'string' && value.trim().length === 0) return null
   return normalizeRankedRoleTierId(value) ?? undefined
-}
-
-export function emptyRankedRoleConfig(): Awaited<ReturnType<typeof getRankedRoleConfig>> {
-  return {
-    tiers: Array.from({ length: 5 }, () => ({ roleId: null, label: null, color: null })),
-  }
 }

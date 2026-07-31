@@ -4,14 +4,20 @@ export interface MatchRow {
   id: string
   gameMode: string
   status: string
+  guildId: string | null
   createdAt: number
   completedAt: number | null
+  draftCompletedAt: number | null
+  cancelledAt: number | null
+  resultRevision: number
   draftData: string | null
 }
 
 export interface ParticipantRow {
   matchId: string
   playerId: string
+  sourceGuildId: string | null
+  sourceKind: string | null
   team: number | null
   civId: string | null
   placement: number | null
@@ -41,6 +47,7 @@ export interface ReportInput {
 
 export interface ReportProcessingClaim {
   matchId: string
+  sessionId: string
   claimId: string
 }
 
@@ -125,6 +132,8 @@ export interface CreateManualReportedMatchInput {
   players: ManualReportedMatchPlayerInput[]
   reporterId: string
   reportedAt: number
+  guildId: string
+  primaryGuildId: string
 }
 
 export type CreateManualReportedMatchResult = ModeratedMatchResult | { error: string }
@@ -133,6 +142,9 @@ export interface CreateDraftMatchInput {
   matchId: string
   mode: GameMode
   seats: DraftSeat[]
+  guildId: string
+  primaryGuildId: string
+  allowLegacyPrimarySource?: boolean
 }
 
 export interface ActivateDraftInput {
@@ -168,10 +180,14 @@ export interface PruneMatchesOptions {
   staleActiveMs?: number
   staleCancelledMs?: number
   sessionNamespace?: DurableObjectNamespace | null
+  activityNamespace?: DurableObjectNamespace | null
+  internalSecret?: string
   allowDirectTerminalWriteForTests?: boolean
+  now?: number
 }
 
 export interface PruneMatchesResult {
   removedMatchIds: string[]
   clearedLiveLobbyMatchIds: string[]
+  queuedRepairIds: string[]
 }

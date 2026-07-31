@@ -1,12 +1,14 @@
 import type { Database } from '@civup/db'
 import type { DraftState, LeaderboardMode } from '@civup/game'
 import type { DbBatchItem } from '../db/batch.ts'
+import type { StatsContext } from '../stats/context.ts'
 import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchPlayerSubstitution, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult, SubstituteMatchPlayerInput, SubstituteMatchPlayerResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, players, scopedPlayerRatingEvents as playerRatingEvents } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
+import { fetchGuildMember, isDiscordApiError } from '../discord/index.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -16,13 +18,17 @@ import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredG
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { createStatsContext, requireStoredMatchGuildId } from '../stats/context.ts'
+import { getSessionOriginByMatch } from '../session/lobby-projection.ts'
 
-const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
+const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 11
 
 interface MatchSessionLifecycleOptions {
   sessionNamespace?: DurableObjectNamespace | null
   allowDirectTerminalWriteForTests?: boolean
   rankedRoleGuildId?: string | null
+  primaryGuildId?: string
+  discordToken?: string
 }
 
 interface MatchBanRow {
@@ -45,6 +51,8 @@ export async function resolveMatchByModerator(
     .limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
+  const statsContext = getMatchStatsContext(match, options)
+  if (!statsContext) return { error: `Match **${input.matchId}** is missing valid owning-server configuration.` }
   if (match.status === 'drafting') {
     return { error: `Match **${input.matchId}** is still drafting and cannot be resolved yet.` }
   }
@@ -119,7 +127,7 @@ export async function resolveMatchByModerator(
         if (prepareError) return { error: prepareError }
       }
 
-      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, statsContext, {
         fromMatchId: input.matchId,
         includeFromMatch: true,
         includeActiveBoundary: previousStatus !== 'completed',
@@ -130,11 +138,12 @@ export async function resolveMatchByModerator(
           match,
           participants,
           bans: originalBans,
+          statsContext,
         })
         if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculated
       }
-      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      const recalculatedGlobal = await recalculateGlobalRatings(db, statsContext, {
         fromMatchId: input.matchId,
         includeFromMatch: true,
         includeActiveBoundary: previousStatus !== 'completed',
@@ -148,6 +157,7 @@ export async function resolveMatchByModerator(
           bans: originalBans,
           leaderboardMode,
           rankedRoleGuildId: options.rankedRoleGuildId,
+          statsContext,
         })
         if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculatedGlobal
@@ -164,6 +174,7 @@ export async function resolveMatchByModerator(
           bans: originalBans,
           leaderboardMode,
           rankedRoleGuildId: options.rankedRoleGuildId,
+          statsContext,
         })
         if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
         return { error: lifecycleError }
@@ -176,7 +187,8 @@ export async function resolveMatchByModerator(
         participants,
         bans: originalBans,
         leaderboardMode,
-        rankedRoleGuildId: options.rankedRoleGuildId,
+          rankedRoleGuildId: options.rankedRoleGuildId,
+          statsContext,
       })
       if (rollbackError) {
         console.error(`Failed to roll back resolved match ${input.matchId}:`, rollbackError)
@@ -198,12 +210,12 @@ export async function resolveMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   if (tournamentLinked) {
-    await removeCivLeaderboardMatchContribution(db, input.matchId)
-    await removePlayerCivStatMatchContribution(db, input.matchId)
+    await removeCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await removePlayerCivStatMatchContribution(db, statsContext, input.matchId)
   }
   else {
-    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-    await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
+    await reconcileCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, statsContext, updatedMatch, updatedParticipants)
   }
 
   return {
@@ -217,6 +229,7 @@ export async function resolveMatchByModerator(
 export async function correctMatchLeadersByModerator(
   db: Database,
   input: CorrectMatchLeadersInput,
+  options: MatchSessionLifecycleOptions = {},
 ): Promise<CorrectMatchLeadersResult> {
   const [match] = await db
     .select()
@@ -226,6 +239,8 @@ export async function correctMatchLeadersByModerator(
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
   if (match.status !== 'completed') return { error: `Match **${input.matchId}** must be reported before leaders can be corrected.` }
+  const statsContext = getMatchStatsContext(match, options)
+  if (!statsContext) return { error: `Match **${input.matchId}** is missing valid owning-server configuration.` }
 
   const hasLeader = typeof input.leaderId === 'string' && input.leaderId.trim().length > 0
   const hasSwapWith = typeof input.swapWithPlayerId === 'string' && input.swapWithPlayerId.trim().length > 0
@@ -280,7 +295,7 @@ export async function correctMatchLeadersByModerator(
   if (nextDraftData !== match.draftData) {
     applyQueries.push(db
       .update(matches)
-      .set({ draftData: nextDraftData })
+      .set({ draftData: nextDraftData, resultRevision: sql`${matches.resultRevision} + 1` })
       .where(eq(matches.id, input.matchId)))
   }
 
@@ -299,12 +314,12 @@ export async function correctMatchLeadersByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   if (await isMatchTournamentLinked(db, input.matchId)) {
-    await removeCivLeaderboardMatchContribution(db, input.matchId)
-    await removePlayerCivStatMatchContribution(db, input.matchId)
+    await removeCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await removePlayerCivStatMatchContribution(db, statsContext, input.matchId)
   }
   else {
-    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-    await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
+    await reconcileCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, statsContext, updatedMatch, updatedParticipants)
   }
 
   return {
@@ -342,6 +357,8 @@ export async function substituteMatchPlayerByModerator(
   if (match.status !== 'active' && match.status !== 'completed') {
     return { error: `Match **${input.matchId}** must be draft-complete or reported before players can be substituted.` }
   }
+  const statsContext = getMatchStatsContext(match, options)
+  if (!statsContext) return { error: `Match **${input.matchId}** is missing valid owning-server configuration.` }
 
   const participants = await db
     .select()
@@ -351,6 +368,17 @@ export async function substituteMatchPlayerByModerator(
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
   const participant = participants.find(candidate => candidate.playerId === playerId)
   if (!participant) return { error: `<@${playerId}> is not a participant in match **${input.matchId}**.` }
+  if (!participant.sourceGuildId) return { error: `The replaced seat in match **${input.matchId}** is missing source-server data.` }
+  if (!options.discordToken) return { error: 'Discord membership verification is unavailable.' }
+  try {
+    await fetchGuildMember(options.discordToken, participant.sourceGuildId, subPlayer.playerId)
+  }
+  catch (error) {
+    if (isDiscordApiError(error, 404)) {
+      return { error: `<@${subPlayer.playerId}> must be a member of the replaced seat's source server.` }
+    }
+    throw error
+  }
 
   const draftSubstitution = buildDraftPlayerSubstitution(match.draftData, {
     matchId: input.matchId,
@@ -377,13 +405,16 @@ export async function substituteMatchPlayerByModerator(
   await replaceMatchBanRows(db, input.matchId, nextBanRows)
   await db
     .update(matches)
-    .set({ draftData: draftSubstitution.nextDraftData })
+    .set({
+      draftData: draftSubstitution.nextDraftData,
+      resultRevision: sql`${matches.resultRevision} + 1`,
+    })
     .where(eq(matches.id, input.matchId))
 
   let recalculatedMatchIds: string[] = []
   const extraAffectedPlayerIds = draftSubstitution.removedPlayerIds
   if (match.status === 'completed' && gameContext.leaderboardMode != null && !tournamentLinked) {
-    const recalculated = await recalculateLeaderboardMode(db, gameContext.leaderboardMode, {
+    const recalculated = await recalculateLeaderboardMode(db, gameContext.leaderboardMode, statsContext, {
       fromMatchId: input.matchId,
       includeFromMatch: true,
       extraAffectedPlayerIds,
@@ -397,12 +428,13 @@ export async function substituteMatchPlayerByModerator(
         rankedRoleGuildId: options.rankedRoleGuildId,
         extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
         tournamentLinked,
+        statsContext,
       })
       if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
       return recalculated
     }
 
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+    const recalculatedGlobal = await recalculateGlobalRatings(db, statsContext, {
       fromMatchId: input.matchId,
       includeFromMatch: true,
       opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
@@ -417,12 +449,13 @@ export async function substituteMatchPlayerByModerator(
         rankedRoleGuildId: options.rankedRoleGuildId,
         extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
         tournamentLinked,
+        statsContext,
       })
       if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
       return recalculatedGlobal
     }
 
-    await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
+    await rebuildLeaderboardModeSnapshot(db, kv, statsContext, gameContext.leaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
   }
 
@@ -439,12 +472,12 @@ export async function substituteMatchPlayerByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   if (tournamentLinked) {
-    await removeCivLeaderboardMatchContribution(db, input.matchId)
-    await removePlayerCivStatMatchContribution(db, input.matchId)
+    await removeCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await removePlayerCivStatMatchContribution(db, statsContext, input.matchId)
   }
   else {
-    await reconcileCivLeaderboardMatchContribution(db, input.matchId)
-    await reconcilePlayerCivStatMatchContribution(db, input.matchId)
+    await reconcileCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await reconcilePlayerCivStatMatchContribution(db, statsContext, input.matchId)
   }
 
   return {
@@ -466,25 +499,26 @@ async function rollbackResolvedMatchModeration(
     bans: MatchBanRow[]
     leaderboardMode: LeaderboardMode
     rankedRoleGuildId?: string | null
+    statsContext: StatsContext
   },
 ): Promise<string | null> {
   const rowRollbackError = await rollbackResolvedMatchRows(db, options)
   if (rowRollbackError) return rowRollbackError
 
   try {
-    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, options.statsContext, {
       fromMatchId: options.input.matchId,
       includeFromMatch: options.match.status === 'completed',
     })
     if ('error' in recalculated) return recalculated.error
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+    const recalculatedGlobal = await recalculateGlobalRatings(db, options.statsContext, {
       fromMatchId: options.input.matchId,
       includeFromMatch: options.match.status === 'completed',
       opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
     })
     if ('error' in recalculatedGlobal) return recalculatedGlobal.error
 
-    await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+    await rebuildLeaderboardModeSnapshot(db, kv, options.statsContext, options.leaderboardMode)
     return null
   }
   catch (error) {
@@ -499,6 +533,7 @@ async function rollbackResolvedMatchRows(
     match: MatchRow
     participants: ParticipantRow[]
     bans: MatchBanRow[]
+    statsContext: StatsContext
   },
 ): Promise<string | null> {
   try {
@@ -530,8 +565,8 @@ async function rollbackResolvedMatchRows(
     if (options.bans.length > 0) rollbackQueries.push(db.insert(matchBans).values(options.bans))
 
     await runDbBatch(db, rollbackQueries)
-    await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
-    await reconcilePlayerCivStatMatchContribution(db, options.input.matchId)
+    await reconcileCivLeaderboardMatchContribution(db, options.statsContext, options.input.matchId)
+    await reconcilePlayerCivStatMatchContribution(db, options.statsContext, options.input.matchId)
     return null
   }
   catch (error) {
@@ -545,7 +580,7 @@ async function rollbackResolvedMatchAfterLifecycleFailure(
   options: MatchSessionLifecycleOptions,
   rollbackOptions: Parameters<typeof rollbackResolvedMatchModeration>[2],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, rollbackOptions.input.matchId)) return null
+  if (!await shouldRollbackPreparedReportedMatch(db, options, rollbackOptions.input.matchId)) return null
   return rollbackResolvedMatchModeration(db, kv, rollbackOptions)
 }
 
@@ -555,7 +590,7 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
   matchId: string,
   participants: ParticipantRow[],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
+  if (!await shouldRollbackPreparedReportedMatch(db, options, matchId)) return null
   try {
     await runDbBatch(db, participants.map(participant => db
       .update(matchParticipants)
@@ -577,10 +612,10 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
   }
 }
 
-async function shouldRollbackPreparedReportedMatch(options: MatchSessionLifecycleOptions, matchId: string): Promise<boolean> {
+async function shouldRollbackPreparedReportedMatch(db: Database, options: MatchSessionLifecycleOptions, matchId: string): Promise<boolean> {
   if (!options.sessionNamespace) return false
   try {
-    const record = await getSessionRecord(options.sessionNamespace, matchId)
+    const record = await getSessionRecord(options.sessionNamespace, await resolveSessionIdForMatch(db, matchId))
     if (!record) return false
     return record.phase === 'active' || record.phase === 'swap' || record.phase === 'cancelled'
   }
@@ -787,6 +822,8 @@ function buildSubstitutedParticipantRows(
     rows.push({
       matchId,
       playerId: nextSeat.playerId,
+      sourceGuildId: participant.sourceGuildId,
+      sourceKind: nextSeat.playerId === previousSeat.playerId ? participant.sourceKind : 'substitution_inherited',
       team: nextSeat.team ?? null,
       civId: participant.civId,
       placement: participant.placement,
@@ -915,6 +952,8 @@ function toParticipantInsertRow(participant: ParticipantRow): typeof matchPartic
   return {
     matchId: participant.matchId,
     playerId: participant.playerId,
+    sourceGuildId: participant.sourceGuildId,
+    sourceKind: participant.sourceKind,
     team: participant.team,
     civId: participant.civId,
     placement: participant.placement,
@@ -936,6 +975,7 @@ async function rollbackMatchPlayerSubstitution(
     rankedRoleGuildId?: string | null
     extraAffectedPlayerIds: readonly string[]
     tournamentLinked: boolean
+    statsContext: StatsContext
   },
 ): Promise<string | null> {
   try {
@@ -947,29 +987,29 @@ async function rollbackMatchPlayerSubstitution(
     await replaceMatchBanRows(db, options.match.id, options.bans)
 
     if (!options.tournamentLinked && options.match.status === 'completed') {
-      const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
+      const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, options.statsContext, {
         fromMatchId: options.match.id,
         includeFromMatch: true,
         extraAffectedPlayerIds: options.extraAffectedPlayerIds,
       })
       if ('error' in recalculated) return recalculated.error
-      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      const recalculatedGlobal = await recalculateGlobalRatings(db, options.statsContext, {
         fromMatchId: options.match.id,
         includeFromMatch: true,
         opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
         extraAffectedPlayerIds: options.extraAffectedPlayerIds,
       })
       if ('error' in recalculatedGlobal) return recalculatedGlobal.error
-      await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
+      await rebuildLeaderboardModeSnapshot(db, kv, options.statsContext, options.leaderboardMode)
     }
 
     if (options.tournamentLinked) {
-      await removeCivLeaderboardMatchContribution(db, options.match.id)
-      await removePlayerCivStatMatchContribution(db, options.match.id)
+      await removeCivLeaderboardMatchContribution(db, options.statsContext, options.match.id)
+      await removePlayerCivStatMatchContribution(db, options.statsContext, options.match.id)
     }
     else {
-      await reconcileCivLeaderboardMatchContribution(db, options.match.id)
-      await reconcilePlayerCivStatMatchContribution(db, options.match.id)
+      await reconcileCivLeaderboardMatchContribution(db, options.statsContext, options.match.id)
+      await reconcilePlayerCivStatMatchContribution(db, options.statsContext, options.match.id)
     }
     return null
   }
@@ -1012,8 +1052,10 @@ async function validateReportableSession(
     return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
   }
   try {
-    const record = await getSessionRecord(sessionNamespace, matchId)
-    if (!record) return `Session **${matchId}** not found.`
+    const sessionId = await resolveSessionIdForMatch(db, matchId)
+    const record = await getSessionRecord(sessionNamespace, sessionId)
+    if (!record) return `Session **${sessionId}** not found.`
+    if (record.matchId !== matchId) return `Session **${sessionId}** does not own match **${matchId}**.`
     if (record.phase === 'reported') return null
     if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled') return `Session is not reportable (phase: ${record.phase})`
     return null
@@ -1036,6 +1078,8 @@ export async function cancelMatchByModerator(
     .limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
+  const statsContext = getMatchStatsContext(match, options)
+  if (!statsContext) return { error: `Match **${input.matchId}** is missing valid owning-server configuration.` }
 
   const participants = await db
     .select()
@@ -1047,7 +1091,7 @@ export async function cancelMatchByModerator(
   const previousStatus = match.status
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
   const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
-    ? await matchHasRatingEvents(db, input.matchId)
+    ? await matchHasRatingEvents(db, statsContext, input.matchId)
     : false
   let completedLeaderboardMode: LeaderboardMode | null = null
   if ((previousStatus === 'completed' || hasStaleRatingEvents) && !tournamentLinked) {
@@ -1072,22 +1116,22 @@ export async function cancelMatchByModerator(
 
   let recalculatedMatchIds: string[] = []
   if (previousStatus === 'completed' || hasStaleRatingEvents) {
-    await removeCivLeaderboardMatchContribution(db, input.matchId)
-    await removePlayerCivStatMatchContribution(db, input.matchId)
+    await removeCivLeaderboardMatchContribution(db, statsContext, input.matchId)
+    await removePlayerCivStatMatchContribution(db, statsContext, input.matchId)
   }
   if (completedLeaderboardMode != null) {
-    const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
+    const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, statsContext, {
       fromMatchId: input.matchId,
       includeFromMatch: false,
     })
     if ('error' in recalculated) return recalculated
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+    const recalculatedGlobal = await recalculateGlobalRatings(db, statsContext, {
       fromMatchId: input.matchId,
       includeFromMatch: false,
       opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
     })
     if ('error' in recalculatedGlobal) return recalculatedGlobal
-    await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
+    await rebuildLeaderboardModeSnapshot(db, kv, statsContext, completedLeaderboardMode)
     recalculatedMatchIds = recalculated.matchIds
   }
   if (tournamentLinked) await syncTournamentMatchAfterCancel(db, input.matchId)
@@ -1111,13 +1155,19 @@ export async function cancelMatchByModerator(
   }
 }
 
-async function matchHasRatingEvents(db: Database, matchId: string): Promise<boolean> {
+async function matchHasRatingEvents(db: Database, statsContext: StatsContext, matchId: string): Promise<boolean> {
   const [event] = await db
     .select({ matchId: playerRatingEvents.matchId })
     .from(playerRatingEvents)
-    .where(eq(playerRatingEvents.matchId, matchId))
+    .where(and(eq(playerRatingEvents.statsKey, statsContext.statsKey), eq(playerRatingEvents.matchId, matchId)))
     .limit(1)
-  return event != null
+  if (event || statsContext.seasonPolicy !== 'ppl-seasons') return event != null
+  const [legacyEvent] = await db
+    .select({ matchId: legacyPlayerRatingEvents.matchId })
+    .from(legacyPlayerRatingEvents)
+    .where(eq(legacyPlayerRatingEvents.matchId, matchId))
+    .limit(1)
+  return legacyEvent != null
 }
 
 async function runTerminalSessionCommand(
@@ -1134,7 +1184,7 @@ async function runTerminalSessionCommand(
   const { sessionNamespace } = options
   if (sessionNamespace) {
     try {
-      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
+      await runSessionTerminalLifecycleCommand(sessionNamespace, await resolveSessionIdForMatch(db, matchId), { ...command, matchId })
       return null
     }
     catch (error) {
@@ -1148,6 +1198,10 @@ async function runTerminalSessionCommand(
 
   await applyDirectTerminalCommand(db, matchId, command)
   return null
+}
+
+async function resolveSessionIdForMatch(db: Database, matchId: string): Promise<string> {
+  return (await getSessionOriginByMatch(db, matchId))?.sessionId ?? matchId
 }
 
 async function isManualReportedMatch(db: Database, matchId: string): Promise<boolean> {
@@ -1165,21 +1219,31 @@ async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: str
   return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
 }
 
+function getMatchStatsContext(match: { guildId?: string | null }, options: MatchSessionLifecycleOptions): StatsContext | null {
+  try {
+    return createStatsContext(requireStoredMatchGuildId(match), options.primaryGuildId ?? '')
+  }
+  catch {
+    return null
+  }
+}
+
 async function applyDirectTerminalCommand(
   db: Database,
   matchId: string,
   command: { type: 'mark-reported' | 'cancel-session', at: number },
 ): Promise<void> {
   const [match] = await db
-    .select({ completedAt: matches.completedAt })
+    .select({ completedAt: matches.completedAt, status: matches.status })
     .from(matches)
     .where(eq(matches.id, matchId))
     .limit(1)
 
+  const nextStatus = command.type === 'mark-reported' ? 'completed' : 'cancelled'
   await db.update(matches)
     .set(command.type === 'mark-reported'
-      ? { status: 'completed', completedAt: match?.completedAt ?? command.at }
-      : { status: 'cancelled', completedAt: match?.completedAt ?? command.at })
+      ? { status: nextStatus, completedAt: match?.completedAt ?? command.at, cancelledAt: null, ...(match?.status === nextStatus ? {} : { resultRevision: sql`${matches.resultRevision} + 1` }) }
+      : { status: nextStatus, cancelledAt: command.at, ...(match?.status === nextStatus ? {} : { resultRevision: sql`${matches.resultRevision} + 1` }) })
     .where(eq(matches.id, matchId))
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 }

@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { calculateDuelEloPreview, command_preview_elo, duelEloPreviewEmbed, previewEloComponents } from '../../src/commands/preview-elo.ts'
 import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../../src/services/response/ephemeral.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { factory } from '../../src/setup.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
+
+const STATS_CONTEXT = createStatsContext('111111111111111111', '111111111111111111')
 
 describe('preview elo command', () => {
   test('registers as a user context command', () => {
@@ -45,6 +48,7 @@ describe('preview elo command', () => {
 
     const embed = (await duelEloPreviewEmbed(
       db,
+      STATS_CONTEXT,
       { userId: 'viewer', displayName: 'Viewer', avatarUrl: null },
       { userId: 'target', displayName: 'Target', avatarUrl: null },
     )).toJSON()

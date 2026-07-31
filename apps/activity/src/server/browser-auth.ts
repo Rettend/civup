@@ -1,5 +1,11 @@
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: save file analyzer
 import { createActivitySession } from '@civup/utils'
+||||||| Common ancestor
+import { createActivitySession } from '@civup/utils'
+=======
+import { createActivitySession, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
+>>>>>>> Current commit: feat: add multi-server foundations
 import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
 
 export const BROWSER_SESSION_COOKIE = '__Host-civup-session'
@@ -10,6 +16,7 @@ export const OAUTH_TRANSACTION_MAX_AGE_SECONDS = 10 * 60
 export interface BrowserAuthEnvironment {
   ACTIVITY_PUBLIC_ORIGIN?: string
   ALLOWED_DISCORD_GUILD_ID?: string
+  ALLOWED_DISCORD_GUILD_IDS?: string
   CIVUP_SECRET?: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
@@ -17,7 +24,7 @@ export interface BrowserAuthEnvironment {
 
 export interface BrowserAccessConfiguration {
   origin: string
-  guildId: string
+  guildIds: string[]
   secret: string
   clientId: string
   clientSecret: string
@@ -28,6 +35,7 @@ interface OAuthTransaction {
   state: string
   verifier: string
   returnTo: string
+  guildId: string | null
   exp: number
 }
 
@@ -43,12 +51,12 @@ export async function handleBrowserOAuthRequest(request: Request, env: BrowserAu
 
 export function resolveBrowserAccessConfiguration(env: BrowserAuthEnvironment): BrowserAccessConfiguration | null {
   const origin = normalizeOrigin(env.ACTIVITY_PUBLIC_ORIGIN)
-  const guildId = normalizeDiscordId(env.ALLOWED_DISCORD_GUILD_ID)
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
   const secret = env.CIVUP_SECRET?.trim() ?? ''
   const clientId = env.DISCORD_CLIENT_ID?.trim() ?? ''
   const clientSecret = env.DISCORD_CLIENT_SECRET?.trim() ?? ''
-  if (!origin || !guildId || !secret || !clientId || !clientSecret) return null
-  return { origin, guildId, secret, clientId, clientSecret, callbackUri: `${origin}/api/auth/discord/callback` }
+  if (!origin || !guildConfig.ok || !secret || !clientId || !clientSecret) return null
+  return { origin, guildIds: guildConfig.guildIds, secret, clientId, clientSecret, callbackUri: `${origin}/api/auth/discord/callback` }
 }
 
 export function readCookie(request: Request, name: string): string | null {
@@ -95,6 +103,8 @@ async function startBrowserOAuth(request: Request, env: BrowserAuthEnvironment):
   const requestUrl = new URL(request.url)
   const returnTo = validateBrowserReturnPath(requestUrl.searchParams.get('returnTo'))
   if (!returnTo) return json({ error: 'returnTo must be a local /web/ path' }, 400)
+  const sourceGuildId = normalizeDiscordGuildIdFromReturnPath(returnTo)
+  if (sourceGuildId && !config.guildIds.includes(sourceGuildId)) return json({ error: 'returnTo references an unapproved Discord server' }, 400)
 
   const state = randomBase64Url(32)
   const verifier = randomBase64Url(48)
@@ -103,6 +113,7 @@ async function startBrowserOAuth(request: Request, env: BrowserAuthEnvironment):
     state,
     verifier,
     returnTo,
+    guildId: sourceGuildId,
     exp: Date.now() + OAUTH_TRANSACTION_MAX_AGE_SECONDS * 1000,
   })
   const authorize = new URL('https://discord.com/oauth2/authorize')
@@ -151,8 +162,8 @@ async function finishBrowserOAuth(request: Request, env: BrowserAuthEnvironment)
       console.error('[browser-auth] Discord token exchange failed', { status: token.status, detail: token.detail })
       return oauthError('Discord sign-in could not be completed.', returnTo)
     }
-    const identity = await loadDiscordIdentity(token.accessToken, config.guildId)
-    if (!identity.ok) return oauthError(identity.status === 403 ? 'You must be a member of the configured Discord server.' : 'Discord membership could not be verified.', returnTo)
+    const identity = await loadDiscordIdentity(token.accessToken, config.guildIds, transaction.guildId)
+    if (!identity.ok) return oauthError(identity.status === 403 ? 'You must be a member of an approved Discord server.' : 'Discord membership could not be verified.', returnTo)
 
     const session = await createActivitySession(config.secret, identity)
     const headers = new Headers({ 'Location': returnTo, 'Cache-Control': 'no-store' })
@@ -236,7 +247,8 @@ async function verifyTransaction(secret: string, value: string | null): Promise<
     if (typeof parsed.state !== 'string' || typeof parsed.verifier !== 'string' || typeof parsed.exp !== 'number') return null
     const returnTo = validateBrowserReturnPath(typeof parsed.returnTo === 'string' ? parsed.returnTo : null)
     if (!returnTo || parsed.exp <= Date.now()) return null
-    return { state: parsed.state, verifier: parsed.verifier, returnTo, exp: parsed.exp }
+    const guildId = typeof parsed.guildId === 'string' && /^\d{17,20}$/.test(parsed.guildId) ? parsed.guildId : null
+    return { state: parsed.state, verifier: parsed.verifier, returnTo, guildId, exp: parsed.exp }
   }
   catch {
     return null
@@ -290,9 +302,14 @@ function normalizeOrigin(value: string | undefined): string | null {
   }
 }
 
-function normalizeDiscordId(value: string | undefined): string | null {
-  const id = value?.trim() ?? ''
-  return /^\d{17,20}$/.test(id) ? id : null
+function normalizeDiscordGuildIdFromReturnPath(returnTo: string): string | null {
+  try {
+    const guildId = new URL(returnTo, 'https://activity.invalid').searchParams.get('sourceGuild')?.trim() ?? ''
+    return /^\d{17,20}$/.test(guildId) ? guildId : null
+  }
+  catch {
+    return null
+  }
 }
 
 function escapeHtml(value: string): string {

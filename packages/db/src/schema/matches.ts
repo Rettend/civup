@@ -12,6 +12,8 @@ export const matches = sqliteTable('matches', {
   gameMode: text('game_mode').notNull(),
   /** drafting | active | completed | cancelled */
   status: text('status').notNull().default('drafting'),
+  /** Immutable owning Discord guild. Nullable only for expand/backfill migration rows. */
+  guildId: text('guild_id'),
   /** Imported legacy match from the old bot export. */
   isOld: integer('is_old', { mode: 'boolean' }).notNull().default(false),
   /** Reference to the season */
@@ -22,9 +24,19 @@ export const matches = sqliteTable('matches', {
   createdAt: integer('created_at', { mode: 'number' }).notNull(),
   /** Unix timestamp ms */
   completedAt: integer('completed_at', { mode: 'number' }),
+  /** Unix timestamp ms when the draft became reportable. */
+  draftCompletedAt: integer('draft_completed_at', { mode: 'number' }),
+  /** Unix timestamp ms when the match was cancelled. */
+  cancelledAt: integer('cancelled_at', { mode: 'number' }),
+  /** Monotonic terminal-result revision used by durable follow-up work. */
+  resultRevision: integer('result_revision', { mode: 'number' }).notNull().default(0),
 }, table => [
   index('matches_status_created_at_idx').on(table.status, table.createdAt),
   index('matches_status_completed_at_idx').on(table.status, table.completedAt),
+  index('matches_guild_status_completed_at_idx').on(table.guildId, table.status, table.completedAt),
+  index('matches_guild_mode_created_at_idx').on(table.guildId, table.gameMode, table.createdAt),
+  index('matches_status_draft_completed_at_idx').on(table.status, table.draftCompletedAt),
+  index('matches_status_cancelled_at_idx').on(table.status, table.cancelledAt),
 ])
 
 /**
@@ -34,6 +46,10 @@ export const matchParticipants = sqliteTable('match_participants', {
   /** Composite primary key would be (matchId, playerId) */
   matchId: text('match_id').notNull().references(() => matches.id),
   playerId: text('player_id').notNull().references(() => players.id),
+  /** Discord guild context used when this participant joined. */
+  sourceGuildId: text('source_guild_id'),
+  /** joined | substitution_inherited | manual_invoking | legacy_primary */
+  sourceKind: text('source_kind'),
   /** Team index (null for FFA) */
   team: integer('team'),
   /** Leader/civ picked during draft */

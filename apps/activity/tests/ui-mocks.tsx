@@ -65,6 +65,7 @@ interface MockState {
   userId: string | null
   displayName: string
   avatarUrl: string | null
+  guildId: string | null
   isMiniView: boolean
   isMobileLayout: boolean
   isCivBlitzDraft: boolean
@@ -147,6 +148,7 @@ function emptyTagFilters(): Record<LeaderTagCategory, string[]> {
 function mockLobbySnapshot(): LobbySnapshot {
   return {
     id: 'lobby-1',
+    originGuildId: '111111111111111111',
     revision: 1,
     mode: 'ffa',
     hostId: 'host-1',
@@ -222,6 +224,7 @@ function defaults(): MockState {
     userId: 'host-1',
     displayName: 'Host Player',
     avatarUrl: null,
+    guildId: '111111111111111111',
     isMiniView: false,
     isMobileLayout: false,
     isCivBlitzDraft: false,
@@ -767,6 +770,18 @@ mock.module('~/client/stores', () => ({
   updateDraftSteamLobbyLink: (...args: Parameters<typeof storeSpies.updateDraftSteamLobbyLink>) => storeSpies.updateDraftSteamLobbyLink(...args),
   updateLobbyConfig: (...args: Parameters<typeof storeSpies.updateLobbyConfig>) => storeSpies.updateLobbyConfig(...args),
   updateLobbyMode: (...args: Parameters<typeof storeSpies.updateLobbyMode>) => storeSpies.updateLobbyMode(...args),
+  user: () => uiMockState.userId
+    ? {
+        userId: uiMockState.userId,
+        displayName: uiMockState.displayName,
+        avatarUrl: uiMockState.avatarUrl,
+        guildId: uiMockState.guildId,
+        guildPermissions: '0',
+        guildName: null,
+        guildIconUrl: null,
+        guildRoleIds: [],
+      }
+    : null,
   userId: () => uiMockState.userId,
 }))
 type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'

@@ -1,6 +1,15 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import {
+  playerRatings,
+  scopedPlayerRatings,
+  scopedSeasonPeakModeRanks as seasonPeakModeRanks,
+  scopedSeasonPeakRanks as seasonPeakRanks,
+  seasonPeakModeRanks as legacySeasonPeakModeRanks,
+  seasonPeakRanks as legacySeasonPeakRanks,
+  seasons,
+} from '@civup/db'
 import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
 import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
@@ -81,7 +90,7 @@ export function formatSeasonShortName(seasonNumber: number): string {
   return `S${Math.max(1, Math.round(seasonNumber))}`
 }
 
-export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean } = {}) {
+export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean, statsContext?: StatsContext } = {}) {
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
@@ -118,9 +127,22 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
       effectiveWinsVsTier1: 0,
       effectiveWinsVsTier2Plus: 0,
     })
+    if (input.statsContext) {
+      await db.update(scopedPlayerRatings).set({
+        sigma: sql<number>`${scopedPlayerRatings.sigma} + (${DEFAULT_SIGMA} - ${scopedPlayerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
+        gamesPlayed: 0,
+        wins: 0,
+        importedGames: 0,
+        effectiveGames: 0,
+        winsVsTier1: 0,
+        winsVsTier2Plus: 0,
+        effectiveWinsVsTier1: 0,
+        effectiveWinsVsTier2Plus: 0,
+      }).where(eq(scopedPlayerRatings.statsKey, input.statsContext.statsKey))
+    }
   }
-  if (input.kv) {
-    await clearAllLeaderboardModeSnapshots(input.kv)
+  if (input.kv && input.statsContext) {
+    await clearAllLeaderboardModeSnapshots(input.kv, input.statsContext)
   }
   return {
     ...season,
@@ -147,6 +169,7 @@ export async function endSeason(db: Database, input: { now?: number } = {}) {
 
 export async function syncSeasonPeakRanks(
   db: Database,
+  statsContext: StatsContext,
   input: {
     seasonId: string
     candidates: SeasonPeakCandidate[]
@@ -154,6 +177,7 @@ export async function syncSeasonPeakRanks(
     now?: number
   },
 ): Promise<SeasonPeakSyncResult> {
+  if (statsContext.seasonPolicy !== 'ppl-seasons') return emptySeasonPeakSyncResult(null)
   const now = input.now ?? Date.now()
   const activeCandidates = input.candidates.filter(candidate => input.activePlayerIds.has(candidate.playerId))
   if (activeCandidates.length === 0) {
@@ -169,6 +193,7 @@ export async function syncSeasonPeakRanks(
     .select()
     .from(seasonPeakRanks)
     .where(and(
+      eq(seasonPeakRanks.statsKey, statsContext.statsKey),
       eq(seasonPeakRanks.seasonId, input.seasonId),
       inArray(seasonPeakRanks.playerId, activeCandidates.map(candidate => candidate.playerId)),
     ))
@@ -191,11 +216,22 @@ export async function syncSeasonPeakRanks(
     const existing = existingByPlayerId.get(candidate.playerId)
     if (!existing) {
       await db.insert(seasonPeakRanks).values({
+        statsKey: statsContext.statsKey,
         seasonId: input.seasonId,
         playerId: candidate.playerId,
         tier: normalizedTier,
         sourceMode: candidate.sourceMode,
         achievedAt: now,
+      })
+      await db.insert(legacySeasonPeakRanks).values({
+        seasonId: input.seasonId,
+        playerId: candidate.playerId,
+        tier: normalizedTier,
+        sourceMode: candidate.sourceMode,
+        achievedAt: now,
+      }).onConflictDoUpdate({
+        target: [legacySeasonPeakRanks.seasonId, legacySeasonPeakRanks.playerId],
+        set: { tier: normalizedTier, sourceMode: candidate.sourceMode, achievedAt: now },
       })
       inserted += 1
       continue
@@ -215,8 +251,16 @@ export async function syncSeasonPeakRanks(
         achievedAt: now,
       })
       .where(and(
+        eq(seasonPeakRanks.statsKey, statsContext.statsKey),
         eq(seasonPeakRanks.seasonId, input.seasonId),
         eq(seasonPeakRanks.playerId, candidate.playerId),
+      ))
+    await db
+      .update(legacySeasonPeakRanks)
+      .set({ tier: normalizedTier, sourceMode: candidate.sourceMode, achievedAt: now })
+      .where(and(
+        eq(legacySeasonPeakRanks.seasonId, input.seasonId),
+        eq(legacySeasonPeakRanks.playerId, candidate.playerId),
       ))
 
     updated += 1
@@ -232,6 +276,7 @@ export async function syncSeasonPeakRanks(
 
 export async function syncSeasonPeakModeRanks(
   db: Database,
+  statsContext: StatsContext,
   input: {
     seasonId: string
     candidates: SeasonModePeakCandidate[]
@@ -239,6 +284,7 @@ export async function syncSeasonPeakModeRanks(
     now?: number
   },
 ): Promise<SeasonPeakSyncResult> {
+  if (statsContext.seasonPolicy !== 'ppl-seasons') return emptySeasonPeakSyncResult(null)
   const now = input.now ?? Date.now()
   const activeCandidates = input.candidates.filter((candidate) => {
     const activeModes = input.activeModesByPlayerId.get(candidate.playerId)
@@ -257,6 +303,7 @@ export async function syncSeasonPeakModeRanks(
     .select()
     .from(seasonPeakModeRanks)
     .where(and(
+      eq(seasonPeakModeRanks.statsKey, statsContext.statsKey),
       eq(seasonPeakModeRanks.seasonId, input.seasonId),
       inArray(seasonPeakModeRanks.playerId, activeCandidates.map(candidate => candidate.playerId)),
       inArray(seasonPeakModeRanks.mode, activeCandidates.map(candidate => candidate.mode)),
@@ -276,12 +323,24 @@ export async function syncSeasonPeakModeRanks(
     const existing = existingByKey.get(key)
     if (!existing) {
       await db.insert(seasonPeakModeRanks).values({
+        statsKey: statsContext.statsKey,
         seasonId: input.seasonId,
         playerId: candidate.playerId,
         mode: candidate.mode,
         tier: normalizedTier,
         rating: candidate.rating,
         achievedAt: now,
+      })
+      await db.insert(legacySeasonPeakModeRanks).values({
+        seasonId: input.seasonId,
+        playerId: candidate.playerId,
+        mode: candidate.mode,
+        tier: normalizedTier,
+        rating: candidate.rating,
+        achievedAt: now,
+      }).onConflictDoUpdate({
+        target: [legacySeasonPeakModeRanks.seasonId, legacySeasonPeakModeRanks.playerId, legacySeasonPeakModeRanks.mode],
+        set: { tier: normalizedTier, rating: candidate.rating, achievedAt: now },
       })
       inserted += 1
       continue
@@ -300,9 +359,18 @@ export async function syncSeasonPeakModeRanks(
         achievedAt: now,
       })
       .where(and(
+        eq(seasonPeakModeRanks.statsKey, statsContext.statsKey),
         eq(seasonPeakModeRanks.seasonId, input.seasonId),
         eq(seasonPeakModeRanks.playerId, candidate.playerId),
         eq(seasonPeakModeRanks.mode, candidate.mode),
+      ))
+    await db
+      .update(legacySeasonPeakModeRanks)
+      .set({ tier: normalizedTier, rating: candidate.rating, achievedAt: now })
+      .where(and(
+        eq(legacySeasonPeakModeRanks.seasonId, input.seasonId),
+        eq(legacySeasonPeakModeRanks.playerId, candidate.playerId),
+        eq(legacySeasonPeakModeRanks.mode, candidate.mode),
       ))
 
     updated += 1
@@ -318,6 +386,7 @@ export async function syncSeasonPeakModeRanks(
 
 export async function syncSeasonPeaksForPlayers(
   db: Database,
+  statsContext: StatsContext,
   input: {
     playerIds: string[]
     playerPreviews: SeasonPeakPreviewPlayer[]
@@ -328,6 +397,13 @@ export async function syncSeasonPeaksForPlayers(
   overall: SeasonPeakSyncResult
   byMode: SeasonPeakSyncResult
 }> {
+  if (statsContext.seasonPolicy !== 'ppl-seasons') {
+    return {
+      seasonId: null,
+      overall: emptySeasonPeakSyncResult(null),
+      byMode: emptySeasonPeakSyncResult(null),
+    }
+  }
   const activeSeason = await getActiveSeason(db)
   if (!activeSeason) {
     return {
@@ -348,14 +424,14 @@ export async function syncSeasonPeaksForPlayers(
 
   const ratings = await db
     .select({
-      playerId: playerRatings.playerId,
-      mode: playerRatings.mode,
-      mu: playerRatings.mu,
-      sigma: playerRatings.sigma,
-      lastPlayedAt: playerRatings.lastPlayedAt,
+      playerId: scopedPlayerRatings.playerId,
+      mode: scopedPlayerRatings.mode,
+      mu: scopedPlayerRatings.mu,
+      sigma: scopedPlayerRatings.sigma,
+      lastPlayedAt: scopedPlayerRatings.lastPlayedAt,
     })
-    .from(playerRatings)
-    .where(inArray(playerRatings.playerId, playerIds))
+    .from(scopedPlayerRatings)
+    .where(and(eq(scopedPlayerRatings.statsKey, statsContext.statsKey), inArray(scopedPlayerRatings.playerId, playerIds)))
 
   const previewByPlayerId = new Map(input.playerPreviews.map(player => [player.playerId, player]))
   const activePlayerIds = new Set<string>()
@@ -407,13 +483,13 @@ export async function syncSeasonPeaksForPlayers(
     .filter((candidate): candidate is SeasonModePeakCandidate => candidate !== null)
 
   const [overall, byMode] = await Promise.all([
-    syncSeasonPeakRanks(db, {
+    syncSeasonPeakRanks(db, statsContext, {
       seasonId: activeSeason.id,
       candidates: overallCandidates,
       activePlayerIds,
       now: input.now,
     }),
-    syncSeasonPeakModeRanks(db, {
+    syncSeasonPeakModeRanks(db, statsContext, {
       seasonId: activeSeason.id,
       candidates: modeCandidates,
       activeModesByPlayerId,

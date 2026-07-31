@@ -13,7 +13,7 @@ export const command_settings = factory.command(
   new Command('settings', 'Choose how the draft launch buttons open'),
   async (c) => {
     return c.flags('EPHEMERAL').resDefer(async (deferred) => {
-      await deferred.followup(await buildSettingsPanel(c.env, c.interaction.member?.roles))
+      await deferred.followup(await buildSettingsPanel(c.env, c.interaction.member?.roles, undefined, c.interaction.guild_id))
     })
   },
 )
@@ -28,8 +28,8 @@ export const component_settings_browser = factory.component(
   async (c) => updateSettingsPreference(c, 'browser'),
 )
 
-export async function buildSettingsPanel(env: Parameters<typeof resolveInteractionLaunchMode>[0], memberRoles: unknown, error?: string) {
-  const launch = await resolveInteractionLaunchMode(env, memberRoles)
+export async function buildSettingsPanel(env: Parameters<typeof resolveInteractionLaunchMode>[0], memberRoles: unknown, error?: string, guildId?: string | null) {
+  const launch = await resolveInteractionLaunchMode(env, memberRoles, guildId)
   if (!launch.ok) return { embeds: [ephemeralResponseEmbed(error ?? launch.error, 'error')] }
   if (!launch.config) {
     return { embeds: [ephemeralResponseEmbed(error ?? 'Browser access is not available on this deployment.', 'info')] }
@@ -49,15 +49,14 @@ export async function updateSettingsPreference(c: any, mode: 'activity' | 'brows
   const identity = getIdentity(c)
   const guildId = c.interaction.guild_id
   const roles = c.interaction.member?.roles
-  const config = await resolveBrowserAccessConfig(c.env)
-  const allowedGuildId = c.env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
-  if (!identity || !guildId || (allowedGuildId && guildId !== allowedGuildId) || !Array.isArray(roles) || !config) {
+  const config = await resolveBrowserAccessConfig(c.env, guildId)
+  if (!identity || !guildId || !Array.isArray(roles) || !config) {
     return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not update this setting. Use `/settings` inside the configured server and try again.', 'error')] })
   }
 
   const hasRole = roles.includes(config.preferenceRoleId)
   if ((mode === 'browser') === hasRole) {
-    return c.update().res(await buildSettingsPanel(c.env, roles))
+    return c.update().res(await buildSettingsPanel(c.env, roles, undefined, guildId))
   }
 
   return c.update().resDefer(async (deferred: any) => {
@@ -72,11 +71,11 @@ export async function updateSettingsPreference(c: any, mode: 'activity' | 'brows
       const nextRoles = mode === 'browser'
         ? [...new Set([...roles, config.preferenceRoleId])]
         : roles.filter((roleId: unknown) => roleId !== config.preferenceRoleId)
-      await deferred.followup(await buildSettingsPanel(c.env, nextRoles))
+      await deferred.followup(await buildSettingsPanel(c.env, nextRoles, undefined, guildId))
     }
     catch (error) {
       console.error('[settings] failed to update browser preference role', { guildId, userId: identity.userId, mode }, error)
-      await deferred.followup(await buildSettingsPanel(c.env, roles, 'Discord could not update your launch mode. Please try again.'))
+      await deferred.followup(await buildSettingsPanel(c.env, roles, 'Discord could not update your launch mode. Please try again.', guildId))
     }
   })
 }

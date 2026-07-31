@@ -36,7 +36,7 @@ export async function resDeferGeneralCommandResponse(
     redirect?: boolean
   },
 ): Promise<Response> {
-  const commandsChannelId = await getSystemChannel(c.env.KV, 'commands')
+  const commandsChannelId = await getSystemChannel(c.env.KV, 'commands', { guildId: c.interaction.guild_id, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
   const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
   const forceEphemeral = options?.ephemeral === true
   const shouldRedirect = !forceEphemeral

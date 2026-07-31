@@ -1,5 +1,6 @@
 import type { Database } from '@civup/db'
 import type { RankGraphScope } from '../services/player/rank-graph.ts'
+import type { StatsContext } from '../services/stats/context.ts'
 import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { getIdentityByUserId } from './identity.ts'
@@ -10,6 +11,7 @@ import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 
 interface Var {
   player?: string
@@ -62,7 +64,7 @@ export const command_rank = factory.command<Var>(
     if (c.var.games && gameLimit == null) return c.res('Pick a game window.')
 
     const kv = getKvStore(c.env)
-    const commandsChannelId = await getSystemChannel(kv, 'commands')
+    const commandsChannelId = await getSystemChannel(kv, 'commands', { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
     const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
     const shouldRedirect = !isDefaultSelfLookup
       && !!commandsChannelId
@@ -81,7 +83,7 @@ export const command_rank = factory.command<Var>(
         })
       }
 
-      const result = await buildRankCommandImage(db, kv, guildId, targetId, {
+      const result = await buildRankCommandImage(db, kv, createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), targetId, {
         scope,
         gameLimit: gameLimit ?? DEFAULT_RANK_GRAPH_GAMES,
       })
@@ -124,14 +126,14 @@ export const command_rank = factory.command<Var>(
 export async function buildRankCommandImage(
   db: Database,
   kv: KVNamespace,
-  guildId: string,
+  statsContext: StatsContext,
   playerId: string,
   options: {
     scope: RankGraphScope
     gameLimit: number
   },
 ): Promise<RankCommandResult> {
-  const data = await buildRankGraphImageData(db, kv, guildId, playerId, options)
+  const data = await buildRankGraphImageData(db, kv, statsContext, playerId, options)
   if (data.player.points.length === 0) {
     return { content: 'No ranked games found for this view.' }
   }

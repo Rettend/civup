@@ -85,6 +85,7 @@ import {
   resetDraft,
   selectActivityTarget,
   setAuthenticatedUser,
+  guildId as currentGuildId,
   setIsMiniView,
   setIsMobileLayout,
   watchLobbyState,
@@ -586,6 +587,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       lobbyId: lobbyId ?? '',
       matchId,
       channelId: activeChannelId ?? '',
+      originGuildId: currentGuildId() ?? '',
       mode: lobbyMode ?? '1v1',
       status: 'drafting',
       participantCount: 0,
@@ -2406,6 +2408,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 >>>>>>> Current commit: feat: external browser draft WIP
         state,
         availableTargets,
+        supportedServers: () => liveOverviewSnapshot()?.supportedServers ?? [],
         pickerBusy,
         pickerError,
         lastResolvedSelection,
@@ -2952,8 +2955,11 @@ function materializeOverviewOptions(
       lobbyId: option.lobbyId,
       matchId: option.matchId,
       channelId: option.channelId,
+      originGuildId: option.originGuildId,
       mode: option.mode,
       status: option.status,
+      reported: option.reported,
+      starting: option.starting,
       participantCount: option.participantCount,
       targetSize: option.targetSize,
       redDeath: option.redDeath,
@@ -3036,6 +3042,7 @@ function buildLobbyTargetOptionFromSnapshot(
     lobbyId: snapshot.id,
     matchId: null,
     channelId: channelId ?? '',
+    originGuildId: snapshot.originGuildId ?? currentGuildId() ?? '',
     mode: snapshot.mode as ActivityTargetOption['mode'],
     status: snapshot.draftConfig.closed === true ? 'closed' : 'open',
     participantCount: snapshot.entries.filter(entry => entry != null).length,
@@ -3192,6 +3199,9 @@ function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {
     if (aEntry.playerId !== bEntry.playerId) return false
     if (aEntry.displayName !== bEntry.displayName) return false
     if ((aEntry.avatarUrl ?? null) !== (bEntry.avatarUrl ?? null)) return false
+    if ((aEntry.sourceGuild?.id ?? null) !== (bEntry.sourceGuild?.id ?? null)) return false
+    if ((aEntry.sourceGuild?.name ?? null) !== (bEntry.sourceGuild?.name ?? null)) return false
+    if ((aEntry.sourceGuild?.iconUrl ?? null) !== (bEntry.sourceGuild?.iconUrl ?? null)) return false
   }
 
   return true

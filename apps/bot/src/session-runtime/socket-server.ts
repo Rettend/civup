@@ -16,6 +16,7 @@ interface SessionSocketAttachment {
   id: string
   sessionId: string | null
   playerId: string | null
+  guildId: string | null
   kind: SessionConnectionKind | null
   connectedAt: number
 }
@@ -100,6 +101,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
       id: options.id,
       sessionId: options.sessionId,
       playerId: null,
+      guildId: null,
       kind: null,
       connectedAt: Date.now(),
     })
@@ -162,6 +164,7 @@ function readConnectionAttachment(socket: WebSocket): SessionSocketAttachment | 
     id,
     sessionId: typeof raw.sessionId === 'string' && raw.sessionId.length > 0 ? raw.sessionId : null,
     playerId: typeof raw.playerId === 'string' && raw.playerId.length > 0 ? raw.playerId : null,
+    guildId: typeof raw.guildId === 'string' && raw.guildId.length > 0 ? raw.guildId : null,
     kind,
     connectedAt: typeof raw.connectedAt === 'number' && Number.isFinite(raw.connectedAt) ? raw.connectedAt : Date.now(),
   }
@@ -175,6 +178,7 @@ function connectionStateFromAttachment<TState>(attachment: SessionSocketAttachme
   if (!attachment?.playerId) return null
   return {
     playerId: attachment.playerId,
+    ...(attachment.guildId ? { guildId: attachment.guildId } : {}),
     ...(attachment.kind === 'open-lobby' ? { openLobby: true } : {}),
   } as TState
 }
@@ -183,11 +187,13 @@ function attachmentFromConnectionState<TState>(connection: Connection<TState>, s
   const current = readConnectionAttachment(connection)
   const stateRecord = state && typeof state === 'object' ? state as Record<string, unknown> : null
   const playerId = typeof stateRecord?.playerId === 'string' && stateRecord.playerId.length > 0 ? stateRecord.playerId : null
+  const guildId = typeof stateRecord?.guildId === 'string' && stateRecord.guildId.length > 0 ? stateRecord.guildId : null
   const openLobby = stateRecord?.openLobby === true
   return {
     id: current?.id ?? connection.id ?? crypto.randomUUID(),
     sessionId: current?.sessionId ?? null,
     playerId,
+    guildId,
     kind: playerId ? openLobby ? 'open-lobby' : 'draft' : null,
     connectedAt: current?.connectedAt ?? Date.now(),
   }

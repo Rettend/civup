@@ -1,18 +1,21 @@
 import type { Connection, ConnectionContext } from 'partyserver'
 import type { StoredActivityFollowTargetSelection, StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import type { ActivityOverviewSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
+import type { ActivityOverviewSnapshot, ActivitySupportedServerSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { SessionRecord } from './session-record.ts'
 import { createDb } from '@civup/db'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
+import { ACTIVITY_FEED_ROOM, CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { attachTournamentLobbySnapshot, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
+import { getKnownGuildIdentities } from '../services/discord/guild-metadata.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
   KV?: KVNamespace
   CIVUP_SECRET?: string
   ALLOWED_DISCORD_GUILD_ID?: string
+  ALLOWED_DISCORD_GUILD_IDS?: string
+  DISCORD_TOKEN?: string
 }
 
 export type ActivityFeedMessage
@@ -24,9 +27,14 @@ interface PublishSessionUpdateRequest {
   record?: SessionRecord
 }
 
+interface ActivityConnectionState {
+  guildId: string
+}
+
 const ACTIVITY_OVERVIEW_STORAGE_KEY = 'activity-overview-snapshot'
 const ACTIVITY_LAUNCH_TARGET_STORAGE_KEY = 'activity-launch-target'
 const ACTIVITY_FOLLOW_TARGET_STORAGE_KEY = 'activity-follow-target'
+const SOCKET_GUILD_RECHECK_INTERVAL_MS = 60 * 1000
 
 export class Activity extends Server<ActivityFeedEnv> {
   static override options = {
@@ -39,6 +47,12 @@ export class Activity extends Server<ActivityFeedEnv> {
     const pathname = new URL(req.url).pathname
     if (pathname === '/activity-launch-target') return this.handleActivityLaunchTargetRequest(req)
     if (pathname === '/activity-follow-target') return this.handleActivityFollowTargetRequest(req)
+    if (pathname.endsWith('/rebuild') || pathname === '/rebuild') {
+      if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+      const overview = await this.rebuildOverviewSnapshot(ACTIVITY_FEED_ROOM)
+      this.broadcastFeedMessage(Array.from(this.getConnections()), { type: 'overview', snapshot: overview })
+      return json({ ok: true })
+    }
 
     if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
@@ -126,7 +140,30 @@ export class Activity extends Server<ActivityFeedEnv> {
       return
     }
 
+    const guildId = readActivityGuildId(ctx.request.headers)
+    if (!guildId || !isAllowedActivityGuild(guildId, this.env)) {
+      connection.close(4403, 'Forbidden')
+      return
+    }
+
+    connection.setState({ guildId } satisfies ActivityConnectionState)
     await this.sendInitialState(connection, readActivityChannelId(ctx.request))
+    await this.rescheduleSocketGuildRecheck()
+  }
+
+  override async onAlarm(): Promise<void> {
+    const closedConnections = this.closeUnsupportedConnections()
+    if (closedConnections > 0) {
+      try {
+        const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
+        const overview = await this.rebuildOverviewSnapshot(cached?.channelId ?? ACTIVITY_FEED_ROOM)
+        this.broadcastFeedMessage(Array.from(this.getConnections()), { type: 'overview', snapshot: overview })
+      }
+      catch (error) {
+        console.error('[activity-feed] failed to rebuild overview after supported-server change', error)
+      }
+    }
+    await this.rescheduleSocketGuildRecheck()
   }
 
   private async sendInitialState(connection: Connection, channelId: string | null): Promise<void> {
@@ -144,12 +181,11 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   private async broadcastSessionUpdate(record: SessionRecord): Promise<void> {
-    if (!isAllowedActivityGuild(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID)) return
+    if (!isAllowedActivityGuild(record.guildId, this.env)) return
     const connections = Array.from(this.getConnections())
     if (connections.length === 0) return
 
-    const channelId = record.projectionState.channelId
-    const baseOverview = await this.getOverviewSnapshot(channelId)
+    const baseOverview = await this.getOverviewSnapshot(ACTIVITY_FEED_ROOM)
     const overview = mergeActivityOverviewSnapshotForSessionUpdate(baseOverview, record)
     await this.ctx.storage.put(ACTIVITY_OVERVIEW_STORAGE_KEY, overview)
     this.broadcastFeedMessage(connections, { type: 'overview', snapshot: overview })
@@ -159,7 +195,7 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async buildLobbyFeedMessage(record: SessionRecord): Promise<ActivityFeedMessage> {
     if (record.phase !== 'open') return { type: 'lobby', lobbyId: record.id, snapshot: null }
     if (!this.env.KV) return { type: 'error', message: 'Activity lobby snapshots are not configured' }
-    const snapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
+    const snapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record, undefined, undefined, { legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
     return {
       type: 'lobby',
       lobbyId: record.id,
@@ -181,8 +217,23 @@ export class Activity extends Server<ActivityFeedEnv> {
 
   private async loadOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     if (!this.env.DB) return null
+    const guildConfig = resolveApprovedDiscordGuildConfiguration(this.env)
+    if (!guildConfig.ok) return null
+    const supportedServers = await this.loadSupportedServers(guildConfig.guildIds)
     return buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId, {
-      guildId: this.env.ALLOWED_DISCORD_GUILD_ID?.trim() || null,
+      guildIds: guildConfig.guildIds,
+      sharedFeed: true,
+      supportedServers,
+    })
+  }
+
+  private async loadSupportedServers(guildIds: readonly string[]): Promise<ActivitySupportedServerSnapshot[]> {
+    if (!this.env.KV) return guildIds.map(id => ({ id, name: null, iconUrl: null }))
+    const identities = await getKnownGuildIdentities(this.env.KV, this.env.DISCORD_TOKEN, guildIds)
+    const byId = new Map(identities.map(identity => [identity.id, identity]))
+    return guildIds.map((id) => {
+      const identity = byId.get(id)
+      return { id, name: identity?.name ?? null, iconUrl: identity?.iconUrl ?? null }
     })
   }
 
@@ -193,14 +244,46 @@ export class Activity extends Server<ActivityFeedEnv> {
   private broadcastFeedMessage(connections: readonly Connection[], message: ActivityFeedMessage): void {
     const encoded = JSON.stringify(message)
     for (const connection of connections) {
+      if (!this.isAllowedConnection(connection)) {
+        if (connection.readyState < 2) connection.close(4403, 'Forbidden')
+        continue
+      }
       sendConnectionMessage(connection, encoded)
     }
   }
+
+  private closeUnsupportedConnections(): number {
+    let closed = 0
+    for (const connection of this.getConnections()) {
+      if (this.isAllowedConnection(connection)) continue
+      connection.close(4403, 'Forbidden')
+      closed += 1
+    }
+    return closed
+  }
+
+  private isAllowedConnection(connection: Connection): boolean {
+    const state = connection.state as ActivityConnectionState | null
+    return isAllowedActivityGuild(state?.guildId ?? null, this.env)
+  }
+
+  private async rescheduleSocketGuildRecheck(): Promise<void> {
+    const storage = this.ctx.storage as DurableObjectStorage & {
+      setAlarm?: (scheduledTime: number | Date) => Promise<void>
+      deleteAlarm?: () => Promise<void>
+    }
+    const hasConnections = Array.from(this.getConnections()).some(connection => connection.readyState < 2)
+    if (!hasConnections) {
+      if (typeof storage.deleteAlarm === 'function') await storage.deleteAlarm()
+      return
+    }
+    if (typeof storage.setAlarm === 'function') await storage.setAlarm(Date.now() + SOCKET_GUILD_RECHECK_INTERVAL_MS)
+  }
 }
 
-function isAllowedActivityGuild(sessionGuildId: string | null, configuredGuildId: string | undefined): boolean {
-  const allowedGuildId = configuredGuildId?.trim() ?? ''
-  return allowedGuildId.length === 0 || sessionGuildId === allowedGuildId
+function isAllowedActivityGuild(sessionGuildId: string | null, env: ActivityFeedEnv): boolean {
+  const config = resolveApprovedDiscordGuildConfiguration(env)
+  return config.ok && sessionGuildId != null && config.guildIds.includes(sessionGuildId)
 }
 
 function sendConnectionMessage(connection: Connection, message: string): boolean {
@@ -219,6 +302,11 @@ function sendConnectionMessage(connection: Connection, message: string): boolean
 function readActivityUserId(headers: Headers): string | null {
   const userId = headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)?.trim() ?? ''
   return userId.length > 0 ? userId : null
+}
+
+function readActivityGuildId(headers: Headers): string | null {
+  const guildId = headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)?.trim() ?? ''
+  return guildId.length > 0 ? guildId : null
 }
 
 function readActivityChannelId(request: Request): string | null {

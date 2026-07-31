@@ -1,4 +1,4 @@
-import { sessionDirectory } from '@civup/db'
+import { matches, sessionDirectory } from '@civup/db'
 import { PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER, verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -8,16 +8,121 @@ import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLob
 import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const LOBBY_GUILD_ID = '111111111111111111'
+const LOBBY_STATS_CONTEXT = createStatsContext(LOBBY_GUILD_ID, LOBBY_GUILD_ID)
 const TITAN_ROLE_ID = '99999999999999999'
 const activityNamespaces = new WeakMap<KVNamespace, DurableObjectNamespace>()
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+})
+
+describe('activity source guild authorization', () => {
+  test('rejects an internally forwarded identity from an unapproved guild', async () => {
+    const { kv } = createTrackedKv()
+    await createLobby(kv, { mode: '2v2', hostId: 'host-1', channelId: 'channel-1', messageId: 'message-1' })
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+    const headers = new Headers(buildAuthHeaders('player-1'))
+    headers.set('X-CivUp-Activity-Guild-Id', '999999999999999999')
+
+    const response = await app.request('/api/activity/channel/channel-1', { headers }, buildEnv(kv))
+    expect(response.status).toBe(403)
+  })
+
+  test('returns approved Discord server metadata only to the internal Activity worker', async () => {
+    const { kv } = createTrackedKv()
+    const partnerGuildId = '222222222222222222'
+    await createLobby(kv, {
+      mode: '2v2', hostId: 'host-1', channelId: 'channel-1', messageId: 'message-1',
+    })
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const guildId = new URL(String(input)).pathname.split('/').at(-1)!
+      return Response.json({ id: guildId, name: guildId === partnerGuildId ? 'Partner Server' : 'Primary Server', icon: `icon-${guildId}` })
+    }) as typeof fetch
+    const env = { ...buildEnv(kv), ALLOWED_DISCORD_GUILD_IDS: partnerGuildId }
+
+    const unauthorized = await app.request('/api/activity/supported-servers', {}, env)
+    expect(unauthorized.status).toBe(401)
+
+    const response = await app.request('/api/activity/supported-servers', {
+      headers: { 'X-CivUp-Internal-Secret': 'secret' },
+    }, env)
+    expect(response.status).toBe(200)
+    expect(await response.json<any>()).toEqual({
+      servers: [
+        {
+          id: '1234044388733095946',
+          name: 'Primary Server',
+          iconUrl: 'https://cdn.discordapp.com/icons/1234044388733095946/icon-1234044388733095946.png?size=64',
+        },
+        {
+          id: partnerGuildId,
+          name: 'Partner Server',
+          iconUrl: `https://cdn.discordapp.com/icons/${partnerGuildId}/icon-${partnerGuildId}.png?size=64`,
+        },
+      ],
+    })
+  })
+})
+
+describe('shared Activity discovery', () => {
+  test('lists open sessions from multiple approved origin guilds regardless of launch channel', async () => {
+    const { kv } = createTrackedKv()
+    const first = await createLobby(kv, {
+      mode: '2v2', guildId: '111111111111111111', hostId: 'host-1', channelId: 'channel-a', messageId: 'message-a',
+    })
+    const second = await createLobby(kv, {
+      mode: 'ffa', guildId: '222222222222222222', hostId: 'host-2', channelId: 'channel-b', messageId: 'message-b',
+    })
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'partner-launch-channel', 'spectator', {
+      ...activityRuntimeOptions(kv),
+      guildIds: ['111111111111111111', '222222222222222222'],
+    })
+    expect(snapshot.options.map(option => option.id)).toEqual(expect.arrayContaining([first.id, second.id]))
+  })
+
+  test('builds the shared overview from D1 without contacting every SessionDO', async () => {
+    const { kv } = createTrackedKv()
+    await createLobby(kv, {
+      mode: '2v2', guildId: '1234044388733095946', hostId: 'host-1', channelId: 'channel-a', messageId: 'message-a',
+    })
+    await createLobby(kv, {
+      mode: 'ffa', guildId: '1234044388733095946', hostId: 'host-2', channelId: 'channel-b', messageId: 'message-b',
+    })
+    let durableObjectLookups = 0
+    const env = {
+      ...buildEnv(kv),
+      SessionDO: {
+        idFromName(name: string) {
+          return name as unknown as DurableObjectId
+        },
+        get() {
+          durableObjectLookups += 1
+          throw new Error('Overview must not contact SessionDO')
+        },
+      } as unknown as DurableObjectNamespace,
+    }
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+
+    const response = await app.request('/api/activity/channel/partner-launch-channel', {
+      headers: buildAuthHeaders('spectator'),
+    }, env)
+
+    expect(response.status).toBe(200)
+    expect((await response.json<any>()).snapshot.options).toHaveLength(2)
+    expect(durableObjectLookups).toBe(0)
+  })
 })
 
 describe('activity lobby join eligibility', () => {
@@ -183,6 +288,7 @@ describe('activity lobby join eligibility', () => {
     })
     const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
+    await getExistingTestLobbyRuntime(kv).db.update(matches).set({ draftCompletedAt: null, draftData: null }).where(eq(matches.id, liveLobby.id))
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', openLobby)
     const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', openLobby, snapshot, {
@@ -335,7 +441,7 @@ describe('activity lobby join eligibility', () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: '1234044388733095946',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -348,7 +454,7 @@ describe('activity lobby join eligibility', () => {
     })
 
     await setLobbyMinRole(kv, lobby.id, 'tier2')
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, '1234044388733095946', {
       tier2: '11111111111111111',
     })
 
@@ -374,7 +480,7 @@ describe('activity lobby join eligibility', () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: '1234044388733095946',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -387,7 +493,7 @@ describe('activity lobby join eligibility', () => {
     })
 
     await setLobbyMaxRole(kv, lobby.id, 'tier2')
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, '1234044388733095946', {
       tier1: TITAN_ROLE_ID,
       tier2: '11111111111111111',
     })
@@ -451,12 +557,14 @@ describe('activity target selection', () => {
 
     const currentLobby = await createLobby(kv, {
       mode: '2v2',
+      guildId: '1234044388733095946',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-current',
     })
     await createLobby(kv, {
       mode: '2v2',
+      guildId: '1234044388733095946',
       hostId: 'host-2',
       channelId: 'channel-1',
       messageId: 'message-stale',
@@ -519,6 +627,7 @@ describe('activity target selection', () => {
       displayName: 'Host 1',
       avatarUrl: null,
       joinedAt: Date.now(),
+      sourceGuild: { id: LOBBY_GUILD_ID, name: 'Origin Server', iconUrl: 'https://cdn.discordapp.com/origin.png' },
     }
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -527,19 +636,21 @@ describe('activity target selection', () => {
       messageId: 'message-1',
       queueEntries: [hostQueueEntry],
     })
-    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+    const balanceSnapshot = {
       version: 3,
       updatedAt: Date.now(),
       rows: [
         { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
       ],
-    }))
+    }
+    await kv.put(leaderboardModeSnapshotKey(LOBBY_STATS_CONTEXT, 'duo'), JSON.stringify(balanceSnapshot))
 
-    const snapshot = await buildOpenLobbySnapshotFromParts(kv, '2v2', lobby, [hostQueueEntry], lobby.slots)
+    const snapshot = await buildOpenLobbySnapshotFromParts(kv, '2v2', lobby, [hostQueueEntry], lobby.slots, balanceSnapshot, LOBBY_GUILD_ID)
     const hostEntry = snapshot.entries.find(entry => entry?.playerId === 'host-1') ?? null
 
     expect(hostEntry).toEqual(expect.objectContaining({
       playerId: 'host-1',
+      sourceGuild: expect.objectContaining({ id: LOBBY_GUILD_ID, name: 'Origin Server' }),
       balanceRating: expect.objectContaining({
         mu: 31,
         sigma: 3,
@@ -722,6 +833,15 @@ describe('activity target selection', () => {
       messageId: 'message-reported',
     })
 
+    await createDbFromRuntime(kv).insert(matches).values({
+      id: lobby.id,
+      guildId: LOBBY_GUILD_ID,
+      gameMode: '1v1',
+      status: 'completed',
+      createdAt: lobby.createdAt,
+      completedAt: Date.now(),
+    })
+
     await createDbFromRuntime(kv).update(sessionDirectory).set({
       phase: 'reported',
       matchId: lobby.id,
@@ -761,7 +881,7 @@ describe('activity target selection', () => {
     expect(snapshot.selection.matchId).toBe(matchLobby.id)
   })
 
-  test('keeps a clicked match launch hint when an early hydrate cannot see the target', async () => {
+  test('resolves a clicked match across launch channels in the shared feed', async () => {
     const { kv } = createTrackedKv()
     const matchLobby = await createLobby(kv, {
       mode: '2v2',
@@ -777,12 +897,10 @@ describe('activity target selection', () => {
     await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-interaction-channel', 'player-1', { kind: 'match', id: matchLobby.id })
 
     const staleHydrate = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'empty-channel', 'player-1', activityRuntimeOptions(kv))
-    expect(staleHydrate.selection).toBeNull()
+    expect(staleHydrate.selection?.kind).toBe('match')
+    if (staleHydrate.selection?.kind !== 'match') return
+    expect(staleHydrate.selection.matchId).toBe(matchLobby.id)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', activityRuntimeOptions(kv))
-    expect(snapshot.selection?.kind).toBe('match')
-    if (snapshot.selection?.kind !== 'match') return
-    expect(snapshot.selection.matchId).toBe(matchLobby.id)
   })
 
   test('keeps open lobby options when queue metadata is missing', async () => {
@@ -1364,7 +1482,14 @@ function buildEnv(kv: KVNamespace) {
 
 function activityRuntimeOptions(kv: KVNamespace) {
   const runtime = getExistingTestLobbyRuntime(kv)
-  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace, activityNamespace: getTestActivityNamespace(kv), internalSecret: 'secret' }
+  return {
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+    activityNamespace: getTestActivityNamespace(kv),
+    internalSecret: 'secret',
+    guildIds: [LOBBY_GUILD_ID],
+    legacyGuildId: LOBBY_GUILD_ID,
+  }
 }
 
 function getTestActivityNamespace(kv: KVNamespace): DurableObjectNamespace {
@@ -1456,5 +1581,7 @@ function buildAuthHeaders(userId: string): HeadersInit {
     'X-CivUp-Internal-Secret': 'secret',
     'X-CivUp-Activity-User-Id': userId,
     'X-CivUp-Activity-Display-Name': userId,
+    'X-CivUp-Activity-Guild-Id': '1234044388733095946',
+    'X-CivUp-Activity-Guild-Permissions': '0',
   }
 }

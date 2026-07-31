@@ -1,7 +1,9 @@
 import type { Database as CivupDatabase } from '@civup/db'
-import type { GameMode } from '@civup/game'
+import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from '../../src/services/lobby/types.ts'
+import { matches } from '@civup/db'
 import { canStartWithPlayerCount } from '@civup/game'
+import { eq } from 'drizzle-orm'
 import * as source from '../../src/services/lobby/index.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer, getCurrentSessionLobbyProjectionsForPlayers, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByChannel, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSessionRecord, runSessionDraftLifecycleCommand, startSessionDraft } from '../../src/session-runtime/session-do-client.ts'
@@ -116,6 +118,7 @@ export function buildTestLobbyEnv(kv: KVNamespace, overrides: Record<string, unk
     SessionDO: runtime.sessionNamespace,
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
+    ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
   }
   for (const [key, value] of Object.entries(overrides)) {
     if (value !== undefined) env[key] = value
@@ -130,9 +133,20 @@ export async function createLobby(
   const runtime = await getTestLobbyRuntime(kv, input.db)
   const sessionNamespace = input.sessionNamespace ?? runtime.sessionNamespace
   resolvedRuntimes.set(kv, { ...runtime, sessionNamespace })
-  const seededEntries = input.queueEntries ?? getSeededRosterEntries(kv, input.mode)
+  const guildId = input.guildId === undefined ? '111111111111111111' : input.guildId
+  const seededEntries = withDefaultSourceGuild(input.queueEntries ?? getSeededRosterEntries(kv, input.mode), guildId)
+  if (guildId && !seededEntries.some(entry => entry.playerId === input.hostId)) {
+    seededEntries.push({
+      playerId: input.hostId,
+      displayName: input.hostId,
+      avatarUrl: null,
+      joinedAt: Date.now(),
+      sourceGuild: { id: guildId },
+    })
+  }
   return await source.createLobby(kv, {
     ...input,
+    guildId,
     queueEntries: seededEntries,
     db: input.db ?? runtime.db,
     sessionNamespace,
@@ -236,7 +250,7 @@ export async function setLobbyArranged(
   options?: Parameters<typeof source.setLobbyArranged>[4],
 ): ReturnType<typeof source.setLobbyArranged> {
   const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
-  return await source.setLobbyArranged(kv, lobbyId, input, lobby, await withRuntimeOptions(kv, options))
+  return await source.setLobbyArranged(kv, lobbyId, input, lobby, await withRuntimeOptionsForLobby(kv, lobby, options))
 }
 
 export async function setLobbyMemberPlayerIds(
@@ -304,6 +318,15 @@ export async function completeTestSessionDraft(
 ): Promise<LobbyState | null> {
   const runtimeOptions = await withRuntimeOptions(kv, options)
   await runSessionDraftLifecycleCommand(runtimeOptions.sessionNamespace, lobbyId, { type: 'draft-completed' })
+  const [match] = await runtimeOptions.db.select().from(matches).where(eq(matches.id, lobbyId)).limit(1)
+  if (match?.status === 'drafting') {
+    const completedAt = Date.now()
+    await runtimeOptions.db.update(matches).set({
+      status: 'active',
+      draftCompletedAt: completedAt,
+      draftData: match.draftData ?? JSON.stringify({ completedAt }),
+    }).where(eq(matches.id, lobbyId))
+  }
   return await getLobbyById(kv, lobbyId)
 }
 
@@ -343,7 +366,7 @@ async function ensureStartableLobby(
 
     const queueEntries = [
       ...(options.queueEntries ?? []),
-      { playerId: fillerId, displayName: fillerId, avatarUrl: null, joinedAt: 0 },
+      { playerId: fillerId, displayName: fillerId, avatarUrl: null, joinedAt: 0, sourceGuild: { id: next.guildId } },
     ]
     const memberPlayerIds = [...next.memberPlayerIds, fillerId]
     const slots = [...next.slots]
@@ -376,11 +399,19 @@ async function withRuntimeOptionsForLobby<T extends LobbyProjectionOptions | und
   options: T,
 ): Promise<NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }> {
   const runtimeOptions = await withRuntimeOptions(kv, options)
-  if (!lobby || runtimeOptions.queueEntries) return runtimeOptions
+  if (!lobby) return runtimeOptions
+  if (runtimeOptions.queueEntries) {
+    return { ...runtimeOptions, queueEntries: withDefaultSourceGuild(runtimeOptions.queueEntries, lobby.guildId) }
+  }
   const seededEntries = getSeededRosterEntries(kv, lobby.mode)
   return seededEntries.length > 0
-    ? { ...runtimeOptions, queueEntries: seededEntries }
+    ? { ...runtimeOptions, queueEntries: withDefaultSourceGuild(seededEntries, lobby.guildId) }
     : runtimeOptions
+}
+
+function withDefaultSourceGuild(entries: readonly QueueEntry[], guildId: string | null): QueueEntry[] {
+  if (!guildId) return [...entries]
+  return entries.map(entry => entry.sourceGuild ? entry : { ...entry, sourceGuild: { id: guildId } })
 }
 
 async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabase | null): Promise<TestLobbyRuntime> {
@@ -392,6 +423,7 @@ async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabas
     KV: kv,
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
+    ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
   })
 
   return { db, d1, sessionNamespace }

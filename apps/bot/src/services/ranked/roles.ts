@@ -107,6 +107,40 @@ export async function getRankedRoleDisplayConfig(kv: KVNamespace, guildId: strin
   }
 }
 
+export interface RankedRoleCalculationConfig {
+  config: RankedRoleConfig
+  styleGuildId: string
+  usesPrimaryStyle: boolean
+  valid: boolean
+}
+
+export async function getRankedRoleCalculationConfig(
+  kv: KVNamespace,
+  guildId: string,
+  primaryGuildId: string,
+): Promise<RankedRoleCalculationConfig> {
+  const local = await getRankedRoleDisplayConfig(kv, guildId)
+  const configuredLocalTiers = local.tiers.filter(tier => tier.roleId != null).length
+  if (configuredLocalTiers === local.tiers.length) {
+    return { config: local, styleGuildId: guildId, usesPrimaryStyle: false, valid: true }
+  }
+  if (configuredLocalTiers > 0) {
+    return { config: local, styleGuildId: guildId, usesPrimaryStyle: false, valid: false }
+  }
+  if (guildId === primaryGuildId) {
+    return { config: local, styleGuildId: guildId, usesPrimaryStyle: false, valid: true }
+  }
+
+  const primary = await getRankedRoleDisplayConfig(kv, primaryGuildId)
+  const configuredPrimaryTiers = primary.tiers.filter(tier => tier.roleId != null).length
+  return {
+    config: primary,
+    styleGuildId: primaryGuildId,
+    usesPrimaryStyle: true,
+    valid: configuredPrimaryTiers === 0 || configuredPrimaryTiers === primary.tiers.length,
+  }
+}
+
 export async function setRankedRoleTierCount(
   kv: KVNamespace,
   guildId: string,

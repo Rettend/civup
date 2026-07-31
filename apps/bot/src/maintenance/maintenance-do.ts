@@ -2,11 +2,13 @@
 import type { Env } from '../env.ts'
 import { createDb } from '@civup/db'
 import { DurableObject } from 'cloudflare:workers'
+import { resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { MaintenanceQueue } from './maintenance-queue.ts'
 import { generateCivBlitzModResponse } from './civblitz-maintenance.ts'
 import { runRankedRoleMaintenance } from './ranked-role-maintenance.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 
 const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
 
@@ -30,10 +32,7 @@ export class MaintenanceDO extends DurableObject<Env['Bindings']> {
 
     if (pathname === '/leaderboards/refresh') {
       return this.runMaintenance('leaderboard refresh', async () => ({
-        refreshed: await refreshDirtyLeaderboards(createDb(this.env.DB), getKvStore(this.env), this.env.DISCORD_TOKEN, {
-          minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
-          playerModeLimit: 1,
-        }),
+        refreshed: await this.refreshConfiguredGuildLeaderboards(),
       }))
     }
 
@@ -45,6 +44,28 @@ export class MaintenanceDO extends DurableObject<Env['Bindings']> {
     if (!action) return Response.json({ error: 'Maintenance action not found' }, { status: 404 })
 
     return this.runMaintenance(action, () => runRankedRoleMaintenance(this.env, action))
+  }
+
+  private async refreshConfiguredGuildLeaderboards(): Promise<boolean> {
+    const config = resolveApprovedDiscordGuildConfiguration(this.env)
+    if (!config.ok) throw new Error(`Approved Discord server configuration is invalid: ${config.error}`)
+    const db = createDb(this.env.DB)
+    const kv = getKvStore(this.env)
+    let refreshed = false
+    for (const guildId of config.guildIds) {
+      try {
+        refreshed = await refreshDirtyLeaderboards(db, kv, this.env.DISCORD_TOKEN, {
+          channelScope: { guildId, legacyGuildId: config.primaryGuildId },
+          statsContext: createStatsContext(guildId, config.primaryGuildId),
+          minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
+          playerModeLimit: 1,
+        }) || refreshed
+      }
+      catch (error) {
+        console.error(`[maintenance-do] Failed to refresh leaderboards for guild ${guildId}:`, error)
+      }
+    }
+    return refreshed
   }
 
   private async runMaintenance<T>(label: string, task: () => Promise<T>): Promise<Response> {

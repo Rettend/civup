@@ -1,11 +1,12 @@
 import type { LobbyState } from '../../src/services/lobby/index.ts'
 import type { TournamentStage } from '../../src/services/tournament/index.ts'
-import { leaderboardMessageStates, matchCivStatContributions, matches, matchParticipants, playerRatingEvents, playerRatings, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import { leaderboardMessageStates, matches, matchParticipants, players, scopedMatchCivStatContributions as matchCivStatContributions, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { backfillCivLeaderboardStatsFromHistory } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { cancelMatchByModerator, recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator } from '../../src/services/match/index.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { renderTournamentLeaderboardPng, renderTournamentLeaderboardSvg, renderTournamentOpponentsPng, renderTournamentResultPng, renderTournamentResultSvg } from '../../src/services/tournament/image.ts'
 import {
   buildTournamentLeaderboardImageData,
@@ -38,6 +39,9 @@ const PLAYER_5 = '1000000000000005'
 const PLAYER_6 = '1000000000000006'
 const PLAYER_7 = '1000000000000007'
 const PLAYER_8 = '1000000000000008'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
+const directTerminalOptions = { allowDirectTerminalWriteForTests: true, primaryGuildId: GUILD_ID }
 const originalFetch = globalThis.fetch
 
 describe('tournament service', () => {
@@ -409,7 +413,7 @@ describe('tournament service', () => {
         matchId: 'tournament-report',
         reporterId: PLAYER_1,
         placements: `<@${PLAYER_1}>`,
-      }, { allowDirectTerminalWriteForTests: true })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -424,10 +428,10 @@ describe('tournament service', () => {
       expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
       expect(await db.select().from(matchCivStatContributions)).toHaveLength(0)
 
-      expect(await recalculateLeaderboardMode(db, 'duel')).toEqual({ matchIds: [] })
-      expect(await recalculateGlobalRatings(db)).toEqual({ matchIds: [] })
+      expect(await recalculateLeaderboardMode(db, 'duel', STATS_CONTEXT)).toEqual({ matchIds: [] })
+      expect(await recalculateGlobalRatings(db, STATS_CONTEXT)).toEqual({ matchIds: [] })
       expect(await db.select().from(playerRatings)).toHaveLength(0)
-      expect((await backfillCivLeaderboardStatsFromHistory(db)).snapshot.completedMatchCount).toBe(0)
+      expect((await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT)).snapshot.completedMatchCount).toBe(0)
       expect(await db.select().from(matchCivStatContributions)).toHaveLength(0)
     }
     finally {
@@ -451,7 +455,7 @@ describe('tournament service', () => {
         matchId: 'tournament-mod',
         reporterId: PLAYER_1,
         placements: `<@${PLAYER_1}>`,
-      }, { allowDirectTerminalWriteForTests: true })
+      }, directTerminalOptions)
       expect('error' in reported).toBe(false)
       if ('error' in reported) return
 
@@ -459,7 +463,7 @@ describe('tournament service', () => {
         matchId: 'tournament-mod',
         placements: `<@${PLAYER_2}>`,
         resolvedAt: Date.now(),
-      }, { allowDirectTerminalWriteForTests: true })
+      }, directTerminalOptions)
       expect('error' in resolved).toBe(false)
       if ('error' in resolved) return
       expect(resolved.recalculatedMatchIds).toEqual([])
@@ -473,7 +477,7 @@ describe('tournament service', () => {
       const cancelled = await cancelMatchByModerator(db, kv, {
         matchId: 'tournament-mod',
         cancelledAt: Date.now(),
-      }, { allowDirectTerminalWriteForTests: true })
+      }, directTerminalOptions)
       expect('error' in cancelled).toBe(false)
       if ('error' in cancelled) return
       expect(cancelled.recalculatedMatchIds).toEqual([])
@@ -620,9 +624,9 @@ describe('tournament service', () => {
       await reportTournamentMatch(db, tournament.id, 'fresh-image-qualifier-1', 'fresh-image-match-1', [[PLAYER_1, 1], [PLAYER_4, 2]])
       await reportTournamentMatch(db, tournament.id, 'fresh-image-qualifier-2', 'fresh-image-match-2', [[PLAYER_2, 1], [PLAYER_3, 2]])
 
-      await refreshTournamentLeaderboard(db, kv, 'token')
+      await refreshTournamentLeaderboard(db, kv, 'token', { guildId: 'guild-primary', legacyGuildId: 'guild-primary' })
       await createTournamentCut(db, tournament.id)
-      await refreshTournamentLeaderboard(db, kv, 'token')
+      await refreshTournamentLeaderboard(db, kv, 'token', { guildId: 'guild-primary', legacyGuildId: 'guild-primary' })
 
       expect(posts).toHaveLength(2)
       expect(patches).toHaveLength(0)
@@ -633,7 +637,7 @@ describe('tournament service', () => {
       expect(messageIdByScope.has(`tournament:${tournament.id}:top-cut`)).toBe(false)
       expect(messageIdByScope.get(`tournament:${tournament.id}:bracket`)).toBe('message-2')
 
-      await refreshTournamentLeaderboard(db, kv, 'token')
+      await refreshTournamentLeaderboard(db, kv, 'token', { guildId: 'guild-primary', legacyGuildId: 'guild-primary' })
       expect(posts).toHaveLength(2)
       expect(patches).toHaveLength(1)
       expect(patches.some(url => url.endsWith('/messages/message-1'))).toBe(false)
@@ -1103,6 +1107,7 @@ async function insertReportedMatch(
 ) {
   await db.insert(matches).values({
     id: matchId,
+    guildId: GUILD_ID,
     gameMode: '1v1',
     status: 'completed',
     isOld: false,
@@ -1130,6 +1135,7 @@ async function insertActiveMatch(
 ) {
   await db.insert(matches).values({
     id: matchId,
+    guildId: GUILD_ID,
     gameMode: '1v1',
     status: 'active',
     isOld: false,

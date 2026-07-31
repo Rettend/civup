@@ -48,6 +48,7 @@
   "vars": {
     "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
     "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+    "ALLOWED_DISCORD_GUILD_IDS": "1372172102362337362",
     "DISCORD_CLIENT_ID": "1469447716751933533"
   },
   "services": [

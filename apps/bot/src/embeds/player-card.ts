@@ -1,7 +1,8 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players, tournamentMatches } from '@civup/db'
+import type { StatsContext } from '../services/stats/context.ts'
+import { matches, matchParticipants, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
@@ -69,6 +70,7 @@ interface CommonPlayerQuerySegment {
 
 export async function playerCardEmbed(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   modeFilter: StatsModeFilter = 'all',
   options: {
@@ -84,13 +86,13 @@ export async function playerCardEmbed(
       .where(eq(players.id, playerId))
       .limit(1)
       .then(rows => rows[0] ?? null),
-    getDisplaySeason(db),
+    statsContext.seasonPolicy === 'ppl-seasons' ? getDisplaySeason(db) : Promise.resolve(null),
     options.ratingRows
       ? Promise.resolve(options.ratingRows)
       : db
           .select()
           .from(playerRatings)
-          .where(eq(playerRatings.playerId, playerId)),
+          .where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.playerId, playerId))),
   ])
 
   const displayName = player?.displayName ?? `<@${playerId}>`
@@ -107,9 +109,9 @@ export async function playerCardEmbed(
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
 
-  const completedParticipationRows = await listCompletedPlayerMatchSummaries(db, playerId, modeFilter, displaySeason?.id ?? null)
+  const completedParticipationRows = await listCompletedPlayerMatchSummaries(db, statsContext, playerId, modeFilter, displaySeason?.id ?? null)
   const ffaRatingRows = ratingModes.includes('ffa')
-    ? await listFfaRatingWinSnapshotRows(db, playerId, displaySeason?.id ?? null)
+    ? await listFfaRatingWinSnapshotRows(db, statsContext, playerId, displaySeason?.id ?? null)
     : []
   const ffaRatingWins = countFfaRatingWins(ffaRatingRows)
 
@@ -146,6 +148,7 @@ export async function playerCardEmbed(
 
   const recentParticipations = await hydrateModeRatingSnapshotsFromEvents(
     db,
+    statsContext,
     await listRecentPlayerMatches(db, playerId, completedParticipationRows.slice(0, RECENT_MATCHES_LIMIT).map(row => row.matchId)),
   )
 
@@ -259,6 +262,7 @@ export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow
 
 async function listCompletedPlayerMatchSummaries(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   modeFilter: StatsModeFilter,
   seasonId: string | null,
@@ -281,6 +285,7 @@ async function listCompletedPlayerMatchSummaries(
     const conditions = [
       inArray(matches.id, batch),
       eq(matches.status, 'completed'),
+      eq(matches.guildId, statsContext.guildId),
     ]
     if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
     if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
@@ -310,13 +315,16 @@ async function listCompletedPlayerMatchSummaries(
 
 async function listFfaRatingWinSnapshotRows(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   seasonId: string | null,
 ): Promise<ModeRatingSnapshotRow[]> {
   const conditions = [
     eq(playerRatingEvents.playerId, playerId),
     eq(playerRatingEvents.mode, 'ffa'),
+    eq(playerRatingEvents.statsKey, statsContext.statsKey),
     eq(matches.status, 'completed'),
+    eq(matches.guildId, statsContext.guildId),
   ]
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
 

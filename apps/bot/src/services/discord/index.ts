@@ -67,6 +67,12 @@ export interface DiscordGuildMemberResponse {
   }
 }
 
+export interface DiscordGuildResponse {
+  id: string
+  name?: string
+  icon?: string | null
+}
+
 interface DiscordMessageResponse {
   id: string
 }
@@ -242,6 +248,15 @@ export async function fetchGuildMember(
   )
 
   return response.json<DiscordGuildMemberResponse>()
+}
+
+export async function fetchGuild(token: string, guildId: string): Promise<DiscordGuildResponse> {
+  const response = await requestDiscord(
+    'fetch guild',
+    `https://discord.com/api/v10/guilds/${guildId}`,
+    { method: 'GET', headers: { Authorization: `Bot ${token}` } },
+  )
+  return response.json<DiscordGuildResponse>()
 }
 
 export async function editChannelMessage(

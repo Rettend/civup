@@ -1,10 +1,11 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
-import { playerRatings, players } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
 import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
@@ -131,10 +132,11 @@ export interface ProjectedRankedTierSummary {
   label: string | null
 }
 
-interface RankedRoleSyncOptions {
+export interface RankedRoleSyncOptions {
   db: Database
   kv: KVNamespace
   guildId: string
+  statsContext: StatsContext
   token?: string
   now?: number
   applyDiscord?: boolean
@@ -145,6 +147,7 @@ interface RankedRoleSyncOptions {
   maxDiscordRoleSyncPlayers?: number
   /** Full role sync needs full-roster grace caps; single-player read views can skip them. */
   fullRosterGraceCaps?: boolean
+  configOverride?: RankedRoleConfig
 }
 
 interface RatingSnapshotRow {
@@ -261,6 +264,7 @@ const GRACE_CAP_RATIO_BY_TIER_RANK = new Map<number, number>([
   [2, 0.75],
   [3, 1.20],
 ])
+const GRACE_MAX_BEST_MODE_UPLIFT = 1
 
 function buildRankedTierThresholds(config: RankedRoleConfig): RankedTierThreshold[] {
   const prestigeTierCount = Math.max(0, getRankedRoleTierCount(config) - 1)
@@ -440,9 +444,9 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   })
   const preview = state.preview
 
-  const activeSeason = await getActiveSeason(options.db)
+  const activeSeason = options.statsContext.seasonPolicy === 'ppl-seasons' ? await getActiveSeason(options.db) : null
   if (activeSeason) {
-    await syncSeasonPeakRanks(options.db, {
+    await syncSeasonPeakRanks(options.db, options.statsContext, {
       seasonId: activeSeason.id,
       candidates: preview.playerPreviews.map(player => ({
         playerId: player.playerId,
@@ -452,7 +456,7 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
       activePlayerIds: buildSeasonActivePlayerIds(state.globalRatings, activeSeason.startsAt),
       now: options.now,
     })
-    await syncSeasonPeakModeRanks(options.db, {
+    await syncSeasonPeakModeRanks(options.db, options.statsContext, {
       seasonId: activeSeason.id,
       candidates: buildSeasonModePeakCandidates(state.ratings, preview.playerPreviews),
       activeModesByPlayerId: buildSeasonActiveModesByPlayerId(state.ratings, activeSeason.startsAt),
@@ -809,18 +813,20 @@ async function buildRankedRolePreviewState({
   db,
   kv,
   guildId,
+  statsContext,
   now = Date.now(),
   advanceDemotionWindow = false,
   playerIds,
   includePlayerIdentities = true,
   rankedMinGames = MODE_LADDER_MIN_GAMES,
   fullRosterGraceCaps = true,
+  configOverride,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
   const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
   const [leaderboardSnapshots, previousAssignments, config, globalRatingRows] = await Promise.all([
-    getLeaderboardModeSnapshotsForPreview(db, kv),
+    getLeaderboardModeSnapshotsForPreview(db, kv, statsContext),
     getCurrentRankAssignments(kv, guildId),
-    getRankedRoleConfig(kv, guildId),
+    configOverride ? Promise.resolve(configOverride) : getRankedRoleConfig(kv, guildId),
     db
       .select({
         playerId: playerRatings.playerId,
@@ -837,7 +843,7 @@ async function buildRankedRolePreviewState({
         lastPlayedAt: playerRatings.lastPlayedAt,
       })
       .from(playerRatings)
-      .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
+      .where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.mode, GLOBAL_RATING_SCOPE))),
   ])
   const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, fullRosterGraceCaps ? null : requestedPlayerIds)
     ? await getRankedRoleDemotionCandidates(kv, guildId)
@@ -1170,6 +1176,9 @@ function applyGraceCaps(
     if (!player.qualified) continue
     const rawAssignment = rawGlobalEarnAssignments.get(player.playerId)
     if (!rawAssignment) continue
+    if (competitiveTierRank(player.assignment.tier) <= competitiveTierRank(rawAssignment.tier)) continue
+
+    capGraceAssignmentByBestMode(player, rawAssignment, config)
     const targetRank = rankedRoleTierNumber(player.assignment.tier)
     if (targetRank == null || !GRACE_CAP_RATIO_BY_TIER_RANK.has(targetRank)) continue
     if (competitiveTierRank(player.assignment.tier) <= competitiveTierRank(rawAssignment.tier)) continue
@@ -1198,6 +1207,29 @@ function applyGraceCaps(
       player.pendingDemotion = null
     }
   }
+}
+
+function capGraceAssignmentByBestMode(
+  player: RankedRolePlayerPreview,
+  rawAssignment: LadderAssignment,
+  config: RankedRoleConfig,
+): void {
+  const assignmentTierRank = rankedRoleTierNumber(player.assignment.tier)
+  const rawTierRank = rankedRoleTierNumber(rawAssignment.tier)
+  const modeTierRanks = Object.values(player.ladderTiers)
+    .map(tier => tier ? rankedRoleTierNumber(tier) : null)
+    .filter((rank): rank is number => rank != null)
+  if (assignmentTierRank == null || rawTierRank == null || modeTierRanks.length === 0) return
+
+  const bestModeTierRank = Math.min(...modeTierRanks)
+  const bestModeGraceTierRank = Math.max(1, bestModeTierRank - GRACE_MAX_BEST_MODE_UPLIFT)
+  const cappedTierRank = Math.min(rawTierRank, bestModeGraceTierRank)
+  if (assignmentTierRank >= cappedTierRank) return
+
+  const cappedTier = createRankedRoleTierId(cappedTierRank)
+  if (!hasConfiguredRankedRoleTier(config, cappedTier)) return
+  player.assignment = { tier: cappedTier, sourceMode: null }
+  player.pendingDemotion = null
 }
 
 function compareGraceCapCandidate(

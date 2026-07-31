@@ -142,6 +142,7 @@ function createLobbySnapshot(
 ): LobbySnapshot {
   return {
     id: 'lobby-1',
+    originGuildId: '111111111111111111',
     revision: 1,
     mode: overrides.mode ?? '2v2',
     hostId: 'a1',

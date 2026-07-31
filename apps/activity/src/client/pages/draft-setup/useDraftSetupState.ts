@@ -21,6 +21,7 @@ import {
   startLobbyDraft,
   transferLobbyHost,
   updateLobbyConfig,
+  user as currentUser,
   userId,
 } from '~/client/stores'
 import { buildFfaRows, buildMiniColumns, buildTeamRows, splitFfaRows } from './draftSetupRows'
@@ -345,6 +346,13 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     currentUserId: userId(),
     currentUserDisplayName: currentDisplayName(),
     currentUserAvatarUrl: currentAvatarUrl(),
+    currentUserSourceGuild: currentUser()?.guildId
+      ? {
+          id: currentUser()!.guildId!,
+          name: currentUser()?.guildName ?? null,
+          iconUrl: currentUser()?.guildIconUrl ?? null,
+        }
+      : null,
     pendingSelfJoinSlot: pendingSelfJoinSlot(),
   }))
   // Memoized so that unrelated re-renders (e.g. `lobbyActionPending` toggling
@@ -364,7 +372,30 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const ffaSecondColumn = () => ffaColumnsSplit()[1]
   const ffaColumnsPair = createMemo<[PlayerRow[], PlayerRow[]]>(() => [ffaFirstColumn(), ffaSecondColumn()])
 
-  const canJoinSlot = (row: PlayerRow) => row.empty && canCurrentUserPlaceSelf()
+  const teamGuild = (team: number) => teamRows(team).find(row => !row.empty && row.sourceGuild)?.sourceGuild ?? null
+  const playerSourceGuildId = (playerId: string | null): string | null => {
+    if (!playerId) return null
+    const entrySource = currentLobby()?.entries.find(entry => entry?.playerId === playerId)?.sourceGuild?.id
+    if (entrySource) return entrySource
+    if (playerId === userId()) return currentUser()?.guildId ?? null
+    return null
+  }
+  const canPlayerUseRowTeam = (row: PlayerRow, playerId: string | null): boolean => {
+    if (!isTeamMode() || row.team == null) return true
+    const sourceGuildId = playerSourceGuildId(playerId)
+    if (!sourceGuildId) return false
+    const lock = teamGuild(row.team)
+    return !lock || lock.id === sourceGuildId
+  }
+  const canCurrentUserUseTeam = (team: number): boolean => {
+    if (!isTeamMode()) return true
+    const sourceGuildId = currentUser()?.guildId ?? null
+    if (!sourceGuildId) return false
+    const lock = teamGuild(team)
+    return !lock || lock.id === sourceGuildId
+  }
+
+  const canJoinSlot = (row: PlayerRow) => row.empty && canCurrentUserPlaceSelf() && canPlayerUseRowTeam(row, userId())
   const canRemoveSlot = (row: PlayerRow) => {
     if (!isLobbyMode() || row.empty || !row.playerId || row.pendingSelf || row.isHost) return false
     const id = userId()
@@ -384,6 +415,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const dragged = draggingPlayerId()
     const id = userId()
     if (!dragged || !id) return false
+    if (!canPlayerUseRowTeam(row, dragged)) return false
     if (amHost()) return true
     return dragged === id && row.empty
   }
@@ -678,6 +710,8 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     teamIndices,
     teamRows,
     teamBalance,
+    teamGuild,
+    canCurrentUserUseTeam,
     ffaColumns: ffaColumnsPair,
     dragOverSlot,
     pending,

@@ -1,7 +1,11 @@
-import { matches, matchParticipants, playerCivStats, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerCivStats as playerCivStats, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
+
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('leader stats embed', () => {
   test('shows game modes as inline fields and uses leader thumbnail', async () => {
@@ -20,7 +24,7 @@ describe('leader stats embed', () => {
       await seedOtherMatch('m-other-ffa-1', 'ffa')
       await seedOtherMatch('m-other-ffa-2', 'ffa')
 
-      const embed = await leaderStatsEmbed(db, 'rome-trajan')
+      const embed = await leaderStatsEmbed(db, STATS_CONTEXT, 'rome-trajan')
       const json = embed.toJSON() as {
         description?: string
         thumbnail?: { url?: string }
@@ -58,6 +62,7 @@ describe('leader stats embed', () => {
     async function seedLeaderMatch(matchId: string, gameMode: string, placement: number): Promise<void> {
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode,
         status: 'completed',
         isOld: false,
@@ -95,6 +100,7 @@ describe('leader stats embed', () => {
     async function seedOtherMatch(matchId: string, gameMode: string): Promise<void> {
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode,
         status: 'completed',
         isOld: false,
@@ -140,11 +146,12 @@ describe('leader stats embed', () => {
         { id: 'p3', displayName: 'Baseline', avatarUrl: null, createdAt: 1 },
       ])
       await db.insert(playerCivStats).values([
-        { seasonId: '', gameMode: '1v1', playerId: 'p1', civId: 'rome-trajan', picks: 5, wins: 5, updatedAt: 1 },
-        { seasonId: '', gameMode: '1v1', playerId: 'p2', civId: 'rome-trajan', picks: 11, wins: 7, updatedAt: 1 },
-        { seasonId: '', gameMode: '1v1', playerId: 'p3', civId: 'rome-trajan', picks: 30, wins: 0, updatedAt: 1 },
+        { statsKey: STATS_CONTEXT.statsKey, seasonId: '', gameMode: '1v1', playerId: 'p1', civId: 'rome-trajan', picks: 5, wins: 5, updatedAt: 1 },
+        { statsKey: STATS_CONTEXT.statsKey, seasonId: '', gameMode: '1v1', playerId: 'p2', civId: 'rome-trajan', picks: 11, wins: 7, updatedAt: 1 },
+        { statsKey: STATS_CONTEXT.statsKey, seasonId: '', gameMode: '1v1', playerId: 'p3', civId: 'rome-trajan', picks: 30, wins: 0, updatedAt: 1 },
       ])
       await db.insert(playerRatings).values({
+        statsKey: STATS_CONTEXT.statsKey,
         playerId: 'p2',
         mode: 'global',
         mu: 36.111,
@@ -154,7 +161,7 @@ describe('leader stats embed', () => {
         lastPlayedAt: 1,
       })
 
-      const embed = await leaderStatsEmbed(db, 'rome-trajan')
+      const embed = await leaderStatsEmbed(db, STATS_CONTEXT, 'rome-trajan')
       const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
       const bestPlayers = field(json.fields ?? [], 'Best Players')
 
@@ -186,6 +193,7 @@ describe('leader stats embed', () => {
 
           await db.insert(matches).values({
             id: matchId,
+            guildId: GUILD_ID,
             gameMode: '1v1',
             status: 'completed',
             isOld: false,
@@ -226,7 +234,7 @@ describe('leader stats embed', () => {
       await seedRelationSeries('babylon-hammurabi', 6, 0)
       await seedRelationSeries('japan-hojo-tokimune', 2, 0)
 
-      const embed = await leaderStatsEmbed(db, 'china-yongle')
+      const embed = await leaderStatsEmbed(db, STATS_CONTEXT, 'china-yongle')
       const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
       const bestAgainstLine = field(json.fields ?? [], 'Best Against')?.value.split('\n')[0] ?? ''
       const worstAgainstLine = field(json.fields ?? [], 'Worst Against')?.value.split('\n')[0] ?? ''

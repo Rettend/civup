@@ -1,6 +1,19 @@
 import type { Database } from '@civup/db'
 import type { LeaderDataVersion } from '@civup/game'
-import { civStatPoolTotals, civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants, tournamentMatches } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import {
+  civStatPoolTotals as legacyCivStatPoolTotals,
+  civStats as legacyCivStats,
+  civStatTotals as legacyCivStatTotals,
+  matchCivStatContributions as legacyMatchCivStatContributions,
+  matches,
+  matchParticipants,
+  scopedCivStatPoolTotals as civStatPoolTotals,
+  scopedCivStats as civStats,
+  scopedCivStatTotals as civStatTotals,
+  scopedMatchCivStatContributions as matchCivStatContributions,
+  tournamentMatches,
+} from '@civup/db'
 import { getLeader, getLeaderIds, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion, parseGameMode, redDeathLeaderMap, toLeaderboardMode } from '@civup/game'
 import { and, eq, inArray, not, or, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
@@ -141,17 +154,15 @@ interface CivPoolTotalRow {
   completedMatchCount: number
 }
 
-const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot'
-const CIV_LEADERBOARD_CONFIG_KEY = 'leaderboard:civ:config'
 const CIV_STAT_INITIALIZED_SCOPE = 'history-initialized'
 const INSERT_CHUNK_SIZE = 100
 
-export function civLeaderboardSnapshotKey(modeScope: CivLeaderboardModeScope = 'all'): string {
-  return modeScope === 'all' ? CIV_LEADERBOARD_SNAPSHOT_KEY : `${CIV_LEADERBOARD_SNAPSHOT_KEY}:${modeScope}`
+export function civLeaderboardSnapshotKey(statsContext: StatsContext, modeScope: CivLeaderboardModeScope = 'all'): string {
+  return `stats:snapshot:${statsContext.statsKey}:civ:${modeScope}`
 }
 
-export function civLeaderboardDisplayConfigKey(): string {
-  return CIV_LEADERBOARD_CONFIG_KEY
+export function civLeaderboardDisplayConfigKey(statsContext: StatsContext): string {
+  return `stats:config:${statsContext.statsKey}:civ`
 }
 
 export function defaultCivLeaderboardDisplayConfig(): CivLeaderboardDisplayConfig {
@@ -165,38 +176,41 @@ export function defaultCivLeaderboardDisplayConfig(): CivLeaderboardDisplayConfi
   }
 }
 
-export async function getStoredCivLeaderboardDisplayConfig(kv: KVNamespace): Promise<CivLeaderboardDisplayConfig> {
-  const [raw] = await kvMget(kv, [{ key: CIV_LEADERBOARD_CONFIG_KEY, type: 'json' }])
+export async function getStoredCivLeaderboardDisplayConfig(kv: KVNamespace, statsContext: StatsContext): Promise<CivLeaderboardDisplayConfig> {
+  const [raw] = await kvMget(kv, [{ key: civLeaderboardDisplayConfigKey(statsContext), type: 'json' }])
   return normalizeCivLeaderboardDisplayConfig(raw)
 }
 
-export async function setCivLeaderboardDisplayConfig(kv: KVNamespace, config: CivLeaderboardDisplayConfig): Promise<void> {
-  await kvMput(kv, [{ key: CIV_LEADERBOARD_CONFIG_KEY, value: JSON.stringify(config) }])
+export async function setCivLeaderboardDisplayConfig(kv: KVNamespace, statsContext: StatsContext, config: CivLeaderboardDisplayConfig): Promise<void> {
+  await kvMput(kv, [{ key: civLeaderboardDisplayConfigKey(statsContext), value: JSON.stringify(config) }])
 }
 
 export async function ensureCivLeaderboardSnapshot(
   db: Database,
   kv: KVNamespace,
+  statsContext: StatsContext,
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot> {
-  const snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
+  const snapshot = await getStoredCivLeaderboardSnapshot(kv, statsContext, modeScope)
   if (snapshot) return snapshot
-  return rebuildCivLeaderboardSnapshot(db, kv, Date.now(), modeScope)
+  return rebuildCivLeaderboardSnapshot(db, kv, statsContext, Date.now(), modeScope)
 }
 
 export async function getStoredCivLeaderboardSnapshot(
   kv: KVNamespace,
+  statsContext: StatsContext,
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot | null> {
-  const [raw] = await kvMget(kv, [{ key: civLeaderboardSnapshotKey(modeScope), type: 'json' }])
+  const [raw] = await kvMget(kv, [{ key: civLeaderboardSnapshotKey(statsContext, modeScope), type: 'json' }])
   return normalizeCivLeaderboardSnapshot(raw, modeScope)
 }
 
 export async function getStoredCivLeaderboardSnapshots(
   kv: KVNamespace,
+  statsContext: StatsContext,
   modeScopes: readonly CivLeaderboardModeScope[] = CIV_LEADERBOARD_MODE_SCOPES,
 ): Promise<Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>> {
-  const values = await kvMget(kv, modeScopes.map(modeScope => ({ key: civLeaderboardSnapshotKey(modeScope), type: 'json' })))
+  const values = await kvMget(kv, modeScopes.map(modeScope => ({ key: civLeaderboardSnapshotKey(statsContext, modeScope), type: 'json' })))
   const snapshots = new Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>()
   for (let index = 0; index < modeScopes.length; index++) {
     const modeScope = modeScopes[index]!
@@ -209,47 +223,52 @@ export async function getStoredCivLeaderboardSnapshots(
 export async function rebuildCivLeaderboardSnapshot(
   db: Database,
   kv: KVNamespace,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot> {
-  const snapshots = await rebuildCivLeaderboardSnapshots(db, kv, [modeScope], updatedAt)
-  return snapshots.get(modeScope) ?? emptySnapshot(modeScope, defaultCivLeaderboardDisplayConfig().label, updatedAt, await isCivLeaderboardStatsInitialized(db))
+  const snapshots = await rebuildCivLeaderboardSnapshots(db, kv, statsContext, [modeScope], updatedAt)
+  return snapshots.get(modeScope) ?? emptySnapshot(modeScope, defaultCivLeaderboardDisplayConfig().label, updatedAt, await isCivLeaderboardStatsInitialized(db, statsContext))
 }
 
 export async function rebuildCivLeaderboardSnapshots(
   db: Database,
   kv: KVNamespace,
+  statsContext: StatsContext,
   modeScopes: readonly CivLeaderboardModeScope[] = CIV_LEADERBOARD_MODE_SCOPES,
   updatedAt = Date.now(),
 ): Promise<Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>> {
   const [config, historyInitialized] = await Promise.all([
-    getStoredCivLeaderboardDisplayConfig(kv),
-    isCivLeaderboardStatsInitialized(db),
+    getStoredCivLeaderboardDisplayConfig(kv, statsContext),
+    isCivLeaderboardStatsInitialized(db, statsContext),
   ])
-  const snapshots = await buildCivLeaderboardSnapshotsFromStats(db, config, modeScopes, updatedAt, historyInitialized)
-  await setCivLeaderboardSnapshots(kv, snapshots)
+  const snapshots = await buildCivLeaderboardSnapshotsFromStats(db, statsContext, config, modeScopes, updatedAt, historyInitialized)
+  await setCivLeaderboardSnapshots(kv, statsContext, snapshots)
   return snapshots
 }
 
 export async function buildCivLeaderboardSnapshotFromStats(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot> {
   const config = defaultCivLeaderboardDisplayConfig()
-  const snapshots = await buildCivLeaderboardSnapshotsFromStats(db, config, [modeScope], updatedAt, await isCivLeaderboardStatsInitialized(db))
+  const snapshots = await buildCivLeaderboardSnapshotsFromStats(db, statsContext, config, [modeScope], updatedAt, await isCivLeaderboardStatsInitialized(db, statsContext))
   return snapshots.get(modeScope) ?? emptySnapshot(modeScope, config.label, updatedAt, false)
 }
 
 export async function rebuildCivLeaderboardStatsFromContributions(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
 ): Promise<CivLeaderboardSnapshot> {
-  return (await repairCivLeaderboardStatsFromContributions(db, updatedAt)).snapshot
+  return (await repairCivLeaderboardStatsFromContributions(db, statsContext, updatedAt)).snapshot
 }
 
 export async function repairCivLeaderboardStatsFromContributions(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
   config: CivLeaderboardDisplayConfig = defaultCivLeaderboardDisplayConfig(),
 ): Promise<CivLeaderboardStatsRebuildResult> {
@@ -263,23 +282,28 @@ export async function repairCivLeaderboardStatsFromContributions(
       visible: matchCivStatContributions.visible,
     })
     .from(matchCivStatContributions)
-    .where(eligibleCivContributionCondition())
+    .where(and(eq(matchCivStatContributions.statsKey, statsContext.statsKey), eligibleCivContributionCondition()))
 
   const rows = contributionRows.map(row => ({
     ...row,
     visible: isContributionVisible(row, config),
   }))
 
-  await db.delete(civStats)
-  await db.delete(civStatTotals)
-  await db.delete(civStatPoolTotals)
-  await setStoredContributionVisibilityFromConfig(db, config, updatedAt)
-  await replaceVisibleCivStatsFromContributionRows(db, rows, updatedAt)
-  await markCivLeaderboardStatsInitialized(db, updatedAt)
+  await db.delete(civStats).where(eq(civStats.statsKey, statsContext.statsKey))
+  await db.delete(civStatTotals).where(eq(civStatTotals.statsKey, statsContext.statsKey))
+  await db.delete(civStatPoolTotals).where(eq(civStatPoolTotals.statsKey, statsContext.statsKey))
+  if (writesLegacyStats(statsContext)) {
+    await db.delete(legacyCivStats)
+    await db.delete(legacyCivStatTotals)
+    await db.delete(legacyCivStatPoolTotals)
+  }
+  await setStoredContributionVisibilityFromConfig(db, statsContext, config, updatedAt)
+  await replaceVisibleCivStatsFromContributionRows(db, statsContext, rows, updatedAt)
+  await markCivLeaderboardStatsInitialized(db, statsContext, updatedAt)
   const snapshot = snapshotFromContributionRows(rows.filter(row => row.visible), 'all', config.label, updatedAt, true)
   return {
     snapshot,
-    status: await getCivLeaderboardStatsStatus(db),
+    status: await getCivLeaderboardStatsStatus(db, statsContext),
     scannedCompletedMatchCount: snapshot.completedMatchCount,
     scannedParticipantRowCount: 0,
     contributionRowCount: contributionRows.length,
@@ -289,13 +313,15 @@ export async function repairCivLeaderboardStatsFromContributions(
 
 export async function rebuildCivLeaderboardStatsFromD1(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
 ): Promise<CivLeaderboardSnapshot> {
-  return (await backfillCivLeaderboardStatsFromHistory(db, updatedAt)).snapshot
+  return (await backfillCivLeaderboardStatsFromHistory(db, statsContext, updatedAt)).snapshot
 }
 
 export async function backfillCivLeaderboardStatsFromHistory(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
   config: CivLeaderboardDisplayConfig = defaultCivLeaderboardDisplayConfig(),
 ): Promise<CivLeaderboardStatsRebuildResult> {
@@ -308,7 +334,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
         completedAt: matches.completedAt,
       })
       .from(matches)
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
     db
       .select({
         matchId: matchParticipants.matchId,
@@ -317,7 +343,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
   ])
 
   const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
@@ -336,7 +362,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
     completedMatchCount += contribution.completedMatchCount
 
     if (contribution.completedMatchCount > 0) {
-      const row = toContributionInsertRow(match.id, contribution, updatedAt)
+      const row = toContributionInsertRow(statsContext, match.id, contribution, updatedAt)
       contributionRows.push(row)
       snapshotRows.push({
         completedMatchCount: contribution.completedMatchCount,
@@ -349,23 +375,34 @@ export async function backfillCivLeaderboardStatsFromHistory(
     }
   }
 
-  await db.delete(civStats)
-  await db.delete(civStatTotals)
-  await db.delete(civStatPoolTotals)
-  await db.delete(matchCivStatContributions)
+  await db.delete(civStats).where(eq(civStats.statsKey, statsContext.statsKey))
+  await db.delete(civStatTotals).where(eq(civStatTotals.statsKey, statsContext.statsKey))
+  await db.delete(civStatPoolTotals).where(eq(civStatPoolTotals.statsKey, statsContext.statsKey))
+  await db.delete(matchCivStatContributions).where(eq(matchCivStatContributions.statsKey, statsContext.statsKey))
+  if (writesLegacyStats(statsContext)) {
+    await db.delete(legacyCivStats)
+    await db.delete(legacyCivStatTotals)
+    await db.delete(legacyCivStatPoolTotals)
+    await db.delete(legacyMatchCivStatContributions)
+  }
 
   for (let index = 0; index < contributionRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = contributionRows.slice(index, index + INSERT_CHUNK_SIZE)
-    if (chunk.length > 0) await db.insert(matchCivStatContributions).values(chunk)
+    if (chunk.length > 0) {
+      await db.insert(matchCivStatContributions).values(chunk)
+      if (writesLegacyStats(statsContext)) {
+        await db.insert(legacyMatchCivStatContributions).values(chunk.map(({ statsKey: _statsKey, ...row }) => row))
+      }
+    }
   }
 
-  await replaceVisibleCivStatsFromContributionRows(db, snapshotRows, updatedAt)
-  await markCivLeaderboardStatsInitialized(db, updatedAt)
+  await replaceVisibleCivStatsFromContributionRows(db, statsContext, snapshotRows, updatedAt)
+  await markCivLeaderboardStatsInitialized(db, statsContext, updatedAt)
 
   const snapshot = snapshotFromContributionRows(snapshotRows.filter(row => isContributionVisible(row, config)), 'all', config.label, updatedAt, true)
   return {
     snapshot,
-    status: await getCivLeaderboardStatsStatus(db),
+    status: await getCivLeaderboardStatsStatus(db, statsContext),
     scannedCompletedMatchCount: matchRows.length,
     scannedParticipantRowCount: participantRows.length,
     contributionRowCount: contributionRows.length,
@@ -373,35 +410,36 @@ export async function backfillCivLeaderboardStatsFromHistory(
   }
 }
 
-export async function isCivLeaderboardStatsInitialized(db: Database): Promise<boolean> {
+export async function isCivLeaderboardStatsInitialized(db: Database, statsContext: StatsContext): Promise<boolean> {
   const [row] = await db
     .select({ scope: civStatTotals.scope })
     .from(civStatTotals)
-    .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+    .where(and(eq(civStatTotals.statsKey, statsContext.statsKey), eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE)))
     .limit(1)
   return Boolean(row)
 }
 
 export async function getCivLeaderboardStatsStatus(
   db: Database,
+  statsContext: StatsContext,
   kv?: KVNamespace,
 ): Promise<CivLeaderboardStatsStatus> {
   const [initializedRows, totalRows, contributionCounts, civCounts, snapshot] = await Promise.all([
     db
       .select({ updatedAt: civStatTotals.updatedAt })
       .from(civStatTotals)
-      .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
+      .where(and(eq(civStatTotals.statsKey, statsContext.statsKey), eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE)))
       .limit(1),
     db
       .select({ completedMatchCount: civStatPoolTotals.completedMatchCount })
-      .from(civStatPoolTotals),
+      .from(civStatPoolTotals).where(eq(civStatPoolTotals.statsKey, statsContext.statsKey)),
     db
       .select({ count: sql<number>`count(*)` })
-      .from(matchCivStatContributions),
+      .from(matchCivStatContributions).where(eq(matchCivStatContributions.statsKey, statsContext.statsKey)),
     db
       .select({ count: sql<number>`count(*)` })
-      .from(civStats),
-    kv ? getStoredCivLeaderboardSnapshot(kv) : Promise.resolve(null),
+      .from(civStats).where(eq(civStats.statsKey, statsContext.statsKey)),
+    kv ? getStoredCivLeaderboardSnapshot(kv, statsContext) : Promise.resolve(null),
   ])
 
   const initializedAt = normalizeNonNegativeInteger(initializedRows[0]?.updatedAt) ?? null
@@ -418,22 +456,23 @@ export async function getCivLeaderboardStatsStatus(
 
 export async function reconcileCivLeaderboardMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
   updatedAt = Date.now(),
 ): Promise<void> {
   if (await isTournamentMatchId(db, matchId)) {
-    await replaceCivLeaderboardMatchContribution(db, matchId, null)
+    await replaceCivLeaderboardMatchContribution(db, statsContext, matchId, null)
     return
   }
 
   const [match] = await db
-    .select({ id: matches.id, status: matches.status, draftData: matches.draftData, gameMode: matches.gameMode, completedAt: matches.completedAt })
+    .select({ id: matches.id, status: matches.status, draftData: matches.draftData, gameMode: matches.gameMode, completedAt: matches.completedAt, guildId: matches.guildId })
     .from(matches)
     .where(eq(matches.id, matchId))
     .limit(1)
 
-  if (!match || match.status !== 'completed') {
-    await replaceCivLeaderboardMatchContribution(db, matchId, null)
+  if (!match || match.guildId !== statsContext.guildId || match.status !== 'completed') {
+    await replaceCivLeaderboardMatchContribution(db, statsContext, matchId, null)
     return
   }
 
@@ -444,6 +483,7 @@ export async function reconcileCivLeaderboardMatchContribution(
 
   await replaceCivLeaderboardMatchContribution(
     db,
+    statsContext,
     matchId,
     buildMatchCivStatContribution(match, participants),
     updatedAt,
@@ -452,13 +492,15 @@ export async function reconcileCivLeaderboardMatchContribution(
 
 export async function removeCivLeaderboardMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
 ): Promise<void> {
-  await replaceCivLeaderboardMatchContribution(db, matchId, null)
+  await replaceCivLeaderboardMatchContribution(db, statsContext, matchId, null)
 }
 
 export async function buildCivLeaderboardSnapshotFromD1(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
 ): Promise<CivLeaderboardSnapshot> {
   const [matchRows, participantRows] = await Promise.all([
@@ -470,7 +512,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
         completedAt: matches.completedAt,
       })
       .from(matches)
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
     db
       .select({
         matchId: matchParticipants.matchId,
@@ -479,7 +521,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
   ])
 
   const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
@@ -508,6 +550,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
 
 async function buildCivLeaderboardSnapshotsFromStats(
   db: Database,
+  statsContext: StatsContext,
   config: CivLeaderboardDisplayConfig,
   modeScopes: readonly CivLeaderboardModeScope[],
   updatedAt: number,
@@ -526,7 +569,7 @@ async function buildCivLeaderboardSnapshotsFromStats(
             bans: civStats.bans,
           })
           .from(civStats)
-          .where(inArray(civStats.modeScope, readModeScopes))
+          .where(and(eq(civStats.statsKey, statsContext.statsKey), inArray(civStats.modeScope, readModeScopes)))
       : Promise.resolve([]),
     readModeScopes.length > 0
       ? db
@@ -536,7 +579,7 @@ async function buildCivLeaderboardSnapshotsFromStats(
             completedMatchCount: civStatPoolTotals.completedMatchCount,
           })
           .from(civStatPoolTotals)
-          .where(inArray(civStatPoolTotals.modeScope, readModeScopes))
+          .where(and(eq(civStatPoolTotals.statsKey, statsContext.statsKey), inArray(civStatPoolTotals.modeScope, readModeScopes)))
       : Promise.resolve([]),
   ])
 
@@ -581,6 +624,7 @@ async function buildCivLeaderboardSnapshotsFromStats(
 
 async function setStoredContributionVisibilityFromConfig(
   db: Database,
+  statsContext: StatsContext,
   config: CivLeaderboardDisplayConfig,
   updatedAt: number,
 ): Promise<void> {
@@ -588,11 +632,23 @@ async function setStoredContributionVisibilityFromConfig(
   await db
     .update(matchCivStatContributions)
     .set({ visible: false, updatedAt })
-    .where(and(eq(matchCivStatContributions.visible, true), not(visibleCondition)))
+    .where(and(eq(matchCivStatContributions.statsKey, statsContext.statsKey), eq(matchCivStatContributions.visible, true), not(visibleCondition)))
   await db
     .update(matchCivStatContributions)
     .set({ visible: true, updatedAt })
-    .where(and(eq(matchCivStatContributions.visible, false), visibleCondition))
+    .where(and(eq(matchCivStatContributions.statsKey, statsContext.statsKey), eq(matchCivStatContributions.visible, false), visibleCondition))
+
+  if (writesLegacyStats(statsContext)) {
+    const legacyVisibleCondition = legacyContributionVisibleCondition(config) ?? sql`1 = 0`
+    await db
+      .update(legacyMatchCivStatContributions)
+      .set({ visible: false, updatedAt })
+      .where(and(eq(legacyMatchCivStatContributions.visible, true), not(legacyVisibleCondition)))
+    await db
+      .update(legacyMatchCivStatContributions)
+      .set({ visible: true, updatedAt })
+      .where(and(eq(legacyMatchCivStatContributions.visible, false), legacyVisibleCondition))
+  }
 }
 
 function contributionVisibleCondition(config: CivLeaderboardDisplayConfig) {
@@ -612,21 +668,39 @@ function contributionVisibleCondition(config: CivLeaderboardDisplayConfig) {
   return betaCondition ? or(liveCondition, betaCondition) : liveCondition
 }
 
+function legacyContributionVisibleCondition(config: CivLeaderboardDisplayConfig) {
+  const liveCondition = and(
+    eq(legacyMatchCivStatContributions.source, 'live'),
+    sql`${legacyMatchCivStatContributions.completedAt} >= ${config.liveFrom}`,
+  )
+  const betaCondition = config.betaFrom == null
+    ? undefined
+    : and(
+        eq(legacyMatchCivStatContributions.source, 'beta'),
+        sql`${legacyMatchCivStatContributions.completedAt} >= ${config.betaFrom}`,
+        config.betaUntil == null
+          ? sql`1 = 1`
+          : sql`${legacyMatchCivStatContributions.completedAt} < ${config.betaUntil}`,
+      )
+  return betaCondition ? or(liveCondition, betaCondition) : liveCondition
+}
+
 async function replaceCivLeaderboardMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
   next: MatchCivStatContribution | null,
   updatedAt: number = Date.now(),
 ): Promise<void> {
-  const previous = await getCivLeaderboardMatchContribution(db, matchId)
+  const previous = await getCivLeaderboardMatchContribution(db, statsContext, matchId)
 
   if (next && next.completedMatchCount > 0) {
-    const values = toContributionInsertRow(matchId, next, updatedAt)
+    const values = toContributionInsertRow(statsContext, matchId, next, updatedAt)
     await db
       .insert(matchCivStatContributions)
       .values(values)
       .onConflictDoUpdate({
-        target: matchCivStatContributions.matchId,
+        target: [matchCivStatContributions.statsKey, matchCivStatContributions.matchId],
         set: {
           completedMatchCount: values.completedMatchCount,
           contributionsJson: values.contributionsJson,
@@ -637,16 +711,36 @@ async function replaceCivLeaderboardMatchContribution(
           updatedAt,
         },
       })
-    await applyCivLeaderboardAggregateDelta(db, previous, next, updatedAt)
+    if (writesLegacyStats(statsContext)) {
+      const { statsKey: _statsKey, ...legacyValues } = values
+      await db
+        .insert(legacyMatchCivStatContributions)
+        .values(legacyValues)
+        .onConflictDoUpdate({
+          target: legacyMatchCivStatContributions.matchId,
+          set: {
+            completedMatchCount: legacyValues.completedMatchCount,
+            contributionsJson: legacyValues.contributionsJson,
+            source: legacyValues.source,
+            modeScope: legacyValues.modeScope,
+            completedAt: legacyValues.completedAt,
+            visible: legacyValues.visible,
+            updatedAt,
+          },
+        })
+    }
+    await applyCivLeaderboardAggregateDelta(db, statsContext, previous, next, updatedAt)
     return
   }
 
-  await db.delete(matchCivStatContributions).where(eq(matchCivStatContributions.matchId, matchId))
-  await applyCivLeaderboardAggregateDelta(db, previous, null, updatedAt)
+  await db.delete(matchCivStatContributions).where(and(eq(matchCivStatContributions.statsKey, statsContext.statsKey), eq(matchCivStatContributions.matchId, matchId)))
+  if (writesLegacyStats(statsContext)) await db.delete(legacyMatchCivStatContributions).where(eq(legacyMatchCivStatContributions.matchId, matchId))
+  await applyCivLeaderboardAggregateDelta(db, statsContext, previous, null, updatedAt)
 }
 
 async function getCivLeaderboardMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
 ): Promise<MatchCivStatContribution | null> {
   const [row] = await db
@@ -659,7 +753,7 @@ async function getCivLeaderboardMatchContribution(
       visible: matchCivStatContributions.visible,
     })
     .from(matchCivStatContributions)
-    .where(eq(matchCivStatContributions.matchId, matchId))
+    .where(and(eq(matchCivStatContributions.statsKey, statsContext.statsKey), eq(matchCivStatContributions.matchId, matchId)))
     .limit(1)
 
   if (!row) return null
@@ -678,6 +772,7 @@ async function getCivLeaderboardMatchContribution(
 
 async function applyCivLeaderboardAggregateDelta(
   db: Database,
+  statsContext: StatsContext,
   previous: MatchCivStatContribution | null,
   next: MatchCivStatContribution | null,
   updatedAt: number,
@@ -693,6 +788,7 @@ async function applyCivLeaderboardAggregateDelta(
     await db
       .insert(civStats)
       .values({
+        statsKey: statsContext.statsKey,
         modeScope: delta.modeScope,
         civId: delta.civId,
         picks: Math.max(0, delta.picks),
@@ -701,7 +797,7 @@ async function applyCivLeaderboardAggregateDelta(
         updatedAt,
       })
       .onConflictDoUpdate({
-        target: [civStats.modeScope, civStats.civId],
+        target: [civStats.statsKey, civStats.modeScope, civStats.civId],
         set: {
           picks: sql<number>`max(0, ${civStats.picks} + ${delta.picks})`,
           wins: sql<number>`max(0, ${civStats.wins} + ${delta.wins})`,
@@ -709,15 +805,46 @@ async function applyCivLeaderboardAggregateDelta(
           updatedAt,
         },
       })
+    if (writesLegacyStats(statsContext)) {
+      await db
+        .insert(legacyCivStats)
+        .values({
+          modeScope: delta.modeScope,
+          civId: delta.civId,
+          picks: Math.max(0, delta.picks),
+          wins: Math.max(0, delta.wins),
+          bans: Math.max(0, delta.bans),
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: [legacyCivStats.modeScope, legacyCivStats.civId],
+          set: {
+            picks: sql<number>`max(0, ${legacyCivStats.picks} + ${delta.picks})`,
+            wins: sql<number>`max(0, ${legacyCivStats.wins} + ${delta.wins})`,
+            bans: sql<number>`max(0, ${legacyCivStats.bans} + ${delta.bans})`,
+            updatedAt,
+          },
+        })
+    }
 
     if (delta.picks < 0 || delta.wins < 0 || delta.bans < 0) {
       await db
         .delete(civStats)
         .where(and(
+          eq(civStats.statsKey, statsContext.statsKey),
           eq(civStats.modeScope, delta.modeScope),
           eq(civStats.civId, delta.civId),
           sql`${civStats.picks} <= 0 and ${civStats.wins} <= 0 and ${civStats.bans} <= 0`,
         ))
+      if (writesLegacyStats(statsContext)) {
+        await db
+          .delete(legacyCivStats)
+          .where(and(
+            eq(legacyCivStats.modeScope, delta.modeScope),
+            eq(legacyCivStats.civId, delta.civId),
+            sql`${legacyCivStats.picks} <= 0 and ${legacyCivStats.wins} <= 0 and ${legacyCivStats.bans} <= 0`,
+          ))
+      }
     }
   }
 
@@ -726,6 +853,7 @@ async function applyCivLeaderboardAggregateDelta(
     await db
       .insert(civStatPoolTotals)
       .values({
+        statsKey: statsContext.statsKey,
         modeScope: delta.modeScope,
         poolKey: delta.poolKey,
         poolCivIdsJson: JSON.stringify(delta.poolCivIds),
@@ -733,22 +861,51 @@ async function applyCivLeaderboardAggregateDelta(
         updatedAt,
       })
       .onConflictDoUpdate({
-        target: [civStatPoolTotals.modeScope, civStatPoolTotals.poolKey],
+        target: [civStatPoolTotals.statsKey, civStatPoolTotals.modeScope, civStatPoolTotals.poolKey],
         set: {
           poolCivIdsJson: JSON.stringify(delta.poolCivIds),
           completedMatchCount: sql<number>`max(0, ${civStatPoolTotals.completedMatchCount} + ${delta.completedMatchCount})`,
           updatedAt,
         },
       })
+    if (writesLegacyStats(statsContext)) {
+      await db
+        .insert(legacyCivStatPoolTotals)
+        .values({
+          modeScope: delta.modeScope,
+          poolKey: delta.poolKey,
+          poolCivIdsJson: JSON.stringify(delta.poolCivIds),
+          completedMatchCount: Math.max(0, delta.completedMatchCount),
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: [legacyCivStatPoolTotals.modeScope, legacyCivStatPoolTotals.poolKey],
+          set: {
+            poolCivIdsJson: JSON.stringify(delta.poolCivIds),
+            completedMatchCount: sql<number>`max(0, ${legacyCivStatPoolTotals.completedMatchCount} + ${delta.completedMatchCount})`,
+            updatedAt,
+          },
+        })
+    }
 
     if (delta.completedMatchCount < 0) {
       await db
         .delete(civStatPoolTotals)
         .where(and(
+          eq(civStatPoolTotals.statsKey, statsContext.statsKey),
           eq(civStatPoolTotals.modeScope, delta.modeScope),
           eq(civStatPoolTotals.poolKey, delta.poolKey),
           sql`${civStatPoolTotals.completedMatchCount} <= 0`,
         ))
+      if (writesLegacyStats(statsContext)) {
+        await db
+          .delete(legacyCivStatPoolTotals)
+          .where(and(
+            eq(legacyCivStatPoolTotals.modeScope, delta.modeScope),
+            eq(legacyCivStatPoolTotals.poolKey, delta.poolKey),
+            sql`${legacyCivStatPoolTotals.completedMatchCount} <= 0`,
+          ))
+      }
     }
   }
 }
@@ -787,6 +944,7 @@ function addAggregateContributionDelta(
 
 async function replaceVisibleCivStatsFromContributionRows(
   db: Database,
+  statsContext: StatsContext,
   rows: readonly ContributionRow[],
   updatedAt: number,
 ): Promise<void> {
@@ -810,6 +968,7 @@ async function replaceVisibleCivStatsFromContributionRows(
 
   const statRows = [...statDeltas.values()].flatMap(delta => delta.picks > 0 || delta.wins > 0 || delta.bans > 0
     ? [{
+        statsKey: statsContext.statsKey,
         modeScope: delta.modeScope,
         civId: delta.civId,
         picks: Math.max(0, delta.picks),
@@ -820,11 +979,15 @@ async function replaceVisibleCivStatsFromContributionRows(
     : [])
   for (let index = 0; index < statRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = statRows.slice(index, index + INSERT_CHUNK_SIZE)
-    if (chunk.length > 0) await db.insert(civStats).values(chunk)
+    if (chunk.length > 0) {
+      await db.insert(civStats).values(chunk)
+      if (writesLegacyStats(statsContext)) await db.insert(legacyCivStats).values(chunk.map(({ statsKey: _statsKey, ...row }) => row))
+    }
   }
 
   const poolRows = [...poolDeltas.values()].flatMap(delta => delta.completedMatchCount > 0
     ? [{
+        statsKey: statsContext.statsKey,
         modeScope: delta.modeScope,
         poolKey: delta.poolKey,
         poolCivIdsJson: JSON.stringify(delta.poolCivIds),
@@ -834,16 +997,21 @@ async function replaceVisibleCivStatsFromContributionRows(
     : [])
   for (let index = 0; index < poolRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = poolRows.slice(index, index + INSERT_CHUNK_SIZE)
-    if (chunk.length > 0) await db.insert(civStatPoolTotals).values(chunk)
+    if (chunk.length > 0) {
+      await db.insert(civStatPoolTotals).values(chunk)
+      if (writesLegacyStats(statsContext)) await db.insert(legacyCivStatPoolTotals).values(chunk.map(({ statsKey: _statsKey, ...row }) => row))
+    }
   }
 }
 
 function toContributionInsertRow(
+  statsContext: StatsContext,
   matchId: string,
   contribution: MatchCivStatContribution,
   updatedAt: number,
 ): typeof matchCivStatContributions.$inferInsert {
   return {
+    statsKey: statsContext.statsKey,
     matchId,
     completedMatchCount: contribution.completedMatchCount,
     contributionsJson: serializeContributionPayload(contribution),
@@ -855,21 +1023,38 @@ function toContributionInsertRow(
   }
 }
 
-async function markCivLeaderboardStatsInitialized(db: Database, updatedAt: number): Promise<void> {
+async function markCivLeaderboardStatsInitialized(db: Database, statsContext: StatsContext, updatedAt: number): Promise<void> {
   await db
     .insert(civStatTotals)
     .values({
+      statsKey: statsContext.statsKey,
       scope: CIV_STAT_INITIALIZED_SCOPE,
       completedMatchCount: 1,
       updatedAt,
     })
     .onConflictDoUpdate({
-      target: civStatTotals.scope,
+      target: [civStatTotals.statsKey, civStatTotals.scope],
       set: {
         completedMatchCount: 1,
         updatedAt,
       },
     })
+  if (writesLegacyStats(statsContext)) {
+    await db
+      .insert(legacyCivStatTotals)
+      .values({
+        scope: CIV_STAT_INITIALIZED_SCOPE,
+        completedMatchCount: 1,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: legacyCivStatTotals.scope,
+        set: {
+          completedMatchCount: 1,
+          updatedAt,
+        },
+      })
+  }
 }
 
 function snapshotFromContributionRows(
@@ -1102,8 +1287,8 @@ function normalizeContributionEntries(entries: readonly CivStatContributionEntry
     .sort((left, right) => left.civId.localeCompare(right.civId))
 }
 
-export async function clearCivLeaderboardSnapshot(kv: KVNamespace): Promise<void> {
-  await kvMdelete(kv, CIV_LEADERBOARD_MODE_SCOPES.map(civLeaderboardSnapshotKey))
+export async function clearCivLeaderboardSnapshot(kv: KVNamespace, statsContext: StatsContext): Promise<void> {
+  await kvMdelete(kv, CIV_LEADERBOARD_MODE_SCOPES.map(modeScope => civLeaderboardSnapshotKey(statsContext, modeScope)))
 }
 
 function getCivAggregate(aggregates: Map<string, CivAggregate>, civId: string): CivAggregate {
@@ -1152,10 +1337,11 @@ function toSnapshotRow(row: CivAggregate): CivLeaderboardSnapshotRow {
 
 async function setCivLeaderboardSnapshots(
   kv: KVNamespace,
+  statsContext: StatsContext,
   snapshots: ReadonlyMap<CivLeaderboardModeScope, CivLeaderboardSnapshot>,
 ): Promise<void> {
   await kvMput(kv, [...snapshots.entries()].map(([modeScope, snapshot]) => ({
-    key: civLeaderboardSnapshotKey(modeScope),
+    key: civLeaderboardSnapshotKey(statsContext, modeScope),
     value: JSON.stringify({
       updatedAt: snapshot.updatedAt,
       historyInitialized: snapshot.historyInitialized,
@@ -1435,6 +1621,10 @@ function normalizeCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value))
   if (typeof value === 'bigint') return Number(value)
   return 0
+}
+
+function writesLegacyStats(statsContext: StatsContext): boolean {
+  return statsContext.seasonPolicy === 'ppl-seasons'
 }
 
 function normalizeNonNegativeInteger(value: unknown): number | null {

@@ -17,6 +17,7 @@ interface ConfigSetResult {
 }
 
 const CONFIG_KEY_PREFIX = 'config:'
+const CONFIG_RESET_VALUE = '__default__'
 
 export const SERVER_CONFIG_KEYS = ['ban_timer', 'pick_timer'] as const satisfies readonly ServerConfigKey[]
 
@@ -30,8 +31,14 @@ export const DEFAULT_BAN_TIMER_SECONDS = 180
 export const DEFAULT_PICK_TIMER_SECONDS = 180
 const RESET_VALUES = new Set(['null', 'default'])
 
-function configKey(key: ServerConfigKey): string {
+function configKey(key: ServerConfigKey, guildId?: string | null): string {
+  if (guildId) return `${CONFIG_KEY_PREFIX}${guildId}:${key}`
   return `${CONFIG_KEY_PREFIX}${key}`
+}
+
+export interface ServerConfigScope {
+  guildId?: string | null
+  legacyGuildId?: string | null
 }
 
 function parseIntegerInput(value: string): number | null {
@@ -54,11 +61,17 @@ function defaultTimerSecondsForKey(key: ServerConfigKey): number {
   return DEFAULT_PICK_TIMER_SECONDS
 }
 
-async function getServerConfigValues(kv: KVNamespace): Promise<ServerConfigValues> {
-  const [banTimerRaw, pickTimerRaw] = await Promise.all([
-    kv.get(configKey('ban_timer')),
-    kv.get(configKey('pick_timer')),
+async function getServerConfigValues(kv: KVNamespace, scope: ServerConfigScope = {}): Promise<ServerConfigValues> {
+  const [banTimerScoped, pickTimerScoped] = await Promise.all([
+    kv.get(configKey('ban_timer', scope.guildId)),
+    kv.get(configKey('pick_timer', scope.guildId)),
   ])
+  const useLegacyFallback = Boolean(scope.guildId && scope.legacyGuildId && scope.guildId === scope.legacyGuildId)
+  const [banTimerLegacy, pickTimerLegacy] = useLegacyFallback && (banTimerScoped == null || pickTimerScoped == null)
+    ? await Promise.all([kv.get(configKey('ban_timer')), kv.get(configKey('pick_timer'))])
+    : [null, null]
+  const banTimerRaw = banTimerScoped === CONFIG_RESET_VALUE ? null : banTimerScoped ?? banTimerLegacy
+  const pickTimerRaw = pickTimerScoped === CONFIG_RESET_VALUE ? null : pickTimerScoped ?? pickTimerLegacy
 
   return {
     banTimerSeconds: parseStoredTimerSeconds(banTimerRaw, DEFAULT_BAN_TIMER_SECONDS),
@@ -84,8 +97,9 @@ export function parseServerConfigKey(key: string | undefined): ServerConfigKey |
 export async function getServerConfigDisplayValue(
   kv: KVNamespace,
   key: ServerConfigKey,
+  scope: ServerConfigScope = {},
 ): Promise<string> {
-  const values = await getServerConfigValues(kv)
+  const values = await getServerConfigValues(kv, scope)
 
   if (key === 'ban_timer') return String(values.banTimerSeconds)
   return String(values.pickTimerSeconds)
@@ -93,8 +107,9 @@ export async function getServerConfigDisplayValue(
 
 export async function getServerConfigRows(
   kv: KVNamespace,
+  scope: ServerConfigScope = {},
 ): Promise<Array<{ key: ServerConfigKey, value: string, description: string }>> {
-  const values = await getServerConfigValues(kv)
+  const values = await getServerConfigValues(kv, scope)
   return [
     {
       key: 'ban_timer',
@@ -113,13 +128,15 @@ export async function setServerConfigValue(
   kv: KVNamespace,
   key: ServerConfigKey,
   value: string,
+  scope: ServerConfigScope = {},
 ): Promise<ConfigSetResult> {
   const trimmed = value.trim()
   const lowered = trimmed.toLowerCase()
   const shouldReset = RESET_VALUES.has(lowered)
 
   if (shouldReset) {
-    await kv.delete(configKey(key))
+    if (scope.guildId) await kv.put(configKey(key, scope.guildId), CONFIG_RESET_VALUE)
+    else await kv.delete(configKey(key))
     return { ok: true, value: String(defaultTimerSecondsForKey(key)) }
   }
 
@@ -131,23 +148,24 @@ export async function setServerConfigValue(
     }
   }
 
-  await kv.put(configKey(key), String(parsed))
+  await kv.put(configKey(key, scope.guildId), String(parsed))
   return { ok: true, value: String(parsed) }
 }
 
 export async function resolveDraftTimerConfig(
   kv: KVNamespace | null | undefined,
   draftConfig: DraftTimerConfig,
+  scope: ServerConfigScope = {},
 ): Promise<DraftTimerConfig> {
-  const values = kv ? await getServerConfigValues(kv) : getDefaultServerConfigValues()
+  const values = kv ? await getServerConfigValues(kv, scope) : getDefaultServerConfigValues()
   return {
     banTimerSeconds: draftConfig.banTimerSeconds ?? values.banTimerSeconds,
     pickTimerSeconds: draftConfig.pickTimerSeconds ?? values.pickTimerSeconds,
   }
 }
 
-export async function getServerDraftTimerDefaults(kv: KVNamespace): Promise<DraftTimerConfig> {
-  const values = await getServerConfigValues(kv)
+export async function getServerDraftTimerDefaults(kv: KVNamespace, scope: ServerConfigScope = {}): Promise<DraftTimerConfig> {
+  const values = await getServerConfigValues(kv, scope)
   return {
     banTimerSeconds: values.banTimerSeconds,
     pickTimerSeconds: values.pickTimerSeconds,

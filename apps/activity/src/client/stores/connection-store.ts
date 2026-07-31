@@ -1,6 +1,6 @@
 import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
-import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
+import { ACTIVITY_FEED_ROOM, ACTIVITY_VERSION_OUTDATED_MESSAGE, api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal, untrack } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
@@ -34,6 +34,7 @@ export interface MatchStateSnapshot {
 
 export interface LobbySnapshot {
   id: string
+  originGuildId: string | null
   revision: number
   mode: string
   hostId: string
@@ -54,6 +55,11 @@ export interface LobbySnapshot {
     playerId: string
     displayName: string
     avatarUrl?: string | null
+    sourceGuild?: {
+      id: string
+      name?: string | null
+      iconUrl?: string | null
+    }
     balanceRating?: {
       mu: number
       sigma: number
@@ -155,9 +161,11 @@ export interface ActivityTargetOption {
   lobbyId: string
   matchId: string | null
   channelId: string
+  originGuildId: string
   mode: string
   status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
   reported?: boolean
+  starting?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -173,6 +181,7 @@ export interface ActivityOverviewPlayerSnapshot {
   displayName: string
   avatarUrl?: string | null
   team?: number | null
+  sourceGuild?: { id: string, name?: string | null, iconUrl?: string | null }
 }
 
 export interface ActivityOverviewOptionSnapshot {
@@ -181,9 +190,11 @@ export interface ActivityOverviewOptionSnapshot {
   lobbyId: string
   matchId: string | null
   channelId: string
+  originGuildId: string
   mode: string
   status: 'open' | 'closed' | 'drafting' | 'active' | 'completed'
   reported?: boolean
+  starting?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -197,6 +208,13 @@ export interface ActivityOverviewOptionSnapshot {
 export interface ActivityOverviewSnapshot {
   channelId: string
   options: ActivityOverviewOptionSnapshot[]
+  supportedServers: ActivitySupportedServerSnapshot[]
+}
+
+export interface ActivitySupportedServerSnapshot {
+  id: string
+  name: string | null
+  iconUrl: string | null
 }
 
 export interface LobbyJoinEligibilitySnapshot {
@@ -474,7 +492,7 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     host: target.host,
     party: 'activity',
     prefix: target.prefix ?? 'api/parties',
-    room: options.channelId,
+    room: ACTIVITY_FEED_ROOM,
     query: getAuthTransport() === 'token' && activitySessionToken
       ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
       : {},
@@ -528,7 +546,11 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
 }
 
 function isActivityOverviewSnapshot(value: unknown): value is ActivityOverviewSnapshot {
-  return !!value && typeof value === 'object' && typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string' && Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+  return !!value
+    && typeof value === 'object'
+    && typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string'
+    && Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+    && Array.isArray((value as Partial<ActivityOverviewSnapshot>).supportedServers)
 }
 
 function isLobbySnapshot(value: unknown): value is LobbySnapshot {
@@ -1164,7 +1186,7 @@ function formatSessionSocketCloseError(
 
 function formatConfigAckError(message: string): Error {
   if (message === 'Unknown message type') {
-    return new Error('Session server is outdated (missing config support). Redeploy/restart and create a new lobby.')
+    return new Error(ACTIVITY_VERSION_OUTDATED_MESSAGE)
   }
   return new Error(message)
 }

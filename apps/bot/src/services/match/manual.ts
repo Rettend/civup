@@ -9,11 +9,12 @@ import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-sna
 import { reconcilePlayerCivStatMatchContributionFromRows } from '../leaderboard/player-civ-stats.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getActiveSeason } from '../season/index.ts'
+import { createStatsContext } from '../stats/context.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
 const MANUAL_MATCH_ID_LENGTH = 10
-const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
+const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 11
 const LIVE_LEADER_IDS = new Set(getLeaders('live').map(leader => leader.id))
 const BETA_LEADER_IDS = new Set(getLeaders('beta').map(leader => leader.id))
 
@@ -34,7 +35,9 @@ export async function createManualReportedMatch(
   const [existingMatch] = await db.select({ id: matches.id }).from(matches).where(eq(matches.id, matchId)).limit(1)
   if (existingMatch) return { error: `Match **${matchId}** already exists.` }
 
-  const activeSeason = await getActiveSeason(db)
+  if (!input.guildId) return { error: 'Manual matches require an owning server.' }
+  const activeSeason = input.guildId === input.primaryGuildId ? await getActiveSeason(db) : null
+  const statsContext = createStatsContext(input.guildId, input.primaryGuildId)
   const playerCount = input.players.length
   const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
   const leaderDataVersion = resolveManualReportLeaderDataVersion(input.players)
@@ -44,6 +47,8 @@ export async function createManualReportedMatch(
     return {
       matchId,
       playerId: player.playerId,
+      sourceGuildId: input.guildId,
+      sourceKind: 'manual_invoking',
       team,
       civId: player.civId,
       placement: input.mode === 'ffa' ? resolveManualFfaPlacement(index, permanentAlly) : (team ?? 0) + 1,
@@ -76,11 +81,15 @@ export async function createManualReportedMatch(
       id: matchId,
       gameMode: input.mode,
       status: 'completed',
+      guildId: input.guildId,
       isOld: false,
       seasonId: activeSeason?.id ?? null,
       draftData,
       createdAt: input.reportedAt,
       completedAt: input.reportedAt,
+      draftCompletedAt: input.reportedAt,
+      cancelledAt: null,
+      resultRevision: 1,
     })
 
     for (const chunk of splitValuesForD1InsertLimit(participantRows, MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
@@ -90,7 +99,7 @@ export async function createManualReportedMatch(
     let recalculatedMatchIds: string[] = []
     const leaderboardMode = toLeaderboardMode(input.mode, { redDeath: false })
     if (leaderboardMode) {
-      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, {
+      const recalculated = await recalculateLeaderboardMode(db, leaderboardMode, statsContext, {
         fromMatchId: matchId,
         includeFromMatch: true,
       })
@@ -98,7 +107,7 @@ export async function createManualReportedMatch(
         await rollbackManualReportedMatch(db, matchId)
         return recalculated
       }
-      const recalculatedGlobal = await recalculateGlobalRatings(db, {
+      const recalculatedGlobal = await recalculateGlobalRatings(db, statsContext, {
         fromMatchId: matchId,
         includeFromMatch: true,
         opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
@@ -110,8 +119,8 @@ export async function createManualReportedMatch(
       recalculatedMatchIds = recalculated.matchIds
     }
 
-    await reconcileCivLeaderboardMatchContribution(db, matchId)
-    await reconcilePlayerCivStatMatchContributionFromRows(db, {
+    await reconcileCivLeaderboardMatchContribution(db, statsContext, matchId)
+    await reconcilePlayerCivStatMatchContributionFromRows(db, statsContext, {
       id: matchId,
       status: 'completed',
       draftData,

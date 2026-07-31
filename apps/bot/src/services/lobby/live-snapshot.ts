@@ -13,9 +13,10 @@ export async function buildLobbyLiveSnapshot(
   mode: GameMode,
   lobby: LobbyState,
   queueEntries: QueueEntry[],
+  options: { legacyGuildId?: string | null } = {},
 ): Promise<LobbySnapshot> {
   const slots = normalizeLobbySlots(mode, lobby.slots, queueEntries)
-  return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots)
+  return buildLobbyLiveSnapshotFromParts(kv, mode, lobby, queueEntries, slots, options)
 }
 
 export async function buildLobbyLiveSnapshotFromParts(
@@ -24,8 +25,9 @@ export async function buildLobbyLiveSnapshotFromParts(
   lobby: LobbyState,
   queueEntries: QueueEntry[],
   slots: (string | null)[],
+  options: { legacyGuildId?: string | null } = {},
 ): Promise<LobbySnapshot> {
-  return buildLobbySnapshotFromSessionRecord(kv, buildOpenSessionRecordFromLobby({ ...lobby, slots }, queueEntries))
+  return buildLobbySnapshotFromSessionRecord(kv, buildOpenSessionRecordFromLobby({ ...lobby, slots }, queueEntries), undefined, undefined, options)
 }
 
 export function attachLobbyBalanceRatings(
@@ -44,6 +46,7 @@ export async function syncLobbyDerivedState(
     queueEntries?: QueueEntry[]
     slots?: (string | null)[]
     balanceSnapshot?: LeaderboardModeSnapshot | null
+    legacyGuildId?: string | null
   },
 ): Promise<LobbySnapshot | null> {
   if (lobby.status !== 'open') return null
@@ -51,7 +54,7 @@ export async function syncLobbyDerivedState(
   const queueEntries = options?.queueEntries ?? filterLobbySnapshotQueueEntries(lobby, [])
 
   const slots = options?.slots ?? normalizeLobbySlots(lobby.mode, lobby.slots, queueEntries)
-  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots)
+  const snapshot = await buildLobbyLiveSnapshotFromParts(kv, lobby.mode, lobby, queueEntries, slots, { legacyGuildId: options?.legacyGuildId })
   return attachLobbyBalanceRatings(kv, lobby.mode, snapshot, options?.balanceSnapshot)
 }
 

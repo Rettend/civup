@@ -1,6 +1,7 @@
 import type { LeaderboardMode } from '@civup/game'
 import type { Database } from '@civup/db'
 import type { LeaderboardSnapshotRow } from '../services/leaderboard/snapshot.ts'
+import type { StatsContext } from '../services/stats/context.ts'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
 import { Command, Option } from 'discord-hono'
@@ -12,6 +13,7 @@ import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapsh
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { factory } from '../setup.ts'
+import { resolveStatsContext } from '../services/stats/context.ts'
 
 interface Var {
   mode?: string
@@ -36,7 +38,7 @@ export const command_leaderboard = factory.command<Var>(
     if (!requestedMode) return c.res('Pick a leaderboard mode.')
 
     const kv = getKvStore(c.env)
-    const commandsChannelId = await getSystemChannel(kv, 'commands')
+    const commandsChannelId = await getSystemChannel(kv, 'commands', { guildId: c.interaction.guild_id, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
     const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
     const shouldRedirect = !!c.interaction.guild_id
       && !!commandsChannelId
@@ -45,7 +47,7 @@ export const command_leaderboard = factory.command<Var>(
     const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
 
     return responder.resDefer(async (c) => {
-      const result = await buildLeaderboardCommandImages(createDb(c.env.DB), kv, requestedMode)
+      const result = await buildLeaderboardCommandImages(createDb(c.env.DB), kv, requestedMode, resolveStatsContext(c.interaction.guild_id, c.env))
 
       if ('content' in result) {
         await c.followup({ content: result.content, allowed_mentions: { parse: [] } })
@@ -101,8 +103,9 @@ export async function buildLeaderboardCommandImages(
   db: Database,
   kv: KVNamespace,
   requestedMode: LeaderboardMode,
+  statsContext: StatsContext,
 ): Promise<LeaderboardCommandResult> {
-  const snapshot = await getStoredLeaderboardModeSnapshot(kv, requestedMode)
+  const snapshot = await getStoredLeaderboardModeSnapshot(kv, statsContext, requestedMode)
   if (!snapshot) return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
   return { images: await buildLeaderboardCommandImagesForModes(db, [{ mode: requestedMode, rows: snapshot.rows }]) }
 }

@@ -97,6 +97,32 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
   })
 
+  test('shows accessible source server icons only for mixed-server rosters', () => {
+    const singleGuildLobby = createLobbySnapshot({
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null, sourceGuild: { id: '111111111111111111', name: 'Server Alpha', iconUrl: 'https://cdn.discordapp.com/alpha.png' } },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, sourceGuild: { id: '111111111111111111', name: 'Server Alpha', iconUrl: 'https://cdn.discordapp.com/alpha.png' } },
+        null,
+        null,
+      ],
+    })
+    const view = render(() => <DraftSetupPage lobby={singleGuildLobby} />)
+    expect(screen.queryByRole('img', { name: 'Server Alpha' })).toBeNull()
+    view.unmount()
+
+    render(() => <DraftSetupPage lobby={createLobbySnapshot({
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null, sourceGuild: { id: '111111111111111111', name: 'Server Alpha', iconUrl: 'https://cdn.discordapp.com/alpha.png' } },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, sourceGuild: { id: '222222222222222222', name: 'Server Beta', iconUrl: null } },
+        null,
+        null,
+      ],
+    })}
+    />)
+    expect(screen.getByRole('img', { name: 'Server Alpha' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Server Beta' })).toBeTruthy()
+  })
+
   test('shows lobby access as an open-by-default config switch', async () => {
     render(() => (
       <DraftSetupPage lobby={createLobbySnapshot({
@@ -302,6 +328,22 @@ describe('DraftSetupPage UI', () => {
 
     expect(screen.getByText('Draft Setup')).toBeTruthy()
     expect(screen.getByText('2/4')).toBeTruthy()
+  })
+
+  test('keeps mixed-server identity visible in the compact setup shell', () => {
+    uiMockState.isMiniView = true
+    render(() => <DraftSetupPage lobby={createLobbySnapshot({
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null, sourceGuild: { id: '111111111111111111', name: 'Server Alpha', iconUrl: 'https://cdn.discordapp.com/alpha.png' } },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, sourceGuild: { id: '222222222222222222', name: 'Server Beta', iconUrl: null } },
+        null,
+        null,
+      ],
+    })}
+    />)
+
+    expect(screen.getByRole('img', { name: 'Server Alpha' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Server Beta' })).toBeTruthy()
   })
 
   test('lets the host update real config toggles and numeric fields in a 2v2 lobby', async () => {

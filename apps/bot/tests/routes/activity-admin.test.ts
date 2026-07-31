@@ -1,7 +1,7 @@
 <<<<<<< New base: fix: mod resolve
 import type { Database as SqliteDatabase } from 'bun:sqlite'
 import type { Env } from '../../src/env.ts'
-import { matchBans, matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
@@ -46,7 +46,8 @@ describe('Activity admin routes', () => {
     expect(forbiddenEstimate.status).toBe(403)
 
     const wrongGuild = await harness.request('/api/activity/admin/capabilities', 'other-guild-admin', '32', '999999999999999999')
-    expect(await wrongGuild.json()).toEqual({ autosaveCatalog: false, playerDataExport: false })
+    expect(wrongGuild.status).toBe(403)
+    expect(await wrongGuild.json()).toEqual({ error: 'Activity source server is not approved' })
   })
 
   test('recognizes Administrator and Manage Server permissions', async () => {
@@ -73,7 +74,7 @@ describe('Activity admin routes', () => {
     expect(oversized.status).toBe(400)
 
     const futureCursor = encodeCursor({
-      version: 1,
+      version: 2,
       generatedAt: Date.now() + 120_000,
       cutoffAt: Date.now() + 120_000,
       phase: 'matches',
@@ -90,8 +91,8 @@ describe('Activity admin routes', () => {
     const response = await harness.request('/api/activity/admin/player-data-export-estimate', ADMIN_USER_ID)
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
-    expect(await response.json()).toEqual({
-      version: 1,
+    expect(await response.json()).toMatchObject({
+      version: 2,
       estimatedAt: expect.any(Number),
       rows: {
         players: 54,
@@ -153,7 +154,7 @@ describe('Activity admin routes', () => {
         ))).toBe(true)
         expect(page.ratings.every((row: Record<string, unknown>) => (
           parentIds.has(row.playerId as string)
-          && Object.keys(row).sort().join(',') === 'gamesPlayed,lastPlayedAt,mode,mu,playerId,sigma,wins'
+          && Object.keys(row).sort().join(',') === 'gamesPlayed,lastPlayedAt,mode,mu,playerId,sigma,statsKey,wins'
         ))).toBe(true)
         for (const row of page.players) playerIds.push(row.id)
         for (const row of page.ratings) ratingKeys.push(`${row.playerId}:${row.mode}`)
@@ -162,11 +163,11 @@ describe('Activity admin routes', () => {
         const parentIds = new Set<string>(page.matches.map((row: { id: string }) => row.id))
         expect(page.matches.length).toBeLessThanOrEqual(50)
         expect(page.matches.every((row: Record<string, unknown>) => (
-          Object.keys(row).sort().join(',') === 'completedAt,createdAt,gameMode,id,isOld,seasonId,status'
+          Object.keys(row).sort().join(',') === 'cancelledAt,completedAt,createdAt,draftCompletedAt,gameMode,guildId,id,isOld,resultRevision,seasonId,status'
         ))).toBe(true)
         expect(page.participants.every((row: Record<string, unknown>) => (
           parentIds.has(row.matchId as string)
-          && Object.keys(row).sort().join(',') === 'civId,matchId,placement,playerId,ratingAfterMu,ratingAfterSigma,ratingBeforeMu,ratingBeforeSigma,team'
+          && Object.keys(row).sort().join(',') === 'civId,matchId,placement,playerId,ratingAfterMu,ratingAfterSigma,ratingBeforeMu,ratingBeforeSigma,sourceGuildId,sourceKind,team'
         ))).toBe(true)
         expect(page.bans.every((row: Record<string, unknown>) => parentIds.has(row.matchId as string))).toBe(true)
         for (const row of page.matches) matchIds.push(row.id)
@@ -238,6 +239,7 @@ async function seedPagedExport(db: Awaited<ReturnType<typeof createTestDatabase>
   await db.insert(players).values(playerRows)
 
   await db.insert(playerRatings).values(Array.from({ length: 53 }, (_value, index) => ({
+    statsKey: `server:${GUILD_ID}` as const,
     playerId: `player-${String(index).padStart(3, '0')}`,
     mode: 'ffa',
     mu: 25 + index / 10,
@@ -255,6 +257,7 @@ async function seedPagedExport(db: Awaited<ReturnType<typeof createTestDatabase>
 
   const matchRows = Array.from({ length: 53 }, (_value, index) => ({
     id: `match-${String(index).padStart(3, '0')}`,
+    guildId: GUILD_ID,
     gameMode: 'ffa',
     status: 'completed',
     isOld: index % 2 === 0,
@@ -282,6 +285,7 @@ async function seedPagedExport(db: Awaited<ReturnType<typeof createTestDatabase>
   }))
   matchRows.push({
     id: 'match-999',
+    guildId: GUILD_ID,
     gameMode: 'ffa',
     status: 'completed',
     isOld: false,
@@ -295,6 +299,8 @@ async function seedPagedExport(db: Awaited<ReturnType<typeof createTestDatabase>
   await db.insert(matchParticipants).values(Array.from({ length: 53 }, (_value, index) => ({
     matchId: `match-${String(index).padStart(3, '0')}`,
     playerId: `player-${String(index).padStart(3, '0')}`,
+    sourceGuildId: GUILD_ID,
+    sourceKind: 'discord',
     team: null,
     civId: `civ-${index}`,
     placement: index % 6 + 1,

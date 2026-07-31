@@ -1,7 +1,8 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import type { StatsContext } from '../services/stats/context.ts'
+import { matches, matchParticipants, players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
 import { createRating, displayRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
@@ -59,7 +60,7 @@ interface TeamRatingVisual {
 export async function teamCardEmbed(
   db: Database,
   kv: KVNamespace,
-  guildId: string | null,
+  statsContext: StatsContext,
   playerIds: string[],
   modeFilter: GameMode | 'all' = 'all',
 ): Promise<Embed> {
@@ -76,10 +77,11 @@ export async function teamCardEmbed(
           .from(playerRatings)
           .where(and(
             inArray(playerRatings.playerId, uniquePlayerIds),
+            eq(playerRatings.statsKey, statsContext.statsKey),
             eq(playerRatings.mode, modeContext.leaderboardMode),
           ))
       : Promise.resolve([]),
-    getDisplaySeason(db),
+    statsContext.seasonPolicy === 'ppl-seasons' ? getDisplaySeason(db) : Promise.resolve(null),
   ])
 
   const playerById = new Map(playerRows.map(player => [player.id, player]))
@@ -91,14 +93,15 @@ export async function teamCardEmbed(
   })
 
   const projectedRating = modeContext.leaderboardMode ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
-  const visual = guildId && projectedRating != null && modeContext.leaderboardMode
-    ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
+  const visual = projectedRating != null && modeContext.leaderboardMode
+    ? await projectRankedTierForScore({ db, kv, guildId: statsContext.guildId, statsContext, mode: modeContext.leaderboardMode, score: projectedRating })
     : { tier: null, roleId: null, label: null }
 
   const conditions = [
     eq(matches.status, 'completed'),
     inArray(matchParticipants.playerId, uniquePlayerIds),
   ]
+  conditions.push(eq(matches.guildId, statsContext.guildId))
   if (modeContext.gameModes.length > 0) conditions.push(inArray(matches.gameMode, [...modeContext.gameModes]))
   if (displaySeason?.id) conditions.push(eq(matches.seasonId, displaySeason.id))
 
@@ -124,7 +127,7 @@ export async function teamCardEmbed(
         .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
         .where(and(...conditions))
         .orderBy(desc(matches.completedAt), desc(matches.id))
-  const participantRows = await hydrateModeRatingSnapshotsFromEvents(db, participantRowsWithoutEventRatings)
+  const participantRows = await hydrateModeRatingSnapshotsFromEvents(db, statsContext, participantRowsWithoutEventRatings)
 
   const commonMatches = buildCommonMatches(participantRows, uniquePlayerIds)
   const gamesPlayed = commonMatches.length

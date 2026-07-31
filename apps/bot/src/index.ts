@@ -3,22 +3,13 @@ import { Hono } from 'hono'
 import { routePartykitRequest } from 'partyserver'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
+import { createDiscordApp } from './discord-app.ts'
 import { registerApiRoutes } from './routes/index.ts'
 import { MaintenanceDO } from './maintenance/maintenance-do.ts'
 import { Activity } from './session-runtime/activity-feed.ts'
 import { SessionDO } from './session-runtime/session-do.ts'
-import { factory } from './setup.ts'
 
-interface DiscordInteractionEnvelope {
-  type?: number
-  guild_id?: string | null
-}
-
-const DISCORD_PING_INTERACTION_TYPE = 1
-const DISCORD_CHANNEL_MESSAGE_WITH_SOURCE = 4
-const DISCORD_EPHEMERAL_MESSAGE_FLAG = 1 << 6
-
-const discordApp = factory.discord().loader([
+const discordApp = createDiscordApp([
   ...Object.values(commands),
   ...Object.values(cron),
 ])
@@ -41,8 +32,6 @@ const worker: ExportedHandler<Env['Bindings']> = {
     const partyResponse = await handleBotPartyRequest(request, env)
     if (partyResponse) return partyResponse
 
-    const disallowedGuildResponse = await rejectDisallowedDiscordGuildInteraction(request, env)
-    if (disallowedGuildResponse) return disallowedGuildResponse
     return app.fetch(request, { ...env, CIVUP_INTERACTION_ENDPOINT_URL: request.url }, ctx)
   },
   scheduled(controller, env, ctx) {
@@ -75,52 +64,9 @@ async function routeSessionPartyRequest(request: Request, env: Env['Bindings']):
   return stub.fetch(request)
 }
 
-async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {
-  const allowedGuildId = normalizeAllowedGuildId(env.ALLOWED_DISCORD_GUILD_ID)
-  if (!allowedGuildId || !isDiscordInteractionRequest(request)) return null
-
-  let interaction: DiscordInteractionEnvelope
-  try {
-    interaction = await request.clone().json<DiscordInteractionEnvelope>()
-  }
-  catch {
-    return null
-  }
-
-  if (interaction.type === DISCORD_PING_INTERACTION_TYPE) return null
-  if (typeof interaction.guild_id === 'string' && interaction.guild_id === allowedGuildId) return null
-
-  return new Response(JSON.stringify({
-    type: DISCORD_CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      flags: DISCORD_EPHEMERAL_MESSAGE_FLAG,
-      content: 'This bot is only available in the configured Discord server.',
-    },
-  }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  })
-}
-
-function isDiscordInteractionRequest(request: Request): boolean {
-  const url = new URL(request.url)
-  return request.method.toUpperCase() === 'POST'
-    && !url.pathname.startsWith('/api/')
-    && request.headers.has('X-Signature-Ed25519')
-    && request.headers.has('X-Signature-Timestamp')
-}
-
 function getBotPartyNamespace(request: Request): 'session' | 'activity' | null {
   const pathname = new URL(request.url).pathname
   if (pathname === '/parties/session' || pathname.startsWith('/parties/session/')) return 'session'
   if (pathname === '/parties/activity' || pathname.startsWith('/parties/activity/')) return 'activity'
   return null
-}
-
-function normalizeAllowedGuildId(value: string | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
 }

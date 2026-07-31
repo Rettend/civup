@@ -1,4 +1,4 @@
-import { playerRatings, players } from '@civup/db'
+import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { runRankedRoleMaintenance } from '../../src/maintenance/ranked-role-maintenance.ts'
 import { getCurrentRankAssignments, getRankedRolesDirtyState, markRankedRolesDirty } from '../../src/services/ranked/role-sync.ts'
@@ -8,6 +8,7 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const GUILD_ID = '1234044388733095946'
 const SECOND_GUILD_ID = '1372172102362337362'
+const REMOVED_GUILD_ID = '1372172102362337363'
 const NOW = 1_700_000_000_000
 const ROLE_IDS = {
   tier5: '11111111111111111',
@@ -29,6 +30,7 @@ describe('ranked role maintenance', () => {
     const playerIds = Array.from({ length: 17 }, (_value, index) => `103010000000000${String(index + 1).padStart(2, '0')}`)
     await setRankedRoleCurrentRoles(kv, GUILD_ID, ROLE_IDS)
     await setRankedRoleCurrentRoles(kv, SECOND_GUILD_ID, ROLE_IDS)
+    await setRankedRoleCurrentRoles(kv, REMOVED_GUILD_ID, ROLE_IDS)
     await db.insert(players).values(playerIds.map((playerId, index) => ({
       id: playerId,
       displayName: `Player ${index + 1}`,
@@ -37,6 +39,7 @@ describe('ranked role maintenance', () => {
     })))
     await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
       {
+        statsKey: `server:${GUILD_ID}` as const,
         playerId,
         mode: 'ffa',
         mu: 40 - index / 10,
@@ -47,6 +50,29 @@ describe('ranked role maintenance', () => {
         lastPlayedAt: NOW,
       },
       {
+        statsKey: `server:${GUILD_ID}` as const,
+        playerId,
+        mode: 'global',
+        mu: 40 - index / 10,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: 5,
+        effectiveGames: 10,
+        lastPlayedAt: NOW,
+      },
+      {
+        statsKey: `server:${SECOND_GUILD_ID}` as const,
+        playerId,
+        mode: 'ffa',
+        mu: 40 - index / 10,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: 5,
+        effectiveGames: 10,
+        lastPlayedAt: NOW,
+      },
+      {
+        statsKey: `server:${SECOND_GUILD_ID}` as const,
         playerId,
         mode: 'global',
         mu: 40 - index / 10,
@@ -84,6 +110,8 @@ describe('ranked role maintenance', () => {
       DB: createSqliteD1Database(sqlite),
       KV: kv,
       DISCORD_TOKEN: 'token',
+      ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
+      ALLOWED_DISCORD_GUILD_IDS: SECOND_GUILD_ID,
     } as any
 
     const sync = await runRankedRoleMaintenance(env, 'sync', NOW)
@@ -94,6 +122,7 @@ describe('ranked role maintenance', () => {
     expect(sync.pendingDiscordChanges).toBe(18)
     expect(fetchedMemberIdsByGuild.get(GUILD_ID)?.size).toBe(8)
     expect(fetchedMemberIdsByGuild.get(SECOND_GUILD_ID)?.size).toBe(8)
+    expect(fetchedMemberIdsByGuild.has(REMOVED_GUILD_ID)).toBe(false)
     expect(await getRankedRolesDirtyState(kv)).not.toBeNull()
     expect(Object.keys((await getCurrentRankAssignments(kv, GUILD_ID)).byPlayerId)).toHaveLength(17)
     expect(Object.keys((await getCurrentRankAssignments(kv, SECOND_GUILD_ID)).byPlayerId)).toHaveLength(17)

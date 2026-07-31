@@ -9,6 +9,7 @@ import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
@@ -58,13 +59,14 @@ export const command_stats = factory.autocomplete<Var>(
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
     const isDefaultSelfLookup = !c.var.player && !c.var.leader && !c.var.mode && teammateIds.length === 0
 
+    if (!guildId) return c.res('This command can only be used in a server.')
     if (c.var.leader && !leaderId) return c.res('Choose a leader from the autocomplete suggestions.')
     if (leaderId && (c.var.player || teammateIds.length > 0)) return c.res('Use either leader stats or player/team stats.')
 
     if (leaderId) {
       return resDeferGeneralCommandResponse(c, async (c) => {
         const db = createDb(c.env.DB)
-        const embed = await leaderStatsEmbed(db, leaderId, mode)
+        const embed = await leaderStatsEmbed(db, createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), leaderId, mode)
         return { embeds: [embed] }
       })
     }
@@ -78,6 +80,7 @@ export const command_stats = factory.autocomplete<Var>(
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
+      const statsContext = createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
       const identities = new Map(playerIds.flatMap((playerId) => {
         const identity = getIdentityByUserId(c, playerId)
         return identity ? [[identity.userId, identity] as const] : []
@@ -89,13 +92,11 @@ export const command_stats = factory.autocomplete<Var>(
       })))
 
       if (teammateIds.length > 0) {
-        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
+        const embed = await teamCardEmbed(db, kv, statsContext, playerIds, mode)
         return { embeds: [embed] }
       }
 
-      const rankProfile = guildId
-        ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
-        : null
+      const rankProfile = await getPlayerStatsRankProfile(db, kv, statsContext, targetId)
 
       if (
         guildId
@@ -124,7 +125,7 @@ export const command_stats = factory.autocomplete<Var>(
             return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
           })()
 
-      const embed = await playerCardEmbed(db, targetId, mode, {
+      const embed = await playerCardEmbed(db, statsContext, targetId, mode, {
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,

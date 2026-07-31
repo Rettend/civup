@@ -1,8 +1,11 @@
-import { playerRatings, players } from '@civup/db'
+import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { buildLeaderboardCommandImages } from '../../src/commands/leaderboard.ts'
 import { rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+
+const STATS_CONTEXT = createStatsContext('111111111111111111', '111111111111111111')
 
 describe('leaderboard command payload', () => {
   test('shows the requested mode', async () => {
@@ -12,6 +15,7 @@ describe('leaderboard command payload', () => {
     try {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
       await db.insert(playerRatings).values({
+        statsKey: STATS_CONTEXT.statsKey,
         playerId: 'p1',
         mode: 'ffa',
         mu: 30,
@@ -20,9 +24,9 @@ describe('leaderboard command payload', () => {
         wins: 1,
         lastPlayedAt: 1,
       })
-      await rebuildLeaderboardModeSnapshot(db, kv, 'ffa')
+      await rebuildLeaderboardModeSnapshot(db, kv, STATS_CONTEXT, 'ffa')
 
-      const payload = await buildLeaderboardCommandImages(db, kv, 'ffa')
+      const payload = await buildLeaderboardCommandImages(db, kv, 'ffa', STATS_CONTEXT)
 
       expect('content' in payload ? payload.content : undefined).toBeUndefined()
       expect('images' in payload ? payload.images : []).toHaveLength(1)
@@ -40,7 +44,7 @@ describe('leaderboard command payload', () => {
     const kv = createTestKv()
 
     const { db, sqlite } = await createTestDatabase()
-    const payload = await buildLeaderboardCommandImages(db, kv, 'ffa')
+    const payload = await buildLeaderboardCommandImages(db, kv, 'ffa', STATS_CONTEXT)
 
     expect('images' in payload ? payload.images : undefined).toBeUndefined()
     expect('content' in payload ? payload.content : undefined).toBe('Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.')

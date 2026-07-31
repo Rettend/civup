@@ -41,6 +41,8 @@ export const sessionDirectory = sqliteTable('session_directory', {
   updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
   lastActivityAt: integer('last_activity_at', { mode: 'number' }).notNull(),
   closedAt: integer('closed_at', { mode: 'number' }),
+  /** Deadline for a retrying draft-start match creation projection. */
+  draftStartDeadlineAt: integer('draft_start_deadline_at', { mode: 'number' }),
 }, table => [
   index('session_directory_phase_updated_at_idx').on(table.phase, table.updatedAt),
   index('session_directory_channel_updated_at_idx').on(table.channelId, table.updatedAt),
@@ -50,6 +52,28 @@ export const sessionDirectory = sqliteTable('session_directory', {
   index('session_directory_host_id_idx').on(table.hostId),
   index('session_directory_host_phase_created_at_idx').on(table.hostId, table.phase, table.createdAt),
   index('session_directory_match_id_idx').on(table.matchId),
+  index('session_directory_phase_draft_start_deadline_idx').on(table.phase, table.draftStartDeadlineAt),
+])
+
+export const matchRepairs = sqliteTable('match_repairs', {
+  id: text('id').primaryKey(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  sessionId: text('session_id'),
+  matchId: text('match_id'),
+  resultRevision: integer('result_revision', { mode: 'number' }).notNull().default(0),
+  repairType: text('repair_type').notNull(),
+  status: text('status').notNull().default('pending'),
+  leaseOwner: text('lease_owner'),
+  leaseExpiresAt: integer('lease_expires_at', { mode: 'number' }),
+  attempts: integer('attempts', { mode: 'number' }).notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at', { mode: 'number' }).notNull().default(0),
+  lastError: text('last_error'),
+  createdAt: integer('created_at', { mode: 'number' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
+}, table => [
+  uniqueIndex('match_repairs_idempotency_key_idx').on(table.idempotencyKey),
+  index('match_repairs_due_idx').on(table.status, table.nextAttemptAt, table.createdAt),
+  index('match_repairs_match_revision_idx').on(table.matchId, table.resultRevision),
 ])
 
 export const sessionDirectoryMembers = sqliteTable('session_directory_members', {

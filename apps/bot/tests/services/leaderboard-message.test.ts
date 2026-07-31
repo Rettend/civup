@@ -1,14 +1,35 @@
 import type { Database } from '@civup/db'
-import { leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, playerRatings, players, seasons } from '@civup/db'
+import { leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, players, scopedPlayerRatings as playerRatings, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { backfillCivLeaderboardStatsFromHistory, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
-import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
-import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
+import { backfillCivLeaderboardStatsFromHistory as backfillCivLeaderboardStatsFromHistorySource, getStoredCivLeaderboardSnapshot as getStoredCivLeaderboardSnapshotSource, rebuildCivLeaderboardSnapshot as rebuildCivLeaderboardSnapshotSource, reconcileCivLeaderboardMatchContribution as reconcileCivLeaderboardMatchContributionSource } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { archiveSeasonLeaderboards as archiveSeasonLeaderboardsSource, markLeaderboardsDirty as markLeaderboardsDirtySource, refreshDirtyLeaderboards as refreshDirtyLeaderboardsSource, upsertLeaderboardMessagesForChannel as upsertLeaderboardMessagesForChannelSource } from '../../src/services/leaderboard/message.ts'
+import { ensureLeaderboardModeSnapshot as ensureLeaderboardModeSnapshotSource, getStoredLeaderboardModeSnapshot as getStoredLeaderboardModeSnapshotSource, leaderboardModeSnapshotKey as leaderboardModeSnapshotKeySource, rebuildLeaderboardModeSnapshot as rebuildLeaderboardModeSnapshotSource } from '../../src/services/leaderboard/snapshot.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
+const PRIMARY_CHANNEL_SCOPE = { guildId: GUILD_ID, legacyGuildId: GUILD_ID }
 const originalFetch = globalThis.fetch
+const playerDirtyScope = (mode: string) => `stats:dirty:${STATS_CONTEXT.statsKey}:player:${mode}`
+const playerMessageScope = (mode: string) => `leaderboard:message:${GUILD_ID}:${STATS_CONTEXT.statsKey}:player:${mode}:1`
+const civDirtyScope = (mode: string) => `stats:dirty:${STATS_CONTEXT.statsKey}:civ:${mode}`
+const civMessageScope = (mode: string) => `leaderboard:message:${GUILD_ID}:${STATS_CONTEXT.statsKey}:civ:${mode}:1`
+
+const markLeaderboardsDirty = (db: Database, reason: string, options?: Parameters<typeof markLeaderboardsDirtySource>[3]) => markLeaderboardsDirtySource(db, STATS_CONTEXT, reason, options)
+const archiveSeasonLeaderboards = (db: Database, kv: KVNamespace, token: string, seasonName: string, options: Omit<Parameters<typeof archiveSeasonLeaderboardsSource>[4], 'statsContext'>) => archiveSeasonLeaderboardsSource(db, kv, token, seasonName, { ...options, statsContext: STATS_CONTEXT })
+const refreshDirtyLeaderboards = (db: Database, kv: KVNamespace, token: string, options: Omit<Parameters<typeof refreshDirtyLeaderboardsSource>[3], 'statsContext'>) => refreshDirtyLeaderboardsSource(db, kv, token, { ...options, statsContext: STATS_CONTEXT })
+const upsertLeaderboardMessagesForChannel = (db: Database, kv: KVNamespace, token: string, channelId: string, options: Omit<Parameters<typeof upsertLeaderboardMessagesForChannelSource>[4], 'statsContext' | 'publicationGuildId'>) => upsertLeaderboardMessagesForChannelSource(db, kv, token, channelId, { ...options, statsContext: STATS_CONTEXT, publicationGuildId: GUILD_ID })
+const leaderboardModeSnapshotKey = (mode: Parameters<typeof leaderboardModeSnapshotKeySource>[1]) => leaderboardModeSnapshotKeySource(STATS_CONTEXT, mode)
+const ensureLeaderboardModeSnapshot = (db: Database, kv: KVNamespace, mode: Parameters<typeof ensureLeaderboardModeSnapshotSource>[3]) => ensureLeaderboardModeSnapshotSource(db, kv, STATS_CONTEXT, mode)
+const getStoredLeaderboardModeSnapshot = (kv: KVNamespace, mode: Parameters<typeof getStoredLeaderboardModeSnapshotSource>[2]) => getStoredLeaderboardModeSnapshotSource(kv, STATS_CONTEXT, mode)
+const rebuildLeaderboardModeSnapshot = (db: Database, kv: KVNamespace, mode: Parameters<typeof rebuildLeaderboardModeSnapshotSource>[3], updatedAt?: number) => rebuildLeaderboardModeSnapshotSource(db, kv, STATS_CONTEXT, mode, updatedAt)
+const backfillCivLeaderboardStatsFromHistory = (db: Database, updatedAt?: number) => backfillCivLeaderboardStatsFromHistorySource(db, STATS_CONTEXT, updatedAt)
+const getStoredCivLeaderboardSnapshot = (kv: KVNamespace) => getStoredCivLeaderboardSnapshotSource(kv, STATS_CONTEXT)
+const rebuildCivLeaderboardSnapshot = (db: Database, kv: KVNamespace, updatedAt?: number) => rebuildCivLeaderboardSnapshotSource(db, kv, STATS_CONTEXT, updatedAt)
+const reconcileCivLeaderboardMatchContribution = (db: Database, matchId: string) => reconcileCivLeaderboardMatchContributionSource(db, STATS_CONTEXT, matchId)
 
 describe('leaderboard message service', () => {
   afterEach(() => {
@@ -25,7 +46,7 @@ describe('leaderboard message service', () => {
 
       const rows = await db.select().from(leaderboardDirtyStates)
       expect(rows).toEqual([{
-        scope: 'player:duel',
+        scope: playerDirtyScope('duel'),
         dirtyAt: NOW + 100,
         reason: 'later-report',
       }])
@@ -47,6 +68,7 @@ describe('leaderboard message service', () => {
       createdAt: NOW,
     })
     await db.insert(playerRatings).values({
+      statsKey: STATS_CONTEXT.statsKey,
       playerId: '100010000000000001',
       mode: 'ffa',
       mu: 35,
@@ -86,14 +108,14 @@ describe('leaderboard message service', () => {
 
     await upsertLeaderboardMessagesForChannel(db, kv, 'token', 'channel-1', { modes: ['ffa'] })
     await db.update(seasons).set({ active: false, endsAt: NOW + 1 }).where(eq(seasons.id, 'season-9'))
-    await archiveSeasonLeaderboards(db, kv, 'token', 'Season 9', { modes: ['ffa'] })
+    await archiveSeasonLeaderboards(db, kv, 'token', 'Season 9', { channelScope: PRIMARY_CHANNEL_SCOPE, modes: ['ffa'] })
 
     expect(postPayloads).toHaveLength(2)
     expect(patchPayloads).toHaveLength(1)
     expect(patchPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-ffa.png')
     expect(postPayloads[1].attachments?.[0]?.filename).toBe('leaderboard-ffa.png')
 
-    const [state] = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, 'player:ffa')).limit(1)
+    const [state] = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, playerMessageScope('ffa'))).limit(1)
     expect(state?.messageId).toBe('message-2')
 
     sqlite.close()
@@ -155,6 +177,7 @@ describe('leaderboard message service', () => {
       await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW + 10 * 60 * 1000 })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel'],
         now: NOW + 10 * 60 * 1000,
       })
@@ -204,7 +227,7 @@ describe('leaderboard message service', () => {
       await seedDuelRating(db, '100010000000000037', 10)
       await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW)
       await db.insert(leaderboardMessageStates).values({
-        scope: 'player:duel',
+        scope: playerMessageScope('duel'),
         channelId: 'channel-leaderboard',
         messageId: 'leaderboard-message-1',
         updatedAt: NOW,
@@ -212,6 +235,7 @@ describe('leaderboard message service', () => {
       await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW + 1 })
 
       await expect(refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel'],
         now: NOW + 1,
       })).resolves.toBe(true)
@@ -251,12 +275,13 @@ describe('leaderboard message service', () => {
         { id: '100010000000000031', displayName: 'Duo Player', avatarUrl: null, createdAt: NOW },
       ])
       await db.insert(playerRatings).values([
-        { playerId: '100010000000000030', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
-        { playerId: '100010000000000031', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000030', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000031', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
       ])
       await markLeaderboardsDirty(db, 'test-batch', { modes: ['duel', 'duo'], now: NOW })
 
       const firstRefresh = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel', 'duo'],
         now: NOW,
         playerModeLimit: 1,
@@ -266,9 +291,10 @@ describe('leaderboard message service', () => {
       expect(firstRefresh).toBe(true)
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
-      expect(firstDirtyRows.map(row => row.scope)).toEqual(['player:duo'])
+      expect(firstDirtyRows.map(row => row.scope)).toEqual([playerDirtyScope('duo')])
 
       const secondRefresh = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel', 'duo'],
         now: NOW,
         playerModeLimit: 1,
@@ -308,13 +334,14 @@ describe('leaderboard message service', () => {
         { id: '100010000000000035', displayName: 'Older Duo Player', avatarUrl: null, createdAt: NOW },
       ])
       await db.insert(playerRatings).values([
-        { playerId: '100010000000000034', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
-        { playerId: '100010000000000035', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000034', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000035', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
       ])
       await markLeaderboardsDirty(db, 'older-duo', { modes: ['duo'], now: NOW })
       await markLeaderboardsDirty(db, 'newer-duel', { modes: ['duel'], now: NOW + 1 })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel', 'duo'],
         now: NOW + 2,
         playerModeLimit: 1,
@@ -324,7 +351,7 @@ describe('leaderboard message service', () => {
       expect(refreshed).toBe(true)
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duo.png')
-      expect(dirtyScopes).toEqual(['player:duel'])
+      expect(dirtyScopes).toEqual([playerDirtyScope('duel')])
     }
     finally {
       sqlite.close()
@@ -338,7 +365,7 @@ describe('leaderboard message service', () => {
       await markLeaderboardsDirty(db, 'duel-civ', { civ: true, modes: ['duel'], now: NOW })
 
       const dirtyScopes = (await db.select().from(leaderboardDirtyStates)).map(row => row.scope).sort()
-      expect(dirtyScopes).toEqual(['civ:all', 'civ:duel', 'player:duel'])
+      expect(dirtyScopes).toEqual([civDirtyScope('all'), civDirtyScope('duel'), playerDirtyScope('duel')].sort())
     }
     finally {
       sqlite.close()
@@ -368,6 +395,7 @@ describe('leaderboard message service', () => {
       await markLeaderboardsDirty(db, 'test-report', { modes: ['duel'], now: NOW })
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel'],
         now: NOW + 200,
         playerModeLimit: 1,
@@ -409,12 +437,13 @@ describe('leaderboard message service', () => {
         { id: '100010000000000033', displayName: 'Legacy Duo Player', avatarUrl: null, createdAt: NOW },
       ])
       await db.insert(playerRatings).values([
-        { playerId: '100010000000000032', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
-        { playerId: '100010000000000033', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000032', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 10, lastPlayedAt: NOW },
+        { statsKey: STATS_CONTEXT.statsKey, playerId: '100010000000000033', mode: 'duo', mu: 31, sigma: 5, gamesPlayed: 10, wins: 8, lastPlayedAt: NOW },
       ])
       await markLeaderboardsDirty(db, 'legacy-test')
 
       const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', {
+        channelScope: PRIMARY_CHANNEL_SCOPE,
         modes: ['duel', 'duo'],
         now: NOW,
         playerModeLimit: 1,
@@ -424,7 +453,12 @@ describe('leaderboard message service', () => {
       expect(refreshed).toBe(true)
       expect(postPayloads).toHaveLength(1)
       expect(postPayloads[0].attachments?.[0]?.filename).toBe('leaderboard-duel.png')
-      expect(dirtyScopes).toEqual(['civ:all', 'civ:duel', 'civ:duo', 'civ:squad', 'player:duo'])
+      expect(dirtyScopes).toEqual([
+        playerDirtyScope('duo'),
+        playerDirtyScope('ffa'),
+        playerDirtyScope('red-death'),
+        playerDirtyScope('squad'),
+      ].sort())
     }
     finally {
       sqlite.close()
@@ -459,12 +493,12 @@ describe('leaderboard message service', () => {
       await backfillCivLeaderboardStatsFromHistory(db, NOW)
       await rebuildCivLeaderboardSnapshot(db, kv, NOW)
       await seedCompletedLeaderMatch(db, 'civ-match-2', '100010000000000004', 'rome-trajan', 2)
-      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, modes: [], now: NOW })
 
-      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { channelScope: PRIMARY_CHANNEL_SCOPE, modes: [] })
       const snapshot = await getStoredCivLeaderboardSnapshot(kv)
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
-      const civState = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, 'civ')).limit(1)
+      const civState = await db.select().from(leaderboardMessageStates).where(eq(leaderboardMessageStates.scope, civMessageScope('all'))).limit(1)
 
       expect(refreshed).toBe(true)
       expect(snapshot?.rows.find(row => row.civId === 'rome-trajan')?.picks).toBe(2)
@@ -508,17 +542,19 @@ describe('leaderboard message service', () => {
         createdAt: NOW,
       })
       await seedCompletedLeaderMatch(db, 'civ-scope-match', '100010000000000006', 'rome-trajan', 1)
+      await seedCompletedLeaderMatch(db, 'civ-scope-duo-match', '100010000000000006', 'rome-trajan', 1, '2v2')
+      await seedCompletedLeaderMatch(db, 'civ-scope-squad-match', '100010000000000006', 'rome-trajan', 1, '3v3')
       await backfillCivLeaderboardStatsFromHistory(db, NOW)
-      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, modes: [], now: NOW })
 
-      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { channelScope: PRIMARY_CHANNEL_SCOPE, modes: [] })
       const messageScopes = (await db.select().from(leaderboardMessageStates)).map(row => row.scope).sort()
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
 
       expect(refreshed).toBe(true)
       expect(postPayloads.map(row => row.channelId).sort()).toEqual(['channel-civ-all', 'channel-civ-duel', 'channel-civ-duo', 'channel-civ-squad'])
       expect(postPayloads.every(row => row.payload.embeds?.length === 3)).toBe(true)
-      expect(messageScopes).toEqual(['civ', 'civ:duel', 'civ:duo', 'civ:squad'])
+      expect(messageScopes).toEqual(['all', 'duel', 'duo', 'squad'].map(civMessageScope).sort())
       expect(dirtyRows).toHaveLength(0)
     }
     finally {
@@ -550,16 +586,16 @@ describe('leaderboard message service', () => {
         createdAt: NOW,
       })
       await seedCompletedLeaderMatch(db, 'civ-match-uninitialized', '100010000000000005', 'rome-trajan', 1)
-      await markLeaderboardsDirty(db, 'test-report', { civ: true, now: NOW })
+      await markLeaderboardsDirty(db, 'test-report', { civ: true, modes: [], now: NOW })
 
-      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { modes: ['duel'] })
+      const refreshed = await refreshDirtyLeaderboards(db, kv, 'token', { channelScope: PRIMARY_CHANNEL_SCOPE, modes: [] })
       const snapshot = await getStoredCivLeaderboardSnapshot(kv)
       const dirtyRows = await db.select().from(leaderboardDirtyStates)
 
       expect(refreshed).toBe(false)
       expect(snapshot).toBeNull()
       expect(postPayloads).toHaveLength(0)
-      expect(dirtyRows.map(row => row.scope).sort()).toEqual(['civ:all', 'civ:duel', 'civ:duo', 'civ:squad'])
+      expect(dirtyRows.map(row => row.scope).sort()).toEqual(['all', 'duel', 'duo', 'squad'].map(civDirtyScope).sort())
     }
     finally {
       sqlite.close()
@@ -581,6 +617,7 @@ async function seedDuelRating(db: Database, playerId: string, gamesPlayed: numbe
     createdAt: NOW,
   })
   await db.insert(playerRatings).values({
+    statsKey: STATS_CONTEXT.statsKey,
     playerId,
     mode: 'duel',
     mu: 30,
@@ -597,10 +634,12 @@ async function seedCompletedLeaderMatch(
   playerId: string,
   civId: string,
   placement: number,
+  gameMode = 'ffa',
 ): Promise<void> {
   await db.insert(matches).values({
     id: matchId,
-    gameMode: 'ffa',
+    guildId: GUILD_ID,
+    gameMode,
     status: 'completed',
     isOld: false,
     seasonId: null,
@@ -611,6 +650,8 @@ async function seedCompletedLeaderMatch(
   await db.insert(matchParticipants).values({
     matchId,
     playerId,
+    sourceGuildId: GUILD_ID,
+    sourceKind: 'discord',
     team: null,
     civId,
     placement,

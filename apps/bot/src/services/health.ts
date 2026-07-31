@@ -1,5 +1,6 @@
 <<<<<<< New base: fix: mod resolve
 import type { Env } from '../env.ts'
+import { getLegacyPrimaryDiscordGuildId, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { EXPECTED_GUILD_COMMANDS } from '../commands/expected.ts'
 import { getBrowserAccessIntent, isSafeBrowserPreferenceRole, normalizeDiscordId, normalizePublicOrigin } from './activity/browser-access.ts'
 
@@ -44,7 +45,9 @@ export async function runHealthChecks(env: Env['Bindings'], options: HealthOptio
   const timeoutMs = options.timeoutMs ?? 3_000
   const applicationId = env.DISCORD_APPLICATION_ID?.trim() ?? ''
   const publicKey = env.DISCORD_PUBLIC_KEY?.trim() ?? ''
-  const guildId = env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+  const guildIds = guildConfig.ok ? guildConfig.guildIds : []
+  const primaryGuildId = getLegacyPrimaryDiscordGuildId(env)
   const activityOrigin = normalizePublicOrigin(env.ACTIVITY_PUBLIC_ORIGIN)
   const endpoint = normalizeEndpoint(options.interactionEndpointUrl)
 
@@ -55,7 +58,7 @@ export async function runHealthChecks(env: Env['Bindings'], options: HealthOptio
       if (!/^[a-f\d]{64}$/i.test(publicKey)) invalid.push('public key')
       if (!env.DISCORD_TOKEN?.trim()) invalid.push('bot token')
       if (!env.CIVUP_SECRET?.trim()) invalid.push('CIVUP secret')
-      if (!normalizeDiscordId(guildId)) invalid.push('guild ID')
+      if (!guildConfig.ok) invalid.push(guildConfig.error.startsWith('primary guild ID') ? 'primary guild ID' : 'approved guild IDs')
       if (!activityOrigin) invalid.push('Activity origin')
       if (!env.SessionDO || !env.Activity) invalid.push('Durable Object bindings')
       return invalid.length === 0 ? ok('Config') : fail('Config', `invalid ${invalid.join(', ')}`)
@@ -76,17 +79,20 @@ export async function runHealthChecks(env: Env['Bindings'], options: HealthOptio
       return ok('Discord application')
     }),
     runCheck('Discord server', timeoutMs, async () => {
-      if (!normalizeDiscordId(guildId) || !env.DISCORD_TOKEN?.trim()) return fail('Discord server', 'guild config is invalid')
-      await discordGet(fetchImpl, `/guilds/${guildId}`, env.DISCORD_TOKEN, timeoutMs)
+      if (guildIds.length === 0 || !env.DISCORD_TOKEN?.trim()) return fail('Discord server', 'guild config is invalid')
+      await Promise.all(guildIds.map(guildId => discordGet(fetchImpl, `/guilds/${guildId}`, env.DISCORD_TOKEN, timeoutMs)))
       return ok('Discord server')
     }),
     runCheck('Commands', timeoutMs, async () => {
-      if (!normalizeDiscordId(applicationId) || !normalizeDiscordId(guildId) || !env.DISCORD_TOKEN?.trim()) return fail('Commands', 'command config is invalid')
-      const commands = await discordGet<DiscordCommand[]>(fetchImpl, `/applications/${applicationId}/guilds/${guildId}/commands`, env.DISCORD_TOKEN, timeoutMs)
-      if (!Array.isArray(commands)) return fail('Commands', 'Discord returned an invalid command list')
-      const registered = new Set(commands.map(command => `${typeof command.type === 'number' ? command.type : 1}:${String(command.name ?? '')}`))
-      const missing = EXPECTED_GUILD_COMMANDS.filter(command => !registered.has(`${command.type}:${command.name}`))
-      return missing.length === 0 ? ok('Commands') : fail('Commands', `missing ${missing.map(command => command.name).join(', ')}`)
+      if (!normalizeDiscordId(applicationId) || guildIds.length === 0 || !env.DISCORD_TOKEN?.trim()) return fail('Commands', 'command config is invalid')
+      const commandLists = await Promise.all(guildIds.map(async guildId => ({ guildId, commands: await discordGet<DiscordCommand[]>(fetchImpl, `/applications/${applicationId}/guilds/${guildId}/commands`, env.DISCORD_TOKEN, timeoutMs) })))
+      for (const { guildId, commands } of commandLists) {
+        if (!Array.isArray(commands)) return fail('Commands', `Discord returned an invalid command list for ${guildId}`)
+        const registered = new Set(commands.map(command => `${typeof command.type === 'number' ? command.type : 1}:${String(command.name ?? '')}`))
+        const missing = EXPECTED_GUILD_COMMANDS.filter(command => !registered.has(`${command.type}:${command.name}`))
+        if (missing.length > 0) return fail('Commands', `${guildId} missing ${missing.map(command => command.name).join(', ')}`)
+      }
+      return ok('Commands')
     }),
     runCheck('D1', timeoutMs, async () => {
       const row = await env.DB.prepare('SELECT 1 AS ok').bind().first<{ ok: number }>()
@@ -107,12 +113,12 @@ export async function runHealthChecks(env: Env['Bindings'], options: HealthOptio
       return response.ok ? ok('Activity') : fail('Activity', `HTTP ${response.status}`)
     }),
     runCheck('Browser Access', timeoutMs, async () => {
-      const intent = await getBrowserAccessIntent(env.KV)
+      const intent = await getBrowserAccessIntent(env.KV, { guildId: primaryGuildId, legacyGuildId: env.ALLOWED_DISCORD_GUILD_ID })
       if (!intent.enabled) return ok('Browser Access', 'disabled')
-      if (!intent.valid || !activityOrigin || !intent.preferenceRoleId || !normalizeDiscordId(guildId) || !env.DISCORD_TOKEN?.trim()) {
+      if (!intent.valid || !activityOrigin || !intent.preferenceRoleId || !primaryGuildId || !env.DISCORD_TOKEN?.trim()) {
         return fail('Browser Access', 'enabled configuration is invalid')
       }
-      const roles = await discordGet<DiscordRole[]>(fetchImpl, `/guilds/${guildId}/roles`, env.DISCORD_TOKEN, timeoutMs)
+      const roles = await discordGet<DiscordRole[]>(fetchImpl, `/guilds/${primaryGuildId}/roles`, env.DISCORD_TOKEN, timeoutMs)
       const role = Array.isArray(roles) ? roles.find(candidate => candidate.id === intent.preferenceRoleId) : null
       if (!role) return fail('Browser Access', 'preference role is missing')
       if (!isSafeBrowserPreferenceRole(role)) return fail('Browser Access', 'preference role permissions are unsafe')

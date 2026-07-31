@@ -11,6 +11,7 @@ export default function LobbyOverviewRoute() {
     return (
       <LobbyOverviewPage
         options={activity.availableTargets()}
+        supportedServers={activity.supportedServers()}
         busy={activity.pickerBusy()}
         selectedKey={activity.currentTargetKey()}
         error={activity.pickerError()}

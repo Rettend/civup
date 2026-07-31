@@ -2,6 +2,7 @@ import type { Database } from '@civup/db'
 import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import type { CivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
 import type { CivLeaderboardModeScope } from '../services/leaderboard/civ-snapshot.ts'
+import type { StatsContext } from '../services/stats/context.ts'
 import { createDb } from '@civup/db'
 import { Command, Option } from 'discord-hono'
 import { civLeaderboardPageEmbed, parseCivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
@@ -9,6 +10,7 @@ import { getKvStore } from '../services/kv/batch.ts'
 import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from '../services/leaderboard/civ-snapshot.ts'
 import { paginationComponents } from '../services/response/pagination.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
+import { resolveStatsContext } from '../services/stats/context.ts'
 import { factory } from '../setup.ts'
 
 const CIV_LEADERBOARD_UNAVAILABLE_MESSAGE = 'Civ leaderboard snapshot is not available yet.'
@@ -53,7 +55,7 @@ export const command_civleaderboard = factory.command<Var>(
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
-      return buildCivLeaderboardCommandPayload(db, kv, board, { modeScope })
+      return buildCivLeaderboardCommandPayload(db, kv, board, resolveStatsContext(c.interaction.guild_id, c.env), { modeScope })
     })
   },
 )
@@ -62,13 +64,14 @@ export async function buildCivLeaderboardCommandPayload(
   db: Database,
   kv: KVNamespace,
   board: CivLeaderboardBoard | null,
+  statsContext: StatsContext,
   options: {
     pageIndex?: number
     modeScope?: CivLeaderboardModeScope
   } = {},
 ): Promise<DiscordMessagePayload> {
   const modeScope = options.modeScope ?? 'all'
-  const snapshot = await getOrRebuildCivLeaderboardSnapshot(db, kv, modeScope)
+  const snapshot = await getOrRebuildCivLeaderboardSnapshot(db, kv, statsContext, modeScope)
   if (!snapshot?.historyInitialized) return unavailablePayload(CIV_LEADERBOARD_UNINITIALIZED_MESSAGE)
   if (!board) return unavailablePayload('Pick a civ leaderboard mode.')
 
@@ -102,9 +105,9 @@ function unavailablePayload(content = CIV_LEADERBOARD_UNAVAILABLE_MESSAGE): Disc
   }
 }
 
-async function getOrRebuildCivLeaderboardSnapshot(db: Database, kv: KVNamespace, modeScope: CivLeaderboardModeScope) {
-  const snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
+async function getOrRebuildCivLeaderboardSnapshot(db: Database, kv: KVNamespace, statsContext: StatsContext, modeScope: CivLeaderboardModeScope) {
+  const snapshot = await getStoredCivLeaderboardSnapshot(kv, statsContext, modeScope)
   if (snapshot?.historyInitialized) return snapshot
-  if (!await isCivLeaderboardStatsInitialized(db)) return snapshot
-  return rebuildCivLeaderboardSnapshot(db, kv, Date.now(), modeScope)
+  if (!await isCivLeaderboardStatsInitialized(db, statsContext)) return snapshot
+  return rebuildCivLeaderboardSnapshot(db, kv, statsContext, Date.now(), modeScope)
 }

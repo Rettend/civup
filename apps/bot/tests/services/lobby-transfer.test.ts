@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { leaveOpenLobbyForLobbyJoin } from '../../src/services/lobby/transfer.ts'
 import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
-import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
+import { getSeededRosterEntries, seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
+
+const GUILD_ID = '111111111111111111'
 
 describe('lobby transfer', () => {
   test('leaving a source lobby removes canonical membership without touching another lobby', async () => {
@@ -45,7 +47,11 @@ describe('lobby transfer', () => {
       (await getLobbyById(kv, sourceLobby.id))!,
       ['player-1'],
       '2v2',
-      { db: runtime.db, sessionNamespace: runtime.sessionNamespace },
+      {
+        db: runtime.db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries: getSeededRosterEntries(kv, '2v2').map(entry => ({ ...entry, sourceGuild: { id: GUILD_ID } })),
+      },
     )
 
     expect(result).toEqual({

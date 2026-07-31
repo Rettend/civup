@@ -24,6 +24,7 @@ import { BROWSER_SESSION_COOKIE } from '../src/server/browser-auth'
 
 const ORIGIN = 'https://civup-activity.example.com'
 const SECRET = 'browser-proxy-secret'
+const GUILD_ID = '1234044388733095946'
 type ActivityEnv = Parameters<typeof activityWorker.fetch>[1]
 
 describe('browser cookie proxy', () => {
@@ -47,14 +48,23 @@ describe('browser cookie proxy', () => {
 
   test('accepts cookie auth, strips credentials, and combines identity with direct context', async () => {
     const forwarded: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player', avatarUrl: null })
+    const token = await createTestActivitySession({ userId: 'player-1', displayName: 'Player', avatarUrl: null })
     const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/browser/session/stable-session`, {
       headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
     }), createEnv(forwarded, Response.json({ status: 'ended', sessionId: 'stable-session', matchId: 'match-1', phase: 'cancelled' })))
 
     expect(response.status).toBe(200)
     expect(await response.json() as unknown).toEqual({
-      identity: { userId: 'player-1', displayName: 'Player', avatarUrl: null },
+      identity: {
+        userId: 'player-1',
+        displayName: 'Player',
+        avatarUrl: null,
+        guildId: GUILD_ID,
+        guildPermissions: '0',
+        guildName: null,
+        guildIconUrl: null,
+        guildRoleIds: [],
+      },
       context: { status: 'ended', sessionId: 'stable-session', matchId: 'match-1', phase: 'cancelled' },
     })
     const upstream = forwarded[0]!
@@ -65,7 +75,16 @@ describe('browser cookie proxy', () => {
   })
 
   test('requires exact Origin for cookie-authenticated unsafe requests and websocket upgrades', async () => {
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createActivitySession(SECRET, {
+      userId: 'player-1',
+      displayName: null,
+      avatarUrl: null,
+      guildId: '1234044388733095946',
+      guildPermissions: '0',
+      guildName: 'Partner Server',
+      guildIconUrl: 'https://cdn.discordapp.com/icons/1234044388733095946/icon.png',
+      guildRoleIds: ['222222222222222222'],
+    })
     const cookie = `${BROWSER_SESSION_COOKIE}=${token}`
     const env = createEnv([], new Response('ok'))
 
@@ -89,7 +108,7 @@ describe('browser cookie proxy', () => {
 
   test('keeps explicit embedded header auth working when browser auth is not configured', async () => {
     const forwarded: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'embedded', displayName: null, avatarUrl: null })
+    const token = await createTestActivitySession({ userId: 'embedded', displayName: null, avatarUrl: null })
     const env = { ...createEnv(forwarded, new Response('ok')), ACTIVITY_PUBLIC_ORIGIN: undefined }
     const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/launch/channel/embedded`, {
       headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
@@ -130,7 +149,16 @@ describe('browser cookie proxy', () => {
 
   test('streams CivBlitz ZIP downloads through a short-lived match-scoped ticket', async () => {
     const forwarded: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
+    const token = await createActivitySession(SECRET, {
+      userId: 'player-1',
+      displayName: null,
+      avatarUrl: null,
+      guildId: '1234044388733095946',
+      guildPermissions: '0',
+      guildName: 'Partner Server',
+      guildIconUrl: 'https://cdn.discordapp.com/icons/1234044388733095946/icon.png',
+      guildRoleIds: ['222222222222222222'],
+    })
     const bytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0x80, 0x01])
     const upstream = new Response(bytes, {
       headers: {
@@ -162,6 +190,8 @@ describe('browser cookie proxy', () => {
     expect(new URL(forwarded[0]!.url).pathname).toBe('/api/match/match-1/civblitz/download')
     expect(new URL(forwarded[0]!.url).search).toBe('')
     expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)).toBe('1234044388733095946')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER)).toBeNull()
 
     const wrongMatch = await activityWorker.fetch(new Request(
       `${ORIGIN}/api/match/match-2/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
@@ -207,12 +237,21 @@ describe('browser cookie proxy', () => {
 
 >>>>>>> Current commit: chore: cleanup and simplify setup
   test('returns browser identity without exposing the session and clears logout only for exact origin', async () => {
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player', avatarUrl: null })
+    const token = await createTestActivitySession({ userId: 'player-1', displayName: 'Player', avatarUrl: null })
     const env = createEnv([], new Response('ok'))
     const me = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/me`, {
       headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
     }), env)
-    expect(await me.json<any>()).toEqual({ userId: 'player-1', displayName: 'Player', avatarUrl: null })
+    expect(await me.json<any>()).toEqual({
+      userId: 'player-1',
+      displayName: 'Player',
+      avatarUrl: null,
+      guildId: GUILD_ID,
+      guildPermissions: '0',
+      guildName: null,
+      guildIconUrl: null,
+      guildRoleIds: [],
+    })
 
     const rejectedLogout = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/logout`, {
       method: 'POST', headers: { Origin: 'https://evil.example' },
@@ -227,7 +266,7 @@ describe('browser cookie proxy', () => {
   })
 
   test('rejects expired browser sessions', async () => {
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null }, {
+    const token = await createTestActivitySession({ userId: 'player-1', displayName: null, avatarUrl: null }, {
       nowMs: Date.now() - 10_000,
       ttlSeconds: 1,
     })
@@ -236,12 +275,40 @@ describe('browser cookie proxy', () => {
     }), createEnv([], new Response('ok')))
     expect(response.status).toBe(401)
   })
+
+  test('rejects an existing session after its source guild is removed from the allowlist', async () => {
+    const token = await createActivitySession(SECRET, {
+      userId: 'partner-player',
+      displayName: null,
+      avatarUrl: null,
+      guildId: '222222222222222222',
+      guildPermissions: '0',
+    })
+    const forwarded: Request[] = []
+    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/launch/channel/partner-player`, {
+      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+    }), createEnv(forwarded, new Response('ok')))
+
+    expect(response.status).toBe(403)
+    expect(forwarded).toHaveLength(0)
+  })
 })
+
+function createTestActivitySession(
+  identity: { userId: string, displayName: string | null, avatarUrl: string | null },
+  options?: { nowMs?: number, ttlSeconds?: number },
+) {
+  return createActivitySession(SECRET, {
+    ...identity,
+    guildId: GUILD_ID,
+    guildPermissions: '0',
+  }, options)
+}
 
 function createEnv(forwarded: Request[], upstream: Response): ActivityEnv {
   return {
     ACTIVITY_PUBLIC_ORIGIN: ORIGIN,
-    ALLOWED_DISCORD_GUILD_ID: '1234044388733095946',
+    ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
     CIVUP_SECRET: SECRET,
     DISCORD_CLIENT_ID: '222222222222222222',
     DISCORD_CLIENT_SECRET: 'client-secret',

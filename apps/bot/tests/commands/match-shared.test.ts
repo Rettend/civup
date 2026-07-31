@@ -1,7 +1,7 @@
 import { matches, matchParticipants, players, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq, isNull } from 'drizzle-orm'
-import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
+import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch as joinLobbyAndMaybeStartMatchSource, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
@@ -11,8 +11,15 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const GUILD_ID = '111111111111111111'
 const TITAN_ROLE_ID = '99999999999999999'
 const GLADIATOR_ROLE_ID = '11111111111111111'
+const joinLobbyAndMaybeStartMatch: typeof joinLobbyAndMaybeStartMatchSource = (context, mode, entries, options) => joinLobbyAndMaybeStartMatchSource(
+  context,
+  mode,
+  entries.map(entry => entry.sourceGuild ? entry : { ...entry, sourceGuild: { id: GUILD_ID } }),
+  options,
+)
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -23,7 +30,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -34,10 +41,15 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
+      sourceGuild: { id: GUILD_ID },
     })
     await setLobbyMinRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+      tier5: '55555555555555555',
+      tier4: '44444444444444444',
+      tier3: '33333333333333333',
       tier2: GLADIATOR_ROLE_ID,
+      tier1: TITAN_ROLE_ID,
     })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
@@ -55,14 +67,14 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
     expect('error' in result).toBe(true)
     if (!('error' in result)) return
-    expect(result.error).toContain('requires at least')
+    expect(result.error).toContain('unranked')
   })
 
-  test('allows direct lobby joins to bypass matchmaking min rank', async () => {
+  test('keeps calculated minimum rank gates on direct lobby joins', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -75,8 +87,12 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       joinedAt: Date.now(),
     })
     await setLobbyMinRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+      tier5: '55555555555555555',
+      tier4: '44444444444444444',
+      tier3: '33333333333333333',
       tier2: GLADIATOR_ROLE_ID,
+      tier1: TITAN_ROLE_ID,
     })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
@@ -90,22 +106,18 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       playerId: 'guest',
       displayName: 'Guest',
       avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-      skipMatchmakingRankGate: true,
-    })
+    }], { preferredLobbyId: lobby.id })
 
-    expect('stage' in result).toBe(true)
-    if (!('stage' in result)) return
-    expect(result.stage).toBe('open')
-    expect(result.lobby.memberPlayerIds).toContain('guest')
+    expect('error' in result).toBe(true)
+    if (!('error' in result)) return
+    expect(result.error).toContain('unranked')
   })
 
   test('keeps matchmaking max rank as a /match join gate', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -118,7 +130,10 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       joinedAt: Date.now(),
     })
     await setLobbyMaxRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+      tier5: '55555555555555555',
+      tier4: '44444444444444444',
+      tier3: '33333333333333333',
       tier1: TITAN_ROLE_ID,
       tier2: GLADIATOR_ROLE_ID,
     })
@@ -138,14 +153,14 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
     expect('error' in result).toBe(true)
     if (!('error' in result)) return
-    expect(result.error).toContain('allows up to')
+    expect(result.error).toContain('unranked')
   })
 
-  test('allows direct lobby joins to bypass matchmaking max rank', async () => {
+  test('keeps calculated maximum rank gates on direct lobby joins', async () => {
     const { kv } = createTrackedKv()
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -158,7 +173,10 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       joinedAt: Date.now(),
     })
     await setLobbyMaxRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
+      tier5: '55555555555555555',
+      tier4: '44444444444444444',
+      tier3: '33333333333333333',
       tier1: TITAN_ROLE_ID,
       tier2: GLADIATOR_ROLE_ID,
     })
@@ -174,15 +192,11 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       playerId: 'titan',
       displayName: 'Titan',
       avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-      skipMatchmakingRankGate: true,
-    })
+    }], { preferredLobbyId: lobby.id })
 
-    expect('stage' in result).toBe(true)
-    if (!('stage' in result)) return
-    expect(result.stage).toBe('open')
-    expect(result.lobby.memberPlayerIds).toContain('titan')
+    expect('error' in result).toBe(true)
+    if (!('error' in result)) return
+    expect(result.error).toContain('unranked')
   })
 
   test('still allows joins before hourly inactivity cleanup runs', async () => {
@@ -278,6 +292,21 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
   test('joins a queued player into the canonical roster despite old slot residue', async () => {
     const { kv } = createTrackedKv()
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+      sourceGuild: { id: GUILD_ID },
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+      sourceGuild: { id: GUILD_ID },
+    })
+
     const lobby = await createLobby(kv, {
       mode: '2v2',
       hostId: 'host',
@@ -285,20 +314,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       messageId: 'message-1',
     })
 
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-
-    await setLobbySlots(kv, lobby.id, ['host', 'player-1', null, null], lobby)
+    await seedDirectorySlotResidue(kv, lobby.id, ['host', 'player-1', null, null])
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
@@ -321,6 +337,28 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
   test('does not rebuild stale members from slotted queue residue', async () => {
     const { kv } = createTrackedKv()
+    await addToQueue(kv, '2v2', {
+      playerId: 'host',
+      displayName: 'Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+      sourceGuild: { id: GUILD_ID },
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+      sourceGuild: { id: GUILD_ID },
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+      sourceGuild: { id: GUILD_ID },
+    })
+
     const lobby = await createLobby(kv, {
       mode: '2v2',
       hostId: 'host',
@@ -328,26 +366,7 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       messageId: 'message-1',
     })
 
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: null,
-      joinedAt: Date.now() + 1,
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: null,
-      joinedAt: Date.now() + 2,
-    })
-
-    await setLobbySlots(kv, lobby.id, ['host', 'player-1', null, null], lobby)
+    await seedDirectorySlotResidue(kv, lobby.id, ['host', 'player-1', null, null])
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
@@ -483,6 +502,19 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'guest'])
   })
 })
+
+async function seedDirectorySlotResidue(kv: KVNamespace, sessionId: string, slots: (string | null)[]): Promise<void> {
+  const runtime = getExistingTestLobbyRuntime(kv)
+  const [directory] = await runtime.db.select({ rosterJson: sessionDirectory.rosterJson })
+    .from(sessionDirectory)
+    .where(eq(sessionDirectory.sessionId, sessionId))
+    .limit(1)
+  if (!directory) throw new Error(`Missing test session directory row for ${sessionId}`)
+  const roster = JSON.parse(directory.rosterJson) as { participants: unknown[], slots: (string | null)[] }
+  await runtime.db.update(sessionDirectory)
+    .set({ rosterJson: JSON.stringify({ ...roster, slots }) })
+    .where(eq(sessionDirectory.sessionId, sessionId))
+}
 
 describe('preflightMatchCreateSessionState', () => {
   test('keeps blocking real membership in another open lobby', async () => {

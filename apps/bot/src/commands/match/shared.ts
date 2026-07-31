@@ -1,17 +1,18 @@
 import type { createDb } from '@civup/db'
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { GameMode, QueueEntry, SourceGuildIdentity } from '@civup/game'
 import type { Embed } from 'discord-hono'
 import type { lobbyComponents } from '../../embeds/match.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyState } from '../../services/lobby/index.ts'
 import { createDb as createCivupDb, matches, matchParticipants } from '@civup/db'
-import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, formatModeLabel, isTeamMode } from '@civup/game'
+import { formatModeLabel, isTeamMode } from '@civup/game'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, restoreDeferredOpenLobbyTransferSourceAdmission, rollbackDeferredOpenLobbyTransferTarget, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
-import { buildRankedRoleVisuals, fetchGuildMemberRoleIds, getRankedRoleConfig, resolveCurrentCompetitiveTierFromRoleIds } from '../../services/ranked/roles.ts'
+import { getCalculatedRankGateError } from '../../services/ranked/admission.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayers, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, isSessionAdmissionError } from '../../services/session/index.ts'
 import { buildTournamentReservedSlotLabels, listOpenTournamentSessionIds } from '../../services/tournament/index.ts'
 import { getSessionRecord } from '../../session-runtime/session-do-client.ts'
@@ -69,6 +70,7 @@ export interface MatchJoinEntry {
   playerId: string
   displayName: string
   avatarUrl: string
+  sourceGuild?: SourceGuildIdentity
 }
 
 export function buildFfaPlacementOptions() {
@@ -83,13 +85,13 @@ export async function joinLobbyAndMaybeStartMatch(
       SessionDO?: DurableObjectNamespace
       DISCORD_TOKEN?: string
       CIVUP_SECRET?: string
+      ALLOWED_DISCORD_GUILD_ID?: string
     }
   },
   mode: GameMode,
   requestedEntries: MatchJoinEntry[],
   options?: {
     preferredLobbyId?: string
-    skipMatchmakingRankGate?: boolean
     liveMatchPlayerIds?: ReadonlySet<string>
     includeTournamentLobbies?: boolean
   },
@@ -145,6 +147,7 @@ export async function joinLobbyAndMaybeStartMatch(
     playerId: entry.playerId,
     displayName: entry.displayName,
     avatarUrl: entry.avatarUrl,
+    ...(entry.sourceGuild ? { sourceGuild: entry.sourceGuild } : {}),
     joinedAt: now + index,
   }))
 
@@ -155,9 +158,6 @@ export async function joinLobbyAndMaybeStartMatch(
   const candidateLobbies = preferredLobbyId
     ? openLobbies.filter(lobby => lobby.id === preferredLobbyId)
     : openLobbies
-  const rankedRoleConfigByGuildId = new Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>()
-  const memberRoleIdsByKey = new Map<string, string[]>()
-
   const candidateResults = await Promise.all(candidateLobbies
     .map(async (lobby) => {
       const candidateLobbyMemberPlayerIds = lobby.memberPlayerIds
@@ -174,13 +174,11 @@ export async function joinLobbyAndMaybeStartMatch(
       }
 
       const gateError = await getRoleGateErrorForLobby(
-        c.env.DISCORD_TOKEN,
+        db,
         kv,
         candidateLobby,
         requestedEntries,
-        rankedRoleConfigByGuildId,
-        memberRoleIdsByKey,
-        options?.skipMatchmakingRankGate === true,
+        c.env.ALLOWED_DISCORD_GUILD_ID ?? '',
       )
       if (gateError) {
         return { gateError }
@@ -290,6 +288,7 @@ export async function joinLobbyAndMaybeStartMatch(
       db: c.env.DB ? createCivupDb(c.env.DB) : null,
       sessionNamespace: c.env.SessionDO,
       queueEntries: deferredTransferSource.queueEntries,
+      legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
     })
     if (!finalized.ok) {
       const rolledBack = await rollbackDeferredOpenLobbyTransferTarget(kv, deferredTransferSource, {
@@ -300,6 +299,7 @@ export async function joinLobbyAndMaybeStartMatch(
         db: c.env.DB ? createCivupDb(c.env.DB) : null,
         sessionNamespace: c.env.SessionDO,
         queueEntries: targetQueueEntriesBeforeTransfer,
+        legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
       })
       if (!rolledBack.ok) return { error: `${finalized.error} Transfer rollback also failed: ${rolledBack.error}` }
       return { error: `${finalized.error} Transfer was rolled back; please try again.` }
@@ -311,6 +311,7 @@ export async function joinLobbyAndMaybeStartMatch(
   await syncLobbyDerivedState(kv, nextLobby, {
     queueEntries: finalQueueEntries,
     slots: finalSlots,
+    legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
   })
 
   const slottedEntries = mapLobbySlotsToEntries(finalSlots, finalQueueEntries)
@@ -331,7 +332,7 @@ function isSessionVersionStaleError(error: unknown): boolean {
 
 async function restoreOpenLobbyTransferSource(
   kv: KVNamespace,
-  env: { DB?: D1Database, SessionDO?: DurableObjectNamespace },
+  env: { DB?: D1Database, SessionDO?: DurableObjectNamespace, ALLOWED_DISCORD_GUILD_ID?: string },
   sourceLobby: LobbyState,
   queueEntries: QueueEntry[],
   at: number,
@@ -351,7 +352,7 @@ async function restoreOpenLobbyTransferSource(
       sessionNamespace: env.SessionDO,
       queueEntries,
     }) ?? currentSource
-    await syncLobbyDerivedState(kv, restored, { queueEntries })
+    await syncLobbyDerivedState(kv, restored, { queueEntries, legacyGuildId: env.ALLOWED_DISCORD_GUILD_ID })
     return { ok: true }
   }
   catch (error) {
@@ -488,49 +489,18 @@ export async function preflightMatchCreateSessionState(
 }
 
 async function getRoleGateErrorForLobby(
-  token: string | undefined,
+  db: ReturnType<typeof createDb>,
   kv: KVNamespace,
   lobby: LobbyState,
   requestedEntries: MatchJoinEntry[],
-  rankedRoleConfigByGuildId: Map<string, Awaited<ReturnType<typeof getRankedRoleConfig>>>,
-  memberRoleIdsByKey: Map<string, string[]>,
-  skipMatchmakingRankGate: boolean,
+  primaryGuildId: string,
 ): Promise<string | null> {
-  if (skipMatchmakingRankGate) return null
   if (!lobby.minRole && !lobby.maxRole) return null
   if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
-  if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'
-
-  let config = rankedRoleConfigByGuildId.get(lobby.guildId)
-  if (!config) {
-    config = await getRankedRoleConfig(kv, lobby.guildId)
-    rankedRoleConfigByGuildId.set(lobby.guildId, config)
-  }
-
-  const visuals = buildRankedRoleVisuals(config)
-  const minGateLabel = lobby.minRole
-    ? (visuals.find(option => option.tier === lobby.minRole)?.label ?? 'that ranked role')
-    : null
-  const maxGateLabel = lobby.maxRole
-    ? (visuals.find(option => option.tier === lobby.maxRole)?.label ?? 'that ranked role')
-    : null
-
-  for (const entry of requestedEntries) {
-    if (lobby.memberPlayerIds.includes(entry.playerId)) continue
-
-    const memberKey = `${lobby.guildId}:${entry.playerId}`
-    let roleIds = memberRoleIdsByKey.get(memberKey)
-    if (!roleIds) {
-      roleIds = await fetchGuildMemberRoleIds(token, lobby.guildId, entry.playerId)
-      memberRoleIdsByKey.set(memberKey, roleIds)
-    }
-
-    const currentTier = resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
-    if (!competitiveTierMeetsMinimum(currentTier, lobby.minRole)) return `This lobby requires at least ${minGateLabel}.`
-    if (!competitiveTierMeetsMaximum(currentTier, lobby.maxRole)) return `This lobby allows up to ${maxGateLabel}.`
-  }
-
-  return null
+  const playerIds = requestedEntries
+    .map(entry => entry.playerId)
+    .filter(playerId => !lobby.memberPlayerIds.includes(playerId))
+  return getCalculatedRankGateError(db, kv, createStatsContext(lobby.guildId, primaryGuildId), lobby, playerIds)
 }
 
 export function collectFfaPlacementUserIds(vars: Record<string, any>): string[] {

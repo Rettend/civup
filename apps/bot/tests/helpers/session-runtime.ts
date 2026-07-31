@@ -6,6 +6,7 @@ export interface TestSessionNamespace extends DurableObjectNamespace {
   __getRoom: (name: string) => SessionDO
   __evictRoom: (name: string) => SessionDO
   __replaceWebSockets: (name: string, sockets: WebSocket[]) => void
+  __flushBackgroundTasks: () => Promise<void>
 }
 
 export interface FakeSessionWebSocket {
@@ -16,13 +17,24 @@ export interface FakeSessionWebSocket {
 }
 
 export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): TestSessionNamespace {
+  env = {
+    ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
+    ...env,
+  }
   const rooms = new Map<string, SessionDO>()
   const states = new Map<string, FakeSessionDurableObjectState>()
+  const pendingTasks = new Set<Promise<void>>()
+
+  const trackBackgroundTask = (promise: Promise<unknown>): void => {
+    let tracked: Promise<void>
+    tracked = promise.then(() => {}, () => {}).finally(() => pendingTasks.delete(tracked))
+    pendingTasks.add(tracked)
+  }
 
   const getState = (sessionId: string): FakeSessionDurableObjectState => {
     let state = states.get(sessionId)
     if (!state) {
-      state = createFakeDurableObjectState()
+      state = createFakeDurableObjectState(trackBackgroundTask)
       states.set(sessionId, state)
     }
     return state
@@ -64,6 +76,9 @@ export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): T
       const state = getState(name)
       state.__webSockets.splice(0, state.__webSockets.length, ...sockets)
     },
+    async __flushBackgroundTasks() {
+      while (pendingTasks.size > 0) await Promise.all([...pendingTasks])
+    },
   } as unknown as TestSessionNamespace
 }
 
@@ -103,7 +118,7 @@ export function createFakeSessionWebSocket(initialAttachment: unknown = null): F
   }
 }
 
-export function createFakeDurableObjectState(): FakeSessionDurableObjectState {
+export function createFakeDurableObjectState(onWaitUntil?: (promise: Promise<unknown>) => void): FakeSessionDurableObjectState {
   const storage = new Map<string, unknown>()
   const webSockets: WebSocket[] = []
   let alarmAt: number | null = null
@@ -113,7 +128,8 @@ export function createFakeDurableObjectState(): FakeSessionDurableObjectState {
       await callback()
     },
     waitUntil(promise: Promise<unknown>) {
-      void promise.catch(() => {})
+      if (onWaitUntil) onWaitUntil(promise)
+      else void promise.catch(() => {})
     },
     getWebSockets() {
       return webSockets

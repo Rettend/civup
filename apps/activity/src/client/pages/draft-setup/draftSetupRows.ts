@@ -1,4 +1,5 @@
 import type { DraftState } from '@civup/game'
+import type { SourceGuildIdentity } from '@civup/game'
 import type { PlayerRow } from './helpers'
 import type { MiniSeatItem } from '~/client/components/draft/MiniLayout'
 import type { LobbySnapshot } from '~/client/stores'
@@ -11,6 +12,7 @@ interface BuildRowsInput {
   currentUserId: string | null
   currentUserDisplayName: string | null
   currentUserAvatarUrl: string | null
+  currentUserSourceGuild: SourceGuildIdentity | null
   pendingSelfJoinSlot: number | null
 }
 
@@ -24,6 +26,7 @@ function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot
       name: input.currentUserDisplayName || 'You',
       playerId: input.currentUserId,
       avatarUrl: input.currentUserAvatarUrl,
+      sourceGuild: input.currentUserSourceGuild,
       team,
       isHost: false,
       empty: false,
@@ -39,6 +42,7 @@ function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot
     name: entry?.displayName ?? '[empty]',
     playerId: entry?.playerId ?? null,
     avatarUrl: entry?.avatarUrl ?? null,
+    sourceGuild: entry?.sourceGuild ?? null,
     team,
     isHost: entry?.playerId === input.hostId,
     empty: entry == null,
@@ -67,6 +71,7 @@ export function buildTeamRows(input: BuildRowsInput, team: number): PlayerRow[] 
         name: seat.displayName,
         playerId: seat.playerId,
         avatarUrl: seat.avatarUrl ?? null,
+        sourceGuild: seat.sourceGuild ?? null,
         team,
         isHost: seat.playerId === input.hostId,
         empty: false,
@@ -87,6 +92,7 @@ export function buildFfaRows(input: BuildRowsInput): PlayerRow[] {
     name: seat.displayName,
     playerId: seat.playerId,
     avatarUrl: seat.avatarUrl ?? null,
+    sourceGuild: seat.sourceGuild ?? null,
     team: null,
     isHost: seat.playerId === input.hostId,
     empty: false,
@@ -113,6 +119,7 @@ export function buildMiniColumns(input: {
     key: row.key,
     name: row.empty ? '[empty]' : row.name,
     avatarUrl: row.avatarUrl ?? null,
+    sourceGuild: row.sourceGuild,
     leaderId: input.draftState?.picks.find(pick => pick.seatIndex === row.slot)?.civId ?? null,
     previewLeaderId: input.previewPicks[row.slot]?.[0] ?? null,
     team,

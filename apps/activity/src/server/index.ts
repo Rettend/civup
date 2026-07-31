@@ -1,8 +1,13 @@
 import {
+  ACTIVITY_FEED_ROOM,
+  ACTIVITY_VERSION_OUTDATED_MESSAGE,
   CIVUP_ACTIVITY_AVATAR_URL_HEADER,
   CIVUP_ACTIVITY_DISPLAY_NAME_HEADER,
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
+  CIVUP_ACTIVITY_GUILD_ICON_URL_HEADER,
+  CIVUP_ACTIVITY_GUILD_NAME_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
+  CIVUP_ACTIVITY_GUILD_ROLE_IDS_HEADER,
   CIVUP_ACTIVITY_SESSION_HEADER,
   CIVUP_ACTIVITY_SESSION_QUERY_PARAM,
   CIVUP_ACTIVITY_USER_ID_HEADER,
@@ -13,6 +18,7 @@ import {
   isDev,
   verifyActivitySession,
   verifyCivBlitzDownloadTicket,
+  resolveApprovedDiscordGuildConfiguration,
 } from '@civup/utils'
 import { BROWSER_SESSION_COOKIE, clearBrowserSessionCookie, handleBrowserOAuthRequest, hasExactBrowserOrigin, readCookie, resolveBrowserAccessConfiguration } from './browser-auth.ts'
 import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
@@ -20,6 +26,7 @@ import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord
 interface Env {
   ACTIVITY_PUBLIC_ORIGIN?: string
   ALLOWED_DISCORD_GUILD_ID?: string
+  ALLOWED_DISCORD_GUILD_IDS?: string
   CIVUP_SECRET?: string
   DISCORD_CLIENT_ID: string
   DISCORD_CLIENT_SECRET: string
@@ -44,6 +51,9 @@ interface ActivityProxySession {
 <<<<<<< New base: feat: save file analyzer
   guildId: string | null
   guildPermissions: string | null
+  guildName: string | null
+  guildIconUrl: string | null
+  guildRoleIds: string[]
   source: 'header' | 'query' | 'cookie' | 'download-ticket'
 ||||||| Common ancestor
 =======
@@ -147,7 +157,16 @@ async function handleDevLog(request: Request): Promise<Response> {
 async function handleAuthMe(request: Request, env: Env): Promise<Response> {
   const session = await requireActivitySession(request, env)
   if (session instanceof Response) return session
-  const response = json({ userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl })
+  const response = json({
+    userId: session.userId,
+    displayName: session.displayName,
+    avatarUrl: session.avatarUrl,
+    guildId: session.guildId,
+    guildName: session.guildName,
+    guildIconUrl: session.guildIconUrl,
+    guildPermissions: session.guildPermissions,
+    guildRoleIds: session.guildRoleIds,
+  })
   response.headers.set('Cache-Control', 'no-store')
   return response
 }
@@ -167,6 +186,13 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
   if (!resolveBrowserAccessConfiguration(env)) return json({ error: 'Browser access is not configured' }, 503)
   const session = await requireActivitySession(request, env)
   if (session instanceof Response) return session
+  const sourceGuildId = normalizeGuildId(url.searchParams.get('sourceGuild'))
+  if (sourceGuildId && sourceGuildId !== session.guildId) {
+    const response = json({ error: 'Sign in again to use this Discord server context' }, 401)
+    response.headers.set('Set-Cookie', clearBrowserSessionCookie())
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
 
   const targetPath = buildTargetPath(url, url.pathname.replace(/^\/api\/browser/, '/api/activity'))
   const proxy = await fetchBotUpstream(request, targetPath, env, session)
@@ -175,7 +201,16 @@ async function handleBrowserBootstrap(request: Request, url: URL, env: Env): Pro
   const payload = await upstream.json<unknown>().catch(() => null)
   if (!upstream.ok) return json(payload ?? { error: 'Browser context failed' }, upstream.status)
   const response = json({
-    identity: { userId: session.userId, displayName: session.displayName, avatarUrl: session.avatarUrl },
+    identity: {
+      userId: session.userId,
+      displayName: session.displayName,
+      avatarUrl: session.avatarUrl,
+      guildId: session.guildId,
+      guildName: session.guildName,
+      guildIconUrl: session.guildIconUrl,
+      guildPermissions: session.guildPermissions,
+      guildRoleIds: session.guildRoleIds,
+    },
     context: payload,
   })
   response.headers.set('Cache-Control', 'no-store')
@@ -303,7 +338,11 @@ async function handleCivBlitzDownloadTicket(request: Request, url: URL, env: Env
   const secret = env.CIVUP_SECRET?.trim() ?? ''
   if (!secret) return json({ error: 'Activity auth is not configured' }, 503)
 
-  const ticket = await createCivBlitzDownloadTicket(secret, { userId: session.userId, matchId })
+  const ticket = await createCivBlitzDownloadTicket(secret, {
+    userId: session.userId,
+    matchId,
+    guildId: session.guildId,
+  })
   const response = json({ ticket, expiresIn: 2 * 60 })
   response.headers.set('Cache-Control', 'no-store')
   return response
@@ -326,13 +365,21 @@ async function resolveMatchProxySession(request: Request, url: URL, env: Env): P
     response.headers.set('Cache-Control', 'no-store')
     return response
   }
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+  if (!guildConfig.ok) return json({ error: 'Activity auth is not configured' }, 503)
+  if (!claims.guildId || !guildConfig.guildIds.includes(claims.guildId)) {
+    return json({ error: 'Activity source server is not approved' }, 403)
+  }
 
   return {
     userId: claims.sub,
     displayName: null,
     avatarUrl: null,
-    guildId: null,
+    guildId: claims.guildId,
     guildPermissions: null,
+    guildName: null,
+    guildIconUrl: null,
+    guildRoleIds: [],
     source: 'download-ticket',
   }
 }
@@ -420,6 +467,7 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     if (originError) return originError
 
     const targetPath = buildPartyProxyTargetPath(url)
+    if (!targetPath) return json({ error: ACTIVITY_VERSION_OUTDATED_MESSAGE }, 404)
     const resolvedTargetPath = buildTargetPath(url, targetPath)
     const proxy = await fetchBotUpstream(request, resolvedTargetPath, env, session)
     if ('error' in proxy) return proxy.error
@@ -450,24 +498,11 @@ async function fetchBotUpstream(
   }
 }
 
-function buildPartyProxyTargetPath(url: URL): string {
+function buildPartyProxyTargetPath(url: URL): string | null {
   const targetPath = url.pathname.replace(/^\/api\/parties/, '/parties')
-  const mainPrefix = '/parties/main/'
-  if (!targetPath.startsWith(mainPrefix)) return targetPath
-
-  const roomAndRest = targetPath.slice(mainPrefix.length)
-  const slashIndex = roomAndRest.indexOf('/')
-  const room = slashIndex === -1 ? roomAndRest : roomAndRest.slice(0, slashIndex)
-  if (!room) return targetPath
-
-  const namespace = url.searchParams.has('accessToken') || !isLikelyDiscordSnowflake(room)
-    ? 'session'
-    : 'activity'
-  return `/parties/${namespace}/${roomAndRest}`
-}
-
-function isLikelyDiscordSnowflake(value: string): boolean {
-  return /^\d{17,20}$/.test(value)
+  if (targetPath.startsWith('/parties/session/')) return targetPath
+  if (targetPath === `/parties/activity/${ACTIVITY_FEED_ROOM}`) return targetPath
+  return null
 }
 
 function buildProxyRequest(targetUrl: string, request: Request, env: Env, session: ActivityProxySession): Request {
@@ -504,6 +539,9 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   if (session.avatarUrl) headers.set(CIVUP_ACTIVITY_AVATAR_URL_HEADER, session.avatarUrl)
   if (session.guildId) headers.set(CIVUP_ACTIVITY_GUILD_ID_HEADER, session.guildId)
   if (session.guildPermissions) headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, session.guildPermissions)
+  if (session.guildName) headers.set(CIVUP_ACTIVITY_GUILD_NAME_HEADER, encodeURIComponent(session.guildName))
+  if (session.guildIconUrl) headers.set(CIVUP_ACTIVITY_GUILD_ICON_URL_HEADER, session.guildIconUrl)
+  if (session.guildRoleIds.length > 0) headers.set(CIVUP_ACTIVITY_GUILD_ROLE_IDS_HEADER, encodeURIComponent(JSON.stringify(session.guildRoleIds)))
 
   const upgrade = request.headers.get('upgrade')
   if (upgrade) {
@@ -543,10 +581,18 @@ function shouldWarnForMatchProxy(method: string, pathname: string, status: numbe
 }
 
 async function handleTokenExchange(request: Request, env: Env): Promise<Response> {
+  let body: unknown
   try {
-    const body = await request.json<{ code: string, redirectUri?: string }>()
+    body = await request.json()
+  }
+  catch {
+    return json({ error: 'Invalid JSON request body' }, 400)
+  }
 
-    if (!body.code || typeof body.code !== 'string') {
+  try {
+    if (!body || typeof body !== 'object') return json({ error: 'Invalid request body' }, 400)
+    const input = body as { code?: unknown, guildId?: unknown }
+    if (typeof input.code !== 'string' || input.code.length === 0) {
       return json({ error: 'Missing or invalid "code" in request body' }, 400)
     }
 
@@ -559,7 +605,17 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       return json({ error: 'Activity auth is not configured' }, 503)
     }
 
-    const token = await exchangeDiscordAuthorizationCode(env, { code: body.code, redirectUri })
+    const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+    if (!guildConfig.ok) {
+      console.error('Activity token exchange blocked because approved Discord server configuration is invalid:', guildConfig.error)
+      return json({ error: 'Activity auth is not configured' }, 503)
+    }
+
+    const requestedGuildId = normalizeGuildId(input.guildId)
+    if (!requestedGuildId) return json({ error: 'Missing or invalid Activity launch server' }, 400)
+    if (!guildConfig.guildIds.includes(requestedGuildId)) return json({ error: 'This activity is not available in this Discord server' }, 403)
+
+    const token = await exchangeDiscordAuthorizationCode(env, { code: input.code, redirectUri })
     if (!token.ok) {
       console.error('Discord token exchange failed:', {
         status: token.status,
@@ -580,8 +636,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
       return response
     }
 
-    const allowedGuildId = normalizeGuildId(env.ALLOWED_DISCORD_GUILD_ID)
-    const identity = await loadDiscordIdentity(token.accessToken, allowedGuildId)
+    const identity = await loadDiscordIdentity(token.accessToken, guildConfig.guildIds, requestedGuildId)
     if (!identity.ok) return json({ error: identity.error }, identity.status)
 
     const sessionToken = await createActivitySession(internalSecret, {
@@ -605,7 +660,14 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
 =======
       guildId: identity.guildId,
       guildPermissions: identity.guildPermissions,
+<<<<<<< New base: feat: auto shuffle
 >>>>>>> Current commit: fix: refresh ranked role colors
+||||||| Common ancestor
+=======
+      guildName: identity.guildName,
+      guildIconUrl: identity.guildIconUrl,
+      guildRoleIds: identity.guildRoleIds,
+>>>>>>> Current commit: feat: add multi-server foundations
     })
 
     const response = json({
@@ -638,6 +700,18 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
     return response
   }
 
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+  if (!guildConfig.ok) {
+    const response = json({ error: 'Activity auth is not configured' }, 503)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
+  if (!session.guildId || !guildConfig.guildIds.includes(session.guildId)) {
+    const response = json({ error: 'Activity source server is not approved' }, 403)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  }
+
   return {
     userId: session.sub,
     displayName: session.name || null,
@@ -653,7 +727,14 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
 =======
     guildId: session.guildId,
     guildPermissions: session.guildPermissions,
+<<<<<<< New base: feat: auto shuffle
 >>>>>>> Current commit: fix: refresh ranked role colors
+||||||| Common ancestor
+=======
+    guildName: session.guildName ?? null,
+    guildIconUrl: session.guildIconUrl ?? null,
+    guildRoleIds: session.guildRoleIds ?? [],
+>>>>>>> Current commit: feat: add multi-server foundations
     source: headerToken ? 'header' : queryToken ? 'query' : 'cookie',
 >>>>>>> Current commit: feat: external browser draft WIP
   }
@@ -707,6 +788,7 @@ function json(data: unknown, status = 200): Response {
   })
 }
 
+<<<<<<< New base: feat: auto shuffle
 ||||||| Common ancestor
 async function loadDiscordUser(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResponse | Response> {
   const url = allowedGuildId
@@ -778,4 +860,13 @@ function buildDiscordGuildMemberAvatarUrl(guildId: string, userId: string, avata
 function normalizeGuildId(value: string | undefined): string | null {
   const normalized = value?.trim() ?? ''
   return normalized.length > 0 ? normalized : null
+||||||| Common ancestor
+function normalizeGuildId(value: string | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+=======
+function normalizeGuildId(value: unknown): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  return /^\d{17,20}$/.test(normalized) ? normalized : null
+>>>>>>> Current commit: feat: add multi-server foundations
 }

@@ -25,6 +25,7 @@ interface TokenExchangeResponse {
 interface CachedToken {
   accessToken: string
   expiresAt: number
+  guildId: string
 }
 
 interface AuthorizeErrorPayload {
@@ -91,21 +92,21 @@ function clearCachedTokenFromStorage(storage: Storage | null) {
   catch {}
 }
 
-function readCachedToken(): string | null {
+function readCachedToken(guildId: string | null): string | null {
   const sessionToken = readCachedTokenFromStorage(getSessionStorage())
-  if (sessionToken) return sessionToken.accessToken
+  if (sessionToken && guildId && sessionToken.guildId === guildId) return sessionToken.accessToken
 
   return null
 }
 
-function cacheToken(accessToken: string, expiresIn?: number) {
+function cacheToken(accessToken: string, guildId: string, expiresIn?: number) {
   const expiresAt = Date.now() + (
     typeof expiresIn === 'number' && expiresIn > 0
       ? expiresIn * 1000
       : FALLBACK_TOKEN_LIFETIME_MS
   )
 
-  const payload: CachedToken = { accessToken, expiresAt }
+  const payload: CachedToken = { accessToken, expiresAt, guildId }
   writeCachedTokenToStorage(getSessionStorage(), payload)
 }
 
@@ -145,7 +146,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     instanceId: discordSdk.instanceId,
   })
 
-  const cachedToken = readCachedToken()
+  const cachedToken = readCachedToken(discordSdk.guildId)
   const cachedActivitySession = getActivitySessionToken()
   if (cachedToken && cachedActivitySession) {
     try {
@@ -198,6 +199,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     payload = await api.post<TokenExchangeResponse>('/api/token', {
       code,
       redirectUri,
+      guildId: discordSdk.guildId,
     })
   }
   catch (err: unknown) {
@@ -236,7 +238,8 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     expiresIn: payload.expires_in ?? null,
     hasActivitySession: true,
   })
-  cacheToken(payload.access_token, payload.expires_in)
+  if (!discordSdk.guildId) throw new Error('Discord Activity launch server is missing')
+  cacheToken(payload.access_token, discordSdk.guildId, payload.expires_in)
   cacheActivitySessionToken(payload.activity_session_token, payload.activity_session_expires_in)
 
   return authenticateWithToken(payload.access_token)

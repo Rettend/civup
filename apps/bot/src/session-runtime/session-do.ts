@@ -1,5 +1,6 @@
 import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
+import type { SQL } from 'drizzle-orm'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
@@ -10,17 +11,20 @@ import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, Sessio
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeMapVoteSelection, slotToTeamIndex } from '@civup/game'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, verifySessionAccessToken } from '@civup/utils'
-import { eq } from 'drizzle-orm'
+import { CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration, verifySessionAccessToken } from '@civup/utils'
+import { eq, sql } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
 import { buildDraftRuntimeConfig, buildDraftSeats } from '../services/activity/index.ts'
 import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
 import { arrangeLobbySlots } from '../services/lobby/arrange.ts'
+import { validateTeamGuildSlots } from '../services/lobby/team-guilds.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
+import { getCalculatedRankGateError } from '../services/ranked/admission.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
@@ -44,6 +48,7 @@ interface SessionDOEnv extends DraftRuntimeEnv {
   DISCORD_TOKEN?: string
   CIVUP_SECRET?: string
   ALLOWED_DISCORD_GUILD_ID?: string
+  ALLOWED_DISCORD_GUILD_IDS?: string
 }
 
 interface CreateSessionFromLobbyRequest {
@@ -109,6 +114,7 @@ interface RepeatDraftAvailabilityCache {
 
 interface SessionConnectionState {
   playerId: string | null
+  guildId: string
   openLobby?: boolean
 }
 
@@ -297,7 +303,9 @@ const SESSION_COMMIT_INTENT_STORAGE_KEY = 'session-commit-intent'
 const REPORTED_DISCORD_SYNC_STORAGE_KEY = 'reported-discord-sync'
 const REPORT_CLAIM_STORAGE_KEY = 'report-claim'
 const REPORT_CLAIM_TTL_MS = 10 * 60 * 1000
+const DRAFT_START_CREATION_GRACE_MS = 10 * 60 * 1000
 const REPEAT_DRAFT_CANDIDATE_LIMIT = 120
+const SOCKET_GUILD_RECHECK_INTERVAL_MS = 60 * 1000
 
 interface SessionCommitIntent {
   record: SessionRecord
@@ -408,6 +416,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   override async onAlarm(): Promise<void> {
     await this.runSerializedCommand(async () => {
+      this.closeUnsupportedConnections(await this.getRecord())
       await this.retryPendingDraftStartSync()
       await this.retryPendingLifecycleSync()
       await this.retryPendingTerminalSync()
@@ -423,12 +432,17 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
-      if (record && !isAllowedSessionGuild(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID)) {
+      if (record && !isAllowedSessionGuild(record.guildId, this.env)) {
+        connection.close(4403, 'Forbidden')
+        return
+      }
+      const guildId = readActivityGuildId(ctx.request.headers)
+      if (!guildId || !isAllowedSessionGuild(guildId, this.env)) {
         connection.close(4403, 'Forbidden')
         return
       }
       if (record?.phase === 'open') {
-        await this.handleOpenSessionConnect(connection, ctx, record)
+        await this.handleOpenSessionConnect(connection, ctx, record, guildId)
         return
       }
 
@@ -438,7 +452,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
 
       if (record?.phase === 'active' && !await this.getRoomRecord()) {
-        await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record)
+        await this.handleActiveSessionConnectWithoutRuntime(connection, ctx, record, guildId)
         return
       }
 
@@ -448,12 +462,20 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       }
 
       await super.onConnect(connection, ctx)
+      const state = connection.state as Omit<SessionConnectionState, 'guildId'> | null
+      if (state?.playerId && connection.readyState < 2) connection.setState({ ...state, guildId })
+    }).finally(async () => {
+      await this.rescheduleSessionAlarm(await this.getRecord())
     })
   }
 
   override async onMessage(connection: Connection, message: WSMessage): Promise<void> {
     await this.runSerializedOperation(async () => {
       let record = await this.getRecord()
+      if (!this.isAllowedConnection(connection, record)) {
+        if (connection.readyState < 2) connection.close(4403, 'Forbidden')
+        return
+      }
       if (record?.phase === 'draft') {
         record = await this.recoverDraftRuntimeBeforeSelectedAccess(connection, record)
         if (!record) return
@@ -479,7 +501,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return (await this.getRecord())?.id ?? room.state.matchId
   }
 
-  private async handleOpenSessionConnect(connection: Connection, ctx: ConnectionContext, record: OpenSessionRecord): Promise<void> {
+  private async handleOpenSessionConnect(connection: Connection, ctx: ConnectionContext, record: OpenSessionRecord, guildId: string): Promise<void> {
     if (!isAuthorizedInternalRequest(ctx.request.headers, this.env.CIVUP_SECRET)) {
       connection.close(4401, 'Unauthorized')
       return
@@ -491,7 +513,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
-    connection.setState({ playerId, openLobby: true } satisfies SessionConnectionState)
+    connection.setState({ playerId, guildId, openLobby: true } satisfies SessionConnectionState)
     await this.sendOpenLobbySnapshot(connection, record)
   }
 
@@ -556,6 +578,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     let record: SessionRecord
+    let validateRoster = false
     switch (body.type) {
       case 'set-message':
         record = applyOpenSessionPatch(existing, {
@@ -601,6 +624,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           queueEntries: body.queueEntries,
           updatedAt: body.now,
         })
+        validateRoster = true
         break
       case 'set-member-player-ids':
         record = applyOpenSessionPatch(existing, {
@@ -624,6 +648,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: at,
           queueEntries: body.queueEntries,
         })
+        validateRoster = true
         break
       }
       case 'set-roster':
@@ -635,6 +660,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: body.now,
           queueEntries: body.queueEntries,
         })
+        validateRoster = true
         break
       case 'change-mode':
         record = applyOpenSessionPatch(existing, {
@@ -648,12 +674,18 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
           updatedAt: body.now,
           queueEntries: body.queueEntries,
         })
+        validateRoster = true
         break
       case 'cancel-open-session':
         record = cancelOpenSession(existing, body.now)
         break
       default:
         return json({ error: 'Unknown open lobby command' }, 400)
+    }
+
+    if (validateRoster && record.phase === 'open') {
+      const validation = validateTeamGuildSlots(record.mode, record.roster.slots, buildSessionRosterQueueEntries(record), this.teamGuildPolicy(record))
+      if (validation.error) return json({ error: validation.error }, 400)
     }
 
     if (record === existing) return json({ ok: true, record })
@@ -711,8 +743,23 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       slots: record.roster.slots,
       queueEntries: buildSessionRosterQueueEntries(record),
       strategy: arrangeStrategy,
+      teamGuildPolicy: this.teamGuildPolicy(record),
     })
     if ('error' in arranged) return json({ error: arranged.error }, 400)
+    const teamValidation = validateTeamGuildSlots(record.mode, arranged.slots, buildSessionRosterQueueEntries(record), this.teamGuildPolicy(record))
+    if (teamValidation.error) return json({ error: teamValidation.error }, 400)
+    if (record.config.minRole || record.config.maxRole) {
+      if (!this.env.KV) return json({ error: 'KV binding is not configured' }, 503)
+      if (!record.guildId) return json({ error: 'Session is missing owning-server data' }, 409)
+      const rankGateError = await getCalculatedRankGateError(
+        createDb(this.env.DB),
+        this.env.KV,
+        createStatsContext(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+        record.config,
+        selectedEntries.map(entry => entry.playerId),
+      )
+      if (rankGateError) return json({ error: rankGateError }, 400)
+    }
 
     const randomized = applyOpenSessionPatch(record, {
       slots: arranged.slots,
@@ -730,7 +777,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       updatedAt: now,
       lastActivityAt: now,
       closedAt: null,
-      draftStartSync: { attempts: 0, nextRetryAt: 0 },
+      draftStartSync: { attempts: 0, nextRetryAt: 0, deadlineAt: now + DRAFT_START_CREATION_GRACE_MS },
     }
 
     const commit = await this.commitRecord(next)
@@ -807,7 +854,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
 
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, this.buildDraftMatchInput(record, record.id, currentSeats))
       await this.setRoomRecord(room)
     }
     catch (error) {
@@ -856,7 +903,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     let activated!: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never }
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, this.buildDraftMatchInput(record, record.id, currentSeats))
       const activation = await activateDraftMatch(db, {
         state,
         completedAt: now,
@@ -1101,7 +1148,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     currentSeats: DraftSeat[],
     sourceConfig?: RoomRecord['config'],
   ): Promise<RoomRecord['config']> {
-    const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
+    const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config, { guildId: record.guildId, legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
     const runtime = buildDraftRuntimeConfig(record.mode, buildSessionRosterSlotEntries(record), {
       matchId: record.id,
       hostId: record.hostId,
@@ -1327,7 +1374,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       room = { matchId: existingRoom.state.matchId, seats: existingRoom.config.seats }
     }
     else {
-      const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config)
+      const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config, { guildId: record.guildId, legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
       const slotEntries = buildSessionRosterSlotEntries(record)
       const leaderPoolRankTier = record.config.leaderPoolSize == null && !record.config.redDeath && !record.config.civBlitz && !record.config.hiddenDraft && this.env.KV
         ? await resolveLobbyRankTier(this.env.KV, record.guildId, slotEntries.map(entry => entry.playerId))
@@ -1354,13 +1401,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
-      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats })
+      await createDraftMatch(db, this.buildDraftMatchInput(record, runtime.config.matchId, runtime.config.seats))
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
     if (existingRoom && existingRoom.state.status !== 'cancelled') {
-      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats })
+      await createDraftMatch(db, this.buildDraftMatchInput(record, room.matchId, room.seats))
     }
     return room
   }
@@ -1410,7 +1457,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const target = current?.phase === 'draft' && current.id === record.id ? current : record
     const attempts = target.draftStartSync ? target.draftStartSync.attempts + 1 : 1
     const nextRetryAt = Date.now() + getLifecycleSyncRetryDelay(attempts)
-    const pending = withDraftStartSync(target, { attempts, nextRetryAt })
+    const deadlineAt = target.draftStartSync?.deadlineAt ?? target.frozenAt + DRAFT_START_CREATION_GRACE_MS
+    const pending = withDraftStartSync(target, { attempts, nextRetryAt, deadlineAt })
     await this.storeRecordOnly(pending)
     console.warn('[session-do] draft start sync retry scheduled', {
       matchId: pending.matchId,
@@ -1419,6 +1467,28 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       error,
     })
     return { ok: false, status: 503, error }
+  }
+
+  private buildDraftMatchInput(record: Pick<SessionRecord, 'guildId' | 'sourceGuildPolicy' | 'mode'>, matchId: string, seats: DraftSeat[]) {
+    const guildId = record.guildId?.trim() ?? ''
+    const primaryGuildId = this.env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
+    if (!guildId) throw new Error('Cannot create a match without an owning server')
+    if (!primaryGuildId) throw new Error('Cannot create a match without a configured primary server')
+    return {
+      matchId,
+      mode: record.mode,
+      seats,
+      guildId,
+      primaryGuildId,
+      allowLegacyPrimarySource: record.sourceGuildPolicy !== 'required' && guildId === primaryGuildId,
+    }
+  }
+
+  private teamGuildPolicy(record: Pick<SessionRecord, 'sourceGuildPolicy'>) {
+    return {
+      primaryGuildId: this.env.ALLOWED_DISCORD_GUILD_ID,
+      allowLegacyPrimarySource: record.sourceGuildPolicy !== 'required',
+    }
   }
 
   private async retryPendingLifecycleSync(): Promise<void> {
@@ -1578,7 +1648,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const refreshedMessageIds = uniqueStrings([draftMessageId, ...await listMatchMessageIds(db, matchId)])
     if (refreshedMessageIds.length >= 2) return
 
-    const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive')
+    const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive', {
+      guildId: record.guildId,
+      legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID,
+    })
     if (!archiveChannelId) return
 
     const archiveMessage = tournamentLinked
@@ -2486,7 +2559,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const draftRuntimeAlarmAt = record && !isTerminalSessionPhase(record.phase)
       ? await this.getDraftRuntimeAlarmAt()
       : null
-    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const socketGuildRecheckAt = this.hasOpenConnections() ? Date.now() + SOCKET_GUILD_RECHECK_INTERVAL_MS : null
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt, socketGuildRecheckAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>
@@ -2554,15 +2628,17 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private async applyTerminalLifecycleSideEffects(db: ReturnType<typeof createDb>, command: SessionTerminalSyncCommand): Promise<void> {
     if (command.type === 'mark-reported') {
       const [match] = await db
-        .select({ draftData: matches.draftData, completedAt: matches.completedAt })
+        .select({ draftData: matches.draftData, completedAt: matches.completedAt, status: matches.status })
         .from(matches)
         .where(eq(matches.id, command.matchId))
         .limit(1)
       if (!match) throw new TerminalMatchNotFoundError(command.matchId)
-      const values: { status: string, completedAt: number, draftData?: string | null } = {
+      const values: { status: string, completedAt: number, cancelledAt: null, resultRevision?: SQL, draftData?: string | null } = {
         status: 'completed',
         completedAt: match.completedAt ?? command.at,
+        cancelledAt: null,
       }
+      if (match.status !== 'completed') values.resultRevision = sql`${matches.resultRevision} + 1`
       if (command.reportedById && command.reportedById.trim().length > 0) {
         values.draftData = setReportedByInDraftData(match.draftData, command.reportedById)
       }
@@ -2574,8 +2650,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
+    const [match] = await db.select({ status: matches.status }).from(matches).where(eq(matches.id, command.matchId)).limit(1)
+    if (!match) throw new TerminalMatchNotFoundError(command.matchId)
     const updated = await db.update(matches)
-      .set({ status: 'cancelled', completedAt: command.at })
+      .set({
+        status: 'cancelled',
+        cancelledAt: command.at,
+        ...(match.status === 'cancelled' ? {} : { resultRevision: sql`${matches.resultRevision} + 1` }),
+      })
       .where(eq(matches.id, command.matchId))
       .returning({ id: matches.id })
     if (updated.length === 0) throw new TerminalMatchNotFoundError(command.matchId)
@@ -2629,6 +2711,24 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private closeUnsupportedConnections(record: SessionRecord | null): void {
+    for (const connection of this.getConnections<SessionConnectionState>()) {
+      if (this.isAllowedConnection(connection, record)) continue
+      connection.close(4403, 'Forbidden')
+    }
+  }
+
+  private isAllowedConnection<TState>(connection: Connection<TState>, record: SessionRecord | null): boolean {
+    if (record && !isAllowedSessionGuild(record.guildId, this.env)) return false
+    const state = connection.state as SessionConnectionState | null
+    return isAllowedSessionGuild(state?.guildId ?? null, this.env)
+  }
+
+  private hasOpenConnections(): boolean {
+    for (const _connection of this.getConnections()) return true
+    return false
+  }
+
   private async syncDraftRuntimeProjectionState(record: SessionRecord): Promise<void> {
     if (record.phase !== 'draft' && record.phase !== 'swap') return
     await this.syncDraftRuntimeSteamLobbyLink(record.projectionState.steamLobbyLink)
@@ -2668,7 +2768,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!this.env.KV) {
       return JSON.stringify({ type: 'error', message: 'Session lobby snapshots are not configured' } satisfies SessionServerMessage)
     }
-    const baseSnapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record)
+    const baseSnapshot = await buildLobbySnapshotFromSessionRecord(this.env.KV, record, undefined, undefined, { legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
     const snapshot = this.env.DB
       ? await attachTournamentLobbySnapshot(createDb(this.env.DB), baseSnapshot)
       : baseSnapshot
@@ -2702,7 +2802,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
   }
 
-  private async handleActiveSessionConnectWithoutRuntime(connection: Connection, ctx: ConnectionContext, record: Extract<SessionRecord, { phase: 'active' }>): Promise<void> {
+  private async handleActiveSessionConnectWithoutRuntime(connection: Connection, ctx: ConnectionContext, record: Extract<SessionRecord, { phase: 'active' }>, guildId: string): Promise<void> {
     if (!isAuthorizedInternalRequest(ctx.request.headers, this.env.CIVUP_SECRET)) {
       connection.close(4401, 'Unauthorized')
       return
@@ -2725,7 +2825,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
-    connection.setState({ playerId } satisfies SessionConnectionState)
+    connection.setState({ playerId, guildId } satisfies SessionConnectionState)
     const snapshot = await this.buildCompletedActiveSessionSnapshot(record, playerId)
     this.sendSessionMessage(connection, {
       type: 'init',
@@ -3639,9 +3739,14 @@ function readActivityUserId(headers: Headers): string | null {
   return userId.length > 0 ? userId : null
 }
 
-function isAllowedSessionGuild(sessionGuildId: string | null, configuredGuildId: string | undefined): boolean {
-  const allowedGuildId = configuredGuildId?.trim() ?? ''
-  return allowedGuildId.length === 0 || sessionGuildId === allowedGuildId
+function readActivityGuildId(headers: Headers): string | null {
+  const guildId = headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)?.trim() ?? ''
+  return guildId.length > 0 ? guildId : null
+}
+
+function isAllowedSessionGuild(sessionGuildId: string | null, env: SessionDOEnv): boolean {
+  const config = resolveApprovedDiscordGuildConfiguration(env)
+  return config.ok && sessionGuildId != null && config.guildIds.includes(sessionGuildId)
 }
 
 function getLeaderPoolSizeError(

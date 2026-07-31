@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { PlayerRating, RatingUpdate } from '@civup/rating'
-import { createDb, playerRatings } from '@civup/db'
+import type { StatsContext } from '../services/stats/context.ts'
+import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
 import { Button, Command, Components, Embed } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -8,6 +9,7 @@ import { getIdentity, getIdentityByUserId } from './identity.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../services/response/ephemeral.ts'
 import { factory } from '../setup.ts'
+import { resolveStatsContext } from '../services/stats/context.ts'
 
 const USER_COMMAND_TYPE = 2
 const DUEL_MODE = 'duel'
@@ -37,6 +39,7 @@ export const command_preview_elo = factory.command(
     const targetId = getInteractionTargetId(c.interaction.data)
     const viewer = getIdentity(c)
 
+    if (!c.interaction.guild_id) return c.flags('EPHEMERAL').res('This command can only be used in a server.')
     if (!viewer) return c.flags('EPHEMERAL').res('Could not identify you.')
     if (!targetId) return c.flags('EPHEMERAL').res('Could not identify the target player.')
     if (targetId === viewer.userId) return c.flags('EPHEMERAL').res('Pick another player to preview duel Elo.')
@@ -55,7 +58,7 @@ export const command_preview_elo = factory.command(
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
         })))
-        const embed = await duelEloPreviewEmbed(db, viewer, target)
+        const embed = await duelEloPreviewEmbed(db, resolveStatsContext(c.interaction.guild_id, c.env), viewer, target)
         await c.followup({ embeds: [embed], components: previewEloComponents(), allowed_mentions: { parse: [] } })
       }
       catch (error) {
@@ -78,8 +81,8 @@ function getInteractionTargetId(data: unknown): string | null {
   return typeof targetId === 'string' && targetId.length > 0 ? targetId : null
 }
 
-export async function duelEloPreviewEmbed(db: Database, viewer: PreviewEloIdentity, target: PreviewEloIdentity): Promise<Embed> {
-  const ratings = await loadDuelPreviewRatings(db, [viewer.userId, target.userId])
+export async function duelEloPreviewEmbed(db: Database, statsContext: StatsContext, viewer: PreviewEloIdentity, target: PreviewEloIdentity): Promise<Embed> {
+  const ratings = await loadDuelPreviewRatings(db, statsContext, [viewer.userId, target.userId])
   const viewerRating = ratings.get(viewer.userId) ?? defaultPreviewRating(viewer.userId)
   const targetRating = ratings.get(target.userId) ?? defaultPreviewRating(target.userId)
   const preview = calculateDuelEloPreview(viewerRating, targetRating)
@@ -140,7 +143,7 @@ export function calculateDuelEloPreview(viewer: DuelEloPreviewInput, target: Due
   }
 }
 
-async function loadDuelPreviewRatings(db: Database, playerIds: readonly string[]): Promise<Map<string, DuelEloPreviewInput>> {
+async function loadDuelPreviewRatings(db: Database, statsContext: StatsContext, playerIds: readonly string[]): Promise<Map<string, DuelEloPreviewInput>> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return new Map()
 
@@ -152,7 +155,11 @@ async function loadDuelPreviewRatings(db: Database, playerIds: readonly string[]
       gamesPlayed: playerRatings.gamesPlayed,
     })
     .from(playerRatings)
-    .where(and(eq(playerRatings.mode, DUEL_MODE), inArray(playerRatings.playerId, uniquePlayerIds)))
+    .where(and(
+      eq(playerRatings.statsKey, statsContext.statsKey),
+      eq(playerRatings.mode, DUEL_MODE),
+      inArray(playerRatings.playerId, uniquePlayerIds),
+    ))
 
   return new Map(rows.map(row => [row.playerId, {
     playerId: row.playerId,

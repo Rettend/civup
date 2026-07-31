@@ -1,6 +1,17 @@
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
-import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, tournamentMatches } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import {
+  matchParticipants,
+  matchPlayerCivStatContributions as legacyMatchPlayerCivStatContributions,
+  matches,
+  playerCivStats as legacyPlayerCivStats,
+  players,
+  scopedMatchPlayerCivStatContributions as matchPlayerCivStatContributions,
+  scopedPlayerCivStats as playerCivStats,
+  scopedPlayerRatings as playerRatings,
+  tournamentMatches,
+} from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
@@ -80,10 +91,11 @@ export function playerCivStatsFilter(input: PlayerCivStatsFilter): { seasonId: s
 
 export async function listPlayerCivStats(
   db: Database,
+  statsContext: StatsContext,
   filter: PlayerCivStatsFilter,
   playerId: string,
 ): Promise<PlayerCivStatSummary[]> {
-  const conditions = buildPlayerCivStatConditions(filter, eq(playerCivStats.playerId, playerId))
+  const conditions = buildPlayerCivStatConditions(statsContext, filter, eq(playerCivStats.playerId, playerId))
   const rows = await db
     .select({
       civId: playerCivStats.civId,
@@ -104,6 +116,7 @@ export async function listPlayerCivStats(
 
 export async function loadPlayerCivRankingSummaries(
   db: Database,
+  statsContext: StatsContext,
   filter: PlayerCivStatsFilter,
   playerId: string,
   civIds: readonly string[],
@@ -111,7 +124,7 @@ export async function loadPlayerCivRankingSummaries(
   const uniqueCivIds = [...new Set(civIds)].filter(civId => civId.length > 0)
   if (uniqueCivIds.length === 0) return new Map()
 
-  const conditions = buildPlayerCivStatConditions(filter, inArray(playerCivStats.civId, uniqueCivIds))
+  const conditions = buildPlayerCivStatConditions(statsContext, filter, inArray(playerCivStats.civId, uniqueCivIds))
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
@@ -123,6 +136,7 @@ export async function loadPlayerCivRankingSummaries(
     })
     .from(playerCivStats)
     .leftJoin(playerRatings, and(
+      eq(playerRatings.statsKey, statsContext.statsKey),
       eq(playerRatings.playerId, playerCivStats.playerId),
       eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
     ))
@@ -150,13 +164,14 @@ export async function loadPlayerCivRankingSummaries(
 
 export async function listTopPlayerCivRankings(
   db: Database,
+  statsContext: StatsContext,
   filter: PlayerCivStatsFilter,
   civId: string,
   limit: number,
 ): Promise<PlayerCivRankedPlayerSummary[]> {
   if (civId.length === 0 || limit <= 0) return []
 
-  const conditions = buildPlayerCivStatConditions(filter, eq(playerCivStats.civId, civId))
+  const conditions = buildPlayerCivStatConditions(statsContext, filter, eq(playerCivStats.civId, civId))
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
@@ -169,6 +184,7 @@ export async function listTopPlayerCivRankings(
     .from(playerCivStats)
     .leftJoin(players, eq(players.id, playerCivStats.playerId))
     .leftJoin(playerRatings, and(
+      eq(playerRatings.statsKey, statsContext.statsKey),
       eq(playerRatings.playerId, playerCivStats.playerId),
       eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
     ))
@@ -201,6 +217,7 @@ export async function listTopPlayerCivRankings(
 
 export async function reconcilePlayerCivStatMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
   updatedAt = Date.now(),
 ): Promise<void> {
@@ -211,6 +228,7 @@ export async function reconcilePlayerCivStatMatchContribution(
       draftData: matches.draftData,
       gameMode: matches.gameMode,
       seasonId: matches.seasonId,
+      guildId: matches.guildId,
       tournamentSessionId: tournamentMatches.sessionId,
     })
     .from(matches)
@@ -218,8 +236,8 @@ export async function reconcilePlayerCivStatMatchContribution(
     .where(eq(matches.id, matchId))
     .limit(1)
 
-  if (!matchRaw || matchRaw.tournamentSessionId != null || matchRaw.status !== 'completed') {
-    await replacePlayerCivStatMatchContribution(db, matchId, { entries: [] }, updatedAt)
+  if (!matchRaw || matchRaw.guildId !== statsContext.guildId || matchRaw.tournamentSessionId != null || matchRaw.status !== 'completed') {
+    await replacePlayerCivStatMatchContribution(db, statsContext, matchId, { entries: [] }, updatedAt)
     return
   }
 
@@ -232,32 +250,36 @@ export async function reconcilePlayerCivStatMatchContribution(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, matchId))
 
-  await reconcilePlayerCivStatMatchContributionFromRows(db, matchRaw, participants, { updatedAt })
+  await reconcilePlayerCivStatMatchContributionFromRows(db, statsContext, matchRaw, participants, { updatedAt })
 }
 
 export async function reconcilePlayerCivStatMatchContributionFromRows(
   db: Database,
-  match: { id: string, status?: string | null, draftData: string | null, gameMode: string, seasonId: string | null },
+  statsContext: StatsContext,
+  match: { id: string, status?: string | null, draftData: string | null, gameMode: string, seasonId: string | null, guildId?: string | null },
   participants: readonly { playerId: string, civId: string | null, placement: number | null }[],
   options: { updatedAt?: number, previous?: 'load' | 'empty' } = {},
 ): Promise<void> {
   const updatedAt = options.updatedAt ?? Date.now()
   const next = match.status != null && match.status !== 'completed'
     ? { entries: [] }
-    : buildMatchPlayerCivStatContribution(match, participants)
-  await replacePlayerCivStatMatchContribution(db, match.id, next, updatedAt, options.previous ?? 'load')
+    : buildMatchPlayerCivStatContribution(statsContext, match, participants)
+  if (match.guildId != null && match.guildId !== statsContext.guildId) throw new Error('Player-civ stats context does not match the owning server')
+  await replacePlayerCivStatMatchContribution(db, statsContext, match.id, next, updatedAt, options.previous ?? 'load')
 }
 
 export async function removePlayerCivStatMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
   updatedAt = Date.now(),
 ): Promise<void> {
-  await replacePlayerCivStatMatchContribution(db, matchId, { entries: [] }, updatedAt)
+  await replacePlayerCivStatMatchContribution(db, statsContext, matchId, { entries: [] }, updatedAt)
 }
 
 export async function backfillPlayerCivStatsFromHistory(
   db: Database,
+  statsContext: StatsContext,
   updatedAt = Date.now(),
 ): Promise<{ scannedCompletedMatchCount: number, scannedParticipantRowCount: number, contributionRowCount: number, aggregateRowCount: number }> {
   const [matchRows, participantRows] = await Promise.all([
@@ -269,7 +291,7 @@ export async function backfillPlayerCivStatsFromHistory(
         seasonId: matches.seasonId,
       })
       .from(matches)
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
     db
       .select({
         matchId: matchParticipants.matchId,
@@ -279,7 +301,7 @@ export async function backfillPlayerCivStatsFromHistory(
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
+      .where(and(eq(matches.status, 'completed'), eq(matches.guildId, statsContext.guildId), excludeTournamentMatchesCondition())),
   ])
 
   const participantsByMatchId = new Map<string, Array<{ playerId: string, civId: string | null, placement: number | null }>>()
@@ -293,11 +315,12 @@ export async function backfillPlayerCivStatsFromHistory(
   const contributionRows: Array<typeof matchPlayerCivStatContributions.$inferInsert> = []
 
   for (const match of matchRows) {
-    const contribution = buildMatchPlayerCivStatContribution(match, participantsByMatchId.get(match.id) ?? [])
+    const contribution = buildMatchPlayerCivStatContribution(statsContext, match, participantsByMatchId.get(match.id) ?? [])
     addPlayerCivContributionToAggregates(aggregateByKey, contribution.entries)
 
     if (contribution.entries.length > 0) {
       contributionRows.push({
+        statsKey: statsContext.statsKey,
         matchId: match.id,
         contributionsJson: serializeContributionEntries(contribution.entries),
         updatedAt,
@@ -305,12 +328,19 @@ export async function backfillPlayerCivStatsFromHistory(
     }
   }
 
-  await db.delete(matchPlayerCivStatContributions)
-  await db.delete(playerCivStats)
+  await db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.statsKey, statsContext.statsKey))
+  await db.delete(playerCivStats).where(eq(playerCivStats.statsKey, statsContext.statsKey))
+  if (writesLegacyStats(statsContext)) {
+    await db.delete(legacyMatchPlayerCivStatContributions)
+    await db.delete(legacyPlayerCivStats)
+  }
 
   for (let index = 0; index < contributionRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = contributionRows.slice(index, index + INSERT_CHUNK_SIZE)
-    if (chunk.length > 0) await db.insert(matchPlayerCivStatContributions).values(chunk)
+    if (chunk.length > 0) {
+      await db.insert(matchPlayerCivStatContributions).values(chunk)
+      if (writesLegacyStats(statsContext)) await db.insert(legacyMatchPlayerCivStatContributions).values(chunk.map(({ statsKey: _statsKey, ...row }) => row))
+    }
   }
 
   const aggregateRows = [...aggregateByKey.values()].filter(entry => entry.picks > 0 || entry.wins > 0)
@@ -318,6 +348,7 @@ export async function backfillPlayerCivStatsFromHistory(
     const chunk = aggregateRows.slice(index, index + INSERT_CHUNK_SIZE)
     if (chunk.length > 0) {
       await db.insert(playerCivStats).values(chunk.map(entry => ({
+        statsKey: statsContext.statsKey,
         seasonId: entry.seasonId,
         gameMode: entry.gameMode,
         playerId: entry.playerId,
@@ -326,6 +357,17 @@ export async function backfillPlayerCivStatsFromHistory(
         wins: entry.wins,
         updatedAt,
       })))
+      if (writesLegacyStats(statsContext)) {
+        await db.insert(legacyPlayerCivStats).values(chunk.map(entry => ({
+          seasonId: entry.seasonId,
+          gameMode: entry.gameMode,
+          playerId: entry.playerId,
+          civId: entry.civId,
+          picks: entry.picks,
+          wins: entry.wins,
+          updatedAt,
+        })))
+      }
     }
   }
 
@@ -339,6 +381,7 @@ export async function backfillPlayerCivStatsFromHistory(
 
 async function replacePlayerCivStatMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
   next: MatchPlayerCivStatContribution,
   updatedAt: number,
@@ -346,33 +389,50 @@ async function replacePlayerCivStatMatchContribution(
 ): Promise<void> {
   const previous = previousMode === 'empty'
     ? { entries: [] }
-    : await getPlayerCivStatMatchContribution(db, matchId)
+    : await getPlayerCivStatMatchContribution(db, statsContext, matchId)
 
   if (next.entries.length > 0) {
     const contributionsJson = serializeContributionEntries(next.entries)
     await db
       .insert(matchPlayerCivStatContributions)
-      .values({ matchId, contributionsJson, updatedAt })
+      .values({ statsKey: statsContext.statsKey, matchId, contributionsJson, updatedAt })
       .onConflictDoUpdate({
-        target: matchPlayerCivStatContributions.matchId,
+        target: [matchPlayerCivStatContributions.statsKey, matchPlayerCivStatContributions.matchId],
         set: { contributionsJson, updatedAt },
       })
-    await applyPlayerCivStatAggregateDelta(db, previous, next, updatedAt)
+    if (writesLegacyStats(statsContext)) {
+      await db
+        .insert(legacyMatchPlayerCivStatContributions)
+        .values({ matchId, contributionsJson, updatedAt })
+        .onConflictDoUpdate({
+          target: legacyMatchPlayerCivStatContributions.matchId,
+          set: { contributionsJson, updatedAt },
+        })
+    }
+    await applyPlayerCivStatAggregateDelta(db, statsContext, previous, next, updatedAt)
     return
   }
 
-  await db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.matchId, matchId))
-  await applyPlayerCivStatAggregateDelta(db, previous, next, updatedAt)
+  await db.delete(matchPlayerCivStatContributions).where(and(
+    eq(matchPlayerCivStatContributions.statsKey, statsContext.statsKey),
+    eq(matchPlayerCivStatContributions.matchId, matchId),
+  ))
+  if (writesLegacyStats(statsContext)) await db.delete(legacyMatchPlayerCivStatContributions).where(eq(legacyMatchPlayerCivStatContributions.matchId, matchId))
+  await applyPlayerCivStatAggregateDelta(db, statsContext, previous, next, updatedAt)
 }
 
 async function getPlayerCivStatMatchContribution(
   db: Database,
+  statsContext: StatsContext,
   matchId: string,
 ): Promise<MatchPlayerCivStatContribution> {
   const [row] = await db
     .select({ contributionsJson: matchPlayerCivStatContributions.contributionsJson })
     .from(matchPlayerCivStatContributions)
-    .where(eq(matchPlayerCivStatContributions.matchId, matchId))
+    .where(and(
+      eq(matchPlayerCivStatContributions.statsKey, statsContext.statsKey),
+      eq(matchPlayerCivStatContributions.matchId, matchId),
+    ))
     .limit(1)
 
   return row ? { entries: parseContributionEntries(row.contributionsJson) } : { entries: [] }
@@ -380,6 +440,7 @@ async function getPlayerCivStatMatchContribution(
 
 async function applyPlayerCivStatAggregateDelta(
   db: Database,
+  statsContext: StatsContext,
   previous: MatchPlayerCivStatContribution,
   next: MatchPlayerCivStatContribution,
   updatedAt: number,
@@ -391,6 +452,7 @@ async function applyPlayerCivStatAggregateDelta(
     await db
       .insert(playerCivStats)
       .values(chunk.map(delta => ({
+        statsKey: statsContext.statsKey,
         seasonId: delta.seasonId,
         gameMode: delta.gameMode,
         playerId: delta.playerId,
@@ -400,13 +462,34 @@ async function applyPlayerCivStatAggregateDelta(
         updatedAt,
       })))
       .onConflictDoUpdate({
-        target: [playerCivStats.seasonId, playerCivStats.gameMode, playerCivStats.playerId, playerCivStats.civId],
+        target: [playerCivStats.statsKey, playerCivStats.seasonId, playerCivStats.gameMode, playerCivStats.playerId, playerCivStats.civId],
         set: {
           picks: sql<number>`max(0, ${playerCivStats.picks} + excluded.picks)`,
           wins: sql<number>`max(0, ${playerCivStats.wins} + excluded.wins)`,
           updatedAt,
         },
       })
+    if (writesLegacyStats(statsContext)) {
+      await db
+        .insert(legacyPlayerCivStats)
+        .values(chunk.map(delta => ({
+          seasonId: delta.seasonId,
+          gameMode: delta.gameMode,
+          playerId: delta.playerId,
+          civId: delta.civId,
+          picks: delta.picks,
+          wins: delta.wins,
+          updatedAt,
+        })))
+        .onConflictDoUpdate({
+          target: [legacyPlayerCivStats.seasonId, legacyPlayerCivStats.gameMode, legacyPlayerCivStats.playerId, legacyPlayerCivStats.civId],
+          set: {
+            picks: sql<number>`max(0, ${legacyPlayerCivStats.picks} + excluded.picks)`,
+            wins: sql<number>`max(0, ${legacyPlayerCivStats.wins} + excluded.wins)`,
+            updatedAt,
+          },
+        })
+    }
   }
 
   const affectedSeasonIds = [...new Set(deltas.map(delta => delta.seasonId))]
@@ -415,14 +498,26 @@ async function applyPlayerCivStatAggregateDelta(
   await db
     .delete(playerCivStats)
     .where(and(
+      eq(playerCivStats.statsKey, statsContext.statsKey),
       inArray(playerCivStats.seasonId, affectedSeasonIds),
       inArray(playerCivStats.gameMode, affectedModes),
       inArray(playerCivStats.civId, affectedCivIds),
       sql`${playerCivStats.picks} <= 0 and ${playerCivStats.wins} <= 0`,
     ))
+  if (writesLegacyStats(statsContext)) {
+    await db
+      .delete(legacyPlayerCivStats)
+      .where(and(
+        inArray(legacyPlayerCivStats.seasonId, affectedSeasonIds),
+        inArray(legacyPlayerCivStats.gameMode, affectedModes),
+        inArray(legacyPlayerCivStats.civId, affectedCivIds),
+        sql`${legacyPlayerCivStats.picks} <= 0 and ${legacyPlayerCivStats.wins} <= 0`,
+      ))
+  }
 }
 
 function buildMatchPlayerCivStatContribution(
+  statsContext: StatsContext,
   match: { draftData: string | null, gameMode: string, seasonId: string | null },
   participants: readonly { playerId: string, civId: string | null, placement: number | null }[],
 ): MatchPlayerCivStatContribution {
@@ -432,7 +527,7 @@ function buildMatchPlayerCivStatContribution(
   for (const participant of participants) {
     if (!participant.civId || isRedDeathFaction(participant.civId)) continue
 
-    const seasonId = normalizeSeasonId(match.seasonId)
+    const seasonId = statsContext.seasonPolicy === 'ppl-seasons' ? normalizeSeasonId(match.seasonId) : EMPTY_SEASON_ID
     const key = contributionKey(seasonId, match.gameMode, participant.playerId, participant.civId)
     const aggregate = aggregateByKey.get(key) ?? {
       seasonId,
@@ -571,11 +666,12 @@ function excludeTournamentMatchesCondition() {
   )`
 }
 
-function buildPlayerCivStatConditions(filter: PlayerCivStatsFilter, ...extraConditions: SQL[]): SQL[] {
+function buildPlayerCivStatConditions(statsContext: StatsContext, filter: PlayerCivStatsFilter, ...extraConditions: SQL[]): SQL[] {
   const normalized = playerCivStatsFilter(filter)
   return [
+    eq(playerCivStats.statsKey, statsContext.statsKey),
     ...extraConditions,
-    ...(normalized.seasonId ? [eq(playerCivStats.seasonId, normalized.seasonId)] : []),
+    ...(statsContext.seasonPolicy === 'ppl-seasons' && normalized.seasonId ? [eq(playerCivStats.seasonId, normalized.seasonId)] : []),
     ...(normalized.mode ? [eq(playerCivStats.gameMode, normalized.mode)] : []),
   ]
 }
@@ -723,6 +819,10 @@ function normalizeCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.round(value))
   if (typeof value === 'bigint') return Number(value)
   return 0
+}
+
+function writesLegacyStats(statsContext: StatsContext): boolean {
+  return statsContext.seasonPolicy === 'ppl-seasons'
 }
 
 function chunkArray<T>(values: T[], size: number): T[][] {

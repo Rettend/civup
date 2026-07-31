@@ -1,11 +1,11 @@
 <<<<<<< New base: fix: mod resolve
 import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
-import { createDb, matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { createDb, matches, matchParticipants, scopedPlayerRatings as playerRatings, players } from '@civup/db'
 import { and, asc, gt, inArray, lte } from 'drizzle-orm'
 import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 
-const EXPORT_VERSION = 1
+const EXPORT_VERSION = 2
 const EXPORT_PAGE_SIZE = 50
 const FREE_D1_ROWS_READ_PER_DAY = 5_000_000
 const FREE_WORKER_REQUESTS_PER_DAY = 100_000
@@ -105,7 +105,7 @@ async function loadExportRowUpperBounds(d1: D1Database): Promise<ExportRowUpperB
   const row = await d1.prepare(`
     SELECT
       COALESCE((SELECT MAX(rowid) FROM players), 0) AS players,
-      COALESCE((SELECT MAX(rowid) FROM player_ratings), 0) AS ratings,
+      COALESCE((SELECT MAX(rowid) FROM scoped_player_ratings), 0) AS ratings,
       COALESCE((SELECT MAX(rowid) FROM matches), 0) AS matches,
       COALESCE((SELECT MAX(rowid) FROM match_participants), 0) AS participants,
       COALESCE((SELECT MAX(rowid) FROM match_bans), 0) AS storedBans
@@ -155,6 +155,7 @@ async function playerExportPage(c: Context<Env>, cursor: ExportCursor) {
     ? []
     : await db
         .select({
+          statsKey: playerRatings.statsKey,
           playerId: playerRatings.playerId,
           mode: playerRatings.mode,
           mu: playerRatings.mu,
@@ -165,7 +166,7 @@ async function playerExportPage(c: Context<Env>, cursor: ExportCursor) {
         })
         .from(playerRatings)
         .where(inArray(playerRatings.playerId, parentIds))
-        .orderBy(asc(playerRatings.playerId), asc(playerRatings.mode))
+        .orderBy(asc(playerRatings.statsKey), asc(playerRatings.playerId), asc(playerRatings.mode))
         .limit(MAX_RATINGS_PER_PAGE + 1)
 
   if (ratingRows.length > MAX_RATINGS_PER_PAGE) {
@@ -195,12 +196,16 @@ async function matchExportPage(c: Context<Env>, cursor: ExportCursor) {
   const parentRows = await db
     .select({
       id: matches.id,
+      guildId: matches.guildId,
       gameMode: matches.gameMode,
       status: matches.status,
       isOld: matches.isOld,
       seasonId: matches.seasonId,
       createdAt: matches.createdAt,
       completedAt: matches.completedAt,
+      draftCompletedAt: matches.draftCompletedAt,
+      cancelledAt: matches.cancelledAt,
+      resultRevision: matches.resultRevision,
     })
     .from(matches)
     .where(condition)
@@ -216,6 +221,8 @@ async function matchExportPage(c: Context<Env>, cursor: ExportCursor) {
           .select({
             matchId: matchParticipants.matchId,
             playerId: matchParticipants.playerId,
+            sourceGuildId: matchParticipants.sourceGuildId,
+            sourceKind: matchParticipants.sourceKind,
             team: matchParticipants.team,
             civId: matchParticipants.civId,
             placement: matchParticipants.placement,

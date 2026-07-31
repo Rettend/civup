@@ -15,6 +15,7 @@ export interface PlayerRow {
   name: string
   playerId: string | null
   avatarUrl: string | null
+  sourceGuild?: NonNullable<LobbySnapshot['entries'][number]>['sourceGuild'] | null
   team: number | null
   isHost: boolean
   empty: boolean

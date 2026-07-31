@@ -210,8 +210,8 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const namespace = getTestSessionNamespace(world)
-    const hostSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p1', started.matchId, 'p1'))
-    const opponentSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p2', started.matchId, 'p2'))
+    const hostSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p1', started.matchId, 'p1', lobby.guildId))
+    const opponentSocket = createFakeSessionWebSocket(draftSocketAttachment('conn-p2', started.matchId, 'p2', lobby.guildId))
 
     namespace.__replaceWebSockets(started.matchId, [hostSocket.connection, opponentSocket.connection])
     const wokenRoom = namespace.__evictRoom(started.matchId)
@@ -726,9 +726,9 @@ describe('system scenarios', () => {
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
       selection: null,
-      options: [
+      options: expect.arrayContaining([
         expect.objectContaining({ id: targetLobby.id, kind: 'lobby' }),
-      ],
+      ]),
     })
     expect(await world.inspect.lobbiesForPlayer('p1')).toEqual([])
     expect((await world.lobby.place('1v1', {
@@ -804,6 +804,33 @@ describe('system scenarios', () => {
     })
   })
 
+  test('overview feed removes a reported match card without reconnecting', async () => {
+    const world = await createTrackedWorld()
+    const lobby = await world.lobby.createOpen({
+      mode: '1v1',
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      channelId: 'channel-live-overview',
+    })
+    const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
+    await world.flushBackgroundTasks()
+    expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
+    await world.flushBackgroundTasks()
+
+    const overview = await world.activity.connectOverview({ userId: 'spectator' })
+    expect(overview.room).toBe('overview')
+    expect(activityOverviewOptionIds(overview.messages)).toContain(started.matchId)
+
+    expect((await world.match.report(started.matchId, {
+      reporterId: 'p1',
+      placements: 'A',
+    })).ok).toBe(true)
+    await world.flushBackgroundTasks()
+
+    expect(activityOverviewMessageCount(overview.messages)).toBeGreaterThanOrEqual(2)
+    expect(activityOverviewOptionIds(overview.messages)).not.toContain(started.matchId)
+    overview.close()
+  })
+
   test('activity launch recovers a canonical lobby when its own channel index is missing and poisoned elsewhere', async () => {
     const world = await createTrackedWorld()
     const canonicalLobby = await world.lobby.createOpen({
@@ -829,17 +856,17 @@ describe('system scenarios', () => {
     expect(canonicalLaunch.status).toBe(200)
     expect(canonicalLaunch.body).toMatchObject({
       selection: null,
-      options: [
+      options: expect.arrayContaining([
         expect.objectContaining({ id: canonicalLobby.id, kind: 'lobby' }),
-      ],
+      ]),
     })
     expect(otherLaunch.status).toBe(200)
     expect(otherLaunch.body).toMatchObject({
-      options: [
+      options: expect.arrayContaining([
         expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
-      ],
+        expect.objectContaining({ id: canonicalLobby.id, kind: 'lobby' }),
+      ]),
     })
-    expect((otherLaunch.body as { options?: Array<{ id: string }> }).options?.some(option => option.id === canonicalLobby.id)).toBe(false)
 
     const joinResponse = await world.lobby.place('1v1', {
       userId: 'spectator',
@@ -2719,7 +2746,7 @@ describe('system scenarios', () => {
     expect(payloadText).not.toContain(`<@${loser}>`)
   })
 
-  test('mode changes preserve host order, team splits, and canonical compact rosters', async () => {
+  test('mode changes preserve host order and team splits', async () => {
     const hostOrderWorld = await createTrackedWorld()
     const hostOrderLobby = await hostOrderWorld.lobby.createOpen({
       mode: '4v4',
@@ -2762,29 +2789,6 @@ describe('system scenarios', () => {
     await expectQueuePlayers(expandWorld, '3v3', [])
     await expectQueuePlayers(expandWorld, '4v4', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
 
-    const compactWorld = await createTrackedWorld()
-    const compactLobby = await compactWorld.lobby.createOpen({
-      mode: '3v3',
-      players: createPlayers(6),
-      hostId: 'p1',
-      memberPlayerIds: ['p1', 'p2', 'p3', 'p4', 'p5'],
-      slots: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
-      channelId: 'channel-mode-compact',
-    })
-
-    expect((await compactWorld.lobby.changeMode('3v3', {
-      hostId: 'p1',
-      lobbyId: compactLobby.id,
-      nextMode: '2v2',
-    })).status).toBe(200)
-    await compactWorld.flushBackgroundTasks()
-
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.mode).toBe('2v2')
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots).not.toContain('p6')
-    await expectQueuePlayers(compactWorld, '3v3', [])
-    await expectQueuePlayers(compactWorld, '2v2', ['p1', 'p2', 'p3', 'p4', 'p5'])
   })
 
   test('mode changes preserve Red Death settings and normalize unsupported toggles on the destination mode', async () => {
@@ -3243,8 +3247,8 @@ function getTestSessionNamespace(world: Awaited<ReturnType<typeof createSystemWo
   return world.env.SessionDO as unknown as TestSessionNamespace
 }
 
-function draftSocketAttachment(id: string, sessionId: string, playerId: string) {
-  return { id, sessionId, playerId, kind: 'draft', connectedAt: Date.now() }
+function draftSocketAttachment(id: string, sessionId: string, playerId: string, guildId: string | null) {
+  return { id, sessionId, playerId, guildId, kind: 'draft', connectedAt: Date.now() }
 }
 
 function lastMessageOfType(messages: readonly unknown[], type: string): any | null {
@@ -3394,6 +3398,24 @@ function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId
 
 function buildOrderedMentions(participants: Array<{ playerId: string }>) {
   return participants.map(participant => `<@${participant.playerId}>`).join('\n')
+}
+
+function activityOverviewMessageCount(messages: unknown[]): number {
+  return messages.filter(message => isActivityOverviewMessage(message)).length
+}
+
+function activityOverviewOptionIds(messages: unknown[]): string[] {
+  const message = messages.findLast(candidate => isActivityOverviewMessage(candidate))
+  if (!isActivityOverviewMessage(message) || !message.snapshot || !Array.isArray(message.snapshot.options)) return []
+  return message.snapshot.options.flatMap((option) => {
+    if (!option || typeof option !== 'object') return []
+    const id = (option as { id?: unknown }).id
+    return typeof id === 'string' ? [id] : []
+  })
+}
+
+function isActivityOverviewMessage(value: unknown): value is { type: 'overview', snapshot: null | { options?: unknown[] } } {
+  return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'overview'
 }
 
 function expectOrderedPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {

@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import type { Env } from '../env.ts'
-import { readAuthorizedActivityIdentity } from '@civup/utils'
+import type { DiscordGuildIdentity } from '@civup/utils'
+import { getLegacyPrimaryDiscordGuildId, normalizeDiscordGuildIdentity, readAuthorizedActivityIdentity, resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { hasAdminPermission } from '../services/permissions/index.ts'
 
 export interface AuthenticatedActivityIdentity {
@@ -9,6 +10,8 @@ export interface AuthenticatedActivityIdentity {
   avatarUrl: string | null
   guildId: string | null
   guildPermissions: string | null
+  guildRoleIds: string[]
+  sourceGuild: DiscordGuildIdentity | null
 }
 
 export function requireAuthenticatedActivity(
@@ -29,6 +32,19 @@ export function requireAuthenticatedActivity(
       response: c.json({ error: 'Unauthorized activity request' }, 401),
     }
   }
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(c.env)
+  if (!guildConfig.ok) {
+    return {
+      ok: false,
+      response: c.json({ error: 'Approved Discord server configuration is invalid' }, 503),
+    }
+  }
+  if (!identity.guildId || !guildConfig.guildIds.includes(identity.guildId)) {
+    return {
+      ok: false,
+      response: c.json({ error: 'Activity source server is not approved' }, 403),
+    }
+  }
 
   return {
     ok: true,
@@ -38,6 +54,10 @@ export function requireAuthenticatedActivity(
       avatarUrl: identity.avatarUrl,
       guildId: identity.guildId ?? null,
       guildPermissions: identity.guildPermissions ?? null,
+      guildRoleIds: identity.guildRoleIds ?? [],
+      sourceGuild: normalizeDiscordGuildIdentity(identity.guildId
+        ? { id: identity.guildId, name: identity.guildName, iconUrl: identity.guildIconUrl }
+        : null),
     },
   }
 }
@@ -46,9 +66,9 @@ export function hasAuthenticatedActivityAdminPermission(
   env: Env['Bindings'],
   identity: AuthenticatedActivityIdentity,
 ): boolean {
-  const allowedGuildId = env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
-  return allowedGuildId.length > 0
-    && identity.guildId === allowedGuildId
+  const primaryGuildId = getLegacyPrimaryDiscordGuildId(env)
+  return primaryGuildId != null
+    && identity.guildId === primaryGuildId
     && hasAdminPermission({ permissions: identity.guildPermissions ?? undefined })
 }
 

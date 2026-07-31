@@ -13,8 +13,10 @@ import { getMatchForUser } from '../../services/activity/index.ts'
 import { resolveInteractionLaunchMode } from '../../services/activity/browser-access.ts'
 import { privateLaunchError, respondWithPreferredLaunch } from '../../services/activity/launch-response.ts'
 import { createChannelMessage, deleteChannelMessage } from '../../services/discord/index.ts'
+import { getKnownGuildIdentity } from '../../services/discord/guild-metadata.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
@@ -24,9 +26,9 @@ import { clearMatchMessageMapping, storeMatchMessageMapping } from '../../servic
 import { syncReportedMatchDiscordMessages } from '../../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../../services/ranked/role-sync.ts'
 import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
-import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
+import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError, resolveMatchOriginGuildId } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
-import { getSystemChannel } from '../../services/system/channels.ts'
+import { getSystemChannel, primaryChannelScope } from '../../services/system/channels.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, isMatchTournamentLinked, listOpenTournamentSessionIds, refreshTournamentLeaderboard, updateTournamentMatchRoster } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
@@ -50,6 +52,7 @@ interface CreateMatchLobbyInput {
   draftChannelId: string
   guildId: string | null
   identity: { userId: string, displayName: string, avatarUrl: string }
+  sourceGuild?: QueueEntry['sourceGuild']
 }
 
 interface DeferredMatchCreateContext {
@@ -123,7 +126,7 @@ export const command_match = factory.command<MatchVar>(
             }
 
             const kv = getKvStore(c.env)
-            const draftChannelId = await getSystemChannel(kv, 'draft')
+            const draftChannelId = await getSystemChannel(kv, 'draft', { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
             if (!draftChannelId) {
               await sendTransientEphemeralResponse(
                 c,
@@ -142,6 +145,7 @@ export const command_match = factory.command<MatchVar>(
               draftChannelId,
               guildId,
               identity,
+              sourceGuild: await getKnownGuildIdentity(kv, c.env.DISCORD_TOKEN, guildId),
             })
             await sendDeferredMatchCreateOutcome(c, outcome)
           }
@@ -201,8 +205,14 @@ export const command_match = factory.command<MatchVar>(
           }
 
           if (userMatchId) {
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: save file analyzer
             const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+||||||| Common ancestor
+            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+=======
+            const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles, c.interaction.guild_id)
+>>>>>>> Current commit: feat: add multi-server foundations
             if (!launch.ok) return privateLaunchError(c, launch.error)
             const sessionId = launch.mode === 'browser' ? await resolveCanonicalSessionId(db, userMatchId) : userMatchId
             if (!sessionId) return privateLaunchError(c, 'Could not resolve your live match session. Please try its current Join button.')
@@ -249,10 +259,11 @@ export const command_match = factory.command<MatchVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const sourceGuild = await getKnownGuildIdentity(kv, c.env.DISCORD_TOKEN, c.interaction.guild_id)
           const outcome = await joinLobbyAndMaybeStartMatch(
             c,
             mode,
-            joinRequest.entries,
+            joinRequest.entries.map(entry => ({ ...entry, ...(sourceGuild ? { sourceGuild } : {}) })),
             { liveMatchPlayerIds: new Set(blockingDraftMatchIdByPlayer.keys()) },
           )
           if ('error' in outcome) {
@@ -329,6 +340,7 @@ export const command_match = factory.command<MatchVar>(
             }, {
               sessionNamespace: c.env.SessionDO,
               rankedRoleGuildId: lobby.guildId,
+              primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
             })
 
             if ('error' in result) {
@@ -351,7 +363,7 @@ export const command_match = factory.command<MatchVar>(
               const cancelContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
               try {
                 if (cancelContext && !cancelContext.redDeath && !cancelContext.civBlitz) {
-                  await markLeaderboardsDirty(db, `match-cancel:${result.match.id}`, {
+                  await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `match-cancel:${result.match.id}`, {
                     civ: true,
                     modes: cancelContext.leaderboardMode ? [cancelContext.leaderboardMode] : [],
                   })
@@ -601,7 +613,6 @@ export const command_match = factory.command<MatchVar>(
           const db = createDb(c.env.DB)
           const modes = GAME_MODES
           const lines: string[] = []
-          const guildId = c.interaction.guild_id ?? null
 
           for (const mode of modes) {
             const lobbies = await getLiveSessionLobbyProjections(db, { mode })
@@ -609,7 +620,7 @@ export const command_match = factory.command<MatchVar>(
 
             for (const lobby of lobbies) {
               const label = LOBBY_STATUS_LABELS[lobby.status]
-              const link = formatLobbyMessageLink(guildId, lobby.channelId, lobby.messageId)
+              const link = formatLobbyMessageLink(lobby.guildId, lobby.channelId, lobby.messageId)
               if (lobby.status === 'open') {
                 const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
                 const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
@@ -656,7 +667,7 @@ export const command_match = factory.command<MatchVar>(
           if (!matchId) return
 
           const [match] = await db
-            .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData, status: matches.status })
+            .select({ id: matches.id, gameMode: matches.gameMode, draftData: matches.draftData, status: matches.status, guildId: matches.guildId })
             .from(matches)
             .where(eq(matches.id, matchId))
             .limit(1)
@@ -770,7 +781,8 @@ export const command_match = factory.command<MatchVar>(
             placements,
           }, {
             sessionNamespace: c.env.SessionDO,
-            rankedRoleGuildId: c.interaction.guild_id ?? null,
+            rankedRoleGuildId: match.guildId,
+            primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
           })
 
           if ('error' in result) {
@@ -797,8 +809,9 @@ export const command_match = factory.command<MatchVar>(
             const isRankedResult = reportedContext.ranked
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
             const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+            const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
             if (isTournamentMatch) {
-              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
                 console.error(`Failed to refresh tournament leaderboard after match ${result.match.id}:`, error)
               })
             }
@@ -822,6 +835,8 @@ export const command_match = factory.command<MatchVar>(
                 sessionNamespace: c.env.SessionDO,
                 archivePolicy: 'if-missing',
                 archiveChannelType,
+                originGuildId,
+                legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
               })
               queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
               await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
@@ -847,11 +862,13 @@ export const command_match = factory.command<MatchVar>(
               },
               archivePolicy: 'always',
               archiveChannelType,
+              originGuildId,
+              legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
             })
             queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
             try {
               if (!isTournamentMatch && !reportedContext.redDeath && !reportedContext.civBlitz) {
-                await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
+                await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `match-report:${result.match.id}`, {
                   civ: true,
                   modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
                 })
@@ -949,6 +966,7 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
     playerId: identity.userId,
     displayName: identity.displayName,
     avatarUrl: identity.avatarUrl,
+    ...(input.sourceGuild ? { sourceGuild: input.sourceGuild } : {}),
     joinedAt: Date.now(),
   }
 
@@ -1279,6 +1297,7 @@ function buildDraftSeatsFromLobby(
       playerId,
       displayName: entry?.displayName ?? 'Unknown',
       avatarUrl: entry?.avatarUrl ?? null,
+      ...(entry?.sourceGuild ? { sourceGuild: entry.sourceGuild } : {}),
       team: getLobbyDraftSeatTeam(lobby, slot) ?? undefined,
     })
   }

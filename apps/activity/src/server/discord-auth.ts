@@ -32,11 +32,14 @@ interface DiscordIdentityResponse extends DiscordUserResponse {
 interface DiscordGuildMemberResponse {
   nick?: string | null
   avatar?: string | null
+  roles?: unknown
   user?: DiscordUserResponse | null
 }
 
 interface DiscordCurrentUserGuildResponse {
   id?: string
+  name?: string
+  icon?: string | null
   owner?: boolean
   permissions?: string
 }
@@ -52,6 +55,9 @@ export type DiscordIdentityResult
     displayName: string | null
     avatarUrl: string
     guildId: string | null
+    guildName: string | null
+    guildIconUrl: string | null
+    guildRoleIds: string[]
     guildPermissions: string | null
   }
     | { ok: false, status: 403 | 502, error: string }
@@ -99,33 +105,42 @@ export async function exchangeDiscordAuthorizationCode(
   return { ok: true, accessToken: payload.access_token, expiresIn: payload.expires_in }
 }
 
-export async function loadDiscordIdentity(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResult> {
+export async function loadDiscordIdentity(
+  accessToken: string,
+  approvedGuildIds: readonly string[],
+  requestedGuildId?: string | null,
+): Promise<DiscordIdentityResult> {
   let user: DiscordIdentityResponse
   let guildPermissions: string | null = null
-  if (allowedGuildId) {
+  let sourceGuild: DiscordCurrentUserGuildResponse | null = null
+  let guildRoleIds: string[] = []
+  if (approvedGuildIds.length > 0) {
     const authorization = { Authorization: `Bearer ${accessToken}` }
-    const [memberResponse, guildsResponse] = await Promise.all([
-      fetch(`https://discord.com/api/v10/users/@me/guilds/${allowedGuildId}/member`, { headers: authorization }),
-      fetch('https://discord.com/api/v10/users/@me/guilds?limit=200', { headers: authorization }),
-    ])
+    const requested = requestedGuildId?.trim() || null
+    if (requested && !approvedGuildIds.includes(requested)) {
+      return { ok: false, status: 403, error: 'This activity is not available in this Discord server' }
+    }
+    const guilds = await loadCurrentUserApprovedGuilds(accessToken, approvedGuildIds, requested)
+    if (!guilds) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
+    sourceGuild = requested
+      ? guilds.find(candidate => candidate.id === requested) ?? null
+      : approvedGuildIds.flatMap(guildId => guilds.find(candidate => candidate.id === guildId) ?? [])[0] ?? null
+    if (!sourceGuild?.id) return { ok: false, status: 403, error: 'This activity is only available in an approved Discord server' }
+
+    const memberResponse = await fetch(`https://discord.com/api/v10/users/@me/guilds/${sourceGuild.id}/member`, { headers: authorization })
     if (!memberResponse.ok) {
       if (memberResponse.status === 403 || memberResponse.status === 404) {
-        return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
+        return { ok: false, status: 403, error: 'This activity is only available in an approved Discord server' }
       }
       return { ok: false, status: 502, error: 'Failed to verify Discord user' }
     }
-    if (!guildsResponse.ok) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
-
-    const guilds = await guildsResponse.json<DiscordCurrentUserGuildResponse[]>()
-    if (!Array.isArray(guilds)) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
-    const guild = guilds.find(candidate => candidate.id === allowedGuildId)
-    if (!guild) return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
-    guildPermissions = normalizeDiscordPermissions(guild.permissions, guild.owner === true)
+    guildPermissions = normalizeDiscordPermissions(sourceGuild.permissions, sourceGuild.owner === true)
     if (!guildPermissions) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
 
     const member = await memberResponse.json<DiscordGuildMemberResponse>()
     if (!member.user) return { ok: false, status: 502, error: 'Failed to verify Discord user' }
-    user = { ...member.user, nick: member.nick ?? null, guildAvatar: member.avatar ?? null, guildId: allowedGuildId }
+    guildRoleIds = normalizeGuildRoleIds(member.roles)
+    user = { ...member.user, nick: member.nick ?? null, guildAvatar: member.avatar ?? null, guildId: sourceGuild.id }
   }
   else {
     const response = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${accessToken}` } })
@@ -140,9 +155,52 @@ export async function loadDiscordIdentity(accessToken: string, allowedGuildId: s
     userId,
     displayName: resolveDiscordDisplayName(user),
     avatarUrl: buildDiscordIdentityAvatarUrl(user, userId),
-    guildId: allowedGuildId,
+    guildId: sourceGuild?.id ?? null,
+    guildName: normalizeOptionalDiscordName(sourceGuild?.name),
+    guildIconUrl: buildDiscordGuildIconUrl(sourceGuild),
+    guildRoleIds,
     guildPermissions,
   }
+}
+
+async function loadCurrentUserApprovedGuilds(
+  accessToken: string,
+  approvedGuildIds: readonly string[],
+  requestedGuildId: string | null,
+): Promise<DiscordCurrentUserGuildResponse[] | null> {
+  const approved = new Set(approvedGuildIds)
+  const found: DiscordCurrentUserGuildResponse[] = []
+  let after: string | null = null
+
+  while (true) {
+    const url = new URL('https://discord.com/api/v10/users/@me/guilds')
+    url.searchParams.set('limit', '200')
+    if (after) url.searchParams.set('after', after)
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (!response.ok) return null
+    const page = await response.json<DiscordCurrentUserGuildResponse[]>()
+    if (!Array.isArray(page)) return null
+    for (const guild of page) {
+      if (guild.id && approved.has(guild.id)) found.push(guild)
+    }
+    if (requestedGuildId && found.some(guild => guild.id === requestedGuildId)) return found
+    if (!requestedGuildId && found.length > 0) return found
+    if (page.length < 200) return found
+    const nextAfter = page.at(-1)?.id ?? null
+    if (!nextAfter || nextAfter === after) return found
+    after = nextAfter
+  }
+}
+
+function normalizeGuildRoleIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((roleId): roleId is string => typeof roleId === 'string' && /^\d+$/.test(roleId)))]
+}
+
+function buildDiscordGuildIconUrl(guild: DiscordCurrentUserGuildResponse | null): string | null {
+  if (!guild?.id || !guild.icon) return null
+  const ext = guild.icon.startsWith('a_') ? 'gif' : 'png'
+  return `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.${ext}?size=64`
 }
 
 function normalizeDiscordPermissions(value: string | undefined, isOwner: boolean): string | null {

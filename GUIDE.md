@@ -59,7 +59,7 @@ There are 3 ways to join a lobby:
 
 ![activity direct open](images/activity-direct-open.webp)
 
-This opens the **Lobby Overview** page where you can see every lobby.
+This opens the **Lobby Overview** page where you can see lobbies from every supported server. It starts on the server where you opened the Activity; choose another server or **All** to change the list.
 
 ![lobby overview](images/lobby-overview.webp)
 
@@ -72,11 +72,11 @@ You can freely switch between lobbies by clicking on them, however, note that yo
 
 ![draft setup spectator](images/draft-setup-spectator.webp)
 
-To actually join a lobby you need to click on a seat.
+To actually join a lobby you need to click on a seat. In team modes, a column showing a server icon only accepts players who joined from that server; the lock clears when the column becomes empty.
 
 ![open seat](images/open-seat.webp)
 
-- **Using the `/match join` command**: this will try to find the best open lobby for you based on your rank.
+- **Using the `/match join` command**: this will try to find the best open lobby for you based on your rank. A lobby with Min or Max Rank also checks direct joins against the owning server's calculated standings.
 
 ## Completing a draft
 

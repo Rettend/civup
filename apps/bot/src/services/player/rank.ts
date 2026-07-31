@@ -1,12 +1,13 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { CurrentRankAssignment, RankedRolePlayerPreview } from '../ranked/role-sync.ts'
-import { playerRatings } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { scopedPlayerRatings as playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
 import { displayRating, getLeaderboardMinGames } from '@civup/rating'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
-import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleConfig } from '../ranked/roles.ts'
+import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleCalculationConfig, getRankedRoleConfig } from '../ranked/roles.ts'
 
 export interface PlayerRatingSummary {
   playerId: string
@@ -51,43 +52,46 @@ export interface PlayerRankedRoleRepair {
 export async function getPlayerStatsRankProfile(
   db: Database,
   kv: KVNamespace,
-  guildId: string,
+  statsContext: StatsContext,
   playerId: string,
   now = Date.now(),
 ): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[], rankedRoleRepair: PlayerRankedRoleRepair | null }> {
+  const style = await getRankedRoleCalculationConfig(kv, statsContext.guildId, statsContext.primaryGuildId)
   const [preview, ratingRows] = await Promise.all([
-    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
-    db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
+    previewRankedRoles({ db, kv, guildId: statsContext.guildId, statsContext, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false, configOverride: style.config }),
+    db.select().from(playerRatings).where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.playerId, playerId))),
   ])
 
-  const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
+  const previewPlayer = style.valid ? preview.playerPreviews.find(player => player.playerId === playerId) ?? null : null
   return {
-    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config),
+    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config, style.usesPrimaryStyle),
     ratingRows,
-    rankedRoleRepair: buildPlayerRankedRoleRepair(previewPlayer, preview.config),
+    rankedRoleRepair: style.valid && !style.usesPrimaryStyle ? buildPlayerRankedRoleRepair(previewPlayer, preview.config) : null,
   }
 }
 
 export async function getPlayerRankProfile(
   db: Database,
   kv: KVNamespace,
-  guildId: string,
+  statsContext: StatsContext,
   playerId: string,
   now = Date.now(),
 ): Promise<PlayerRankProfile> {
+  const style = await getRankedRoleCalculationConfig(kv, statsContext.guildId, statsContext.primaryGuildId)
   const [preview, ratingRows] = await Promise.all([
-    previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
-    db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
+    previewRankedRoles({ db, kv, guildId: statsContext.guildId, statsContext, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false, configOverride: style.config }),
+    db.select().from(playerRatings).where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.playerId, playerId))),
   ])
 
-  const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
-  return buildPlayerRankProfile(previewPlayer, ratingRows, preview.config)
+  const previewPlayer = style.valid ? preview.playerPreviews.find(player => player.playerId === playerId) ?? null : null
+  return buildPlayerRankProfile(previewPlayer, ratingRows, preview.config, style.usesPrimaryStyle)
 }
 
 function buildPlayerRankProfile(
   previewPlayer: RankedRolePlayerPreview | null,
   ratingRows: PlayerRatingSummary[],
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+  suppressRoleMentions = false,
 ): PlayerRankProfile {
   const ratingByMode = new Map(ratingRows.flatMap((row) => {
     const mode = parseLeaderboardMode(row.mode)
@@ -102,7 +106,7 @@ function buildPlayerRankProfile(
       mode,
       tier,
       tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
-      tierRoleId: tier ? getConfiguredRankedRoleId(config, tier) : null,
+      tierRoleId: tier && !suppressRoleMentions ? getConfiguredRankedRoleId(config, tier) : null,
       rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
@@ -116,7 +120,7 @@ function buildPlayerRankProfile(
 
   return {
     overallTier: overall?.tier ?? null,
-    overallRoleId: overall?.tier ? getConfiguredRankedRoleId(config, overall.tier) : null,
+    overallRoleId: overall?.tier && !suppressRoleMentions ? getConfiguredRankedRoleId(config, overall.tier) : null,
     overallLabel: overall?.tier ? getConfiguredRankedRoleLabel(config, overall.tier) : 'Unranked',
     modes,
   }

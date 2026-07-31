@@ -1,6 +1,7 @@
 import type { EphemeralResponseTone } from '../../embeds/response'
 import type { SystemChannelType } from '../../services/system/channels.ts'
 import type { AdminVar, InteractionResolvedRoles } from './types.ts'
+import { resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import {
   sendEphemeralResponse as sendRawEphemeralResponse,
@@ -14,6 +15,14 @@ export function getInteractionUserId(c: {
   }
 }): string | null {
   return c.interaction.member?.user?.id ?? c.interaction.user?.id ?? null
+}
+
+export function isLegacyPrimaryGuildInteraction(c: {
+  env: { ALLOWED_DISCORD_GUILD_ID?: string, ALLOWED_DISCORD_GUILD_IDS?: string }
+  interaction: { guild_id?: string | null }
+}): boolean {
+  const config = resolveApprovedDiscordGuildConfiguration(c.env)
+  return config.ok && c.interaction.guild_id === config.primaryGuildId
 }
 
 export async function sendEphemeralResponse(
@@ -72,6 +81,14 @@ export function parseSetupTarget(value: string): SystemChannelType | null {
 
 export function isCivLeaderboardSetupTarget(target: SystemChannelType): boolean {
   return target === 'civ-leaderboard' || target === 'civ-leaderboard-all' || target === 'civ-leaderboard-duel' || target === 'civ-leaderboard-duo' || target === 'civ-leaderboard-squad'
+}
+
+export function isPrimaryGuildSetupTarget(target: SystemChannelType): boolean {
+  return target === 'leaderboard'
+    || isCivLeaderboardSetupTarget(target)
+    || target === 'tournament-draft'
+    || target === 'tournament-archive'
+    || target === 'tournament-leaderboard'
 }
 
 export function setupTargetCivModeScope(target: SystemChannelType): 'all' | 'duel' | 'duo' | 'squad' | null {

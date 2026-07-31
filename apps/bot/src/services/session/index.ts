@@ -17,5 +17,8 @@ export {
   getOpenSessionLobbyProjectionsByChannel,
   getOpenSessionLobbyProjectionsByMode,
   getSessionLobbyProjectionByMatch,
+  getSessionOriginByMatch,
+  getStoredMatchGuildId,
   parseSessionLobbyProjection,
+  resolveMatchOriginGuildId,
 } from './lobby-projection.ts'

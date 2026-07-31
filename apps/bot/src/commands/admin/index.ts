@@ -16,7 +16,7 @@ import { handlePermissionAdd, handlePermissionList, handlePermissionRemove } fro
 import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handleRankedSync, handleReset } from './ranked.ts'
 import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
 import { handleSetup } from './setup.ts'
-import { sendTransientEphemeralResponse } from './shared.ts'
+import { isLegacyPrimaryGuildInteraction, sendTransientEphemeralResponse } from './shared.ts'
 import { handleTournamentCreate, handleTournamentCut, handleTournamentEdit, handleTournamentImport, handleTournamentStart, handleTournamentStatus, modal_admin_tournament_create, modal_admin_tournament_edit } from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
@@ -127,6 +127,12 @@ export const command_admin = factory.command<AdminVar>(
     if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
       return c.flags('EPHEMERAL').resDefer(async (c) => {
         await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for /admin commands.', 'error')
+      })
+    }
+
+    if ((c.sub.string.startsWith('season ') || c.sub.string.startsWith('tournament ') || c.sub.string === 'reset') && !isLegacyPrimaryGuildInteraction(c)) {
+      return c.flags('EPHEMERAL').resDefer(async (c) => {
+        await sendTransientEphemeralResponse(c, 'Shared season, tournament, and rating administration is only available in the primary Discord server.', 'error')
       })
     }
 

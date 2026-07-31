@@ -1,6 +1,6 @@
 import type { Accessor, JSX } from 'solid-js'
 import type { PlayerDataExportState } from '../lib/player-data-export'
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
+import type { ActivityLaunchSelection, ActivitySupportedServerSnapshot, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
 import { createContext, useContext } from 'solid-js'
 
 export type ActivityState
@@ -24,6 +24,7 @@ export interface ActivityControllerContextValue {
   canResumeSelection: () => boolean
   state: Accessor<ActivityState>
   availableTargets: Accessor<ActivityTargetOption[]>
+  supportedServers: Accessor<ActivitySupportedServerSnapshot[]>
   pickerBusy: Accessor<boolean>
   pickerError: Accessor<string | null>
   lastResolvedSelection: Accessor<ActivityLaunchSelection | null>

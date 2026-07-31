@@ -39,7 +39,10 @@ export async function bootstrapBrowserChannel(channelId: string): Promise<Browse
 
 async function browserBootstrap<T>(url: string): Promise<BrowserBootstrapResponse<T>> {
   configureClientPlatform('web', 'cookie')
-  const response = await fetch(url, { headers: { Accept: 'application/json' } })
+  const sourceGuild = new URL(window.location.href).searchParams.get('sourceGuild')
+  const requestUrl = new URL(url, window.location.origin)
+  if (sourceGuild) requestUrl.searchParams.set('sourceGuild', sourceGuild)
+  const response = await fetch(`${requestUrl.pathname}${requestUrl.search}`, { headers: { Accept: 'application/json' } })
   if (response.status === 401) {
     const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`
     window.location.assign(`/api/auth/discord?returnTo=${encodeURIComponent(returnTo)}`)

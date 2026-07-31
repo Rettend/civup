@@ -2,7 +2,12 @@ DISCORD_APPLICATION_ID=
 DISCORD_PUBLIC_KEY=
 DISCORD_TOKEN=
 ALLOWED_DISCORD_GUILD_ID=
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: save file analyzer
+||||||| Common ancestor
+=======
+ALLOWED_DISCORD_GUILD_IDS=
+>>>>>>> Current commit: feat: add multi-server foundations
 ACTIVITY_PUBLIC_ORIGIN=https://your-activity.example.com
 <<<<<<< New base: fix: mod resolve
 ||||||| Common ancestor

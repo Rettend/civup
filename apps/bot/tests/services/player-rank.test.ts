@@ -1,5 +1,5 @@
 import type { GameMode } from '@civup/game'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons, tournamentMatches, tournaments } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, scopedSeasonPeakModeRanks as seasonPeakModeRanks, scopedSeasonPeakRanks as seasonPeakRanks, seasons, tournamentMatches, tournaments } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
@@ -9,10 +9,13 @@ import { backfillPlayerCivStatsFromHistory, listPlayerCivStats, loadPlayerCivRan
 import { getPlayerRankProfile, getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 const TIER_1 = 'tier1'
 const TIER_2 = 'tier2'
 const TIER_4 = 'tier4'
@@ -23,7 +26,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -38,7 +41,7 @@ describe('player rank views', () => {
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
 
-    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+    const profile = await getPlayerRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
 
     expect(profile.overallTier).toBe(TIER_1)
     expect(profile.overallRoleId).toBe('55555555555555555')
@@ -58,14 +61,14 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
       tier2: '44444444444444444',
       tier1: '55555555555555555',
     })
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+    await kv.put(`ranked-roles:current-assignments:${GUILD_ID}`, JSON.stringify({
       byPlayerId: {
         [HERO_ID]: { tier: TIER_2, sourceMode: null, appliedRoleId: '66666666666666666' },
       },
@@ -76,7 +79,7 @@ describe('player rank views', () => {
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
 
-    const result = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+    const result = await getPlayerStatsRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
 
     expect(result.rankProfile.overallTier).toBe(TIER_1)
     expect(result.rankedRoleRepair?.desiredRoleId).toBe('44444444444444444')
@@ -96,7 +99,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -112,10 +115,10 @@ describe('player rank views', () => {
     await seedRating(db, { playerId: HERO_ID, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
     await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 2 * 86_400_000, endsAt: null, active: true })
     await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20 * 86_400_000, endsAt: NOW - 10 * 86_400_000, active: false })
-    await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 15_000 })
+    await db.insert(seasonPeakRanks).values({ statsKey: STATS_CONTEXT.statsKey, seasonId: 'season-1', playerId: HERO_ID, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 15_000 })
     await db.insert(seasonPeakModeRanks).values([
-      { seasonId: 'season-1', playerId: HERO_ID, mode: 'ffa', tier: TIER_5, rating: 631, achievedAt: NOW - 20_000 },
-      { seasonId: 'season-1', playerId: HERO_ID, mode: 'duel', tier: TIER_2, rating: 711, achievedAt: NOW - 15_000 },
+      { statsKey: STATS_CONTEXT.statsKey, seasonId: 'season-1', playerId: HERO_ID, mode: 'ffa', tier: TIER_5, rating: 631, achievedAt: NOW - 20_000 },
+      { statsKey: STATS_CONTEXT.statsKey, seasonId: 'season-1', playerId: HERO_ID, mode: 'duel', tier: TIER_2, rating: 711, achievedAt: NOW - 15_000 },
     ])
     await seedCompletedSeasonMatch(db, {
       matchId: 'season-1-ffa-1',
@@ -141,7 +144,7 @@ describe('player rank views', () => {
       placement: 2,
       completedAt: NOW - 24_000,
     })
-    await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
+    await kv.put(`ranked-roles:season-snapshots:${GUILD_ID}`, JSON.stringify({
       bySeasonId: {
         'season-1': {
           seasonNumber: 1,
@@ -157,9 +160,9 @@ describe('player rank views', () => {
       },
     }))
 
-    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
-    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
-    const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
+    const profile = await getPlayerRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, GUILD_ID, HERO_ID)
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', { rankProfile: profile })).toJSON()
     const rank = (await rankEmbed(db, HERO_ID, profile, {
       activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
       seasonHistory: history,
@@ -190,7 +193,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -234,8 +237,8 @@ describe('player rank views', () => {
       completedAt: NOW - ((ffaMatches.length - index) * 1_000),
     })))
 
-    const statsProfile = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID)
-    const stats = (await playerCardEmbed(db, HERO_ID, 'all', {
+    const statsProfile = await getPlayerStatsRankProfile(db, kv, STATS_CONTEXT, HERO_ID)
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', {
       rankProfile: statsProfile.rankProfile,
       ratingRows: statsProfile.ratingRows,
     })).toJSON()
@@ -256,8 +259,8 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 1, wins: 0, lastPlayedAt: NOW })
 
-    const statsProfile = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID)
-    const stats = (await playerCardEmbed(db, HERO_ID, 'all', {
+    const statsProfile = await getPlayerStatsRankProfile(db, kv, STATS_CONTEXT, HERO_ID)
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', {
       rankProfile: statsProfile.rankProfile,
       ratingRows: statsProfile.ratingRows,
     })).toJSON()
@@ -273,7 +276,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -284,8 +287,9 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID)
     await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 1_000, endsAt: null, active: true })
     await seedSeason(db, { id: 'season-1', seasonNumber: 1, name: 'Season 1', startsAt: NOW - 20_000, endsAt: NOW - 10_000, active: false })
-    await db.insert(seasonPeakRanks).values({ seasonId: 'season-1', playerId: HERO_ID, tier: TIER_5, sourceMode: 'duel', achievedAt: NOW - 15_000 })
+    await db.insert(seasonPeakRanks).values({ statsKey: STATS_CONTEXT.statsKey, seasonId: 'season-1', playerId: HERO_ID, tier: TIER_5, sourceMode: 'duel', achievedAt: NOW - 15_000 })
     await db.insert(seasonPeakModeRanks).values({
+      statsKey: STATS_CONTEXT.statsKey,
       seasonId: 'season-1',
       playerId: HERO_ID,
       mode: 'duel',
@@ -301,7 +305,7 @@ describe('player rank views', () => {
       placement: 1,
       completedAt: NOW - 12_000,
     })
-    await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
+    await kv.put(`ranked-roles:season-snapshots:${GUILD_ID}`, JSON.stringify({
       bySeasonId: {
         'season-1': {
           seasonNumber: 1,
@@ -317,9 +321,9 @@ describe('player rank views', () => {
       },
     }))
 
-    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
-    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
-    const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
+    const profile = await getPlayerRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, GUILD_ID, HERO_ID)
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', { rankProfile: profile })).toJSON()
     const rank = (await rankEmbed(db, HERO_ID, profile, {
       activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
       seasonHistory: history,
@@ -343,7 +347,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -355,9 +359,9 @@ describe('player rank views', () => {
     await seedSeason(db, { id: 'season-2', seasonNumber: 2, name: 'Season 2', startsAt: NOW - 1_000, endsAt: null, active: true })
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 0, lastPlayedAt: NOW - 10_000 })
 
-    const profile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
-    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', HERO_ID)
-    const stats = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: profile })).toJSON()
+    const profile = await getPlayerRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, GUILD_ID, HERO_ID)
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', { rankProfile: profile })).toJSON()
     const rank = (await rankEmbed(db, HERO_ID, profile, {
       activeSeason: { id: 'season-2', seasonNumber: 2, name: 'Season 2' },
       seasonHistory: history,
@@ -411,7 +415,7 @@ describe('player rank views', () => {
       ],
     })
 
-    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('Hammurabi')
@@ -437,6 +441,7 @@ describe('player rank views', () => {
       ],
     })
     await db.insert(playerRatingEvents).values({
+      statsKey: STATS_CONTEXT.statsKey,
       matchId: 'event-duel-1',
       playerId: HERO_ID,
       mode: 'duel',
@@ -456,7 +461,7 @@ describe('player rank views', () => {
       updatedAt: NOW,
     })
 
-    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('📈')
@@ -491,7 +496,7 @@ describe('player rank views', () => {
       ],
     })
 
-    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
     const value = recentMatchesField?.value ?? ''
 
@@ -566,7 +571,7 @@ describe('player rank views', () => {
       },
     ])
 
-    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
     const value = recentMatchesField?.value ?? ''
 
@@ -618,7 +623,7 @@ describe('player rank views', () => {
       ratingEvent({ matchId: 'rating-order-newest', before: 1057, after: 1064, createdAt: NOW - 10_000, completedAt: NOW - 2_000 }),
     ])
 
-    const stats = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const stats = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
     const value = recentMatchesField?.value ?? ''
 
@@ -753,7 +758,7 @@ describe('player rank views', () => {
       ],
     })
 
-    const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const teammatesField = embed.fields?.find(field => field.name === 'Common Teammates')
     const opponentsField = embed.fields?.find(field => field.name === 'Common Opponents')
     const teammateIndex = embed.fields?.findIndex(field => field.name === 'Common Teammates') ?? -1
@@ -809,9 +814,9 @@ describe('player rank views', () => {
       }
     }
 
-    await backfillPlayerCivStatsFromHistory(db)
+    await backfillPlayerCivStatsFromHistory(db, STATS_CONTEXT)
 
-    const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerLeadersEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const fields = embed.fields ?? []
     const topIndex = fields.findIndex(field => field.name === 'Most Played Leaders')
     const topField = fields[topIndex]
@@ -855,9 +860,9 @@ describe('player rank views', () => {
     await seedLeaderSeries({ playerId: aheadId, games: 3, wins: 0 })
     await seedLeaderSeries({ playerId: HERO_ID, games: 2, wins: 0 })
     await seedLeaderSeries({ playerId: tiedId, games: 2, wins: 2 })
-    await backfillPlayerCivStatsFromHistory(db)
+    await backfillPlayerCivStatsFromHistory(db, STATS_CONTEXT)
 
-    const rankings = await loadPlayerCivRankingSummaries(db, {}, HERO_ID, ['china-yongle'])
+    const rankings = await loadPlayerCivRankingSummaries(db, STATS_CONTEXT, {}, HERO_ID, ['china-yongle'])
 
     expect(rankings.get('china-yongle')?.playerGamesRank).toBe(2)
 
@@ -870,7 +875,7 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, HERO_ID, 'Hero')
     await seedRating(db, { playerId: HERO_ID, mode: 'duel', mu: 25, sigma: 8.333, gamesPlayed: 5, wins: 3, lastPlayedAt: NOW })
 
-    const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerLeadersEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const duelField = embed.fields?.find(field => field.name === 'Duel')
     const fieldsJson = JSON.stringify(embed.fields)
 
@@ -916,9 +921,9 @@ describe('player rank views', () => {
       }
     }
 
-    await backfillPlayerCivStatsFromHistory(db)
+    await backfillPlayerCivStatsFromHistory(db, STATS_CONTEXT)
 
-    const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerLeadersEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const bestField = embed.fields?.find(field => field.name === 'Best Leaders')
 
     expect(bestField?.value).toContain('-# Ranked by leader performance')
@@ -957,13 +962,13 @@ describe('player rank views', () => {
     await seedLeaderSeries({ playerId: '100010000000000096', civId: 'china-yongle', games: 30, wins: 0 })
     await seedLeaderSeries({ playerId: HERO_ID, civId: 'babylon-hammurabi', games: 5, wins: 5 })
     await seedLeaderSeries({ playerId: '100010000000000097', civId: 'babylon-hammurabi', games: 10, wins: 4 })
-    await backfillPlayerCivStatsFromHistory(db)
+    await backfillPlayerCivStatsFromHistory(db, STATS_CONTEXT)
 
-    const embed = (await playerLeadersEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerLeadersEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const bestField = embed.fields?.find(field => field.name === 'Best Leaders')
     const worseField = embed.fields?.find(field => field.name === 'Worse Than Server Avg')
     const betterField = embed.fields?.find(field => field.name === 'Better Than Server Avg')
-    const statsEmbed = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const statsEmbed = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
 
     expect(bestField?.value).toContain('-# Ranked by leader performance')
     expect(bestField?.value).toContain('`#1 `')
@@ -1034,7 +1039,7 @@ describe('player rank views', () => {
       })
     }
 
-    const embed = (await leaderStatsEmbed(db, 'china-yongle')).toJSON()
+    const embed = (await leaderStatsEmbed(db, STATS_CONTEXT, 'china-yongle')).toJSON()
     const overview = embed.fields?.find(field => field.name === 'Overview')
     const bestAgainst = embed.fields?.find(field => field.name === 'Best Against')
     const worstAgainst = embed.fields?.find(field => field.name === 'Worst Against')
@@ -1073,7 +1078,7 @@ describe('player rank views', () => {
       ],
     })
 
-    await reconcilePlayerCivStatMatchContribution(db, 'leader-scope-1', NOW)
+    await reconcilePlayerCivStatMatchContribution(db, STATS_CONTEXT, 'leader-scope-1', NOW)
 
     for (const filter of [
       {},
@@ -1081,11 +1086,11 @@ describe('player rank views', () => {
       { seasonId: 'season-1' },
       { seasonId: 'season-1', mode: '1v1' },
     ]) {
-      expect(await listPlayerCivStats(db, filter, HERO_ID)).toEqual([{ playerId: HERO_ID, civId: 'china-yongle', picks: 1, wins: 1 }])
+      expect(await listPlayerCivStats(db, STATS_CONTEXT, filter, HERO_ID)).toEqual([{ playerId: HERO_ID, civId: 'china-yongle', picks: 1, wins: 1 }])
     }
 
-    await removePlayerCivStatMatchContribution(db, 'leader-scope-1', NOW + 1)
-    expect(await listPlayerCivStats(db, {}, HERO_ID)).toEqual([])
+    await removePlayerCivStatMatchContribution(db, STATS_CONTEXT, 'leader-scope-1', NOW + 1)
+    expect(await listPlayerCivStats(db, STATS_CONTEXT, {}, HERO_ID)).toEqual([])
 
     sqlite.close()
   })
@@ -1097,6 +1102,7 @@ describe('player rank views', () => {
     await seedPlayerIdentity(db, '100010000000000098', 'Opponent')
     await db.insert(matches).values({
       id: 'leader-civblitz-1',
+      guildId: GUILD_ID,
       gameMode: '1v1',
       status: 'completed',
       isOld: false,
@@ -1130,10 +1136,10 @@ describe('player rank views', () => {
       },
     ])
 
-    await reconcilePlayerCivStatMatchContribution(db, 'leader-civblitz-1', NOW)
-    await backfillPlayerCivStatsFromHistory(db, NOW + 1)
+    await reconcilePlayerCivStatMatchContribution(db, STATS_CONTEXT, 'leader-civblitz-1', NOW)
+    await backfillPlayerCivStatsFromHistory(db, STATS_CONTEXT, NOW + 1)
 
-    expect(await listPlayerCivStats(db, {}, HERO_ID)).toEqual([])
+    expect(await listPlayerCivStats(db, STATS_CONTEXT, {}, HERO_ID)).toEqual([])
 
     sqlite.close()
   })
@@ -1156,7 +1162,7 @@ describe('player rank views', () => {
       })
     }
 
-    const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
+    const embed = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID)).toJSON()
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(embed.fields?.some(field => field.name === 'Best Leaders')).toBe(false)
@@ -1173,7 +1179,7 @@ describe('player rank views', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
       tier3: '33333333333333333',
@@ -1206,10 +1212,10 @@ describe('player rank views', () => {
       ],
     })
 
-    const previewProfile = await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
-    const statsProfile = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID)
-    const previewStatsEmbed = (await playerCardEmbed(db, HERO_ID, 'all', { rankProfile: previewProfile })).toJSON()
-    const statsEmbed = (await playerCardEmbed(db, HERO_ID, 'all', {
+    const previewProfile = await getPlayerRankProfile(db, kv, STATS_CONTEXT, HERO_ID, NOW)
+    const statsProfile = await getPlayerStatsRankProfile(db, kv, STATS_CONTEXT, HERO_ID)
+    const previewStatsEmbed = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', { rankProfile: previewProfile })).toJSON()
+    const statsEmbed = (await playerCardEmbed(db, STATS_CONTEXT, HERO_ID, 'all', {
       rankProfile: statsProfile.rankProfile,
       ratingRows: statsProfile.ratingRows,
     })).toJSON()
@@ -1289,13 +1295,14 @@ async function seedRating(
 ): Promise<void> {
   const wins = row.wins ?? Math.max(0, row.gamesPlayed - 2)
   await db.insert(playerRatings).values({
+    statsKey: STATS_CONTEXT.statsKey,
     ...row,
     wins,
     effectiveGames: row.effectiveGames ?? row.gamesPlayed,
     winsVsTier1: row.winsVsTier1 ?? 0,
     winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
   }).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
+    target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       wins,
@@ -1324,6 +1331,7 @@ async function seedCompletedSeasonMatch(
 ): Promise<void> {
   await db.insert(matches).values({
     id: row.matchId,
+    guildId: GUILD_ID,
     gameMode: row.gameMode,
     status: 'completed',
     seasonId: row.seasonId,
@@ -1364,6 +1372,7 @@ async function seedCompletedMatch(
 ): Promise<void> {
   await db.insert(matches).values({
     id: row.matchId,
+    guildId: GUILD_ID,
     gameMode: row.gameMode,
     status: 'completed',
     isOld: row.isOld ?? false,
@@ -1396,6 +1405,7 @@ function ratingEvent(input: {
   completedAt: number
 }) {
   return {
+    statsKey: STATS_CONTEXT.statsKey,
     matchId: input.matchId,
     playerId: HERO_ID,
     mode: input.mode ?? 'squad',

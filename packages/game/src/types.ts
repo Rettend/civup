@@ -270,8 +270,16 @@ export interface DraftSeat {
   displayName: string
   /** Discord avatar URL */
   avatarUrl?: string | null
+  /** Approved Discord server where this player entered matchmaking. */
+  sourceGuild?: SourceGuildIdentity
   /** Team index (for team modes), undefined for FFA */
   team?: number
+}
+
+export interface SourceGuildIdentity {
+  id: string
+  name?: string | null
+  iconUrl?: string | null
 }
 
 export interface DraftSelection {
@@ -380,6 +388,8 @@ export interface QueueEntry {
   playerId: string
   displayName: string
   avatarUrl?: string | null
+  /** Approved Discord server where this player entered matchmaking. */
+  sourceGuild?: SourceGuildIdentity
   joinedAt: number
   /** For team modes: partner player IDs */
   partyIds?: string[]

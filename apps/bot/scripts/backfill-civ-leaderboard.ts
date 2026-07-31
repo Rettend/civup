@@ -1,13 +1,14 @@
 /* eslint-disable no-console */
 import type { Database } from '@civup/db'
 import type { CivLeaderboardBackfillCommand, CivLeaderboardBackfillSource } from './civ-leaderboard-backfill-shared.ts'
-import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { createDb } from '@civup/db'
 import { Database as SqliteDatabase } from 'bun:sqlite'
 import { runCivLeaderboardBackfill } from './civ-leaderboard-backfill-shared.ts'
+import { createStatsContext } from '../src/services/stats/context.ts'
 
 type Command = 'estimate' | 'preview' | 'apply' | 'help'
 type Target = 'local' | 'remote'
@@ -20,6 +21,8 @@ interface Options {
   target: Target
   config: string
   database: string
+  guildId: string | null
+  primaryGuildId: string | null
 }
 
 interface Runtime {
@@ -88,6 +91,8 @@ const usage = [
   '  --execute        Required with apply; mutates selected D1 and KV',
   '  --config <path>  Wrangler config relative to apps/bot (default: wrangler.jsonc)',
   '  --database <n>   D1 database name (default: civup)',
+  '  --guild-id <id>  Owning server to preview or rebuild (defaults to primary server)',
+  '  --primary-guild-id <id>  Primary server (defaults to ALLOWED_DISCORD_GUILD_ID in config)',
   '  --json           Print machine-readable JSON only',
   '',
   'The --remote target uses the same default config as deploy:prod: apps/bot/wrangler.jsonc.',
@@ -100,11 +105,12 @@ if (options.command === 'help') {
   process.exit(0)
 }
 
+const statsContext = resolveScriptStatsContext(options)
 const runtime = createRuntime(options)
 
 try {
   if (options.command === 'estimate') {
-    await runEstimate(options, runtime.d1)
+    await runEstimate(options, runtime.d1, statsContext.statsKey)
   }
   else {
     const progress = options.json ? null : new Progress(options.command === 'apply' ? 6 : 1, 'civ-leaderboard')
@@ -118,6 +124,7 @@ try {
       database: options.database,
       db: runtime.db,
       kv: runtime.kv,
+      statsContext,
       applyHint: applyHint(options),
       includeHistoricalPreview: false,
       onProgress: progress ? label => progress.step(label) : undefined,
@@ -136,6 +143,8 @@ function parseOptions(values: string[]): Options {
   let target: Target = 'local'
   let config = 'wrangler.jsonc'
   let database = 'civup'
+  let guildId: string | null = null
+  let primaryGuildId: string | null = null
   const rest = [...values]
   const first = rest[0]
 
@@ -184,10 +193,27 @@ function parseOptions(values: string[]): Options {
       index += 1
       continue
     }
+    if (current === '--guild-id' || current === '--primary-guild-id') {
+      const value = rest[index + 1]
+      if (!value) throw new Error(`Missing value for ${current}.`)
+      if (!/^\d{17,20}$/.test(value)) throw new Error(`${current} must be a Discord server ID.`)
+      if (current === '--guild-id') guildId = value
+      else primaryGuildId = value
+      index += 1
+      continue
+    }
     throw new Error(`Unknown option: ${current}`)
   }
 
-  return { command, source, execute, json, target, config, database }
+  return { command, source, execute, json, target, config, database, guildId, primaryGuildId }
+}
+
+function resolveScriptStatsContext(options: Options) {
+  const configText = readFileSync(resolve(botRoot, options.config), 'utf8')
+  const configuredPrimaryGuildId = /["']ALLOWED_DISCORD_GUILD_ID["']\s*:\s*["'](\d{17,20})["']/.exec(configText)?.[1] ?? null
+  const primaryGuildId = options.primaryGuildId ?? configuredPrimaryGuildId
+  if (!primaryGuildId) throw new Error('Primary Discord server ID is missing; use --primary-guild-id or configure ALLOWED_DISCORD_GUILD_ID.')
+  return createStatsContext(options.guildId ?? primaryGuildId, primaryGuildId)
 }
 
 function createRuntime(options: Options): Runtime {
@@ -210,21 +236,21 @@ function createRuntime(options: Options): Runtime {
   }
 }
 
-async function runEstimate(options: Options, d1: D1Database): Promise<void> {
+async function runEstimate(options: Options, d1: D1Database, statsKey: string): Promise<void> {
   const progress = options.json ? null : new Progress(6, 'civ-estimate')
   progress?.step('counting contribution rows')
-  const contributionRows = await readCount(d1, 'select count(*) as count from match_civ_stat_contributions')
+  const contributionRows = await readCount(d1, `select count(*) as count from scoped_match_civ_stat_contributions where stats_key = '${statsKey}'`)
 
   progress?.step('counting eligible contribution rows')
   const eligibleContributionRows = await readCount(d1, `
     select count(*) as count
-    from match_civ_stat_contributions c
-    where ${eligibleContributionSql('c')}
+    from scoped_match_civ_stat_contributions c
+    where c.stats_key = '${statsKey}' and ${eligibleContributionSql('c')}
   `)
   const betaEligibleContributionRows = await readCount(d1, `
     select count(*) as count
-    from match_civ_stat_contributions c
-    where ${eligibleContributionSql('c')}
+    from scoped_match_civ_stat_contributions c
+    where c.stats_key = '${statsKey}' and ${eligibleContributionSql('c')}
       and exists (
         select 1 from matches m
         where m.id = c.match_id
@@ -236,8 +262,9 @@ async function runEstimate(options: Options, d1: D1Database): Promise<void> {
   progress?.step('counting legacy contribution payloads')
   const legacyArrayPayloadRows = await readCount(d1, `
     select count(*) as count
-    from match_civ_stat_contributions
-    where json_valid(contributions_json)
+    from scoped_match_civ_stat_contributions
+    where stats_key = '${statsKey}'
+      and json_valid(contributions_json)
       and json_type(contributions_json) = 'array'
   `)
 
@@ -251,19 +278,19 @@ async function runEstimate(options: Options, d1: D1Database): Promise<void> {
         else 'all'
       end as modeScope,
       count(*) as count
-    from match_civ_stat_contributions c
+    from scoped_match_civ_stat_contributions c
     inner join matches m on m.id = c.match_id
-    where ${eligibleContributionSql('c')}
+    where c.stats_key = '${statsKey}' and ${eligibleContributionSql('c')}
     group by modeScope
     order by modeScope
   `)
 
   progress?.step('checking civ aggregate schema')
-  const contributionColumns = await readRows<{ name: string }>(d1, 'pragma table_info(match_civ_stat_contributions)')
+  const contributionColumns = await readRows<{ name: string }>(d1, 'pragma table_info(scoped_match_civ_stat_contributions)')
   const contributionMetadataColumnsPresent = ['source', 'mode_scope', 'completed_at', 'visible'].every(column => contributionColumns.some(row => row.name === column))
-  const poolTotalsTablePresent = await hasTable(d1, 'civ_stat_pool_totals')
-  const civStatsRows = await hasTable(d1, 'civ_stats') ? await readCount(d1, 'select count(*) as count from civ_stats') : 0
-  const civStatPoolTotalRows = poolTotalsTablePresent ? await readCount(d1, 'select count(*) as count from civ_stat_pool_totals') : 0
+  const poolTotalsTablePresent = await hasTable(d1, 'scoped_civ_stat_pool_totals')
+  const civStatsRows = await hasTable(d1, 'scoped_civ_stats') ? await readCount(d1, `select count(*) as count from scoped_civ_stats where stats_key = '${statsKey}'`) : 0
+  const civStatPoolTotalRows = poolTotalsTablePresent ? await readCount(d1, `select count(*) as count from scoped_civ_stat_pool_totals where stats_key = '${statsKey}'`) : 0
 
   progress?.step('building capacity estimate')
   const repairRowsRead = Math.ceil(contributionRows * 10 + civStatsRows + civStatPoolTotalRows + 5000)

@@ -3,6 +3,8 @@ import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
+import { createStatsContext } from '../services/stats/context.ts'
+import { resolveApprovedDiscordGuildConfiguration } from '@civup/utils'
 
 export type RankedRoleMaintenanceAction = 'sync' | 'apply-pending'
 
@@ -26,7 +28,10 @@ export async function runRankedRoleMaintenance(
 ): Promise<RankedRoleMaintenanceResult> {
   const startedAt = Date.now()
   const kv = getKvStore(env)
-  const guildIds = await listRankedRoleConfigGuildIds(kv)
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+  if (!guildConfig.ok) throw new Error(`Approved Discord server configuration is invalid: ${guildConfig.error}`)
+  const approvedGuildIds = new Set(guildConfig.guildIds)
+  const guildIds = (await listRankedRoleConfigGuildIds(kv)).filter(guildId => approvedGuildIds.has(guildId))
   const orderedGuildIds = rotateGuildIds(guildIds, now)
   let qualifiedPlayers = 0
   let attemptedDiscordChanges = 0
@@ -51,6 +56,7 @@ export async function runRankedRoleMaintenance(
         db: createDb(env.DB),
         kv,
         guildId,
+        statsContext: createStatsContext(guildId, guildConfig.primaryGuildId),
         token: env.DISCORD_TOKEN,
         applyDiscord: true,
         advanceDemotionWindow: true,

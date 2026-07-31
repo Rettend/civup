@@ -7,6 +7,9 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
+const GUILD_ID = '111111111111111111'
+const SECOND_GUILD_ID = '222222222222222222'
+const FAILURE_GUILD_ID = '333333333333333333'
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -41,7 +44,7 @@ describe('host report reminders', () => {
     try {
       const lobby = await createLobby(kv, {
         mode: '2v2',
-        guildId: 'guild-1',
+        guildId: GUILD_ID,
         hostId: 'host-1',
         channelId: 'channel-1',
         messageId: 'message-1',
@@ -74,7 +77,7 @@ describe('host report reminders', () => {
         'https://discord.com/api/v10/channels/dm-1/messages',
       ])
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: 'Reminder: you have an unreported **2v2** game. Don\'t forget to report it: https://discord.com/channels/guild-1/channel-1/message-1',
+        content: `Reminder: you have an unreported **2v2** game. Don't forget to report it: https://discord.com/channels/${GUILD_ID}/channel-1/message-1`,
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -116,7 +119,7 @@ describe('host report reminders', () => {
     try {
       const lobby = await createLobby(kv, {
         mode: 'ffa',
-        guildId: 'guild-2',
+        guildId: SECOND_GUILD_ID,
         hostId: 'host-2',
         channelId: 'channel-2',
         messageId: 'message-2',
@@ -145,7 +148,7 @@ describe('host report reminders', () => {
       })
 
       expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: 'Reminder: you still have an unreported **FFA** game. Don\'t forget to report it: https://discord.com/channels/guild-2/channel-2/message-2',
+        content: `Reminder: you still have an unreported **FFA** game. Don't forget to report it: https://discord.com/channels/${SECOND_GUILD_ID}/channel-2/message-2`,
       }))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -166,7 +169,7 @@ describe('host report reminders', () => {
     try {
       const lobby = await createLobby(kv, {
         mode: '1v1',
-        guildId: 'guild-fail',
+        guildId: FAILURE_GUILD_ID,
         hostId: 'host-fail',
         channelId: 'channel-fail',
         messageId: 'message-fail',
@@ -245,7 +248,7 @@ describe('host report reminders', () => {
         const suffix = String(index)
         const lobby = await createLobby(kv, {
           mode: '2v2',
-          guildId: `guild-${suffix}`,
+          guildId: `10000000000000000${suffix}`,
           hostId: `host-${suffix}`,
           channelId: `channel-${suffix}`,
           messageId: `message-${suffix}`,

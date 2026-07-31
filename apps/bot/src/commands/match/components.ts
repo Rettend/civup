@@ -6,6 +6,7 @@ import { getMatchForUser } from '../../services/activity/index.ts'
 import { resolveInteractionLaunchMode } from '../../services/activity/browser-access.ts'
 import { privateLaunchError, respondWithPreferredLaunch } from '../../services/activity/launch-response.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { getKnownGuildIdentity } from '../../services/discord/guild-metadata.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds } from '../../services/match/live.ts'
 import { getMatchIdForMessage } from '../../services/match/message.ts'
@@ -57,8 +58,14 @@ export const component_match_join = factory.component(
         : clickedLobby.matchId ?? clickedLobby.id
       : await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId, db)
 
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: save file analyzer
     const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles)
+||||||| Common ancestor
+    const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles)
+=======
+    const launch = await resolveInteractionLaunchMode(env, c.interaction.member?.roles, c.interaction.guild_id)
+>>>>>>> Current commit: feat: add multi-server foundations
     if (!launch.ok) return privateLaunchError(c, launch.error)
     const canonicalSessionId = launch.mode === 'browser'
       ? clickedLobby?.id ?? (clickedMatchId ? await resolveCanonicalSessionId(db, clickedMatchId) : null)
@@ -119,10 +126,10 @@ export const component_match_join = factory.component(
           playerId: identity.userId,
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
+          sourceGuild: await getKnownGuildIdentity(kv, env.DISCORD_TOKEN, c.interaction.guild_id),
         }],
         {
           preferredLobbyId: lobby.id,
-          skipMatchmakingRankGate: true,
           liveMatchPlayerIds: new Set(blockingDraftMatchIdByPlayer.keys()),
           includeTournamentLobbies: clickedTournamentMatch != null,
         },
@@ -163,7 +170,7 @@ export const component_match_browse = factory.component(
   async (c) => {
     const identity = getIdentity(c)
     const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
-    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles, c.interaction.guild_id)
     if (!launch.ok) return privateLaunchError(c, launch.error)
     if ((!identity || !channelId) && launch.mode === 'activity') return c.resActivity()
     if (!identity || !channelId) return privateLaunchError(c, 'Could not identify this Discord channel. Please try again in the server.')
@@ -180,7 +187,7 @@ export const component_match_browse = factory.component(
 export const component_draft_activity = factory.component(
   new Button('draft-activity', 'Open Draft Activity', 'Primary'),
   async (c) => {
-    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+    const launch = await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles, c.interaction.guild_id)
     if (!launch.ok) return privateLaunchError(c, launch.error)
     const identity = getIdentity(c)
     const channelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null

@@ -172,6 +172,7 @@ async function projectSessionRecordTransaction(
         updatedAt: record.updatedAt,
         lastActivityAt: record.lastActivityAt,
         closedAt: isCurrentSessionPhase(record.phase) ? null : now,
+        draftStartDeadlineAt: record.phase === 'draft' && record.draftStartSync ? record.draftStartSync.deadlineAt : null,
       })
       .onConflictDoUpdate({
         target: sessionDirectory.sessionId,
@@ -190,6 +191,7 @@ async function projectSessionRecordTransaction(
           updatedAt: record.updatedAt,
           lastActivityAt: record.lastActivityAt,
           closedAt: isCurrentSessionPhase(record.phase) ? null : now,
+          draftStartDeadlineAt: record.phase === 'draft' && record.draftStartSync ? record.draftStartSync.deadlineAt : null,
         },
         where: sql`excluded.version > ${sessionDirectory.version}`,
       })
@@ -245,6 +247,7 @@ async function restoreDirectoryProjectionSnapshot(db: Database, snapshot: Direct
         updatedAt: snapshot.directory.updatedAt,
         lastActivityAt: snapshot.directory.lastActivityAt,
         closedAt: snapshot.directory.closedAt,
+        draftStartDeadlineAt: snapshot.directory.draftStartDeadlineAt,
       },
     })
 

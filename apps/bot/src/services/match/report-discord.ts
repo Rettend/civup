@@ -31,6 +31,8 @@ interface SyncReportedMatchDiscordMessagesInput {
   reporter?: MatchReporterIdentity | null
   archivePolicy?: ArchivePolicy
   archiveChannelType?: ReportArchiveChannelType
+  originGuildId: string
+  legacyGuildId?: string | null
 }
 
 export interface ReportedMatchDiscordSyncResult {
@@ -55,6 +57,8 @@ export async function syncReportedMatchDiscordMessages({
   reporter = null,
   archivePolicy = 'always',
   archiveChannelType,
+  originGuildId,
+  legacyGuildId,
 }: SyncReportedMatchDiscordMessagesInput): Promise<ReportedMatchDiscordSyncResult> {
   const errors: string[] = []
   let messageIds: string[] = []
@@ -151,7 +155,7 @@ export async function syncReportedMatchDiscordMessages({
 
   if (!draftMessageUpdated && draftMessageId && !tournamentImageFailed) {
     const draftChannelType = tournamentLinked ? 'tournament-draft' : 'draft'
-    const draftChannelId = await getSystemChannel(kv, draftChannelType).catch((error) => {
+    const draftChannelId = await getSystemChannel(kv, draftChannelType, { guildId: originGuildId, legacyGuildId }).catch((error) => {
       console.error(`Failed to read ${draftChannelType} channel for reported match ${matchId}:`, error)
       draftUpdateError = error
       return null
@@ -213,7 +217,7 @@ export async function syncReportedMatchDiscordMessages({
   if (tournamentImageFailed) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   const resolvedArchiveChannelType = archiveChannelType ?? await resolveReportedArchiveChannelType(db, matchId)
-  const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType).catch((error) => {
+  const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType, { guildId: originGuildId, legacyGuildId }).catch((error) => {
     console.error(`Failed to read ${resolvedArchiveChannelType} channel for reported match ${matchId}:`, error)
     errors.push(`archive channel lookup failed: ${formatError(error)}`)
     return null

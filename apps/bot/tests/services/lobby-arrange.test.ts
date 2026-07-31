@@ -14,7 +14,7 @@ describe('lobby arrange helpers', () => {
 
     expect('error' in result).toBe(false)
     if ('error' in result) return
-    expect(result.slots).toEqual(['p2', 'p3', null, 'p1'])
+    expect(result.slots).toEqual(['p3', 'p2', 'p1', null])
   })
 
   test('shuffle-teams redistributes players evenly across active teams', () => {
@@ -88,7 +88,7 @@ describe('lobby arrange helpers', () => {
     expect(teamA.has('a') && teamA.has('b')).toBe(false)
   })
 
-  test('auto-balance can split former party-mates across teams', () => {
+  test('auto-balance keeps party-mates together', () => {
     const result = arrangeLobbySlots({
       mode: '2v2',
       strategy: 'balance',
@@ -109,7 +109,7 @@ describe('lobby arrange helpers', () => {
 
     expect('error' in result).toBe(false)
     if ('error' in result) return
-    expect(result.slots).toEqual(['p1', 'p4', 'p2', 'p3'])
+    expect(result.slots).toEqual(['p1', 'p2', 'p3', 'p4'])
   })
 
   test('randomize shuffles FFA seats including gaps', () => {
@@ -163,5 +163,6 @@ function entry(playerId: string, partyIds?: string[]): QueueEntry {
     avatarUrl: null,
     joinedAt: 1,
     partyIds,
+    sourceGuild: { id: '111111111111111111' },
   }
 }

@@ -13,12 +13,13 @@ import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getStoredGameModeContext, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
-import { canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
+import { canModerateSessionOrigin, canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
-import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
-import { getSystemChannel } from '../services/system/channels.ts'
+import { getSessionLobbyProjectionByMatch, getSessionOriginByMatch, getStoredMatchGuildId, resolveMatchOriginGuildId } from '../services/session/index.ts'
+import { getSystemChannel, primaryChannelScope } from '../services/system/channels.ts'
 import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { factory } from '../setup'
 import { buildFfaPlacementOptions, collectFfaPlacementUserIds, getIdentity, getIdentityByUserId } from './match/shared'
@@ -123,7 +124,13 @@ export const command_mod = factory.autocomplete<ModVar>(
             return
           }
 
-          const directLobby = await getLobbyById(kv, matchId) ?? await getSessionLobbyProjectionByMatch(db, matchId)
+          const origin = await getSessionOriginByMatch(db, matchId)
+          const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+          if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
+            await sendTransientEphemeralResponse(c, 'Moderators can only alter sessions that originated in this server.', 'error')
+            return
+          }
+          const directLobby = await getSessionLobbyProjectionByMatch(db, matchId) ?? await getLobbyById(kv, matchId)
           if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
             const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
             const cancelledLobby = await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
@@ -152,7 +159,8 @@ export const command_mod = factory.autocomplete<ModVar>(
             cancelledAt: Date.now(),
           }, {
             sessionNamespace: c.env.SessionDO,
-            rankedRoleGuildId: existingLobby?.guildId ?? c.interaction.guild_id ?? null,
+            rankedRoleGuildId: owningGuildId ?? null,
+            primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
           })
 
           if ('error' in result) {
@@ -171,7 +179,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
           const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
           if (isTournamentMatch) {
-            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
               console.error(`Failed to refresh tournament leaderboard after cancelling match ${result.match.id}:`, error)
             })
           }
@@ -190,7 +198,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           }
 
           const shouldArchiveCancellation = result.previousStatus === 'completed'
-          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, archiveChannelType) : null
+          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, archiveChannelType, { guildId: owningGuildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID }) : null
           if (archiveChannelId && shouldArchiveCancellation) {
             try {
               const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
@@ -206,7 +214,7 @@ export const command_mod = factory.autocomplete<ModVar>(
           const isRankedMatch = matchContext.ranked
           try {
             if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
-              await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
+              await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `mod-cancel:${result.match.id}`, {
                 civ: true,
                 modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
               })
@@ -268,6 +276,12 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
               return
             }
+            const origin = await getSessionOriginByMatch(db, matchId)
+            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
+              await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
+              return
+            }
 
             const result = await resolveMatchByModerator(db, kv, {
               matchId,
@@ -275,7 +289,9 @@ export const command_mod = factory.autocomplete<ModVar>(
               resolvedAt: Date.now(),
             }, {
               sessionNamespace: c.env.SessionDO,
-              rankedRoleGuildId: c.interaction.guild_id ?? null,
+              rankedRoleGuildId: owningGuildId,
+              primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+              discordToken: c.env.DISCORD_TOKEN,
             })
 
             if ('error' in result) {
@@ -293,20 +309,21 @@ export const command_mod = factory.autocomplete<ModVar>(
             const mode = matchContext.mode
             const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData, existingLobby?.draftConfig.leaderDataVersion ?? 'live')
             const moderation = { actorId, reason }
-            const guildId = existingLobby?.guildId ?? c.interaction.guild_id ?? null
+            const guildId = owningGuildId
+            const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
             const participantIds = result.participants.map(participant => participant.playerId)
             const isRankedMatch = matchContext.ranked
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
             const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
             if (isTournamentMatch) {
-              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
                 console.error(`Failed to refresh tournament leaderboard after resolving match ${result.match.id}:`, error)
               })
             }
 
             try {
               if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
-                await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`, {
+                await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `mod-resolve:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
                 })
@@ -340,6 +357,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                     db,
                     kv,
                     guildId,
+                    statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
                     playerIds: participantIds,
                     includePlayerIdentities: false,
                   })
@@ -349,7 +367,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                     preview: rankedPreview,
                     playerIds: participantIds,
                   })
-                  await syncSeasonPeaksForPlayers(db, {
+                   await syncSeasonPeaksForPlayers(db, createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), {
                     playerIds: participantIds,
                     playerPreviews: rankedPreview.playerPreviews,
                   })
@@ -374,6 +392,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                   matchDraftData: result.match.draftData,
                   archivePolicy: 'always',
                   archiveChannelType: 'tournament-archive',
+                  originGuildId,
+                  legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
                 })
                 if (syncResult.errors.length > 0) {
                   console.error(`Failed to sync resolved tournament match ${result.match.id} images:`, syncResult.errors)
@@ -399,7 +419,7 @@ export const command_mod = factory.autocomplete<ModVar>(
                 }
               }
 
-              const archiveChannelId = await getSystemChannel(kv, archiveChannelType)
+              const archiveChannelId = await getSystemChannel(kv, archiveChannelType, { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
               if (archiveChannelId) {
                 try {
                   const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
@@ -447,6 +467,11 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
               return
             }
+            const primaryGuildId = c.env.ALLOWED_DISCORD_GUILD_ID
+            if (!primaryGuildId) {
+              await sendTransientEphemeralResponse(c, 'The primary server is not configured.', 'error')
+              return
+            }
 
             const result = await createManualReportedMatch(db, kv, {
               mode: parsedInput.mode,
@@ -454,6 +479,8 @@ export const command_mod = factory.autocomplete<ModVar>(
               players: parsedInput.players,
               reporterId: actor.userId,
               reportedAt: Date.now(),
+              guildId,
+              primaryGuildId,
             }, {
               rankedRoleGuildId: c.interaction.guild_id ?? null,
             })
@@ -469,11 +496,15 @@ export const command_mod = factory.autocomplete<ModVar>(
               return
             }
 
-            const guildId = c.interaction.guild_id ?? null
+            const manualOriginGuildId = c.interaction.guild_id
+            if (!manualOriginGuildId) {
+              await sendTransientEphemeralResponse(c, 'Could not resolve the server for this manual match.', 'error')
+              return
+            }
             const participantIds = result.participants.map(participant => participant.playerId)
             try {
               if (!matchContext.redDeath && !matchContext.civBlitz) {
-                await markLeaderboardsDirty(db, `mod-manual:${result.match.id}`, {
+                await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `mod-manual:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
                 })
@@ -500,22 +531,23 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               let rankedRoleLines: string[] = []
-              if (matchContext.ranked && guildId) {
+              if (matchContext.ranked) {
                 try {
                   const rankedPreview = await previewRankedRoles({
                     db,
                     kv,
-                    guildId,
+                    guildId: manualOriginGuildId,
+                    statsContext: createStatsContext(manualOriginGuildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
                     playerIds: participantIds,
                     includePlayerIdentities: false,
                   })
                   rankedRoleLines = await listRankedRoleMatchUpdateLines({
                     kv,
-                    guildId,
+                    guildId: manualOriginGuildId,
                     preview: rankedPreview,
                     playerIds: participantIds,
                   })
-                  await syncSeasonPeaksForPlayers(db, {
+                   await syncSeasonPeaksForPlayers(db, createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), {
                     playerIds: participantIds,
                     playerPreviews: rankedPreview.playerPreviews,
                   })
@@ -538,6 +570,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchDraftData: result.match.draftData,
                 reporter: actor,
                 archivePolicy: 'always',
+                originGuildId: manualOriginGuildId,
+                legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
               })
               if (syncResult.errors.length > 0) {
                 console.error(`Failed to sync manual match ${result.match.id} embeds:`, syncResult.errors)
@@ -588,13 +622,19 @@ export const command_mod = factory.autocomplete<ModVar>(
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           try {
             const db = createDb(c.env.DB)
+            const origin = await getSessionOriginByMatch(db, matchId)
+            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
+              await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
+              return
+            }
             const result = await correctMatchLeadersByModerator(db, {
               matchId,
               playerId,
               leaderId,
               swapWithPlayerId,
               correctedAt: Date.now(),
-            })
+            }, { primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
 
             if ('error' in result) {
               await sendTransientEphemeralResponse(c, result.error, 'error')
@@ -608,14 +648,14 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
             if (isTournamentMatch) {
-              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
                 console.error(`Failed to refresh tournament leaderboard after correcting match ${result.match.id}:`, error)
               })
             }
 
             try {
               if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz && result.corrections.some(correction => correction.previousCivId !== correction.nextCivId)) {
-                await markLeaderboardsDirty(db, `mod-leader:${result.match.id}`, {
+                await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `mod-leader:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
                 })
@@ -634,6 +674,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
+              const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
               const syncResult = await syncReportedMatchDiscordMessages({
                 db,
                 kv,
@@ -648,6 +689,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchDraftData: result.match.draftData,
                 archivePolicy: 'if-missing',
                 archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
+                originGuildId,
+                legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
               })
               if (syncResult.errors.length > 0) {
                 console.error(`Failed to refresh leader-corrected match ${result.match.id} embeds:`, syncResult.errors)
@@ -688,6 +731,12 @@ export const command_mod = factory.autocomplete<ModVar>(
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           try {
             const db = createDb(c.env.DB)
+            const origin = await getSessionOriginByMatch(db, matchId)
+            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
+              await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
+              return
+            }
             const subIdentity = getIdentityByUserId(c, subPlayerId)
             const result = await substituteMatchPlayerByModerator(db, kv, {
               matchId,
@@ -699,7 +748,9 @@ export const command_mod = factory.autocomplete<ModVar>(
               },
               correctedAt: Date.now(),
             }, {
-              rankedRoleGuildId: c.interaction.guild_id ?? null,
+              rankedRoleGuildId: owningGuildId,
+              primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+              discordToken: c.env.DISCORD_TOKEN,
             })
 
             if ('error' in result) {
@@ -715,14 +766,14 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
             if (isTournamentMatch) {
-              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+              await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
                 console.error(`Failed to refresh tournament leaderboard after substituting players for match ${result.match.id}:`, error)
               })
             }
 
             try {
               if (!isTournamentMatch && result.match.status === 'completed' && matchContext.leaderboardMode) {
-                await markLeaderboardsDirty(db, `mod-sub:${result.match.id}`, {
+                await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `mod-sub:${result.match.id}`, {
                   modes: [matchContext.leaderboardMode],
                 })
               }
@@ -753,6 +804,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
+              const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
               if (result.match.status === 'active') {
                 if (existingLobby) {
                   try {
@@ -783,6 +835,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                 matchDraftData: result.match.draftData,
                 archivePolicy: 'if-missing',
                 archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
+                originGuildId,
+                legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
               })
               if (syncResult.errors.length > 0) {
                 console.error(`Failed to refresh player-substituted match ${result.match.id} embeds:`, syncResult.errors)

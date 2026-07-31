@@ -1,5 +1,7 @@
 export const PARTYSERVER_ROOM_HEADER = 'x-partykit-room'
 export const PARTYSERVER_NAMESPACE_HEADER = 'x-partykit-namespace'
+export const ACTIVITY_FEED_ROOM = 'overview'
+export const ACTIVITY_VERSION_OUTDATED_MESSAGE = 'This activity version is outdated. Reopen the activity.'
 
 export interface PartyServerRoomRouting {
   party: string

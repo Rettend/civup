@@ -6,6 +6,7 @@ import { getKvStore } from '../services/kv/batch.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 
 interface Var {
   mode?: string
@@ -28,6 +29,7 @@ export const command_tiers = factory.command<Var>(
         db,
         kv,
         guildId,
+        statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
         mode: mode ?? undefined,
       })
 

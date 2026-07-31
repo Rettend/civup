@@ -33,6 +33,19 @@ describe('browser preference role', () => {
     expect(await resolveInteractionLaunchMode(env, null)).toEqual(expect.objectContaining({ ok: false }))
   })
 
+  test('does not inherit legacy browser access without an explicit primary guild scope', async () => {
+    const kv = createEnabledKv()
+
+    expect(await getBrowserAccessState(kv.namespace, { guildId: '222222222222222222' })).toEqual({
+      enabled: false,
+      preferenceRoleId: null,
+    })
+    expect(await getBrowserAccessState(kv.namespace, { guildId: GUILD_ID, legacyGuildId: GUILD_ID })).toEqual({
+      enabled: true,
+      preferenceRoleId: ROLE_ID,
+    })
+  })
+
   test('requires a valid public origin and builds credential-free canonical URLs', async () => {
     expect(await resolveBrowserAccessConfig({ ...configuredEnv(createEnabledKv().namespace), ACTIVITY_PUBLIC_ORIGIN: undefined })).toBeNull()
     const config = await resolveBrowserAccessConfig(configuredEnv(createEnabledKv().namespace))
@@ -99,7 +112,7 @@ describe('browser preference role', () => {
       hoist: false,
       mentionable: false,
     })
-    expect(await getBrowserAccessState(kv.namespace)).toEqual({ enabled: true, preferenceRoleId: ROLE_ID })
+    expect(await getBrowserAccessState(kv.namespace, { guildId: GUILD_ID, legacyGuildId: GUILD_ID })).toEqual({ enabled: true, preferenceRoleId: ROLE_ID })
 
     requests.length = 0
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -122,7 +135,7 @@ describe('browser preference role', () => {
     expect(await requests[1]!.json()).toEqual({ name: 'Web Browser' })
 
     await handleSetup(createAdminSetupContext(kv.namespace, 'off'))
-    expect(await getBrowserAccessState(kv.namespace)).toEqual({ enabled: false, preferenceRoleId: ROLE_ID })
+    expect(await getBrowserAccessState(kv.namespace, { guildId: GUILD_ID, legacyGuildId: GUILD_ID })).toEqual({ enabled: false, preferenceRoleId: ROLE_ID })
   })
 
   test('settings buttons idempotently add or remove only the configured role', async () => {

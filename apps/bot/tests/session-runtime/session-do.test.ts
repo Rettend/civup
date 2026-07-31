@@ -7,12 +7,19 @@ import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { createDraftMatch } from '../../src/services/match/draft.ts'
 import { createRoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
-import { SessionDO } from '../../src/session-runtime/session-do.ts'
+import { SessionDO as RuntimeSessionDO } from '../../src/session-runtime/session-do.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestSessionNamespace } from '../helpers/session-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
+
+class SessionDO extends RuntimeSessionDO {
+  constructor(state: DurableObjectState, env: Cloudflare.Env) {
+    if (!env.ALLOWED_DISCORD_GUILD_ID) env.ALLOWED_DISCORD_GUILD_ID = '111111111111111111'
+    super(state, env)
+  }
+}
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -77,8 +84,8 @@ describe('SessionDO open session commands', () => {
         body: JSON.stringify({
           lobby: openLobby,
           queueEntries: [
-            { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
-            { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+            { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10, sourceGuild: { id: '111111111111111111' } },
+            { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11, sourceGuild: { id: '111111111111111111' } },
           ],
         }),
       }))
@@ -261,7 +268,7 @@ describe('SessionDO open session commands', () => {
       const [terminalDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(terminalDirectoryRow).toMatchObject({ phase: 'cancelled', closedAt: 50 })
       const [terminalMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
-      expect(terminalMatchRow).toMatchObject({ status: 'cancelled', completedAt: 50 })
+      expect(terminalMatchRow).toMatchObject({ status: 'cancelled', completedAt: 40, cancelledAt: 50 })
 
       const resolved = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 60 })
       expect(resolved.record).toMatchObject({ phase: 'reported', version: 6, closedAt: 60 })
@@ -269,7 +276,7 @@ describe('SessionDO open session commands', () => {
       const [reportedDirectoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, openLobby.id)).limit(1)
       expect(reportedDirectoryRow).toMatchObject({ phase: 'reported', closedAt: 60 })
       const [reportedMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
-      expect(reportedMatchRow).toMatchObject({ status: 'completed', completedAt: 50 })
+      expect(reportedMatchRow).toMatchObject({ status: 'completed', completedAt: 40, cancelledAt: null })
     }
     finally {
       console.warn = originalConsoleWarn
@@ -405,6 +412,63 @@ describe('SessionDO open session commands', () => {
     }
   })
 
+  test('rejects selected-session sockets launched from an unsupported server', async () => {
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      CIVUP_SECRET: 'secret',
+      ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
+    } as any)
+    await createSessionFromLobby(room, buildLobby(), [
+      { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+    ])
+    const connection = createFakeConnection()
+
+    await room.onConnect(connection.connection, {
+      request: sessionRequest('/', {
+        headers: {
+          'X-CivUp-Internal-Secret': 'secret',
+          'X-CivUp-Activity-User-Id': 'p1',
+          'X-CivUp-Activity-Guild-Id': '222222222222222222',
+        },
+      }),
+    } as any)
+
+    expect(connection.messages).toEqual([])
+    expect(connection.closed).toEqual({ code: 4403, reason: 'Forbidden' })
+  })
+
+  test('alarm closes idle selected-session sockets after their launch server is removed', async () => {
+    const state = createFakeDurableObjectState()
+    const env = {
+      CIVUP_SECRET: 'secret',
+      ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
+      ALLOWED_DISCORD_GUILD_IDS: '222222222222222222',
+    } as any
+    const room = new SessionDO(state, env)
+    await createSessionFromLobby(room, buildLobby(), [
+      { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+    ])
+    const connection = createFakeConnection()
+    addFakeAcceptedConnection(state, connection.connection)
+
+    await room.onConnect(connection.connection, {
+      request: sessionRequest('/', {
+        headers: {
+          'X-CivUp-Internal-Secret': 'secret',
+          'X-CivUp-Activity-User-Id': 'p1',
+          'X-CivUp-Activity-Guild-Id': '222222222222222222',
+        },
+      }),
+    } as any)
+
+    expect(connection.closed).toBeNull()
+    expect(await state.storage.getAlarm()).toBeGreaterThan(Date.now())
+
+    env.ALLOWED_DISCORD_GUILD_IDS = '111111111111111111'
+    await room.onAlarm()
+
+    expect(connection.closed).toEqual({ code: 4403, reason: 'Forbidden' })
+  })
+
   test('opens imported active sessions without an initialized draft room', async () => {
     const { db, sqlite } = await createTestDatabase()
     const { state, storage } = createFakeDurableObjectStateWithStorage()
@@ -446,6 +510,7 @@ describe('SessionDO open session commands', () => {
           headers: {
             'X-CivUp-Internal-Secret': 'secret',
             'X-CivUp-Activity-User-Id': 'p1',
+            'X-CivUp-Activity-Guild-Id': '111111111111111111',
           },
         }),
       } as any)
@@ -540,8 +605,8 @@ describe('SessionDO open session commands', () => {
       body: JSON.stringify({
         lobby: openLobby,
         queueEntries: [
-          { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
-          { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+          { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10, sourceGuild: { id: '111111111111111111' } },
+          { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11, sourceGuild: { id: '111111111111111111' } },
         ],
       }),
     }))
@@ -999,7 +1064,13 @@ describe('SessionDO open session commands', () => {
         nextRetryAt: 2_000,
       })
 
-      await createDraftMatch(db, { matchId: openLobby.id, mode: '1v1', seats: started.seats })
+      await createDraftMatch(db, {
+        matchId: openLobby.id,
+        mode: '1v1',
+        seats: started.seats,
+        guildId: '111111111111111111',
+        primaryGuildId: '111111111111111111',
+      })
 
       Date.now = () => 2_000
       await room.onAlarm()
@@ -1332,8 +1403,8 @@ describe('SessionDO open session commands', () => {
       slots: ['p1', 'p2'],
       lastActivityAt: 31,
       queueEntries: [
-        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
-        { playerId: 'p2', displayName: 'Player Two', avatarUrl: 'avatar-2', joinedAt: 11 },
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10, sourceGuild: { id: '111111111111111111' } },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: 'avatar-2', joinedAt: 11, sourceGuild: { id: '111111111111111111' } },
       ],
     })
     expect(rosterResponse.record.version).toBe(3)
@@ -1589,6 +1660,7 @@ describe('SessionDO open session commands', () => {
       DB: d1,
       KV: kv,
       DISCORD_TOKEN: 'token',
+      ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
     } as any)
     const openLobby = buildLobby({
       memberPlayerIds: ['p1', 'p2'],
@@ -1649,9 +1721,13 @@ async function openLobbyCommand(room: SessionDO, command: unknown): Promise<any>
 }
 
 async function createSessionFromLobby(room: SessionDO, lobby: ReturnType<typeof buildLobby>, queueEntries: unknown[]): Promise<any> {
+  const entries = queueEntries.map((entry) => {
+    if (!entry || typeof entry !== 'object' || 'sourceGuild' in entry) return entry
+    return { ...entry, sourceGuild: { id: lobby.guildId } }
+  })
   const response = await room.fetch(sessionRequest('/commands/create-from-lobby', {
     method: 'POST',
-    body: JSON.stringify({ lobby, queueEntries }),
+    body: JSON.stringify({ lobby, queueEntries: entries }),
   }))
   expect(response.status).toBe(200)
   return await response.json()
@@ -1911,6 +1987,7 @@ function draftStatusRequest(accessToken: string): Request {
     headers: {
       'X-CivUp-Internal-Secret': 'secret',
       'X-CivUp-Activity-User-Id': 'p1',
+      'X-CivUp-Activity-Guild-Id': '111111111111111111',
     },
   })
 }
@@ -2012,7 +2089,7 @@ function buildLobby(overrides: Record<string, unknown> = {}) {
     id: 'session-1',
     mode: '1v1',
     status: 'open',
-    guildId: 'guild-1',
+    guildId: '111111111111111111',
     hostId: 'p1',
     channelId: 'channel-1',
     messageId: 'message-1',
@@ -2040,7 +2117,7 @@ function buildActiveSessionRecord(overrides: Record<string, unknown> = {}) {
     phase: 'active',
     version: 1,
     hostId: 'p1',
-    guildId: 'guild-1',
+    guildId: '111111111111111111',
     channelId: 'channel-1',
     mode: '1v1',
     matchId,

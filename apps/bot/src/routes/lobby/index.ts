@@ -2,7 +2,7 @@ import type { GameMode, QueueEntry } from '@civup/game'
 import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
-import { createDb, playerRatings } from '@civup/db'
+import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -39,7 +39,9 @@ import { normalizeDraftConfigForMode } from '../../services/lobby/normalize.ts'
 import { buildLobbyRankSnapshot } from '../../services/lobby/rank.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/match/live.ts'
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
-import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleDisplayConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
+import { buildRankedRoleVisuals, getRankedRoleCalculationConfig } from '../../services/ranked/roles.ts'
+import { getCalculatedRankGateError } from '../../services/ranked/admission.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
@@ -50,7 +52,6 @@ import {
   buildLobbyQueueEntries,
   buildOpenLobbySnapshot,
   buildOpenLobbySnapshotFromParts,
-  emptyRankedRoleConfig,
   getLobbyBalanceSnapshot,
   lobbyMinPlayerCount,
   parseLobbyLeaderPoolSize,
@@ -69,7 +70,17 @@ function lobbySessionMutationOptions(c: Context<Env>, queueEntries?: readonly Qu
     db: isWritableD1Binding(c.env.DB) ? createDb(c.env.DB) : null,
     sessionNamespace: c.env.SessionDO,
     queueEntries,
+    legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
   }
+}
+
+function syncRequestLobbyDerivedState(
+  c: Context<Env>,
+  kv: KVNamespace,
+  lobby: LobbyState,
+  options: Parameters<typeof syncLobbyDerivedState>[2] = {},
+) {
+  return syncLobbyDerivedState(kv, lobby, { ...options, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
 }
 
 async function buildOpenLobbyRenderPayloadForMessage(
@@ -110,7 +121,7 @@ async function restoreOpenLobbyTransferSource(
       lastActivityAt: Math.max(sourceLobby.lastActivityAt, at),
       now: Date.now(),
     }, currentSource, lobbySessionMutationOptions(c, queueEntries)) ?? currentSource
-    await syncLobbyDerivedState(kv, restored, { queueEntries })
+    await syncRequestLobbyDerivedState(c, kv, restored, { queueEntries })
     return { ok: true }
   }
   catch (error) {
@@ -183,10 +194,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
 
-    const rankedRoleConfig = lobby.guildId
-      ? await getRankedRoleDisplayConfig(kv, lobby.guildId)
-      : emptyRankedRoleConfig()
-    const visuals = buildRankedRoleVisuals(rankedRoleConfig)
+    if (!lobby.guildId) return c.json({ error: 'Lobby is missing owning-server data' }, 409)
+    const style = await getRankedRoleCalculationConfig(kv, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
+    if (!style.valid) return c.json({ error: 'This server has an incomplete rank setup.' }, 409)
+    const visuals = buildRankedRoleVisuals(style.config)
 
     return c.json({ options: visuals })
   })
@@ -523,9 +534,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby
       if (updated.revision !== lobby.revision) {
-        await syncLobbyDerivedState(kv, updated)
+        await syncRequestLobbyDerivedState(c, kv, updated)
       }
-      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated, c.env.ALLOWED_DISCORD_GUILD_ID))
     }
 
     if (!currentUserIsHost) {
@@ -545,9 +556,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       const updated = await setLobbySteamLobbyLink(kv, lobby.id, parsedSteamLobbyLink ?? null, lobby, lobbySessionMutationOptions(c)) ?? lobby
       if (updated.revision !== lobby.revision) {
-        await syncLobbyDerivedState(kv, updated)
+        await syncRequestLobbyDerivedState(c, kv, updated)
       }
-      return c.json(await buildStoredLobbySnapshot(kv, mode, updated))
+      return c.json(await buildStoredLobbySnapshot(kv, mode, updated, c.env.ALLOWED_DISCORD_GUILD_ID))
     }
 
     if (tournamentMatch) {
@@ -597,7 +608,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'This lobby is missing guild context, so max rank cannot be set.' }, 400)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, normalizedRedDeath, normalizedCivBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, normalizedRedDeath, normalizedCivBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const renderSlotsBeforeConfigChange = [...slots]
@@ -635,13 +646,15 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     )
     if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
 
-    const rankedRoleConfig = lobby.guildId ? await getRankedRoleConfig(kv, lobby.guildId) : null
-    if (minRoleChanged && normalizedMinRole && rankedRoleConfig) {
-      const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMinRole, 'min')
-      if (gateError) return c.json({ error: gateError }, 400)
-    }
-    if (maxRoleChanged && normalizedMaxRole && rankedRoleConfig) {
-      const gateError = getRankedRoleGateError(rankedRoleConfig, normalizedMaxRole, 'max')
+    if ((minRoleChanged || maxRoleChanged) && (normalizedMinRole || normalizedMaxRole)) {
+      if (!lobby.guildId) return c.json({ error: 'Lobby is missing owning-server data' }, 409)
+      const gateError = await getCalculatedRankGateError(
+        db,
+        kv,
+        createStatsContext(lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+        { minRole: normalizedMinRole, maxRole: normalizedMaxRole },
+        slots.filter((playerId): playerId is string => playerId != null),
+      )
       if (gateError) return c.json({ error: gateError }, 400)
     }
 
@@ -699,7 +712,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const normalizedSlots = normalizeLobbySlots(mode, updated.slots, nextLobbyQueueEntries)
     const slottedEntries = mapLobbySlotsToEntries(normalizedSlots, nextLobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, updated, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, updated, {
       queueEntries: nextLobbyQueueEntries,
       slots: normalizedSlots,
       balanceSnapshot,
@@ -716,7 +729,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, `Failed to update lobby embed after config change in ${mode}:`)
     }
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots))
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, updated, nextLobbyQueueEntries, normalizedSlots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
   })
 
   app.post('/api/lobby/:mode/mode', async (c) => {
@@ -769,14 +782,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (nextMode === mode) {
-      return c.json(await buildOpenLobbySnapshot(kv, mode, lobby))
+      return c.json(await buildOpenLobbySnapshot(kv, mode, lobby, c.env.ALLOWED_DISCORD_GUILD_ID))
     }
 
     const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
     if (tournamentMatch) {
       return c.json({ error: 'Tournament lobbies are fixed at 1v1.' }, 403)
     }
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
     const sourceLobby = lobby
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, sourceLobby)
     if (!sourceLobby.memberPlayerIds.includes(sourceLobby.hostId)) {
@@ -826,7 +839,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       now: changedAt,
     }, sourceLobby, lobbySessionMutationOptions(c)) ?? sourceLobby
     const finalizedLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, finalizedLobby, movedLobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, finalizedLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, finalizedLobby, {
       queueEntries: finalizedLobbyQueueEntries,
       slots: finalizedLobby.slots,
       balanceSnapshot,
@@ -848,6 +861,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       finalizedLobby,
       finalizedLobbyQueueEntries,
       finalizedLobby.slots,
+      undefined,
+      c.env.ALLOWED_DISCORD_GUILD_ID,
     ))
   })
 
@@ -916,7 +931,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
     let transferNotice: string | null = null
 
     const alreadyInTargetLobby = lobby.memberPlayerIds.includes(movingPlayerId) || lobby.slots.includes(movingPlayerId)
@@ -954,6 +969,17 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       })
       if (!validation.ok) return c.json({ error: validation.error }, 403)
     }
+    if (!alreadyInTargetLobby && movingPlayerId === auth.identity.userId) {
+      if (!lobby.guildId) return c.json({ error: 'This lobby is missing owning-server data.' }, 409)
+      const rankGateError = await getCalculatedRankGateError(
+        db,
+        kv,
+        createStatsContext(lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+        lobby,
+        [movingPlayerId],
+      )
+      if (rankGateError) return c.json({ error: rankGateError }, 403)
+    }
 
     let lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     let slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
@@ -974,7 +1000,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const sourceSlot = slots.findIndex(playerId => playerId === movingPlayerId)
     const targetPlayerId = slots[targetSlot]
     if (targetPlayerId === movingPlayerId) {
-      const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots)
+      const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID)
       return c.json({
         lobby: snapshot,
         transferNotice,
@@ -1027,6 +1053,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
           playerId: movingPlayerId,
           displayName: resolvedDisplayName ?? '',
           avatarUrl: auth.identity.avatarUrl,
+          ...(auth.identity.sourceGuild ? { sourceGuild: auth.identity.sourceGuild } : {}),
           joinedAt: actionAt,
         }
       : null
@@ -1055,7 +1082,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
             const currentEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, currentLobby, [...lobbyQueueEntries, ...rosterPatchEntries])
             const currentSlots = normalizeLobbySlots(mode, currentLobby.slots, currentEntries)
             if (currentLobby.memberPlayerIds.includes(movingPlayerId) && currentSlots[targetSlot] === movingPlayerId) {
-              const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, currentLobby, currentEntries, currentSlots)
+              const snapshot = await buildOpenLobbySnapshotFromParts(kv, mode, currentLobby, currentEntries, currentSlots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID)
               return c.json({ lobby: snapshot, transferNotice })
             }
           }
@@ -1090,7 +1117,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     lobbyQueueEntries = buildLobbyQueueEntries(nextLobby, lobbyQueueEntries)
     slots = normalizeLobbySlots(mode, nextLobby.slots, lobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, nextLobby, {
       queueEntries: lobbyQueueEntries,
       slots,
       balanceSnapshot,
@@ -1108,7 +1135,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after slot placement in ${mode}:`)
 
-    const responseLobby = snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots)
+    const responseLobby = snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, lobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID)
     return c.json({
       lobby: responseLobby,
       transferNotice,
@@ -1164,7 +1191,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const targetPlayerId = slots[slot]
 
     if (targetPlayerId == null) {
-      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots))
+      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
     }
 
     if (targetPlayerId === lobby.hostId) {
@@ -1176,7 +1203,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'You can only remove yourself from a slot.' }, 403)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
 
     slots[slot] = null
 
@@ -1189,7 +1216,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       now: activityAt,
     }, lobby, lobbySessionMutationOptions(c)) ?? lobby
     const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots,
       balanceSnapshot,
@@ -1206,7 +1233,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after slot removal in ${mode}:`)
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots))
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
   })
 
   app.post('/api/lobby/:mode/transfer-host', async (c) => {
@@ -1256,14 +1283,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
 
     if (targetPlayerId === lobby.hostId) {
-      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots))
+      return c.json(await buildOpenLobbySnapshotFromParts(kv, mode, lobby, lobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
     }
 
     if (!slots.includes(targetPlayerId)) {
       return c.json({ error: 'New host must be in a lobby slot.' }, 400)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
 
     let nextLobby: LobbyState
     try {
@@ -1276,7 +1303,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
     const nextSlots = normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots: nextSlots,
       balanceSnapshot,
@@ -1292,7 +1319,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after host transfer in ${mode}:`)
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, nextSlots))
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, nextSlots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
   })
 
   app.post('/api/lobby/:mode/arrange', async (c) => {
@@ -1342,7 +1369,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can arrange the lobby' }, 403)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const slottedPlayerIds = slots.filter((playerId): playerId is string => playerId != null)
@@ -1351,6 +1378,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (strategyRaw === 'balance' && slottedPlayerIds.length > 0) {
       const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: lobby.draftConfig.redDeath, civBlitz: lobby.draftConfig.civBlitz })
       if (leaderboardMode != null) {
+        if (!lobby.guildId) return c.json({ error: 'Lobby is missing owning-server data' }, 409)
+        const statsContext = createStatsContext(lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
         const rows = await db
           .select({
             playerId: playerRatings.playerId,
@@ -1359,6 +1388,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
           })
           .from(playerRatings)
           .where(and(
+            eq(playerRatings.statsKey, statsContext.statsKey),
             eq(playerRatings.mode, leaderboardMode),
             inArray(playerRatings.playerId, slottedPlayerIds),
           ))
@@ -1373,6 +1403,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       queueEntries: lobbyQueueEntries,
       strategy: strategyRaw,
       ratingsByPlayerId,
+      teamGuildPolicy: {
+        primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+        allowLegacyPrimarySource: false,
+      },
     })
 
     if ('error' in arranged) {
@@ -1384,7 +1418,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       strategy: strategyRaw,
     }, lobby, lobbySessionMutationOptions(c)) ?? lobby
     const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, lobbyQueueEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots: arranged.slots,
       balanceSnapshot,
@@ -1400,7 +1434,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       }, lobbySessionMutationOptions(c))
     }, `Failed to update lobby embed after ${strategyRaw} arrange in ${mode}:`)
 
-    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, arranged.slots))
+    return c.json(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, arranged.slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID))
   })
 
   app.post('/api/lobby/:mode/fill-test', async (c) => {
@@ -1457,7 +1491,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the lobby host can fill test players' }, 403)
     }
 
-    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+    const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
     const nextEntries = [...lobbyQueueEntries]
@@ -1493,7 +1527,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       now,
     }, lobby, lobbySessionMutationOptions(c, addedEntries)) ?? lobby
     const nextLobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, nextLobby, nextEntries)
-    const snapshot = await syncLobbyDerivedState(kv, nextLobby, {
+    const snapshot = await syncRequestLobbyDerivedState(c, kv, nextLobby, {
       queueEntries: nextLobbyQueueEntries,
       slots,
       balanceSnapshot,
@@ -1510,7 +1544,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }, `Failed to update lobby embed after test fill in ${mode}:`)
 
     return c.json({
-      ...(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots)),
+      ...(snapshot ?? await buildOpenLobbySnapshotFromParts(kv, mode, nextLobby, nextLobbyQueueEntries, slots, undefined, c.env.ALLOWED_DISCORD_GUILD_ID)),
       addedCount,
     })
   })
@@ -1591,7 +1625,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const { matchId, seats } = started
       const lobbyForMessage = buildLobbyStateFromSessionRecord(started.record, lobby)
 
-      await syncLobbyDerivedState(kv, lobbyForMessage)
+      await syncRequestLobbyDerivedState(c, kv, lobbyForMessage)
       await markTournamentMatchDrafting(db, lobby.id, matchId)
 
       if (!started.idempotent && seats.length > 0) {
@@ -1672,7 +1706,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
       const { matchId, seats } = repeated
       const lobbyForMessage = buildLobbyStateFromSessionRecord(repeated.record, lobby)
-      await syncLobbyDerivedState(kv, lobbyForMessage)
+      await syncRequestLobbyDerivedState(c, kv, lobbyForMessage)
       await markTournamentMatchDrafting(db, lobby.id, matchId)
 
       if (repeated.kind === 'resume') {
@@ -1773,8 +1807,9 @@ async function buildStoredLobbySnapshot(
   kv: KVNamespace,
   mode: GameMode,
   lobby: Awaited<ReturnType<typeof getLobbyById>> extends infer T ? Exclude<T, null> : never,
+  legacyGuildId?: string | null,
 ) {
-  const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const serverDefaults = await getServerDraftTimerDefaults(kv, { guildId: lobby.guildId, legacyGuildId })
   const slottedPlayerIds = lobby.slots.filter((playerId): playerId is string => playerId != null)
   const lobbyRank = await buildLobbyRankSnapshot(kv, lobby.guildId, slottedPlayerIds, {
     mode,

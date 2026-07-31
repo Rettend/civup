@@ -5,9 +5,13 @@ import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { clearLobbyById, createLobby, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue, getSeededRosterEntries } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
+
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 test('keeps supported map vote config for ffa lobbies', async () => {
   const { kv } = createTrackedKv()
@@ -372,7 +376,7 @@ describe('lobby service D1-backed projection behavior', () => {
       joinedAt: Date.now(),
     })
 
-    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
+    await kv.put(leaderboardModeSnapshotKey(STATS_CONTEXT, 'duo'), JSON.stringify({
       version: 3,
       updatedAt: Date.now(),
       rows: [
@@ -387,7 +391,7 @@ describe('lobby service D1-backed projection behavior', () => {
       messageId: 'message-1',
     })
 
-    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
+    const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2'), legacyGuildId: GUILD_ID })
 
     expect(snapshot?.entries?.[0]).toEqual({
       playerId: 'host-1',

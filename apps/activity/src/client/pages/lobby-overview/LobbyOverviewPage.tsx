@@ -1,4 +1,4 @@
-import type { ActivityTargetOption } from '~/client/stores'
+import type { ActivitySupportedServerSnapshot, ActivityTargetOption } from '~/client/stores'
 import type { PlayerDataExportState } from '~/client/lib/player-data-export'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
@@ -7,6 +7,7 @@ import { LobbyOverviewTargetPicker } from './LobbyOverviewTargetPicker'
 
 export interface LobbyOverviewPageProps {
   options: ActivityTargetOption[]
+  supportedServers?: ActivitySupportedServerSnapshot[]
   busy?: boolean
   selectedKey?: string | null
   error?: string | null
@@ -284,6 +285,7 @@ function TargetPickerPanel(props: LobbyOverviewPageProps & { mini?: boolean }) {
         mini={props.mini}
         error={props.error}
         options={props.options}
+        supportedServers={props.supportedServers ?? []}
         busy={props.busy}
         selectedKey={props.selectedKey ?? null}
         onSelect={props.onSelect}

@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, playerRatings as legacyPlayerRatings, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -9,7 +9,9 @@ import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match reporter identity', () => {
-  const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+  const GUILD_ID = '111111111111111111'
+  const STATS_KEY = `server:${GUILD_ID}` as const
+  const directTerminalOptions = { allowDirectTerminalWriteForTests: true, primaryGuildId: GUILD_ID }
 
   test('stores the reporter id in draft data and resolves footer identity from seats', async () => {
     const { db, sqlite } = await createTestDatabase()
@@ -32,6 +34,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'm1',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -113,6 +116,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'missing-session-do',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -129,11 +133,56 @@ describe('match reporter identity', () => {
         matchId: 'missing-session-do',
         reporterId: 'p1',
         placements: '<@p1>',
-      })
+      }, { primaryGuildId: GUILD_ID })
 
       expect(result).toEqual({ error: 'SessionDO binding is required to validate match lifecycle.' })
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'missing-session-do'))
       expect(participants.every(participant => participant.placement == null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('primary reports preserve legacy ratings before the scoped backfill runs', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values([
+        { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
+        { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
+      ])
+      await db.insert(matches).values({
+        id: 'legacy-rating-cutover',
+        guildId: GUILD_ID,
+        gameMode: '1v1',
+        status: 'active',
+        createdAt: 10,
+        draftData: JSON.stringify({ completedAt: 10 }),
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'legacy-rating-cutover', playerId: 'p1', team: 0 },
+        { matchId: 'legacy-rating-cutover', playerId: 'p2', team: 1 },
+      ])
+      await db.insert(legacyPlayerRatings).values([
+        { playerId: 'p1', mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, wins: 7, updatedAt: 9 },
+        { playerId: 'p1', mode: 'global', mu: 39, sigma: 6, gamesPlayed: 10, wins: 7, updatedAt: 9 },
+        { playerId: 'p2', mode: 'duel', mu: 30, sigma: 7, gamesPlayed: 8, wins: 4, updatedAt: 9 },
+        { playerId: 'p2', mode: 'global', mu: 29, sigma: 7, gamesPlayed: 8, wins: 4, updatedAt: 9 },
+      ])
+
+      const result = await reportMatch(db, kv, {
+        matchId: 'legacy-rating-cutover',
+        reporterId: 'p1',
+        placements: '<@p1>',
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.participants.find(player => player.playerId === 'p1')?.ratingBeforeMu).toBe(40)
+      expect(result.participants.find(player => player.playerId === 'p2')?.ratingBeforeMu).toBe(30)
+      expect(await db.select().from(playerRatings)).toHaveLength(4)
     }
     finally {
       sqlite.close()
@@ -180,6 +229,7 @@ describe('match reporter identity', () => {
         },
       }, {
         sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+        primaryGuildId: GUILD_ID,
       })
 
       expect('error' in result).toBe(true)
@@ -239,6 +289,7 @@ describe('match reporter identity', () => {
         placements: '<@p1>',
       }, {
         sessionNamespace: runtime.sessionNamespace,
+        primaryGuildId: GUILD_ID,
       })
 
       expect('error' in result).toBe(false)
@@ -264,6 +315,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'active-existing-events',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -333,6 +385,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'partial-prepared-events',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -345,6 +398,7 @@ describe('match reporter identity', () => {
         { matchId: 'partial-prepared-events', playerId: 'p2', team: 1, civId: null, placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 20, ratingAfterSigma: 7 },
       ])
       await db.insert(playerRatings).values({
+        statsKey: STATS_KEY,
         playerId: 'p1',
         mode: 'duel',
         mu: 30,
@@ -355,6 +409,7 @@ describe('match reporter identity', () => {
         updatedAt: 3,
       })
       await db.insert(playerRatingEvents).values({
+        statsKey: STATS_KEY,
         matchId: 'partial-prepared-events',
         playerId: 'p1',
         mode: 'duel',
@@ -406,15 +461,24 @@ describe('match reporter identity', () => {
         { id: 'p1', displayName: 'Player One', avatarUrl: null, createdAt: 1 },
         { id: 'p2', displayName: 'Player Two', avatarUrl: null, createdAt: 1 },
       ])
+      const runtime = await getTestLobbyRuntime(kv, db)
+      const queueEntries = [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 1 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 1 },
+      ]
       const lobby = await createLobby(kv, {
         mode: '1v1',
         hostId: 'p1',
         channelId: 'channel-1',
         messageId: 'message-1',
+        db,
+        sessionNamespace: runtime.sessionNamespace,
+        queueEntries,
       })
       const matchId = lobby.id
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -435,8 +499,9 @@ describe('match reporter identity', () => {
         { matchId, playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby)
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
+      const runtimeOptions = { db, sessionNamespace: runtime.sessionNamespace, queueEntries }
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby, runtimeOptions)
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, runtimeOptions)
 
       const result = await reportMatch(db, kv, {
         matchId,
@@ -466,6 +531,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'm3',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'completed',
         createdAt: 1,
@@ -506,6 +572,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'completed-incomplete-events',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'completed',
         createdAt: 1,
@@ -519,6 +586,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(playerRatingEvents).values([
         {
+          statsKey: STATS_KEY,
           matchId: 'completed-incomplete-events',
           playerId: 'p1',
           mode: 'duel',
@@ -540,6 +608,7 @@ describe('match reporter identity', () => {
           updatedAt: 3,
         },
         {
+          statsKey: STATS_KEY,
           matchId: 'completed-incomplete-events',
           playerId: 'p2',
           mode: 'duel',
@@ -589,6 +658,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'hidden-missing-leaders',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -641,6 +711,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'hidden-report',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -700,6 +771,7 @@ describe('match reporter identity', () => {
       ])
       await db.insert(matches).values({
         id: 'm4',
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'active',
         createdAt: 1,
@@ -716,7 +788,7 @@ describe('match reporter identity', () => {
         matchId: 'm4',
         reporterId: 'p1',
         placements: '<@p1>',
-      })).resolves.toEqual({
+      }, { primaryGuildId: GUILD_ID })).resolves.toEqual({
         error: 'Match **m4** is not ready to report until the draft is complete.',
       })
     }

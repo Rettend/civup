@@ -126,6 +126,7 @@ export type {
   LeaderUnique,
   MatchStatus,
   QueueEntry,
+  SourceGuildIdentity,
   QueueState,
 } from './types.ts'
 export {

@@ -1,11 +1,14 @@
-import { playerRatings, players } from '@civup/db'
+import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { rankedPreviewEmbeds } from '../../src/embeds/ranked-preview.ts'
 import { markRankedRolesDirty, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('ranked preview summary', () => {
   test('builds configured bands, unranked counts, and live cutoffs', async () => {
@@ -18,7 +21,8 @@ describe('ranked preview summary', () => {
     const summary = await summarizeRankedPreview({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
     })
 
@@ -62,7 +66,8 @@ describe('ranked preview summary', () => {
     const summary = await summarizeRankedPreview({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
       mode: 'duel',
     })
@@ -94,7 +99,8 @@ describe('ranked preview summary', () => {
     const summary = await summarizeRankedPreview({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
     })
 
@@ -118,7 +124,8 @@ describe('ranked preview summary', () => {
     const summary = await summarizeRankedPreview({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
       mode: 'duel',
     })
@@ -157,7 +164,7 @@ describe('ranked preview summary', () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
-    await updateRankedRoleConfig(kv, 'guild-1', {
+    await updateRankedRoleConfig(kv, GUILD_ID, {
       tierRoleIdsByRank: [undefined, undefined, undefined, undefined, null],
     })
     await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 12 })
@@ -165,7 +172,8 @@ describe('ranked preview summary', () => {
     const summary = await summarizeRankedPreview({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
       mode: 'duel',
     })
@@ -187,7 +195,7 @@ describe('ranked preview summary', () => {
 })
 
 async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
-  await setRankedRoleCurrentRoles(kv, 'guild-1', {
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
     tier5: '11111111111111111',
     tier4: '22222222222222222',
     tier3: '33333333333333333',
@@ -211,6 +219,7 @@ async function seedPlayers(
       createdAt: NOW,
     }).onConflictDoNothing()
     await db.insert(playerRatings).values({
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode,
       mu: 40 - index,
@@ -219,7 +228,7 @@ async function seedPlayers(
       lastPlayedAt: NOW,
       effectiveGames: options.gamesPlayed,
     }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
+      target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
       set: {
         mu: 40 - index,
         sigma: 6,
@@ -229,6 +238,7 @@ async function seedPlayers(
       },
     })
     await db.insert(playerRatings).values({
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode: 'global',
       mu: 40 - index,
@@ -237,7 +247,7 @@ async function seedPlayers(
       lastPlayedAt: NOW,
       effectiveGames: options.gamesPlayed,
     }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
+      target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
       set: {
         mu: 40 - index,
         sigma: 6,

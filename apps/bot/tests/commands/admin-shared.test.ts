@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseSetupTarget, setupTargetCivModeScope, setupTargetLabel } from '../../src/commands/admin/shared.ts'
+import { isLegacyPrimaryGuildInteraction, isPrimaryGuildSetupTarget, parseSetupTarget, setupTargetCivModeScope, setupTargetLabel } from '../../src/commands/admin/shared.ts'
 
 describe('admin setup target helpers', () => {
   test('supports the bot-commands setup target', () => {
@@ -22,5 +22,27 @@ describe('admin setup target helpers', () => {
     expect(setupTargetCivModeScope('civ-leaderboard-duel')).toBe('duel')
     expect(setupTargetCivModeScope('civ-leaderboard-duo')).toBe('duo')
     expect(setupTargetCivModeScope('civ-leaderboard-squad')).toBe('squad')
+  })
+
+  test('distinguishes partner-scoped setup from primary-guild publication', () => {
+    expect(isPrimaryGuildSetupTarget('draft')).toBe(false)
+    expect(isPrimaryGuildSetupTarget('archive')).toBe(false)
+    expect(isPrimaryGuildSetupTarget('commands')).toBe(false)
+    expect(isPrimaryGuildSetupTarget('leaderboard')).toBe(true)
+    expect(isPrimaryGuildSetupTarget('civ-leaderboard-duel')).toBe(true)
+    expect(isPrimaryGuildSetupTarget('tournament-leaderboard')).toBe(true)
+  })
+})
+
+describe('primary-guild admin scope', () => {
+  test('allows only the configured primary guild', () => {
+    expect(isLegacyPrimaryGuildInteraction({
+      interaction: { guild_id: '111111111111111111' },
+      env: { ALLOWED_DISCORD_GUILD_ID: '111111111111111111' },
+    })).toBe(true)
+    expect(isLegacyPrimaryGuildInteraction({
+      interaction: { guild_id: '222222222222222222' },
+      env: { ALLOWED_DISCORD_GUILD_ID: '111111111111111111' },
+    })).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerRatings as playerRatings, scopedSeasonPeakModeRanks as seasonPeakModeRanks, scopedSeasonPeakRanks as seasonPeakRanks } from '@civup/db'
 import { seasonReset } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -6,6 +6,7 @@ import { createDraftMatch } from '../../src/services/match/index.ts'
 import { recalculateLeaderboardMode } from '../../src/services/match/ratings.ts'
 import { previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
 import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -15,12 +16,14 @@ const HERO_ID = '100010000000000099'
 const TIER_1 = 'tier1'
 const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('season services', () => {
   test('startSeason and endSeason manage the active season lifecycle', async () => {
     const { db, sqlite } = await createTestDatabase()
 
-    const first = await startSeason(db, { now: NOW })
+    const first = await startSeason(db, { now: NOW, statsContext: STATS_CONTEXT })
     expect(first.seasonNumber).toBe(1)
     expect(first.name).toBe('Season 1')
     expect(first.active).toBeTrue()
@@ -30,14 +33,14 @@ describe('season services', () => {
     const active = await getActiveSeason(db)
     expect(active?.id).toBe(first.id)
 
-    await expect(startSeason(db, { now: NOW + 1 })).rejects.toThrow('still active')
+    await expect(startSeason(db, { now: NOW + 1, statsContext: STATS_CONTEXT })).rejects.toThrow('still active')
 
     const ended = await endSeason(db, { now: NOW + DAY_MS })
     expect(ended.active).toBeFalse()
     expect(ended.endsAt).toBe(NOW + DAY_MS)
     expect(await getActiveSeason(db)).toBeNull()
 
-    const second = await startSeason(db, { now: NOW + 2 * DAY_MS })
+    const second = await startSeason(db, { now: NOW + 2 * DAY_MS, statsContext: STATS_CONTEXT })
     expect(second.seasonNumber).toBe(2)
     expect(second.name).toBe('Season 2')
     expect(second.didSoftReset).toBeTrue()
@@ -69,7 +72,7 @@ describe('season services', () => {
       lastPlayedAt: NOW - 2 * DAY_MS,
     })
 
-    const season = await startSeason(db, { now: NOW })
+    const season = await startSeason(db, { now: NOW, statsContext: STATS_CONTEXT })
     expect(season.didSoftReset).toBeTrue()
 
     const ratings = await db.select().from(playerRatings)
@@ -105,7 +108,7 @@ describe('season services', () => {
       lastPlayedAt: NOW - DAY_MS,
     })
 
-    const season = await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false })
+    const season = await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false, statsContext: STATS_CONTEXT })
     expect(season.didSoftReset).toBeFalse()
     expect(season.softReset).toBeFalse()
 
@@ -122,7 +125,7 @@ describe('season services', () => {
   test('startSeason accepts a custom starting season number', async () => {
     const { db, sqlite } = await createTestDatabase()
 
-    const first = await startSeason(db, { now: NOW, seasonNumber: 8 })
+    const first = await startSeason(db, { now: NOW, seasonNumber: 8, statsContext: STATS_CONTEXT })
     expect(first.id).toBe('season-8')
     expect(first.seasonNumber).toBe(8)
     expect(first.name).toBe('Season 8')
@@ -130,14 +133,14 @@ describe('season services', () => {
 
     await endSeason(db, { now: NOW + DAY_MS })
 
-    const second = await startSeason(db, { now: NOW + 2 * DAY_MS })
+    const second = await startSeason(db, { now: NOW + 2 * DAY_MS, statsContext: STATS_CONTEXT })
     expect(second.id).toBe('season-9')
     expect(second.seasonNumber).toBe(9)
     expect(second.name).toBe('Season 9')
 
     await endSeason(db, { now: NOW + 3 * DAY_MS })
 
-    await expect(startSeason(db, { now: NOW + 4 * DAY_MS, seasonNumber: 8 })).rejects.toThrow('next available season')
+    await expect(startSeason(db, { now: NOW + 4 * DAY_MS, seasonNumber: 8, statsContext: STATS_CONTEXT })).rejects.toThrow('next available season')
 
     sqlite.close()
   })
@@ -150,6 +153,7 @@ describe('season services', () => {
 
     await db.insert(matches).values({
       id: 'duel-before-s8',
+      guildId: GUILD_ID,
       gameMode: '1v1',
       status: 'completed',
       seasonId: null,
@@ -182,9 +186,9 @@ describe('season services', () => {
       },
     ])
 
-    await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false })
+    await startSeason(db, { now: NOW, seasonNumber: 8, softReset: false, statsContext: STATS_CONTEXT })
 
-    const result = await recalculateLeaderboardMode(db, 'duel')
+    const result = await recalculateLeaderboardMode(db, 'duel', STATS_CONTEXT)
     expect('error' in result).toBeFalse()
     if ('error' in result) return
 
@@ -202,12 +206,14 @@ describe('season services', () => {
 
   test('createDraftMatch tags new matches with the active season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { now: NOW })
+    const season = await startSeason(db, { now: NOW, statsContext: STATS_CONTEXT })
 
     await createDraftMatch(db, {
       matchId: 'match-1',
+      guildId: GUILD_ID,
+      primaryGuildId: GUILD_ID,
       mode: 'ffa',
-      seats: [{ playerId: PLAYER_ID, displayName: 'Player One' }],
+      seats: [{ playerId: PLAYER_ID, displayName: 'Player One', sourceGuild: { id: GUILD_ID } }],
     })
 
     const [match] = await db.select().from(matches).where(eq(matches.id, 'match-1')).limit(1)
@@ -218,10 +224,10 @@ describe('season services', () => {
 
   test('syncSeasonPeakRanks keeps the best tier reached in a season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { now: NOW })
+    const season = await startSeason(db, { now: NOW, statsContext: STATS_CONTEXT })
     await seedPlayerIdentity(db, PLAYER_ID)
 
-    const first = await syncSeasonPeakRanks(db, {
+    const first = await syncSeasonPeakRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, tier: TIER_5, sourceMode: null }],
       activePlayerIds: new Set([PLAYER_ID]),
@@ -229,7 +235,7 @@ describe('season services', () => {
     })
     expect(first.inserted).toBe(1)
 
-    const second = await syncSeasonPeakRanks(db, {
+    const second = await syncSeasonPeakRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, tier: TIER_4, sourceMode: 'ffa' }],
       activePlayerIds: new Set([PLAYER_ID]),
@@ -237,7 +243,7 @@ describe('season services', () => {
     })
     expect(second.updated).toBe(1)
 
-    const third = await syncSeasonPeakRanks(db, {
+    const third = await syncSeasonPeakRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, tier: TIER_5, sourceMode: null }],
       activePlayerIds: new Set([PLAYER_ID]),
@@ -260,10 +266,10 @@ describe('season services', () => {
 
   test('syncSeasonPeakModeRanks keeps the best per-mode tier and rating in a season', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const season = await startSeason(db, { now: NOW })
+    const season = await startSeason(db, { now: NOW, statsContext: STATS_CONTEXT })
     await seedPlayerIdentity(db, PLAYER_ID)
 
-    const first = await syncSeasonPeakModeRanks(db, {
+    const first = await syncSeasonPeakModeRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: null, rating: 612 }],
       activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
@@ -271,7 +277,7 @@ describe('season services', () => {
     })
     expect(first.inserted).toBe(1)
 
-    const second = await syncSeasonPeakModeRanks(db, {
+    const second = await syncSeasonPeakModeRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: TIER_5, rating: 637 }],
       activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
@@ -279,7 +285,7 @@ describe('season services', () => {
     })
     expect(second.updated).toBe(1)
 
-    const third = await syncSeasonPeakModeRanks(db, {
+    const third = await syncSeasonPeakModeRanks(db, STATS_CONTEXT, {
       seasonId: season.id,
       candidates: [{ playerId: PLAYER_ID, mode: 'ffa', tier: TIER_5, rating: 630 }],
       activeModesByPlayerId: new Map([[PLAYER_ID, new Set(['ffa'])]]),
@@ -304,7 +310,7 @@ describe('season services', () => {
   test('ranked sync records peaks only for players active during the current season', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const season = await startSeason(db, { now: NOW - DAY_MS })
+    const season = await startSeason(db, { now: NOW - DAY_MS, statsContext: STATS_CONTEXT })
 
     await seedPlayers(db, 'ffa', 7, { prefix: 'inactive', lastPlayedAt: NOW - 2 * DAY_MS, gamesPlayed: 10 })
     await seedPlayerIdentity(db, HERO_ID)
@@ -331,7 +337,8 @@ describe('season services', () => {
     await syncRankedRoles({
       db,
       kv,
-      guildId: 'guild-1',
+      guildId: GUILD_ID,
+      statsContext: STATS_CONTEXT,
       now: NOW,
     })
 
@@ -351,7 +358,7 @@ describe('season services', () => {
   test('participant-scoped season peak sync updates only requested players from ranked preview', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const season = await startSeason(db, { now: NOW - DAY_MS })
+    const season = await startSeason(db, { now: NOW - DAY_MS, statsContext: STATS_CONTEXT })
 
     await seedPlayers(db, 'ffa', 7, { prefix: 'active', lastPlayedAt: NOW })
     await seedPlayerIdentity(db, HERO_ID)
@@ -386,8 +393,8 @@ describe('season services', () => {
       lastPlayedAt: NOW,
     })
 
-    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW })
-    const result = await syncSeasonPeaksForPlayers(db, {
+    const preview = await previewRankedRoles({ db, kv, guildId: GUILD_ID, statsContext: STATS_CONTEXT, now: NOW })
+    const result = await syncSeasonPeaksForPlayers(db, STATS_CONTEXT, {
       playerIds: [HERO_ID],
       playerPreviews: preview.playerPreviews,
       now: NOW + 1,
@@ -461,6 +468,7 @@ async function seedRating(
   },
 ): Promise<void> {
   const values = {
+    statsKey: STATS_CONTEXT.statsKey,
     ...row,
     wins: row.wins ?? 0,
     effectiveGames: row.effectiveGames ?? row.gamesPlayed,
@@ -469,7 +477,7 @@ async function seedRating(
   }
 
   await db.insert(playerRatings).values(values).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
+    target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
     set: values,
   })
 }

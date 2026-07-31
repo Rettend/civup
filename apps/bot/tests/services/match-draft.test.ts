@@ -4,9 +4,12 @@ import { civBlitz2v2, createDraft, default2v2, getCivBlitzRegistry, isDraftError
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { splitValuesForD1InsertLimit } from '../../src/services/match/draft.ts'
-import { activateDraftMatch, createDraftMatch } from '../../src/services/match/index.ts'
+import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../../src/services/match/index.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
+
+const GUILD_ID = '111111111111111111'
+const MATCH_SCOPE = { guildId: GUILD_ID, primaryGuildId: GUILD_ID } as const
 
 describe('draft match activation', () => {
   test('activates a drafting match and stores the completed roster', async () => {
@@ -18,6 +21,7 @@ describe('draft match activation', () => {
       const completedState = buildCompleted2v2DraftState(matchId, seats)
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '2v2',
         seats,
@@ -43,8 +47,13 @@ describe('draft match activation', () => {
         .where(eq(matches.id, matchId))
         .limit(1)
       expect(storedMatch?.status).toBe('active')
+      expect(storedMatch?.guildId).toBe(GUILD_ID)
+      expect(storedMatch?.draftCompletedAt).toBe(1_700_000_000_000)
       const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string } : null
       expect(storedDraftData?.leaderDataVersion).toBe('beta')
+
+      const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      expect(storedParticipants.every(participant => participant.sourceGuildId === GUILD_ID && participant.sourceKind === 'joined')).toBe(true)
 
       const storedBans = await db
         .select()
@@ -66,6 +75,7 @@ describe('draft match activation', () => {
       const completedState = buildCompleted2v2DraftState(matchId, seats)
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '2v2',
         seats,
@@ -102,6 +112,35 @@ describe('draft match activation', () => {
     }
   })
 
+  test('records draft cancellation lifecycle fields without marking the match completed', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      const matchId = 'match-draft-cancelled'
+      const seats = create2v2Seats()
+      await createDraftMatch(db, { ...MATCH_SCOPE, matchId, mode: '2v2', seats })
+
+      const result = await cancelDraftMatch(db, {
+        state: buildCompleted2v2DraftState(matchId, seats),
+        cancelledAt: 1_700_000_000_000,
+        reason: 'cancel',
+        hostId: seats[0]!.playerId,
+      })
+
+      expect('error' in result).toBe(false)
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      expect(storedMatch).toMatchObject({
+        status: 'cancelled',
+        completedAt: null,
+        cancelledAt: 1_700_000_000_000,
+        resultRevision: 1,
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('stores CivBlitz leader ability source leaders on activation', async () => {
     const { db, sqlite } = await createTestDatabase()
 
@@ -120,6 +159,7 @@ describe('draft match activation', () => {
       })
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '2v2',
         seats,
@@ -193,6 +233,7 @@ describe('draft match activation', () => {
       const completedState = buildCompleted2v2DraftState(matchId, seats)
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '2v2',
         seats,
@@ -260,11 +301,11 @@ describe('draft match activation', () => {
   })
 
   test('splits 12 participant inserts to stay under the D1 variable limit', () => {
-    const chunks = splitValuesForD1InsertLimit(Array.from({ length: 12 }, (_value, index) => index), 9)
+    const chunks = splitValuesForD1InsertLimit(Array.from({ length: 12 }, (_value, index) => index), 11)
 
     expect(chunks).toHaveLength(2)
-    expect(chunks[0]).toHaveLength(11)
-    expect(chunks[1]).toHaveLength(1)
+    expect(chunks[0]).toHaveLength(9)
+    expect(chunks[1]).toHaveLength(3)
   })
 
   test('restarts a cancelled session match with the new draft roster', async () => {
@@ -273,16 +314,17 @@ describe('draft match activation', () => {
     try {
       const matchId = 'match-draft-restart-cancelled'
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '1v1',
         seats: [
-          { playerId: 'p1', displayName: 'P1' },
-          { playerId: 'p2', displayName: 'P2' },
+          { playerId: 'p1', displayName: 'P1', sourceGuild: { id: GUILD_ID } },
+          { playerId: 'p2', displayName: 'P2', sourceGuild: { id: GUILD_ID } },
         ],
       })
       await db.update(matches).set({
         status: 'cancelled',
-        completedAt: 1_700_000_000_000,
+        cancelledAt: 1_700_000_000_000,
         draftData: '{"old":true}',
       }).where(eq(matches.id, matchId))
       await db.update(matchParticipants).set({ civId: 'old-civ' }).where(eq(matchParticipants.matchId, matchId))
@@ -294,11 +336,12 @@ describe('draft match activation', () => {
       })
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '1v1',
         seats: [
-          { playerId: 'p2', displayName: 'P2' },
-          { playerId: 'p3', displayName: 'P3' },
+          { playerId: 'p2', displayName: 'P2', sourceGuild: { id: GUILD_ID } },
+          { playerId: 'p3', displayName: 'P3', sourceGuild: { id: GUILD_ID } },
         ],
       })
 
@@ -309,6 +352,7 @@ describe('draft match activation', () => {
       expect(storedMatch).toMatchObject({
         status: 'drafting',
         completedAt: null,
+        cancelledAt: null,
         draftData: null,
       })
       expect(storedParticipants.map(participant => participant.playerId).sort()).toEqual(['p2', 'p3'])
@@ -328,6 +372,7 @@ describe('draft match activation', () => {
       const seats = createBigTeamSeats(12)
 
       await createDraftMatch(db, {
+        ...MATCH_SCOPE,
         matchId,
         mode: '6v6',
         seats,
@@ -350,10 +395,10 @@ describe('draft match activation', () => {
 
 function create2v2Seats(): DraftSeat[] {
   return [
-    { playerId: 'p1', displayName: 'P1', team: 0 },
-    { playerId: 'p2', displayName: 'P2', team: 1 },
-    { playerId: 'p3', displayName: 'P3', team: 0 },
-    { playerId: 'p4', displayName: 'P4', team: 1 },
+    { playerId: 'p1', displayName: 'P1', team: 0, sourceGuild: { id: GUILD_ID } },
+    { playerId: 'p2', displayName: 'P2', team: 1, sourceGuild: { id: GUILD_ID } },
+    { playerId: 'p3', displayName: 'P3', team: 0, sourceGuild: { id: GUILD_ID } },
+    { playerId: 'p4', displayName: 'P4', team: 1, sourceGuild: { id: GUILD_ID } },
   ]
 }
 
@@ -366,6 +411,7 @@ function createBigTeamSeats(playerCount: 10 | 12): DraftSeat[] {
       playerId: `p${index + 1}`,
       displayName: `P${index + 1}`,
       team: index < playersPerTeam ? 0 : 1,
+      sourceGuild: { id: GUILD_ID },
     })
   }
 

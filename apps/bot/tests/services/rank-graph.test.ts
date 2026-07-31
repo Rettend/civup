@@ -1,13 +1,16 @@
-import { matches, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matches, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { buildRankCommandImage } from '../../src/commands/rank.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('rank graph image', () => {
   test('builds recent rating points and rank bands', async () => {
@@ -20,7 +23,7 @@ describe('rank graph image', () => {
       await seedPlayer(db, HERO_ID, 'Graph Hero')
       await seedRatingEvents(db, HERO_ID, 'ffa', 5)
 
-      const data = await buildRankGraphImageData(db, kv, 'guild-1', HERO_ID, {
+      const data = await buildRankGraphImageData(db, kv, STATS_CONTEXT, HERO_ID, {
         scope: 'ffa',
         gameLimit: 3,
       })
@@ -60,7 +63,7 @@ describe('rank graph image', () => {
       await seedPlayer(db, HERO_ID, 'Graph Hero')
       await seedRatingEvents(db, HERO_ID, 'ffa', 5)
 
-      const result = await buildRankCommandImage(db, kv, 'guild-1', HERO_ID, {
+      const result = await buildRankCommandImage(db, kv, STATS_CONTEXT, HERO_ID, {
         scope: 'ffa',
         gameLimit: 3,
       })
@@ -146,7 +149,7 @@ describe('rank graph image', () => {
       await seedConfiguredRoles(kv)
       await seedPlayer(db, HERO_ID, 'Graph Hero')
 
-      const result = await buildRankCommandImage(db, kv, 'guild-1', HERO_ID, {
+      const result = await buildRankCommandImage(db, kv, STATS_CONTEXT, HERO_ID, {
         scope: 'overall',
         gameLimit: 20,
       })
@@ -160,7 +163,7 @@ describe('rank graph image', () => {
 })
 
 async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
-  await setRankedRoleCurrentRoles(kv, 'guild-1', {
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
     tier5: '11111111111111111',
     tier4: '22222222222222222',
     tier3: '33333333333333333',
@@ -178,6 +181,7 @@ async function seedModeRatings(
     const playerId = `10001000000000${String(index).padStart(4, '0')}`
     await seedPlayer(db, playerId, `FFA ${index}`)
     await db.insert(playerRatings).values({
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode,
       mu: 45 - index,
@@ -212,12 +216,14 @@ async function seedRatingEvents(
     const matchId = `rank-graph-${index}`
     await db.insert(matches).values({
       id: matchId,
+      guildId: GUILD_ID,
       gameMode: 'ffa',
       status: 'completed',
       createdAt: NOW + index,
       completedAt: NOW + index,
     })
     await db.insert(playerRatingEvents).values({
+      statsKey: STATS_CONTEXT.statsKey,
       matchId,
       playerId,
       mode,

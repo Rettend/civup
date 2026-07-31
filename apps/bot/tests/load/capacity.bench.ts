@@ -4,7 +4,7 @@ import type { Env } from '../../src/env.ts'
 import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
 import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import {
   allLeaderIds,
   createDraft,
@@ -36,6 +36,7 @@ import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipar
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
 import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import {
   createLobby,
   filterQueueEntriesForLobby,
@@ -65,7 +66,8 @@ import {
 } from './capacity/model.ts'
 
 const CHANNEL_ID = 'channel-draft'
-const GUILD_ID = 'guild-1'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 const HOST_ID = 'p1'
 const ACTIVITY_SECRET = 'capacity-test-secret'
 const RANKED_ROLE_IDS = {
@@ -430,7 +432,10 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
     resetOperations()
     sqlTracker.reset()
 
-    await refreshDirtyLeaderboards(db, kv, 'token')
+    await refreshDirtyLeaderboards(db, kv, 'token', {
+      channelScope: { guildId: GUILD_ID, legacyGuildId: GUILD_ID },
+      statsContext: STATS_CONTEXT,
+    })
 
     const kvReads = operations.filter(op => op.type === 'get').length
     const kvWrites = operations.filter(op => op.type === 'put').length
@@ -534,6 +539,7 @@ async function measureRankedRoleMaintenanceRunUsage(action: 'sync' | 'apply-pend
       DB: createSqliteD1Database(sqlite),
       KV: kv,
       DISCORD_TOKEN: 'token',
+      ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
     } as Env['Bindings']
     await runRankedRoleMaintenance(env, 'sync', NOW)
     clearCurrentRankAssignmentsCache(kv)
@@ -592,6 +598,7 @@ async function seedRankedRoleCronState(
 
   await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
     {
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode: 'ffa',
       mu: 40 - index,
@@ -602,6 +609,7 @@ async function seedRankedRoleCronState(
       lastPlayedAt: NOW + 10_000 + index,
     },
     {
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode: 'global',
       mu: 40 - index,
@@ -631,7 +639,7 @@ async function simulateScenarioLifecycle(input: {
     await setSystemChannel(kv, 'draft', CHANNEL_ID)
     await setSystemChannel(kv, 'archive', 'channel-archive')
     await setSystemChannel(kv, 'leaderboard', 'channel-leaderboard')
-    await startSeason(db, { now: NOW, kv })
+    await startSeason(db, { now: NOW, kv, statsContext: STATS_CONTEXT })
     await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '22222222222222222',
@@ -640,8 +648,8 @@ async function simulateScenarioLifecycle(input: {
       tier1: '55555555555555555',
     })
     await seedRatedPlayers(db, input.mode, input.backgroundRatedPlayers)
-    await ensureLeaderboardModeSnapshots(db, kv)
-    await syncRankedRoles({ db, kv, guildId: GUILD_ID, now: NOW + 1_000 })
+    await ensureLeaderboardModeSnapshots(db, kv, STATS_CONTEXT)
+    await syncRankedRoles({ db, kv, guildId: GUILD_ID, statsContext: STATS_CONTEXT, now: NOW + 1_000 })
     await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
     clearCurrentRankAssignmentsCache(kv)
 
@@ -814,7 +822,7 @@ async function simulateMatchJoin(
   const liveMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, group)
   const runtime = await getTestLobbyRuntime(kv, db)
   const outcome = await joinLobbyAndMaybeStartMatch(
-    { env: { DB: runtime.d1, KV: kv, SessionDO: runtime.sessionNamespace } },
+    { env: { DB: runtime.d1, KV: kv, SessionDO: runtime.sessionNamespace, ALLOWED_DISCORD_GUILD_ID: GUILD_ID } },
     mode.mode,
     buildJoinEntries(group),
     { liveMatchPlayerIds: new Set(liveMatchIdByPlayer.keys()) },
@@ -868,7 +876,7 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
     banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
   }, lobby) ?? lobby
 
-  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
+  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath, updatedLobby.draftConfig.civBlitz, GUILD_ID, GUILD_ID)
   const queueEntries = filterQueueEntriesForLobby(updatedLobby, [])
   const slots = normalizeLobbySlots(mode.mode, updatedLobby.slots, queueEntries)
   await syncLobbyDerivedState(kv, updatedLobby, { queueEntries, slots, balanceSnapshot })
@@ -1060,7 +1068,7 @@ async function handleMatchReport(
     matchId,
     reporterId: HOST_ID,
     placements: buildPlacements(mode),
-  }, { sessionNamespace: runtime.sessionNamespace, rankedRoleGuildId: GUILD_ID })
+  }, { sessionNamespace: runtime.sessionNamespace, rankedRoleGuildId: GUILD_ID, primaryGuildId: GUILD_ID })
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
@@ -1072,6 +1080,7 @@ async function handleMatchReport(
       db,
       kv,
       guildId,
+      statsContext: STATS_CONTEXT,
       now: NOW + 6_000,
       playerIds: participantIds,
       includePlayerIdentities: false,
@@ -1082,7 +1091,7 @@ async function handleMatchReport(
       preview: rankedPreview,
       playerIds: participantIds,
     })
-    await syncSeasonPeaksForPlayers(db, {
+    await syncSeasonPeaksForPlayers(db, STATS_CONTEXT, {
       playerIds: participantIds,
       playerPreviews: rankedPreview.playerPreviews,
       now: NOW + 6_000,
@@ -1099,7 +1108,7 @@ async function handleMatchReport(
   }
 
   const leaderboardMode = toLeaderboardMode(mode.mode)
-  await markLeaderboardsDirty(db, `match-report:${matchId}`, {
+  await markLeaderboardsDirty(db, STATS_CONTEXT, `match-report:${matchId}`, {
     civ: true,
     modes: leaderboardMode ? [leaderboardMode] : [],
   })
@@ -1428,6 +1437,7 @@ async function seedRatedPlayers(
 
   await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
     {
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode: leaderboardMode,
       mu: 40 - index,
@@ -1438,6 +1448,7 @@ async function seedRatedPlayers(
       lastPlayedAt: NOW + 10_000 + index,
     },
     {
+      statsKey: STATS_CONTEXT.statsKey,
       playerId,
       mode: 'global',
       mu: 40 - index,
@@ -1456,6 +1467,7 @@ function buildJoinEntries(group: string[]): QueueEntry[] {
     displayName: `Player ${playerId}`,
     avatarUrl: null,
     joinedAt: index + 2,
+    sourceGuild: { id: GUILD_ID },
     partyIds: group.filter(candidate => candidate !== playerId),
   }))
 }
@@ -1492,6 +1504,7 @@ function buildQueueEntry(playerId: string, joinedAt: number): QueueEntry {
     displayName: `Player ${playerId}`,
     avatarUrl: null,
     joinedAt,
+    sourceGuild: { id: GUILD_ID },
   }
 }
 

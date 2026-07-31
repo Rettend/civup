@@ -1,4 +1,4 @@
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { CompetitiveTier, GameMode, QueueEntry, SourceGuildIdentity } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 
@@ -14,6 +14,7 @@ export interface SessionRosterMember {
   playerId: string
   displayName: string | null
   avatarUrl: string | null
+  sourceGuild?: SourceGuildIdentity
   joinedAt: number
   partyIds?: string[]
   slotIndex: number | null
@@ -71,6 +72,7 @@ export interface SessionProjectionSyncState {
 export interface SessionDraftStartSyncState {
   attempts: number
   nextRetryAt: number
+  deadlineAt: number
 }
 
 export type SessionTerminalSyncCommand
@@ -98,6 +100,8 @@ interface BaseSessionRecord {
   version: number
   hostId: string
   guildId: string | null
+  /** Missing participant source is accepted only for records created before source provenance cutover. */
+  sourceGuildPolicy?: 'legacy-primary' | 'required'
   channelId: string
   mode: GameMode
   matchId: string | null
@@ -202,6 +206,7 @@ export function buildSessionRecordFromLobby(
     version: lobby.revision,
     hostId: lobby.hostId,
     guildId: lobby.guildId,
+    sourceGuildPolicy: 'required',
     channelId: lobby.channelId,
     mode: lobby.mode,
     matchId: lobby.matchId,
@@ -384,6 +389,7 @@ export function buildSessionRoster(
         playerId,
         displayName: queueEntry?.displayName ?? null,
         avatarUrl: queueEntry?.avatarUrl ?? null,
+        ...(queueEntry?.sourceGuild ? { sourceGuild: queueEntry.sourceGuild } : {}),
         joinedAt: queueEntry?.joinedAt ?? 0,
         ...(partyIds && partyIds.length > 0 ? { partyIds } : {}),
         slotIndex: slotIndexByPlayerId.get(playerId) ?? null,
@@ -431,16 +437,27 @@ function buildQueueEntryFromRosterMember(member: SessionRosterMember): QueueEntr
     playerId: member.playerId,
     displayName: member.displayName ?? member.playerId,
     avatarUrl: member.avatarUrl,
+    ...(member.sourceGuild ? { sourceGuild: member.sourceGuild } : {}),
     joinedAt: member.joinedAt,
     ...(member.partyIds && member.partyIds.length > 0 ? { partyIds: member.partyIds } : {}),
   }
 }
 
 function preserveFrozenSessionState(existing: SessionRecord, next: SessionRecord): SessionRecord {
-  if (existing.phase === 'open' || next.phase === 'open') return next
+  const withImmutableOrigin = {
+    ...next,
+    guildId: existing.guildId,
+    channelId: existing.channelId,
+    projectionState: {
+      ...next.projectionState,
+      channelId: existing.projectionState.channelId,
+      messageId: existing.projectionState.messageId,
+    },
+  } as SessionRecord
+  if (existing.phase === 'open' || next.phase === 'open') return withImmutableOrigin
 
   return {
-    ...next,
+    ...withImmutableOrigin,
     config: existing.config,
     roster: existing.roster,
     frozenAt: existing.frozenAt ?? next.frozenAt,

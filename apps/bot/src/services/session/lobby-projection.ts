@@ -10,6 +10,14 @@ import { SESSION_DIRECTORY_OPEN_STALE_MS } from './directory.ts'
 
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
 
+export interface SessionOrigin {
+  sessionId: string
+  matchId: string | null
+  guildId: string | null
+  channelId: string
+  messageId: string
+}
+
 const LIVE_PROJECTION_PHASES = ['open', 'draft', 'swap', 'active'] as const
 const LIVE_MEMBERSHIP_PHASES = ['open', 'draft'] as const
 
@@ -182,6 +190,38 @@ export async function getSessionLobbyProjectionByMatch(
   return row ? parseSessionLobbyProjection(row) : null
 }
 
+export async function getSessionOriginByMatch(
+  db: Database,
+  matchId: string,
+): Promise<SessionOrigin | null> {
+  const [row] = await db.select({
+    sessionId: sessionDirectory.sessionId,
+    matchId: sessionDirectory.matchId,
+    guildId: sessionDirectory.guildId,
+    channelId: sessionDirectory.channelId,
+    messageId: sessionDirectory.messageId,
+  }).from(sessionDirectory).where(or(
+    eq(sessionDirectory.matchId, matchId),
+    eq(sessionDirectory.sessionId, matchId),
+  )).orderBy(desc(sessionDirectory.updatedAt)).limit(1)
+
+  return row ?? null
+}
+
+export async function resolveMatchOriginGuildId(
+  db: Database,
+  matchId: string,
+): Promise<string> {
+  const guildId = await getStoredMatchGuildId(db, matchId)
+  if (!guildId) throw new Error(`Match ${matchId} is missing owning-server data`)
+  return guildId
+}
+
+export async function getStoredMatchGuildId(db: Database, matchId: string): Promise<string | null> {
+  const [row] = await db.select({ guildId: matches.guildId }).from(matches).where(eq(matches.id, matchId)).limit(1)
+  return row?.guildId ?? null
+}
+
 function compareLobbyProjectionByUpdatedAtDesc(left: LobbyState, right: LobbyState): number {
   if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
   return left.id.localeCompare(right.id)
@@ -229,6 +269,7 @@ function parseSessionRoster(raw: string): SessionRoster | null {
         playerId: member.playerId,
         displayName: typeof member.displayName === 'string' ? member.displayName : null,
         avatarUrl: typeof member.avatarUrl === 'string' ? member.avatarUrl : null,
+        ...(parseSourceGuild(member.sourceGuild) ? { sourceGuild: parseSourceGuild(member.sourceGuild)! } : {}),
         joinedAt: typeof member.joinedAt === 'number' ? member.joinedAt : 0,
         ...(Array.isArray(member.partyIds) ? { partyIds: member.partyIds.filter((partyId): partyId is string => typeof partyId === 'string') } : {}),
         slotIndex: typeof member.slotIndex === 'number' ? member.slotIndex : null,
@@ -242,6 +283,17 @@ function parseSessionRoster(raw: string): SessionRoster | null {
   }
   catch {
     return null
+  }
+}
+
+function parseSourceGuild(value: unknown): NonNullable<SessionRoster['participants'][number]['sourceGuild']> | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as { id?: unknown, name?: unknown, iconUrl?: unknown }
+  if (typeof candidate.id !== 'string' || !/^\d{17,20}$/.test(candidate.id)) return null
+  return {
+    id: candidate.id,
+    ...(typeof candidate.name === 'string' && candidate.name.trim() ? { name: candidate.name.trim() } : {}),
+    ...(typeof candidate.iconUrl === 'string' && candidate.iconUrl.startsWith('https://') ? { iconUrl: candidate.iconUrl } : {}),
   }
 }
 

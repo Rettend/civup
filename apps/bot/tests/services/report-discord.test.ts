@@ -64,6 +64,8 @@ describe('reported match Discord sync', () => {
           { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
         ],
         lobby: buildCompletedLobby(),
+        originGuildId: 'guild-1',
+        legacyGuildId: 'guild-1',
       })
 
       expect(result).toEqual({
@@ -133,12 +135,68 @@ describe('reported match Discord sync', () => {
           { matchId: 'match-1', playerId: 'player-1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
           { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
         ],
+        originGuildId: 'guild-1',
+        legacyGuildId: 'guild-1',
       })
 
       expect(result.archiveMessageCreated).toBe(true)
       expect(result.errors).toEqual([])
       expect(calls).toContainEqual(expect.objectContaining({ method: 'POST', url: 'https://discord.com/api/v10/channels/tournament-archive-channel/messages' }))
       expect(calls.every(call => call.contentType?.startsWith('multipart/form-data'))).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('uses the explicit immutable origin rather than lobby metadata for scoped channel repair', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const calls: string[] = []
+
+    try {
+      await storeMatchMessageMapping(db, 'draft-message', 'match-1')
+      await kv.put('system:channel:origin-guild:draft', 'origin-draft-channel')
+      await kv.put('system:channel:origin-guild:archive', 'origin-archive-channel')
+      await kv.put('system:channel:stale-guild:draft', 'stale-draft-channel')
+      await kv.put('system:channel:stale-guild:archive', 'stale-archive-channel')
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init)
+        calls.push(`${request.method} ${request.url}`)
+        if (request.method === 'PATCH' && request.url.includes('/channels/lobby-channel/messages/lobby-message')) {
+          return new Response('forbidden', { status: 403 })
+        }
+        if (request.method === 'PATCH' && request.url.includes('/channels/origin-draft-channel/messages/draft-message')) {
+          return Response.json({})
+        }
+        if (request.method === 'POST' && request.url.includes('/channels/origin-archive-channel/messages')) {
+          return Response.json({ id: 'archive-message' })
+        }
+        return new Response('unexpected request', { status: 500 })
+      }) as typeof fetch
+
+      const lobby = { ...buildCompletedLobby(), guildId: 'stale-guild' }
+      const result = await syncReportedMatchDiscordMessages({
+        db,
+        kv,
+        token: 'token',
+        matchId: 'match-1',
+        reportedMode: '1v1',
+        reportedRedDeath: false,
+        participants: [
+          { matchId: 'match-1', playerId: 'player-1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+          { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        ],
+        lobby,
+        originGuildId: 'origin-guild',
+        legacyGuildId: 'primary-guild',
+      })
+
+      expect(result.errors).toEqual([])
+      expect(calls.some(call => call.includes('origin-draft-channel'))).toBe(true)
+      expect(calls.some(call => call.includes('origin-archive-channel'))).toBe(true)
+      expect(calls.some(call => call.includes('stale-draft-channel') || call.includes('stale-archive-channel'))).toBe(false)
     }
     finally {
       sqlite.close()

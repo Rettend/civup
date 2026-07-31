@@ -7,10 +7,13 @@ export const CIVUP_ACTIVITY_DISPLAY_NAME_HEADER = 'X-CivUp-Activity-Display-Name
 export const CIVUP_ACTIVITY_AVATAR_URL_HEADER = 'X-CivUp-Activity-Avatar-Url'
 export const CIVUP_ACTIVITY_GUILD_ID_HEADER = 'X-CivUp-Activity-Guild-Id'
 export const CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER = 'X-CivUp-Activity-Guild-Permissions'
+export const CIVUP_ACTIVITY_GUILD_NAME_HEADER = 'X-CivUp-Activity-Guild-Name'
+export const CIVUP_ACTIVITY_GUILD_ICON_URL_HEADER = 'X-CivUp-Activity-Guild-Icon-Url'
+export const CIVUP_ACTIVITY_GUILD_ROLE_IDS_HEADER = 'X-CivUp-Activity-Guild-Role-Ids'
 
 const ACTIVITY_SESSION_VERSION = 'session.v2'
 const SESSION_ACCESS_VERSION = 'session-access.v1'
-const CIVBLITZ_DOWNLOAD_TICKET_VERSION = 'civblitz-download.v1'
+const CIVBLITZ_DOWNLOAD_TICKET_VERSION = 'civblitz-download.v2'
 const DEFAULT_ACTIVITY_SESSION_TTL_SECONDS = 8 * 60 * 60
 const DEFAULT_SESSION_ACCESS_TTL_SECONDS = 8 * 60 * 60
 const DEFAULT_CIVBLITZ_DOWNLOAD_TICKET_TTL_SECONDS = 2 * 60
@@ -24,6 +27,9 @@ export interface ActivitySessionClaims {
   avatarUrl: string | null
   guildId: string | null
   guildPermissions: string | null
+  guildName?: string | null
+  guildIconUrl?: string | null
+  guildRoleIds?: string[]
   iat: number
   exp: number
 }
@@ -34,6 +40,9 @@ export interface ActivityIdentity {
   avatarUrl: string | null
   guildId?: string | null
   guildPermissions?: string | null
+  guildName?: string | null
+  guildIconUrl?: string | null
+  guildRoleIds?: string[]
 }
 
 export interface SessionAccessClaims {
@@ -47,6 +56,7 @@ export interface SessionAccessClaims {
 export interface CivBlitzDownloadTicketClaims {
   sub: string
   matchId: string
+  guildId: string | null
   iat: number
   exp: number
 }
@@ -67,6 +77,9 @@ export async function createActivitySession(
     avatarUrl: identity.avatarUrl ?? null,
     guildId: identity.guildId ?? null,
     guildPermissions: identity.guildPermissions ?? null,
+    guildName: identity.guildName ?? null,
+    guildIconUrl: identity.guildIconUrl ?? null,
+    guildRoleIds: normalizeGuildRoleIds(identity.guildRoleIds),
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
   }
@@ -145,7 +158,11 @@ export async function verifySessionAccessToken(
 
 export async function createCivBlitzDownloadTicket(
   secret: string,
-  input: { userId: string, matchId: string },
+  input: {
+    userId: string
+    matchId: string
+    guildId?: string | null
+  },
   options?: { ttlSeconds?: number, nowMs?: number },
 ): Promise<string> {
   const nowSeconds = Math.floor((options?.nowMs ?? Date.now()) / 1000)
@@ -153,6 +170,7 @@ export async function createCivBlitzDownloadTicket(
   const claims: CivBlitzDownloadTicketClaims = {
     sub: input.userId,
     matchId: input.matchId,
+    guildId: input.guildId ?? null,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
   }
@@ -192,6 +210,9 @@ export function readAuthorizedActivityIdentity(headers: Headers, expectedSecret:
   const avatarUrl = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_AVATAR_URL_HEADER))
   const guildId = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER))
   const guildPermissions = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER))
+  const guildName = decodeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_NAME_HEADER))
+  const guildIconUrl = normalizeOptionalHeaderValue(headers.get(CIVUP_ACTIVITY_GUILD_ICON_URL_HEADER))
+  const guildRoleIds = parseGuildRoleIdsHeader(headers.get(CIVUP_ACTIVITY_GUILD_ROLE_IDS_HEADER))
 
   return {
     userId,
@@ -199,6 +220,9 @@ export function readAuthorizedActivityIdentity(headers: Headers, expectedSecret:
     avatarUrl,
     guildId,
     guildPermissions,
+    guildName,
+    guildIconUrl,
+    guildRoleIds,
   }
 }
 
@@ -283,9 +307,27 @@ function isActivitySessionClaims(value: unknown): value is ActivitySessionClaims
   if ((claims.guildId === null) !== (claims.guildPermissions === null)) return false
   if (typeof claims.guildId === 'string' && claims.guildId.trim().length === 0) return false
   if (typeof claims.guildPermissions === 'string' && !/^\d+$/.test(claims.guildPermissions)) return false
+  if (claims.guildName !== null && claims.guildName !== undefined && typeof claims.guildName !== 'string') return false
+  if (claims.guildIconUrl !== null && claims.guildIconUrl !== undefined && typeof claims.guildIconUrl !== 'string') return false
+  if (claims.guildRoleIds !== undefined && (!Array.isArray(claims.guildRoleIds) || claims.guildRoleIds.some(roleId => typeof roleId !== 'string' || !/^\d+$/.test(roleId)))) return false
   if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false
   return true
+}
+
+function normalizeGuildRoleIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((roleId): roleId is string => typeof roleId === 'string' && /^\d+$/.test(roleId)))]
+}
+
+function parseGuildRoleIdsHeader(value: string | null): string[] {
+  if (!value) return []
+  try {
+    return normalizeGuildRoleIds(JSON.parse(decodeURIComponent(value)))
+  }
+  catch {
+    return []
+  }
 }
 
 function isSessionAccessClaims(value: unknown): value is SessionAccessClaims {
@@ -304,6 +346,8 @@ function isCivBlitzDownloadTicketClaims(value: unknown): value is CivBlitzDownlo
   const claims = value as Partial<CivBlitzDownloadTicketClaims>
   if (typeof claims.sub !== 'string' || claims.sub.trim().length === 0) return false
   if (typeof claims.matchId !== 'string' || claims.matchId.trim().length === 0) return false
+  if (claims.guildId !== null && typeof claims.guildId !== 'string') return false
+  if (typeof claims.guildId === 'string' && claims.guildId.trim().length === 0) return false
   if (typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) return false
   if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return false
   return true

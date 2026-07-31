@@ -26,6 +26,14 @@ export function hasAdminPermission(input: PermissionCheckInput): boolean {
   return false
 }
 
+export function canModerateSessionOrigin(input: {
+  invokingGuildId: string | null | undefined
+  originGuildId: string | null | undefined
+}): boolean {
+  if (!input.invokingGuildId) return false
+  return !!input.originGuildId && input.invokingGuildId === input.originGuildId
+}
+
 export async function canUseModCommands(input: ModPermissionCheckInput): Promise<boolean> {
   if (hasAdminPermission(input)) return true
   if (!input.guildId) return false

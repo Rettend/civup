@@ -1,14 +1,15 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from '../ranked/roles.ts'
-import { playerRatingEvents, playerRatings, players as playerRows } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
 import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
-import { getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
+import { getConfiguredRankedRoleLabel, getRankedRoleCalculationConfig } from '../ranked/roles.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
 export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
@@ -118,7 +119,7 @@ export function parseRankGraphScope(value: string | null | undefined): RankGraph
 export async function buildRankGraphImageData(
   db: Database,
   kv: KVNamespace,
-  guildId: string,
+  statsContext: StatsContext,
   playerId: string,
   options: {
     scope?: RankGraphScope
@@ -129,8 +130,8 @@ export async function buildRankGraphImageData(
   const gameLimit = normalizeGameLimit(options.gameLimit)
   const [profile, eventRows, bands] = await Promise.all([
     loadPlayerProfile(db, playerId),
-    loadRankGraphEvents(db, playerId, scope, gameLimit),
-    loadRankGraphBands(db, kv, guildId, scope),
+    loadRankGraphEvents(db, statsContext, playerId, scope, gameLimit),
+    loadRankGraphBands(db, kv, statsContext, scope),
   ])
   const points = buildRankGraphPoints(eventRows, scope)
 
@@ -193,6 +194,7 @@ export async function renderRankGraphSvg(data: RankGraphImageData): Promise<stri
 
 async function loadRankGraphEvents(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   scope: RankGraphScope,
   gameLimit: number,
@@ -209,6 +211,7 @@ async function loadRankGraphEvents(
     })
     .from(playerRatingEvents)
     .where(and(
+      eq(playerRatingEvents.statsKey, statsContext.statsKey),
       eq(playerRatingEvents.playerId, playerId),
       eq(playerRatingEvents.mode, ratingScope),
     ))
@@ -227,15 +230,15 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<{ disp
   return row ?? null
 }
 
-async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope): Promise<RankGraphBand[]> {
-  const [config, scores] = await Promise.all([
-    getRankedRoleDisplayConfig(kv, guildId),
-    scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
+async function loadRankGraphBands(db: Database, kv: KVNamespace, statsContext: StatsContext, scope: RankGraphScope): Promise<RankGraphBand[]> {
+  const [style, scores] = await Promise.all([
+    getRankedRoleCalculationConfig(kv, statsContext.guildId, statsContext.primaryGuildId),
+    scope === 'overall' ? loadOverallRankGraphScores(db, statsContext) : loadModeRankGraphScores(db, statsContext, scope),
   ])
-  return buildRankGraphBands(config, scores)
+  return style.valid ? buildRankGraphBands(style.config, scores) : []
 }
 
-async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {
+async function loadModeRankGraphScores(db: Database, statsContext: StatsContext, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {
   const rows = await db
     .select({
       playerId: playerRatings.playerId,
@@ -245,7 +248,7 @@ async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphSco
       lastPlayedAt: playerRatings.lastPlayedAt,
     })
     .from(playerRatings)
-    .where(eq(playerRatings.mode, scope))
+    .where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.mode, scope)))
 
   const leaderboardMinGames = getLeaderboardMinGames(scope)
   return rows
@@ -259,7 +262,7 @@ async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphSco
     .sort(compareRankGraphScoreRows)
 }
 
-async function loadOverallRankGraphScores(db: Database): Promise<RankGraphScoreRow[]> {
+async function loadOverallRankGraphScores(db: Database, statsContext: StatsContext): Promise<RankGraphScoreRow[]> {
   const rows = await db
     .select({
       playerId: playerRatings.playerId,
@@ -269,7 +272,7 @@ async function loadOverallRankGraphScores(db: Database): Promise<RankGraphScoreR
       lastPlayedAt: playerRatings.lastPlayedAt,
     })
     .from(playerRatings)
-    .where(eq(playerRatings.mode, 'global'))
+    .where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.mode, 'global')))
 
   return rows
     .filter(row => row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES)

@@ -2,7 +2,8 @@ import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { DbBatchItem } from '../db/batch.ts'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, seasons, tournamentMatches } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, playerRatings as legacyPlayerRatings, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
 import { calculateRatings, createRating, displayRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
@@ -40,20 +41,6 @@ interface StoredParticipantRow {
   placement: number | null
   ratingBeforeMu: number | null
   ratingBeforeSigma: number | null
-  ratingAfterMu: number | null
-  ratingAfterSigma: number | null
-}
-
-interface HistoricalParticipantRow {
-  matchId: string
-  gameMode: string
-  draftData: string | null
-  createdAt: number
-  completedAt: number | null
-  isOld: boolean
-  playerId: string
-  team: number | null
-  placement: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
 }
@@ -126,6 +113,7 @@ export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: Leaderbo
 export async function recalculateLeaderboardMode(
   db: Database,
   leaderboardMode: LeaderboardMode,
+  statsContext: StatsContext,
   options: RecalculateLeaderboardModeOptions = {},
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const gameModes = leaderboardModesToGameModes(leaderboardMode)
@@ -137,13 +125,15 @@ export async function recalculateLeaderboardMode(
     })
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
+  const applicableSeasonRows = statsContext.seasonPolicy === 'ppl-seasons' ? seasonRows : []
 
   if (options.fromMatchId) {
     return recalculateLeaderboardModeFromBoundary(
       db,
       leaderboardMode,
       gameModes,
-      seasonRows,
+      applicableSeasonRows,
+      statsContext,
       options.fromMatchId,
       options.includeFromMatch ?? true,
       options.includeActiveBoundary ?? false,
@@ -152,11 +142,12 @@ export async function recalculateLeaderboardMode(
     )
   }
 
-  return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows)
+  return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, applicableSeasonRows, statsContext)
 }
 
 export async function recalculateGlobalRatings(
   db: Database,
+  statsContext: StatsContext,
   options: RecalculateGlobalRatingsOptions = {},
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const seasonRows = await db
@@ -167,11 +158,13 @@ export async function recalculateGlobalRatings(
     })
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
+  const applicableSeasonRows = statsContext.seasonPolicy === 'ppl-seasons' ? seasonRows : []
 
   if (options.fromMatchId) {
     return recalculateGlobalRatingsFromBoundary(
       db,
-      seasonRows,
+      applicableSeasonRows,
+      statsContext,
       options.fromMatchId,
       options.includeFromMatch ?? true,
       options.includeActiveBoundary ?? false,
@@ -181,12 +174,13 @@ export async function recalculateGlobalRatings(
     )
   }
 
-  return recalculateGlobalRatingsFromScratch(db, seasonRows, options.opponentTierByPlayerId ?? new Map())
+  return recalculateGlobalRatingsFromScratch(db, applicableSeasonRows, statsContext, options.opponentTierByPlayerId ?? new Map())
 }
 
 async function recalculateGlobalRatingsFromScratch(
   db: Database,
   seasonRows: StoredSeasonRow[],
+  statsContext: StatsContext,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const completedMatches = await db
@@ -201,6 +195,7 @@ async function recalculateGlobalRatingsFromScratch(
     .from(matches)
     .where(and(
       eq(matches.status, 'completed'),
+      eq(matches.guildId, statsContext.guildId),
       inArray(matches.gameMode, [...GAME_MODES]),
       excludeTournamentMatchesCondition(),
     ))
@@ -223,6 +218,7 @@ async function recalculateGlobalRatingsFromScratch(
         .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
         .where(and(
           eq(matches.status, 'completed'),
+          eq(matches.guildId, statsContext.guildId),
           inArray(matches.gameMode, [...GAME_MODES]),
           excludeTournamentMatchesCondition(),
         ))
@@ -237,7 +233,7 @@ async function recalculateGlobalRatingsFromScratch(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+    const replayResult = await replayCompletedMatch(db, statsContext, null, match, participantRows, ratingStateByPlayer, {
       writeParticipantSnapshots: false,
       opponentTierByPlayerId,
       writeQueries: replayWriteQueries,
@@ -246,9 +242,10 @@ async function recalculateGlobalRatingsFromScratch(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE))
+  await db.delete(playerRatingEvents).where(and(eq(playerRatingEvents.statsKey, statsContext.statsKey), eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE)))
+  if (statsContext.seasonPolicy === 'ppl-seasons') await db.delete(legacyPlayerRatingEvents).where(eq(legacyPlayerRatingEvents.mode, GLOBAL_RATING_SCOPE))
   await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
+  await replacePlayerRatings(db, statsContext, GLOBAL_RATING_SCOPE, ratingStateByPlayer)
 
   return { matchIds: completedMatches.map(match => match.id) }
 }
@@ -256,6 +253,7 @@ async function recalculateGlobalRatingsFromScratch(
 async function recalculateGlobalRatingsFromBoundary(
   db: Database,
   seasonRows: StoredSeasonRow[],
+  statsContext: StatsContext,
   fromMatchId: string,
   includeFromMatch: boolean,
   includeActiveBoundary: boolean,
@@ -273,7 +271,7 @@ async function recalculateGlobalRatingsFromBoundary(
       completedAt: matches.completedAt,
     })
     .from(matches)
-    .where(eq(matches.id, fromMatchId))
+    .where(and(eq(matches.id, fromMatchId), eq(matches.guildId, statsContext.guildId)))
     .limit(1)
 
   if (!boundaryMatch) return { error: `Match **${fromMatchId}** not found.` }
@@ -316,6 +314,7 @@ async function recalculateGlobalRatingsFromBoundary(
       .from(matches)
       .where(and(
         inArray(matches.gameMode, [...GAME_MODES]),
+        eq(matches.guildId, statsContext.guildId),
         replayCondition,
         excludeTournamentMatchesCondition(),
       ))
@@ -330,7 +329,7 @@ async function recalculateGlobalRatingsFromBoundary(
     ...extraAffectedPlayerIds,
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierEventRows = await listEarlierGlobalRatingEventRows(db, affectedPlayerIds, boundaryMatch)
+  const earlierEventRows = await listEarlierRatingEventRows(db, statsContext, GLOBAL_RATING_SCOPE, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
@@ -347,6 +346,7 @@ async function recalculateGlobalRatingsFromBoundary(
     return recalculateGlobalRatingsFromBoundary(
       db,
       seasonRows,
+      statsContext,
       missingSnapshotMatchId,
       true,
       false,
@@ -363,7 +363,7 @@ async function recalculateGlobalRatingsFromBoundary(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, null, match, participantRows, ratingStateByPlayer, {
+    const replayResult = await replayCompletedMatch(db, statsContext, null, match, participantRows, ratingStateByPlayer, {
       writeParticipantSnapshots: false,
       opponentTierByPlayerId,
       writeQueries: replayWriteQueries,
@@ -372,9 +372,9 @@ async function recalculateGlobalRatingsFromBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
+  await deleteRatingEventsFromBoundary(db, statsContext, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
   await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
+  await replacePlayerRatings(db, statsContext, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
 }
@@ -384,6 +384,7 @@ async function recalculateLeaderboardModeFromScratch(
   leaderboardMode: LeaderboardMode,
   gameModes: readonly string[],
   seasonRows: StoredSeasonRow[],
+  statsContext: StatsContext,
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const completedMatchCandidates = await db
     .select({
@@ -397,6 +398,7 @@ async function recalculateLeaderboardModeFromScratch(
     .from(matches)
     .where(and(
       eq(matches.status, 'completed'),
+      eq(matches.guildId, statsContext.guildId),
       inArray(matches.gameMode, gameModes),
       excludeTournamentMatchesCondition(),
     ))
@@ -414,16 +416,17 @@ async function recalculateLeaderboardModeFromScratch(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, {
+    const replayResult = await replayCompletedMatch(db, statsContext, leaderboardMode, match, participantRows, ratingStateByPlayer, {
       writeQueries: replayWriteQueries,
     })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await db.delete(playerRatingEvents).where(eq(playerRatingEvents.mode, leaderboardMode))
+  await db.delete(playerRatingEvents).where(and(eq(playerRatingEvents.statsKey, statsContext.statsKey), eq(playerRatingEvents.mode, leaderboardMode)))
+  if (statsContext.seasonPolicy === 'ppl-seasons') await db.delete(legacyPlayerRatingEvents).where(eq(legacyPlayerRatingEvents.mode, leaderboardMode))
   await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer)
+  await replacePlayerRatings(db, statsContext, leaderboardMode, ratingStateByPlayer)
 
   return { matchIds: completedMatches.map(match => match.id) }
 }
@@ -433,6 +436,7 @@ async function recalculateLeaderboardModeFromBoundary(
   leaderboardMode: LeaderboardMode,
   gameModes: readonly string[],
   seasonRows: StoredSeasonRow[],
+  statsContext: StatsContext,
   fromMatchId: string,
   includeFromMatch: boolean,
   includeActiveBoundary: boolean,
@@ -449,7 +453,7 @@ async function recalculateLeaderboardModeFromBoundary(
       completedAt: matches.completedAt,
     })
     .from(matches)
-    .where(eq(matches.id, fromMatchId))
+    .where(and(eq(matches.id, fromMatchId), eq(matches.guildId, statsContext.guildId)))
     .limit(1)
 
   if (!boundaryMatch) return { error: `Match **${fromMatchId}** not found.` }
@@ -494,6 +498,7 @@ async function recalculateLeaderboardModeFromBoundary(
       .from(matches)
       .where(and(
         inArray(matches.gameMode, gameModes),
+        eq(matches.guildId, statsContext.guildId),
         replayCondition,
         excludeTournamentMatchesCondition(),
       ))
@@ -509,15 +514,15 @@ async function recalculateLeaderboardModeFromBoundary(
     ...extraAffectedPlayerIds,
   ])].sort((a, b) => a.localeCompare(b))
 
-  const earlierParticipantRows = await listEarlierLeaderboardParticipantRows(db, leaderboardMode, gameModes, affectedPlayerIds, boundaryMatch)
+  const earlierEventRows = await listEarlierRatingEventRows(db, statsContext, leaderboardMode, affectedPlayerIds, boundaryMatch)
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
-  const hydrateResult = hydrateRatingStateUntilBoundary(
+  const hydrateResult = hydrateRatingStateFromEventsUntilBoundary(
     ratingStateByPlayer,
     seasonRows,
     seasonProgress,
-    earlierParticipantRows,
+    earlierEventRows,
     boundaryMatch.createdAt,
   )
   if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
@@ -528,6 +533,7 @@ async function recalculateLeaderboardModeFromBoundary(
       leaderboardMode,
       gameModes,
       seasonRows,
+      statsContext,
       missingSnapshotMatchId,
       true,
       false,
@@ -543,16 +549,16 @@ async function recalculateLeaderboardModeFromBoundary(
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, match.createdAt)
 
     const participantRows = participantsByMatchId.get(match.id) ?? []
-    const replayResult = await replayCompletedMatch(db, leaderboardMode, match, participantRows, ratingStateByPlayer, {
+    const replayResult = await replayCompletedMatch(db, statsContext, leaderboardMode, match, participantRows, ratingStateByPlayer, {
       writeQueries: replayWriteQueries,
     })
     if (typeof replayResult === 'string') return { error: replayResult }
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
+  await deleteRatingEventsFromBoundary(db, statsContext, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
   await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
+  await replacePlayerRatings(db, statsContext, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
 
   return { matchIds: replayMatches.map(match => match.id) }
 }
@@ -578,8 +584,10 @@ async function listReplayParticipantRows(db: Database, matchIds: string[]): Prom
   return rows
 }
 
-async function listEarlierGlobalRatingEventRows(
+async function listEarlierRatingEventRows(
   db: Database,
+  statsContext: StatsContext,
+  ratingScope: RatingScope,
   playerIds: string[],
   boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
 ): Promise<HistoricalRatingEventRow[]> {
@@ -604,53 +612,46 @@ async function listEarlierGlobalRatingEventRows(
       })
       .from(playerRatingEvents)
       .where(and(
-        eq(playerRatingEvents.mode, GLOBAL_RATING_SCOPE),
+        eq(playerRatingEvents.statsKey, statsContext.statsKey),
+        eq(playerRatingEvents.mode, ratingScope),
         inArray(playerRatingEvents.playerId, chunk),
         buildEventBoundaryCondition(boundaryMatch, false, 'before'),
         excludeTournamentRatingEventsCondition(),
       )))
+    if (statsContext.seasonPolicy === 'ppl-seasons') {
+      const legacyRows = await db
+        .select({
+          matchId: legacyPlayerRatingEvents.matchId,
+          matchCreatedAt: legacyPlayerRatingEvents.matchCreatedAt,
+          matchCompletedAt: legacyPlayerRatingEvents.matchCompletedAt,
+          playerId: legacyPlayerRatingEvents.playerId,
+          ratingAfterMu: legacyPlayerRatingEvents.ratingAfterMu,
+          ratingAfterSigma: legacyPlayerRatingEvents.ratingAfterSigma,
+          gamesDelta: legacyPlayerRatingEvents.gamesDelta,
+          winsDelta: legacyPlayerRatingEvents.winsDelta,
+          importedGamesDelta: legacyPlayerRatingEvents.importedGamesDelta,
+          effectiveGamesDelta: legacyPlayerRatingEvents.effectiveGamesDelta,
+          winsVsTier1Delta: legacyPlayerRatingEvents.winsVsTier1Delta,
+          winsVsTier2PlusDelta: legacyPlayerRatingEvents.winsVsTier2PlusDelta,
+          effectiveWinsVsTier1Delta: legacyPlayerRatingEvents.effectiveWinsVsTier1Delta,
+          effectiveWinsVsTier2PlusDelta: legacyPlayerRatingEvents.effectiveWinsVsTier2PlusDelta,
+        })
+        .from(legacyPlayerRatingEvents)
+        .where(and(
+          eq(legacyPlayerRatingEvents.mode, ratingScope),
+          inArray(legacyPlayerRatingEvents.playerId, chunk),
+          buildLegacyEventBoundaryCondition(boundaryMatch, false, 'before'),
+          excludeLegacyTournamentRatingEventsCondition(),
+        ))
+      const existingKeys = new Set(rows.map(row => `${row.matchId}\0${row.playerId}`))
+      for (const row of legacyRows) {
+        const key = `${row.matchId}\0${row.playerId}`
+        if (!existingKeys.has(key)) rows.push(row)
+      }
+    }
   }
 
   return rows.sort(compareHistoricalRatingEventRows)
-}
-
-async function listEarlierLeaderboardParticipantRows(
-  db: Database,
-  leaderboardMode: LeaderboardMode,
-  gameModes: readonly string[],
-  playerIds: string[],
-  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
-): Promise<HistoricalParticipantRow[]> {
-  const rows: HistoricalParticipantRow[] = []
-  for (const chunk of chunkArray(playerIds, D1_SAFE_IN_LIST_CHUNK_SIZE)) {
-    rows.push(...await db
-      .select({
-        matchId: matchParticipants.matchId,
-        gameMode: matches.gameMode,
-        draftData: matches.draftData,
-        createdAt: matches.createdAt,
-        completedAt: matches.completedAt,
-        isOld: matches.isOld,
-        playerId: matchParticipants.playerId,
-        team: matchParticipants.team,
-        placement: matchParticipants.placement,
-        ratingAfterMu: matchParticipants.ratingAfterMu,
-        ratingAfterSigma: matchParticipants.ratingAfterSigma,
-      })
-      .from(matchParticipants)
-      .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        eq(matches.status, 'completed'),
-        inArray(matches.gameMode, gameModes),
-        inArray(matchParticipants.playerId, chunk),
-        buildBoundaryCondition(boundaryMatch, false, 'before'),
-        excludeTournamentMatchesCondition(),
-      )))
-  }
-
-  return rows
-    .filter(row => matchBelongsToLeaderboard(row, leaderboardMode))
-    .sort(compareHistoricalParticipantRows)
 }
 
 function chunkArray<T>(items: readonly T[], size: number): T[][] {
@@ -663,12 +664,6 @@ function chunkArray<T>(items: readonly T[], size: number): T[][] {
 
 function compareHistoricalRatingEventRows(left: HistoricalRatingEventRow, right: HistoricalRatingEventRow): number {
   return left.matchCreatedAt - right.matchCreatedAt
-    || left.matchId.localeCompare(right.matchId)
-    || left.playerId.localeCompare(right.playerId)
-}
-
-function compareHistoricalParticipantRows(left: HistoricalParticipantRow, right: HistoricalParticipantRow): number {
-  return left.createdAt - right.createdAt
     || left.matchId.localeCompare(right.matchId)
     || left.playerId.localeCompare(right.playerId)
 }
@@ -729,77 +724,6 @@ function applySeasonResetsUntil(
   }
 }
 
-function hydrateRatingStateUntilBoundary(
-  ratingStateByPlayer: Map<string, RatingState>,
-  seasonRows: StoredSeasonRow[],
-  seasonProgress: SeasonProgress,
-  rows: HistoricalParticipantRow[],
-  boundaryCreatedAt: number,
-  options: {
-    trackedPlayerIds?: ReadonlySet<string>
-    opponentTierByPlayerId?: ReadonlyMap<string, string>
-  } = {},
-): string | null {
-  let currentMatchId: string | null = null
-  let currentMatchCreatedAt = 0
-  let currentMatchCompletedAt: number | null = null
-  let currentMatchRows: HistoricalParticipantRow[] = []
-
-  const flushCurrentMatch = (): string | null => {
-    if (!currentMatchId) return null
-
-    applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, currentMatchCreatedAt)
-
-    for (const row of currentMatchRows) {
-      if (options.trackedPlayerIds && !options.trackedPlayerIds.has(row.playerId)) continue
-      if (row.placement == null) return `Completed match **${row.matchId}** has missing placements.`
-      if (row.ratingAfterMu == null || row.ratingAfterSigma == null) {
-        return `Completed match **${row.matchId}** has missing rating snapshots.`
-      }
-
-      const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
-      const isImportedGame = row.isOld
-      const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
-      const qualityWins = countQualityWinsForParticipant(row, currentMatchRows, options.opponentTierByPlayerId ?? new Map(), sourceWeight)
-      ratingStateByPlayer.set(row.playerId, {
-        mu: row.ratingAfterMu,
-        sigma: row.ratingAfterSigma,
-        gamesPlayed: currentState.gamesPlayed + 1,
-        wins: currentState.wins + (row.placement === 1 ? 1 : 0),
-        importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
-        effectiveGames: currentState.effectiveGames + sourceWeight,
-        winsVsTier1: currentState.winsVsTier1 + qualityWins.winsVsTier1,
-        winsVsTier2Plus: currentState.winsVsTier2Plus + qualityWins.winsVsTier2Plus,
-        effectiveWinsVsTier1: currentState.effectiveWinsVsTier1 + qualityWins.effectiveWinsVsTier1,
-        effectiveWinsVsTier2Plus: currentState.effectiveWinsVsTier2Plus + qualityWins.effectiveWinsVsTier2Plus,
-        lastPlayedAt: isImportedGame ? currentState.lastPlayedAt : (currentMatchCompletedAt ?? currentMatchCreatedAt),
-      })
-    }
-
-    return null
-  }
-
-  for (const row of rows) {
-    if (currentMatchId !== row.matchId) {
-      const error = flushCurrentMatch()
-      if (error) return error
-
-      currentMatchId = row.matchId
-      currentMatchCreatedAt = row.createdAt
-      currentMatchCompletedAt = row.completedAt
-      currentMatchRows = []
-    }
-
-    currentMatchRows.push(row)
-  }
-
-  const finalError = flushCurrentMatch()
-  if (finalError) return finalError
-
-  applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, boundaryCreatedAt)
-  return null
-}
-
 function hydrateRatingStateFromEventsUntilBoundary(
   ratingStateByPlayer: Map<string, RatingState>,
   seasonRows: StoredSeasonRow[],
@@ -832,6 +756,7 @@ function hydrateRatingStateFromEventsUntilBoundary(
 
 async function replayCompletedMatch(
   db: Database,
+  statsContext: StatsContext,
   leaderboardMode: LeaderboardMode | null,
   match: StoredMatchRow,
   participantRows: StoredParticipantRow[],
@@ -927,6 +852,7 @@ async function replayCompletedMatch(
     })
 
     const eventRow = {
+      statsKey: statsContext.statsKey,
       matchId: match.id,
       playerId: participant.playerId,
       mode: ratingScope,
@@ -949,10 +875,19 @@ async function replayCompletedMatch(
     }
     participantUpdateQueries.push(
       db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
-        target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
+        target: [playerRatingEvents.statsKey, playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
         set: eventRow,
       }),
     )
+    if (statsContext.seasonPolicy === 'ppl-seasons') {
+      const { statsKey: _statsKey, ...legacyEventRow } = eventRow
+      participantUpdateQueries.push(
+        db.insert(legacyPlayerRatingEvents).values(legacyEventRow).onConflictDoUpdate({
+          target: [legacyPlayerRatingEvents.matchId, legacyPlayerRatingEvents.playerId, legacyPlayerRatingEvents.mode],
+          set: legacyEventRow,
+        }),
+      )
+    }
   }
 
   if (!deferredWriteQueries && participantUpdateQueries.length > 0) await runDbBatch(db, participantUpdateQueries)
@@ -1090,6 +1025,7 @@ function calculateRatingUpdatesForMatch(
 
 async function replacePlayerRatings(
   db: Database,
+  statsContext: StatsContext,
   leaderboardMode: RatingScope,
   ratingStateByPlayer: Map<string, RatingState>,
   playerIds?: string[],
@@ -1104,35 +1040,48 @@ async function replacePlayerRatings(
         db
           .delete(playerRatings)
           .where(and(
+            eq(playerRatings.statsKey, statsContext.statsKey),
             eq(playerRatings.mode, leaderboardMode),
             inArray(playerRatings.playerId, chunk),
           )),
       )
+      if (statsContext.seasonPolicy === 'ppl-seasons') {
+        ratingQueries.push(db.delete(legacyPlayerRatings).where(and(
+          eq(legacyPlayerRatings.mode, leaderboardMode),
+          inArray(legacyPlayerRatings.playerId, chunk),
+        )))
+      }
     }
   }
   else {
-    ratingQueries.push(db.delete(playerRatings).where(eq(playerRatings.mode, leaderboardMode)))
+    ratingQueries.push(db.delete(playerRatings).where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.mode, leaderboardMode))))
+    if (statsContext.seasonPolicy === 'ppl-seasons') ratingQueries.push(db.delete(legacyPlayerRatings).where(eq(legacyPlayerRatings.mode, leaderboardMode)))
   }
 
   for (const [playerId, state] of ratingStateByPlayer.entries()) {
+    const ratingRow = {
+      playerId,
+      mode: leaderboardMode,
+      mu: state.mu,
+      sigma: state.sigma,
+      gamesPlayed: state.gamesPlayed,
+      wins: state.wins,
+      importedGames: state.importedGames,
+      effectiveGames: state.effectiveGames,
+      winsVsTier1: state.winsVsTier1,
+      winsVsTier2Plus: state.winsVsTier2Plus,
+      effectiveWinsVsTier1: state.effectiveWinsVsTier1,
+      effectiveWinsVsTier2Plus: state.effectiveWinsVsTier2Plus,
+      lastPlayedAt: state.lastPlayedAt,
+      updatedAt: Date.now(),
+    }
     ratingQueries.push(
       db.insert(playerRatings).values({
-        playerId,
-        mode: leaderboardMode,
-        mu: state.mu,
-        sigma: state.sigma,
-        gamesPlayed: state.gamesPlayed,
-        wins: state.wins,
-        importedGames: state.importedGames,
-        effectiveGames: state.effectiveGames,
-        winsVsTier1: state.winsVsTier1,
-        winsVsTier2Plus: state.winsVsTier2Plus,
-        effectiveWinsVsTier1: state.effectiveWinsVsTier1,
-        effectiveWinsVsTier2Plus: state.effectiveWinsVsTier2Plus,
-        lastPlayedAt: state.lastPlayedAt,
-        updatedAt: Date.now(),
+        statsKey: statsContext.statsKey,
+        ...ratingRow,
       }),
     )
+    if (statsContext.seasonPolicy === 'ppl-seasons') ratingQueries.push(db.insert(legacyPlayerRatings).values(ratingRow))
   }
 
   await runDbBatch(db, ratingQueries)
@@ -1140,6 +1089,7 @@ async function replacePlayerRatings(
 
 async function deleteRatingEventsFromBoundary(
   db: Database,
+  statsContext: StatsContext,
   ratingScope: RatingScope,
   boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
   playerIds: string[],
@@ -1157,11 +1107,43 @@ async function deleteRatingEventsFromBoundary(
       .delete(playerRatingEvents)
       .where(and(
         eq(playerRatingEvents.mode, ratingScope),
+        eq(playerRatingEvents.statsKey, statsContext.statsKey),
         inArray(playerRatingEvents.playerId, chunk),
         replayRangeCondition,
       )))
+    if (statsContext.seasonPolicy === 'ppl-seasons') {
+      const legacyBoundaryCondition = buildLegacyEventBoundaryCondition(boundaryMatch, includeBoundary, 'after')
+      const legacyReplayRangeCondition = includeBoundary
+        ? legacyBoundaryCondition
+        : or(eq(legacyPlayerRatingEvents.matchId, boundaryMatch.id), legacyBoundaryCondition)
+      eventDeleteQueries.push(db.delete(legacyPlayerRatingEvents).where(and(
+        eq(legacyPlayerRatingEvents.mode, ratingScope),
+        inArray(legacyPlayerRatingEvents.playerId, chunk),
+        legacyReplayRangeCondition,
+      )))
+    }
   }
   await runDbBatch(db, eventDeleteQueries)
+}
+
+function buildLegacyEventBoundaryCondition(
+  boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
+  includeBoundary: boolean,
+  direction: 'before' | 'after',
+) {
+  if (direction === 'before') {
+    return or(
+      lt(legacyPlayerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+      and(eq(legacyPlayerRatingEvents.matchCreatedAt, boundaryMatch.createdAt), lt(legacyPlayerRatingEvents.matchId, boundaryMatch.id)),
+    )
+  }
+  return or(
+    gt(legacyPlayerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+    and(
+      eq(legacyPlayerRatingEvents.matchCreatedAt, boundaryMatch.createdAt),
+      includeBoundary ? gte(legacyPlayerRatingEvents.matchId, boundaryMatch.id) : gt(legacyPlayerRatingEvents.matchId, boundaryMatch.id),
+    ),
+  )
 }
 
 function createDefaultRatingState(playerId: string): RatingState {
@@ -1244,5 +1226,13 @@ function excludeTournamentRatingEventsCondition() {
     select 1 from ${tournamentMatches}
     where ${tournamentMatches.matchId} = ${playerRatingEvents.matchId}
        or ${tournamentMatches.sessionId} = ${playerRatingEvents.matchId}
+  )`
+}
+
+function excludeLegacyTournamentRatingEventsCondition() {
+  return sql`not exists (
+    select 1 from ${tournamentMatches}
+    where ${tournamentMatches.matchId} = ${legacyPlayerRatingEvents.matchId}
+       or ${tournamentMatches.sessionId} = ${legacyPlayerRatingEvents.matchId}
   )`
 }

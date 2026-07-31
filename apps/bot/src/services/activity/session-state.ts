@@ -5,7 +5,8 @@ import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
 import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
@@ -14,6 +15,8 @@ import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { buildLobbyRankSnapshot } from '../lobby/rank.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
+import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../match/retention.ts'
+import { createStatsContext } from '../stats/context.ts'
 
 const LEADERBOARD_RANK_CACHE_MAX_ENTRIES = 16
 const leaderboardRankCache = new Map<string, Map<string, number>>()
@@ -24,9 +27,11 @@ export interface ActivityOverviewOptionSnapshot {
   lobbyId: string
   matchId: string | null
   channelId: string
+  originGuildId: string
   mode: GameMode
   status: 'open' | 'closed' | 'drafting' | 'completed'
   reported?: boolean
+  starting?: boolean
   participantCount: number
   targetSize: number
   redDeath: boolean
@@ -47,10 +52,18 @@ export interface ActivityOverviewPlayerSnapshot {
 export interface ActivityOverviewSnapshot {
   channelId: string
   options: ActivityOverviewOptionSnapshot[]
+  supportedServers: ActivitySupportedServerSnapshot[]
+}
+
+export interface ActivitySupportedServerSnapshot {
+  id: string
+  name: string | null
+  iconUrl: string | null
 }
 
 export interface LobbySnapshot {
   id: string
+  originGuildId: string | null
   revision: number
   mode: string
   hostId: string
@@ -68,6 +81,11 @@ export interface LobbySnapshot {
     playerId: string
     displayName: string
     avatarUrl?: string | null
+    sourceGuild?: {
+      id: string
+      name?: string | null
+      iconUrl?: string | null
+    }
     balanceRating?: {
       mu: number
       sigma: number
@@ -113,6 +131,7 @@ export interface ActivitySessionDirectoryEntry {
   updatedAt: number
   lastActivityAt: number
   closedAt: number | null
+  draftStartDeadlineAt: number | null
 }
 
 type ActivityDirectoryRow = typeof sessionDirectory.$inferSelect
@@ -124,29 +143,30 @@ const LIVE_ACTIVITY_OVERVIEW_STATUSES = new Set<string>(['open', 'closed', 'draf
 export async function buildActivityOverviewSnapshotFromDirectory(
   db: Database,
   channelId: string,
-  options: { guildId?: string | null } = {},
-): Promise<ActivityOverviewSnapshot | null> {
-  const sessions = await getActivitySessionsByChannel(db, channelId, options)
+  options: { guildId?: string | null, guildIds?: readonly string[], sharedFeed?: boolean, supportedServers?: ActivitySupportedServerSnapshot[] } = {},
+): Promise<ActivityOverviewSnapshot> {
+  const sessions = options.sharedFeed
+    ? await getActivitySessionsForFeed(db, { guildIds: options.guildIds })
+    : await getActivitySessionsByChannel(db, channelId, options)
   const snapshotOptions = sessions
     .flatMap(session => buildActivityOverviewOptions(session))
     .sort(compareActivityOverviewOptions)
 
-  if (snapshotOptions.length === 0) return null
-  return { channelId, options: snapshotOptions }
+  return { channelId, options: snapshotOptions, supportedServers: options.supportedServers ?? [] }
 }
 
 export function mergeActivityOverviewSnapshotForSessionUpdate(
   current: ActivityOverviewSnapshot | null,
   record: SessionRecord,
 ): ActivityOverviewSnapshot | null {
-  const channelId = record.projectionState.channelId
+  const channelId = current?.channelId ?? record.projectionState.channelId
   const options = [
-    ...((current?.channelId === channelId ? current.options : [])
+    ...((current?.options ?? [])
       .filter(option => option.lobbyId !== record.id && LIVE_ACTIVITY_OVERVIEW_STATUSES.has(option.status))),
     ...(isLiveActivityOverviewPhase(record.phase) ? buildActivityOverviewOptionsFromSessionRecord(record) : []),
   ].sort(compareActivityOverviewOptions)
 
-  return options.length > 0 ? { channelId, options } : null
+  return { channelId, options, supportedServers: current?.supportedServers ?? [] }
 }
 
 export async function getActivitySessionsByChannel(
@@ -160,8 +180,22 @@ export async function getActivitySessionsByChannel(
     return db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
   }))
 
-  const rows = rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc)
+  const rows = await filterDiscoverableDirectoryRows(db, rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc))
 
+  return rows.flatMap(parseActivitySessionDirectoryEntry)
+}
+
+export async function getActivitySessionsForFeed(
+  db: Database,
+  options: { guildIds?: readonly string[] } = {},
+): Promise<ActivitySessionDirectoryEntry[]> {
+  const guildIds = [...new Set(options.guildIds?.filter(Boolean) ?? [])]
+  const rowsByPhase = await Promise.all(ACTIVITY_DIRECTORY_PHASES.map((phase) => {
+    const conditions = [eq(sessionDirectory.phase, phase)]
+    if (guildIds.length > 0) conditions.push(inArray(sessionDirectory.guildId, guildIds))
+    return db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
+  }))
+  const rows = await filterDiscoverableDirectoryRows(db, rowsByPhase.flat().sort(compareActivityDirectoryRowsByUpdatedAtDesc))
   return rows.flatMap(parseActivitySessionDirectoryEntry)
 }
 
@@ -183,7 +217,9 @@ export async function getActivitySessionById(
     inArray(sessionDirectory.phase, [...ACTIVITY_TARGET_PHASES]),
   )).limit(1)
 
-  return row ? parseActivitySessionDirectoryEntry(row)[0] ?? null : null
+  if (!row) return null
+  const [discoverable] = await filterDiscoverableDirectoryRows(db, [row])
+  return discoverable ? parseActivitySessionDirectoryEntry(discoverable)[0] ?? null : null
 }
 
 export async function getActivitySessionByStableId(
@@ -208,13 +244,16 @@ export async function getOpenActivitySessionsForUser(
     ))
     .orderBy(desc(sessionDirectory.updatedAt))
 
-  return rows.flatMap(row => parseActivitySessionDirectoryEntry(row.session))
+  const discoverable = await filterDiscoverableDirectoryRows(db, rows.map(row => row.session))
+  return discoverable.flatMap(parseActivitySessionDirectoryEntry)
 }
 
 export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEntry): ActivityOverviewOptionSnapshot[] {
+  if (!session.guildId) return []
   const status = mapSessionPhaseToActivityStatus(session.phase, session.config.closed === true)
   if (!status) return []
-  const matchId = session.phase === 'open' ? null : session.matchId ?? session.sessionId
+  const matchId = session.phase === 'open' ? null : session.matchId
+  if (session.phase !== 'open' && !matchId && !(session.phase === 'draft' && session.draftStartDeadlineAt && session.draftStartDeadlineAt > Date.now())) return []
   const id = session.phase === 'open' ? session.sessionId : matchId ?? session.sessionId
 
   return [{
@@ -223,9 +262,11 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
     lobbyId: session.sessionId,
     matchId,
     channelId: session.channelId,
+    originGuildId: session.guildId,
     mode: session.mode,
     status,
     reported: session.phase === 'reported',
+    starting: session.phase === 'draft' && session.draftStartDeadlineAt != null && session.draftStartDeadlineAt > Date.now(),
     participantCount: countFilledSlots(session.roster.slots),
     targetSize: session.roster.slots.length,
     redDeath: session.config.redDeath,
@@ -238,6 +279,7 @@ export function buildActivityOverviewOptions(session: ActivitySessionDirectoryEn
 }
 
 export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRecord): ActivityOverviewOptionSnapshot[] {
+  if (!record.guildId) return []
   const status = mapSessionPhaseToActivityStatus(record.phase, record.config.closed === true)
   if (!status) return []
 
@@ -249,9 +291,11 @@ export function buildActivityOverviewOptionsFromSessionRecord(record: SessionRec
     lobbyId: record.id,
     matchId,
     channelId: record.projectionState.channelId,
+    originGuildId: record.guildId,
     mode: record.mode,
     status,
     reported: record.phase === 'reported',
+    starting: record.phase === 'draft' && record.draftStartSync != null,
     participantCount: countFilledSlots(record.roster.slots),
     targetSize: record.roster.slots.length,
     redDeath: record.config.redDeath,
@@ -277,6 +321,7 @@ function buildActivityOverviewPlayers(mode: GameMode, roster: SessionRoster): Ac
       playerId,
       displayName: member?.displayName ?? playerId,
       avatarUrl: member?.avatarUrl ?? null,
+      ...(member?.sourceGuild ? { sourceGuild: member.sourceGuild } : {}),
       team: slotToTeamIndex(mode, slotIndex, roster.slots.length),
     })
   }
@@ -288,6 +333,7 @@ function buildActivityOverviewPlayers(mode: GameMode, roster: SessionRoster): Ac
       playerId: member.playerId,
       displayName: member.displayName ?? member.playerId,
       avatarUrl: member.avatarUrl ?? null,
+      ...(member.sourceGuild ? { sourceGuild: member.sourceGuild } : {}),
       team: null,
     })
   }
@@ -300,6 +346,7 @@ export async function buildLobbySnapshotFromSessionRecord(
   record: SessionRecord,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
   rankAssignments?: RankedRoleAssignments | null,
+  options: { legacyGuildId?: string | null } = {},
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -317,8 +364,9 @@ export async function buildLobbySnapshotFromSessionRecord(
       lastArrange: record.lastArrange,
       roster: record.roster,
       config: record.config,
-    }, rankAssignments),
+    }, rankAssignments, options),
     balanceSnapshot,
+    createOptionalStatsContext(record.guildId, options.legacyGuildId),
   )
 }
 
@@ -327,6 +375,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
   session: ActivitySessionDirectoryEntry,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
   rankAssignments?: RankedRoleAssignments | null,
+  options: { legacyGuildId?: string | null } = {},
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -344,8 +393,9 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       lastArrange: null,
       roster: session.roster,
       config: session.config,
-    }, rankAssignments),
+    }, rankAssignments, options),
     balanceSnapshot,
+    createOptionalStatsContext(session.guildId, options.legacyGuildId),
   )
 }
 
@@ -354,12 +404,13 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   mode: GameMode,
   snapshot: LobbySnapshot,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
+  statsContext?: StatsContext | null,
 ): Promise<LobbySnapshot> {
   const leaderboardMode = toBalanceLeaderboardMode(mode, { redDeath: snapshot.draftConfig.redDeath, civBlitz: snapshot.draftConfig.civBlitz })
   if (!leaderboardMode) return snapshot
 
   const leaderboardSnapshot = balanceSnapshot === undefined
-    ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
+    ? statsContext ? await getStoredLeaderboardModeSnapshot(kv, statsContext, leaderboardMode) : null
     : balanceSnapshot
   if (!leaderboardSnapshot) return snapshot
 
@@ -393,6 +444,16 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   return {
     ...snapshot,
     entries,
+  }
+}
+
+function createOptionalStatsContext(guildId: string | null, primaryGuildId: string | null | undefined): StatsContext | null {
+  if (!guildId || !primaryGuildId) return null
+  try {
+    return createStatsContext(guildId, primaryGuildId)
+  }
+  catch {
+    return null
   }
 }
 
@@ -458,7 +519,33 @@ function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): Activity
     updatedAt: row.updatedAt,
     lastActivityAt: row.lastActivityAt,
     closedAt: row.closedAt,
+    draftStartDeadlineAt: row.draftStartDeadlineAt,
   }]
+}
+
+async function filterDiscoverableDirectoryRows(db: Database, rows: ActivityDirectoryRow[], now = Date.now()): Promise<ActivityDirectoryRow[]> {
+  const matchIds = [...new Set(rows.flatMap(row => row.matchId ? [row.matchId] : []))]
+  const matchRows = matchIds.length > 0
+    ? await db.select({
+        id: matches.id,
+        status: matches.status,
+        createdAt: matches.createdAt,
+        draftCompletedAt: matches.draftCompletedAt,
+      }).from(matches).where(inArray(matches.id, matchIds))
+    : []
+  const matchById = new Map(matchRows.map(row => [row.id, row]))
+  const staleActiveCutoff = now - STALE_ACTIVE_MATCH_TIMEOUT_MS
+
+  return rows.filter((row) => {
+    if (row.phase === 'open') return true
+    if (!row.matchId) return row.phase === 'draft' && row.draftStartDeadlineAt != null && row.draftStartDeadlineAt > now
+    const match = matchById.get(row.matchId)
+    if (!match) return row.phase === 'draft' && row.draftStartDeadlineAt != null && row.draftStartDeadlineAt > now
+    if (match.status === 'completed' || match.status === 'cancelled') return false
+    if (row.phase === 'draft') return match.status === 'drafting' || match.status === 'active'
+    if (match.status !== 'active') return false
+    return (match.draftCompletedAt ?? match.createdAt) >= staleActiveCutoff
+  })
 }
 
 async function buildLobbySnapshotFromSessionParts(
@@ -478,8 +565,9 @@ async function buildLobbySnapshotFromSessionParts(
     config: SessionConfig
   },
   rankAssignments?: RankedRoleAssignments | null,
+  options: { legacyGuildId?: string | null } = {},
 ): Promise<LobbySnapshot> {
-  const serverDefaults = await getServerDraftTimerDefaults(kv)
+  const serverDefaults = await getServerDraftTimerDefaults(kv, { guildId: session.guildId, legacyGuildId: options.legacyGuildId })
   const resolvedRankAssignments = rankAssignments === undefined && session.guildId && !session.config.redDeath && !session.config.civBlitz
     ? await getCurrentRankAssignments(kv, session.guildId)
     : rankAssignments ?? null
@@ -494,6 +582,7 @@ async function buildLobbySnapshotFromSessionParts(
       playerId,
       displayName: member.displayName ?? playerId,
       avatarUrl: member.avatarUrl ?? null,
+      ...(member.sourceGuild ? { sourceGuild: member.sourceGuild } : {}),
       rankedRole: rankedRole
         ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode }
         : null,
@@ -512,6 +601,7 @@ async function buildLobbySnapshotFromSessionParts(
 
   return {
     id: session.id,
+    originGuildId: session.guildId,
     revision: session.version,
     mode: session.mode,
     hostId: session.hostId,
@@ -561,6 +651,7 @@ function parseSessionRoster(raw: string): SessionRoster | null {
         playerId: member.playerId,
         displayName: typeof member.displayName === 'string' ? member.displayName : null,
         avatarUrl: typeof member.avatarUrl === 'string' ? member.avatarUrl : null,
+        ...(parseSourceGuild(member.sourceGuild) ? { sourceGuild: parseSourceGuild(member.sourceGuild)! } : {}),
         joinedAt: typeof member.joinedAt === 'number' ? member.joinedAt : 0,
         ...(Array.isArray(member.partyIds) ? { partyIds: member.partyIds.filter((partyId): partyId is string => typeof partyId === 'string') } : {}),
         slotIndex: typeof member.slotIndex === 'number' ? member.slotIndex : null,
@@ -573,6 +664,17 @@ function parseSessionRoster(raw: string): SessionRoster | null {
   }
   catch {
     return null
+  }
+}
+
+function parseSourceGuild(value: unknown): NonNullable<SessionRoster['participants'][number]['sourceGuild']> | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as { id?: unknown, name?: unknown, iconUrl?: unknown }
+  if (typeof candidate.id !== 'string' || !/^\d{17,20}$/.test(candidate.id)) return null
+  return {
+    id: candidate.id,
+    ...(typeof candidate.name === 'string' && candidate.name.trim() ? { name: candidate.name.trim() } : {}),
+    ...(typeof candidate.iconUrl === 'string' && candidate.iconUrl.startsWith('https://') ? { iconUrl: candidate.iconUrl } : {}),
   }
 }
 

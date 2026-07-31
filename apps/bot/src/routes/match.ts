@@ -9,13 +9,15 @@ import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildRankByPlayer, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
-import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
+import { getSessionLobbyProjectionByMatch, resolveMatchOriginGuildId } from '../services/session/index.ts'
+import { primaryChannelScope } from '../services/system/channels.ts'
 import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
@@ -61,6 +63,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         id: matches.id,
         status: matches.status,
         draftData: matches.draftData,
+        guildId: matches.guildId,
       })
       .from(matches)
       .where(eq(matches.id, matchId))
@@ -143,6 +146,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const db = createDb(c.env.DB)
     const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
+    const owningGuildId = await resolveMatchOriginGuildId(db, c.req.param('matchId'))
     const result = await reportMatch(db, kv, {
       matchId: c.req.param('matchId'),
       reporterId: auth.identity.userId,
@@ -150,7 +154,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
       leaderAssignments,
     }, {
       sessionNamespace: c.env.SessionDO,
-      rankedRoleGuildId: liveLobbyBeforeReport?.guildId ?? null,
+      rankedRoleGuildId: owningGuildId,
+      primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
       minimalResult: true,
     })
 
@@ -170,6 +175,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const isTournamentMatch = result.tournamentLinked === true
     const lobby = result.idempotent && !isLiveLobbyProjection(liveLobbyBeforeReport) ? null : liveLobbyBeforeReport
+    const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
     if (result.idempotent) {
       console.log('[idempotency] activity report request deduplicated', {
         matchId: result.match.id,
@@ -187,6 +193,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       participants: result.participants,
       matchDraftData: result.match.draftData,
       lobby,
+      originGuildId,
       archivePolicy: result.idempotent ? 'if-missing' : 'always',
       reporter: result.idempotent
         ? null
@@ -233,6 +240,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
         id: matches.id,
         status: matches.status,
         draftData: matches.draftData,
+        guildId: matches.guildId,
       })
       .from(matches)
       .where(eq(matches.id, matchId))
@@ -262,7 +270,8 @@ export function registerMatchRoutes(app: Hono<Env>) {
       cancelledAt: Date.now(),
     }, {
       sessionNamespace: c.env.SessionDO,
-      rankedRoleGuildId: lobby?.guildId ?? null,
+      rankedRoleGuildId: match.guildId,
+      primaryGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
     })
 
     if ('error' in result) {
@@ -291,13 +300,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
       const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
       if (isTournamentMatch) {
-        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
           console.error(`Failed to refresh tournament leaderboard after activity scrub ${result.match.id}:`, error)
         })
       }
       if (!isTournamentMatch && scrubContext && !scrubContext.redDeath && !scrubContext.civBlitz) {
         try {
-          await markLeaderboardsDirty(db, `activity-scrub:${result.match.id}`, {
+          await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `activity-scrub:${result.match.id}`, {
             civ: true,
             modes: scrubContext.leaderboardMode ? [scrubContext.leaderboardMode] : [],
           })
@@ -360,6 +369,7 @@ function queueActivityReportProjectionTasks(
     participants: Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants']
     matchDraftData: string | null
     lobby: Parameters<typeof syncReportedMatchDiscordMessages>[0]['lobby']
+    originGuildId: string
     archivePolicy: Parameters<typeof syncReportedMatchDiscordMessages>[0]['archivePolicy']
     reporter: Parameters<typeof syncReportedMatchDiscordMessages>[0]['reporter']
   },
@@ -375,7 +385,12 @@ function queueActivityReportProjectionTasks(
     try {
       let discordSyncErrors: string[] = []
       try {
-        const participants = await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
+        const participants = await hydrateLeaderboardRanksForDiscord(
+          input.kv,
+          input.reportedContext.leaderboardMode,
+          input.participants,
+          createStatsContext(input.originGuildId, context.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+        )
         const discordSync = await syncReportedMatchDiscordMessages({
           db: input.db,
           kv: input.kv,
@@ -391,6 +406,8 @@ function queueActivityReportProjectionTasks(
           reporter: input.reporter,
           archivePolicy: input.archivePolicy,
           archiveChannelType: input.isTournamentMatch ? 'tournament-archive' : 'archive',
+          originGuildId: input.originGuildId,
+          legacyGuildId: context.env.ALLOWED_DISCORD_GUILD_ID,
         })
         discordSyncErrors = discordSync.errors
       }
@@ -407,14 +424,14 @@ function queueActivityReportProjectionTasks(
       }
 
       if (input.isTournamentMatch) {
-        await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN).catch((error) => {
+        await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN, primaryChannelScope(context.env)).catch((error) => {
           console.error(`Failed to refresh tournament leaderboard after activity report ${input.matchId}:`, error)
         })
         return
       }
 
       if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
-        await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
+        await markLeaderboardsDirty(input.db, createStatsContext(input.originGuildId, context.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `activity-report:${input.matchId}`, {
           civ: true,
           modes: input.reportedContext.leaderboardMode ? [input.reportedContext.leaderboardMode] : [],
         }).catch((error) => {
@@ -438,10 +455,11 @@ async function hydrateLeaderboardRanksForDiscord(
   kv: KVNamespace,
   leaderboardMode: LeaderboardMode | null,
   participants: Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants'],
+  statsContext: ReturnType<typeof createStatsContext>,
 ): Promise<Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants']> {
   if (!leaderboardMode) return participants
 
-  const snapshot = await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
+  const snapshot = await getStoredLeaderboardModeSnapshot(kv, statsContext, leaderboardMode)
   if (!snapshot) return participants
 
   const beforeRankByPlayer = buildRankByPlayer(snapshot.rows, leaderboardMode)

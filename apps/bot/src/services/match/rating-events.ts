@@ -1,7 +1,8 @@
 import type { Database } from '@civup/db'
-import { playerRatingEvents } from '@civup/db'
+import type { StatsContext } from '../stats/context.ts'
+import { scopedPlayerRatingEvents as playerRatingEvents } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { and, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { getStoredGameModeContext } from './draft-data.ts'
 
 const RATING_EVENT_MATCH_ID_BATCH_SIZE = 90
@@ -17,7 +18,7 @@ interface ModeRatingSnapshotTarget {
   ratingAfterSigma: number | null
 }
 
-export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(db: Database, rows: readonly T[]): Promise<T[]> {
+export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(db: Database, statsContext: StatsContext, rows: readonly T[]): Promise<T[]> {
   if (rows.length === 0) return [...rows]
 
   const matchIds = [...new Set(rows.map(row => row.matchId))]
@@ -37,6 +38,7 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
       })
       .from(playerRatingEvents)
       .where(and(
+        eq(playerRatingEvents.statsKey, statsContext.statsKey),
         inArray(playerRatingEvents.matchId, matchIdBatch),
         inArray(playerRatingEvents.playerId, playerIds),
         inArray(playerRatingEvents.mode, [...LEADERBOARD_MODES]),

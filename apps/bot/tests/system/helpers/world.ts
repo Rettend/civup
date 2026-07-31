@@ -3,10 +3,12 @@ import type { CompetitiveTier, DraftState, GameMode, QueueEntry } from '@civup/g
 import type { DraftRuntimeConfig } from '@civup/session'
 import type { Env } from '../../../src/env.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
+import type { ActivityOverviewSnapshot } from '../../../src/services/activity/session-state.ts'
 import type { DraftLifecycleCancelledPayload, DraftLifecycleCompletePayload, DraftLifecyclePayload } from '../../../src/session-runtime/draft-lifecycle-events.ts'
-import { matchBans, matches, matchParticipants } from '@civup/db'
+import type { SessionRecord } from '../../../src/session-runtime/session-record.ts'
+import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
-import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import { ACTIVITY_FEED_ROOM, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
@@ -15,6 +17,7 @@ import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-l
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer, getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
+import { buildActivityOverviewSnapshotFromDirectory, mergeActivityOverviewSnapshotForSessionUpdate } from '../../../src/services/activity/session-state.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
 import { installFetchHandler } from '../../helpers/fetch-router.ts'
@@ -26,6 +29,7 @@ import { createRuntimeControls } from './runtime-controls.ts'
 
 const BOT_ORIGIN = 'https://bot.test'
 const CIVUP_SECRET = 'secret'
+const PRIMARY_GUILD_ID = '1234044388733095946'
 const DEFAULT_CHANNEL_ID = 'channel-draft'
 const DEFAULT_ARCHIVE_CHANNEL_ID = 'channel-archive'
 
@@ -93,6 +97,12 @@ interface RouteResult<T = unknown> {
   body: T
 }
 
+interface ActivityFeedConnection {
+  room: string
+  messages: unknown[]
+  close: () => void
+}
+
 export interface SystemWorld {
   db: CivupDatabase
   env: Env['Bindings']
@@ -135,6 +145,7 @@ export interface SystemWorld {
     currentMatch: (input: { userId: string }) => Promise<RouteResult>
     targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<RouteResult>
     targetMatch: (input: { channelId: string, userId: string, matchId: string }) => Promise<RouteResult>
+    connectOverview: (input: { userId: string }) => Promise<ActivityFeedConnection>
   }
   discord: {
     requests: () => DiscordRequestRecord[]
@@ -197,11 +208,25 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   let nextDiscordMessageId = 1
 
   const d1 = createSqliteD1Database(sqlite)
+  const activityNamespace = createTestActivityNamespace({
+    DB: d1,
+    KV: kv,
+    CIVUP_SECRET,
+    ALLOWED_DISCORD_GUILD_ID: PRIMARY_GUILD_ID,
+  })
+  const sessionNamespace = createTestSessionNamespace({
+    DB: d1,
+    KV: kv,
+    Activity: activityNamespace,
+    DISCORD_TOKEN: 'token',
+    CIVUP_SECRET,
+    ALLOWED_DISCORD_GUILD_ID: PRIMARY_GUILD_ID,
+  })
   const env = buildBotTestEnv({
     DB: d1,
     KV: kv,
-    SessionDO: createTestSessionNamespace({ DB: d1, KV: kv, DISCORD_TOKEN: 'token', CIVUP_SECRET }),
-    Activity: createTestActivityNamespace(),
+    SessionDO: sessionNamespace,
+    Activity: activityNamespace,
     DISCORD_APPLICATION_ID: 'app',
     DISCORD_PUBLIC_KEY: 'public-key',
     DISCORD_TOKEN: 'token',
@@ -248,6 +273,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
     headers.set(CIVUP_INTERNAL_SECRET_HEADER, CIVUP_SECRET)
     headers.set('X-CivUp-Activity-User-Id', options.userId)
     headers.set('X-CivUp-Activity-Display-Name', encodeURIComponent(options.displayName ?? options.userId))
+    headers.set('X-CivUp-Activity-Guild-Id', PRIMARY_GUILD_ID)
     if (options.avatarUrl) headers.set('X-CivUp-Activity-Avatar-Url', options.avatarUrl)
     return app.fetch(new Request(`${BOT_ORIGIN}${path}`, { ...init, headers }), env, execution.executionCtx)
   }
@@ -276,17 +302,19 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         if (!hostId) throw new Error('createOpen requires at least one player')
         const mode = input.mode
         const channelId = input.channelId ?? DEFAULT_CHANNEL_ID
+        const guildId = input.guildId ?? PRIMARY_GUILD_ID
         const entries = input.players.map((player, index) => ({
           playerId: player.id,
           displayName: player.displayName ?? player.id,
           avatarUrl: player.avatarUrl ?? null,
           joinedAt: player.joinedAt ?? index + 1,
           partyIds: player.partyIds,
+          sourceGuild: { id: guildId },
         }))
 
         const lobby = await createLobby(kv, {
           mode,
-          guildId: input.guildId ?? null,
+          guildId,
           hostId,
           channelId,
           messageId: `seed-message-${hostId}-${mode}`,
@@ -610,6 +638,9 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         }
         return result
       },
+      connectOverview(input) {
+        return activityNamespace.__connectOverview(input.userId)
+      },
     },
     discord: {
       requests() {
@@ -694,8 +725,13 @@ export async function createSystemWorld(): Promise<SystemWorld> {
       clock: runtime.clock,
       random: runtime.random,
     },
-    flushBackgroundTasks: execution.flushBackgroundTasks,
+    async flushBackgroundTasks() {
+      await execution.flushBackgroundTasks()
+      await sessionNamespace.__flushBackgroundTasks()
+      await execution.flushBackgroundTasks()
+    },
     async dispose() {
+      await sessionNamespace.__flushBackgroundTasks()
       runtime.restore()
       restoreFetchHandler()
       sqlite.close()
@@ -703,39 +739,92 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   }
 }
 
-function createTestActivityNamespace(): DurableObjectNamespace {
-  const rooms = new Map<string, Map<string, unknown>>()
+interface TestActivityNamespace extends DurableObjectNamespace {
+  __connectOverview: (userId: string) => Promise<ActivityFeedConnection>
+}
+
+interface TestActivityRoom {
+  storage: Map<string, unknown>
+  overview: ActivityOverviewSnapshot | null
+  connections: Set<unknown[]>
+}
+
+function createTestActivityNamespace(env: Partial<Cloudflare.Env>): TestActivityNamespace {
+  const rooms = new Map<string, TestActivityRoom>()
+
+  const getRoom = (roomId: string): TestActivityRoom => {
+    let room = rooms.get(roomId)
+    if (!room) {
+      room = { storage: new Map(), overview: null, connections: new Set() }
+      rooms.set(roomId, room)
+    }
+    return room
+  }
+
   return {
     idFromName(name: string) {
       return name as unknown as DurableObjectId
     },
     get(id: DurableObjectId) {
       const roomId = String(id)
-      let storage = rooms.get(roomId)
-      if (!storage) {
-        storage = new Map<string, unknown>()
-        rooms.set(roomId, storage)
-      }
       return {
         async fetch(input: RequestInfo | URL, init?: RequestInit) {
           const request = input instanceof Request ? input : new Request(input, init)
-          const key = new URL(request.url).pathname === '/activity-follow-target'
+          const room = getRoom(roomId)
+          const pathname = new URL(request.url).pathname
+          const targetKey = pathname === '/activity-follow-target'
             ? 'activity-follow-target'
-            : 'activity-launch-target'
-          if (request.method === 'GET') return Response.json({ target: storage.get(key) ?? null })
-          if (request.method === 'POST') {
-            storage.set(key, await request.json())
-            return Response.json({ ok: true })
+            : pathname === '/activity-launch-target'
+              ? 'activity-launch-target'
+              : null
+
+          if (targetKey) {
+            if (request.method === 'GET') return Response.json({ target: room.storage.get(targetKey) ?? null })
+            if (request.method === 'POST') {
+              room.storage.set(targetKey, await request.json())
+              return Response.json({ ok: true })
+            }
+            if (request.method === 'DELETE') {
+              room.storage.delete(targetKey)
+              return Response.json({ ok: true })
+            }
+            return new Response('Method not allowed', { status: 405 })
           }
-          if (request.method === 'DELETE') {
-            storage.delete(key)
-            return Response.json({ ok: true })
+
+          const body = await request.json<{ record?: SessionRecord }>()
+          if (!body.record) return Response.json({ error: 'record is required' }, { status: 400 })
+          if (room.connections.size === 0) return Response.json({ ok: true })
+
+          room.overview = mergeActivityOverviewSnapshotForSessionUpdate(room.overview, body.record)
+          for (const messages of room.connections) {
+            messages.push({ type: 'overview', snapshot: room.overview })
+            messages.push({ type: 'lobby', lobbyId: body.record.id, snapshot: null })
           }
-          return new Response('Method not allowed', { status: 405 })
+          return Response.json({ ok: true })
         },
       } as DurableObjectStub
     },
-  } as unknown as DurableObjectNamespace
+    async __connectOverview(userId: string) {
+      void userId
+      if (!env.DB) throw new Error('Activity feed test requires D1')
+      const room = getRoom(ACTIVITY_FEED_ROOM)
+      const messages: unknown[] = []
+      room.overview = await buildActivityOverviewSnapshotFromDirectory(createDb(env.DB), ACTIVITY_FEED_ROOM, {
+        guildIds: [PRIMARY_GUILD_ID],
+        sharedFeed: true,
+      })
+      room.connections.add(messages)
+      messages.push({ type: 'overview', snapshot: room.overview })
+
+      return {
+        room: ACTIVITY_FEED_ROOM,
+        messages,
+        close() {
+          room.connections.delete(messages)
+        },
+      }
+    },
+  } as unknown as TestActivityNamespace
 }
 
 function isLiveLobbyProjection(lobby: LobbyState | null): lobby is LobbyState {

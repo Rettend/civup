@@ -1,6 +1,6 @@
 import type { ActivityOverviewOptionSnapshot } from '../../src/services/activity/session-state.ts'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
-import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import { ACTIVITY_FEED_ROOM, CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
 import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
@@ -24,14 +24,15 @@ describe('activity feed client', () => {
 
     await publishActivitySessionUpdate(namespace, buildSessionRecord(), 'secret')
 
-    expect(capturedRequest?.headers.get(PARTYSERVER_ROOM_HEADER)).toBe('channel-1')
+    expect(capturedRequest?.headers.get(PARTYSERVER_ROOM_HEADER)).toBe('overview')
+    expect(ACTIVITY_FEED_ROOM).toBe('overview')
     expect(capturedRequest?.headers.get(PARTYSERVER_NAMESPACE_HEADER)).toBe('activity')
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })
 
   test('reported session updates remove the reported lobby from overview', () => {
     const current = {
-      channelId: 'channel-1',
+      channelId: ACTIVITY_FEED_ROOM,
       options: [
         buildOverviewOption({ id: 'session-1', lobbyId: 'session-1', kind: 'lobby', status: 'open' }),
         buildOverviewOption({ id: 'old-match-1', lobbyId: 'old-session-1', kind: 'match', status: 'completed', matchId: 'old-match-1' }),
@@ -48,7 +49,18 @@ describe('activity feed client', () => {
     })
 
     expect(overview?.options.map(option => option.id)).toEqual(['old-match-1', 'session-2'])
+    expect(overview?.channelId).toBe(ACTIVITY_FEED_ROOM)
   })
+
+  test('shared feed updates preserve live lobbies from other origin channels', () => {
+    const overview = mergeActivityOverviewSnapshotForSessionUpdate({
+      channelId: ACTIVITY_FEED_ROOM,
+      options: [buildOverviewOption({ id: 'other', lobbyId: 'other', channelId: 'channel-2' })],
+    }, buildSessionRecord())
+
+    expect(overview?.options.map(option => option.id)).toEqual(['other', 'session-1'])
+  })
+
 })
 
 function buildOverviewOption(overrides: Partial<ActivityOverviewOptionSnapshot> = {}): ActivityOverviewOptionSnapshot {

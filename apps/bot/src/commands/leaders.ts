@@ -6,6 +6,7 @@ import { playerLeadersEmbed } from '../embeds/player-leaders.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { createStatsContext } from '../services/stats/context.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 
@@ -27,11 +28,13 @@ export const command_leaders = factory.command<Var>(
     const mode = (parseGameMode(c.var.mode) ?? 'all') as LeadersModeFilter
     const isDefaultSelfLookup = !c.var.player && !c.var.mode
 
+    if (!guildId) return c.res('This command can only be used in a server.')
     if (!targetId) return c.res('Could not identify the player.')
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
+      const statsContext = createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
       c.executionCtx.waitUntil((async () => {
         try {
           await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
@@ -41,9 +44,7 @@ export const command_leaders = factory.command<Var>(
         }
       })())
 
-      const rankProfile = guildId
-        ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
-        : null
+      const rankProfile = await getPlayerStatsRankProfile(db, kv, statsContext, targetId)
       const visibleModes = mode === 'all'
         ? LEADERBOARD_MODES
         : (() => {
@@ -51,7 +52,7 @@ export const command_leaders = factory.command<Var>(
             return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
           })()
 
-      const embed = await playerLeadersEmbed(db, targetId, mode, {
+      const embed = await playerLeadersEmbed(db, statsContext, targetId, mode, {
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,

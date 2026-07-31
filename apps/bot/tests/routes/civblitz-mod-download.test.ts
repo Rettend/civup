@@ -97,7 +97,7 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
       sessionId: 'session-1',
       phase: options.phase,
       mode: 'ffa',
-      guildId: 'guild-1',
+      guildId: '111111111111111111',
       channelId: 'channel-1',
       hostId: 'player-1',
       messageId: 'message-1',
@@ -120,6 +120,7 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
     DISCORD_PUBLIC_KEY: 'a'.repeat(64),
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: SECRET,
+    ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
     MaintenanceDO: {
       idFromName(name: string) {
         return { name }
@@ -140,6 +141,7 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
       if (userId) {
         headers.set(CIVUP_INTERNAL_SECRET_HEADER, SECRET)
         headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, userId)
+        headers.set('X-CivUp-Activity-Guild-Id', '111111111111111111')
       }
       return app.fetch(new Request(`https://bot.test/api/match/${MATCH_ID}/civblitz/download`, { headers }), env)
     },

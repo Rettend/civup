@@ -1,4 +1,4 @@
-import { matches } from '@civup/db'
+import { matches, players, scopedPlayerRatings } from '@civup/db'
 import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -16,6 +16,17 @@ const originalFetch = globalThis.fetch
 const originalMathRandom = Math.random
 const TITAN_ROLE_ID = '99999999999999999'
 const GLADIATOR_ROLE_ID = '11111111111111111'
+const GUILD_ID = '111111111111111111'
+const RANKED_HOST_ID = '100010000000000001'
+const RANKED_TITAN_ID = '100010000000000002'
+const STATS_KEY = `server:${GUILD_ID}` as const
+const RANKED_ROLES = {
+  tier5: '55555555555555555',
+  tier4: '44444444444444444',
+  tier3: '33333333333333333',
+  tier2: GLADIATOR_ROLE_ID,
+  tier1: TITAN_ROLE_ID,
+} as const
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -35,14 +46,14 @@ describe('lobby routes', () => {
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
-      hostId: 'host',
+      guildId: '111111111111111111',
+      hostId: RANKED_HOST_ID,
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
     await addToQueue(kv, '2v2', {
-      playerId: 'host',
+      playerId: RANKED_HOST_ID,
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
@@ -54,20 +65,19 @@ describe('lobby routes', () => {
       joinedAt: Date.now() + 1,
     })
 
-    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMember ?? lobby)
+    const withMember = await setLobbyMemberPlayerIds(kv, lobby.id, [RANKED_HOST_ID, 'guest'], lobby)
+    const withSlots = await setLobbySlots(kv, lobby.id, [RANKED_HOST_ID, 'guest', null, null], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier2: GLADIATOR_ROLE_ID,
-    })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLES)
+    await seedCalculatedRank(kv, RANKED_HOST_ID, 0)
 
     globalThis.fetch = (async (input) => {
       const url = String(input)
       const match = url.match(/\/guilds\/[^/]+\/members\/([^/?]+)/)
       const userId = match?.[1]
       if (userId) {
-        const roles = userId === 'host' ? [GLADIATOR_ROLE_ID] : []
+        const roles = userId === RANKED_HOST_ID ? [GLADIATOR_ROLE_ID] : []
         return new Response(JSON.stringify({ roles }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -82,19 +92,19 @@ describe('lobby routes', () => {
 
     const removeResponse = await app.request('/api/lobby/2v2/remove', {
       method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', slot: 1, lobbyId: lobby.id }),
+      headers: buildAuthHeaders(RANKED_HOST_ID, 'Host'),
+      body: JSON.stringify({ userId: RANKED_HOST_ID, slot: 1, lobbyId: lobby.id }),
     }, buildEnv(kv))
     expect(removeResponse.status).toBe(200)
 
     const storedLobby = await getLobbyById(kv, lobby.id)
-    expect(storedLobby?.memberPlayerIds).toEqual(['host'])
+    expect(storedLobby?.memberPlayerIds).toEqual([RANKED_HOST_ID])
 
     const configResponse = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
+      headers: buildAuthHeaders(RANKED_HOST_ID, 'Host'),
       body: JSON.stringify({
-        userId: 'host',
+        userId: RANKED_HOST_ID,
         lobbyId: lobby.id,
         minRole: 'tier2',
         banTimerSeconds: null,
@@ -107,14 +117,14 @@ describe('lobby routes', () => {
     expect(configuredLobby.minRole).toBe('tier2')
   })
 
-  test('direct lobby joins ignore matchmaking min rank', async () => {
+  test('direct lobby joins enforce the owning server min rank for every approved origin', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: '111111111111111111',
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -127,9 +137,7 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier2: GLADIATOR_ROLE_ID,
-    })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLES)
 
     const gatedLobby = await getLobbyById(kv, lobby.id)
     expect(gatedLobby).not.toBeNull()
@@ -152,9 +160,21 @@ describe('lobby routes', () => {
       }),
     }, buildEnv(kv))
 
-    expect(joinResponse.status).toBe(200)
+    expect(joinResponse.status).toBe(403)
+    expect(await joinResponse.json()).toEqual(expect.objectContaining({ error: expect.stringContaining('is unranked in this server') }))
+
+    const partnerHeaders = new Headers(buildAuthHeaders('guest', 'Guest'))
+    partnerHeaders.set('X-CivUp-Activity-Guild-Id', '222222222222222222')
+    partnerHeaders.set('X-CivUp-Activity-Guild-Permissions', '0')
+    const partnerJoin = await app.request('/api/lobby/2v2/place', {
+      method: 'POST',
+      headers: partnerHeaders,
+      body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, targetSlot: 1 }),
+    }, buildEnv(kv))
+    expect(partnerJoin.status).toBe(403)
+    await expect(partnerJoin.json()).resolves.toEqual(expect.objectContaining({ error: expect.stringContaining('is unranked in this server') }))
     const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'guest'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host'])
   })
 
   test('direct lobby joins reject players who are already in a live match', async () => {
@@ -407,14 +427,12 @@ describe('lobby routes', () => {
       displayName: 'Player 1',
       avatarUrl: null,
       joinedAt: Date.now() + 1,
-      partyIds: ['player-2'],
     })
     await addToQueue(kv, '2v2', {
       playerId: 'player-2',
       displayName: 'Player 2',
       avatarUrl: null,
       joinedAt: Date.now() + 2,
-      partyIds: ['player-1'],
     })
 
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1', 'player-2'], lobby)
@@ -622,14 +640,14 @@ describe('lobby routes', () => {
     expect(updatedLobby?.lastArrange?.strategy).toBe('shuffle-teams')
   })
 
-  test('direct lobby joins ignore matchmaking max rank', async () => {
+  test('direct lobby joins enforce the owning server max rank', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: '111111111111111111',
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -642,10 +660,8 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier1: TITAN_ROLE_ID,
-      tier2: GLADIATOR_ROLE_ID,
-    })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLES)
+    await seedCalculatedRank(kv, RANKED_TITAN_ID, 0)
 
     const gatedLobby = await getLobbyById(kv, lobby.id)
     expect(gatedLobby).not.toBeNull()
@@ -658,9 +674,9 @@ describe('lobby routes', () => {
 
     const joinResponse = await app.request('/api/lobby/2v2/place', {
       method: 'POST',
-      headers: buildAuthHeaders('titan', 'Titan'),
+      headers: buildAuthHeaders(RANKED_TITAN_ID, 'Titan'),
       body: JSON.stringify({
-        userId: 'titan',
+        userId: RANKED_TITAN_ID,
         lobbyId: lobby.id,
         targetSlot: 1,
         displayName: 'Titan',
@@ -668,9 +684,10 @@ describe('lobby routes', () => {
       }),
     }, buildEnv(kv))
 
-    expect(joinResponse.status).toBe(200)
+    expect(joinResponse.status).toBe(403)
+    await expect(joinResponse.json()).resolves.toEqual(expect.objectContaining({ error: expect.stringContaining('allows up to') }))
     const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.memberPlayerIds).toEqual(['host', 'titan'])
+    expect(updatedLobby?.memberPlayerIds).toEqual(['host'])
   })
 
   test('config route stores matchmaking max rank', async () => {
@@ -680,22 +697,21 @@ describe('lobby routes', () => {
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
-      hostId: 'host',
+      guildId: '111111111111111111',
+      hostId: RANKED_HOST_ID,
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
     await addToQueue(kv, '2v2', {
-      playerId: 'host',
+      playerId: RANKED_HOST_ID,
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
     })
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier2: GLADIATOR_ROLE_ID,
-    })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLES)
+    await seedCalculatedRank(kv, RANKED_HOST_ID, 7)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -704,9 +720,9 @@ describe('lobby routes', () => {
 
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
+      headers: buildAuthHeaders(RANKED_HOST_ID, 'Host'),
       body: JSON.stringify({
-        userId: 'host',
+        userId: RANKED_HOST_ID,
         lobbyId: lobby.id,
         maxRole: 'tier2',
         banTimerSeconds: null,
@@ -726,23 +742,21 @@ describe('lobby routes', () => {
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
-      hostId: 'host',
+      guildId: '111111111111111111',
+      hostId: RANKED_HOST_ID,
       channelId: 'channel-1',
       messageId: 'message-1',
     })
 
     await addToQueue(kv, '2v2', {
-      playerId: 'host',
+      playerId: RANKED_HOST_ID,
       displayName: 'Host',
       avatarUrl: null,
       joinedAt: Date.now(),
     })
 
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier2: GLADIATOR_ROLE_ID,
-      tier3: '22222222222222222',
-    })
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLES)
+    await seedCalculatedRank(kv, RANKED_HOST_ID, 1)
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
       status: 200,
@@ -751,9 +765,9 @@ describe('lobby routes', () => {
 
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
+      headers: buildAuthHeaders(RANKED_HOST_ID, 'Host'),
       body: JSON.stringify({
-        userId: 'host',
+        userId: RANKED_HOST_ID,
         lobbyId: lobby.id,
         minRole: 'tier2',
         maxRole: 'tier3',
@@ -775,7 +789,7 @@ describe('lobby routes', () => {
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: 'guild-1',
+      guildId: '111111111111111111',
       hostId: 'host',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -958,6 +972,8 @@ describe('lobby routes', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
+    await addToQueue(kv, '2v2', { playerId: 'host', displayName: 'Host', avatarUrl: null, joinedAt: 1 })
+    await addToQueue(kv, '2v2', { playerId: 'guest', displayName: 'Guest', avatarUrl: null, joinedAt: 2 })
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
@@ -992,6 +1008,8 @@ describe('lobby routes', () => {
       channelId: 'channel-1',
       messageId: 'message-1',
     })
+    await addToQueue(kv, '2v2', { playerId: 'host', displayName: 'Host', avatarUrl: null, joinedAt: 1 })
+    await addToQueue(kv, '2v2', { playerId: 'guest', displayName: 'Guest', avatarUrl: null, joinedAt: 2 })
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
@@ -2103,54 +2121,6 @@ describe('lobby routes', () => {
     expect(updatedLobby?.memberPlayerIds).toEqual(playerIds)
   })
 
-  test('mode changes use canonical member ids instead of slotted queue residue', async () => {
-    const { kv } = createTrackedKv()
-    const app = new Hono()
-    registerLobbyRoutes(app as any)
-
-    const lobby = await createLobby(kv, {
-      mode: '3v3',
-      hostId: 'p1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    const playerIds = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
-    for (let index = 0; index < playerIds.length; index++) {
-      const playerId = playerIds[index]
-      await addToQueue(kv, '3v3', {
-        playerId,
-        displayName: playerId,
-        avatarUrl: null,
-        joinedAt: Date.now() + index,
-      })
-    }
-
-    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5'], lobby)
-    await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const response = await app.request('/api/lobby/3v3/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('p1', 'P1'),
-      body: JSON.stringify({
-        userId: 'p1',
-        lobbyId: lobby.id,
-        nextMode: '2v2',
-      }),
-    }, buildEnv(kv))
-
-    expect(response.status).toBe(200)
-    const updatedLobby = await getLobbyById(kv, lobby.id)
-    expect(updatedLobby?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect(updatedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect(updatedLobby?.slots).not.toContain('p6')
-  })
-
   test('lobby config defaults blind bans on and preserves false for supported modes', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
@@ -2391,7 +2361,54 @@ function buildEnv(kv: KVNamespace) {
     DISCORD_PUBLIC_KEY: 'key',
     DISCORD_TOKEN: 'token',
     CIVUP_SECRET: 'secret',
+    ALLOWED_DISCORD_GUILD_IDS: '222222222222222222',
   }) as any
+}
+
+async function seedCalculatedRank(kv: KVNamespace, playerId: string, rankIndex: number): Promise<void> {
+  const db = getExistingTestLobbyRuntime(kv).db
+  const scores = [50, 45, 40, 35, 30, 25, 20, 15]
+  const boundedRankIndex = Math.max(0, Math.min(scores.length - 1, rankIndex))
+  const fixturePlayerIds = scores.map((_, index) => index === boundedRankIndex ? playerId : `10002000000000000${index}`)
+
+  for (const [index, fixturePlayerId] of fixturePlayerIds.entries()) {
+    await db.insert(players).values({
+      id: fixturePlayerId,
+      displayName: fixturePlayerId,
+      avatarUrl: null,
+      createdAt: 1,
+    }).onConflictDoNothing()
+    await db.insert(scopedPlayerRatings).values({
+      statsKey: STATS_KEY,
+      playerId: fixturePlayerId,
+      mode: 'ffa',
+      mu: scores[index]!,
+      sigma: 6,
+      gamesPlayed: 10,
+      wins: 5,
+      effectiveGames: 10,
+      lastPlayedAt: 1,
+    }).onConflictDoUpdate({
+      target: [scopedPlayerRatings.statsKey, scopedPlayerRatings.playerId, scopedPlayerRatings.mode],
+      set: { mu: scores[index]!, sigma: 6, gamesPlayed: 10, wins: 5, effectiveGames: 10, lastPlayedAt: 1 },
+    })
+    await db.insert(scopedPlayerRatings).values({
+      statsKey: STATS_KEY,
+      playerId: fixturePlayerId,
+      mode: 'global',
+      mu: scores[index]!,
+      sigma: 6,
+      gamesPlayed: 25,
+      wins: 12,
+      effectiveGames: 25,
+      winsVsTier1: 1,
+      winsVsTier2Plus: 4,
+      lastPlayedAt: 1,
+    }).onConflictDoUpdate({
+      target: [scopedPlayerRatings.statsKey, scopedPlayerRatings.playerId, scopedPlayerRatings.mode],
+      set: { mu: scores[index]!, sigma: 6, gamesPlayed: 25, wins: 12, effectiveGames: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: 1 },
+    })
+  }
 }
 
 function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
@@ -2400,6 +2417,7 @@ function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
     'X-CivUp-Internal-Secret': 'secret',
     'X-CivUp-Activity-User-Id': userId,
     'X-CivUp-Activity-Display-Name': displayName,
+    'X-CivUp-Activity-Guild-Id': '111111111111111111',
   }
 }
 

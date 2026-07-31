@@ -118,6 +118,7 @@ export function buildDraftSeats(mode: GameMode, entries: QueueEntry[]): DraftSea
           playerId: entry.playerId,
           displayName: entry.displayName,
           avatarUrl: entry.avatarUrl ?? null,
+          ...(entry.sourceGuild ? { sourceGuild: entry.sourceGuild } : {}),
           team,
         })
       }
@@ -131,6 +132,7 @@ export function buildDraftSeats(mode: GameMode, entries: QueueEntry[]): DraftSea
       playerId: e.playerId,
       displayName: e.displayName,
       avatarUrl: e.avatarUrl ?? null,
+      ...(e.sourceGuild ? { sourceGuild: e.sourceGuild } : {}),
       team: slotToTeamIndex(mode, i, entries.length) ?? undefined,
     }))
   }
@@ -139,6 +141,7 @@ export function buildDraftSeats(mode: GameMode, entries: QueueEntry[]): DraftSea
     playerId: e.playerId,
     displayName: e.displayName,
     avatarUrl: e.avatarUrl ?? null,
+    ...(e.sourceGuild ? { sourceGuild: e.sourceGuild } : {}),
   }))
 }
 

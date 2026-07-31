@@ -4,6 +4,7 @@ import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } fr
 
 const baseLobby: LobbySnapshot = {
   id: 'lobby-1',
+  originGuildId: '111111111111111111',
   revision: 1,
   mode: '2v2',
   hostId: 'host-1',

@@ -1,4 +1,4 @@
-import { matches, matchParticipants, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, matchParticipants, players, scopedSeasonPeakModeRanks as seasonPeakModeRanks, scopedSeasonPeakRanks as seasonPeakRanks, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles, getSeasonSnapshotRoleMappings, listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
@@ -8,6 +8,8 @@ const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
 const TIER_2 = 'tier2'
 const TIER_4 = 'tier4'
+const GUILD_ID = '111111111111111111'
+const STATS_KEY = `server:${GUILD_ID}` as const
 
 describe('season snapshot roles', () => {
   afterEach(() => {
@@ -35,10 +37,11 @@ describe('season snapshot roles', () => {
     }
 
     await db.insert(seasonPeakRanks).values([
-      { seasonId: 'season-1', playerId: veteranId, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 1000 },
-      { seasonId: 'season-5', playerId: heroId, tier: TIER_4, sourceMode: 'ffa', achievedAt: NOW },
+      { statsKey: STATS_KEY, seasonId: 'season-1', playerId: veteranId, tier: TIER_2, sourceMode: 'duel', achievedAt: NOW - 1000 },
+      { statsKey: STATS_KEY, seasonId: 'season-5', playerId: heroId, tier: TIER_4, sourceMode: 'ffa', achievedAt: NOW },
     ])
     await db.insert(seasonPeakModeRanks).values({
+      statsKey: STATS_KEY,
       seasonId: 'season-5',
       playerId: heroId,
       mode: 'ffa',
@@ -48,6 +51,7 @@ describe('season snapshot roles', () => {
     })
     await db.insert(matches).values({
       id: 'season-5-match-1',
+      guildId: GUILD_ID,
       gameMode: 'ffa',
       status: 'completed',
       seasonId: 'season-5',
@@ -67,7 +71,7 @@ describe('season snapshot roles', () => {
       ratingAfterSigma: null,
     })
 
-    await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
+    await kv.put(`ranked-roles:season-snapshots:${GUILD_ID}`, JSON.stringify({
       bySeasonId: {
         'season-1': {
           seasonNumber: 1,
@@ -82,7 +86,7 @@ describe('season snapshot roles', () => {
         },
       },
     }))
-    await setRankedRoleCurrentRoles(kv, 'guild-1', {
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
       tier5: '11111111111111111',
       tier4: '12222222222222222',
       tier3: '13333333333333333',
@@ -149,7 +153,7 @@ describe('season snapshot roles', () => {
       return new Response('not found', { status: 404 })
     }) as typeof fetch
 
-    const createdRoles = await ensureSeasonSnapshotRoles(kv, 'guild-1', 'token', {
+    const createdRoles = await ensureSeasonSnapshotRoles(kv, GUILD_ID, 'token', {
       id: 'season-5',
       seasonNumber: 5,
       name: 'Season 5',
@@ -158,13 +162,13 @@ describe('season snapshot roles', () => {
     expect(createdRoles.tier4).toMatch(/^8/)
     expect([...guildRoles.values()].some(role => role.name === 'S5 Rank 4 Current' && role.color === 0x222222)).toBeTrue()
 
-    await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
+    await finalizeSeasonSnapshotRoles(db, kv, GUILD_ID, 'token', {
       id: 'season-5',
       seasonNumber: 5,
       name: 'Season 5',
     })
 
-    const mappings = await getSeasonSnapshotRoleMappings(kv, 'guild-1')
+    const mappings = await getSeasonSnapshotRoleMappings(kv, GUILD_ID)
     expect(mappings.bySeasonId['season-5']?.roles.tier4).toMatch(/^8/)
     expect(mappings.bySeasonId['season-1']).toBeUndefined()
 
@@ -172,7 +176,7 @@ describe('season snapshot roles', () => {
     expect(patchCalls.find(call => call.userId === veteranId)?.roles).not.toContain('74444444444444444')
     expect(deletedRoleIds).toContain('74444444444444444')
 
-    const history = await listPlayerSeasonSnapshotHistory(db, kv, 'guild-1', heroId)
+    const history = await listPlayerSeasonSnapshotHistory(db, kv, GUILD_ID, heroId)
     expect(history[0]?.modes.ffa?.tierRoleId).toBe('12222222222222222')
     expect(history[0]?.modes.ffa?.rating).toBe(642)
 

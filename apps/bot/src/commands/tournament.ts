@@ -8,13 +8,14 @@ import { lobbyOpenEmbed } from '../embeds/match.ts'
 import { ephemeralResponseEmbed } from '../embeds/response.ts'
 import { storeActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
+import { getKnownGuildIdentity } from '../services/discord/guild-metadata.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { createLobby, mapLobbySlotsToEntries, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
-import { getSystemChannel } from '../services/system/channels.ts'
+import { getSystemChannel, primaryChannelScope } from '../services/system/channels.ts'
 import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
 import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { factory } from '../setup.ts'
@@ -59,7 +60,8 @@ export const command_tournament = factory.command<TournamentVar>(
         }
 
         const kv = getKvStore(c.env)
-        const tournamentDraftChannelId = await getSystemChannel(kv, 'tournament-draft')
+        const guildId = c.interaction.guild_id ?? null
+        const tournamentDraftChannelId = await getSystemChannel(kv, 'tournament-draft', { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
         if (!tournamentDraftChannelId) {
           return c.flags('EPHEMERAL').resDefer(async (c) => {
             await sendTransientEphemeralResponse(c, 'Tournament Draft channel is not configured. Run `/admin setup target:Tournament Draft` in the tournament draft channel.', 'error')
@@ -71,9 +73,10 @@ export const command_tournament = factory.command<TournamentVar>(
           env: c.env,
           kv,
           channelId: tournamentDraftChannelId,
-          guildId: c.interaction.guild_id ?? null,
+          guildId,
           steamLobbyLink,
           identity,
+          sourceGuild: await getKnownGuildIdentity(kv, c.env.DISCORD_TOKEN, guildId),
         }
 
         if (interactionChannelId !== tournamentDraftChannelId) {
@@ -176,7 +179,7 @@ export const command_tournament = factory.command<TournamentVar>(
             return
           }
 
-          await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+          await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
             console.error('[tournament:leave] failed to refresh tournament leaderboard', error)
           })
           await sendEphemeralResponse(c, `You have left **${tournament.name}**.`, 'success')
@@ -196,6 +199,7 @@ async function createTournamentLobbyForCommand(input: {
   guildId: string | null
   steamLobbyLink: string | null
   identity: { userId: string, displayName: string, avatarUrl: string }
+  sourceGuild?: QueueEntry['sourceGuild']
   deferPostCreateWork?: boolean
   executionCtx?: BackgroundContext
 }): Promise<{ ok: true, lobbyId: string } | { error: string, tone: EphemeralResponseTone }> {
@@ -232,6 +236,7 @@ async function createTournamentLobbyForCommand(input: {
     guildId: input.guildId,
     steamLobbyLink: input.steamLobbyLink,
     identity: input.identity,
+    sourceGuild: input.sourceGuild,
     deferPostCreateWork: input.deferPostCreateWork,
     executionCtx: input.executionCtx,
   })
@@ -247,6 +252,7 @@ async function createTournamentLobby(input: {
   guildId: string | null
   steamLobbyLink: string | null
   identity: { userId: string, displayName: string, avatarUrl: string }
+  sourceGuild?: QueueEntry['sourceGuild']
   deferPostCreateWork?: boolean
   executionCtx?: BackgroundContext
 }): Promise<{ ok: true, lobbyId: string } | { error: string }> {
@@ -255,6 +261,7 @@ async function createTournamentLobby(input: {
     playerId: input.identity.userId,
     displayName: input.identity.displayName,
     avatarUrl: input.identity.avatarUrl,
+    ...(input.sourceGuild ? { sourceGuild: input.sourceGuild } : {}),
     joinedAt: Date.now(),
   }
   const previewSlots = [input.identity.userId, null]

@@ -1,6 +1,7 @@
 import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
 import type { ParticipantRow } from '../match/types.ts'
+import type { SystemChannelScope } from '../system/channels.ts'
 import { leaderboardMessageStates, matchParticipants, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
@@ -1097,10 +1098,15 @@ export async function buildTournamentResultImageData(
   }
 }
 
-export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace, token: string): Promise<boolean> {
+export async function refreshTournamentLeaderboard(
+  db: Database,
+  kv: KVNamespace,
+  token: string,
+  channelScope: SystemChannelScope,
+): Promise<boolean> {
   const tournament = await getTournamentForLeaderboard(db)
   if (!tournament) return false
-  const channelId = await getSystemChannel(kv, 'tournament-leaderboard')
+  const channelId = await getSystemChannel(kv, 'tournament-leaderboard', channelScope)
   if (!channelId) return false
 
   const standings = await buildTournamentStandings(db, tournament.id)

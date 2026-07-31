@@ -1,5 +1,6 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
+import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, players, tournamentMatches } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { displayRating } from '@civup/rating'
@@ -183,6 +184,7 @@ interface PlayerHistoryProfile {
 
 export async function playerHistoryPageEmbed(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   modeFilter: PlayerHistoryModeFilter = 'all',
   options: {
@@ -191,16 +193,16 @@ export async function playerHistoryPageEmbed(
   } = {},
 ): Promise<{ embed: Embed, pageIndex: number, pageCount: number, totalRows: number }> {
   const pageSize = normalizePageSize(options.pageSize)
-  const displaySeason = await getDisplaySeason(db)
+  const displaySeason = statsContext.seasonPolicy === 'ppl-seasons' ? await getDisplaySeason(db) : null
   const seasonId = displaySeason?.id ?? null
-  const targetRows = await loadPlayerHistoryRows(db, playerId, modeFilter, seasonId)
+  const targetRows = await loadPlayerHistoryRows(db, statsContext, playerId, modeFilter, seasonId)
   const layoutCosts = await loadHistoryLayoutCosts(db, targetRows.map(row => row.matchId))
   const pages = paginateHistoryRows(targetRows, layoutCosts, pageSize)
   const totalRows = targetRows.length
   const pageCount = Math.max(1, pages.length)
   const pageIndex = clampPageIndex(options.pageIndex ?? 0, pageCount)
   const page = pages[pageIndex] ?? { startIndex: 0, rows: [] }
-  const hydratedRows = await hydrateModeRatingSnapshotsFromEvents(db, page.rows)
+  const hydratedRows = await hydrateModeRatingSnapshotsFromEvents(db, statsContext, page.rows)
   const participants = await loadHistoryParticipants(db, hydratedRows.map(row => row.matchId))
   const player = await loadPlayerProfile(db, playerId)
   const modeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
@@ -226,6 +228,7 @@ function isAsciiCharacter(char: string): boolean {
 
 async function loadPlayerHistoryRows(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   modeFilter: PlayerHistoryModeFilter,
   seasonId: string | null,
@@ -251,7 +254,7 @@ async function loadPlayerHistoryRows(
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
     .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
-    .where(buildPlayerHistoryWhere(playerId, modeFilter, seasonId))
+    .where(buildPlayerHistoryWhere(statsContext, playerId, modeFilter, seasonId))
     .orderBy(desc(sql`coalesce(${matches.completedAt}, ${matches.createdAt})`), desc(matches.createdAt), desc(matches.id))
 
   return rows.map(({ tournamentSessionId, ...row }) => ({
@@ -310,10 +313,11 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<Player
   }
 }
 
-function buildPlayerHistoryWhere(playerId: string, modeFilter: PlayerHistoryModeFilter, seasonId: string | null) {
+function buildPlayerHistoryWhere(statsContext: StatsContext, playerId: string, modeFilter: PlayerHistoryModeFilter, seasonId: string | null) {
   const conditions = [
     eq(matchParticipants.playerId, playerId),
     eq(matches.status, 'completed'),
+    eq(matches.guildId, statsContext.guildId),
   ]
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))

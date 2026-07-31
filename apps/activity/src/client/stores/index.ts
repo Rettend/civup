@@ -3,6 +3,7 @@ export {
   type ActivityLaunchSnapshot,
   type ActivityOverviewOptionSnapshot,
   type ActivityOverviewSnapshot,
+  type ActivitySupportedServerSnapshot,
   type ActivityStateChange,
   type ActivityTargetOption,
   arrangeLobbySlots,
@@ -177,4 +178,4 @@ export {
   UI_SCALE_STEP,
   uiScale,
 } from './ui-store'
-export { avatarUrl, displayName, setAuthenticatedUser, user, userId } from './user-store'
+export { avatarUrl, displayName, guildId, setAuthenticatedUser, user, userId } from './user-store'

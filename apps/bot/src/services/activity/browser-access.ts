@@ -12,6 +12,7 @@ export interface BrowserAccessState {
 export interface BrowserAccessConfig {
   origin: string
   preferenceRoleId: string
+  guildId: string | null
 }
 
 export type LaunchModeResolution
@@ -36,20 +37,30 @@ export interface BrowserAccessIntent {
 
 const BROWSER_ACCESS_STATE_KEY = 'system:browser-access'
 const BROWSER_ACCESS_STATE_CACHE_MS = 60_000
-let browserAccessStateCache = new WeakMap<KVNamespace, BrowserAccessStateCacheEntry>()
+let browserAccessStateCache = new WeakMap<KVNamespace, Map<string, BrowserAccessStateCacheEntry>>()
 
-export async function getBrowserAccessState(kv: KVNamespace): Promise<BrowserAccessState> {
-  const cached = browserAccessStateCache.get(kv)
+interface BrowserAccessScope {
+  guildId?: string | null
+  legacyGuildId?: string | null
+}
+
+export async function getBrowserAccessState(kv: KVNamespace, scope: BrowserAccessScope = {}): Promise<BrowserAccessState> {
+  const key = browserAccessStateKey(scope.guildId)
+  const cached = browserAccessStateCache.get(kv)?.get(key)
   if (cached && cached.expiresAt > Date.now()) return cached.state
 
-  const stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+  let stored = await kv.get(key, 'json') as StoredBrowserAccessState | null
+  if (!stored && scope.guildId && scope.guildId === scope.legacyGuildId) {
+    stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+  }
   const state = normalizeBrowserAccessState(stored)
-  cacheBrowserAccessState(kv, state)
+  cacheBrowserAccessState(kv, key, state)
   return state
 }
 
-export async function getBrowserAccessIntent(kv: KVNamespace): Promise<BrowserAccessIntent> {
-  const stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+export async function getBrowserAccessIntent(kv: KVNamespace, scope: BrowserAccessScope = {}): Promise<BrowserAccessIntent> {
+  let stored = await kv.get(browserAccessStateKey(scope.guildId), 'json') as StoredBrowserAccessState | null
+  if (!stored && scope.guildId && scope.guildId === scope.legacyGuildId) stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
   const enabled = stored?.enabled === true
   const preferenceRoleId = normalizeDiscordId(stored?.preferenceRoleId)
   return {
@@ -59,31 +70,33 @@ export async function getBrowserAccessIntent(kv: KVNamespace): Promise<BrowserAc
   }
 }
 
-export async function setBrowserAccessState(kv: KVNamespace, state: BrowserAccessState): Promise<void> {
+export async function setBrowserAccessState(kv: KVNamespace, state: BrowserAccessState, guildId?: string | null): Promise<void> {
   const normalized = normalizeBrowserAccessState(state)
-  await kv.put(BROWSER_ACCESS_STATE_KEY, JSON.stringify(normalized))
-  cacheBrowserAccessState(kv, normalized)
+  const key = browserAccessStateKey(guildId)
+  await kv.put(key, JSON.stringify(normalized))
+  cacheBrowserAccessState(kv, key, normalized)
 }
 
-export async function resolveBrowserAccessConfig(env: Env['Bindings']): Promise<BrowserAccessConfig | null> {
-  const state = await getBrowserAccessState(env.KV)
+export async function resolveBrowserAccessConfig(env: Env['Bindings'], guildId?: string | null): Promise<BrowserAccessConfig | null> {
+  const state = await getBrowserAccessState(env.KV, { guildId, legacyGuildId: env.ALLOWED_DISCORD_GUILD_ID })
   if (!state.enabled || !state.preferenceRoleId) return null
 
   const origin = normalizePublicOrigin(env.ACTIVITY_PUBLIC_ORIGIN)
   if (!origin) return null
-  return { origin, preferenceRoleId: state.preferenceRoleId }
+  return { origin, preferenceRoleId: state.preferenceRoleId, guildId: guildId ?? null }
 }
 
 export async function resolveInteractionLaunchMode(
   env: Env['Bindings'],
   memberRoles: unknown,
+  guildId?: string | null,
 ): Promise<LaunchModeResolution> {
-  const state = await getBrowserAccessState(env.KV)
+  const state = await getBrowserAccessState(env.KV, { guildId, legacyGuildId: env.ALLOWED_DISCORD_GUILD_ID })
   if (!state.enabled) {
     return { ok: true, mode: 'activity', config: null }
   }
 
-  const config = await resolveBrowserAccessConfig(env)
+  const config = await resolveBrowserAccessConfig(env, guildId)
   if (!config) {
     return { ok: false, error: 'Browser access is enabled but not fully configured. Please contact a server administrator.' }
   }
@@ -99,11 +112,18 @@ export async function resolveInteractionLaunchMode(
 }
 
 export function buildBrowserSessionUrl(config: BrowserAccessConfig, sessionId: string): string {
-  return `${config.origin}/web/session/${encodeURIComponent(sessionId)}`
+  return appendSourceGuild(`${config.origin}/web/session/${encodeURIComponent(sessionId)}`, config.guildId)
 }
 
 export function buildBrowserChannelUrl(config: BrowserAccessConfig, channelId: string): string {
-  return `${config.origin}/web/channel/${encodeURIComponent(channelId)}`
+  return appendSourceGuild(`${config.origin}/web/channel/${encodeURIComponent(channelId)}`, config.guildId)
+}
+
+function appendSourceGuild(value: string, guildId: string | null): string {
+  if (!guildId) return value
+  const url = new URL(value)
+  url.searchParams.set('sourceGuild', guildId)
+  return url.toString()
 }
 
 export function normalizePublicOrigin(value: string | undefined): string | null {
@@ -137,7 +157,7 @@ export function isSafeBrowserPreferenceRole(role: {
 }
 
 export function resetBrowserAccessStateCache(): void {
-  browserAccessStateCache = new WeakMap<KVNamespace, BrowserAccessStateCacheEntry>()
+  browserAccessStateCache = new WeakMap<KVNamespace, Map<string, BrowserAccessStateCacheEntry>>()
 }
 
 function normalizeBrowserAccessState(value: StoredBrowserAccessState | BrowserAccessState | null): BrowserAccessState {
@@ -148,11 +168,17 @@ function normalizeBrowserAccessState(value: StoredBrowserAccessState | BrowserAc
   }
 }
 
-function cacheBrowserAccessState(kv: KVNamespace, state: BrowserAccessState): void {
-  browserAccessStateCache.set(kv, {
+function cacheBrowserAccessState(kv: KVNamespace, key: string, state: BrowserAccessState): void {
+  const cache = browserAccessStateCache.get(kv) ?? new Map<string, BrowserAccessStateCacheEntry>()
+  cache.set(key, {
     expiresAt: Date.now() + BROWSER_ACCESS_STATE_CACHE_MS,
     state,
   })
+  browserAccessStateCache.set(kv, cache)
+}
+
+function browserAccessStateKey(guildId?: string | null): string {
+  return guildId ? `${BROWSER_ACCESS_STATE_KEY}:${guildId}` : BROWSER_ACCESS_STATE_KEY
 }
 |||||||
 =======

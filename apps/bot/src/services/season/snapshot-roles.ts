@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, matchParticipants, scopedSeasonPeakModeRanks as seasonPeakModeRanks, scopedSeasonPeakRanks as seasonPeakRanks, seasons } from '@civup/db'
 import { parseLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
@@ -17,6 +17,7 @@ import {
   normalizeRankedRoleTierId,
 } from '../ranked/roles.ts'
 import { formatSeasonShortName } from './index.ts'
+import { statsKeyForGuild } from '../stats/context.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
   bySeasonId?: Record<string, {
@@ -124,7 +125,7 @@ export async function finalizeSeasonSnapshotRoles(
   const rows = await db
     .select({ playerId: seasonPeakRanks.playerId, tier: seasonPeakRanks.tier })
     .from(seasonPeakRanks)
-    .where(eq(seasonPeakRanks.seasonId, season.id))
+    .where(and(eq(seasonPeakRanks.statsKey, statsKeyForGuild(guildId)), eq(seasonPeakRanks.seasonId, season.id)))
 
   const seasonRoleIds = Object.values(roleIdsByTier)
   for (const row of rows) {
@@ -168,7 +169,10 @@ export async function listPlayerSeasonSnapshotHistory(
       })
       .from(seasonPeakModeRanks)
       .innerJoin(seasons, eq(seasonPeakModeRanks.seasonId, seasons.id))
-      .where(eq(seasonPeakModeRanks.playerId, playerId))
+      .where(and(
+        eq(seasonPeakModeRanks.statsKey, statsKeyForGuild(guildId)),
+        eq(seasonPeakModeRanks.playerId, playerId),
+      ))
       .orderBy(desc(seasons.seasonNumber)),
     db
       .select({
@@ -182,6 +186,7 @@ export async function listPlayerSeasonSnapshotHistory(
       .where(and(
         eq(matchParticipants.playerId, playerId),
         eq(matches.status, 'completed'),
+        eq(matches.guildId, guildId),
       )),
     getRankedRoleConfig(kv, guildId),
   ])
@@ -256,7 +261,10 @@ async function trimExpiredSeasonSnapshotRoles(
   const expiredRows = await db
     .select({ seasonId: seasonPeakRanks.seasonId, playerId: seasonPeakRanks.playerId })
     .from(seasonPeakRanks)
-    .where(inArray(seasonPeakRanks.seasonId, expiredSeasonIds))
+    .where(and(
+      eq(seasonPeakRanks.statsKey, statsKeyForGuild(guildId)),
+      inArray(seasonPeakRanks.seasonId, expiredSeasonIds),
+    ))
 
   const playerIdsBySeasonId = new Map<string, Set<string>>()
   for (const row of expiredRows) {

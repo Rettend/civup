@@ -1,8 +1,9 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { calculateRatings, createRating, DEFAULT_MU, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -10,9 +11,11 @@ const HERO_ID = 'p1'
 const VILLAIN_ID = 'p2'
 const ALLY_ID = 'p3'
 const OTHER_ID = 'p4'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('match global ratings', () => {
-  const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
+  const directTerminalOptions = { allowDirectTerminalWriteForTests: true, primaryGuildId: GUILD_ID }
 
   test('imported matches count as visible partial evidence', async () => {
     const { db, sqlite } = await createTestDatabase()
@@ -21,7 +24,7 @@ describe('match global ratings', () => {
       await seedDuelPlayers(db)
       await seedCompletedDuel(db, { matchId: 'old-1', completedAt: NOW, isOld: true })
 
-      const result = await recalculateLeaderboardMode(db, 'duel')
+      const result = await recalculateLeaderboardMode(db, 'duel', STATS_CONTEXT)
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
@@ -99,7 +102,7 @@ describe('match global ratings', () => {
       await seedCompletedDuel(db, { matchId: 'm1', completedAt: NOW - 1_000, isOld: false })
       await seedCompletedDuel(db, { matchId: 'old-1', completedAt: NOW, isOld: true })
 
-      const result = await recalculateGlobalRatings(db, {
+      const result = await recalculateGlobalRatings(db, STATS_CONTEXT, {
         opponentTierByPlayerId: new Map([[VILLAIN_ID, 'tier2']]),
       })
       expect('error' in result).toBe(false)
@@ -130,7 +133,7 @@ describe('match global ratings', () => {
       await seedTeamPlayers(db)
       await seedCompletedTeamMatch(db, { matchId: 'team-1', completedAt: NOW, isOld: false })
 
-      const result = await recalculateGlobalRatings(db, {
+      const result = await recalculateGlobalRatings(db, STATS_CONTEXT, {
         opponentTierByPlayerId: new Map([[VILLAIN_ID, 'tier2']]),
       })
       expect('error' in result).toBe(false)
@@ -171,6 +174,7 @@ async function seedActiveDuel(
 ): Promise<void> {
   await db.insert(matches).values({
     id: matchId,
+    guildId: GUILD_ID,
     gameMode: '1v1',
     status: 'active',
     isOld: false,
@@ -188,6 +192,7 @@ async function seedCompletedDuel(
 ): Promise<void> {
   await db.insert(matches).values({
     id: input.matchId,
+    guildId: GUILD_ID,
     gameMode: '1v1',
     status: 'completed',
     isOld: input.isOld,
@@ -205,6 +210,7 @@ async function seedCompletedTeamMatch(
 ): Promise<void> {
   await db.insert(matches).values({
     id: input.matchId,
+    guildId: GUILD_ID,
     gameMode: '2v2',
     status: 'completed',
     isOld: input.isOld,
@@ -257,6 +263,7 @@ async function loadPlayerRating(
     .select()
     .from(playerRatings)
     .where(and(
+      eq(playerRatings.statsKey, STATS_CONTEXT.statsKey),
       eq(playerRatings.playerId, playerId),
       eq(playerRatings.mode, mode),
     ))
@@ -274,6 +281,7 @@ async function loadPlayerRatingEvent(
     .select()
     .from(playerRatingEvents)
     .where(and(
+      eq(playerRatingEvents.statsKey, STATS_CONTEXT.statsKey),
       eq(playerRatingEvents.matchId, matchId),
       eq(playerRatingEvents.playerId, playerId),
       eq(playerRatingEvents.mode, mode),

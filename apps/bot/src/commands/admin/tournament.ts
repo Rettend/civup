@@ -1,13 +1,15 @@
-import type { AdminCommandContext } from './types.ts'
+import type { AdminCommandContext, AdminComponentContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { fetchGuildMember, isDiscordApiError } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { hasAdminPermission } from '../../services/permissions/index.ts'
+import { primaryChannelScope } from '../../services/system/channels.ts'
 import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament, type TournamentPlayerImportRow } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
-import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
+import { getInteractionUserId, isLegacyPrimaryGuildInteraction, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
 const ADMIN_TOURNAMENT_CREATE_MODAL_ID = 'admin-tournament-create'
 const ADMIN_TOURNAMENT_EDIT_MODAL_ID = 'admin-tournament-edit'
@@ -27,6 +29,7 @@ interface AttachmentInteractionData {
 }
 
 export function handleTournamentCreate(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   return c.resModal(
     new Modal(ADMIN_TOURNAMENT_CREATE_MODAL_ID, 'Create Tournament')
       .row(new TextInput('name', 'Name').required().max_length(80).placeholder('1v1 Tournament'))
@@ -37,6 +40,7 @@ export function handleTournamentCreate(c: AdminCommandContext) {
 }
 
 export function handleTournamentImport(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
@@ -84,7 +88,7 @@ export function handleTournamentImport(c: AdminCommandContext) {
     }
 
     if (tournament.status !== 'setup') {
-      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
         console.error('[admin:tournament:import] failed to refresh tournament leaderboard', error)
       })
     }
@@ -147,6 +151,7 @@ function buildGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: 
 }
 
 export function handleTournamentStatus(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
@@ -167,6 +172,7 @@ export function handleTournamentStatus(c: AdminCommandContext) {
 }
 
 export async function handleTournamentEdit(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   const db = createDb(c.env.DB)
   const tournament = await getCurrentTournament(db)
   if (!tournament) {
@@ -183,6 +189,7 @@ export async function handleTournamentEdit(c: AdminCommandContext) {
 }
 
 export function handleTournamentCut(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
@@ -197,7 +204,7 @@ export function handleTournamentCut(c: AdminCommandContext) {
       return
     }
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
       console.error('[admin:tournament:cut] failed to refresh tournament leaderboard', error)
     })
 
@@ -214,6 +221,7 @@ export function handleTournamentCut(c: AdminCommandContext) {
 }
 
 export function handleTournamentStart(c: AdminCommandContext) {
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
@@ -228,7 +236,7 @@ export function handleTournamentStart(c: AdminCommandContext) {
       return
     }
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
       console.error('[admin:tournament:start] failed to refresh tournament leaderboard', error)
     })
 
@@ -239,6 +247,10 @@ export function handleTournamentStart(c: AdminCommandContext) {
 export const modal_admin_tournament_create = factory.modal(
   new Modal(ADMIN_TOURNAMENT_CREATE_MODAL_ID, 'Create Tournament'),
   async (c) => {
+    if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('You need Administrator or Manage Server permission for this action.', 'error')] })
+    }
+    if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
     const actorId = getInteractionUserId(c)
     if (!actorId) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
 
@@ -279,6 +291,10 @@ export const modal_admin_tournament_create = factory.modal(
 export const modal_admin_tournament_edit = factory.modal(
   new Modal(ADMIN_TOURNAMENT_EDIT_MODAL_ID, 'Edit Tournament'),
   async (c) => {
+    if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('You need Administrator or Manage Server permission for this action.', 'error')] })
+    }
+    if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
     const actorId = getInteractionUserId(c)
     if (!actorId) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
 
@@ -310,7 +326,7 @@ export const modal_admin_tournament_edit = factory.modal(
     })
 
     if (tournament.status !== 'setup') {
-      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN, primaryChannelScope(c.env)).catch((error) => {
         console.error('[admin:tournament:edit] failed to refresh tournament leaderboard', error)
       })
     }
@@ -325,4 +341,10 @@ function resolveAttachment(c: AdminCommandContext, attachmentId: string | undefi
   if (!attachmentId) return null
   const attachments = (c.interaction.data as AttachmentInteractionData | undefined)?.resolved?.attachments
   return attachments?.[attachmentId] ?? null
+}
+
+function primaryGuildOnlyResponse(c: AdminCommandContext | AdminComponentContext) {
+  return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext | AdminComponentContext) => {
+    await sendTransientEphemeralResponse(c, 'Shared tournament administration is only available in the primary Discord server.', 'error')
+  })
 }

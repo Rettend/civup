@@ -35,6 +35,7 @@ export function createActivityTargetOption(overrides: Partial<ActivityTargetOpti
     ],
     updatedAt: 1,
     ...overrides,
+    originGuildId: overrides.originGuildId ?? '111111111111111111',
   }
 }
 
@@ -91,6 +92,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       pickTimerSeconds: 90,
     },
     ...overrides,
+    originGuildId: overrides.originGuildId ?? '111111111111111111',
   }
 }
 

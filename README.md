@@ -79,7 +79,7 @@ Use the development app only with local tunnels. Use the production app only wit
    bunx @rttnd/gau secret
    ```
 
-   Put the development app's public values and bot token in the bot file. Put its client ID and client secret in the Activity file. Both files need the same guild ID and Activity tunnel origin.
+   Put the development app's public values and bot token in the bot file. Put its client ID and client secret in the Activity file. Both files need the same primary guild ID, comma-separated additional-guild list, and Activity tunnel origin. For a single-server setup, omit `ALLOWED_DISCORD_GUILD_IDS` instead of leaving it blank.
 
 3. Create the tunnel, route your two development hostnames to it, and fill `cloudflared.dev.yml`.
 
@@ -156,7 +156,7 @@ Pick the Cloudflare account first. Confirm it with `bunx wrangler whoami`, then 
 - `apps/bot/wrangler.jsonc`
 - `apps/activity/wrangler.json`
 
-The account ID, guild ID, and Activity origin must match. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID, and the bot `DISCORD_PUBLIC_KEY` must be that app's 64-character public key.
+The account ID, primary guild ID, additional-guild list, and Activity origin must match. `ALLOWED_DISCORD_GUILD_ID` is the primary server; `ALLOWED_DISCORD_GUILD_IDS` is an optional comma-separated list of additional supported servers, and the primary server is included automatically. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID, and the bot `DISCORD_PUBLIC_KEY` must be that app's 64-character public key.
 
 Find or change the account's `workers.dev` subdomain on the Cloudflare **Workers & Pages** page under **Your subdomain**. With the checked-in Worker names, the Activity origin is `https://civup-activity.<account subdomain>.workers.dev`.
 
@@ -239,6 +239,7 @@ cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
 cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
 ```
 
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: export data in activity
 <<<<<<< New base: fix: mod resolve
 The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
@@ -252,6 +253,13 @@ The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also con
 =======
 The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
 >>>>>>> Current commit: fix: deploy config
+||||||| Common ancestor
+The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
+=======
+Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
+>>>>>>> Current commit: feat: add multi-server foundations
+
+The bot file also supplies command registration. Fill its application ID, token, primary guild ID, and optional supported-guild list; the guild values must match both Wrangler configs.
 
 ```bash
 bun run bot:secrets:prod
@@ -280,8 +288,8 @@ After both URLs exist:
 1. under **General Information**, set **Interactions Endpoint URL** to the bot Worker URL;
 2. under **OAuth2** > **Redirects**, add the Activity origin and browser callback;
 3. under **Activities** > **URL Mappings**, map `/` to the Activity hostname without `https://`;
-4. install the app in the configured server;
-5. register guild commands with `bun run bot:register:prod`.
+4. install the app in every configured supported server;
+5. register guild commands in all of them with `bun run bot:register:prod`.
 ||||||| Common ancestor
    fill them in again :)
 =======
@@ -298,7 +306,16 @@ For later releases, this does deploy plus registration:
 bun run deploy:prod:full
 ```
 
-The registration script always requires a guild. It does not replace Discord's global Launch command.
+The registration script requires valid approved-server configuration and registers commands in every supported server. It does not replace Discord's global Launch command.
+
+When upgrading an existing single-server database to the scoped multi-server schema, record the millisecond timestamp immediately before deploying the scoped-write Worker. After the migration and Worker deploy, preview and apply the idempotent ownership/rating backfill before enabling partner servers:
+
+```bash
+bun run bot:backfill:multi-server preview --remote --cutoff <timestamp>
+bun run bot:backfill:multi-server apply --remote --cutoff <timestamp> --execute --yes
+```
+
+Resolve every validation count before adding partner IDs. The report path keeps reading missing primary rating rows from the legacy tables during this short cutover, but the backfill remains required for complete scoped history and read views.
 
 Browser access is optional. After its callback redirect exists, enable it with `/admin setup target:Browser Access value:on`. Keep the bot role above the zero-permission preference role it creates.
 

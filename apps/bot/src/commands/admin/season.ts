@@ -2,6 +2,7 @@ import type { AdminCommandContext, AdminComponentContext } from './types.ts'
 import { createDb } from '@civup/db'
 import { Button, Components } from 'discord-hono'
 import { getKvStore } from '../../services/kv/batch.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 import { archiveSeasonLeaderboards, refreshConfiguredLeaderboards } from '../../services/leaderboard/message.ts'
 import { hasAdminPermission } from '../../services/permissions/index.ts'
 import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
@@ -9,7 +10,7 @@ import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmatio
 import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
 import { factory } from '../../setup.ts'
-import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
+import { getInteractionUserId, isLegacyPrimaryGuildInteraction, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
 
 export function handleSeasonStart(c: AdminCommandContext) {
   const guildId = c.interaction.guild_id
@@ -20,6 +21,7 @@ export function handleSeasonStart(c: AdminCommandContext) {
       await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
     })
   }
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
@@ -85,6 +87,7 @@ export function handleSeasonEnd(c: AdminCommandContext) {
       await sendTransientEphemeralResponse(c, 'This command can only be used in a server.', 'error')
     })
   }
+  if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const db = createDb(c.env.DB)
@@ -131,6 +134,8 @@ export const component_admin_season_confirm = factory.component(
       })
     }
 
+    if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
+
     const actorId = getInteractionUserId(c)
     const guildId = c.interaction.guild_id
     if (!actorId || !guildId) {
@@ -163,9 +168,13 @@ export const component_admin_season_confirm = factory.component(
             kv,
             seasonNumber: pending.seasonNumber ?? undefined,
             softReset: pending.softReset ?? true,
+            statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
           })
           if (season.didSoftReset) await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
-          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
+          await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN, {
+            channelScope: { guildId, legacyGuildId: guildId },
+            statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+          })
           await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
           await updateSeasonActionPrompt(
             c,
@@ -184,9 +193,12 @@ export const component_admin_season_confirm = factory.component(
 
       try {
         const db = createDb(c.env.DB)
-        await syncRankedRoles({ db, kv, guildId })
+        await syncRankedRoles({ db, kv, guildId, statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '') })
         const season = await endSeason(db)
-        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name)
+        await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name, {
+          channelScope: { guildId, legacyGuildId: guildId },
+          statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+        })
         await finalizeSeasonSnapshotRoles(db, kv, guildId, c.env.DISCORD_TOKEN, season)
         await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season data is now archived.`, 'success')
       }
@@ -228,6 +240,13 @@ export const component_admin_season_cancel = factory.component(
       })
     }
 
+    if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
+      return c.flags('EPHEMERAL').resDefer(async (c: AdminComponentContext) => {
+        await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for this action.', 'error')
+      })
+    }
+    if (!isLegacyPrimaryGuildInteraction(c)) return primaryGuildOnlyResponse(c)
+
     const actorId = getInteractionUserId(c)
     const guildId = c.interaction.guild_id
     if (!actorId || !guildId) {
@@ -255,3 +274,9 @@ export const component_admin_season_cancel = factory.component(
     })
   },
 )
+
+function primaryGuildOnlyResponse(c: AdminCommandContext | AdminComponentContext) {
+  return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext | AdminComponentContext) => {
+    await sendTransientEphemeralResponse(c, 'Shared season administration is only available in the primary Discord server.', 'error')
+  })
+}

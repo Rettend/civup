@@ -3,6 +3,8 @@ import { getServerConfigRows, parseServerConfigKey, SERVER_CONFIG_KEYS, setServe
 import { sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleConfig(c: AdminCommandContext) {
+  const guildId = c.interaction.guild_id ?? null
+  const scope = { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID }
   const rawKey = c.var.key
   const key = parseServerConfigKey(rawKey)
   const value = c.var.value
@@ -15,7 +17,7 @@ export function handleConfig(c: AdminCommandContext) {
 
   if (!key) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const rows = await getServerConfigRows(c.env.KV)
+      const rows = await getServerConfigRows(c.env.KV, scope)
       await sendTransientEphemeralResponse(
         c,
         `**Available config keys:**\n${rows.map(row => `\`${row.key}\` = \`${row.value}\` — ${row.description}`).join('\n')}`,
@@ -35,7 +37,7 @@ export function handleConfig(c: AdminCommandContext) {
   }
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-    const result = await setServerConfigValue(c.env.KV, key, value)
+    const result = await setServerConfigValue(c.env.KV, key, value, scope)
     if (!result.ok) {
       await sendTransientEphemeralResponse(c, result.error ?? 'Invalid config value.', 'error')
       return

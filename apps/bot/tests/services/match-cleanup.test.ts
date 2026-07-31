@@ -1,4 +1,4 @@
-import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
+import { matchBans, matchRepairs, matches, matchParticipants, playerRatingEvents, players, sessionDirectory } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
@@ -7,6 +7,7 @@ import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberP
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
+const GUILD_ID = '111111111111111111'
 
 afterEach(() => {
   globalThis.fetch = originalFetch
@@ -28,16 +29,22 @@ describe('match cleanup reconciliation', () => {
         { id: 'host', displayName: 'Host', avatarUrl: null, createdAt: 1 },
         { id: 'player-2', displayName: 'Player 2', avatarUrl: null, createdAt: 1 },
       ])
+      const queueEntries = [
+        { playerId: 'host', displayName: 'Host', avatarUrl: null, joinedAt: 1 },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: 1 },
+      ]
       const lobby = await createLobby(kv, {
         mode: '1v1',
         hostId: 'host',
         channelId: 'channel-1',
         messageId: 'message-1',
         db,
+        queueEntries,
       })
       const matchId = lobby.id
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'completed',
         createdAt: 1,
@@ -50,8 +57,9 @@ describe('match cleanup reconciliation', () => {
         { matchId, playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
       ])
 
-      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-2'], lobby)
-      const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
+      const runtimeOptions = { db, queueEntries }
+      const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-2'], lobby, runtimeOptions)
+      const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, runtimeOptions)
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
 
       const result = await pruneAbandonedMatches(db, kv, { sessionNamespace: getExistingTestLobbyRuntime(kv).sessionNamespace })
@@ -82,6 +90,7 @@ describe('match cleanup reconciliation', () => {
       ])
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'cancelled',
         createdAt: 1,
@@ -136,6 +145,7 @@ describe('match cleanup reconciliation', () => {
       const ratedMatchId = 'stale-match-085'
       const staleMatchRows = Array.from({ length: 161 }, (_, index) => ({
         id: `stale-match-${String(index).padStart(3, '0')}`,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'cancelled',
         createdAt: 1,
@@ -188,6 +198,7 @@ describe('match cleanup reconciliation', () => {
       const matchId = 'orphan-stale-match'
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'cancelled',
         createdAt: 1,
@@ -208,6 +219,44 @@ describe('match cleanup reconciliation', () => {
       sqlite.close()
     }
   })
+
+  test('keeps a broken live directory visible when its SessionDO rejects cancellation', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const requestedSessionIds: string[] = []
+
+    try {
+      await db.insert(sessionDirectory).values({
+        sessionId: 'broken-live-session',
+        phase: 'active',
+        mode: '1v1',
+        guildId: GUILD_ID,
+        channelId: 'channel',
+        hostId: 'host',
+        messageId: 'message',
+        matchId: null,
+        version: 1,
+        rosterJson: '{}',
+        configJson: '{}',
+        createdAt: 1,
+        updatedAt: 1,
+        lastActivityAt: 1,
+      })
+
+      const result = await pruneAbandonedMatches(db, kv, {
+        now: 100,
+        sessionNamespace: rejectingSessionNamespace(requestedSessionIds),
+      })
+
+      expect(requestedSessionIds).toEqual(['broken-live-session'])
+      expect((await db.select().from(sessionDirectory))[0]?.phase).toBe('active')
+      expect(result.queuedRepairIds).toHaveLength(1)
+      expect((await db.select().from(matchRepairs))[0]).toMatchObject({ repairType: 'cleanup-retry', status: 'pending' })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
 })
 
 function missingSessionNamespace(): DurableObjectNamespace {
@@ -222,6 +271,22 @@ function missingSessionNamespace(): DurableObjectNamespace {
             status: 404,
             headers: { 'Content-Type': 'application/json' },
           })
+        },
+      } as DurableObjectStub
+    },
+  } as DurableObjectNamespace
+}
+
+function rejectingSessionNamespace(requestedSessionIds: string[]): DurableObjectNamespace {
+  return {
+    idFromName(name: string) {
+      requestedSessionIds.push(name)
+      return name as unknown as DurableObjectId
+    },
+    get() {
+      return {
+        async fetch() {
+          return Response.json({ error: 'Injected terminal failure' }, { status: 500 })
         },
       } as DurableObjectStub
     },

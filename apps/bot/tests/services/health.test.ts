@@ -35,6 +35,17 @@ describe('/admin health checks', () => {
     })
   })
 
+  test('fails config health when the primary guild setting is missing', async () => {
+    const results = await runHealthChecks(createEnv({
+      ALLOWED_DISCORD_GUILD_ID: undefined,
+      ALLOWED_DISCORD_GUILD_IDS: GUILD_ID,
+    }), { fetch: createFetch(), interactionEndpointUrl: ENDPOINT })
+
+    expect(results.find(result => result.name === 'Config')).toEqual({
+      name: 'Config', status: 'FAIL', reason: 'invalid primary guild ID',
+    })
+  })
+
   test('requires a successful Activity origin response', async () => {
     for (const activityStatus of [302, 404]) {
       const results = await runHealthChecks(createEnv(), {

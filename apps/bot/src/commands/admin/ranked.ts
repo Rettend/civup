@@ -4,6 +4,7 @@ import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { clearRankedRolesDirtyState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
+import { createStatsContext } from '../../services/stats/context.ts'
 import {
   createRankedRoleTierId,
   fetchGuildRoles,
@@ -117,6 +118,7 @@ export function handleRankedSync(c: AdminCommandContext) {
         db,
         kv,
         guildId,
+        statsContext: createStatsContext(guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
         token: c.env.DISCORD_TOKEN,
         applyDiscord: true,
         maxDiscordRoleSyncPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,

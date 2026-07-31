@@ -1,15 +1,16 @@
-import type { ActivityTargetOption } from '~/client/stores'
+import type { ActivitySupportedServerSnapshot, ActivityTargetOption } from '~/client/stores'
 import { formatModeLabel } from '@civup/game'
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { MiniFrame } from '~/client/components/draft/MiniLayout'
 import { activityTargetOptionKey } from '~/client/lib/activity-targets'
 import { cn } from '~/client/lib/css'
-import { isMobileLayout } from '~/client/stores'
+import { isMobileLayout, user } from '~/client/stores'
 
 interface LobbyOverviewTargetPickerProps {
   mini?: boolean
   error?: string | null
   options: ActivityTargetOption[]
+  supportedServers: ActivitySupportedServerSnapshot[]
   busy?: boolean
   selectedKey?: string | null
   onSelect: (option: ActivityTargetOption) => void
@@ -97,17 +98,35 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
 
 function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
   const [filter, setFilter] = createSignal<OverviewFilter>('all')
-  const counts = createMemo(() => getOverviewCounts(props.options))
+  const [serverFilter, setServerFilter] = createSignal<string | 'all'>('all')
+  let initializedServerFilter = false
+  createEffect(() => {
+    const servers = props.supportedServers
+    if (!initializedServerFilter && servers.length > 0) {
+      initializedServerFilter = true
+      const launchGuildId = user()?.guildId ?? null
+      setServerFilter(launchGuildId && servers.some(server => server.id === launchGuildId) ? launchGuildId : 'all')
+      return
+    }
+    const selected = serverFilter()
+    if (selected !== 'all' && !servers.some(server => server.id === selected)) setServerFilter('all')
+  })
+  const serverFilteredOptions = createMemo(() => {
+    const selected = serverFilter()
+    return selected === 'all' ? props.options : props.options.filter(option => option.originGuildId === selected)
+  })
+  const counts = createMemo(() => getOverviewCounts(serverFilteredOptions()))
   const navItems = createMemo(() => buildNavItems(counts()))
   const visibleOptions = createMemo(() => {
     const activeFilter = filter()
-    if (activeFilter === 'all') return props.options
-    if (activeFilter === 'open') return props.options.filter((option) => {
+    if (activeFilter === 'all') return serverFilteredOptions()
+    if (activeFilter === 'open') return serverFilteredOptions().filter((option) => {
       const status = getOptionStatus(option)
       return status === 'open' || status === 'closed'
     })
-    return props.options.filter(option => getOptionStatus(option) === activeFilter)
+    return serverFilteredOptions().filter(option => getOptionStatus(option) === activeFilter)
   })
+  const serverById = createMemo(() => new Map(props.supportedServers.map(server => [server.id, server])))
 
   return (
     <section class={cn('flex flex-col gap-4', isMobileLayout() && 'pt-12')}>
@@ -120,18 +139,22 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
         <div class="h-9 w-9" />
       </div>
 
-      <Show
-        when={props.options.length > 0}
-        fallback={(
-          <div class="px-6 py-8 text-center border border-border-subtle rounded-2xl bg-bg-subtle/90">
-            <div class="mx-auto mb-3 border border-border-subtle rounded-full bg-bg-muted/40 flex h-12 w-12 items-center justify-center">
-              <span class="i-ph:squares-four-duotone text-xl text-fg-subtle" />
-            </div>
-            <div class="text-base text-fg font-semibold">No active lobbies</div>
+      <div class="flex gap-4 items-start">
+        <div class="hidden lg:flex w-44 shrink-0 flex-col gap-1 rounded-2xl border border-border-subtle bg-bg-subtle/75 p-2 lg:sticky lg:top-4">
+          <ServerFilterButton label="All" selected={serverFilter() === 'all'} onSelect={() => setServerFilter('all')} />
+          <For each={props.supportedServers}>
+            {server => <ServerFilterButton server={server} label={server.name || server.id} selected={serverFilter() === server.id} onSelect={() => setServerFilter(server.id)} />}
+          </For>
+        </div>
+
+        <div class="min-w-0 flex flex-1 flex-col gap-4">
+          <div class="lg:hidden -mx-1 px-1 flex gap-2 overflow-x-auto pb-1">
+            <ServerFilterButton compact label="All" selected={serverFilter() === 'all'} onSelect={() => setServerFilter('all')} />
+            <For each={props.supportedServers}>
+              {server => <ServerFilterButton compact server={server} label={server.name || server.id} selected={serverFilter() === server.id} onSelect={() => setServerFilter(server.id)} />}
+            </For>
           </div>
-        )}
-      >
-        <div class="flex flex-col gap-4">
+
           <div class="mx-auto p-1 border border-border-subtle rounded-2xl bg-bg-subtle/75 grid grid-cols-4 gap-1 w-full max-w-lg">
             <For each={navItems()}>
               {item => (
@@ -159,7 +182,7 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
             when={visibleOptions().length > 0}
             fallback={(
               <div class="px-6 py-8 text-center border border-border-subtle rounded-2xl bg-bg-subtle/80">
-                <span class="text-sm text-fg-muted">No lobbies</span>
+                <span class="text-sm text-fg-muted">{serverFilter() === 'all' ? 'No active lobbies' : 'No lobbies from this server'}</span>
               </div>
             )}
           >
@@ -176,6 +199,7 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
                       option={option}
                       selected={selected()}
                       busy={props.busy === true}
+                      originServer={serverById().get(option.originGuildId) ?? null}
                       onSelect={props.onSelect}
                     />
                   )
@@ -184,8 +208,45 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
             </div>
           </Show>
         </div>
-      </Show>
+      </div>
     </section>
+  )
+}
+
+function ServerFilterButton(props: {
+  server?: ActivitySupportedServerSnapshot
+  label: string
+  selected: boolean
+  compact?: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={props.selected}
+      onClick={props.onSelect}
+      class={cn(
+        'rounded-xl px-3 py-2 text-left flex min-w-0 items-center gap-2 transition-colors',
+        props.compact && 'shrink-0 whitespace-nowrap',
+        props.selected ? 'bg-accent/16 text-accent ring-1 ring-accent/35' : 'text-fg-muted hover:text-fg hover:bg-white/6',
+      )}
+    >
+      <Show when={props.server} fallback={<span class="i-ph:globe-hemisphere-west-duotone text-base shrink-0" />}>
+        {server => <ServerIdentityIcon server={server()} />}
+      </Show>
+      <span class="text-xs font-semibold truncate">{props.label}</span>
+    </button>
+  )
+}
+
+function ServerIdentityIcon(props: { server: ActivitySupportedServerSnapshot | { id: string, name?: string | null, iconUrl?: string | null } }) {
+  return (
+    <Show
+      when={props.server.iconUrl}
+      fallback={<span class="rounded bg-white/10 text-[8px] text-fg-subtle font-bold shrink-0 inline-flex h-5 w-5 items-center justify-center">{(props.server.name || 'S').slice(0, 1).toUpperCase()}</span>}
+    >
+      {iconUrl => <img src={iconUrl()} alt="" draggable={false} class="rounded shrink-0 h-5 w-5 object-cover" />}
+    </Show>
   )
 }
 
@@ -193,6 +254,7 @@ function OverviewTargetCard(props: {
   option: ActivityTargetOption
   selected: boolean
   busy: boolean
+  originServer: ActivitySupportedServerSnapshot | null
   onSelect: (option: ActivityTargetOption) => void
 }) {
   const status = () => getOptionStatus(props.option)
@@ -201,6 +263,7 @@ function OverviewTargetCard(props: {
   const namePreviewPlayers = () => players().slice(0, NAME_PLAYER_PREVIEW_LIMIT)
   const avatarPreviewPlayers = () => players().slice(0, AVATAR_PLAYER_PREVIEW_LIMIT)
   const showAvatarPreview = () => players().length > NAME_PLAYER_PREVIEW_LIMIT
+  const showPlayerServers = () => new Set(players().flatMap(player => player.sourceGuild?.id ? [player.sourceGuild.id] : [])).size > 1
 
   return (
     <button
@@ -245,12 +308,12 @@ function OverviewTargetCard(props: {
           fallback={(
             <div class={cn('mt-3 gap-1.5 grid', players().length > 4 ? 'grid-cols-3' : 'grid-cols-2')} data-overview-name-grid>
               <For each={namePreviewPlayers()}>
-                {player => <PlayerPreviewPill player={player} />}
+                {player => <PlayerPreviewPill player={player} showServer={showPlayerServers()} />}
               </For>
             </div>
           )}
         >
-          <PlayerAvatarTeamPreview players={avatarPreviewPlayers()} />
+          <PlayerAvatarTeamPreview players={avatarPreviewPlayers()} showServers={showPlayerServers()} />
         </Show>
       </Show>
 
@@ -262,27 +325,37 @@ function OverviewTargetCard(props: {
           </span>
         </Show>
 
-        <span class="text-sm text-fg-muted font-mono inline-flex gap-1 items-center tabular-nums shrink-0">
-          <span class="i-ph:users-duotone text-base" />
-          {props.option.participantCount}
-          /
-          {props.option.targetSize}
+        <span class="flex gap-2 items-center min-w-0">
+          <Show when={props.originServer}>
+            {server => (
+              <span class="text-[10px] text-fg-muted flex min-w-0 items-center gap-1" title={`Lobby server: ${server().name || server().id}`}>
+                <ServerIdentityIcon server={server()} />
+                <span class="truncate max-w-24">{server().name || server().id}</span>
+              </span>
+            )}
+          </Show>
+          <span class="text-sm text-fg-muted font-mono inline-flex gap-1 items-center tabular-nums shrink-0">
+            <span class="i-ph:users-duotone text-base" />
+            {props.option.participantCount}
+            /
+            {props.option.targetSize}
+          </span>
         </span>
       </div>
     </button>
   )
 }
 
-function PlayerPreviewPill(props: { player: OverviewPlayer }) {
+function PlayerPreviewPill(props: { player: OverviewPlayer, showServer: boolean }) {
   return (
     <div class="rounded-full pr-2 h-7 bg-white/6 flex gap-1.5 min-w-0 items-center">
-      <PlayerAvatarBubble player={props.player} />
+      <PlayerAvatarBubble player={props.player} showServer={props.showServer} />
       <span class="text-xs text-fg leading-none truncate">{props.player.displayName}</span>
     </div>
   )
 }
 
-function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
+function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[], showServers: boolean }) {
   const columns = () => splitPlayersForAvatarColumns(props.players)
 
   return (
@@ -291,7 +364,7 @@ function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
         {column => (
           <div class="flex flex-wrap gap-1.5 min-w-0 items-center content-start">
             <For each={column}>
-              {player => <PlayerPreviewAvatar player={player} />}
+              {player => <PlayerPreviewAvatar player={player} showServer={props.showServers} />}
             </For>
           </div>
         )}
@@ -300,10 +373,10 @@ function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
   )
 }
 
-function PlayerPreviewAvatar(props: { player: OverviewPlayer }) {
+function PlayerPreviewAvatar(props: { player: OverviewPlayer, showServer: boolean }) {
   return (
     <span class="group/avatar relative inline-flex" role="img" aria-label={props.player.displayName} data-overview-player-avatar>
-      <PlayerAvatarBubble player={props.player} />
+      <PlayerAvatarBubble player={props.player} showServer={props.showServer} />
       <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-border-subtle bg-bg-elevated/96 px-2.5 py-1 text-[10px] text-fg shadow-[0_8px_20px_rgba(0,0,0,0.32)] opacity-0 transition-opacity duration-100 group-hover/avatar:duration-0 group-hover/avatar:opacity-100 group-focus-visible/avatar:duration-0 group-focus-visible/avatar:opacity-100" role="tooltip">
         {props.player.displayName}
         <span class="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-border-subtle bg-bg-elevated/96" />
@@ -312,18 +385,32 @@ function PlayerPreviewAvatar(props: { player: OverviewPlayer }) {
   )
 }
 
-function PlayerAvatarBubble(props: { player: OverviewPlayer }) {
+function PlayerAvatarBubble(props: { player: OverviewPlayer, showServer?: boolean }) {
   return (
-    <span class="rounded-full h-7 w-7 shrink-0 flex items-center justify-center overflow-hidden">
-      <Show
-        when={props.player.avatarUrl}
-        fallback={(
-          <span class="rounded-full flex h-6 w-6 items-center justify-center">
-            <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
+    <span class="relative h-7 w-7 shrink-0 inline-flex items-center justify-center">
+      <span class="rounded-full h-7 w-7 flex items-center justify-center overflow-hidden">
+        <Show
+          when={props.player.avatarUrl}
+          fallback={(
+            <span class="rounded-full flex h-6 w-6 items-center justify-center">
+              <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
+            </span>
+          )}
+        >
+          {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-6 w-6 object-cover" />}
+        </Show>
+      </span>
+      <Show when={props.showServer && props.player.sourceGuild}>
+        {server => (
+          <span class="absolute -bottom-0.5 -right-0.5 rounded-sm border border-bg-elevated bg-bg-elevated h-3.5 w-3.5 overflow-hidden flex items-center justify-center" title={server().name || server().id} data-overview-player-server>
+            <Show
+              when={server().iconUrl}
+              fallback={<span class="text-[6px] text-fg-subtle font-bold">{(server().name || 'S').slice(0, 1).toUpperCase()}</span>}
+            >
+              {iconUrl => <img src={iconUrl()} alt="" class="h-full w-full object-cover" />}
+            </Show>
           </span>
         )}
-      >
-        {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-6 w-6 object-cover" />}
       </Show>
     </span>
   )
@@ -487,6 +574,7 @@ function formatTargetModeLabel(option: ActivityTargetOption): string {
 }
 
 function formatTargetStatus(option: ActivityTargetOption): string {
+  if (option.starting) return 'Starting'
   const status = getOptionStatus(option)
   if (status === 'open') return 'Open'
   if (status === 'closed') return 'Closed'
@@ -495,6 +583,7 @@ function formatTargetStatus(option: ActivityTargetOption): string {
 }
 
 function formatMiniTargetStatus(option: ActivityTargetOption): string {
+  if (option.starting) return 'Starting'
   const status = getOptionStatus(option)
   if (status === 'open') return 'Open'
   if (status === 'closed') return 'Closed'

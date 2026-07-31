@@ -12,6 +12,7 @@
 <<<<<<< New base: feat: save file analyzer
     "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.thepeace.workers.dev",
     "ALLOWED_DISCORD_GUILD_ID": "1234044388733095946",
+    "ALLOWED_DISCORD_GUILD_IDS": "1234044388733095946",
     "DISCORD_CLIENT_ID": "1484646041096552600"
 ||||||| Common ancestor
     "DISCORD_CLIENT_ID": "1469447716751933533",

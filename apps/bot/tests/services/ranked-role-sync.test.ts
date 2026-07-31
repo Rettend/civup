@@ -1,12 +1,17 @@
-import { playerRatings, players } from '@civup/db'
+import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles as previewRankedRolesSource, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles as syncRankedRolesSource } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
+const STATS_CONTEXT = createStatsContext('111111111111111111', '111111111111111111')
+type RankedRoleTestOptions = Omit<Parameters<typeof previewRankedRolesSource>[0], 'statsContext'>
+const previewRankedRoles = (options: RankedRoleTestOptions) => previewRankedRolesSource({ ...options, statsContext: STATS_CONTEXT })
+const syncRankedRoles = (options: RankedRoleTestOptions) => syncRankedRolesSource({ ...options, statsContext: STATS_CONTEXT })
 const originalFetch = globalThis.fetch
 const TIER_1 = 'tier1'
 const TIER_2 = 'tier2'
@@ -424,7 +429,7 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('thin current tier 1 stays protected until tier-1 evidence gate', async () => {
+  test('best-mode grace cap limits thin tier-1 protection', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
     await seedPlayers(db, 'ffa', 20, { prefix: 'ffa' })
@@ -441,7 +446,9 @@ describe('ranked role sync service', () => {
       includePlayerIdentities: false,
     })
 
-    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_1)
+    expect(preview.playerPreviews[0]?.ladderTiers.ffa).toBe(TIER_5)
+    expect(preview.playerPreviews[0]?.liveAssignment.tier).toBe(TIER_1)
+    expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
     expect(preview.playerPreviews[0]?.pendingDemotion).toBeNull()
 
     sqlite.close()
@@ -467,6 +474,52 @@ describe('ranked role sync service', () => {
 
     expect(preview.playerPreviews[0]?.ladderTiers.ffa).toBe(TIER_1)
     expect(preview.playerPreviews[0]?.assignment.tier).toBe(TIER_3)
+
+    sqlite.close()
+  })
+
+  test('grace roles are at most one tier stronger than the best qualified mode', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const directLegionId = playerIdFor('grace-distance', 3)
+    const graceLegionId = playerIdFor('grace-distance', 10)
+
+    for (let index = 1; index <= 20; index++) {
+      const playerId = playerIdFor('grace-distance', index)
+      await seedPlayerIdentity(db, playerId)
+      await seedRating(db, {
+        playerId,
+        mode: 'global',
+        mu: 60 - index,
+        sigma: 6,
+        gamesPlayed: 20,
+        lastPlayedAt: NOW,
+      })
+      await seedRating(db, {
+        playerId,
+        mode: 'duel',
+        mu: index === 3 ? 49.5 : 60 - index,
+        sigma: 6,
+        gamesPlayed: 20,
+        lastPlayedAt: NOW,
+      })
+    }
+    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
+      byPlayerId: {
+        [directLegionId]: { tier: TIER_1, sourceMode: null },
+        [graceLegionId]: { tier: TIER_2, sourceMode: null },
+      },
+    }))
+
+    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW, includePlayerIdentities: false })
+    const previewById = new Map(preview.playerPreviews.map(player => [player.playerId, player]))
+
+    expect(previewById.get(graceLegionId)?.ladderTiers.duel).toBe(TIER_4)
+    expect(previewById.get(graceLegionId)?.liveAssignment.tier).toBe(TIER_2)
+    expect(previewById.get(graceLegionId)?.assignment.tier).toBe(TIER_3)
+    expect(previewById.get(directLegionId)?.ladderTiers.duel).toBe(TIER_4)
+    expect(previewById.get(directLegionId)?.liveAssignment.tier).toBe(TIER_1)
+    expect(previewById.get(directLegionId)?.assignment.tier).toBe(TIER_2)
 
     sqlite.close()
   })
@@ -1216,6 +1269,7 @@ async function seedRating(
   },
 ): Promise<void> {
   await db.insert(playerRatings).values({
+    statsKey: STATS_CONTEXT.statsKey,
     ...row,
     wins: row.wins ?? 0,
     effectiveGames: row.effectiveGames ?? row.gamesPlayed,
@@ -1224,7 +1278,7 @@ async function seedRating(
     effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
     effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
   }).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
+    target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       wins: row.wins ?? 0,

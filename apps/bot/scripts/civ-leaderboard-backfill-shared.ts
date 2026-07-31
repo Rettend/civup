@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import type { Database } from '@civup/db'
+import type { StatsContext } from '../src/services/stats/context.ts'
 import {
   backfillCivLeaderboardStatsFromHistory,
   buildCivLeaderboardSnapshotFromD1,
@@ -23,6 +24,7 @@ export interface CivLeaderboardBackfillOptions {
   database: string
   db: Database
   kv: KVNamespace
+  statsContext: StatsContext
   applyHint: string
   includeHistoricalPreview?: boolean
   onProgress?: (label: string) => void
@@ -55,11 +57,11 @@ interface ScriptResult {
 export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillOptions): Promise<void> {
   const source = options.source ?? 'history'
   options.onProgress?.('loading current status')
-  const before = await getCivLeaderboardStatsStatus(options.db, options.kv)
+  const before = await getCivLeaderboardStatsStatus(options.db, options.statsContext, options.kv)
 
   if (options.command === 'preview') {
     const historical = source === 'history' && options.includeHistoricalPreview !== false
-      ? await withProgress(options, 'scanning historical preview', () => buildCivLeaderboardSnapshotFromD1(options.db))
+      ? await withProgress(options, 'scanning historical preview', () => buildCivLeaderboardSnapshotFromD1(options.db, options.statsContext))
       : undefined
     const result: ScriptResult = {
       mode: 'preview',
@@ -95,18 +97,18 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
 
   const updatedAt = Date.now()
   options.onProgress?.('loading display config')
-  const config = await getStoredCivLeaderboardDisplayConfig(options.kv)
+  const config = await getStoredCivLeaderboardDisplayConfig(options.kv, options.statsContext)
   options.onProgress?.(source === 'contributions' ? 'rebuilding aggregates from contribution rows' : 'rebuilding contribution rows from match history')
   const backfill = source === 'contributions'
-    ? await repairCivLeaderboardStatsFromContributions(options.db, updatedAt, config)
-    : await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt, config)
+    ? await repairCivLeaderboardStatsFromContributions(options.db, options.statsContext, updatedAt, config)
+    : await backfillCivLeaderboardStatsFromHistory(options.db, options.statsContext, updatedAt, config)
   options.onProgress?.('writing scoped KV snapshots')
-  const snapshots = await rebuildCivLeaderboardSnapshots(options.db, options.kv, undefined, updatedAt)
+  const snapshots = await rebuildCivLeaderboardSnapshots(options.db, options.kv, options.statsContext, undefined, updatedAt)
   options.onProgress?.('marking civ leaderboards dirty')
-  await markLeaderboardsDirty(options.db, `script:civ-leaderboard:${source}`, { civ: true, now: dirtyTimestampBefore(updatedAt) })
+  await markLeaderboardsDirty(options.db, options.statsContext, `script:civ-leaderboard:${source}`, { civ: true, now: dirtyTimestampBefore(updatedAt) })
   const snapshot = snapshots.get('all') ?? backfill.snapshot
   options.onProgress?.('loading final status')
-  const after = await getCivLeaderboardStatsStatus(options.db, options.kv)
+  const after = await getCivLeaderboardStatsStatus(options.db, options.statsContext, options.kv)
 
   printResult({
     mode: 'apply',

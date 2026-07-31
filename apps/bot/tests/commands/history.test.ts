@@ -3,7 +3,11 @@ import { describe, expect, test } from 'bun:test'
 import { buildPlayerHistoryCommandPayload } from '../../src/commands/history.ts'
 import { PLAYER_HISTORY_PAGE_SIZE } from '../../src/embeds/player-history.ts'
 import { parsePaginationCustomId } from '../../src/services/response/pagination.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
+
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('history command payload', () => {
   test('formats player history with opponents and ffa leader only', async () => {
@@ -41,7 +45,7 @@ describe('history command payload', () => {
         ],
       })
 
-      const payload = await buildPlayerHistoryCommandPayload(db, 'p1', 'all')
+      const payload = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', 'all')
       const embed = firstEmbedJson(payload)
 
       expect(embed.title).toBe('Match History')
@@ -96,6 +100,7 @@ describe('history command payload', () => {
     }): Promise<void> {
       await db.insert(matches).values({
         id: input.id,
+        guildId: GUILD_ID,
         gameMode: input.gameMode,
         status: 'completed',
         isOld: false,
@@ -119,6 +124,7 @@ describe('history command payload', () => {
       await db.insert(matches).values([
         {
           id: 'civblitz-history-win',
+          guildId: GUILD_ID,
           gameMode: '1v1',
           status: 'completed',
           isOld: false,
@@ -129,6 +135,7 @@ describe('history command payload', () => {
         },
         {
           id: 'civblitz-history-loss',
+          guildId: GUILD_ID,
           gameMode: '1v1',
           status: 'completed',
           isOld: false,
@@ -145,7 +152,7 @@ describe('history command payload', () => {
         participant('p2', 1, 'japan-hojo-tokimune', 1, 'civblitz-history-loss'),
       ])
 
-      const payload = await buildPlayerHistoryCommandPayload(db, 'p1', 'all')
+      const payload = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', 'all')
       const embed = firstEmbedJson(payload)
 
       expect(embed.fields?.[0]?.name).toContain('`  -` 📉')
@@ -169,7 +176,7 @@ describe('history command payload', () => {
         await seedDuel(`match-${index}`, Date.UTC(2026, 0, index + 1))
       }
 
-      const firstPage = await buildPlayerHistoryCommandPayload(db, 'p1', 'all')
+      const firstPage = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', 'all')
       const firstEmbed = firstEmbedJson(firstPage)
       const controls = firstPage.components as Array<{ components: Array<{ label: string, custom_id: string, disabled?: boolean }> }>
 
@@ -178,7 +185,7 @@ describe('history command payload', () => {
       expect(controls[0]?.components[2]?.custom_id).toBe('pagination;history:1:next:p1:all')
       expect(parsePaginationCustomId(controls[0]?.components[2]?.custom_id)).toEqual({ namespace: 'history', pageIndex: 1, args: ['p1', 'all'] })
 
-      const lastPage = await buildPlayerHistoryCommandPayload(db, 'p1', 'all', { pageIndex: 99 })
+      const lastPage = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', 'all', { pageIndex: 99 })
       const lastEmbed = firstEmbedJson(lastPage)
 
       expect(lastEmbed.fields).toHaveLength(1)
@@ -191,6 +198,7 @@ describe('history command payload', () => {
     async function seedDuel(matchId: string, completedAt: number): Promise<void> {
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode: '1v1',
         status: 'completed',
         isOld: false,
@@ -220,9 +228,9 @@ describe('history command payload', () => {
         await seedTeamMatch(`three-${index}`, '3v3', 6, Date.UTC(2026, 0, index + 1))
       }
 
-      const firstPage = await buildPlayerHistoryCommandPayload(db, 'p1', '3v3')
+      const firstPage = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', '3v3')
       const firstEmbed = firstEmbedJson(firstPage)
-      const secondPage = await buildPlayerHistoryCommandPayload(db, 'p1', '3v3', { pageIndex: 1 })
+      const secondPage = await buildPlayerHistoryCommandPayload(db, STATS_CONTEXT, 'p1', '3v3', { pageIndex: 1 })
       const secondEmbed = firstEmbedJson(secondPage)
 
       expect(firstEmbed.fields).toHaveLength(7)
@@ -237,6 +245,7 @@ describe('history command payload', () => {
     async function seedTeamMatch(matchId: string, gameMode: string, playerCount: number, completedAt: number): Promise<void> {
       await db.insert(matches).values({
         id: matchId,
+        guildId: GUILD_ID,
         gameMode,
         status: 'completed',
         isOld: false,

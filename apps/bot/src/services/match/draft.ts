@@ -3,18 +3,21 @@ import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderDataVersion } 
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
 import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
-const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
+const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 11
 const D1_MAX_SQL_VARIABLES = 100
+const DISCORD_ID_PATTERN = /^\d{17,20}$/
 
 export async function createDraftMatch(
   db: Database,
   input: CreateDraftMatchInput,
 ): Promise<void> {
   const now = Date.now()
-  const activeSeason = await getActiveSeason(db)
+  if (!DISCORD_ID_PATTERN.test(input.guildId)) throw new Error('Cannot create a match without a valid owning server')
+  if (!DISCORD_ID_PATTERN.test(input.primaryGuildId)) throw new Error('Cannot create a match without a valid primary server')
+  const activeSeason = input.guildId === input.primaryGuildId ? await getActiveSeason(db) : null
 
   const [existingMatch] = await db
     .select()
@@ -25,6 +28,7 @@ export async function createDraftMatch(
   if (!existingMatch) {
     await db.insert(matches).values({
       id: input.matchId,
+      guildId: input.guildId,
       gameMode: input.mode,
       status: 'drafting',
       seasonId: activeSeason?.id ?? null,
@@ -32,7 +36,10 @@ export async function createDraftMatch(
       completedAt: null,
     })
   }
-  else if (existingMatch.status === 'cancelled') {
+  else {
+    if (existingMatch.guildId !== input.guildId) throw new Error(`Match ${input.matchId} has mismatched owning-server data`)
+    if (existingMatch.status !== 'cancelled') return await ensureDraftMatchParticipants(db, input)
+
     await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
     await db
@@ -44,9 +51,22 @@ export async function createDraftMatch(
         draftData: null,
         createdAt: now,
         completedAt: null,
+        draftCompletedAt: null,
+        cancelledAt: null,
       })
       .where(eq(matches.id, input.matchId))
   }
+
+  await ensureDraftMatchParticipants(db, input)
+}
+
+async function ensureDraftMatchParticipants(db: Database, input: CreateDraftMatchInput): Promise<void> {
+  const now = Date.now()
+  const existingParticipants = await db
+    .select({ playerId: matchParticipants.playerId })
+    .from(matchParticipants)
+    .where(eq(matchParticipants.matchId, input.matchId))
+  const existingPlayerIds = new Set(existingParticipants.map(participant => participant.playerId))
 
   const uniquePlayers = new Map<string, (typeof input.seats)[number]>()
   for (const seat of input.seats) {
@@ -75,29 +95,34 @@ export async function createDraftMatch(
       })
   }
 
-  const [existingParticipant] = await db
-    .select({ playerId: matchParticipants.playerId })
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
-    .limit(1)
+  const participantValues = [...uniquePlayers.values()]
+    .filter(seat => !existingPlayerIds.has(seat.playerId))
+    .map((seat) => {
+      const source = resolveDraftSeatSource(input, seat.sourceGuild?.id)
+      return {
+        matchId: input.matchId,
+        playerId: seat.playerId,
+        sourceGuildId: source.guildId,
+        sourceKind: source.kind,
+        team: seat.team ?? null,
+        civId: null,
+        placement: null,
+        ratingBeforeMu: null,
+        ratingBeforeSigma: null,
+        ratingAfterMu: null,
+        ratingAfterSigma: null,
+      }
+    })
 
-  if (!existingParticipant && input.seats.length > 0) {
-    const participantValues = input.seats.map(seat => ({
-      matchId: input.matchId,
-      playerId: seat.playerId,
-      team: seat.team ?? null,
-      civId: null,
-      placement: null,
-      ratingBeforeMu: null,
-      ratingBeforeSigma: null,
-      ratingAfterMu: null,
-      ratingAfterSigma: null,
-    }))
-
-    for (const chunk of splitValuesForD1InsertLimit(participantValues, MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
-      await db.insert(matchParticipants).values(chunk)
-    }
+  for (const chunk of splitValuesForD1InsertLimit(participantValues, MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
+    await db.insert(matchParticipants).values(chunk)
   }
+}
+
+function resolveDraftSeatSource(input: CreateDraftMatchInput, sourceGuildId: string | undefined): { guildId: string, kind: 'joined' | 'legacy_primary' } {
+  if (sourceGuildId && DISCORD_ID_PATTERN.test(sourceGuildId)) return { guildId: sourceGuildId, kind: 'joined' }
+  if (input.allowLegacyPrimarySource === true && input.guildId === input.primaryGuildId) return { guildId: input.primaryGuildId, kind: 'legacy_primary' }
+  throw new Error('Cannot create a match with missing participant source-server data')
 }
 
 export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {
@@ -176,7 +201,10 @@ export async function activateDraftMatch(
 
     await db
       .update(matches)
-      .set({ draftData })
+      .set({
+        draftData,
+        draftCompletedAt: match.draftCompletedAt ?? input.completedAt,
+      })
       .where(eq(matches.id, matchId))
 
     return {
@@ -184,6 +212,7 @@ export async function activateDraftMatch(
       match: {
         ...match,
         draftData,
+        draftCompletedAt: match.draftCompletedAt ?? input.completedAt,
       },
       participants: participantRows.map(participant => ({
         ...participant,
@@ -228,6 +257,8 @@ export async function activateDraftMatch(
     .set({
       status: 'active',
       draftData,
+      draftCompletedAt: input.completedAt,
+      cancelledAt: null,
     })
     .where(eq(matches.id, matchId))
 
@@ -237,6 +268,8 @@ export async function activateDraftMatch(
       ...match,
       status: 'active',
       draftData,
+      draftCompletedAt: input.completedAt,
+      cancelledAt: null,
     },
     participants: participantRows.map(participant => ({
       ...participant,
@@ -300,7 +333,8 @@ export async function cancelDraftMatch(
     .update(matches)
     .set({
       status: 'cancelled',
-      completedAt: input.cancelledAt,
+      cancelledAt: input.cancelledAt,
+      resultRevision: sql`${matches.resultRevision} + 1`,
       draftData: JSON.stringify({
         cancelledAt: input.cancelledAt,
         reason: input.reason,

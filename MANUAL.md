@@ -34,6 +34,8 @@ See more: [Match Flow](#match-flow)
 
 ## First-time setup
 
+When one application supports several Discord servers, repeat setup in each server. Channels, defaults, permissions, browser access, ranked roles, leaderboards, ratings, and stats are stored separately per server.
+
 ### 1. Set the system channels
 
 Run these in the channels you want the bot to use:
@@ -83,7 +85,7 @@ There are 3 levels of access:
 
 ### 4. Set server defaults (Optional)
 
-Use `/admin config` to inspect and change the global default configs.
+Use `/admin config` to inspect and change this server's default configs.
 
 | Key          | Note                                                 | Default |
 | ------------ | ---------------------------------------------------- | ------- |
@@ -99,7 +101,7 @@ Use `/admin config` to inspect and change the global default configs.
 
 ### 5. Start a season when ranked games should count
 
-The bot can be used without an active season, but games will not be saved to a season in that case.
+The bot can be used without an active season, but games will not be saved to a season in that case. In a multi-server installation, seasons and tournaments are available only in the configured primary server; partner-server stats remain all-time.
 
 This matters because season start will:
 
@@ -140,7 +142,7 @@ The `/match` command group manages the lobby:
 
 Pages:
 
-- **Lobby Overview**: shows all lobbies and their status, can be accessed anytime with the top right corner button
+- **Lobby Overview**: shows lobbies from every supported server and can be accessed anytime with the top right corner button. It defaults to the server where the Activity was opened; use the server filters or **All** to change the list.
 - **Draft Setup**: the page that opens when a lobby is opened and before it's started, it shows the player seats and the lobby config
 - **Draft**: where pick & ban happens
 - **Post-draft**: shows the final draft, any player can report the match result here
@@ -154,7 +156,7 @@ The host can:
 - shuffle players across the full slot order
 - shuffle teams while keeping current players and re-splitting them evenly
 - auto-balance teams, this uses players' ratings
-- set Matchmaking Min and Max Rank (only affects `/match join`, any player can directly join any lobby)
+- set Min and Max Rank. Joining players are checked against the owning server's calculated standings, and every slotted player is checked again when the draft starts.
 - set the leader pool size
 - set ban and pick timers
 - set or update the Steam lobby link
@@ -166,6 +168,8 @@ Players can:
 - move themselves into open seats
 - leave their own slot
 - see the current config and draft state
+
+In team modes, the first player in an empty team column locks that column to the server they joined from. Only players from that server can use it until the column is empty again. FFA has no team-column lock.
 
 #### Spectators
 
@@ -268,7 +272,7 @@ Filter logic:
 
 ## Result Reporting
 
-Any player that participated in the draft can report the result. Only the host can scrub the match.
+Any player that participated in the draft can report the result from any supported server. Reporting and moderation still use the match's owning server. Only the host can scrub the match.
 
 The bot will send reminder DMs to the host roughly 3 and 6 hours after a draft is completed if it hasn't been reported.
 
@@ -289,6 +293,8 @@ Two ways:
 - Scrubs won't be logged to the Archive channel, nor affect ratings
 
 ## Ranked
+
+Ratings, history, leader stats, leaderboards, rank gates, and ranked roles are scoped to the server where the command or Activity is opened. A reported match updates only its owning server's stats, while still including every participant regardless of where they joined from.
 
 Every reported game updates ratings and adds hidden evidence.
 Once a player has enough evidence, the bot assigns a ranked role.
@@ -410,6 +416,8 @@ These rules do not chain.
 ### Demotion protection
 
 The bot uses a small keep-role buffer so players do not promote and demote constantly.
+
+Any role retained or raised above the raw overall ladder placement is a grace role. A grace role can be at most one tier above the player's best game mode in which they have at least 10 games.
 
 If a qualified player falls below the keep line, the demotion is delayed. They need to remain below the keep line for 7 days before the bot demotes them.
 

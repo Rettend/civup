@@ -10,7 +10,12 @@ export interface Env {
     DISCORD_PUBLIC_KEY: string
     DISCORD_TOKEN: string
     ALLOWED_DISCORD_GUILD_ID?: string
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: feat: save file analyzer
+||||||| Common ancestor
+=======
+    ALLOWED_DISCORD_GUILD_IDS?: string
+>>>>>>> Current commit: feat: add multi-server foundations
     ACTIVITY_PUBLIC_ORIGIN?: string
 <<<<<<< New base: fix: mod resolve
 ||||||| Common ancestor

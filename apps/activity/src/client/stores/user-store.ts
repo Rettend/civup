@@ -30,3 +30,8 @@ export function avatarUrl(): string | null {
   if (!u) return null
   return u.avatarUrl
 }
+
+/** Verified server context used to launch or sign into the Activity. */
+export function guildId(): string | null {
+  return user()?.guildId ?? null
+}

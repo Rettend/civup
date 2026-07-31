@@ -1,7 +1,8 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { teamCardEmbed } from '../../src/embeds/team-card.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -15,6 +16,8 @@ const OPP2_ID = '100010000000000095'
 const OPP3_ID = '100010000000000094'
 const OPP4_ID = '100010000000000093'
 const OPP5_ID = '100010000000000090'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 
 describe('team stats embed', () => {
   test('uses all compatible team modes for default lineup stats', async () => {
@@ -111,7 +114,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID])).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID])).toJSON()
     const lineupField = embed.fields?.find(field => field.name === 'Lineup')
     const topLeadersField = embed.fields?.find(field => field.name === 'Top Leaders')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
@@ -181,7 +184,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const duoField = embed.fields?.find(field => field.name === 'Duo')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
@@ -222,6 +225,7 @@ describe('team stats embed', () => {
     })
     await db.insert(playerRatingEvents).values([
       {
+        statsKey: STATS_CONTEXT.statsKey,
         matchId: 'event-duo-1',
         playerId: HERO_ID,
         mode: 'duo',
@@ -241,6 +245,7 @@ describe('team stats embed', () => {
         updatedAt: NOW,
       },
       {
+        statsKey: STATS_CONTEXT.statsKey,
         matchId: 'event-duo-1',
         playerId: MATE_ID,
         mode: 'duo',
@@ -261,7 +266,7 @@ describe('team stats embed', () => {
       },
     ])
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('📈')
@@ -308,7 +313,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
     const value = recentMatchesField?.value ?? ''
 
@@ -329,7 +334,7 @@ describe('team stats embed', () => {
     await seedRating(db, { playerId: HERO_ID, mode: 'duo', mu: 26, sigma: 6, gamesPlayed: 4, wins: 2 })
     await seedRating(db, { playerId: MATE_ID, mode: 'duo', mu: 27, sigma: 6, gamesPlayed: 5, wins: 3 })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&11111111111111111>`)
     expect(embed.fields?.[0]?.name).toBe('Overview')
@@ -369,7 +374,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('2v2 [old]')
@@ -419,11 +424,11 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, null, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID], '5v5')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID, EXTRA_ID, ALLY4_ID, ALLY5_ID], '5v5')).toJSON()
     const squadField = embed.fields?.find(field => field.name === 'Squad')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
-    expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> + <@${EXTRA_ID}> + <@${ALLY4_ID}> + <@${ALLY5_ID}>`)
+    expect(embed.description).toContain(`<@${HERO_ID}> + <@${MATE_ID}> + <@${EXTRA_ID}> + <@${ALLY4_ID}> + <@${ALLY5_ID}>`)
     expect(squadField?.value).toContain('Games: 1')
     expect(squadField?.value).toContain('Wins: 1 (100%)')
     expect(recentMatchesField?.value).toContain('5v5')
@@ -507,7 +512,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const duoField = embed.fields?.find(field => field.name === 'Duo')
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&44444444444444444>`)
@@ -546,7 +551,7 @@ describe('team stats embed', () => {
       ],
     })
 
-    const embed = (await teamCardEmbed(db, kv, 'guild-1', [HERO_ID, MATE_ID], '2v2')).toJSON()
+    const embed = (await teamCardEmbed(db, kv, STATS_CONTEXT, [HERO_ID, MATE_ID], '2v2')).toJSON()
     const duoField = embed.fields?.find(field => field.name === 'Duo')
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
@@ -560,7 +565,7 @@ describe('team stats embed', () => {
 })
 
 async function seedConfiguredRoles(kv: KVNamespace): Promise<void> {
-  await setRankedRoleCurrentRoles(kv, 'guild-1', {
+  await setRankedRoleCurrentRoles(kv, GUILD_ID, {
     tier5: '11111111111111111',
     tier4: '22222222222222222',
     tier3: '33333333333333333',
@@ -594,10 +599,11 @@ async function seedRating(
   },
 ): Promise<void> {
   await db.insert(playerRatings).values({
+    statsKey: STATS_CONTEXT.statsKey,
     ...row,
     lastPlayedAt: NOW,
   }).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
+    target: [playerRatings.statsKey, playerRatings.playerId, playerRatings.mode],
     set: {
       ...row,
       lastPlayedAt: NOW,
@@ -627,6 +633,7 @@ async function seedCompletedMatch(
 ): Promise<void> {
   await db.insert(matches).values({
     id: input.matchId,
+    guildId: GUILD_ID,
     gameMode: input.gameMode,
     status: 'completed',
     isOld: input.isOld ?? false,

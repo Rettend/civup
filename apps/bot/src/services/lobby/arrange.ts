@@ -1,8 +1,10 @@
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyArrangeStrategy } from './types.ts'
+import type { TeamGuildPolicy } from './team-guilds.ts'
 import { isTeamMode, teamCount as modeTeamCount, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
+import { buildLobbyPartyPlayerIds, resolveQueueEntrySourceGuild, validateLobbyParties, validateTeamGuildSlots } from './team-guilds.ts'
 
 interface RatingSnapshot {
   mu: number
@@ -12,6 +14,7 @@ interface RatingSnapshot {
 interface PlayerGroup {
   playerIds: string[]
   size: number
+  sourceGuildId: string
 }
 
 interface GroupAssignment {
@@ -31,6 +34,7 @@ export interface ArrangeLobbySlotsInput {
   queueEntries: QueueEntry[]
   strategy: LobbyArrangeStrategy
   ratingsByPlayerId?: Map<string, RatingSnapshot>
+  teamGuildPolicy?: TeamGuildPolicy
   random?: () => number
 }
 
@@ -98,24 +102,34 @@ function arrangeTeamLobbySlots(
   }
 
   const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
+  const partyError = validateLobbyParties(input.mode, input.queueEntries, slottedPlayerIds, input.slots.length, input.teamGuildPolicy)
+  if (partyError) return { error: partyError }
 
   if (input.strategy === 'randomize') {
     const random = input.random ?? Math.random
-    return { slots: shuffle(input.slots, random) }
+    const groupsResult = buildPlayerGroups(input, slottedPlayerIds)
+    if ('error' in groupsResult) return groupsResult
+    const groups = shuffle(groupsResult.groups, random)
+    const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
+    if (assignments.length === 0) return { error: 'Players cannot be arranged into same-server teams with the current team size.' }
+    const chosen = assignments[Math.floor(random() * assignments.length)]!
+    const teams = assignmentToTeams(chosen, groups, activeTeamCount).map(team => shuffle(team, random))
+    return { slots: buildTeamSlots(teamSlotCount, teams, input.slots.length) }
   }
 
   if (input.strategy === 'shuffle-teams') {
     const random = input.random ?? Math.random
+    const validation = validateTeamGuildSlots(input.mode, input.slots, input.queueEntries, input.teamGuildPolicy)
+    if (validation.error) return { error: validation.error }
     const groups = buildRelativeOrderGroups(slottedPlayerIds, activeTeamCount)
     return { slots: buildShuffledTeamSlots(teamSlotCount, groups, activeTeamCount, input.slots.length, random) }
   }
 
-  const groups = slottedPlayerIds.map(playerId => ({
-    playerIds: [playerId],
-    size: 1,
-  } satisfies PlayerGroup))
+  const groupsResult = buildPlayerGroups(input, slottedPlayerIds)
+  if ('error' in groupsResult) return groupsResult
+  const groups = groupsResult.groups
   const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
-  if (assignments.length === 0) return { error: 'Could not auto-balance teams for this lobby.' }
+  if (assignments.length === 0) return { error: 'Players cannot be arranged into same-server teams with the current team size.' }
 
   const minSizeDiff = Math.min(...assignments.map((assignment) => {
     const minCount = Math.min(...assignment.teamCounts)
@@ -190,6 +204,7 @@ function enumerateAssignments(groups: PlayerGroup[], teamSize: number, teamTotal
 
   const teamByGroup: number[] = [0]
   const teamCounts = Array.from({ length: teamTotal }, (_, index) => index === 0 ? firstGroupSize : 0)
+  const teamGuildIds: (string | null)[] = Array.from({ length: teamTotal }, (_, index) => index === 0 ? groups[0]!.sourceGuildId : null)
 
   const walk = (index: number) => {
     if (index >= groups.length) {
@@ -205,15 +220,40 @@ function enumerateAssignments(groups: PlayerGroup[], teamSize: number, teamTotal
 
     for (let team = 0; team < teamTotal; team++) {
       if ((teamCounts[team] ?? 0) + group.size > teamSize) continue
+      if (teamGuildIds[team] != null && teamGuildIds[team] !== group.sourceGuildId) continue
+      const previousGuildId = teamGuildIds[team]
       teamByGroup[index] = team
       teamCounts[team] = (teamCounts[team] ?? 0) + group.size
+      teamGuildIds[team] = group.sourceGuildId
       walk(index + 1)
       teamCounts[team] = (teamCounts[team] ?? 0) - group.size
+      teamGuildIds[team] = previousGuildId ?? null
     }
   }
 
   walk(1)
   return assignments
+}
+
+function buildPlayerGroups(
+  input: ArrangeLobbySlotsInput,
+  slottedPlayerIds: string[],
+): { groups: PlayerGroup[] } | { error: string } {
+  const selected = new Set(slottedPlayerIds)
+  const entryByPlayerId = new Map(input.queueEntries.map(entry => [entry.playerId, entry]))
+  const groups: PlayerGroup[] = []
+
+  for (const playerIds of buildLobbyPartyPlayerIds(input.queueEntries, selected)) {
+    const sourceGuildIds = new Set<string>()
+    for (const playerId of playerIds) {
+      const source = resolveQueueEntrySourceGuild(entryByPlayerId.get(playerId), input.teamGuildPolicy)
+      if (!source) return { error: `Player **${entryByPlayerId.get(playerId)?.displayName || playerId}** has no join server.` }
+      sourceGuildIds.add(source.id)
+    }
+    if (sourceGuildIds.size !== 1) return { error: 'A party cannot be arranged because its players joined from different servers.' }
+    groups.push({ playerIds, size: playerIds.length, sourceGuildId: [...sourceGuildIds][0]! })
+  }
+  return { groups }
 }
 
 function assignmentToTeams(

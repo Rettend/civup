@@ -1,13 +1,19 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import { matchCivStatContributions, matches, matchParticipants, players, tournamentMatches, tournaments } from '@civup/db'
+import { matchCivStatContributions as legacyMatchCivStatContributions, matches, matchParticipants, players, scopedMatchCivStatContributions as matchCivStatContributions, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, getLeader, liveLeaderDataVersionLabel } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
 import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_PAGE_SIZE, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
 import { backfillCivLeaderboardStatsFromHistory, buildCivLeaderboardSnapshotFromD1, civLeaderboardSnapshotKey, rebuildCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshots, reconcileCivLeaderboardMatchContribution, repairCivLeaderboardStatsFromContributions, setCivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { parsePaginationCustomId } from '../../src/services/response/pagination.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+
+const PRIMARY_GUILD_ID = '111111111111111111'
+const PARTNER_GUILD_ID = '222222222222222222'
+const STATS_CONTEXT = createStatsContext(PRIMARY_GUILD_ID, PRIMARY_GUILD_ID)
+const PARTNER_STATS_CONTEXT = createStatsContext(PARTNER_GUILD_ID, PRIMARY_GUILD_ID)
 
 describe('civ leaderboard command payload', () => {
   test('shows the selected civ leaderboard mode', async () => {
@@ -42,12 +48,12 @@ describe('civ leaderboard command payload', () => {
         redDeath: true,
       })
 
-      await backfillCivLeaderboardStatsFromHistory(db)
-      await rebuildCivLeaderboardSnapshot(db, kv)
+      await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT)
+      await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT)
 
-      const pickedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
-      const winratePayload = await buildCivLeaderboardCommandPayload(db, kv, 'winrate')
-      const bannedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'banned')
+      const pickedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT)
+      const winratePayload = await buildCivLeaderboardCommandPayload(db, kv, 'winrate', STATS_CONTEXT)
+      const bannedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'banned', STATS_CONTEXT)
       const embeds = [pickedPayload, winratePayload, bannedPayload]
         .map(firstEmbedJson)
 
@@ -87,6 +93,7 @@ describe('civ leaderboard command payload', () => {
           id: matchId,
           gameMode: 'ffa',
           status: 'completed',
+          guildId: PRIMARY_GUILD_ID,
           isOld: false,
           seasonId: null,
           draftData: JSON.stringify({
@@ -110,7 +117,7 @@ describe('civ leaderboard command payload', () => {
           ratingAfterMu: null,
           ratingAfterSigma: null,
         })
-        await reconcileCivLeaderboardMatchContribution(db, matchId)
+        await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, matchId)
       }
     }
   })
@@ -122,8 +129,8 @@ describe('civ leaderboard command payload', () => {
     try {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
       await seedCompletedMatch(db, 'cached-miss-match', 'rome-trajan', 'p1', 1)
-      await backfillCivLeaderboardStatsFromHistory(db, 10)
-      await kv.put(civLeaderboardSnapshotKey(), JSON.stringify({
+      await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 10)
+      await kv.put(civLeaderboardSnapshotKey(STATS_CONTEXT), JSON.stringify({
         updatedAt: 9,
         historyInitialized: true,
         label: 'Old Snapshot',
@@ -131,9 +138,9 @@ describe('civ leaderboard command payload', () => {
         rows: [{ civId: 'stale-leader', leaderName: 'Stale Leader', picks: 999, wins: 999, bans: 999 }],
       }))
 
-      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
+      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT)
       const embed = firstEmbedJson(payload)
-      const cachedSnapshot = await kv.get(civLeaderboardSnapshotKey(), 'json') as { historyInitialized?: unknown, completedMatchCount?: unknown, rows?: Array<{ poolGames?: unknown }> } | null
+      const cachedSnapshot = await kv.get(civLeaderboardSnapshotKey(STATS_CONTEXT), 'json') as { historyInitialized?: unknown, completedMatchCount?: unknown, rows?: Array<{ poolGames?: unknown }> } | null
 
       expect(payload.content).toBeUndefined()
       expect(embed.title).toBe('Picked Leaders')
@@ -153,8 +160,8 @@ describe('civ leaderboard command payload', () => {
     const kv = createTestKv()
 
     try {
-      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
-      const cachedSnapshot = await kv.get(civLeaderboardSnapshotKey(), 'json')
+      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT)
+      const cachedSnapshot = await kv.get(civLeaderboardSnapshotKey(STATS_CONTEXT), 'json')
 
       expect(payload.embeds).toEqual([])
       expect(payload.content).toBe('Civ leaderboard history is not initialized yet.')
@@ -172,10 +179,10 @@ describe('civ leaderboard command payload', () => {
     try {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
       await seedCompletedMatch(db, 'partial-match', 'rome-trajan', 'p1', 1)
-      await reconcileCivLeaderboardMatchContribution(db, 'partial-match', 10)
-      await rebuildCivLeaderboardSnapshot(db, kv, 20)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'partial-match', 10)
+      await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 20)
 
-      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
+      const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT)
 
       expect(payload.embeds).toEqual([])
       expect(payload.content).toBe('Civ leaderboard history is not initialized yet.')
@@ -247,7 +254,7 @@ describe('civ leaderboard command payload', () => {
       }
     })
     try {
-      await kv.put(civLeaderboardSnapshotKey(), JSON.stringify({
+      await kv.put(civLeaderboardSnapshotKey(STATS_CONTEXT), JSON.stringify({
         updatedAt: 1,
         historyInitialized: true,
         label: 'BBG Test',
@@ -256,7 +263,7 @@ describe('civ leaderboard command payload', () => {
         rows,
       }))
 
-      const topPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
+      const topPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT)
       const topEmbed = firstEmbedJson(topPayload)
       const controls = topPayload.components as Array<{ components: Array<{ label: string, style: number, custom_id: string, disabled?: boolean }> }>
 
@@ -274,7 +281,7 @@ describe('civ leaderboard command payload', () => {
       expect(controls[0]?.components[3]?.custom_id).toBe('pagination;civleaderboard:2:bottom:picked')
       expect(parsePaginationCustomId(controls[0]?.components[2]?.custom_id)).toEqual({ namespace: 'civleaderboard', pageIndex: 1, args: ['picked'] })
 
-      const bottomPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { pageIndex: 99 })
+      const bottomPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT, { pageIndex: 99 })
       const bottomEmbed = firstEmbedJson(bottomPayload)
       const bottomControls = bottomPayload.components as Array<{ components: Array<{ label: string, style: number, custom_id: string, disabled?: boolean }> }>
 
@@ -301,6 +308,7 @@ describe('civ leaderboard command payload', () => {
         id: 'match-1',
         gameMode: 'ffa',
         status: 'completed',
+        guildId: PRIMARY_GUILD_ID,
         isOld: false,
         seasonId: null,
         draftData: JSON.stringify({ state: { bans: [{ civId: 'rome-trajan' }] } }),
@@ -319,22 +327,22 @@ describe('civ leaderboard command payload', () => {
         ratingAfterSigma: null,
       })
 
-      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 10)
-      let snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 20)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'match-1', 10)
+      let snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 20)
       expect(snapshot.completedMatchCount).toBe(1)
       expect(snapshot.rows.find(row => row.civId === 'rome-trajan')).toMatchObject({ picks: 1, wins: 1, bans: 1 })
 
       await db.update(matchParticipants).set({ civId: 'russia-peter', placement: 2 })
       await db.update(matches).set({ draftData: JSON.stringify({ state: { bans: [{ civId: 'russia-peter' }] } }) })
-      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 30)
-      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 40)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'match-1', 30)
+      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 40)
       expect(snapshot.completedMatchCount).toBe(1)
       expect(snapshot.rows.find(row => row.civId === 'rome-trajan')).toBeUndefined()
       expect(snapshot.rows.find(row => row.civId === 'russia-peter')).toMatchObject({ picks: 1, wins: 0, bans: 1 })
 
       await db.update(matches).set({ status: 'cancelled' })
-      await reconcileCivLeaderboardMatchContribution(db, 'match-1', 50)
-      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 60)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'match-1', 50)
+      snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 60)
       expect(snapshot.completedMatchCount).toBe(0)
       expect(snapshot.rows).toEqual([])
     }
@@ -351,7 +359,7 @@ describe('civ leaderboard command payload', () => {
       await seedCompletedMatch('historical-match', 'rome-trajan', 1)
       await seedCompletedMatch('target-match', 'russia-peter', 2)
 
-      await reconcileCivLeaderboardMatchContribution(db, 'target-match', 10)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'target-match', 10)
 
       const contributionRows = await db
         .select({ matchId: matchCivStatContributions.matchId, source: matchCivStatContributions.source, modeScope: matchCivStatContributions.modeScope, completedAt: matchCivStatContributions.completedAt })
@@ -367,6 +375,7 @@ describe('civ leaderboard command payload', () => {
         id: matchId,
         gameMode: 'ffa',
         status: 'completed',
+        guildId: PRIMARY_GUILD_ID,
         isOld: false,
         seasonId: null,
         draftData: JSON.stringify({ state: { bans: [{ civId }] } }),
@@ -395,10 +404,10 @@ describe('civ leaderboard command payload', () => {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
       await seedCompletedMatch(db, 'civblitz-match', 'rome-trajan', 'p1', 1, { civBlitz: true })
 
-      await reconcileCivLeaderboardMatchContribution(db, 'civblitz-match', 10)
+      await reconcileCivLeaderboardMatchContribution(db, STATS_CONTEXT, 'civblitz-match', 10)
 
       const contributionRows = await db.select({ matchId: matchCivStatContributions.matchId }).from(matchCivStatContributions)
-      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 20)
+      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 20)
 
       expect(contributionRows).toEqual([])
       expect(snapshot.completedMatchCount).toBe(0)
@@ -420,10 +429,10 @@ describe('civ leaderboard command payload', () => {
       await seedCompletedMatch(db, 'red-death-match', 'rd-aliens', 'p1', 3, { redDeath: true })
       await seedCompletedMatch(db, 'civblitz-match', 'rome-trajan', 'p1', 4, { civBlitz: true })
 
-      const historical = await buildCivLeaderboardSnapshotFromD1(db, 10)
-      const first = await backfillCivLeaderboardStatsFromHistory(db, 20)
-      const second = await backfillCivLeaderboardStatsFromHistory(db, 30)
-      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 40)
+      const historical = await buildCivLeaderboardSnapshotFromD1(db, STATS_CONTEXT, 10)
+      const first = await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 20)
+      const second = await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 30)
+      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 40)
 
       expect(first.status.historyInitialized).toBe(true)
       expect(second.status.historyInitialized).toBe(true)
@@ -443,6 +452,32 @@ describe('civ leaderboard command payload', () => {
     }
   })
 
+  test('keeps civ aggregates, snapshots, and legacy writes isolated by owning server', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
+      await seedCompletedMatch(db, 'primary-match', 'rome-trajan', 'p1', 1)
+      await seedCompletedMatch(db, 'partner-match', 'russia-peter', 'p1', 2, { guildId: PARTNER_GUILD_ID })
+
+      await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 10)
+      await backfillCivLeaderboardStatsFromHistory(db, PARTNER_STATS_CONTEXT, 20)
+      const primary = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 30)
+      const partner = await rebuildCivLeaderboardSnapshot(db, kv, PARTNER_STATS_CONTEXT, 40)
+
+      expect(primary.rows.map(row => row.civId)).toEqual(['rome-trajan'])
+      expect(partner.rows.map(row => row.civId)).toEqual(['russia-peter'])
+      expect(civLeaderboardSnapshotKey(STATS_CONTEXT)).not.toBe(civLeaderboardSnapshotKey(PARTNER_STATS_CONTEXT))
+
+      const legacyRows = await db.select({ matchId: legacyMatchCivStatContributions.matchId }).from(legacyMatchCivStatContributions)
+      expect(legacyRows).toEqual([{ matchId: 'primary-match' }])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('builds scoped civ snapshots with ffa contributing only to all', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -453,8 +488,8 @@ describe('civ leaderboard command payload', () => {
       await seedCompletedMatch(db, 'duo-match', 'russia-peter', 'p1', 2, { gameMode: '2v2' })
       await seedCompletedMatch(db, 'ffa-match', 'greece-pericles', 'p1', 3, { gameMode: 'ffa' })
 
-      await backfillCivLeaderboardStatsFromHistory(db, 10)
-      const snapshots = await rebuildCivLeaderboardSnapshots(db, kv, ['all', 'duel', 'duo', 'squad'], 20)
+      await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 10)
+      const snapshots = await rebuildCivLeaderboardSnapshots(db, kv, STATS_CONTEXT, ['all', 'duel', 'duo', 'squad'], 20)
 
       expect(snapshots.get('all')?.completedMatchCount).toBe(3)
       expect(snapshots.get('duel')?.completedMatchCount).toBe(1)
@@ -464,9 +499,9 @@ describe('civ leaderboard command payload', () => {
       expect(snapshots.get('duo')?.rows.map(row => row.civId)).toEqual(['russia-peter'])
       expect(snapshots.get('squad')?.rows).toEqual([])
 
-      const duelPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'duel' })
-      const duoPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'duo' })
-      const squadPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { modeScope: 'squad' })
+      const duelPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT, { modeScope: 'duel' })
+      const duoPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT, { modeScope: 'duo' })
+      const squadPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', STATS_CONTEXT, { modeScope: 'squad' })
 
       expect(firstEmbedJson(duelPayload).title).toBe('Picked Leaders (Duel)')
       expect(firstEmbedJson(duelPayload).description).toContain('Trajan')
@@ -489,7 +524,7 @@ describe('civ leaderboard command payload', () => {
       await seedCompletedMatch(db, 'live-match', 'rome-trajan', 'p1', 10)
       await seedCompletedMatch(db, 'visible-beta-match', 'russia-peter', 'p1', 20, { leaderDataVersion: 'beta' })
       await seedCompletedMatch(db, 'hidden-beta-match', 'greece-pericles', 'p1', 30, { leaderDataVersion: 'beta' })
-      await backfillCivLeaderboardStatsFromHistory(db, 40)
+      await backfillCivLeaderboardStatsFromHistory(db, STATS_CONTEXT, 40)
       const config = {
         version: 1,
         label: 'BBG Mixed',
@@ -498,10 +533,10 @@ describe('civ leaderboard command payload', () => {
         betaUntil: 25,
         pendingBetaFrom: 25,
       } as const
-      await setCivLeaderboardDisplayConfig(kv, config)
-      await repairCivLeaderboardStatsFromContributions(db, 45, config)
+      await setCivLeaderboardDisplayConfig(kv, STATS_CONTEXT, config)
+      await repairCivLeaderboardStatsFromContributions(db, STATS_CONTEXT, 45, config)
 
-      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 50)
+      const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, STATS_CONTEXT, 50)
 
       expect(snapshot.label).toBe('BBG Mixed')
       expect(snapshot.completedMatchCount).toBe(2)
@@ -564,7 +599,7 @@ describe('civ leaderboard command payload', () => {
         betaUntil: null,
         pendingBetaFrom: 0,
       } as const
-      const result = await repairCivLeaderboardStatsFromContributions(db, 50, config)
+      const result = await repairCivLeaderboardStatsFromContributions(db, STATS_CONTEXT, 50, config)
       const contributionRows = await db
         .select({ matchId: matchCivStatContributions.matchId, visible: matchCivStatContributions.visible })
         .from(matchCivStatContributions)
@@ -589,12 +624,13 @@ async function seedCompletedMatch(
   civId: string,
   playerId: string,
   createdAt: number,
-  options: { redDeath?: boolean, civBlitz?: boolean, gameMode?: GameMode, leaderDataVersion?: 'live' | 'beta', poolCivIds?: string[] } = {},
+  options: { redDeath?: boolean, civBlitz?: boolean, gameMode?: GameMode, leaderDataVersion?: 'live' | 'beta', poolCivIds?: string[], guildId?: string } = {},
 ): Promise<void> {
   await db.insert(matches).values({
     id: matchId,
     gameMode: options.gameMode ?? 'ffa',
     status: 'completed',
+    guildId: options.guildId ?? PRIMARY_GUILD_ID,
     isOld: false,
     seasonId: null,
     draftData: JSON.stringify({
@@ -621,6 +657,7 @@ async function seedCompletedMatch(
 
 function storedContribution(matchId: string, civId: string, completedAt: number): typeof matchCivStatContributions.$inferInsert {
   return {
+    statsKey: STATS_CONTEXT.statsKey,
     matchId,
     completedMatchCount: 1,
     contributionsJson: JSON.stringify({

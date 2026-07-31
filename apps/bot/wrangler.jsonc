@@ -18,7 +18,12 @@
 <<<<<<< New base: feat: save file analyzer
     "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
     "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+<<<<<<< New base: feat: auto shuffle
 <<<<<<< New base: fix: mod resolve
+||||||| Common ancestor
+=======
+    "ALLOWED_DISCORD_GUILD_IDS": "1372172102362337362",
+>>>>>>> Current commit: feat: add multi-server foundations
     "DISCORD_APPLICATION_ID": "1469447716751933533",
     "DISCORD_PUBLIC_KEY": "9848e4e0f1a377fe65e7fc4699e499c3c1f4c1f0a3ca3b7ea78b2bc34ea0ee9b",
 ||||||| Common ancestor

@@ -1,5 +1,6 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
+import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
 import { Embed } from 'discord-hono'
@@ -59,12 +60,12 @@ interface MatchCountSummary {
   modes: Map<string, number>
 }
 
-export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all'): Promise<Embed> {
+export async function leaderStatsEmbed(db: Database, statsContext: StatsContext, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all'): Promise<Embed> {
   const leader = resolveLeader(leaderId)
   const [targetRows, matchCounts, bestPlayers] = await Promise.all([
-    loadTargetLeaderRows(db, leaderId, modeFilter),
-    loadCompletedMatchCounts(db, modeFilter),
-    listTopPlayerCivRankings(db, { mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
+    loadTargetLeaderRows(db, statsContext, leaderId, modeFilter),
+    loadCompletedMatchCounts(db, statsContext, modeFilter),
+    listTopPlayerCivRankings(db, statsContext, { mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
   ])
   const participantRows = await loadParticipantRows(db, targetRows.map(row => row.matchId))
   const stats = buildLeaderStats(targetRows, participantRows, matchCounts)
@@ -104,10 +105,11 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
   return embed
 }
 
-async function loadTargetLeaderRows(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter): Promise<TargetLeaderRow[]> {
+async function loadTargetLeaderRows(db: Database, statsContext: StatsContext, leaderId: string, modeFilter: LeaderStatsModeFilter): Promise<TargetLeaderRow[]> {
   const conditions = [
     eq(matchParticipants.civId, leaderId),
     eq(matches.status, 'completed'),
+    eq(matches.guildId, statsContext.guildId),
     eligibleStoredMatchCondition(),
     excludeTournamentMatchesCondition(),
   ]
@@ -144,9 +146,10 @@ async function loadParticipantRows(db: Database, matchIds: readonly string[]): P
   return rows
 }
 
-async function loadCompletedMatchCounts(db: Database, modeFilter: LeaderStatsModeFilter): Promise<MatchCountSummary> {
+async function loadCompletedMatchCounts(db: Database, statsContext: StatsContext, modeFilter: LeaderStatsModeFilter): Promise<MatchCountSummary> {
   const conditions = [
     eq(matches.status, 'completed'),
+    eq(matches.guildId, statsContext.guildId),
     eligibleStoredMatchCondition(),
     excludeTournamentMatchesCondition(),
   ]

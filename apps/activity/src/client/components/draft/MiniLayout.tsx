@@ -14,6 +14,7 @@ export interface MiniSeatItem {
   key: string
   name: string
   avatarUrl?: string | null
+  sourceGuild?: { id: string, name?: string | null, iconUrl?: string | null } | null
   leaderId?: string | null
   previewLeaderId?: string | null
   team?: number | null
@@ -82,6 +83,7 @@ export function MiniFrame(props: MiniFrameProps) {
 
 export function MiniSeatGrid(props: MiniSeatGridProps) {
   const columnCount = () => Math.max(props.columns.length, 1)
+  const showSourceGuild = () => new Set(props.columns.flat().flatMap(item => item.sourceGuild?.id ? [item.sourceGuild.id] : [])).size >= 2
 
   return (
     <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
@@ -95,7 +97,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
           {column => (
             <div class="flex flex-col gap-1 min-h-0 overflow-hidden">
               <For each={column}>
-                {item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} />}
+                {item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} showSourceGuild={showSourceGuild()} />}
               </For>
             </div>
           )}
@@ -109,7 +111,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
   )
 }
 
-function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' | 'cyan' }) {
+function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' | 'cyan', showSourceGuild: boolean }) {
   const leaderPortraitUrl = () => {
     const leaderId = props.item.leaderId ?? props.item.previewLeaderId
     if (!leaderId) return null
@@ -161,6 +163,10 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
         )}
       </Show>
 
+      <Show when={props.showSourceGuild && props.item.sourceGuild}>
+        {guild => <SourceGuildIcon guild={guild()} compact />}
+      </Show>
+
       {/* Name */}
       <div class="flex-1 min-w-0 overflow-hidden">
         <span
@@ -209,5 +215,18 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
         </Show>
       </div>
     </div>
+  )
+}
+
+function SourceGuildIcon(props: { guild: { id: string, name?: string | null, iconUrl?: string | null }, compact?: boolean }) {
+  const label = () => props.guild.name?.trim() || `Server ${props.guild.id}`
+  const size = () => props.compact ? 'h-3 w-3 text-[5px]' : 'h-3.5 w-3.5 text-[6px]'
+  return (
+    <Show
+      when={props.guild.iconUrl}
+      fallback={<span role="img" aria-label={label()} title={label()} class={cn('rounded-sm bg-white/12 text-fg-subtle font-bold shrink-0 inline-flex items-center justify-center', size())}>{label().slice(0, 1).toUpperCase()}</span>}
+    >
+      {iconUrl => <img src={iconUrl()} alt={label()} title={label()} class={cn('rounded-sm object-cover shrink-0', size())} />}
+    </Show>
   )
 }

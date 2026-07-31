@@ -2,7 +2,8 @@ import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
 import type { PlayerCivRankingSummary, PlayerCivStatSummary } from '../services/leaderboard/player-civ-stats.ts'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import type { StatsContext } from '../services/stats/context.ts'
+import { matches, matchParticipants, scopedPlayerRatings as playerRatings, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { and, eq } from 'drizzle-orm'
@@ -28,6 +29,7 @@ interface LeaderRankRow {
 
 export async function playerLeadersEmbed(
   db: Database,
+  statsContext: StatsContext,
   playerId: string,
   modeFilter: LeadersModeFilter = 'all',
   options: {
@@ -43,13 +45,13 @@ export async function playerLeadersEmbed(
       .where(eq(players.id, playerId))
       .limit(1)
       .then(rows => rows[0] ?? null),
-    getDisplaySeason(db),
+    statsContext.seasonPolicy === 'ppl-seasons' ? getDisplaySeason(db) : Promise.resolve(null),
     options.ratingRows
       ? Promise.resolve(options.ratingRows)
       : db
           .select()
           .from(playerRatings)
-          .where(eq(playerRatings.playerId, playerId)),
+          .where(and(eq(playerRatings.statsKey, statsContext.statsKey), eq(playerRatings.playerId, playerId))),
   ])
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
@@ -60,15 +62,15 @@ export async function playerLeadersEmbed(
     mode: modeFilter === 'all' ? null : modeFilter,
   }
 
-  const leaderStats = await listPlayerCivStats(db, playerCivFilter, playerId)
+  const leaderStats = await listPlayerCivStats(db, statsContext, playerCivFilter, playerId)
   const topPlayedLeaders = sortLeaderStatsByGames(leaderStats).slice(0, TOP_LEADER_LIMIT)
-  const rankings = await loadPlayerCivRankingSummaries(db, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
+  const rankings = await loadPlayerCivRankingSummaries(db, statsContext, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
   const rankRows = buildRankRows(leaderStats, rankings)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
   const ffaRatingWins = ratingModes.includes('ffa')
-    ? await countPlayerFfaRatingWins(db, playerId, modeFilter, displaySeason?.id ?? null)
+    ? await countPlayerFfaRatingWins(db, statsContext, playerId, modeFilter, displaySeason?.id ?? null)
     : 0
 
   for (const mode of ratingModes) {
@@ -228,7 +230,7 @@ function limitFieldLines(lines: readonly string[]): string {
   return kept.join('\n')
 }
 
-async function countPlayerFfaRatingWins(db: Database, playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null): Promise<number> {
+async function countPlayerFfaRatingWins(db: Database, statsContext: StatsContext, playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null): Promise<number> {
   const rowsRaw = await db
     .select({
       matchId: matchParticipants.matchId,
@@ -242,15 +244,16 @@ async function countPlayerFfaRatingWins(db: Database, playerId: string, modeFilt
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(buildCompletedMatchesWhereClause(playerId, modeFilter, seasonId))
+    .where(buildCompletedMatchesWhereClause(statsContext, playerId, modeFilter, seasonId))
 
-  return countFfaRatingWins(await hydrateModeRatingSnapshotsFromEvents(db, rowsRaw))
+  return countFfaRatingWins(await hydrateModeRatingSnapshotsFromEvents(db, statsContext, rowsRaw))
 }
 
-function buildCompletedMatchesWhereClause(playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null) {
+function buildCompletedMatchesWhereClause(statsContext: StatsContext, playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null) {
   const conditions = [
     eq(matchParticipants.playerId, playerId),
     eq(matches.status, 'completed'),
+    eq(matches.guildId, statsContext.guildId),
   ]
 
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
