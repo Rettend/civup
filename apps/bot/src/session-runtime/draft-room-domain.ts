@@ -312,8 +312,8 @@ export function applyDraftResultCommand(
       })
       nextRoom = lifecycleSync.room
       effects.push(
-        { type: 'broadcast-update', events: command.events },
         lifecycleSync.effect,
+        { type: 'broadcast-update', events: command.events },
       )
     }
     else {
