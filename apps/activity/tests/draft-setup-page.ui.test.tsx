@@ -98,6 +98,44 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: /Game settings/ })).toBeTruthy()
   })
 
+  test('hides roster mutation controls for tournament lobbies', () => {
+    render(() => <DraftSetupPage lobby={createLobbySnapshot({
+      mode: '2v2',
+      targetSize: 4,
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+      ],
+      tournament: {
+        id: 'tournament-1',
+        name: 'Duo Cup',
+        mode: '2v2',
+        rematchPolicy: 'warn',
+        rematchWarning: null,
+        configLocked: true,
+        rosterLocked: true,
+        entryRosters: [
+          { entryId: 'entry-1', side: 0, members: [
+            { position: 0, slot: 0, playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { position: 1, slot: 1, playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          ] },
+          { entryId: 'entry-2', side: 1, members: [
+            { position: 0, slot: 2, playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { position: 1, slot: 3, playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ] },
+        ],
+      },
+    })} />)
+
+    expect(screen.queryByTitle('Make host')).toBeNull()
+    expect(screen.queryByTitle('Remove player')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Shuffle players' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Auto-balance teams' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Start Draft' })).toBeTruthy()
+  })
+
   test('shows the first hint after game settings on the full setup page', async () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
 

@@ -3,7 +3,7 @@ import { matches, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../src/services/match/report-discord.ts'
-import { createTournament, createTournamentMatchLink, markTournamentMatchDrafting } from '../../src/services/tournament/index.ts'
+import { createTournament, createTournamentMatchLink, markTournamentMatchDrafting, registerTournamentEntry } from '../../src/services/tournament/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
@@ -272,7 +272,9 @@ describe('reported match Discord sync', () => {
         completedAt: 2,
       })
       const tournament = await createTournament(db, { name: 'Correction Cup', createdById: 'admin' })
-      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: 'player-1' })
+      await registerTournamentEntry(db, tournament.id, [{ userId: 'player-1', displayName: 'Player One', avatarUrl: null }])
+      await registerTournamentEntry(db, tournament.id, [{ userId: 'player-2', displayName: 'Player Two', avatarUrl: null }])
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: 'player-1', playerOneId: 'player-1', playerTwoId: 'player-2' })
       await markTournamentMatchDrafting(db, 'session-1', 'match-1')
       await storeMatchMessageMapping(db, '00-draft-message', 'match-1')
       await storeMatchMessageMapping(db, '01-existing-archive', 'match-1')
@@ -354,7 +356,9 @@ describe('reported match Discord sync', () => {
         completedAt: 2,
       })
       const tournament = await createTournament(db, { name: 'Archive Cup', createdById: 'admin' })
-      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: 'player-1' })
+      await registerTournamentEntry(db, tournament.id, [{ userId: 'player-1', displayName: 'Player One', avatarUrl: null }])
+      await registerTournamentEntry(db, tournament.id, [{ userId: 'player-2', displayName: 'Player Two', avatarUrl: null }])
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: 'player-1', playerOneId: 'player-1', playerTwoId: 'player-2' })
       await markTournamentMatchDrafting(db, 'session-1', 'match-1')
       await storeMatchMessageMapping(db, 'draft-message', 'match-1')
       await kv.put('system:channel:tournament-draft', 'tournament-draft-channel')

@@ -5,6 +5,7 @@ import { slotToTeamIndex } from '@civup/game'
 import { lobbyCancelledEmbed } from '../../embeds/match.ts'
 import { restoreSessionDirectoryMembers } from '../session/directory.ts'
 import { getSessionLobbyProjectionByMatch } from '../session/lobby-projection.ts'
+import { getTournamentMatchBySessionId } from '../tournament/index.ts'
 import { syncLobbyDerivedState } from './live-snapshot.ts'
 import { upsertLobbyMessage } from './message.ts'
 import { setLobbyRoster, setLobbyStatus } from './mutations.ts'
@@ -35,6 +36,9 @@ export async function leaveOpenLobbyForLobbyJoin(
 ): Promise<LeaveOpenLobbyForJoinResult> {
   const currentLobby = lobby
   if (currentLobby.status !== 'open') return { ok: false, error: 'You are already in a live match.' }
+  if (options?.db && await getTournamentMatchBySessionId(options.db, currentLobby.id)) {
+    return { ok: false, error: 'Tournament rosters are locked. Cancel the tournament lobby before joining another lobby.' }
+  }
 
   const uniqueMovingPlayerIds = [...new Set(movingPlayerIds.filter(playerId => currentLobby.memberPlayerIds.includes(playerId)))]
   if (uniqueMovingPlayerIds.length === 0) {

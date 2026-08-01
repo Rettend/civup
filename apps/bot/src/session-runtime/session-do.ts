@@ -36,7 +36,7 @@ import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-e
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentResultPng } from '../services/tournament/image.ts'
-import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
+import { buildTournamentResultImageData, isMatchTournamentLinked, reopenTournamentMatchAfterDraftCancel, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../services/tournament/index.ts'
 import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { createRoomRecord, ROOM_RECORD_KEY } from './draft-room-domain.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
@@ -2043,6 +2043,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (payload.reason === 'timeout' || payload.reason === 'revert') {
       await reopenTournamentMatchAfterDraftCancel(db, record.id)
+    }
+    else {
+      await syncTournamentMatchAfterCancel(db, payload.state.matchId)
     }
 
     const recordWithFinalRoster = { ...record, roster: buildSessionRosterFromDraftSeats(record.roster, payload.state.seats) } as SessionRecord

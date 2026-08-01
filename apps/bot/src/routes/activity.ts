@@ -21,6 +21,7 @@ import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '..
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
 import { cacheCurrentRankAssignments, currentRankAssignmentsKey, getCachedCurrentRankAssignments, normalizeRankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
+import { getTournamentMatchBySessionId, resolveTournamentLobbyJoinSlot } from '../services/tournament/index.ts'
 import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
 import { createStatsContext } from '../services/stats/context.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -725,6 +726,18 @@ async function resolveSessionJoinEligibility(
     }
   }
 
+  const tournamentJoin = db ? await resolveTournamentLobbyJoinSlot(createDb(db), session.sessionId, userId) : null
+  if (tournamentJoin && !tournamentJoin.ok) {
+    return {
+      canJoin: false,
+      blockedReason: tournamentJoin.error,
+      pendingSlot: null,
+    }
+  }
+  const resolvePendingSlot = () => tournamentJoin?.ok === true
+    ? tournamentJoin.slot
+    : lobbySnapshot.entries.findIndex(entry => entry == null)
+
   const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
   const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'))
   if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.session.phase !== 'active' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
@@ -737,10 +750,17 @@ async function resolveSessionJoinEligibility(
 
   const blockingLobby = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'open') ?? null
   if (blockingLobby) {
+    if (db && await getTournamentMatchBySessionId(createDb(db), blockingLobby.sessionId)) {
+      return {
+        canJoin: false,
+        blockedReason: 'Tournament rosters are locked. Cancel the tournament lobby before joining another lobby.',
+        pendingSlot: null,
+      }
+    }
     const hasOtherMembers = blockingLobby.roster.participants.some(member => member.playerId !== userId)
     if (!(blockingLobby.hostId === userId && hasOtherMembers)) {
-      const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
-      if (pendingSlot >= 0) {
+      const pendingSlot = resolvePendingSlot()
+      if (pendingSlot >= 0 && lobbySnapshot.entries[pendingSlot] == null) {
         return {
           canJoin: true,
           blockedReason: null,
@@ -760,8 +780,8 @@ async function resolveSessionJoinEligibility(
     }
   }
 
-  const pendingSlot = lobbySnapshot.entries.findIndex(entry => entry == null)
-  if (pendingSlot < 0) {
+  const pendingSlot = resolvePendingSlot()
+  if (pendingSlot < 0 || lobbySnapshot.entries[pendingSlot] != null) {
     return {
       canJoin: false,
       blockedReason: 'This lobby is full.',
