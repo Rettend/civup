@@ -72,9 +72,17 @@ describe('CivBlitz match mod download', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'The CivBlitz draft is not complete.' })
   })
+
+  test('hides matches owned by a removed server', async () => {
+    const harness = await createHarness({ guildId: '222222222222222222' })
+    const response = await harness.request('player-1')
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Match not found' })
+  })
 })
 
-async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExpanded?: boolean, malformedDraft?: boolean } = {}) {
+async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExpanded?: boolean, malformedDraft?: boolean, guildId?: string } = {}) {
   const { db, sqlite } = await createTestDatabase()
   openDatabases.push(sqlite)
   await db.insert(players).values([
@@ -83,6 +91,7 @@ async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExp
   ])
   await db.insert(matches).values({
     id: MATCH_ID,
+    guildId: options.guildId ?? '111111111111111111',
     gameMode: 'ffa',
     status: 'active',
     draftData: options.malformedDraft

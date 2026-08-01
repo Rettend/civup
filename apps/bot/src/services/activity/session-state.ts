@@ -57,6 +57,7 @@ export interface ActivityOverviewPlayerSnapshot {
   displayName: string
   avatarUrl?: string | null
   team?: number | null
+  sourceGuild?: { id: string, name?: string | null, iconUrl?: string | null }
 }
 
 export interface ActivityOverviewSnapshot {
@@ -359,7 +360,7 @@ export async function buildLobbySnapshotFromSessionRecord(
   record: SessionRecord,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
   rankAssignments?: RankedRoleAssignments | null,
-  options: { legacyGuildId?: string | null } = {},
+  options: { legacyGuildId?: string | null, lobbyRankAssignments?: RankedRoleAssignments | null } = {},
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -389,7 +390,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
   session: ActivitySessionDirectoryEntry,
   balanceSnapshot?: LeaderboardModeSnapshot | null,
   rankAssignments?: RankedRoleAssignments | null,
-  options: { legacyGuildId?: string | null } = {},
+  options: { legacyGuildId?: string | null, lobbyRankAssignments?: RankedRoleAssignments | null } = {},
 ): Promise<LobbySnapshot> {
   return attachLobbyBalanceRatingsToSnapshot(
     kv,
@@ -574,7 +575,7 @@ async function buildLobbySnapshotFromSessionParts(
     gameSettings: AppliedCivLobbySettings
   },
   rankAssignments?: RankedRoleAssignments | null,
-  options: { legacyGuildId?: string | null } = {},
+  options: { legacyGuildId?: string | null, lobbyRankAssignments?: RankedRoleAssignments | null } = {},
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv, { guildId: session.guildId, legacyGuildId: options.legacyGuildId })
   const resolvedRankAssignments = rankAssignments === undefined && session.guildId && !session.config.redDeath && !session.config.civBlitz
@@ -605,7 +606,7 @@ async function buildLobbySnapshotFromSessionParts(
     leaderDataVersion: session.config.leaderDataVersion,
     redDeath: session.config.redDeath,
     civBlitz: session.config.civBlitz,
-    assignments: resolvedRankAssignments,
+    assignments: options.lobbyRankAssignments === undefined ? resolvedRankAssignments : options.lobbyRankAssignments,
   })
 
   return {

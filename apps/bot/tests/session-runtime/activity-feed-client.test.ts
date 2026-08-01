@@ -3,6 +3,7 @@ import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
 import { ACTIVITY_FEED_ROOM, CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
 import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
+import { resolveActivityConnectionGuildRefresh } from '../../src/session-runtime/activity-feed-access.ts'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
 
 describe('activity feed client', () => {
@@ -59,6 +60,23 @@ describe('activity feed client', () => {
     }, buildSessionRecord())
 
     expect(overview?.options.map(option => option.id)).toEqual(['other', 'session-1'])
+  })
+
+  test('detects server removal for surviving shared-feed connections', () => {
+    const primary = '111111111111111111'
+    const partner = '222222222222222222'
+    expect(resolveActivityConnectionGuildRefresh({
+      guildId: primary,
+      approvedGuildIds: [primary, partner],
+    }, [primary])).toEqual({
+      allowed: true,
+      configurationChanged: true,
+      state: { guildId: primary, approvedGuildIds: [primary] },
+    })
+    expect(resolveActivityConnectionGuildRefresh({
+      guildId: partner,
+      approvedGuildIds: [primary, partner],
+    }, [primary])).toEqual(expect.objectContaining({ allowed: false, configurationChanged: true }))
   })
 
 })

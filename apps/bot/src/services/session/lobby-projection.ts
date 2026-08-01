@@ -23,10 +23,12 @@ const LIVE_MEMBERSHIP_PHASES = ['open', 'draft'] as const
 
 export async function getLiveSessionLobbyProjections(
   db: Database,
-  options: { mode?: GameMode } = {},
+  options: { mode?: GameMode, guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
+  if (options.guildIds?.length === 0) return []
   const conditions = [inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES])]
   if (options.mode) conditions.push(eq(sessionDirectory.mode, options.mode))
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
 
   const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
 
@@ -36,12 +38,15 @@ export async function getLiveSessionLobbyProjections(
 export async function getOpenSessionLobbyProjectionsByMode(
   db: Database,
   mode: GameMode,
-  options: { includeStale?: boolean } = {},
+  options: { includeStale?: boolean, guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
+  if (options.guildIds?.length === 0) return []
+  const conditions = [
     eq(sessionDirectory.mode, mode),
     eq(sessionDirectory.phase, 'open'),
-  )).orderBy(asc(sessionDirectory.createdAt))
+  ]
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
+  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(asc(sessionDirectory.createdAt))
 
   const visibleRows = options.includeStale ? rows : filterStaleOpenDirectoryRows(rows)
   return visibleRows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
@@ -50,11 +55,15 @@ export async function getOpenSessionLobbyProjectionsByMode(
 export async function getOpenSessionLobbyProjectionsByChannel(
   db: Database,
   channelId: string,
+  options: { guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
+  if (options.guildIds?.length === 0) return []
+  const conditions = [
     eq(sessionDirectory.channelId, channelId),
     eq(sessionDirectory.phase, 'open'),
-  )).orderBy(desc(sessionDirectory.updatedAt))
+  ]
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
+  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -62,7 +71,7 @@ export async function getOpenSessionLobbyProjectionsByChannel(
 export async function getOpenSessionLobbyProjectionForPlayer(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode, excludeLobbyIds?: readonly string[], guildIds?: readonly string[] } = {},
 ): Promise<LobbyState | null> {
   return (await getCurrentSessionLobbyProjectionsForPlayer(db, playerId, options))
     .find(lobby => lobby.status === 'open') ?? null
@@ -71,12 +80,13 @@ export async function getOpenSessionLobbyProjectionForPlayer(
 export async function getCurrentSessionLobbyProjectionsForPlayers(
   db: Database,
   playerIds: readonly string[],
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode, excludeLobbyIds?: readonly string[], guildIds?: readonly string[] } = {},
 ): Promise<Map<string, LobbyState | null>> {
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
   const result = new Map<string, LobbyState | null>()
   for (const playerId of uniquePlayerIds) result.set(playerId, null)
   if (uniquePlayerIds.length === 0) return result
+  if (options.guildIds?.length === 0) return result
 
   const conditions = [
     inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
@@ -84,6 +94,7 @@ export async function getCurrentSessionLobbyProjectionsForPlayers(
     inArray(sessionDirectory.phase, [...LIVE_MEMBERSHIP_PHASES]),
   ]
   if (options.mode) conditions.push(eq(sessionDirectory.mode, options.mode))
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
 
   const rows = await db.select({ playerId: sessionDirectoryMembers.playerId, session: sessionDirectory })
     .from(sessionDirectoryMembers)
@@ -107,7 +118,7 @@ export async function getCurrentSessionLobbyProjectionsForPlayers(
 export async function getCurrentSessionLobbyProjectionsForPlayer(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode, excludeLobbyIds?: readonly string[], guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
   const lobby = (await getCurrentSessionLobbyProjectionsForPlayers(db, [playerId], options)).get(playerId) ?? null
   return lobby ? [lobby] : []
@@ -116,25 +127,28 @@ export async function getCurrentSessionLobbyProjectionsForPlayer(
 export async function getLiveSessionLobbyProjectionsForUser(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode, excludeLobbyIds?: readonly string[], guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
   const bySessionId = new Map<string, LobbyState>()
   for (const lobby of await getCurrentSessionLobbyProjectionsForPlayer(db, playerId, options)) {
     bySessionId.set(lobby.id, lobby)
   }
 
+  if (options.guildIds?.length === 0) return [...bySessionId.values()]
+  const matchConditions = [
+    eq(matchParticipants.playerId, playerId),
+    inArray(matches.status, ['drafting', 'active']),
+  ]
+  if (options.guildIds) matchConditions.push(inArray(matches.guildId, [...options.guildIds]))
   const matchRows = await db.select({ matchId: matchParticipants.matchId })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(
-      eq(matchParticipants.playerId, playerId),
-      inArray(matches.status, ['drafting', 'active']),
-    ))
+    .where(and(...matchConditions))
     .orderBy(desc(matches.createdAt))
 
   const excludedLobbyIds = new Set(options.excludeLobbyIds ?? [])
   for (const row of matchRows) {
-    const lobby = await getSessionLobbyProjectionByMatch(db, row.matchId)
+    const lobby = await getSessionLobbyProjectionByMatch(db, row.matchId, { guildIds: options.guildIds })
     if (!lobby) continue
     if (options.mode && lobby.mode !== options.mode) continue
     if (excludedLobbyIds.has(lobby.id)) continue
@@ -148,11 +162,15 @@ export async function getLiveSessionLobbyProjectionsForUser(
 export async function getOpenSessionLobbyProjectionHostedBy(
   db: Database,
   hostId: string,
+  options: { guildIds?: readonly string[] } = {},
 ): Promise<LobbyState | null> {
-  const rows = await db.select().from(sessionDirectory).where(and(
+  if (options.guildIds?.length === 0) return null
+  const conditions = [
     eq(sessionDirectory.hostId, hostId),
     eq(sessionDirectory.phase, 'open'),
-  )).orderBy(asc(sessionDirectory.createdAt))
+  ]
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
+  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(asc(sessionDirectory.createdAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])[0] ?? null
 }
@@ -160,11 +178,15 @@ export async function getOpenSessionLobbyProjectionHostedBy(
 export async function getLiveSessionLobbyProjectionsHostedBy(
   db: Database,
   hostId: string,
+  options: { guildIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
+  if (options.guildIds?.length === 0) return []
+  const conditions = [
     eq(sessionDirectory.hostId, hostId),
     inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES]),
-  )).orderBy(desc(sessionDirectory.updatedAt))
+  ]
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
+  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -181,11 +203,16 @@ function isStaleOpenDirectoryRow(row: Pick<SessionDirectoryRow, 'phase' | 'updat
 export async function getSessionLobbyProjectionByMatch(
   db: Database,
   matchId: string,
+  options: { guildIds?: readonly string[] } = {},
 ): Promise<LobbyState | null> {
-  const [row] = await db.select().from(sessionDirectory).where(or(
+  if (options.guildIds?.length === 0) return null
+  const matchCondition = or(
     eq(sessionDirectory.matchId, matchId),
     eq(sessionDirectory.sessionId, matchId),
-  )).orderBy(desc(sessionDirectory.updatedAt)).limit(1)
+  )!
+  const conditions = [matchCondition]
+  if (options.guildIds) conditions.push(inArray(sessionDirectory.guildId, [...options.guildIds]))
+  const [row] = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt)).limit(1)
 
   return row ? parseSessionLobbyProjection(row) : null
 }

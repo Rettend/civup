@@ -5,10 +5,11 @@ import type { lobbyComponents } from '../../embeds/match.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyState } from '../../services/lobby/index.ts'
 import { createDb as createCivupDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, isTeamMode } from '@civup/game'
+import { getApprovedDiscordGuildIds } from '@civup/utils'
 import { Option } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, restoreDeferredOpenLobbyTransferSourceAdmission, rollbackDeferredOpenLobbyTransferTarget, sameLobbySlots, setLobbyRoster } from '../../services/lobby/index.ts'
+import { filterQueueEntriesForLobby, finalizeDeferredOpenLobbyTransferSource, getLobbyById, leaveOpenLobbyForLobbyJoin, mapLobbySlotsToEntries, normalizeLobbySlots, restoreDeferredOpenLobbyTransferSourceAdmission, rollbackDeferredOpenLobbyTransferTarget, sameLobbySlots, setLobbyRoster, validateLobbyParties, validateTeamGuildSlots } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { buildOpenLobbyRenderPayload } from '../../services/lobby/render.ts'
 import { getCalculatedRankGateError } from '../../services/ranked/admission.ts'
@@ -86,6 +87,7 @@ export async function joinLobbyAndMaybeStartMatch(
       DISCORD_TOKEN?: string
       CIVUP_SECRET?: string
       ALLOWED_DISCORD_GUILD_ID?: string
+      ALLOWED_DISCORD_GUILD_IDS?: string
     }
   },
   mode: GameMode,
@@ -119,13 +121,14 @@ export async function joinLobbyAndMaybeStartMatch(
   const kv = getKvStore(c.env)
   if (!c.env.DB) return { error: 'D1 binding is not configured.' }
   const db = createCivupDb(c.env.DB)
-  let openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
+  const approvedGuildIds = getApprovedDiscordGuildIds(c.env)
+  let openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode, { guildIds: approvedGuildIds }))
     .filter(lobby => lobby.memberPlayerIds.length > 0)
   if (options?.includeTournamentLobbies !== true) {
     const tournamentSessionIds = await listOpenTournamentSessionIds(db)
     openLobbies = openLobbies.filter(lobby => !tournamentSessionIds.has(lobby.id))
   }
-  const currentLobbiesByPlayerId = await getCurrentSessionLobbyProjectionsForPlayers(db, requestedEntries.map(entry => entry.playerId))
+  const currentLobbiesByPlayerId = await getCurrentSessionLobbyProjectionsForPlayers(db, requestedEntries.map(entry => entry.playerId), { guildIds: approvedGuildIds })
   let currentOpenLobby: LobbyState | null = null
 
   for (const entry of requestedEntries) {
@@ -184,7 +187,12 @@ export async function joinLobbyAndMaybeStartMatch(
         return { gateError }
       }
 
-      const placement = placeRequestedEntries(mode, candidateCurrentSlots, requestedEntries)
+      const placementQueueEntries = buildPlacementQueueEntries(
+        candidateLobbyQueueEntries,
+        requestedRosterEntries,
+        c.env.ALLOWED_DISCORD_GUILD_ID,
+      )
+      const placement = placeRequestedEntries(mode, candidateCurrentSlots, requestedEntries, placementQueueEntries)
       if ('error' in placement) return null
 
       return {
@@ -237,7 +245,12 @@ export async function joinLobbyAndMaybeStartMatch(
     ...nextLobby,
     slots: normalizeLobbySlots(mode, nextLobby.slots, nextLobbyQueueEntriesBeforePlacement),
   }
-  const chosenPlacement = placeRequestedEntries(mode, nextLobby.slots, requestedEntries)
+  const chosenPlacement = placeRequestedEntries(
+    mode,
+    nextLobby.slots,
+    requestedEntries,
+    buildPlacementQueueEntries(nextLobbyQueueEntriesBeforePlacement, requestedRosterEntries, c.env.ALLOWED_DISCORD_GUILD_ID),
+  )
   if ('error' in chosenPlacement) return { error: chosenPlacement.error }
   const nextSlots = chosenPlacement.slots
   const nextMemberPlayerIds = [...new Set([...nextLobby.memberPlayerIds, ...requestedEntries.map(entry => entry.playerId)])]
@@ -375,9 +388,23 @@ const DRAFT_COMPLETED_AT_SQL = sql<number | null>`json_extract(${matches.draftDa
 export async function findBlockingDraftMatchIdsForPlayers(
   db: ReturnType<typeof createDb>,
   playerIds: string[],
+  guildIds?: readonly string[],
 ): Promise<Map<string, string>> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return new Map()
+  if (guildIds?.length === 0) return new Map()
+
+  const conditions = [
+    inArray(matchParticipants.playerId, uniquePlayerIds),
+    or(
+      eq(matches.status, 'drafting'),
+      and(
+        eq(matches.status, 'active'),
+        sql`${DRAFT_COMPLETED_AT_SQL} is null`,
+      ),
+    )!,
+  ]
+  if (guildIds) conditions.push(inArray(matches.guildId, [...guildIds]))
 
   const rows = await db
     .select({
@@ -386,16 +413,7 @@ export async function findBlockingDraftMatchIdsForPlayers(
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(
-      inArray(matchParticipants.playerId, uniquePlayerIds),
-      or(
-        eq(matches.status, 'drafting'),
-        and(
-          eq(matches.status, 'active'),
-          sql`${DRAFT_COMPLETED_AT_SQL} is null`,
-        ),
-      ),
-    ))
+    .where(and(...conditions))
     .orderBy(desc(matches.createdAt))
 
   const blockingMatchIdByPlayerId = new Map<string, string>()
@@ -410,9 +428,18 @@ export async function findBlockingDraftMatchIdsForPlayers(
 export async function findReportableMatchIdsForPlayers(
   db: ReturnType<typeof createDb>,
   playerIds: string[],
+  guildIds?: readonly string[],
 ): Promise<Map<string, string[]>> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return new Map()
+  if (guildIds?.length === 0) return new Map()
+
+  const conditions = [
+    inArray(matchParticipants.playerId, uniquePlayerIds),
+    eq(matches.status, 'active'),
+    sql`${DRAFT_COMPLETED_AT_SQL} is not null`,
+  ]
+  if (guildIds) conditions.push(inArray(matches.guildId, [...guildIds]))
 
   const rows = await db
     .select({
@@ -421,11 +448,7 @@ export async function findReportableMatchIdsForPlayers(
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(
-      inArray(matchParticipants.playerId, uniquePlayerIds),
-      eq(matches.status, 'active'),
-      sql`${DRAFT_COMPLETED_AT_SQL} is not null`,
-    ))
+    .where(and(...conditions))
     .orderBy(desc(matches.createdAt))
 
   const reportableMatchIdsByPlayerId = new Map<string, string[]>()
@@ -446,11 +469,12 @@ export async function resolveReportableMatchIdForPlayer(
   db: ReturnType<typeof createDb>,
   playerId: string,
   requestedMatchId?: string | null,
+  guildIds?: readonly string[],
 ): Promise<{ matchId: string | null, error: string | null }> {
   const matchId = requestedMatchId?.trim() ?? null
   if (matchId) return { matchId, error: null }
 
-  const reportableMatchIds = (await findReportableMatchIdsForPlayers(db, [playerId])).get(playerId) ?? []
+  const reportableMatchIds = (await findReportableMatchIdsForPlayers(db, [playerId], guildIds)).get(playerId) ?? []
   if (reportableMatchIds.length > 1) {
     return {
       matchId: null,
@@ -471,14 +495,15 @@ export async function resolveReportableMatchIdForPlayer(
 export async function preflightMatchCreateSessionState(
   db: ReturnType<typeof createDb>,
   playerId: string,
+  guildIds?: readonly string[],
 ): Promise<
   | { kind: 'continue' }
   | { kind: 'reuse-hosted-open-lobby', lobby: LobbyState }
   | { kind: 'block-open-lobby', lobby: LobbyState }
 > {
   const [hostedOpenLobby, currentOpenLobby] = await Promise.all([
-    getOpenSessionLobbyProjectionHostedBy(db, playerId),
-    getOpenSessionLobbyProjectionForPlayer(db, playerId),
+    getOpenSessionLobbyProjectionHostedBy(db, playerId, { guildIds }),
+    getOpenSessionLobbyProjectionForPlayer(db, playerId, { guildIds }),
   ])
   if (hostedOpenLobby?.status === 'open') return { kind: 'reuse-hosted-open-lobby', lobby: hostedOpenLobby }
   if (!currentOpenLobby) return { kind: 'continue' }
@@ -518,6 +543,7 @@ function placeRequestedEntries(
   mode: GameMode,
   slots: (string | null)[],
   requestedEntries: MatchJoinEntry[],
+  queueEntries: QueueEntry[],
 ): { slots: (string | null)[] } | { error: string } {
   const nextSlots = [...slots]
   const requestedPlayerIds = requestedEntries.map(entry => entry.playerId)
@@ -534,13 +560,40 @@ function placeRequestedEntries(
     return { slots: nextSlots }
   }
 
-  for (const playerId of unslottedPlayerIds) {
-    const emptySlot = nextSlots.findIndex(slot => slot == null)
-    if (emptySlot < 0) break
-    nextSlots[emptySlot] = playerId
+  const placeablePlayerIds = unslottedPlayerIds.slice(0, nextSlots.filter(slot => slot == null).length)
+
+  const place = (playerIndex: number): boolean => {
+    if (playerIndex >= placeablePlayerIds.length) {
+      const selectedPlayerIds = nextSlots.filter((playerId): playerId is string => playerId != null)
+      return validateLobbyParties(mode, queueEntries, selectedPlayerIds, nextSlots.length) == null
+        && validateTeamGuildSlots(mode, nextSlots, queueEntries).error == null
+    }
+
+    const playerId = placeablePlayerIds[playerIndex]!
+    for (let slot = 0; slot < nextSlots.length; slot += 1) {
+      if (nextSlots[slot] != null) continue
+      nextSlots[slot] = playerId
+      if (validateTeamGuildSlots(mode, nextSlots, queueEntries).error == null && place(playerIndex + 1)) return true
+      nextSlots[slot] = null
+    }
+    return false
   }
 
-  return { slots: nextSlots }
+  return place(0) ? { slots: nextSlots } : { error: 'No compatible team column could fit this join.' }
+}
+
+function buildPlacementQueueEntries(
+  currentEntries: readonly QueueEntry[],
+  requestedEntries: readonly QueueEntry[],
+  primaryGuildId?: string,
+): QueueEntry[] {
+  const byPlayerId = new Map(currentEntries.map(entry => [entry.playerId, entry]))
+  for (const entry of requestedEntries) byPlayerId.set(entry.playerId, entry)
+  const requestedPlayerIds = new Set(requestedEntries.map(entry => entry.playerId))
+  return [...byPlayerId.values()].map((entry) => {
+    if (entry.sourceGuild || requestedPlayerIds.has(entry.playerId) || !primaryGuildId) return entry
+    return { ...entry, sourceGuild: { id: primaryGuildId, name: 'PPL', iconUrl: null } }
+  })
 }
 
 function scoreLobbyCandidate(

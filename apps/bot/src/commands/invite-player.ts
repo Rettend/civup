@@ -1,5 +1,7 @@
 import { createDb } from '@civup/db'
+import { getApprovedDiscordGuildIds } from '@civup/utils'
 import { Command } from 'discord-hono'
+import { buildBrowserSessionUrl, resolveBrowserAccessConfig } from '../services/activity/browser-access.ts'
 import { createChannelMessage, createDmChannel } from '../services/discord/index.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getOpenSessionLobbyProjectionForPlayer } from '../services/session/index.ts'
@@ -18,23 +20,26 @@ export const command_invite_player = factory.command(
       }
 
       const db = createDb(c.env.DB)
-      const lobby = await getOpenSessionLobbyProjectionForPlayer(db, inviter.userId)
+      const lobby = await getOpenSessionLobbyProjectionForPlayer(db, inviter.userId, { guildIds: getApprovedDiscordGuildIds(c.env) })
       if (!lobby) {
         await sendTransientEphemeralResponse(c, 'You need to be in an open lobby before inviting someone.', 'error')
         return
       }
 
-      const guildId = lobby.guildId ?? c.interaction.guild_id ?? null
+      const guildId = lobby.guildId
       if (!guildId) {
         await sendTransientEphemeralResponse(c, 'Could not build a link to your lobby.', 'error')
         return
       }
 
       const lobbyLink = `https://discord.com/channels/${guildId}/${lobby.channelId}/${lobby.messageId}`
+      const browserConfig = await resolveBrowserAccessConfig(c.env, guildId)
+      const primaryLink = browserConfig ? buildBrowserSessionUrl(browserConfig, lobby.id) : lobbyLink
+      const messageLink = browserConfig ? `\nDiscord message: ${lobbyLink}` : ''
       try {
         const dm = await createDmChannel(c.env.DISCORD_TOKEN, targetUserId)
         await createChannelMessage(c.env.DISCORD_TOKEN, dm.id, {
-          content: `${inviter.displayName} invited you to a draft: ${lobbyLink}`,
+          content: `${inviter.displayName} invited you to a draft: ${primaryLink}${messageLink}`,
           allowed_mentions: { parse: [] },
         })
       }

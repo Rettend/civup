@@ -113,7 +113,7 @@ describe('ranked preview summary', () => {
     const kv = createTestKv()
     await seedConfiguredRoles(kv)
     await seedPlayers(db, 'duel', 10, { prefix: 'duel', gamesPlayed: 12 })
-    await markRankedRolesDirty(kv, 'test')
+    await markRankedRolesDirty(kv, GUILD_ID, 'test')
 
     const summary = await summarizeRankedPreview({
       db,

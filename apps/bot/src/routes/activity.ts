@@ -86,6 +86,7 @@ interface ChannelActivityTarget {
   session: ActivitySessionDirectoryEntry
   balanceSnapshot?: LeaderboardModeSnapshot | null
   rankAssignments?: RankedRoleAssignments | null
+  lobbyRankAssignments?: RankedRoleAssignments | null
 }
 
 interface ResolvedActivitySelection {
@@ -109,6 +110,7 @@ interface ActivityRuntimeOptions {
   internalSecret?: string | null
   guildIds?: readonly string[]
   legacyGuildId?: string | null
+  viewerGuildId?: string | null
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
@@ -154,7 +156,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const kv = getKvStore(c.env)
-    const launchState = await loadActivityLaunchState(kv, [session], c.env.ALLOWED_DISCORD_GUILD_ID)
+    const launchState = await loadActivityLaunchState(kv, [session], c.env.ALLOWED_DISCORD_GUILD_ID, auth.identity.guildId)
     const option = record
       ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
       : buildActivityOverviewOptions(session)[0]
@@ -164,7 +166,8 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const target: ChannelActivityTarget = {
       session,
       balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
-      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
+      rankAssignments: resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, auth.identity.guildId ?? session.guildId),
+      lobbyRankAssignments: resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, session.guildId),
       option: {
         ...option,
         isMember,
@@ -206,6 +209,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       c.env.DB,
       getApprovedDiscordGuildIds(c.env),
       c.env.ALLOWED_DISCORD_GUILD_ID,
+      auth.identity.guildId,
     )
     return c.json({
       status: 'available',
@@ -248,6 +252,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const userId = auth.identity.userId
 
     const db = createDb(c.env.DB)
+    const approvedGuildIds = getApprovedDiscordGuildIds(c.env)
     const [active] = await db
       .select({
         matchId: matchParticipants.matchId,
@@ -257,6 +262,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       .where(and(
         eq(matchParticipants.playerId, userId),
         inArray(matches.status, ['drafting', 'active']),
+        inArray(matches.guildId, approvedGuildIds),
       ))
       .orderBy(desc(matches.createdAt))
       .limit(1)
@@ -266,7 +272,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const liveMatchId = (await getOpenActivitySessionsForUser(db, userId))
-      .find(session => session.phase === 'draft' || session.phase === 'swap')
+      .find(session => isApprovedActivitySession(c.env, session) && (session.phase === 'draft' || session.phase === 'swap'))
       ?.sessionId ?? null
     if (liveMatchId) return c.json({ matchId: liveMatchId })
 
@@ -286,9 +292,12 @@ export function registerActivityRoutes(app: Hono<Env>) {
     if (sessions.length === 1) {
       const session = sessions[0]!
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
+      const launchState = await loadActivityLaunchState(kv, [session], c.env.ALLOWED_DISCORD_GUILD_ID, auth.identity.guildId)
+      const displayedAssignments = resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, auth.identity.guildId ?? session.guildId)
+      const lobbyRankAssignments = resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, session.guildId)
       const snapshot = record
-        ? await buildLobbySnapshotFromSessionRecord(kv, record, undefined, undefined, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
-        : await buildLobbySnapshotFromDirectoryEntry(kv, session, undefined, undefined, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
+        ? await buildLobbySnapshotFromSessionRecord(kv, record, undefined, displayedAssignments, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID, lobbyRankAssignments })
+        : await buildLobbySnapshotFromDirectoryEntry(kv, session, undefined, displayedAssignments, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID, lobbyRankAssignments })
       const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
       return c.json(lobby)
     }
@@ -310,9 +319,12 @@ export function registerActivityRoutes(app: Hono<Env>) {
       .find(candidate => candidate.phase === 'open' && isApprovedActivitySession(c.env, candidate)) ?? null
     if (session) {
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
+      const launchState = await loadActivityLaunchState(kv, [session], c.env.ALLOWED_DISCORD_GUILD_ID, auth.identity.guildId)
+      const displayedAssignments = resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, auth.identity.guildId ?? session.guildId)
+      const lobbyRankAssignments = resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, session.guildId)
       const snapshot = record
-        ? await buildLobbySnapshotFromSessionRecord(kv, record, undefined, undefined, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
-        : await buildLobbySnapshotFromDirectoryEntry(kv, session, undefined, undefined, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
+        ? await buildLobbySnapshotFromSessionRecord(kv, record, undefined, displayedAssignments, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID, lobbyRankAssignments })
+        : await buildLobbySnapshotFromDirectoryEntry(kv, session, undefined, displayedAssignments, { legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID, lobbyRankAssignments })
       const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
       return c.json(lobby)
     }
@@ -338,6 +350,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       internalSecret: c.env.CIVUP_SECRET,
       guildIds: getApprovedDiscordGuildIds(c.env),
       legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+      viewerGuildId: auth.identity.guildId,
     }))
   })
 
@@ -391,6 +404,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       internalSecret: c.env.CIVUP_SECRET,
       guildIds: getApprovedDiscordGuildIds(c.env),
       legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+      viewerGuildId: auth.identity.guildId,
     })
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
@@ -412,7 +426,7 @@ export async function selectActivityTargetForUser(
   },
   options?: ActivityRuntimeOptions,
 ): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined, options?.viewerGuildId)
   const selection = pickActivityLaunchSelectionForTarget(context.targets, target)
   if (!selection) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
@@ -435,9 +449,10 @@ export async function buildActivityLaunchSnapshot(
     internalSecret?: string | null
     guildIds?: readonly string[]
     legacyGuildId?: string | null
+    viewerGuildId?: string | null
   },
 ): Promise<ActivityLaunchSnapshot> {
-  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined)
+  const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.guildIds, options?.legacyGuildId ?? undefined, options?.viewerGuildId)
   const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
   if (launchTarget?.kind === 'overview') {
     await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
@@ -533,8 +548,8 @@ async function serializeActivityLaunchSelection(
         }
       : selection.target.option
     const lobbySnapshot = record
-      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot, selection.target.rankAssignments, { legacyGuildId })
-      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot, selection.target.rankAssignments, { legacyGuildId })
+      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot, selection.target.rankAssignments, { legacyGuildId, lobbyRankAssignments: selection.target.lobbyRankAssignments })
+      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot, selection.target.rankAssignments, { legacyGuildId, lobbyRankAssignments: selection.target.lobbyRankAssignments })
     const tournamentLobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
     const lobby = await attachRepeatDraftSnapshot(tournamentLobby, sessionNamespace, selection.target.session.sessionId)
     return {
@@ -779,11 +794,12 @@ async function loadActivityLaunchContext(
   db: D1Database | null | undefined,
   guildIds: readonly string[] = [],
   primaryGuildId?: string,
+  viewerGuildId?: string | null,
 ): Promise<ActivityLaunchContext> {
   if (!db) return { targets: [] }
 
   const channelSessions = await getActivitySessionsForFeed(createDb(db), { guildIds })
-  const launchState = await loadActivityLaunchState(kv, channelSessions, primaryGuildId)
+  const launchState = await loadActivityLaunchState(kv, channelSessions, primaryGuildId, viewerGuildId)
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
@@ -795,7 +811,8 @@ async function loadActivityLaunchContext(
     targets.push({
       session,
       balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
-      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
+      rankAssignments: resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, viewerGuildId ?? session.guildId),
+      lobbyRankAssignments: resolveGuildRankAssignments(launchState.rankAssignmentsByGuildId, session.guildId),
       option: {
         ...option,
         isMember,
@@ -848,6 +865,7 @@ async function loadActivityLaunchState(
   kv: KVNamespace,
   channelSessions: ActivitySessionDirectoryEntry[],
   primaryGuildId: string | undefined,
+  viewerGuildId?: string | null,
 ): Promise<ActivityLaunchState> {
   const requestedBalanceScopes = [...new Map(
     channelSessions
@@ -859,11 +877,13 @@ async function loadActivityLaunchState(
         return [[`${session.guildId}:${mode}`, { mode, context }] as const]
       }),
   ).values()]
-  const requestedGuildIds = [...new Set(channelSessions
+  const requestedGuildIds = [...new Set([...channelSessions
     .filter(session => session.phase === 'open')
     .filter(session => !session.config.redDeath)
     .map(session => session.guildId)
-    .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0))]
+    .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0),
+  ...(viewerGuildId ? [viewerGuildId] : []),
+  ])]
   const rankAssignmentsByGuildId = new Map<string, RankedRoleAssignments>()
   const uncachedGuildIds = requestedGuildIds.filter((guildId) => {
     const cached = getCachedCurrentRankAssignments(kv, guildId)
@@ -912,11 +932,11 @@ function resolveSessionBalanceSnapshot(
   return session.guildId ? balanceSnapshots.get(`${session.guildId}:${mode}`) ?? null : null
 }
 
-function resolveSessionRankAssignments(
+function resolveGuildRankAssignments(
   rankAssignmentsByGuildId: ReadonlyMap<string, RankedRoleAssignments>,
-  session: ActivitySessionDirectoryEntry,
+  guildId: string | null | undefined,
 ): RankedRoleAssignments | null {
-  return session.guildId ? rankAssignmentsByGuildId.get(session.guildId) ?? null : null
+  return guildId ? rankAssignmentsByGuildId.get(guildId) ?? null : null
 }
 
 function countFilledSlots(slots: (string | null)[]): number {

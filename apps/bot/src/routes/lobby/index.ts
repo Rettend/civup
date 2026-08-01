@@ -4,7 +4,7 @@ import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES, CivLobbySettingsValidationError, cloneOfficialAppliedSettings, createAppliedCivLobbySettings, defaultPlayerCount, formatModeLabel, GAME_MODES, getCivBlitzOptionCountMaximum, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeAppliedCivLobbySettings, normalizeCivLobbySettingsProfile, normalizeCompetitiveTierBounds, parseGameMode, resolveCivLobbySettings, toBalanceLeaderboardMode } from '@civup/game'
-import { createSessionAccessToken } from '@civup/utils'
+import { createSessionAccessToken, getApprovedDiscordGuildIds, isApprovedDiscordGuildId } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
 import { getServerDraftTimerDefaults, MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
@@ -234,13 +234,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!lobbyId) return c.json({ error: 'lobbyId is required' }, 400)
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby || lobby.mode !== mode || lobby.status !== 'open') {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
 
     if (!lobby.guildId) return c.json({ error: 'Lobby is missing owning-server data' }, 409)
-    const style = await getRankedRoleCalculationConfig(kv, lobby.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
+    if (!auth.identity.guildId) return c.json({ error: 'Viewer server context is unavailable' }, 409)
+    const style = await getRankedRoleCalculationConfig(kv, auth.identity.guildId, c.env.ALLOWED_DISCORD_GUILD_ID ?? '')
     if (!style.valid) return c.json({ error: 'This server has an incomplete rank setup.' }, 409)
     const visuals = buildRankedRoleVisuals(style.config)
 
@@ -310,7 +311,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       const extraField = Object.keys(body).find(key => key !== 'userId' && key !== 'lobbyId' && key !== 'gameSettings')
       if (extraField) return c.json({ error: 'Game settings must be applied separately from draft config.' }, 400)
       const db = createDb(c.env.DB)
-      const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+      const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
       if (!lobby || lobby.mode !== mode || lobby.status !== 'open') return c.json({ error: 'No open lobby for this mode' }, 404)
       if (lobby.hostId !== auth.identity.userId) return c.json({ error: 'Only the lobby host can update game settings' }, 403)
       if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament lobby game settings are locked.' }, 403)
@@ -484,8 +485,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobbyById = typeof lobbyId === 'string' && lobbyId.length > 0 ? await getSessionLobbyProjectionByMatch(db, lobbyId) ?? await getLobbyById(kv, lobbyId) : null
-    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const approvedGuildIds = getApprovedDiscordGuildIds(c.env)
+    const lobbyByIdCandidate = typeof lobbyId === 'string' && lobbyId.length > 0
+      ? await getSessionLobbyProjectionByMatch(db, lobbyId, { guildIds: approvedGuildIds }) ?? await getLobbyById(kv, lobbyId)
+      : null
+    const lobbyById = lobbyByIdCandidate && isApprovedDiscordGuildId(lobbyByIdCandidate.guildId, c.env) ? lobbyByIdCandidate : null
+    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, approvedGuildIds)
       ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
@@ -869,7 +874,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1009,7 +1014,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const resolvedLobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!resolvedLobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1275,7 +1280,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1368,7 +1373,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1458,7 +1463,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1568,7 +1573,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
@@ -1672,8 +1677,12 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobbyById = typeof lobbyId === 'string' ? await getSessionLobbyProjectionByMatch(db, lobbyId) ?? await getLobbyById(kv, lobbyId) : null
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const approvedGuildIds = getApprovedDiscordGuildIds(c.env)
+    const lobbyByIdCandidate = typeof lobbyId === 'string'
+      ? await getSessionLobbyProjectionByMatch(db, lobbyId, { guildIds: approvedGuildIds }) ?? await getLobbyById(kv, lobbyId)
+      : null
+    const lobbyById = lobbyByIdCandidate && isApprovedDiscordGuildId(lobbyByIdCandidate.guildId, c.env) ? lobbyByIdCandidate : null
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, approvedGuildIds)
       ?? (lobbyById && lobbyById.status !== 'open' ? lobbyById : null)
     if (!lobby) return c.json({ error: 'No lobby for this mode' }, 404)
 
@@ -1780,7 +1789,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     const db = createDb(c.env.DB)
-    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) return c.json({ error: 'No open lobby for this mode' }, 404)
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can repeat the draft' }, 403)
@@ -1857,7 +1866,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
 
-    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId })
+    const lobby = await resolveOpenLobbyFromBody(createDb(c.env.DB), mode, { lobbyId }, getApprovedDiscordGuildIds(c.env))
     if (!lobby) {
       return c.json({ error: 'No lobby for this mode' }, 404)
     }

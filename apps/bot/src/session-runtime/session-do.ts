@@ -26,7 +26,7 @@ import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberP
 import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
 import { getCalculatedRankGateError } from '../services/ranked/admission.ts'
 import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { createStatsContext } from '../services/stats/context.ts'
+import { createStatsContext, requireStoredMatchGuildId } from '../services/stats/context.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getGameSettingsFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
@@ -273,6 +273,11 @@ interface ReportedDiscordSyncCommandRequest {
   at?: number
 }
 
+interface ForceCancelBrokenSessionCommandRequest {
+  matchId?: string | null
+  at?: number
+}
+
 type ReportClaimCommandRequest
   = | {
     type: 'claim'
@@ -406,6 +411,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (request.method === 'POST' && url.pathname === '/commands/session-lifecycle') {
       return await this.runSerializedCommand(() => this.handleSessionLifecycleCommand(request))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/commands/force-cancel-broken') {
+      return await this.runSerializedCommand(() => this.handleForceCancelBrokenSessionCommand(request))
     }
 
     if (request.method === 'POST' && url.pathname === '/commands/report-claim') {
@@ -1737,13 +1746,15 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!this.env.DB || !this.env.KV || !this.env.DISCORD_TOKEN) throw new Error('Reported Discord sync bindings are not configured')
     const db = createDb(this.env.DB)
     const [match] = await db
-      .select({ id: matches.id, gameMode: matches.gameMode, status: matches.status, draftData: matches.draftData })
+      .select({ id: matches.id, guildId: matches.guildId, gameMode: matches.gameMode, status: matches.status, draftData: matches.draftData })
       .from(matches)
       .where(eq(matches.id, matchId))
       .limit(1)
 
     if (!match) throw new Error(`Match **${matchId}** not found.`)
     if (match.status !== 'completed') return
+    const owningGuildId = requireStoredMatchGuildId(match)
+    if (record.guildId !== owningGuildId) throw new Error(`Session ${record.id} ownership does not match match ${matchId}`)
 
     const context = getStoredGameModeContext(match.gameMode, match.draftData)
     const reportedMode = context?.mode ?? record.mode
@@ -1754,14 +1765,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
-    const statsGuildId = record.guildId ?? this.env.ALLOWED_DISCORD_GUILD_ID
-    const participants = statsGuildId
-      ? await hydrateModeRatingSnapshotsFromEvents(
-          db,
-          createStatsContext(statsGuildId, this.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
-          storedParticipants.map(participant => ({ ...participant, gameMode: match.gameMode, draftData: match.draftData })),
-        )
-      : storedParticipants
+    const participants = await hydrateModeRatingSnapshotsFromEvents(
+      db,
+      createStatsContext(owningGuildId, this.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+      storedParticipants.map(participant => ({ ...participant, gameMode: match.gameMode, draftData: match.draftData })),
+    )
     const tournamentLinked = await isMatchTournamentLinked(db, matchId)
     const tournamentResultPng = tournamentLinked
       ? await this.renderReportedTournamentResultImage(db, matchId, participants)
@@ -1787,7 +1795,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (refreshedMessageIds.length >= 2) return
 
     const archiveChannelId = await getSystemChannel(this.env.KV, tournamentLinked ? 'tournament-archive' : 'archive', {
-      guildId: record.guildId,
+      guildId: owningGuildId,
       legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID,
     })
     if (!archiveChannelId) return
@@ -2313,6 +2321,55 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return json({ ok: true, record: finished.record })
   }
 
+  private async handleForceCancelBrokenSessionCommand(request: Request): Promise<Response> {
+    let body: ForceCancelBrokenSessionCommandRequest | null = null
+    try {
+      body = await request.json<ForceCancelBrokenSessionCommandRequest>()
+    }
+    catch {
+      body = null
+    }
+
+    const existing = await this.getRecord()
+    if (!existing) return json({ error: 'Session not found' }, 404)
+    if (existing.phase === 'open') return json({ error: 'Open sessions must use cancel-open-session' }, 409)
+    const at = normalizePositiveInteger(body?.at, Date.now())
+    if (existing.phase === 'cancelled') {
+      const record = {
+        ...existing,
+        version: existing.version + 1,
+        updatedAt: Math.max(existing.updatedAt, at),
+      } satisfies SessionRecord
+      const commit = await this.commitRecord(record)
+      if (commit) return commit
+      this.closeSelectedDraftConnections('Session closed')
+      return json({ ok: true, record })
+    }
+    if (existing.phase === 'reported') return json({ error: 'Reported sessions cannot be force-cancelled' }, 409)
+
+    const requestedMatchId = typeof body?.matchId === 'string' && body.matchId.length > 0 ? body.matchId : null
+    if (requestedMatchId && existing.matchId !== requestedMatchId && existing.id !== requestedMatchId) {
+      return json({ error: `Session ${existing.id} does not belong to match ${requestedMatchId}` }, 409)
+    }
+
+    for (const candidateMatchId of uniqueStrings([requestedMatchId, existing.matchId])) {
+      const status = await this.readPersistedMatchStatus(candidateMatchId)
+      if (status === undefined) return json({ error: 'Could not verify broken match state' }, 503)
+      if (status !== null) return json({ error: `Match **${candidateMatchId}** still exists.` }, 409)
+    }
+
+    const record = {
+      ...cancelNonOpenSession(existing, at),
+      draftStartSync: null,
+      lifecycleSync: null,
+      terminalSync: null,
+    } satisfies SessionRecord
+    const commit = await this.commitRecord(record)
+    if (commit) return commit
+    this.closeSelectedDraftConnections('Session closed')
+    return json({ ok: true, record })
+  }
+
   private async handleReportClaimCommand(request: Request): Promise<Response> {
     let body: ReportClaimCommandRequest | null = null
     try {
@@ -2792,12 +2849,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return
     }
 
-    const [match] = await db.select({ status: matches.status }).from(matches).where(eq(matches.id, command.matchId)).limit(1)
+    const [match] = await db.select({ status: matches.status, cancelledAt: matches.cancelledAt }).from(matches).where(eq(matches.id, command.matchId)).limit(1)
     if (!match) throw new TerminalMatchNotFoundError(command.matchId)
     const updated = await db.update(matches)
       .set({
         status: 'cancelled',
-        cancelledAt: command.at,
+        cancelledAt: match.cancelledAt ?? command.at,
         ...(match.status === 'cancelled' ? {} : { resultRevision: sql`${matches.resultRevision} + 1` }),
       })
       .where(eq(matches.id, command.matchId))

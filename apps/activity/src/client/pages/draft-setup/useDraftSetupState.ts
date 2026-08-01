@@ -408,7 +408,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const canCurrentUserUseTeam = (team: number): boolean => {
     if (captainPickSetupEnabled()) return true
     if (!isTeamMode()) return true
-    const sourceGuildId = currentUser()?.guildId ?? null
+    const sourceGuildId = playerSourceGuildId(userId())
     if (!sourceGuildId) return false
     const lock = teamGuild(team)
     return !lock || lock.id === sourceGuildId

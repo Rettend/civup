@@ -420,6 +420,20 @@ describe('lobby activity snapshots', () => {
       tier: 'tier3',
       leaderPoolSize: 36,
     })
+
+    const viewerSnapshot = await buildLobbySnapshotFromSessionRecord(
+      kv,
+      buildOpenSessionRecordFromLobby(lobby, queueEntries),
+      null,
+      { byPlayerId: { p1: { tier: 'tier1', sourceMode: null } } },
+      {
+        lobbyRankAssignments: {
+          byPlayerId: Object.fromEntries(queueEntries.map(entry => [entry.playerId, { tier: 'tier5' as const, sourceMode: null }])),
+        },
+      },
+    )
+    expect(viewerSnapshot.entries[0]?.rankedRole?.tier).toBe('tier1')
+    expect(viewerSnapshot.lobbyRank).toEqual({ tier: 'tier5', leaderPoolSize: 40 })
   })
 
   test('uses rank5 leader pool defaults when rank assignments are missing', async () => {

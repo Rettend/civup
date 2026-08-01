@@ -98,8 +98,11 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
 
 function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
   const [filter, setFilter] = createSignal<OverviewFilter>('all')
-  const [serverFilter, setServerFilter] = createSignal<string | 'all'>('all')
-  let initializedServerFilter = false
+  const initialLaunchGuildId = user()?.guildId ?? null
+  const [serverFilter, setServerFilter] = createSignal<string | 'all'>(
+    initialLaunchGuildId && props.supportedServers.some(server => server.id === initialLaunchGuildId) ? initialLaunchGuildId : 'all',
+  )
+  let initializedServerFilter = props.supportedServers.length > 0
   createEffect(() => {
     const servers = props.supportedServers
     if (!initializedServerFilter && servers.length > 0) {
@@ -140,7 +143,7 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
       </div>
 
       <div class="flex gap-4 items-start">
-        <div class="hidden lg:flex w-44 shrink-0 flex-col gap-1 rounded-2xl border border-border-subtle bg-bg-subtle/75 p-2 lg:sticky lg:top-4">
+        <div class="hidden lg:flex w-44 shrink-0 flex-col gap-1 rounded-2xl border border-border-subtle bg-bg-subtle/75 p-2 lg:sticky lg:top-1/2 lg:-translate-y-1/2">
           <ServerFilterButton label="All" selected={serverFilter() === 'all'} onSelect={() => setServerFilter('all')} />
           <For each={props.supportedServers}>
             {server => <ServerFilterButton server={server} label={server.name || server.id} selected={serverFilter() === server.id} onSelect={() => setServerFilter(server.id)} />}
@@ -223,6 +226,7 @@ function ServerFilterButton(props: {
   return (
     <button
       type="button"
+      aria-label={props.server ? props.label : 'All servers'}
       aria-pressed={props.selected}
       onClick={props.onSelect}
       class={cn(
@@ -243,7 +247,7 @@ function ServerIdentityIcon(props: { server: ActivitySupportedServerSnapshot | {
   return (
     <Show
       when={props.server.iconUrl}
-      fallback={<span class="rounded bg-white/10 text-[8px] text-fg-subtle font-bold shrink-0 inline-flex h-5 w-5 items-center justify-center">{(props.server.name || 'S').slice(0, 1).toUpperCase()}</span>}
+      fallback={<span aria-hidden="true" class="rounded bg-white/10 text-[8px] text-fg-subtle font-bold shrink-0 inline-flex h-5 w-5 items-center justify-center">{(props.server.name || 'S').slice(0, 1).toUpperCase()}</span>}
     >
       {iconUrl => <img src={iconUrl()} alt="" draggable={false} class="rounded shrink-0 h-5 w-5 object-cover" />}
     </Show>

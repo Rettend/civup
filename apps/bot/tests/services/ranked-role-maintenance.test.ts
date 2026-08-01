@@ -83,7 +83,8 @@ describe('ranked role maintenance', () => {
         lastPlayedAt: NOW,
       },
     ]))
-    await markRankedRolesDirty(kv, 'test')
+    await markRankedRolesDirty(kv, GUILD_ID, 'primary-test')
+    await markRankedRolesDirty(kv, SECOND_GUILD_ID, 'partner-test')
 
     const fetchedMemberIdsByGuild = new Map<string, Set<string>>()
     globalThis.fetch = async (input) => {
@@ -123,7 +124,8 @@ describe('ranked role maintenance', () => {
     expect(fetchedMemberIdsByGuild.get(GUILD_ID)?.size).toBe(8)
     expect(fetchedMemberIdsByGuild.get(SECOND_GUILD_ID)?.size).toBe(8)
     expect(fetchedMemberIdsByGuild.has(REMOVED_GUILD_ID)).toBe(false)
-    expect(await getRankedRolesDirtyState(kv)).not.toBeNull()
+    expect(await getRankedRolesDirtyState(kv, GUILD_ID)).not.toBeNull()
+    expect(await getRankedRolesDirtyState(kv, SECOND_GUILD_ID)).not.toBeNull()
     expect(Object.keys((await getCurrentRankAssignments(kv, GUILD_ID)).byPlayerId)).toHaveLength(17)
     expect(Object.keys((await getCurrentRankAssignments(kv, SECOND_GUILD_ID)).byPlayerId)).toHaveLength(17)
 
@@ -136,13 +138,54 @@ describe('ranked role maintenance', () => {
     expect(secondRetry.attemptedDiscordChanges).toBe(2)
     expect(secondRetry.appliedDiscordChanges).toBe(2)
     expect(secondRetry.pendingDiscordChanges).toBe(0)
-    expect(await getRankedRolesDirtyState(kv)).not.toBeNull()
+    expect(await getRankedRolesDirtyState(kv, GUILD_ID)).not.toBeNull()
+    expect(await getRankedRolesDirtyState(kv, SECOND_GUILD_ID)).not.toBeNull()
 
     const settledSync = await runRankedRoleMaintenance(env, 'sync', NOW)
     expect(settledSync.attemptedDiscordChanges).toBe(0)
     expect(settledSync.pendingDiscordChanges).toBe(0)
-    expect(await getRankedRolesDirtyState(kv)).toBeNull()
+    expect(await getRankedRolesDirtyState(kv, GUILD_ID)).toBeNull()
+    expect(await getRankedRolesDirtyState(kv, SECOND_GUILD_ID)).toBeNull()
 
+    sqlite.close()
+  })
+
+  test('continues with later guilds when one guild sync fails', async () => {
+    const { sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    await setRankedRoleCurrentRoles(kv, GUILD_ID, ROLE_IDS)
+    await setRankedRoleCurrentRoles(kv, SECOND_GUILD_ID, ROLE_IDS)
+    await markRankedRolesDirty(kv, GUILD_ID, 'primary-test')
+    await markRankedRolesDirty(kv, SECOND_GUILD_ID, 'partner-test')
+
+    const failingKv = {
+      get(key: string, ...args: unknown[]) {
+        if (key.includes(GUILD_ID)) throw new Error('injected primary KV failure')
+        return (kv.get as (...input: unknown[]) => unknown)(key, ...args)
+      },
+      put: kv.put.bind(kv),
+      delete: kv.delete.bind(kv),
+      list: kv.list.bind(kv),
+    } as unknown as KVNamespace
+    const env = {
+      DB: createSqliteD1Database(sqlite),
+      KV: failingKv,
+      DISCORD_TOKEN: 'token',
+      ALLOWED_DISCORD_GUILD_ID: GUILD_ID,
+      ALLOWED_DISCORD_GUILD_IDS: SECOND_GUILD_ID,
+    } as any
+    const originalConsoleError = console.error
+    console.error = () => {}
+    try {
+      const result = await runRankedRoleMaintenance(env, 'sync', 0)
+      expect(result.guilds).toBe(2)
+    }
+    finally {
+      console.error = originalConsoleError
+    }
+
+    expect(await getRankedRolesDirtyState(kv, GUILD_ID)).not.toBeNull()
+    expect(await getRankedRolesDirtyState(kv, SECOND_GUILD_ID)).toBeNull()
     sqlite.close()
   })
 })

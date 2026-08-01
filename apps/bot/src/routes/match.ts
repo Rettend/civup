@@ -4,12 +4,13 @@ import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/ga
 import type { CivBlitzModInput } from '@civup/civ6-mod'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { CIV_BLITZ_CATEGORIES } from '@civup/game'
+import { isApprovedDiscordGuildId } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
-import { createStatsContext } from '../services/stats/context.ts'
+import { createStatsContext, requireStoredMatchGuildId } from '../services/stats/context.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildSimulatedReportedRankContext, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
@@ -39,6 +40,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (!match) {
       return c.json({ error: 'Match not found' }, 404)
     }
+    if (!isApprovedDiscordGuildId(match.guildId, c.env)) return c.json({ error: 'Match not found' }, 404)
 
     const participants = await db
       .select()
@@ -70,6 +72,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       .limit(1)
 
     if (!match) return c.json({ error: 'Match not found' }, 404)
+    if (!isApprovedDiscordGuildId(match.guildId, c.env)) return c.json({ error: 'Match not found' }, 404)
 
     const participants = await db
       .select({ playerId: matchParticipants.playerId })
@@ -145,11 +148,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (mismatch) return mismatch
 
     const db = createDb(c.env.DB)
+    const matchId = c.req.param('matchId')
     const now = Date.now()
-    const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
-    const owningGuildId = await resolveMatchOriginGuildId(db, c.req.param('matchId'))
+    const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, matchId)
+    const owningGuildId = await resolveMatchOriginGuildId(db, matchId)
+    if (!isApprovedDiscordGuildId(owningGuildId, c.env)) return c.json({ error: 'Match not found' }, 404)
     const result = await reportMatch(db, kv, {
-      matchId: c.req.param('matchId'),
+      matchId,
       reporterId: auth.identity.userId,
       placements,
       leaderAssignments,
@@ -188,6 +193,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     queueActivityReportProjectionTasks(c, {
       db,
       kv,
+      sessionId: result.reportClaim?.sessionId ?? liveLobbyBeforeReport?.id ?? result.match.id,
       matchId: result.match.id,
       reportClaim: result.reportClaim,
       reportedContext,
@@ -252,6 +258,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     if (!match) {
       return c.json({ error: `Match **${matchId}** not found.` }, 404)
     }
+    if (!isApprovedDiscordGuildId(match.guildId, c.env)) return c.json({ error: `Match **${matchId}** not found.` }, 404)
 
     const participants = await db
       .select({ playerId: matchParticipants.playerId })
@@ -321,7 +328,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
       if (!isTournamentMatch && scrubContext?.ranked) {
         try {
-          await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
+          await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `activity-scrub:${result.match.id}`)
         }
         catch (error) {
           console.error(`Failed to mark ranked roles dirty after scrub ${result.match.id}:`, error)
@@ -365,6 +372,7 @@ function queueActivityReportProjectionTasks(
   input: {
     db: ReturnType<typeof createDb>
     kv: KVNamespace
+    sessionId: string
     matchId: string
     reportClaim?: Parameters<typeof releaseReportedMatchProcessingClaim>[1]
     reportedContext: NonNullable<ReturnType<typeof getStoredGameModeContext>>
@@ -422,7 +430,7 @@ function queueActivityReportProjectionTasks(
       }
       if (discordSyncErrors.length > 0) {
         await releaseReportClaim()
-        await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
+        await queueReportedDiscordRepair(context, input.sessionId, input.matchId, discordSyncErrors)
       }
       else {
         await releaseReportClaim()
@@ -445,7 +453,7 @@ function queueActivityReportProjectionTasks(
       }
 
       if (input.reportedContext.ranked) {
-        await markRankedRolesDirty(input.kv, `activity-report:${input.matchId}`).catch((error) => {
+        await markRankedRolesDirty(input.kv, input.originGuildId, `activity-report:${input.matchId}`).catch((error) => {
           console.error(`Failed to mark ranked roles dirty after match ${input.matchId}:`, error)
         })
       }
@@ -479,10 +487,11 @@ async function hydrateLeaderboardRanksForDiscord(
 
 async function queueReportedDiscordRepair(
   context: { env: Env['Bindings'] },
+  sessionId: string,
   matchId: string,
   errors: string[],
 ): Promise<void> {
-  await queueSessionReportedDiscordSync(context.env.SessionDO, matchId, {
+  await queueSessionReportedDiscordSync(context.env.SessionDO, sessionId, {
     matchId,
     reason: errors.join('; '),
   }).catch((error) => {

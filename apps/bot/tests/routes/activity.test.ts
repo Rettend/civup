@@ -8,6 +8,7 @@ import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLob
 import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { currentRankAssignmentsKey } from '../../src/services/ranked/role-sync.ts'
 import { createStatsContext } from '../../src/services/stats/context.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
@@ -122,6 +123,32 @@ describe('shared Activity discovery', () => {
     expect(response.status).toBe(200)
     expect((await response.json<any>()).snapshot.options).toHaveLength(2)
     expect(durableObjectLookups).toBe(0)
+  })
+
+  test('shows viewer-server ranks while keeping owner-server lobby balance', async () => {
+    const { kv } = createTrackedKv()
+    const partnerGuildId = '222222222222222222'
+    const queueEntries = [{
+      playerId: 'host-1', displayName: 'Host', avatarUrl: null, joinedAt: 1, sourceGuild: { id: LOBBY_GUILD_ID },
+    }]
+    const lobby = await createLobby(kv, {
+      mode: '2v2', guildId: LOBBY_GUILD_ID, hostId: 'host-1', channelId: 'channel-a', messageId: 'message-a', queueEntries,
+    })
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host-1'], lobby, { queueEntries })
+    await setLobbySlots(kv, lobby.id, ['host-1', null, null, null], withMembers ?? lobby, { queueEntries })
+    await kv.put(currentRankAssignmentsKey(LOBBY_GUILD_ID), JSON.stringify({ byPlayerId: { 'host-1': { tier: 'tier5', sourceMode: null } } }))
+    await kv.put(currentRankAssignmentsKey(partnerGuildId), JSON.stringify({ byPlayerId: { 'host-1': { tier: 'tier1', sourceMode: null } } }))
+
+    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'partner-launch-channel', 'host-1', {
+      ...activityRuntimeOptions(kv),
+      guildIds: [LOBBY_GUILD_ID, partnerGuildId],
+      viewerGuildId: partnerGuildId,
+    })
+
+    expect(snapshot.selection?.kind).toBe('lobby')
+    if (snapshot.selection?.kind !== 'lobby') return
+    expect(snapshot.selection.lobby.entries[0]?.rankedRole?.tier).toBe('tier1')
+    expect(snapshot.selection.lobby.lobbyRank?.tier).toBe('tier5')
   })
 })
 

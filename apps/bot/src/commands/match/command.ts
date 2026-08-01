@@ -5,6 +5,7 @@ import type { LobbyState } from '../../services/lobby/index.ts'
 import type { MatchJoinEntry, MatchVar } from './shared.ts'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { defaultPlayerCount, formatModeLabel, GAME_MODE_CHOICES, GAME_MODES, isTeamMode, minPlayerCount, parseGameMode, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
+import { getApprovedDiscordGuildIds, isApprovedDiscordGuildId } from '@civup/utils'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
@@ -16,7 +17,7 @@ import { createChannelMessage, deleteChannelMessage } from '../../services/disco
 import { getKnownGuildIdentity } from '../../services/discord/guild-metadata.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../../services/leaderboard/message.ts'
-import { createStatsContext } from '../../services/stats/context.ts'
+import { createStatsContext, requireStoredMatchGuildId } from '../../services/stats/context.ts'
 import { createLobby, filterQueueEntriesForLobby, getLobbyBumpCooldownRemainingMs, getLobbyById, mapLobbySlotsToEntries, markLobbyBumped, normalizeLobbySlots, repostLobbyMessage, setLobbyLastActivityAt, setLobbyRoster, setLobbyStatus, setLobbySteamLobbyLink } from '../../services/lobby/index.ts'
 import { syncLobbyDerivedState } from '../../services/lobby/live-snapshot.ts'
 import { upsertLobbyMessage } from '../../services/lobby/message.ts'
@@ -191,7 +192,7 @@ export const command_match = factory.command<MatchVar>(
 
         const db = createDb(c.env.DB)
         const tournamentSessionIds = await listOpenTournamentSessionIds(db)
-        const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode)).filter(lobby => !tournamentSessionIds.has(lobby.id))
+        const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode, { guildIds: getApprovedDiscordGuildIds(c.env) })).filter(lobby => !tournamentSessionIds.has(lobby.id))
         if (openLobbies.length === 0) {
           if (joinRequest.entries.length > 1) {
             return c.flags('EPHEMERAL').resDefer(async (c) => {
@@ -200,8 +201,12 @@ export const command_match = factory.command<MatchVar>(
           }
 
           let userMatchId = await getMatchForUser(db, identity.userId)
+          if (userMatchId) {
+            const ownerGuildId = await resolveMatchOriginGuildId(db, userMatchId).catch(() => null)
+            if (!isApprovedDiscordGuildId(ownerGuildId, c.env)) userMatchId = null
+          }
           if (!userMatchId) {
-            userMatchId = (await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])).get(identity.userId) ?? null
+            userMatchId = (await findBlockingDraftMatchIdsForPlayers(db, [identity.userId], getApprovedDiscordGuildIds(c.env))).get(identity.userId) ?? null
           }
 
           if (userMatchId) {
@@ -222,7 +227,7 @@ export const command_match = factory.command<MatchVar>(
           })
         }
 
-        const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId))
+        const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, joinRequest.entries.map(entry => entry.playerId), getApprovedDiscordGuildIds(c.env))
         if (blockingDraftMatchIdByPlayer.size > 0) {
           const playersInLiveMatch = joinRequest.entries
             .map(entry => entry.playerId)
@@ -283,10 +288,11 @@ export const command_match = factory.command<MatchVar>(
           const targetId = c.var.match_id?.trim() ?? null
 
           if (targetId) {
-            const lobbyById = await getLobbyById(kv, targetId)
+            const lobbyByIdCandidate = await getLobbyById(kv, targetId)
+            const lobbyById = lobbyByIdCandidate && isApprovedDiscordGuildId(lobbyByIdCandidate.guildId, c.env) ? lobbyByIdCandidate : null
             const lobbyByMatch = lobbyById?.matchId === targetId
               ? lobbyById
-              : await getSessionLobbyProjectionByMatch(db, targetId)
+              : await getSessionLobbyProjectionByMatch(db, targetId, { guildIds: getApprovedDiscordGuildIds(c.env) })
             if (lobbyById?.hostId !== identity.userId) {
               if (!lobbyByMatch || lobbyByMatch.hostId !== identity.userId) {
                 await sendTransientEphemeralResponse(c, 'You can only cancel your own hosted lobby or match.', 'error')
@@ -352,7 +358,7 @@ export const command_match = factory.command<MatchVar>(
 
               try {
                 if (cancelContext?.ranked) {
-                  await markRankedRolesDirty(kv, `match-cancel:${result.match.id}`)
+                  await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `match-cancel:${result.match.id}`)
                 }
               }
               catch (error) {
@@ -364,7 +370,7 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          const hostedLobby = await findHostedOpenLobby(db, identity.userId)
+          const hostedLobby = await findHostedOpenLobby(db, identity.userId, getApprovedDiscordGuildIds(c.env))
           if (!hostedLobby) {
             await sendTransientEphemeralResponse(c, 'No hosted open lobby found. Pass `match_id` to cancel a live match.', 'error')
             return
@@ -460,7 +466,7 @@ export const command_match = factory.command<MatchVar>(
           const kv = getKvStore(c.env)
           const db = createDb(c.env.DB)
           const targetId = c.var.match_id?.trim() ?? null
-          const resolvedTarget = await resolveLobbyBumpTarget(db, kv, identity.userId, targetId)
+          const resolvedTarget = await resolveLobbyBumpTarget(db, kv, identity.userId, targetId, c.env)
           if ('error' in resolvedTarget) {
             await sendMatchBumpResponse(c, resolvedTarget.error, 'error')
             return
@@ -551,7 +557,7 @@ export const command_match = factory.command<MatchVar>(
           const kv = getKvStore(c.env)
           const db = createDb(c.env.DB)
           const targetId = c.var.match_id?.trim() ?? null
-          const resolvedTarget = await resolveHostedSteamLobbyTarget(db, kv, identity.userId, targetId)
+          const resolvedTarget = await resolveHostedSteamLobbyTarget(db, kv, identity.userId, targetId, c.env)
           if ('error' in resolvedTarget) {
             await sendTransientEphemeralResponse(c, resolvedTarget.error, 'error')
             return
@@ -592,7 +598,7 @@ export const command_match = factory.command<MatchVar>(
           const lines: string[] = []
 
           for (const mode of modes) {
-            const lobbies = await getLiveSessionLobbyProjections(db, { mode })
+            const lobbies = await getLiveSessionLobbyProjections(db, { mode, guildIds: getApprovedDiscordGuildIds(c.env) })
             if (lobbies.length === 0) continue
 
             for (const lobby of lobbies) {
@@ -635,7 +641,7 @@ export const command_match = factory.command<MatchVar>(
           const db = createDb(c.env.DB)
           const kv = getKvStore(c.env)
 
-          const resolvedReportableMatch = await resolveReportableMatchIdForPlayer(db, identity.userId, c.var.match_id)
+          const resolvedReportableMatch = await resolveReportableMatchIdForPlayer(db, identity.userId, c.var.match_id, getApprovedDiscordGuildIds(c.env))
           if (resolvedReportableMatch.error) {
             await sendTransientEphemeralResponse(c, resolvedReportableMatch.error, 'error')
             return
@@ -653,15 +659,18 @@ export const command_match = factory.command<MatchVar>(
             await sendTransientEphemeralResponse(c, `Match **${matchId}** was not found.`, 'error')
             return
           }
+          if (!isApprovedDiscordGuildId(match.guildId, c.env)) {
+            await sendTransientEphemeralResponse(c, `Match **${matchId}** was not found.`, 'error')
+            return
+          }
 
           if (match.status !== 'active' && match.status !== 'completed') {
             await sendTransientEphemeralResponse(c, `Match **${match.id}** is not active (status: ${match.status}).`, 'error')
             return
           }
 
-          const liveLobbyBeforeReport = match.status === 'completed'
-            ? null
-            : await getSessionLobbyProjectionByMatch(db, match.id)
+          const sessionProjectionBeforeReport = await getSessionLobbyProjectionByMatch(db, match.id, { guildIds: getApprovedDiscordGuildIds(c.env) })
+          const liveLobbyBeforeReport = match.status === 'completed' ? null : sessionProjectionBeforeReport
           let placements = ''
           if (match.status === 'active') {
             const orderedFfaIds = collectFfaPlacementUserIds(c.var)
@@ -815,7 +824,7 @@ export const command_match = factory.command<MatchVar>(
                 originGuildId,
                 legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
               })
-              queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
+              queueReportedDiscordRepairIfNeeded(c, result.reportClaim?.sessionId ?? sessionProjectionBeforeReport?.id ?? result.match.id, result.match.id, discordSync.errors)
               await sendTransientEphemeralResponse(c, `Match **${result.match.id}** was already reported. Checked Discord result state.`, 'info')
               return
             }
@@ -842,7 +851,7 @@ export const command_match = factory.command<MatchVar>(
               originGuildId,
               legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
             })
-            queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
+            queueReportedDiscordRepairIfNeeded(c, result.reportClaim?.sessionId ?? sessionProjectionBeforeReport?.id ?? result.match.id, result.match.id, discordSync.errors)
             try {
               if (!isTournamentMatch && !reportedContext.redDeath && !reportedContext.civBlitz) {
                 await markLeaderboardsDirty(db, createStatsContext(result.match.guildId ?? '', c.env.ALLOWED_DISCORD_GUILD_ID ?? ''), `match-report:${result.match.id}`, {
@@ -857,7 +866,7 @@ export const command_match = factory.command<MatchVar>(
 
             if (!isTournamentMatch && isRankedResult) {
               try {
-                await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
+                await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `match-report:${result.match.id}`)
               }
               catch (error) {
                 console.error(`Failed to mark ranked roles dirty after match ${result.match.id}:`, error)
@@ -906,8 +915,8 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
   const { env, kv, mode, steamLobbyLink, identity, interactionChannelId, draftChannelId } = input
   const db = createDb(env.DB)
   const [createPreflight, blockingDraftMatchIdByPlayer] = await Promise.all([
-    preflightMatchCreateSessionState(db, identity.userId),
-    findBlockingDraftMatchIdsForPlayers(db, [identity.userId]),
+    preflightMatchCreateSessionState(db, identity.userId, getApprovedDiscordGuildIds(env)),
+    findBlockingDraftMatchIdsForPlayers(db, [identity.userId], getApprovedDiscordGuildIds(env)),
   ])
   if (createPreflight.kind === 'reuse-hosted-open-lobby') {
     const updatedLobby = steamLobbyLink !== null
@@ -978,6 +987,7 @@ async function createMatchLobby(input: CreateMatchLobbyInput): Promise<MatchCrea
       kv,
       identity.userId,
       createdLobby,
+      getApprovedDiscordGuildIds(env),
     )
     if (reusedExisting) {
       createdLobby = null
@@ -1266,20 +1276,20 @@ function buildMatchJoinRequest(
   }
 }
 
-async function findHostedOpenLobby(db: ReturnType<typeof createDb>, hostId: string) {
-  return getOpenSessionLobbyProjectionHostedBy(db, hostId)
+async function findHostedOpenLobby(db: ReturnType<typeof createDb>, hostId: string, guildIds: readonly string[]) {
+  return getOpenSessionLobbyProjectionHostedBy(db, hostId, { guildIds })
 }
 
-async function findHostedEditableLobbies(db: ReturnType<typeof createDb>, hostId: string): Promise<LobbyState[]> {
-  const lobbies = await getLiveSessionLobbyProjectionsHostedBy(db, hostId)
+async function findHostedEditableLobbies(db: ReturnType<typeof createDb>, hostId: string, guildIds: readonly string[]): Promise<LobbyState[]> {
+  const lobbies = await getLiveSessionLobbyProjectionsHostedBy(db, hostId, { guildIds })
   return lobbies.sort((left, right) => {
     if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
     return left.id.localeCompare(right.id)
   })
 }
 
-async function findMemberLiveLobbies(db: ReturnType<typeof createDb>, userId: string): Promise<LobbyState[]> {
-  const lobbies = await getLiveSessionLobbyProjectionsForUser(db, userId)
+async function findMemberLiveLobbies(db: ReturnType<typeof createDb>, userId: string, guildIds: readonly string[]): Promise<LobbyState[]> {
+  const lobbies = await getLiveSessionLobbyProjectionsForUser(db, userId, { guildIds })
   return lobbies.sort((left, right) => {
     if (left.updatedAt !== right.updatedAt) return right.updatedAt - left.updatedAt
     return left.id.localeCompare(right.id)
@@ -1291,17 +1301,21 @@ async function resolveLobbyBumpTarget(
   kv: KVNamespace,
   userId: string,
   targetId: string | null,
+  env: Env['Bindings'],
 ): Promise<{ lobby: LobbyState } | { error: string }> {
+  const guildIds = getApprovedDiscordGuildIds(env)
   if (targetId) {
     const lobbyById = await getLobbyById(kv, targetId)
-    const lobby = lobbyById ?? await getSessionLobbyProjectionByMatch(db, targetId)
+    const lobby = lobbyById && isApprovedDiscordGuildId(lobbyById.guildId, env)
+      ? lobbyById
+      : await getSessionLobbyProjectionByMatch(db, targetId, { guildIds })
     if (!lobby) return { error: 'Could not find that lobby or match.' }
     if (!isLiveLobbyStatus(lobby.status)) return { error: 'Only open, drafting, or active lobbies can be bumped.' }
     if (!lobby.memberPlayerIds.includes(userId)) return { error: 'You can only bump a lobby or match you are currently in.' }
     return { lobby }
   }
 
-  const memberLobbies = await findMemberLiveLobbies(db, userId)
+  const memberLobbies = await findMemberLiveLobbies(db, userId, guildIds)
   if (memberLobbies.length === 0) {
     return { error: 'You are not in an open or live lobby right now.' }
   }
@@ -1316,10 +1330,14 @@ async function resolveHostedSteamLobbyTarget(
   kv: KVNamespace,
   hostId: string,
   targetId: string | null,
+  env: Env['Bindings'],
 ): Promise<{ lobby: LobbyState } | { error: string }> {
+  const guildIds = getApprovedDiscordGuildIds(env)
   if (targetId) {
     const lobbyById = await getLobbyById(kv, targetId)
-    const lobby = lobbyById ?? await getSessionLobbyProjectionByMatch(db, targetId)
+    const lobby = lobbyById && isApprovedDiscordGuildId(lobbyById.guildId, env)
+      ? lobbyById
+      : await getSessionLobbyProjectionByMatch(db, targetId, { guildIds })
     if (!lobby) return { error: 'Could not find that hosted lobby or match.' }
     if (lobby.hostId !== hostId) return { error: 'You can only update the Steam lobby link on your own hosted lobby or match.' }
     if (!isLiveLobbyStatus(lobby.status)) {
@@ -1328,7 +1346,7 @@ async function resolveHostedSteamLobbyTarget(
     return { lobby }
   }
 
-  const hostedLobbies = await findHostedEditableLobbies(db, hostId)
+  const hostedLobbies = await findHostedEditableLobbies(db, hostId, guildIds)
   if (hostedLobbies.length === 0) {
     return { error: 'No hosted open or live lobby found. Pass `match_id` to target a specific lobby or match.' }
   }
@@ -1354,8 +1372,9 @@ async function reconcileHostedOpenLobbyCreation(
   kv: KVNamespace,
   hostId: string,
   createdLobby: Awaited<ReturnType<typeof createLobby>>,
+  guildIds: readonly string[],
 ): Promise<{ lobby: Awaited<ReturnType<typeof createLobby>>, reusedExisting: boolean }> {
-  const canonicalLobby = await getOpenSessionLobbyProjectionHostedBy(db, hostId)
+  const canonicalLobby = await getOpenSessionLobbyProjectionHostedBy(db, hostId, { guildIds })
   if (!canonicalLobby || canonicalLobby.status !== 'open' || canonicalLobby.id === createdLobby.id) {
     return { lobby: createdLobby, reusedExisting: false }
   }
@@ -1424,13 +1443,14 @@ function formatLobbyMessageLink(guildId: string | null, channelId: string, messa
 
 function queueReportedDiscordRepairIfNeeded(
   context: { env: { SessionDO?: DurableObjectNamespace }, executionCtx: { waitUntil: (promise: Promise<unknown>) => void } },
+  sessionId: string,
   matchId: string,
   errors: string[],
 ): void {
   if (errors.length === 0) return
   const task = (async () => {
     try {
-      await queueSessionReportedDiscordSync(context.env.SessionDO, matchId, {
+      await queueSessionReportedDiscordSync(context.env.SessionDO, sessionId, {
         matchId,
         reason: errors.join('; '),
       })

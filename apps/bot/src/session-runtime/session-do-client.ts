@@ -154,6 +154,11 @@ export interface SessionReportedDiscordSyncCommand {
   at?: number
 }
 
+export interface ForceCancelBrokenSessionCommand {
+  matchId?: string | null
+  at?: number
+}
+
 export interface SessionReportClaim {
   matchId: string
   claimId: string
@@ -400,6 +405,27 @@ export async function runSessionTerminalLifecycleCommand(
 
   const body = await response.json<{ record?: SessionRecord }>()
   if (!body.record) throw new Error(`Failed to run session lifecycle command ${command.type} for ${sessionId}: invalid response`)
+  return body.record
+}
+
+export async function forceCancelBrokenSession(
+  namespace: DurableObjectNamespace | null | undefined,
+  sessionId: string,
+  command: ForceCancelBrokenSessionCommand = {},
+): Promise<SessionRecord> {
+  if (!namespace) throw new Error('SessionDO binding is required')
+
+  const id = namespace.idFromName(sessionId)
+  const stub = namespace.get(id)
+  const response = await stub.fetch(buildSessionRequest(sessionId, '/commands/force-cancel-broken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(command),
+  }))
+  if (!response.ok) await throwSessionCommandError(response, `force-cancel broken session ${sessionId}`)
+
+  const body = await response.json<{ record?: SessionRecord }>()
+  if (body.record?.phase !== 'cancelled') throw new Error(`Failed to force-cancel broken session ${sessionId}: invalid response`)
   return body.record
 }
 

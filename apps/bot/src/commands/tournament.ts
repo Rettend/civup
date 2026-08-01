@@ -193,7 +193,7 @@ export const command_tournament = factory.command<TournamentVar>(
 )
 
 async function createTournamentLobbyForCommand(input: {
-  env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace }
+  env: { DB: D1Database, DISCORD_TOKEN: string, SessionDO?: DurableObjectNamespace, ALLOWED_DISCORD_GUILD_ID?: string }
   kv: KVNamespace
   channelId: string
   guildId: string | null
@@ -215,7 +215,7 @@ async function createTournamentLobbyForCommand(input: {
     return { error: 'Your playoff pairing already has a closed lobby. Ask an admin to reset it.', tone: 'error' }
   }
 
-  const createPreflight = await preflightMatchCreateSessionState(db, input.identity.userId)
+  const createPreflight = await preflightMatchCreateSessionState(db, input.identity.userId, input.env.ALLOWED_DISCORD_GUILD_ID ? [input.env.ALLOWED_DISCORD_GUILD_ID] : [])
   if (createPreflight.kind === 'reuse-hosted-open-lobby') {
     return { error: `You already have an open ${formatModeLabel(createPreflight.lobby.mode)} lobby in <#${createPreflight.lobby.channelId}>.`, tone: 'info' }
   }
@@ -223,7 +223,7 @@ async function createTournamentLobbyForCommand(input: {
     return { error: `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with "/match leave".`, tone: 'error' }
   }
 
-  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [input.identity.userId])
+  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [input.identity.userId], input.env.ALLOWED_DISCORD_GUILD_ID ? [input.env.ALLOWED_DISCORD_GUILD_ID] : [])
   if (blockingDraftMatchIdByPlayer.has(input.identity.userId)) {
     return { error: 'You are already in a live match. Finish or cancel it before creating a tournament lobby.', tone: 'error' }
   }

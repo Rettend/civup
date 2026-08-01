@@ -80,7 +80,7 @@ export function DraftPage(props: DraftPageProps) {
       <Match when={connectionStatus() === 'connecting'}>
         <DraftStatusShell>
           <div class="text-center">
-            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-2xl text-accent font-bold mb-2">Draft</div>
             <div class="text-sm text-fg-muted">Joining draft room...</div>
           </div>
         </DraftStatusShell>
@@ -133,7 +133,7 @@ export function DraftPage(props: DraftPageProps) {
       <Match when={connectionStatus() === 'reconnecting'}>
         <DraftStatusShell>
           <div class="text-center">
-            <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+            <div class="text-2xl text-accent font-bold mb-2">Draft</div>
             <div class="text-sm text-fg-muted">Reconnecting to draft room...</div>
           </div>
         </DraftStatusShell>
@@ -186,7 +186,7 @@ function JoiningDraftRoomScreen() {
   return (
     <DraftStatusShell>
       <div class="text-center">
-        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+        <div class="text-2xl text-accent font-bold mb-2">Draft</div>
         <div class="text-sm text-fg-muted">Joining draft room...</div>
       </div>
     </DraftStatusShell>
@@ -197,7 +197,7 @@ function AutoStartingDraftScreen() {
   return (
     <DraftStatusShell>
       <div class="text-center">
-        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+        <div class="text-2xl text-accent font-bold mb-2">Draft</div>
         <div class="text-sm text-fg-muted">Starting draft...</div>
       </div>
     </DraftStatusShell>
@@ -208,7 +208,7 @@ function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => voi
   return (
     <DraftStatusShell>
       <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">
-        <div class="text-2xl text-accent font-bold">CivUp</div>
+        <div class="text-2xl text-accent font-bold">Draft</div>
         <div class="text-sm text-fg-muted">
           {props.isHost ? 'Preparing draft room...' : 'Waiting for host to start draft...'}
         </div>

@@ -123,7 +123,7 @@ export function handleRankedSync(c: AdminCommandContext) {
         applyDiscord: true,
         maxDiscordRoleSyncPlayers: RANKED_ROLE_DISCORD_SYNC_BATCH_SIZE,
       })
-      if (result.pendingDiscordChanges === 0) await clearRankedRolesDirtyState(kv)
+      if (result.pendingDiscordChanges === 0) await clearRankedRolesDirtyState(kv, guildId)
       const config = await getRankedRoleConfig(kv, guildId)
       await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
     }

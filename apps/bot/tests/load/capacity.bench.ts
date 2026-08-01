@@ -636,7 +636,7 @@ async function simulateScenarioLifecycle(input: {
     await seedRatedPlayers(db, input.mode, input.backgroundRatedPlayers)
     await ensureLeaderboardModeSnapshots(db, kv, STATS_CONTEXT)
     await syncRankedRoles({ db, kv, guildId: GUILD_ID, statsContext: STATS_CONTEXT, now: NOW + 1_000 })
-    await markRankedRolesDirty(kv, 'steady-state-preexisting-dirty-flag')
+    await markRankedRolesDirty(kv, GUILD_ID, 'steady-state-preexisting-dirty-flag')
     clearCurrentRankAssignmentsCache(kv)
 
     resetOperations()
@@ -1098,7 +1098,7 @@ async function handleMatchReport(
     civ: true,
     modes: leaderboardMode ? [leaderboardMode] : [],
   })
-  await markRankedRolesDirty(kv, `match-report:${matchId}`)
+  await markRankedRolesDirty(kv, GUILD_ID, `match-report:${matchId}`)
 }
 
 function buildCompletedDraftState(

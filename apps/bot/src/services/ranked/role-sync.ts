@@ -238,7 +238,7 @@ interface RankedTierThreshold {
 
 const CURRENT_ASSIGNMENTS_KEY_PREFIX = 'ranked-roles:current-assignments:'
 const DEMOTION_CANDIDATES_KEY_PREFIX = 'ranked-roles:demotion-candidates:'
-const RANKED_ROLES_DIRTY_STATE_KEY = 'ranked-roles:dirty'
+const RANKED_ROLES_DIRTY_STATE_KEY_PREFIX = 'ranked-roles:dirty:'
 const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
 const DISCORD_APPLY_CURSOR_KEY_PREFIX = 'ranked-roles:discord-apply-cursor:'
 // Keep this shorter than the daily role sync interval so old isolates do not
@@ -433,7 +433,7 @@ export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {
     ...options,
     includePlayerIdentities: false,
   })
-  const dirtyState = await getRankedRolesDirtyState(options.kv)
+  const dirtyState = await getRankedRolesDirtyState(options.kv, options.guildId)
   const modes = options.mode ? [options.mode] : LEADERBOARD_MODES
 
   return {
@@ -771,8 +771,8 @@ export async function setRankedRoleDemotionCandidates(kv: KVNamespace, guildId: 
   await kv.put(demotionCandidatesKey(guildId), JSON.stringify(candidates))
 }
 
-export async function getRankedRolesDirtyState(kv: KVNamespace): Promise<RankedRolesDirtyState | null> {
-  const raw = await kv.get(RANKED_ROLES_DIRTY_STATE_KEY, 'json') as RankedRolesDirtyState | null
+export async function getRankedRolesDirtyState(kv: KVNamespace, guildId: string): Promise<RankedRolesDirtyState | null> {
+  const raw = await kv.get(rankedRolesDirtyStateKey(guildId), 'json') as RankedRolesDirtyState | null
   if (!raw || typeof raw.dirtyAt !== 'number') return null
   return {
     dirtyAt: raw.dirtyAt,
@@ -780,20 +780,24 @@ export async function getRankedRolesDirtyState(kv: KVNamespace): Promise<RankedR
   }
 }
 
-export async function markRankedRolesDirty(kv: KVNamespace, reason: string): Promise<RankedRolesDirtyState> {
-  const existing = await getRankedRolesDirtyState(kv)
+export async function markRankedRolesDirty(kv: KVNamespace, guildId: string, reason: string): Promise<RankedRolesDirtyState> {
+  const existing = await getRankedRolesDirtyState(kv, guildId)
   if (existing) return existing
 
   const state: RankedRolesDirtyState = {
     dirtyAt: Date.now(),
     reason: reason.trim().length > 0 ? reason.trim() : null,
   }
-  await kv.put(RANKED_ROLES_DIRTY_STATE_KEY, JSON.stringify(state))
+  await kv.put(rankedRolesDirtyStateKey(guildId), JSON.stringify(state))
   return state
 }
 
-export async function clearRankedRolesDirtyState(kv: KVNamespace): Promise<void> {
-  await kv.delete(RANKED_ROLES_DIRTY_STATE_KEY)
+export async function clearRankedRolesDirtyState(kv: KVNamespace, guildId: string): Promise<void> {
+  await kv.delete(rankedRolesDirtyStateKey(guildId))
+}
+
+export function rankedRolesDirtyStateKey(guildId: string): string {
+  return `${RANKED_ROLES_DIRTY_STATE_KEY_PREFIX}${guildId}`
 }
 
 export function currentRankAssignmentsKey(guildId: string): string {

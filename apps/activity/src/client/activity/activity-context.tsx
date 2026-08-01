@@ -60,8 +60,8 @@ export function ActivityLoadingPage(): JSX.Element {
   return (
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
       <div class="text-center">
-        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
-        <div class="text-sm text-fg-muted">Connecting to CivUp...</div>
+        <div class="text-2xl text-accent font-bold mb-2">Draft</div>
+        <div class="text-sm text-fg-muted">Connecting to activity...</div>
       </div>
     </main>
   )
@@ -82,7 +82,7 @@ export function ActivityRedirectingPage(): JSX.Element {
   return (
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
       <div class="text-center">
-        <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
+        <div class="text-2xl text-accent font-bold mb-2">Draft</div>
         <div class="text-sm text-fg-muted">Opening activity...</div>
       </div>
     </main>

@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 
-import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { createActivityTargetOption } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
@@ -68,13 +68,53 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Could not refresh lobby list')).toBeTruthy()
   })
 
+  test('defaults to the launch server, filters counts and cards, and keeps empty servers selectable', () => {
+    const primary = '111111111111111111'
+    const partner = '222222222222222222'
+    const empty = '333333333333333333'
+    const supportedServers = [
+      { id: primary, name: 'Primary Server', iconUrl: null },
+      { id: partner, name: 'Partner Server', iconUrl: null },
+      { id: empty, name: 'Empty Server', iconUrl: null },
+    ]
+    const options = [
+      createActivityTargetOption({ id: 'primary-lobby', originGuildId: primary, players: [{ playerId: 'primary-host', displayName: 'Primary Host', avatarUrl: null }] }),
+      createActivityTargetOption({ id: 'partner-lobby', originGuildId: partner, players: [{ playerId: 'partner-host', displayName: 'Partner Host', avatarUrl: null }] }),
+    ]
+    uiMockState.guildId = partner
+    render(() => (
+      <LobbyOverviewPage
+        supportedServers={supportedServers}
+        options={options}
+        onSelect={onSelect}
+      />
+    ))
+
+    expect(screen.queryByText('Primary Host')).toBeNull()
+    expect(screen.getByText('Partner Host')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Partner Server' })[0]?.getAttribute('aria-pressed')).toBe('true')
+
+    cleanup()
+    uiMockState.guildId = null
+    render(() => <LobbyOverviewPage supportedServers={supportedServers} options={options} onSelect={onSelect} />)
+    expect(screen.getByText('Primary Host')).toBeTruthy()
+    expect(screen.getByText('Partner Host')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'All servers' })[0]?.getAttribute('aria-pressed')).toBe('true')
+
+    cleanup()
+    uiMockState.guildId = empty
+    render(() => <LobbyOverviewPage supportedServers={supportedServers} options={options} onSelect={onSelect} />)
+    expect(screen.getByText('No lobbies from this server')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Empty Server' })[0]?.getAttribute('aria-pressed')).toBe('true')
+  })
+
   test('shows the practice action only in the full overview', () => {
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Practice' }))
     expect(onPractice).toHaveBeenCalledTimes(1)
 
-    document.body.innerHTML = ''
+    cleanup()
     uiMockState.isMiniView = true
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onPractice={onPractice} />)
 
@@ -95,7 +135,7 @@ describe('LobbyOverviewPage UI', () => {
     expect(onExportData).toHaveBeenCalledTimes(1)
     expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
 
-    document.body.innerHTML = ''
+    cleanup()
     render(() => (
       <LobbyOverviewPage
         options={[]}
@@ -110,11 +150,11 @@ describe('LobbyOverviewPage UI', () => {
     expect(loadingButton.querySelector('span')?.className).toContain('i-gg:spinner')
     expect(loadingButton.querySelector('span')?.className).not.toContain('animate-spin')
 
-    document.body.innerHTML = ''
+    cleanup()
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
     expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
 
-    document.body.innerHTML = ''
+    cleanup()
     uiMockState.isMiniView = true
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
     expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
@@ -199,7 +239,7 @@ describe('LobbyOverviewPage UI', () => {
     expect(rendered.container.querySelector('[data-overview-name-grid]')?.className).toContain('grid-cols-3')
     expect(rendered.container.querySelector('[data-overview-avatar-grid]')).toBeNull()
 
-    document.body.innerHTML = ''
+    cleanup()
     const eightPlayers = Array.from({ length: 8 }, (_, index) => ({
       playerId: `p${index + 1}`,
       displayName: `Player ${index + 1}`,
@@ -257,7 +297,7 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Joined')).toBeTruthy()
     expect(screen.getByText('Sync lag')).toBeTruthy()
 
-    document.body.innerHTML = ''
+    cleanup()
     render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
     expect(screen.getByText('No active lobbies')).toBeTruthy()
   })

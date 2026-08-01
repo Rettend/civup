@@ -60,8 +60,9 @@ export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number
 export async function getUniqueOpenLobbyForChannel(
   db: Database,
   channelId: string,
+  guildIds?: readonly string[],
 ): Promise<LobbyState | null> {
-  const openLobbies = (await getOpenSessionLobbyProjectionsByChannel(db, channelId))
+  const openLobbies = (await getOpenSessionLobbyProjectionsByChannel(db, channelId, { guildIds }))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
 
@@ -73,8 +74,9 @@ export async function resolveOpenLobbyFromBody(
   db: Database,
   mode: GameMode,
   body: { lobbyId?: unknown },
+  guildIds?: readonly string[],
 ): Promise<LobbyState | null> {
-  const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode))
+  const openLobbies = (await getOpenSessionLobbyProjectionsByMode(db, mode, { guildIds }))
     .filter(lobby => lobby.status === 'open')
     .filter(lobby => lobby.memberPlayerIds.length > 0)
 

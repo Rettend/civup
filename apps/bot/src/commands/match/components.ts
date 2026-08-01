@@ -1,6 +1,7 @@
 import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../../services/lobby/types.ts'
 import { createDb } from '@civup/db'
+import { getApprovedDiscordGuildIds } from '@civup/utils'
 import { Button } from 'discord-hono'
 import { getMatchForUser } from '../../services/activity/index.ts'
 import { resolveInteractionLaunchMode } from '../../services/activity/browser-access.ts'
@@ -34,7 +35,8 @@ export const component_match_join = factory.component(
     const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
     const interactionMessageId = c.interaction.message?.id ?? null
     const db = createDb(env.DB)
-    const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId).catch(() => null)
+    const approvedGuildIds = getApprovedDiscordGuildIds(env)
+    const clickedLobby = await getSessionLobbyProjectionByMatch(db, lobbyId, { guildIds: approvedGuildIds }).catch(() => null)
     const clickedTournamentMatch = clickedLobby ? await getTournamentMatchBySessionId(db, clickedLobby.id) : null
     if (clickedLobby?.status === 'completed' && clickedLobby.matchId) {
       queueBackgroundTask(c, async () => {
@@ -72,7 +74,7 @@ export const component_match_join = factory.component(
 
     queueBackgroundTask(c, async () => {
       const db = createDb(env.DB)
-      const lobby = clickedLobby ?? await getSessionLobbyProjectionByMatch(db, lobbyId)
+      const lobby = clickedLobby ?? await getSessionLobbyProjectionByMatch(db, lobbyId, { guildIds: approvedGuildIds })
       if (!lobby) {
         const userMatchId = clickedMatchId ?? await resolveJoinButtonLiveMatchId(env.DB, identity.userId, interactionMessageId)
 
@@ -95,7 +97,7 @@ export const component_match_join = factory.component(
         if (!validation.ok) return
       }
 
-      const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId])
+      const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId], approvedGuildIds)
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
       if (currentMatchId) return
 

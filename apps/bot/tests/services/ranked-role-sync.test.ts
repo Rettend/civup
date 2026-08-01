@@ -8,7 +8,8 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
-const STATS_CONTEXT = createStatsContext('111111111111111111', '111111111111111111')
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 type RankedRoleTestOptions = Omit<Parameters<typeof previewRankedRolesSource>[0], 'statsContext'>
 const previewRankedRoles = (options: RankedRoleTestOptions) => previewRankedRolesSource({ ...options, statsContext: STATS_CONTEXT })
 const syncRankedRoles = (options: RankedRoleTestOptions) => syncRankedRolesSource({ ...options, statsContext: STATS_CONTEXT })
@@ -1199,7 +1200,7 @@ describe('ranked role sync service', () => {
     const guildIds = await listRankedRoleConfigGuildIds(kv)
     expect(guildIds).toEqual(['guild-a', 'guild-b'])
 
-    const dirty = await markRankedRolesDirty(kv, 'match-report:abc')
+    const dirty = await markRankedRolesDirty(kv, GUILD_ID, 'match-report:abc')
     expect(dirty.reason).toBe('match-report:abc')
   })
 })

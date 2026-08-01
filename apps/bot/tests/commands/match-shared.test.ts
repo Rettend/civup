@@ -501,6 +501,36 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect((await getLobbyById(kv, sourceLobby.id))?.memberPlayerIds).toEqual(['source-host'])
     expect((await getLobbyById(kv, targetLobby.id))?.memberPlayerIds).toEqual(['target-host', 'guest'])
   })
+
+  test('places a cross-server slash join in a compatible team column', async () => {
+    const { kv } = createTrackedKv()
+    const partnerGuildId = '222222222222222222'
+    const queueEntries = [
+      { playerId: 'primary', displayName: 'Primary', avatarUrl: null, joinedAt: 1, sourceGuild: { id: GUILD_ID } },
+      { playerId: 'partner', displayName: 'Partner', avatarUrl: null, joinedAt: 2, sourceGuild: { id: partnerGuildId } },
+    ]
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: GUILD_ID,
+      hostId: 'primary',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+      queueEntries,
+    })
+    const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['primary', 'partner'], lobby, { queueEntries })
+    await setLobbySlots(kv, lobby.id, ['primary', null, 'partner', null], withMembers ?? lobby, { queueEntries })
+
+    const result = await joinLobbyAndMaybeStartMatch({ env: buildTestLobbyEnv(kv, { ALLOWED_DISCORD_GUILD_IDS: partnerGuildId }) }, '2v2', [{
+      playerId: 'partner-guest',
+      displayName: 'Partner Guest',
+      avatarUrl: '',
+      sourceGuild: { id: partnerGuildId },
+    }], { preferredLobbyId: lobby.id })
+
+    expect('stage' in result).toBe(true)
+    if (!('stage' in result)) return
+    expect(result.lobby.slots).toEqual(['primary', null, 'partner', 'partner-guest'])
+  })
 })
 
 async function seedDirectorySlotResidue(kv: KVNamespace, sessionId: string, slots: (string | null)[]): Promise<void> {
@@ -517,6 +547,23 @@ async function seedDirectorySlotResidue(kv: KVNamespace, sessionId: string, slot
 }
 
 describe('preflightMatchCreateSessionState', () => {
+  test('ignores open lobbies owned by a removed server', async () => {
+    const { kv } = createTrackedKv()
+    const removedGuildId = '222222222222222222'
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: removedGuildId,
+      hostId: 'host',
+      channelId: 'removed-channel',
+      messageId: 'removed-message',
+    })
+    await setLobbyMemberPlayerIds(kv, lobby.id, ['host'], lobby)
+
+    const result = await preflightMatchCreateSessionState(getExistingTestLobbyRuntime(kv).db, 'host', [GUILD_ID])
+
+    expect(result).toEqual({ kind: 'continue' })
+  })
+
   test('keeps blocking real membership in another open lobby', async () => {
     const { kv } = createTrackedKv()
 

@@ -8,6 +8,8 @@ import { Server } from 'partyserver'
 import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { attachTournamentLobbySnapshot, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
 import { getKnownGuildIdentities } from '../services/discord/guild-metadata.ts'
+import { type ActivityConnectionState, resolveActivityConnectionGuildRefresh } from './activity-feed-access.ts'
+export type { ActivityConnectionState } from './activity-feed-access.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -25,10 +27,6 @@ export type ActivityFeedMessage
 
 interface PublishSessionUpdateRequest {
   record?: SessionRecord
-}
-
-interface ActivityConnectionState {
-  guildId: string
 }
 
 const ACTIVITY_OVERVIEW_STORAGE_KEY = 'activity-overview-snapshot'
@@ -141,19 +139,20 @@ export class Activity extends Server<ActivityFeedEnv> {
     }
 
     const guildId = readActivityGuildId(ctx.request.headers)
-    if (!guildId || !isAllowedActivityGuild(guildId, this.env)) {
+    const guildConfig = resolveApprovedDiscordGuildConfiguration(this.env)
+    if (!guildId || !guildConfig.ok || !guildConfig.guildIds.includes(guildId)) {
       connection.close(4403, 'Forbidden')
       return
     }
 
-    connection.setState({ guildId } satisfies ActivityConnectionState)
+    connection.setState({ guildId, approvedGuildIds: [...guildConfig.guildIds] } satisfies ActivityConnectionState)
     await this.sendInitialState(connection, readActivityChannelId(ctx.request))
     await this.rescheduleSocketGuildRecheck()
   }
 
   override async onAlarm(): Promise<void> {
-    const closedConnections = this.closeUnsupportedConnections()
-    if (closedConnections > 0) {
+    const configurationChanged = this.refreshConnectionGuildStates()
+    if (configurationChanged) {
       try {
         const cached = await this.ctx.storage.get<ActivityOverviewSnapshot | null>(ACTIVITY_OVERVIEW_STORAGE_KEY)
         const overview = await this.rebuildOverviewSnapshot(cached?.channelId ?? ACTIVITY_FEED_ROOM)
@@ -252,14 +251,21 @@ export class Activity extends Server<ActivityFeedEnv> {
     }
   }
 
-  private closeUnsupportedConnections(): number {
-    let closed = 0
+  private refreshConnectionGuildStates(): boolean {
+    const config = resolveApprovedDiscordGuildConfiguration(this.env)
+    const approvedGuildIds = config.ok ? config.guildIds : []
+    let configurationChanged = false
     for (const connection of this.getConnections()) {
-      if (this.isAllowedConnection(connection)) continue
-      connection.close(4403, 'Forbidden')
-      closed += 1
+      const state = connection.state as ActivityConnectionState | null
+      const refresh = resolveActivityConnectionGuildRefresh(state, approvedGuildIds)
+      configurationChanged ||= refresh.configurationChanged
+      if (!refresh.allowed) {
+        connection.close(4403, 'Forbidden')
+        continue
+      }
+      if (refresh.configurationChanged) connection.setState(refresh.state)
     }
-    return closed
+    return configurationChanged
   }
 
   private isAllowedConnection(connection: Connection): boolean {

@@ -15,10 +15,10 @@ import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { canModerateSessionOrigin, canUseModCommands, parseRoleIds } from '../services/permissions/index.ts'
 import { listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles } from '../services/ranked/role-sync.ts'
-import { createStatsContext } from '../services/stats/context.ts'
+import { createStatsContext, requireStoredMatchGuildId } from '../services/stats/context.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { syncSeasonPeaksForPlayers } from '../services/season/index.ts'
-import { getSessionLobbyProjectionByMatch, getSessionOriginByMatch, getStoredMatchGuildId, resolveMatchOriginGuildId } from '../services/session/index.ts'
+import { getSessionLobbyProjectionByMatch, resolveMatchOriginGuildId } from '../services/session/index.ts'
 import { getSystemChannel, primaryChannelScope } from '../services/system/channels.ts'
 import { isMatchTournamentLinked, refreshTournamentLeaderboard } from '../services/tournament/index.ts'
 import { factory } from '../setup'
@@ -124,13 +124,14 @@ export const command_mod = factory.autocomplete<ModVar>(
             return
           }
 
-          const origin = await getSessionOriginByMatch(db, matchId)
-          const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+          const directLobby = await getSessionLobbyProjectionByMatch(db, matchId) ?? await getLobbyById(kv, matchId)
+          const owningGuildId = directLobby?.status === 'open' && !directLobby.matchId
+            ? directLobby.guildId
+            : await resolveMatchOriginGuildId(db, matchId)
           if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
             await sendTransientEphemeralResponse(c, 'Moderators can only alter sessions that originated in this server.', 'error')
             return
           }
-          const directLobby = await getSessionLobbyProjectionByMatch(db, matchId) ?? await getLobbyById(kv, matchId)
           if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
             const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
             const cancelledLobby = await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
@@ -226,7 +227,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
           try {
             if (!isTournamentMatch && isRankedMatch) {
-              await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+              await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `mod-cancel:${result.match.id}`)
             }
           }
           catch (error) {
@@ -276,8 +277,7 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
               return
             }
-            const origin = await getSessionOriginByMatch(db, matchId)
-            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            const owningGuildId = await resolveMatchOriginGuildId(db, matchId)
             if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
               await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
               return
@@ -309,7 +309,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             const mode = matchContext.mode
             const moderation = { actorId, reason }
             const guildId = owningGuildId
-            const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
+            const originGuildId = owningGuildId
             const participantIds = result.participants.map(participant => participant.playerId)
             const isRankedMatch = matchContext.ranked
             const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
@@ -334,7 +334,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               if (!isTournamentMatch && isRankedMatch) {
-                await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
+                await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `mod-resolve:${result.match.id}`)
               }
             }
             catch (error) {
@@ -478,7 +478,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               if (matchContext.ranked) {
-                await markRankedRolesDirty(kv, `mod-manual:${result.match.id}`)
+                await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `mod-manual:${result.match.id}`)
               }
             }
             catch (error) {
@@ -589,8 +589,7 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
               return
             }
-            const origin = await getSessionOriginByMatch(db, matchId)
-            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            const owningGuildId = await resolveMatchOriginGuildId(db, matchId)
             if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
               await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
               return
@@ -641,7 +640,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
-              const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
+              const originGuildId = owningGuildId
               const syncResult = await syncReportedMatchDiscordMessages({
                 db,
                 kv,
@@ -704,8 +703,7 @@ export const command_mod = factory.autocomplete<ModVar>(
               await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
               return
             }
-            const origin = await getSessionOriginByMatch(db, matchId)
-            const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
+            const owningGuildId = await resolveMatchOriginGuildId(db, matchId)
             if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
               await sendTransientEphemeralResponse(c, 'Moderators can only alter matches that originated in this server.', 'error')
               return
@@ -757,7 +755,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             try {
               if (!isTournamentMatch && result.match.status === 'completed' && matchContext.ranked) {
-                await markRankedRolesDirty(kv, `mod-sub:${result.match.id}`)
+                await markRankedRolesDirty(kv, requireStoredMatchGuildId(result.match), `mod-sub:${result.match.id}`)
               }
             }
             catch (error) {
@@ -777,7 +775,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               const existingLobby = await getSessionLobbyProjectionByMatch(db, result.match.id)
-              const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
+              const originGuildId = owningGuildId
               if (result.match.status === 'active') {
                 if (existingLobby) {
                   try {

@@ -212,6 +212,27 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('img', { name: 'Server Beta' })).toBeTruthy()
   })
 
+  test('keeps team locks tied to the stored join server after launching elsewhere', () => {
+    uiMockState.guildId = '222222222222222222'
+    const rendered = render(() => <DraftSetupPage lobby={createLobbySnapshot({
+      mode: '2v2',
+      targetSize: 4,
+      memberPlayerIds: ['host-1', 'player-2'],
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null, sourceGuild: { id: '111111111111111111', name: 'Server Alpha', iconUrl: null } },
+        null,
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, sourceGuild: { id: '222222222222222222', name: 'Server Beta', iconUrl: null } },
+        null,
+      ],
+    })}
+    />)
+
+    expect(screen.getAllByText('Server Alpha').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Server Beta').length).toBeGreaterThan(0)
+    expect(rendered.container.querySelector('[data-slot="1"]')?.getAttribute('title')).toBeNull()
+    expect(rendered.container.querySelector('[data-slot="3"]')?.getAttribute('title')).toBe('This team is locked to another server.')
+  })
+
   test('shows lobby access as an open-by-default config switch', async () => {
     render(() => (
       <DraftSetupPage lobby={createLobbySnapshot({

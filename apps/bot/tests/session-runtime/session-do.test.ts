@@ -270,6 +270,11 @@ describe('SessionDO open session commands', () => {
       const [terminalMatchRow] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
       expect(terminalMatchRow).toMatchObject({ status: 'cancelled', completedAt: 40, cancelledAt: 50 })
 
+      const repeatedCancellation = await sessionLifecycleCommand(room, { type: 'cancel-session', matchId: openLobby.id, at: 51 })
+      expect(repeatedCancellation.record).toMatchObject({ phase: 'cancelled', version: 5, closedAt: 50 })
+      const [repeatedCancellationMatch] = await db.select().from(matches).where(eq(matches.id, openLobby.id)).limit(1)
+      expect(repeatedCancellationMatch).toMatchObject({ status: 'cancelled', cancelledAt: 50 })
+
       const resolved = await sessionLifecycleCommand(room, { type: 'mark-reported', matchId: openLobby.id, at: 60 })
       expect(resolved.record).toMatchObject({ phase: 'reported', version: 6, closedAt: 60 })
 
