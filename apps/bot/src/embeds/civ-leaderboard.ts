@@ -1,8 +1,10 @@
 import type { CivLeaderboardSnapshot, CivLeaderboardSnapshotRow } from '../services/leaderboard/civ-snapshot.ts'
+import type { PublicCivLeaderboardMetric } from '@civup/utils'
+import { sortPublicCivLeaderboardRows } from '@civup/utils'
 import { Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 
-export type CivLeaderboardBoard = 'picked' | 'winrate' | 'banned'
+export type CivLeaderboardBoard = PublicCivLeaderboardMetric
 
 export const CIV_LEADERBOARD_BOARDS: readonly CivLeaderboardBoard[] = ['picked', 'winrate', 'banned']
 export const CIV_LEADERBOARD_PAGE_SIZE = 20
@@ -185,21 +187,7 @@ export function civLeaderboardRowsForBoard(
   board: CivLeaderboardBoard,
   rows: readonly CivLeaderboardSnapshotRow[],
 ): CivLeaderboardSnapshotRow[] {
-  if (board === 'picked') {
-    return [...rows]
-      .filter(row => row.picks > 0)
-      .sort((left, right) => right.picks - left.picks || right.wins - left.wins || left.civId.localeCompare(right.civId))
-  }
-
-  if (board === 'winrate') {
-    return [...rows]
-      .filter(row => row.picks > 0 && row.winRatePct != null)
-      .sort((left, right) => (right.winRatePct ?? 0) - (left.winRatePct ?? 0) || right.picks - left.picks || left.civId.localeCompare(right.civId))
-  }
-
-  return [...rows]
-    .filter(row => row.bans > 0)
-    .sort((left, right) => right.bans - left.bans || right.picks - left.picks || left.civId.localeCompare(right.civId))
+  return sortPublicCivLeaderboardRows(board, rows)
 }
 
 function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number): string {

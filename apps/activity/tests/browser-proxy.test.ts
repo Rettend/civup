@@ -16,22 +16,29 @@ const GUILD_ID = '1234044388733095946'
 type ActivityEnv = Parameters<typeof activityWorker.fetch>[1]
 
 describe('browser cookie proxy', () => {
-  test('serves the SPA entry document for stable browser routes', async () => {
+  test('serves the SPA entry document for exact public and Activity routes only', async () => {
     const assetRequests: Request[] = []
     const env = {
       ...createEnv([], new Response('unused')),
       ASSETS: {
         async fetch(request: Request) {
           assetRequests.push(request)
-          return new Response('<!doctype html><title>Draft</title>', { headers: { 'Content-Type': 'text/html' } })
+          return new Response('<!doctype html><title>PPL Community</title>', { headers: { 'Content-Type': 'text/html' } })
         },
       } as unknown as Fetcher,
     }
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/web/session/stable-session`), env)
+    for (const path of ['/', '/leaderboards', '/rules', '/creators', '/overview', '/uploads', '/lobby/lobby-1', '/draft/match-1', '/web/session/stable-session', '/web/channel/channel-1', '/practice/great-people']) {
+      const response = await activityWorker.fetch(new Request(`${ORIGIN}${path}`), env)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('<title>PPL Community</title>')
+    }
+    expect(assetRequests).toHaveLength(11)
+    expect(assetRequests.every(request => new URL(request.url).pathname === '/')).toBe(true)
 
-    expect(response.status).toBe(200)
-    expect(await response.text()).toContain('<title>Draft</title>')
-    expect(new URL(assetRequests[0]!.url).pathname).toBe('/')
+    for (const path of ['/unknown', '/leaderboards/more', '/web/unknown/value', '/api/not-a-route']) {
+      expect((await activityWorker.fetch(new Request(`${ORIGIN}${path}`), env)).status).toBe(404)
+    }
+    expect(assetRequests).toHaveLength(11)
   })
 
   test('accepts cookie auth, strips credentials, and combines identity with direct context', async () => {

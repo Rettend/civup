@@ -184,6 +184,11 @@ export default defineConfig({
             font-family: 'Inter Variable', sans-serif;
             background: var(--bg);
             color: var(--fg);
+            user-select: auto;
+            -webkit-user-select: auto;
+          }
+
+          body.activity-surface {
             user-select: none;
             -webkit-user-select: none;
           }
@@ -223,11 +228,22 @@ export default defineConfig({
             }
           }
 
-          img {
+          body.activity-surface img {
             -webkit-user-drag: none;
             user-drag: none;
             user-select: none;
             -webkit-user-select: none;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            body.public-surface *,
+            body.public-surface *::before,
+            body.public-surface *::after {
+              scroll-behavior: auto !important;
+              transition-duration: 0.01ms !important;
+              animation-duration: 0.01ms !important;
+              animation-iteration-count: 1 !important;
+            }
           }
 
           button:disabled,

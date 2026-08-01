@@ -23,7 +23,7 @@ import {
 import { BROWSER_SESSION_COOKIE, clearBrowserSessionCookie, handleBrowserOAuthRequest, hasExactBrowserOrigin, readCookie, resolveBrowserAccessConfiguration } from './browser-auth.ts'
 import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
 
-interface Env {
+export interface Env {
   ACTIVITY_PUBLIC_ORIGIN?: string
   ALLOWED_DISCORD_GUILD_ID?: string
   ALLOWED_DISCORD_GUILD_IDS?: string
@@ -56,10 +56,11 @@ interface ActivityProxySession {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
     try {
+      if (url.pathname === '/api/public/leaderboards') return await handlePublicLeaderboardProxy(request, url, env, ctx)
       const browserOAuthResponse = await handleBrowserOAuthRequest(request, env)
       if (browserOAuthResponse) return browserOAuthResponse
       if (url.pathname === '/api/auth/me' && request.method === 'GET') return await handleAuthMe(request, env)
@@ -100,11 +101,122 @@ export default {
 } satisfies ExportedHandler<Env>
 
 function serveSpaNavigation(request: Request, url: URL, env: Env): Response | Promise<Response> {
-  if ((request.method !== 'GET' && request.method !== 'HEAD') || !url.pathname.startsWith('/web/') || !env.ASSETS) {
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || !isSpaNavigationPath(url.pathname) || !env.ASSETS) {
     return new Response(null, { status: 404 })
   }
 
   return env.ASSETS.fetch(new Request(new URL('/', url), request))
+}
+
+export function isSpaNavigationPath(pathname: string): boolean {
+  if (pathname === '/' || pathname === '/leaderboards' || pathname === '/rules' || pathname === '/creators') return true
+  if (pathname === '/overview' || pathname === '/uploads') return true
+  return /^\/(?:lobby|draft)\/[^/]+\/?$/.test(pathname)
+    || /^\/web\/(?:session|channel)\/[^/]+\/?$/.test(pathname)
+    || /^\/practice(?:\/[^/]+)?\/?$/.test(pathname)
+}
+
+async function handlePublicLeaderboardProxy(
+  request: Request,
+  url: URL,
+  env: Env,
+  ctx?: ExecutionContext,
+): Promise<Response> {
+  if (request.method !== 'GET') return publicProxyError('Method not allowed', 405)
+
+  const guildConfig = resolveApprovedDiscordGuildConfiguration(env)
+  if (!guildConfig.ok) return publicProxyError('Public leaderboards are not configured', 503)
+
+  const serverResult = parsePublicLeaderboardServer(url, guildConfig.primaryGuildId)
+  if (!serverResult.ok) return publicProxyError(serverResult.error, 400)
+  if (!guildConfig.guildIds.includes(serverResult.serverId)) return publicProxyError('Server is not approved', 403)
+
+  const secret = env.CIVUP_SECRET?.trim() ?? ''
+  if (!secret) return publicProxyError('Public leaderboards are not configured', 503)
+
+  const cacheKey = new Request(canonicalPublicLeaderboardUrl(url, serverResult.serverId), { method: 'GET' })
+  const cache = getDefaultCache()
+  const cached = cache ? await matchPublicCache(cache, cacheKey) : undefined
+  if (cached?.ok) return publicProxyResponse(cached)
+
+  if (!env.BOT) return publicProxyError('Leaderboard service is not configured', 503)
+  const upstreamUrl = `https://civup-bot.internal/api/public/leaderboards?server=${encodeURIComponent(serverResult.serverId)}`
+  let upstream: Response
+  try {
+    upstream = await env.BOT.fetch(new Request(upstreamUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        [CIVUP_INTERNAL_SECRET_HEADER]: secret,
+      },
+    }))
+  }
+  catch (error) {
+    console.error('[activity] Public leaderboard proxy failed', error)
+    return publicProxyError('Leaderboard service is unavailable', 502)
+  }
+  const response = publicProxyResponse(upstream)
+  if (response.ok && cache && ctx) ctx.waitUntil(putPublicCache(cache, cacheKey, response.clone()))
+  return response
+}
+
+function parsePublicLeaderboardServer(url: URL, defaultServerId: string): { ok: true, serverId: string } | { ok: false, error: string } {
+  const entries = [...url.searchParams.entries()]
+  if (entries.some(([key]) => key !== 'server') || entries.length > 1) {
+    return { ok: false, error: 'Only one server query parameter is allowed' }
+  }
+  if (entries.length === 0) return { ok: true, serverId: defaultServerId }
+
+  const serverId = entries[0]?.[1].trim() ?? ''
+  return /^\d{17,20}$/.test(serverId)
+    ? { ok: true, serverId }
+    : { ok: false, error: 'Server query parameter is invalid' }
+}
+
+function canonicalPublicLeaderboardUrl(url: URL, serverId: string): string {
+  const canonical = new URL('/api/public/leaderboards', url.origin)
+  canonical.searchParams.set('server', serverId)
+  return canonical.toString()
+}
+
+function publicProxyResponse(upstream: Response): Response {
+  const headers = new Headers()
+  for (const name of ['content-type', 'content-length', 'etag', 'last-modified']) {
+    const value = upstream.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json; charset=utf-8')
+  headers.set('Cache-Control', upstream.ok ? 'public, max-age=60, s-maxage=300' : 'no-store')
+  return new Response(upstream.body, { status: upstream.status, headers })
+}
+
+function publicProxyError(error: string, status: number): Response {
+  const response = json({ error }, status)
+  response.headers.set('Cache-Control', 'no-store')
+  return response
+}
+
+function getDefaultCache(): Cache | undefined {
+  return (globalThis as typeof globalThis & { caches?: { default?: Cache } }).caches?.default
+}
+
+async function matchPublicCache(cache: Cache, key: Request): Promise<Response | undefined> {
+  try {
+    return await cache.match(key)
+  }
+  catch (error) {
+    console.warn('[activity] Public leaderboard edge cache read skipped', error)
+    return undefined
+  }
+}
+
+async function putPublicCache(cache: Cache, key: Request, response: Response): Promise<void> {
+  try {
+    await cache.put(key, response)
+  }
+  catch (error) {
+    console.warn('[activity] Public leaderboard edge cache write skipped', error)
+  }
 }
 
 async function handleDevLog(request: Request): Promise<Response> {
