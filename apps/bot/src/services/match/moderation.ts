@@ -18,6 +18,7 @@ import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredG
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { createStatsContext, requireStoredMatchGuildId } from '../stats/context.ts'
 import { getSessionOriginByMatch } from '../session/lobby-projection.ts'
 
@@ -220,7 +221,7 @@ export async function resolveMatchByModerator(
 
   return {
     match: updatedMatch,
-    participants: updatedParticipants,
+    participants: await hydrateModeratedParticipants(db, statsContext, updatedMatch, updatedParticipants),
     previousStatus,
     recalculatedMatchIds,
   }
@@ -324,7 +325,7 @@ export async function correctMatchLeadersByModerator(
 
   return {
     match: updatedMatch,
-    participants: updatedParticipants,
+    participants: await hydrateModeratedParticipants(db, statsContext, updatedMatch, updatedParticipants),
     previousStatus: match.status,
     recalculatedMatchIds: [],
     corrections,
@@ -482,7 +483,7 @@ export async function substituteMatchPlayerByModerator(
 
   return {
     match: updatedMatch,
-    participants: updatedParticipants,
+    participants: await hydrateModeratedParticipants(db, statsContext, updatedMatch, updatedParticipants),
     previousStatus: match.status,
     recalculatedMatchIds,
     substitutions,
@@ -1168,6 +1169,19 @@ async function matchHasRatingEvents(db: Database, statsContext: StatsContext, ma
     .where(eq(legacyPlayerRatingEvents.matchId, matchId))
     .limit(1)
   return legacyEvent != null
+}
+
+async function hydrateModeratedParticipants(
+  db: Database,
+  statsContext: StatsContext,
+  match: Pick<MatchRow, 'gameMode' | 'draftData'>,
+  participants: ParticipantRow[],
+): Promise<ParticipantRow[]> {
+  return hydrateModeRatingSnapshotsFromEvents(db, statsContext, participants.map(participant => ({
+    ...participant,
+    gameMode: match.gameMode,
+    draftData: match.draftData,
+  })))
 }
 
 async function runTerminalSessionCommand(

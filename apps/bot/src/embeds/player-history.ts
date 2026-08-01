@@ -3,7 +3,7 @@ import type { GameMode } from '@civup/game'
 import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, players, tournamentMatches } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { resolvePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -11,7 +11,7 @@ import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { clampPageIndex } from '../services/response/pagination.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatPublicRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type PlayerHistoryModeFilter = 'all' | GameMode
 
@@ -155,6 +155,8 @@ interface PlayerHistoryTargetRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   gameMode: string
   draftData: string | null
   isOld: boolean
@@ -594,9 +596,9 @@ function formatRatingChange(row: PlayerHistoryTargetRow): string {
     return '` ? ` ❔ `(   ?)`'
   }
 
-  const before = displayRating(row.ratingBeforeMu, row.ratingBeforeSigma)
-  const after = displayRating(row.ratingAfterMu, row.ratingAfterSigma)
-  return formatDisplayRatingChange(before, after)
+  const before = resolvePublicRating(row.publicRatingBefore, row.ratingBeforeMu)
+  const after = resolvePublicRating(row.publicRatingAfter, row.ratingAfterMu)
+  return formatPublicRatingChange(before, after)
 }
 
 function formatTournamentResultEmoji(placement: number | null): string {

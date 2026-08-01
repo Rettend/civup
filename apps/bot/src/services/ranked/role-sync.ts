@@ -4,7 +4,7 @@ import type { RankedRoleConfig } from './roles.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { buildActivityAdjustedLeaderboard, displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, getLeaderboardMinGames, hiddenRatingScore, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
@@ -155,6 +155,7 @@ interface RatingSnapshotRow {
   mode: LeaderboardMode
   mu: number
   sigma: number
+  publicRating: number
   gamesPlayed: number
   lastPlayedAt: number | null
 }
@@ -199,6 +200,7 @@ interface LadderSnapshots {
   earn: Map<string, LadderAssignment>
   keep: Map<string, LadderAssignment>
   ranks: Map<string, number>
+  publicScores: Map<string, number>
   scores: Map<string, number>
 }
 
@@ -856,6 +858,7 @@ async function buildRankedRolePreviewState({
       mode: row.mode,
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: row.publicRating,
       gamesPlayed: row.gamesPlayed,
       lastPlayedAt: row.lastPlayedAt ?? null,
     }))
@@ -1095,7 +1098,7 @@ function buildSeasonModePeakCandidates(
       playerId: row.playerId,
       mode: row.mode,
       tier: preview?.ladderTiers[row.mode] ?? null,
-      rating: Math.round(displayRating(row.mu, row.sigma)),
+      rating: Math.round(resolvePublicRating(row.publicRating, row.mu)),
     }
   })
 }
@@ -1107,14 +1110,16 @@ function buildLadderSnapshots(
   rankedMinGames: number,
   now: number,
 ): LadderSnapshots {
-  const placements = buildActivityAdjustedLeaderboard(rows, getLeaderboardMinGames(mode), now)
-  const ranked = [...placements]
-    .sort((left, right) => left.rawRank - right.rawRank)
+  const minimumGames = getLeaderboardMinGames(mode)
+  const placements = buildActivityAdjustedLeaderboard(rows, minimumGames, now)
+  const ranked = rows
+    .filter(row => row.gamesPlayed >= minimumGames)
     .map(row => ({
       playerId: row.playerId,
-      score: row.displayRating,
+      score: hiddenRatingScore(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt,
     }))
+    .sort(compareLadderEntry)
   const qualifiedPlayerIds = new Set(rows
     .filter(row => row.gamesPlayed >= rankedMinGames)
     .map(row => row.playerId))
@@ -1123,6 +1128,7 @@ function buildLadderSnapshots(
     earn: buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
     keep: buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
     ranks: new Map(placements.map(entry => [entry.playerId, entry.rank])),
+    publicScores: new Map(placements.map(entry => [entry.playerId, entry.publicRating])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -1139,6 +1145,7 @@ function buildGlobalLadderSnapshots(
     earn: applyGlobalEvidenceGates(buildEarnAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
     keep: applyGlobalEvidenceGates(buildKeepAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
     ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
+    publicScores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
@@ -1581,11 +1588,11 @@ function buildLadderRankMap(playerId: string, laddersByMode: Map<LeaderboardMode
 
 function buildLadderScoreMap(playerId: string, laddersByMode: Map<LeaderboardMode, LadderSnapshots>): Record<LeaderboardMode, number | null> {
   return {
-    'duel': laddersByMode.get('duel')?.scores.get(playerId) ?? null,
-    'duo': laddersByMode.get('duo')?.scores.get(playerId) ?? null,
-    'squad': laddersByMode.get('squad')?.scores.get(playerId) ?? null,
-    'ffa': laddersByMode.get('ffa')?.scores.get(playerId) ?? null,
-    'red-death': laddersByMode.get('red-death')?.scores.get(playerId) ?? null,
+    'duel': laddersByMode.get('duel')?.publicScores.get(playerId) ?? null,
+    'duo': laddersByMode.get('duo')?.publicScores.get(playerId) ?? null,
+    'squad': laddersByMode.get('squad')?.publicScores.get(playerId) ?? null,
+    'ffa': laddersByMode.get('ffa')?.publicScores.get(playerId) ?? null,
+    'red-death': laddersByMode.get('red-death')?.publicScores.get(playerId) ?? null,
   }
 }
 

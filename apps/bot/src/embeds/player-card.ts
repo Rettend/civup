@@ -4,14 +4,14 @@ import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/
 import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { resolvePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatPublicRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
@@ -36,6 +36,8 @@ interface RecentPlayerMatchRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   gameMode: string
   draftData: string | null
   isOld: boolean
@@ -56,6 +58,8 @@ export interface ModeRatingSnapshotRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
 }
 
 interface CommonPlayerQuerySegment {
@@ -197,7 +201,7 @@ export function formatModeStats(
   mode: LeaderboardMode,
   stats: { ffaRatingWins: number },
 ): string {
-  const rating = Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
+  const rating = Math.round(resolvePublicRating(ratingRow.publicRating, ratingRow.mu))
   const lines = [
     `Rating: ${formatModeRating(modeSummary, rating)}`,
   ]
@@ -252,8 +256,8 @@ export function countFfaRatingWins(matchesPlayed: readonly ModeRatingSnapshotRow
       continue
     }
 
-    const before = displayRating(match.ratingBeforeMu, match.ratingBeforeSigma)
-    const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
+    const before = resolvePublicRating(match.publicRatingBefore, match.ratingBeforeMu)
+    const after = resolvePublicRating(match.publicRatingAfter, match.ratingAfterMu)
     if (after > before) ratingWins += 1
   }
 
@@ -336,6 +340,8 @@ async function listFfaRatingWinSnapshotRows(
       ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
       ratingAfterMu: playerRatingEvents.ratingAfterMu,
       ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+      publicRatingBefore: playerRatingEvents.publicRatingBefore,
+      publicRatingAfter: playerRatingEvents.publicRatingAfter,
     })
     .from(playerRatingEvents)
     .innerJoin(matches, eq(playerRatingEvents.matchId, matches.id))
@@ -567,6 +573,8 @@ function formatRecentMatchLine(match: {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
   gameMode: string
   draftData: string | null
   isOld: boolean
@@ -590,6 +598,8 @@ function formatRecentRatingChange(match: {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
   gameMode: string
   draftData: string | null
   isTournament?: boolean
@@ -605,10 +615,10 @@ function formatRecentRatingChange(match: {
     return '` ? ` ❔ `(   ?)`'
   }
 
-  const before = displayRating(match.ratingBeforeMu, match.ratingBeforeSigma)
-  const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
+  const before = resolvePublicRating(match.publicRatingBefore, match.ratingBeforeMu)
+  const after = resolvePublicRating(match.publicRatingAfter, match.ratingAfterMu)
 
-  return formatDisplayRatingChange(before, after)
+  return formatPublicRatingChange(before, after)
 }
 
 function formatTournamentResultEmoji(placement: number | null): string {

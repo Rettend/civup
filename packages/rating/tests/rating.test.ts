@@ -267,7 +267,7 @@ describe('buildLeaderboard', () => {
 
     const lb = buildLeaderboard(players)
 
-    expect(lb[0]!.displayRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - DEFAULT_MU), 0)
+    expect(lb[0]!.publicRating).toBeCloseTo(DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (30 - DEFAULT_MU), 0)
     expect(lb[0]!.winRate).toBeCloseTo(0.6, 2)
   })
 
@@ -361,6 +361,16 @@ describe('buildActivityAdjustedLeaderboard', () => {
     expect([...ranked].sort((left, right) => left.rawRank - right.rawRank).map(entry => entry.playerId)).toEqual(['a', 'b', 'z-new', 'z-old'])
   })
 
+  test('uses persisted public rating for raw order instead of hidden mu', () => {
+    const ranked = buildActivityAdjustedLeaderboard([
+      { ...player('high-hidden', 1), mu: 40, publicRating: 990 },
+      { ...player('high-public', 2), mu: 20, publicRating: 1010 },
+    ], 5, NOW)
+
+    expect(ranked.map(entry => entry.playerId)).toEqual(['high-public', 'high-hidden'])
+    expect(ranked.map(entry => entry.publicRating)).toEqual([1010, 990])
+  })
+
   test('treats null activity as max offset and future activity as current', () => {
     const ranked = buildActivityAdjustedLeaderboard([
       player('missing', 1, null),
@@ -386,7 +396,7 @@ describe('buildActivityAdjustedLeaderboard', () => {
     const ranked = buildActivityAdjustedLeaderboard([input, ineligible], 5, NOW)
 
     expect(ranked).toHaveLength(1)
-    expect(ranked[0]).toMatchObject({ mu: input.mu, sigma: input.sigma, displayRating: displayRating(input.mu, input.sigma) })
+    expect(ranked[0]).toMatchObject({ mu: input.mu, sigma: input.sigma, publicRating: displayRating(input.mu, input.sigma) })
     expect(input).toEqual({
       playerId: 'stale',
       mu: 37.25,

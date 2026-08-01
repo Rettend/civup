@@ -1,5 +1,5 @@
 import type { RatingUpdate } from '@civup/rating'
-import { calculateRatings, displayRating } from '@civup/rating'
+import { calculateRatings, hiddenRatingScore } from '@civup/rating'
 
 export interface PermanentAllyParticipantRow {
   playerId: string
@@ -69,15 +69,18 @@ export function calculatePermanentAllyFfaRatingUpdates(
         mu: before.mu + muDelta,
         sigma: Math.max(0.0001, before.sigma + sigmaDelta),
       }
-      const displayBefore = displayRating(before.mu, before.sigma)
-      const displayAfter = displayRating(after.mu, after.sigma)
+      const hiddenScoreBefore = hiddenRatingScore(before.mu, before.sigma)
+      const hiddenScoreAfter = hiddenRatingScore(after.mu, after.sigma)
       updates.push({
         playerId: participant.playerId,
         before,
         after,
-        displayBefore,
-        displayAfter,
-        displayDelta: displayAfter - displayBefore,
+        hiddenScoreBefore,
+        hiddenScoreAfter,
+        hiddenScoreDelta: hiddenScoreAfter - hiddenScoreBefore,
+        displayBefore: hiddenScoreBefore,
+        displayAfter: hiddenScoreAfter,
+        displayDelta: hiddenScoreAfter - hiddenScoreBefore,
       })
     }
   }

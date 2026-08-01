@@ -84,8 +84,8 @@ describe('lobby balance summary', () => {
     const teamA = summary?.teams.find(team => team.team === 0)
     const teamB = summary?.teams.find(team => team.team === 1)
 
-    expect(teamA?.projectedWinDelta?.displayDelta ?? 0).toBeGreaterThan(0)
-    expect(teamB?.projectedWinDelta?.displayDelta ?? 0).toBeLessThan(0)
+    expect(teamA?.projectedWinDelta?.publicRatingDelta ?? 0).toBeGreaterThan(0)
+    expect(teamB?.projectedWinDelta?.publicRatingDelta ?? 0).toBeLessThan(0)
   })
 
   test('omits projected Elo deltas for unseated viewers', () => {

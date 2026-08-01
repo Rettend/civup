@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftState, GameMode, LeaderDataVersion } from '@
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
-import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, predictWinProbabilities } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -46,6 +46,7 @@ interface LobbyBalancePlayer {
   mu: number
   sigma: number
   gamesPlayed: number
+  publicRating: number
 }
 
 export interface LobbyBalanceTeamSummary {
@@ -57,7 +58,7 @@ export interface LobbyBalanceTeamSummary {
 }
 
 export interface LobbyBalanceProjectedWinDelta {
-  displayDelta: number
+  publicRatingDelta: number
 }
 
 export interface LobbyBalanceSummary {
@@ -127,6 +128,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
       mu: fallback.mu,
       sigma: fallback.sigma,
       gamesPlayed: 0,
+      publicRating: DISPLAY_RATING_BASE,
     }
 
     const teamPlayers = playersByTeam.get(team) ?? []
@@ -135,6 +137,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
       mu: balanceRating.mu,
       sigma: balanceRating.sigma,
       gamesPlayed: balanceRating.gamesPlayed,
+      publicRating: balanceRating.publicRating ?? DISPLAY_RATING_BASE,
     })
     playersByTeam.set(team, teamPlayers)
   }
@@ -191,7 +194,15 @@ function estimateProjectedWinDelta(teams: LobbyBalancePlayer[][], winningTeamInd
     })
 
     const userUpdate = updates.find(update => update.playerId === currentUserId)
-    return userUpdate ? { displayDelta: userUpdate.displayDelta } : null
+    const user = orderedTeams.flat().find(player => player.playerId === currentUserId)
+    if (!userUpdate || !user) return null
+    return {
+      publicRatingDelta: calculatePublicRatingUpdate({
+        priorPublicRating: user.publicRating,
+        hiddenMuBefore: userUpdate.before.mu,
+        hiddenMuAfterRaw: userUpdate.after.mu,
+      }).delta,
+    }
   }
   catch {
     return null

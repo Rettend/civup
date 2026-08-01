@@ -5,7 +5,7 @@ import type { DbBatchItem } from '../db/batch.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, playerRatings as legacyPlayerRatings, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, seasons, tournamentMatches } from '@civup/db'
 import { GAME_MODES, isTeamMode, leaderboardModesToGameModes } from '@civup/game'
-import { buildActivityAdjustedLeaderboard, calculateRatings, createRating, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, calculatePublicRatingUpdate, calculatePublicRatingUpdateFromStoredEvent, calculateRatings, createRating, DISPLAY_RATING_BASE, getLeaderboardMinGames, IMPORTED_GAME_EFFECTIVE_WEIGHT, seasonReset } from '@civup/rating'
 import { and, asc, eq, gt, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { runDbBatch } from '../db/batch.ts'
 import { getStoredGameModeContext } from './draft-data.ts'
@@ -15,6 +15,7 @@ interface LeaderboardSnapshotRow {
   playerId: string
   mu: number
   sigma: number
+  publicRating: number | null
   gamesPlayed: number
   lastPlayedAt: number | null
 }
@@ -51,8 +52,11 @@ interface HistoricalRatingEventRow {
   matchCreatedAt: number
   matchCompletedAt: number | null
   playerId: string
+  ratingBeforeMu: number
   ratingAfterMu: number
   ratingAfterSigma: number
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
   gamesDelta: number
   winsDelta: number
   importedGamesDelta: number
@@ -66,6 +70,7 @@ interface HistoricalRatingEventRow {
 interface RatingState {
   mu: number
   sigma: number
+  publicRating: number | null
   gamesPlayed: number
   wins: number
   importedGames: number
@@ -92,7 +97,6 @@ interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOpti
   opponentTierByPlayerId?: ReadonlyMap<string, string>
 }
 
-const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 const GLOBAL_RATING_SCOPE = 'global'
 const D1_SAFE_IN_LIST_CHUNK_SIZE = 80
 const REPLAY_WRITE_BATCH_SIZE = 100
@@ -111,6 +115,7 @@ export function buildSimulatedReportedRankContext(
     playerId: string
     ratingAfterMu: number | null
     ratingAfterSigma: number | null
+    publicRatingAfter?: number | null
   }[],
   now: number,
   importedMatch: boolean,
@@ -125,6 +130,7 @@ export function buildSimulatedReportedRankContext(
       playerId: participant.playerId,
       mu: participant.ratingAfterMu,
       sigma: participant.ratingAfterSigma,
+      publicRating: participant.publicRatingAfter ?? previous?.publicRating ?? null,
       gamesPlayed: (previous?.gamesPlayed ?? 0) + 1,
       lastPlayedAt: importedMatch ? (previous?.lastPlayedAt ?? null) : now,
     })
@@ -359,29 +365,14 @@ async function recalculateGlobalRatingsFromBoundary(
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
-  const hydrateResult = hydrateRatingStateFromEventsUntilBoundary(
+  hydrateRatingStateFromEventsUntilBoundary(
     ratingStateByPlayer,
+    GLOBAL_RATING_SCOPE,
     seasonRows,
     seasonProgress,
     earlierEventRows,
     boundaryMatch.createdAt,
   )
-  if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
-    const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
-    if (!missingSnapshotMatchId) return { error: hydrateResult }
-    return recalculateGlobalRatingsFromBoundary(
-      db,
-      seasonRows,
-      statsContext,
-      missingSnapshotMatchId,
-      true,
-      false,
-      opponentTierByPlayerId,
-      includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
-      extraAffectedPlayerIds,
-    )
-  }
-  if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
@@ -544,30 +535,14 @@ async function recalculateLeaderboardModeFromBoundary(
 
   const { ratingStateByPlayer } = createReplayStates(affectedPlayerIds)
   const seasonProgress: SeasonProgress = { value: 0 }
-  const hydrateResult = hydrateRatingStateFromEventsUntilBoundary(
+  hydrateRatingStateFromEventsUntilBoundary(
     ratingStateByPlayer,
+    leaderboardMode,
     seasonRows,
     seasonProgress,
     earlierEventRows,
     boundaryMatch.createdAt,
   )
-  if (typeof hydrateResult === 'string' && isMissingRatingSnapshotsError(hydrateResult)) {
-    const missingSnapshotMatchId = parseMissingRatingSnapshotMatchId(hydrateResult)
-    if (!missingSnapshotMatchId) return { error: hydrateResult }
-    return recalculateLeaderboardModeFromBoundary(
-      db,
-      leaderboardMode,
-      gameModes,
-      seasonRows,
-      statsContext,
-      missingSnapshotMatchId,
-      true,
-      false,
-      includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
-      extraAffectedPlayerIds,
-    )
-  }
-  if (typeof hydrateResult === 'string') return { error: hydrateResult }
 
   const participantsByMatchId = buildParticipantsByMatchId(replayParticipantRows)
   const replayWriteQueries: DbBatchItem[] = []
@@ -625,8 +600,11 @@ async function listEarlierRatingEventRows(
         matchCreatedAt: playerRatingEvents.matchCreatedAt,
         matchCompletedAt: playerRatingEvents.matchCompletedAt,
         playerId: playerRatingEvents.playerId,
+        ratingBeforeMu: playerRatingEvents.ratingBeforeMu,
         ratingAfterMu: playerRatingEvents.ratingAfterMu,
         ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+        publicRatingBefore: playerRatingEvents.publicRatingBefore,
+        publicRatingAfter: playerRatingEvents.publicRatingAfter,
         gamesDelta: playerRatingEvents.gamesDelta,
         winsDelta: playerRatingEvents.winsDelta,
         importedGamesDelta: playerRatingEvents.importedGamesDelta,
@@ -651,8 +629,11 @@ async function listEarlierRatingEventRows(
           matchCreatedAt: legacyPlayerRatingEvents.matchCreatedAt,
           matchCompletedAt: legacyPlayerRatingEvents.matchCompletedAt,
           playerId: legacyPlayerRatingEvents.playerId,
+          ratingBeforeMu: legacyPlayerRatingEvents.ratingBeforeMu,
           ratingAfterMu: legacyPlayerRatingEvents.ratingAfterMu,
           ratingAfterSigma: legacyPlayerRatingEvents.ratingAfterSigma,
+          publicRatingBefore: legacyPlayerRatingEvents.publicRatingBefore,
+          publicRatingAfter: legacyPlayerRatingEvents.publicRatingAfter,
           gamesDelta: legacyPlayerRatingEvents.gamesDelta,
           winsDelta: legacyPlayerRatingEvents.winsDelta,
           importedGamesDelta: legacyPlayerRatingEvents.importedGamesDelta,
@@ -752,18 +733,29 @@ function applySeasonResetsUntil(
 
 function hydrateRatingStateFromEventsUntilBoundary(
   ratingStateByPlayer: Map<string, RatingState>,
+  ratingScope: RatingScope,
   seasonRows: StoredSeasonRow[],
   seasonProgress: SeasonProgress,
   rows: HistoricalRatingEventRow[],
   boundaryCreatedAt: number,
-): string | null {
+): void {
   for (const row of rows) {
     applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, row.matchCreatedAt)
 
-    const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId)
+    const currentState = ratingStateByPlayer.get(row.playerId) ?? createDefaultRatingState(row.playerId, ratingScope !== GLOBAL_RATING_SCOPE)
+    const publicRating = ratingScope === GLOBAL_RATING_SCOPE
+      ? null
+      : row.publicRatingAfter ?? calculatePublicRatingUpdateFromStoredEvent({
+          priorPublicRating: row.publicRatingBefore ?? currentState.publicRating ?? DISPLAY_RATING_BASE,
+          hiddenMuBefore: row.ratingBeforeMu,
+          hiddenMuAfter: row.ratingAfterMu,
+          effectiveGamesDelta: row.effectiveGamesDelta,
+          importedGamesDelta: row.importedGamesDelta,
+        }).after
     ratingStateByPlayer.set(row.playerId, {
       mu: row.ratingAfterMu,
       sigma: row.ratingAfterSigma,
+      publicRating,
       gamesPlayed: currentState.gamesPlayed + row.gamesDelta,
       wins: currentState.wins + row.winsDelta,
       importedGames: currentState.importedGames + row.importedGamesDelta,
@@ -777,7 +769,6 @@ function hydrateRatingStateFromEventsUntilBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, boundaryCreatedAt)
-  return null
 }
 
 async function replayCompletedMatch(
@@ -833,7 +824,7 @@ async function replayCompletedMatch(
     const update = updateByPlayer.get(participant.playerId)
     if (!update) return `Failed to recalculate ratings for match **${match.id}**.`
 
-    const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId)
+    const currentState = ratingStateByPlayer.get(participant.playerId) ?? createDefaultRatingState(participant.playerId, leaderboardMode != null)
     const effectiveParticipant = effectiveRowByPlayerId.get(participant.playerId) ?? participant
     const sourceWeight = isImportedGame ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
     const qualityWins = leaderboardMode == null
@@ -843,6 +834,14 @@ async function replayCompletedMatch(
     const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
     const ratingAfterMu = ratingAfter.mu
     const ratingAfterSigma = ratingAfter.sigma
+    const publicUpdate = leaderboardMode == null
+      ? null
+      : calculatePublicRatingUpdate({
+          priorPublicRating: currentState.publicRating ?? DISPLAY_RATING_BASE,
+          hiddenMuBefore: update.before.mu,
+          hiddenMuAfterRaw: update.after.mu,
+          sourceWeight,
+        })
 
     if (writeParticipantSnapshots) {
       participantUpdateQueries.push(
@@ -866,6 +865,7 @@ async function replayCompletedMatch(
     ratingStateByPlayer.set(participant.playerId, {
       mu: ratingAfterMu,
       sigma: ratingAfterSigma,
+      publicRating: publicUpdate?.after ?? null,
       gamesPlayed: currentState.gamesPlayed + 1,
       wins: currentState.wins + (effectiveParticipant.placement === 1 ? 1 : 0),
       importedGames: currentState.importedGames + (isImportedGame ? 1 : 0),
@@ -887,6 +887,8 @@ async function replayCompletedMatch(
       ratingBeforeSigma: update.before.sigma,
       ratingAfterMu,
       ratingAfterSigma,
+      publicRatingBefore: publicUpdate?.before ?? null,
+      publicRatingAfter: publicUpdate?.after ?? null,
       gamesDelta: 1,
       winsDelta: effectiveParticipant.placement === 1 ? 1 : 0,
       importedGamesDelta: isImportedGame ? 1 : 0,
@@ -1090,6 +1092,7 @@ async function replacePlayerRatings(
       mode: leaderboardMode,
       mu: state.mu,
       sigma: state.sigma,
+      publicRating: leaderboardMode === GLOBAL_RATING_SCOPE ? null : state.publicRating,
       gamesPlayed: state.gamesPlayed,
       wins: state.wins,
       importedGames: state.importedGames,
@@ -1172,11 +1175,12 @@ function buildLegacyEventBoundaryCondition(
   )
 }
 
-function createDefaultRatingState(playerId: string): RatingState {
+function createDefaultRatingState(playerId: string, withPublicRating = false): RatingState {
   const rating = createRating(playerId)
   return {
     mu: rating.mu,
     sigma: rating.sigma,
+    publicRating: withPublicRating ? DISPLAY_RATING_BASE : null,
     gamesPlayed: 0,
     wins: 0,
     importedGames: 0,
@@ -1187,14 +1191,6 @@ function createDefaultRatingState(playerId: string): RatingState {
     effectiveWinsVsTier2Plus: 0,
     lastPlayedAt: null,
   }
-}
-
-function isMissingRatingSnapshotsError(error: string): boolean {
-  return error.includes(MISSING_RATING_SNAPSHOTS_MESSAGE)
-}
-
-function parseMissingRatingSnapshotMatchId(error: string): string | null {
-  return /^Completed match \*\*(.+)\*\* has missing rating snapshots\.$/.exec(error)?.[1] ?? null
 }
 
 function buildBoundaryCondition(

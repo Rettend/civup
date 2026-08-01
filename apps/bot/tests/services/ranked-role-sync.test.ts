@@ -130,6 +130,42 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
+  test('keeps mode tiers hidden-derived while exposing public rating order and score', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const heroId = playerIdFor('public-order', 1)
+
+    for (let index = 1; index <= 10; index++) {
+      const playerId = playerIdFor('public-order', index)
+      await seedPlayerIdentity(db, playerId)
+      await seedRating(db, {
+        playerId,
+        mode: 'duel',
+        mu: 50 - index,
+        sigma: 5,
+        publicRating: 1000 + (index * 10),
+        gamesPlayed: 20,
+        lastPlayedAt: NOW,
+      })
+      await seedRating(db, {
+        playerId,
+        mode: 'global',
+        mu: 50 - index,
+        sigma: 5,
+        gamesPlayed: 20,
+        lastPlayedAt: NOW,
+      })
+    }
+
+    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW })
+    const hero = preview.playerPreviews.find(player => player.playerId === heroId)
+
+    expect(hero?.ladderTiers.duel).toBe(TIER_1)
+    expect(hero?.ladderRanks.duel).toBe(10)
+    expect(hero?.ladderScores.duel).toBe(1010)
+    sqlite.close()
+  })
+
   test('activity placement changes visible mode rank without changing raw tier or role assignment', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -1304,6 +1340,7 @@ async function seedRating(
     mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | 'global'
     mu: number
     sigma: number
+    publicRating?: number
     gamesPlayed: number
     lastPlayedAt: number
     wins?: number

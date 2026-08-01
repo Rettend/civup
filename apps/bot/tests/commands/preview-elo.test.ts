@@ -31,16 +31,16 @@ describe('preview elo command', () => {
 
   test('calculates both duel outcomes from the viewer perspective', () => {
     const preview = calculateDuelEloPreview(
-      { playerId: 'viewer', mu: 25, sigma: 8.333, gamesPlayed: 0 },
-      { playerId: 'target', mu: 25, sigma: 8.333, gamesPlayed: 0 },
+      { playerId: 'viewer', mu: 25, sigma: 8.333, gamesPlayed: 0, publicRating: 1000 },
+      { playerId: 'target', mu: 25, sigma: 8.333, gamesPlayed: 0, publicRating: 1000 },
     )
 
     expect(preview.viewerWinProbability).toBeCloseTo(0.5, 5)
     expect(preview.targetWinProbability).toBeCloseTo(0.5, 5)
-    expect(preview.viewerWin.displayDelta).toBeGreaterThan(0)
-    expect(preview.targetLoss.displayDelta).toBeLessThan(0)
-    expect(preview.viewerLoss.displayDelta).toBeLessThan(0)
-    expect(preview.targetWin.displayDelta).toBeGreaterThan(0)
+    expect(preview.viewerWin.publicRatingDelta).toBeCloseTo(25, 0)
+    expect(preview.targetLoss.publicRatingDelta).toBeCloseTo(-25, 0)
+    expect(preview.viewerLoss.publicRatingDelta).toBeCloseTo(-25, 0)
+    expect(preview.targetWin.publicRatingDelta).toBeCloseTo(25, 0)
   })
 
   test('renders an embed with fallback duel ratings', async () => {

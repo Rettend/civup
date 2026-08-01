@@ -18,12 +18,17 @@ interface ModeRatingSnapshotTarget {
   ratingAfterSigma: number | null
 }
 
-export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(db: Database, statsContext: StatsContext, rows: readonly T[]): Promise<T[]> {
-  if (rows.length === 0) return [...rows]
+interface PublicModeRatingSnapshot {
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
+}
+
+export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(db: Database, statsContext: StatsContext, rows: readonly T[]): Promise<Array<T & PublicModeRatingSnapshot>> {
+  if (rows.length === 0) return []
 
   const matchIds = [...new Set(rows.map(row => row.matchId))]
   const playerIds = [...new Set(rows.map(row => row.playerId))]
-  const events = new Map<string, Pick<ModeRatingSnapshotTarget, 'ratingBeforeMu' | 'ratingBeforeSigma' | 'ratingAfterMu' | 'ratingAfterSigma'>>()
+  const events = new Map<string, Pick<ModeRatingSnapshotTarget, 'ratingBeforeMu' | 'ratingBeforeSigma' | 'ratingAfterMu' | 'ratingAfterSigma'> & PublicModeRatingSnapshot>()
 
   for (const matchIdBatch of chunk(matchIds, RATING_EVENT_MATCH_ID_BATCH_SIZE)) {
     const eventRows = await db
@@ -35,6 +40,8 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
         ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
         ratingAfterMu: playerRatingEvents.ratingAfterMu,
         ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+        publicRatingBefore: playerRatingEvents.publicRatingBefore,
+        publicRatingAfter: playerRatingEvents.publicRatingAfter,
       })
       .from(playerRatingEvents)
       .where(and(
@@ -50,6 +57,8 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
         ratingBeforeSigma: event.ratingBeforeSigma,
         ratingAfterMu: event.ratingAfterMu,
         ratingAfterSigma: event.ratingAfterSigma,
+        publicRatingBefore: event.publicRatingBefore,
+        publicRatingAfter: event.publicRatingAfter,
       })
     }
   }
@@ -57,7 +66,9 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
   return rows.map((row) => {
     const leaderboardMode = getStoredGameModeContext(row.gameMode, row.draftData)?.leaderboardMode ?? null
     const event = leaderboardMode ? events.get(eventKey(row.matchId, row.playerId, leaderboardMode)) : null
-    return event ? { ...row, ...event } : row
+    return event
+      ? { ...row, ...event }
+      : { ...row, publicRatingBefore: null, publicRatingAfter: null }
   })
 }
 

@@ -4,7 +4,7 @@ import type { CurrentRankAssignment, RankedRolePlayerPreview } from '../ranked/r
 import type { StatsContext } from '../stats/context.ts'
 import { scopedPlayerRatings as playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { displayRating, getLeaderboardMinGames } from '@civup/rating'
+import { getLeaderboardMinGames, resolvePublicRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
 import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleCalculationConfig, getRankedRoleConfig } from '../ranked/roles.ts'
@@ -14,6 +14,7 @@ export interface PlayerRatingSummary {
   mode: string
   mu: number
   sigma: number
+  publicRating: number | null
   gamesPlayed: number
   wins: number
   importedGames: number
@@ -107,7 +108,7 @@ function buildPlayerRankProfile(
       tier,
       tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
       tierRoleId: tier && !suppressRoleMentions ? getConfiguredRankedRoleId(config, tier) : null,
-      rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
+      rating: ratingRow ? Math.round(resolvePublicRating(ratingRow.publicRating, ratingRow.mu)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
       rank: previewPlayer?.ladderRanks[mode] ?? null,

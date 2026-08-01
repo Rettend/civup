@@ -377,10 +377,10 @@ describe('lobby service D1-backed projection behavior', () => {
     })
 
     await kv.put(leaderboardModeSnapshotKey(STATS_CONTEXT, 'duo'), JSON.stringify({
-      version: 3,
+      version: 4,
       updatedAt: Date.now(),
       rows: [
-        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
+        { playerId: 'host-1', mu: 31, sigma: 3, publicRating: 1088, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
       ],
     }))
 
@@ -400,6 +400,7 @@ describe('lobby service D1-backed projection behavior', () => {
       balanceRating: {
         mu: 31,
         sigma: 3,
+        publicRating: 1088,
         gamesPlayed: 12,
         wins: 7,
         rank: 1,

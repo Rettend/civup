@@ -1,4 +1,4 @@
-export function formatDisplayRatingChange(before: number, after: number): string {
+export function formatPublicRatingChange(before: number, after: number): string {
   const rawDelta = after - before
   const roundedDelta = Math.round(rawDelta)
   const deltaValue = Object.is(roundedDelta, -0) ? '-0' : String(roundedDelta)

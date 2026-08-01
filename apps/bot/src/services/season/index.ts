@@ -11,7 +11,7 @@ import {
   seasons,
 } from '@civup/db'
 import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
-import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
+import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, resolvePublicRating } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
@@ -428,6 +428,7 @@ export async function syncSeasonPeaksForPlayers(
       mode: scopedPlayerRatings.mode,
       mu: scopedPlayerRatings.mu,
       sigma: scopedPlayerRatings.sigma,
+      publicRating: scopedPlayerRatings.publicRating,
       lastPlayedAt: scopedPlayerRatings.lastPlayedAt,
     })
     .from(scopedPlayerRatings)
@@ -477,7 +478,7 @@ export async function syncSeasonPeaksForPlayers(
         playerId: row.playerId,
         mode,
         tier: preview.ladderTiers[mode] ?? null,
-        rating: Math.round(displayRating(row.mu, row.sigma)),
+        rating: Math.round(resolvePublicRating(row.publicRating, row.mu)),
       }
     })
     .filter((candidate): candidate is SeasonModePeakCandidate => candidate !== null)

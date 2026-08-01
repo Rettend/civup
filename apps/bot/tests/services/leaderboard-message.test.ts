@@ -128,12 +128,13 @@ describe('leaderboard message service', () => {
     try {
       await seedDuelRating(db, '100010000000000002', 10)
       await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify({
-        version: 2,
+        version: 3,
         updatedAt: NOW - 1,
         rows: [{
           playerId: '100010000000000002',
           mu: 30,
           sigma: 6,
+          publicRating: 1200,
           gamesPlayed: 9,
           wins: 9,
           lastPlayedAt: NOW - 1,
@@ -143,6 +144,7 @@ describe('leaderboard message service', () => {
       const snapshot = await ensureLeaderboardModeSnapshot(db, kv, 'duel')
 
       expect(snapshot.rows.find(row => row.playerId === '100010000000000002')?.gamesPlayed).toBe(10)
+      expect(snapshot.rows.find(row => row.playerId === '100010000000000002')?.publicRating).toBe(1075)
     }
     finally {
       sqlite.close()
@@ -622,6 +624,7 @@ async function seedDuelRating(db: Database, playerId: string, gamesPlayed: numbe
     mode: 'duel',
     mu: 30,
     sigma: 6,
+    publicRating: 1075,
     gamesPlayed,
     wins: gamesPlayed,
     lastPlayedAt: NOW,

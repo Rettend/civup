@@ -4,7 +4,7 @@ import type { PlayerRating } from '@civup/rating'
 import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
-import { createRating, displayRating } from '@civup/rating'
+import { createRating, DISPLAY_RATING_BASE, resolvePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -13,7 +13,7 @@ import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatPublicRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -39,6 +39,8 @@ interface TeamParticipantRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   gameMode: string
   draftData: string | null
   completedAt: number | null
@@ -92,9 +94,15 @@ export async function teamCardEmbed(
     return { playerId, mu: ratingRow.mu, sigma: ratingRow.sigma }
   })
 
-  const projectedRating = modeContext.leaderboardMode ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
-  const visual = projectedRating != null && modeContext.leaderboardMode
-    ? await projectRankedTierForScore({ db, kv, guildId: statsContext.guildId, statsContext, mode: modeContext.leaderboardMode, score: projectedRating })
+  const projectedHiddenScore = modeContext.leaderboardMode ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
+  const projectedRating = modeContext.leaderboardMode
+    ? Math.round(uniquePlayerIds.reduce((total, playerId) => {
+        const row = ratingByPlayerId.get(playerId)
+        return total + (row ? resolvePublicRating(row.publicRating, row.mu) : DISPLAY_RATING_BASE)
+      }, 0) / uniquePlayerIds.length)
+    : null
+  const visual = projectedHiddenScore != null && modeContext.leaderboardMode
+    ? await projectRankedTierForScore({ db, kv, guildId: statsContext.guildId, statsContext, mode: modeContext.leaderboardMode, score: projectedHiddenScore })
     : { tier: null, roleId: null, label: null }
 
   const conditions = [
@@ -344,6 +352,8 @@ function formatRecentRatingChange(match: {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   gameMode: string
   draftData: string | null
 }): string {
@@ -357,10 +367,10 @@ function formatRecentRatingChange(match: {
     return '` ? ` ❔ `(   ?)`'
   }
 
-  const before = displayRating(match.ratingBeforeMu, match.ratingBeforeSigma)
-  const after = displayRating(match.ratingAfterMu, match.ratingAfterSigma)
+  const before = resolvePublicRating(match.publicRatingBefore, match.ratingBeforeMu)
+  const after = resolvePublicRating(match.publicRatingAfter, match.ratingAfterMu)
 
-  return formatDisplayRatingChange(before, after)
+  return formatPublicRatingChange(before, after)
 }
 
 function formatGameModeLabel(gameMode: string, draftData: string | null): string {

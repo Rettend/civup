@@ -4,7 +4,7 @@ import type { RankedRoleConfig } from '../ranked/roles.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
+import { getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
@@ -58,6 +58,8 @@ interface RankGraphEventRow {
   ratingBeforeSigma: number
   ratingAfterMu: number
   ratingAfterSigma: number
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
   matchCreatedAt: number
 }
 
@@ -207,6 +209,8 @@ async function loadRankGraphEvents(
       ratingBeforeSigma: playerRatingEvents.ratingBeforeSigma,
       ratingAfterMu: playerRatingEvents.ratingAfterMu,
       ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
+      publicRatingBefore: playerRatingEvents.publicRatingBefore,
+      publicRatingAfter: playerRatingEvents.publicRatingAfter,
       matchCreatedAt: playerRatingEvents.matchCreatedAt,
     })
     .from(playerRatingEvents)
@@ -244,6 +248,7 @@ async function loadModeRankGraphScores(db: Database, statsContext: StatsContext,
       playerId: playerRatings.playerId,
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
+      publicRating: playerRatings.publicRating,
       gamesPlayed: playerRatings.gamesPlayed,
       lastPlayedAt: playerRatings.lastPlayedAt,
     })
@@ -255,7 +260,7 @@ async function loadModeRankGraphScores(db: Database, statsContext: StatsContext,
     .filter(row => row.gamesPlayed >= leaderboardMinGames)
     .map(row => ({
       playerId: row.playerId,
-      score: displayRating(row.mu, row.sigma),
+      score: resolvePublicRating(row.publicRating, row.mu),
       lastPlayedAt: row.lastPlayedAt ?? null,
       qualified: row.gamesPlayed >= MODE_RANK_GRAPH_BAND_MIN_GAMES,
     }))
@@ -368,16 +373,19 @@ function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGra
   const [first] = rows
   if (!first) return []
 
-  const score = scope === 'overall' ? roleRating : displayRating
   const points: RankGraphPoint[] = [{
     x: 0,
-    rating: Math.round(score(first.ratingBeforeMu, first.ratingBeforeSigma)),
+    rating: Math.round(scope === 'overall'
+      ? roleRating(first.ratingBeforeMu, first.ratingBeforeSigma)
+      : resolvePublicRating(first.publicRatingBefore, first.ratingBeforeMu)),
   }]
 
   rows.forEach((row, index) => {
     points.push({
       x: index + 1,
-      rating: Math.round(score(row.ratingAfterMu, row.ratingAfterSigma)),
+      rating: Math.round(scope === 'overall'
+        ? roleRating(row.ratingAfterMu, row.ratingAfterSigma)
+        : resolvePublicRating(row.publicRatingAfter, row.ratingAfterMu)),
     })
   })
 

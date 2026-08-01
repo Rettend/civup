@@ -42,6 +42,8 @@ describe('match global ratings', () => {
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(0.5)
       expect(hero?.ratingAfterMu).toBeCloseTo(expectedImportedMu, 6)
+      expect(rating?.publicRating).toBeGreaterThan(1000)
+      expect(rating!.publicRating! - 1000).toBeCloseTo(12.5, 0)
       expect(rating?.lastPlayedAt).toBeNull()
     }
     finally {
@@ -66,7 +68,7 @@ describe('match global ratings', () => {
         matchId: 'active-1',
         reporterId: HERO_ID,
         placements: `<@${HERO_ID}>`,
-      }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' })
+      }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1', minimalResult: true })
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -76,7 +78,9 @@ describe('match global ratings', () => {
       const modeEvent = await loadPlayerRatingEvent(db, 'active-1', HERO_ID, 'duel')
       const globalEvent = await loadPlayerRatingEvent(db, 'active-1', HERO_ID, 'global')
       expect(modeRating?.gamesPlayed).toBe(1)
+      expect(modeRating?.publicRating).toBeCloseTo(1025, 0)
       expect(globalRating?.gamesPlayed).toBe(1)
+      expect(globalRating?.publicRating).toBeNull()
       expect(globalRating?.effectiveGames).toBe(1)
       expect(globalRating?.winsVsTier1).toBe(1)
       expect(globalRating?.winsVsTier2Plus).toBe(1)
@@ -84,10 +88,15 @@ describe('match global ratings', () => {
       expect(globalRating?.effectiveWinsVsTier2Plus).toBe(1)
       expect(modeEvent?.winsVsTier1Delta).toBe(0)
       expect(modeEvent?.effectiveWinsVsTier1Delta).toBe(0)
+      expect(modeEvent?.publicRatingBefore).toBe(1000)
+      expect(modeEvent?.publicRatingAfter).toBeCloseTo(1025, 0)
       expect(globalEvent?.winsVsTier1Delta).toBe(1)
       expect(globalEvent?.effectiveWinsVsTier1Delta).toBe(1)
       expect(globalEvent?.effectiveGamesDelta).toBe(1)
+      expect(globalEvent?.publicRatingBefore).toBeNull()
+      expect(globalEvent?.publicRatingAfter).toBeNull()
       expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+      expect(result.participants.every(participant => participant.publicRatingBefore != null && participant.publicRatingAfter != null)).toBe(true)
     }
     finally {
       sqlite.close()
@@ -117,9 +126,11 @@ describe('match global ratings', () => {
       expect(rating?.winsVsTier2Plus).toBe(2)
       expect(rating?.effectiveWinsVsTier1).toBe(0)
       expect(rating?.effectiveWinsVsTier2Plus).toBe(1.5)
+      expect(rating?.publicRating).toBeNull()
       expect(oldEvent?.importedGamesDelta).toBe(1)
       expect(oldEvent?.effectiveGamesDelta).toBe(0.5)
       expect(oldEvent?.effectiveWinsVsTier2PlusDelta).toBe(0.5)
+      expect(oldEvent?.publicRatingBefore).toBeNull()
     }
     finally {
       sqlite.close()

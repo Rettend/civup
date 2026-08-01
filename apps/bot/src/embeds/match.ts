@@ -1,9 +1,9 @@
 import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
 import { formatMapVoteResultLabel, formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, teamSize as modeTeamSize, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { resolvePublicRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatPublicRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 interface LobbyParticipant {
   playerId: string
@@ -14,6 +14,8 @@ interface LobbyParticipant {
   ratingBeforeSigma?: number | null
   ratingAfterMu?: number | null
   ratingAfterSigma?: number | null
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   leaderboardBeforeRank?: number | null
   leaderboardAfterRank?: number | null
   leaderboardEligibleCount?: number | null
@@ -431,10 +433,10 @@ function formatReportedRating(participant: LobbyParticipant, unranked = false): 
     return '`   ?` ❔ `(   ?)`'
   }
 
-  const before = displayRating(participant.ratingBeforeMu, participant.ratingBeforeSigma)
-  const after = displayRating(participant.ratingAfterMu, participant.ratingAfterSigma)
+  const before = resolvePublicRating(participant.publicRatingBefore, participant.ratingBeforeMu)
+  const after = resolvePublicRating(participant.publicRatingAfter, participant.ratingAfterMu)
 
-  return formatDisplayRatingChange(before, after)
+  return formatPublicRatingChange(before, after)
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {

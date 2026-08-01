@@ -63,6 +63,7 @@ export interface LobbySnapshot {
     balanceRating?: {
       mu: number
       sigma: number
+      publicRating?: number
       gamesPlayed: number
       wins?: number
       rank?: number | null

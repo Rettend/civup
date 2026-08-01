@@ -1,5 +1,4 @@
 import { matches, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings } from '@civup/db'
-import { displayRating } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { buildRankCommandImage } from '../../src/commands/rank.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
@@ -32,12 +31,13 @@ describe('rank graph image', () => {
       expect(data.player.games).toBe(3)
       expect(data.player.points.map(point => point.x)).toEqual([0, 1, 2, 3])
       expect(data.player.points.map(point => point.rating)).toEqual([
-        Math.round(displayRating(27, 6)),
-        Math.round(displayRating(28, 6)),
-        Math.round(displayRating(29, 6)),
-        Math.round(displayRating(30, 6)),
+        1020,
+        1030,
+        1040,
+        1050,
       ])
       expect(data.bands.map(band => band.tier)).toContain('tier1')
+      expect(data.bands.find(band => band.tier === 'tier1')?.cutoffScore).toBe(1490)
 
       const svg = await renderRankGraphSvg(data)
       expect(svg).toContain('Rank History')
@@ -186,6 +186,7 @@ async function seedModeRatings(
       mode,
       mu: 45 - index,
       sigma: 6,
+      publicRating: 1500 - (index * 10),
       gamesPlayed: 12,
       wins: Math.max(0, 12 - index),
       lastPlayedAt: NOW,
@@ -232,6 +233,8 @@ async function seedRatingEvents(
       ratingBeforeSigma: 6,
       ratingAfterMu: 26 + index,
       ratingAfterSigma: 6,
+      publicRatingBefore: 1000 + (index * 10),
+      publicRatingAfter: 1010 + (index * 10),
       gamesDelta: 1,
       winsDelta: index % 2 === 0 ? 1 : 0,
       importedGamesDelta: 0,

@@ -24,7 +24,7 @@ describe('player leaderboard image activity placement', () => {
       expect(data.rows.map(row => row.playerId)).toEqual(['active', 'stale'])
       expect(data.rows[0]).toMatchObject({ rank: 1, rawRank: 2, inactivityOffset: 0 })
       expect(data.rows[1]).toMatchObject({ rank: 2, rawRank: 1, inactivityOffset: 1 })
-      expect(data.rows[1]!.displayRating).toBeGreaterThan(data.rows[0]!.displayRating)
+      expect(data.rows[1]!.publicRating).toBeGreaterThan(data.rows[0]!.publicRating)
 
       const svg = await renderPlayerLeaderboardSvg(data, { avatarData: new Map() })
       expect(svg).toContain('↓1')

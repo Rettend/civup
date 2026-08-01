@@ -58,6 +58,7 @@ describe('season services', () => {
       mode: 'duel',
       mu: 40,
       sigma: 6,
+      publicRating: 1337.25,
       gamesPlayed: 6,
       wins: 4,
       lastPlayedAt: NOW - DAY_MS,
@@ -81,6 +82,7 @@ describe('season services', () => {
     const duelRating = ratings.find(row => row.playerId === PLAYER_ID && row.mode === 'duel')
     expect(duelRating?.mu).toBe(40)
     expect(duelRating?.sigma).toBeCloseTo(seasonReset(40, 6).sigma, 10)
+    expect(duelRating?.publicRating).toBe(1337.25)
     expect(duelRating?.gamesPlayed).toBe(0)
     expect(duelRating?.wins).toBe(0)
     expect(duelRating?.lastPlayedAt).toBe(NOW - DAY_MS)
@@ -367,6 +369,7 @@ describe('season services', () => {
       mode: 'ffa',
       mu: 50,
       sigma: 6,
+      publicRating: 1234.4,
       gamesPlayed: 6,
       lastPlayedAt: NOW,
     })
@@ -418,6 +421,7 @@ describe('season services', () => {
     expect(peakModeRows).toHaveLength(1)
     expect(peakModeRows[0]?.playerId).toBe(HERO_ID)
     expect(peakModeRows[0]?.mode).toBe('ffa')
+    expect(peakModeRows[0]?.rating).toBe(1234)
 
     sqlite.close()
   })
@@ -459,6 +463,7 @@ async function seedRating(
     mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | 'global'
     mu: number
     sigma: number
+    publicRating?: number
     gamesPlayed: number
     effectiveGames?: number
     wins?: number

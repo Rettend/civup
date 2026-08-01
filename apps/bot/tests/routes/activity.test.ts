@@ -637,10 +637,10 @@ describe('activity target selection', () => {
       queueEntries: [hostQueueEntry],
     })
     const balanceSnapshot = {
-      version: 3,
+      version: 4,
       updatedAt: Date.now(),
       rows: [
-        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
+        { playerId: 'host-1', mu: 31, sigma: 3, publicRating: 1088, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
       ],
     }
     await kv.put(leaderboardModeSnapshotKey(LOBBY_STATS_CONTEXT, 'duo'), JSON.stringify(balanceSnapshot))
@@ -654,6 +654,7 @@ describe('activity target selection', () => {
       balanceRating: expect.objectContaining({
         mu: 31,
         sigma: 3,
+        publicRating: 1088,
         gamesPlayed: 12,
         wins: 7,
         rank: 1,

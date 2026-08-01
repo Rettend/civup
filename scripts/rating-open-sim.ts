@@ -672,6 +672,8 @@ function calculateTeamRatingsForSimulation(
     return {
       ...update,
       after: { mu: afterMu, sigma: afterSigma },
+      hiddenScoreAfter: displayAfter,
+      hiddenScoreDelta: displayAfter - update.hiddenScoreBefore,
       displayAfter,
       displayDelta: displayAfter - update.displayBefore,
     }

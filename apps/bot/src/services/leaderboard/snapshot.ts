@@ -3,6 +3,7 @@ import type { LeaderboardMode } from '@civup/game'
 import type { StatsContext } from '../stats/context.ts'
 import { scopedPlayerRatings as playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
+import { resolvePublicRating } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
@@ -12,6 +13,7 @@ export interface LeaderboardSnapshotRow {
   mode: LeaderboardMode
   mu: number
   sigma: number
+  publicRating: number
   gamesPlayed: number
   wins: number
   lastPlayedAt: number | null
@@ -29,7 +31,7 @@ interface StoredLeaderboardModeSnapshot {
   rows?: unknown
 }
 
-const LEADERBOARD_MODE_SNAPSHOT_VERSION = 3
+const LEADERBOARD_MODE_SNAPSHOT_VERSION = 4
 
 export function leaderboardModeSnapshotKey(statsContext: StatsContext, mode: LeaderboardMode): string {
   return `stats:snapshot:${statsContext.statsKey}:player:${mode}`
@@ -188,6 +190,7 @@ function buildLeaderboardModeSnapshot(
       mode,
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: resolvePublicRating(row.publicRating, row.mu),
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt,
@@ -211,6 +214,7 @@ async function setLeaderboardModeSnapshots(
         playerId: row.playerId,
         mu: row.mu,
         sigma: row.sigma,
+        publicRating: row.publicRating,
         gamesPlayed: row.gamesPlayed,
         wins: row.wins,
         lastPlayedAt: row.lastPlayedAt,
@@ -241,6 +245,7 @@ async function listLeaderboardModeRowsFromD1ByModes(
       playerId: playerRatings.playerId,
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
+      publicRating: playerRatings.publicRating,
       gamesPlayed: playerRatings.gamesPlayed,
       wins: playerRatings.wins,
       lastPlayedAt: playerRatings.lastPlayedAt,
@@ -257,6 +262,7 @@ async function listLeaderboardModeRowsFromD1ByModes(
       mode: row.mode,
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: resolvePublicRating(row.publicRating, row.mu),
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt ?? null,
@@ -300,15 +306,17 @@ function normalizeLeaderboardSnapshotRow(
   const playerId = typeof raw.playerId === 'string' && raw.playerId.length > 0 ? raw.playerId : null
   const mu = normalizeFiniteNumber(raw.mu)
   const sigma = normalizeFiniteNumber(raw.sigma)
+  const publicRating = normalizeFiniteNumber(raw.publicRating)
   const gamesPlayed = normalizeNonNegativeInteger(raw.gamesPlayed)
   const wins = normalizeNonNegativeInteger(raw.wins)
-  if (!playerId || mu == null || sigma == null || gamesPlayed == null || wins == null) return null
+  if (!playerId || mu == null || sigma == null || publicRating == null || publicRating < 0 || gamesPlayed == null || wins == null) return null
 
   return {
     playerId,
     mode,
     mu,
     sigma,
+    publicRating,
     gamesPlayed,
     wins,
     lastPlayedAt: normalizeNullableTimestamp(raw.lastPlayedAt),

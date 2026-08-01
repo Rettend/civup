@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { PlayerRating, RatingUpdate } from '@civup/rating'
 import type { StatsContext } from '../services/stats/context.ts'
 import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
-import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, predictWinProbabilities, resolvePublicRating } from '@civup/rating'
 import { Button, Command, Components, Embed } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
 import { getIdentity, getIdentityByUserId } from './identity.ts'
@@ -22,15 +22,23 @@ interface PreviewEloIdentity {
 
 export interface DuelEloPreviewInput extends PlayerRating {
   gamesPlayed: number
+  publicRating: number
+}
+
+export interface DuelEloPreviewUpdate {
+  hidden: RatingUpdate
+  publicRatingBefore: number
+  publicRatingAfter: number
+  publicRatingDelta: number
 }
 
 export interface DuelEloPreview {
   viewerWinProbability: number
   targetWinProbability: number
-  viewerWin: RatingUpdate
-  targetLoss: RatingUpdate
-  viewerLoss: RatingUpdate
-  targetWin: RatingUpdate
+  viewerWin: DuelEloPreviewUpdate
+  targetLoss: DuelEloPreviewUpdate
+  viewerLoss: DuelEloPreviewUpdate
+  targetWin: DuelEloPreviewUpdate
 }
 
 export const command_preview_elo = factory.command(
@@ -94,7 +102,7 @@ export async function duelEloPreviewEmbed(db: Database, statsContext: StatsConte
     .fields(
       {
         name: 'Current Elo',
-        value: `${viewer.displayName}: \`${formatDisplayRating(preview.viewerWin.displayBefore)}\`\n${target.displayName}: \`${formatDisplayRating(preview.targetWin.displayBefore)}\``,
+        value: `${viewer.displayName}: \`${formatPublicRating(preview.viewerWin.publicRatingBefore)}\`\n${target.displayName}: \`${formatPublicRating(preview.targetWin.publicRatingBefore)}\``,
         inline: true,
       },
       {
@@ -136,10 +144,10 @@ export function calculateDuelEloPreview(viewer: DuelEloPreviewInput, target: Due
   return {
     viewerWinProbability: clampProbability(probabilities[0] ?? 0.5),
     targetWinProbability: clampProbability(probabilities[1] ?? 0.5),
-    viewerWin: requireUpdate(viewerWins, viewer.playerId),
-    targetLoss: requireUpdate(viewerWins, target.playerId),
-    viewerLoss: requireUpdate(targetWins, viewer.playerId),
-    targetWin: requireUpdate(targetWins, target.playerId),
+    viewerWin: projectPublicUpdate(requireUpdate(viewerWins, viewer.playerId), viewer.publicRating),
+    targetLoss: projectPublicUpdate(requireUpdate(viewerWins, target.playerId), target.publicRating),
+    viewerLoss: projectPublicUpdate(requireUpdate(targetWins, viewer.playerId), viewer.publicRating),
+    targetWin: projectPublicUpdate(requireUpdate(targetWins, target.playerId), target.publicRating),
   }
 }
 
@@ -153,6 +161,7 @@ async function loadDuelPreviewRatings(db: Database, statsContext: StatsContext, 
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
       gamesPlayed: playerRatings.gamesPlayed,
+      publicRating: playerRatings.publicRating,
     })
     .from(playerRatings)
     .where(and(
@@ -166,12 +175,13 @@ async function loadDuelPreviewRatings(db: Database, statsContext: StatsContext, 
     mu: row.mu,
     sigma: row.sigma,
     gamesPlayed: row.gamesPlayed,
+    publicRating: resolvePublicRating(row.publicRating, row.mu),
   }]))
 }
 
 function defaultPreviewRating(playerId: string): DuelEloPreviewInput {
   const rating = createRating(playerId)
-  return { ...rating, gamesPlayed: 0 }
+  return { ...rating, gamesPlayed: 0, publicRating: DISPLAY_RATING_BASE }
 }
 
 function requireUpdate(updates: readonly RatingUpdate[], playerId: string): RatingUpdate {
@@ -180,20 +190,35 @@ function requireUpdate(updates: readonly RatingUpdate[], playerId: string): Rati
   return update
 }
 
-function formatOutcomeLine(name: string, update: RatingUpdate): string {
-  return `${name}: \`${formatSignedDisplayDelta(update.displayDelta)}\` -> \`${formatDisplayRating(update.displayAfter)}\``
+function projectPublicUpdate(hidden: RatingUpdate, priorPublicRating: number): DuelEloPreviewUpdate {
+  const update = calculatePublicRatingUpdate({
+    priorPublicRating,
+    hiddenMuBefore: hidden.before.mu,
+    hiddenMuAfterRaw: hidden.after.mu,
+    sourceWeight: 1,
+  })
+  return {
+    hidden,
+    publicRatingBefore: update.before,
+    publicRatingAfter: update.after,
+    publicRatingDelta: update.delta,
+  }
+}
+
+function formatOutcomeLine(name: string, update: DuelEloPreviewUpdate): string {
+  return `${name}: \`${formatSignedPublicRatingDelta(update.publicRatingDelta)}\` -> \`${formatPublicRating(update.publicRatingAfter)}\``
 }
 
 function formatUserMention(userId: string): string {
   return `<@${userId}>`
 }
 
-function formatDisplayRating(value: number): number {
+function formatPublicRating(value: number): number {
   return Math.round(value)
 }
 
-function formatSignedDisplayDelta(displayDelta: number): string {
-  const rounded = Math.round(displayDelta)
+function formatSignedPublicRatingDelta(publicRatingDelta: number): string {
+  const rounded = Math.round(publicRatingDelta)
   if (rounded === 0) return '0'
   return `${rounded > 0 ? '+' : ''}${rounded}`
 }

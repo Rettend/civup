@@ -24,6 +24,7 @@
     "backfill:civ-leaderboard": "bun scripts/backfill-civ-leaderboard.ts",
     "backfill:player-civs": "bun scripts/backfill-player-civ-stats.ts",
     "backfill:multi-server": "bun scripts/backfill-multi-server.ts",
+    "backfill:public-ratings": "bun scripts/backfill-public-ratings.ts",
     "seed:dev:leaders": "bun scripts/seed-dev-leaders.ts",
     "d1:create": "wrangler d1 create civup --binding DB --update-config",
     "kv:create": "wrangler kv namespace create civup --binding KV --update-config",

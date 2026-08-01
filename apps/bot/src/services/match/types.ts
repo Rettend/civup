@@ -25,6 +25,9 @@ export interface ParticipantRow {
   ratingBeforeSigma: number | null
   ratingAfterMu: number | null
   ratingAfterSigma: number | null
+  /** Mode-scoped public Elo snapshots hydrated from rating events. */
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
   leaderboardBeforeRank?: number | null
   leaderboardAfterRank?: number | null
   leaderboardEligibleCount?: number | null

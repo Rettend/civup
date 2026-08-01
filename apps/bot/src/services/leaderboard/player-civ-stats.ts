@@ -13,7 +13,7 @@ import {
   tournamentMatches,
 } from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
-import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
+import { DEFAULT_MU, DEFAULT_SIGMA, hiddenRatingScore } from '@civup/rating'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 
 export const PLAYER_CIV_MIN_RANK_GAMES = 5
@@ -21,7 +21,7 @@ export const PLAYER_CIV_SERVER_AVG_MIN_GAMES = 10
 export const PLAYER_CIV_RANK_PRIOR_GAMES = 10
 
 const GLOBAL_RATING_SCOPE = 'global'
-const DEFAULT_GLOBAL_RATING = displayRating(DEFAULT_MU, DEFAULT_SIGMA)
+const DEFAULT_GLOBAL_RATING = hiddenRatingScore(DEFAULT_MU, DEFAULT_SIGMA)
 const PLAYER_CIV_STRICT_RANK_PRIOR_GAMES = PLAYER_CIV_RANK_PRIOR_GAMES * 2
 const PLAYER_CIV_RANK_GLOBAL_RATING_SCALE = 500
 const PLAYER_CIV_RANK_GLOBAL_RATING_CAP = 0.2
@@ -641,7 +641,7 @@ function volumeBonus(picks: number): number {
 }
 
 function playerCivGlobalRating(mu: number | null, sigma: number | null): number {
-  return displayRating(mu ?? DEFAULT_MU, sigma ?? DEFAULT_SIGMA)
+  return hiddenRatingScore(mu ?? DEFAULT_MU, sigma ?? DEFAULT_SIGMA)
 }
 
 function clamp(value: number, min: number, max: number): number {

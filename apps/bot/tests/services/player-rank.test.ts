@@ -450,6 +450,8 @@ describe('player rank views', () => {
       ratingBeforeSigma: 8.333,
       ratingAfterMu: 26,
       ratingAfterSigma: 8,
+      publicRatingBefore: 1000,
+      publicRatingAfter: 1025,
       gamesDelta: 1,
       winsDelta: 1,
       importedGamesDelta: 0,
@@ -465,6 +467,8 @@ describe('player rank views', () => {
     const recentMatchesField = stats.fields?.find(field => field.name === 'Recent Matches')
 
     expect(recentMatchesField?.value).toContain('📈')
+    expect(recentMatchesField?.value).toContain('`+25`')
+    expect(recentMatchesField?.value).toContain('(1025)')
     expect(recentMatchesField?.value).not.toContain('❔')
 
     sqlite.close()

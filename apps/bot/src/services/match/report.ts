@@ -8,7 +8,7 @@ import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, Repo
 import type { StatsContext } from '../stats/context.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, playerRatings as legacyPlayerRatings, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, sessionDirectory } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
-import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, IMPORTED_GAME_EFFECTIVE_WEIGHT, resolvePublicRating } from '@civup/rating'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
@@ -50,6 +50,7 @@ interface StoredRatingSummaryRow {
   mode: RatingScope
   mu: number
   sigma: number
+  publicRating: number | null
   gamesPlayed: number
   wins: number
   lastPlayedAt: number | null
@@ -568,7 +569,12 @@ async function finalizeReportedMatch(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, matchId))
 
-  if (options.minimalResult) return { match: updatedMatch!, participants: updatedParticipants }
+  if (options.minimalResult) {
+    return {
+      match: updatedMatch!,
+      participants: await hydrateParticipantRowsForRatingEvents(db, statsContext, updatedMatch!, updatedParticipants),
+    }
+  }
 
   const updatedRatingsByPlayerId = cachedLeaderboardSnapshot
     ? await listPlayerRatingsForPlayers(db, statsContext, leaderboardMode, updatedParticipants.map(participant => participant.playerId))
@@ -602,6 +608,8 @@ async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
     ratingBeforeSigma: row.ratingBeforeSigma,
     ratingAfterMu: row.ratingAfterMu,
     ratingAfterSigma: row.ratingAfterSigma,
+    publicRatingBefore: row.publicRatingBefore,
+    publicRatingAfter: row.publicRatingAfter,
   }))
 }
 
@@ -628,6 +636,7 @@ function buildCachedRankContext(
       mode: leaderboardMode,
       mu: rating.mu,
       sigma: rating.sigma,
+      publicRating: resolvePublicRating(rating.publicRating, rating.mu),
       gamesPlayed: rating.gamesPlayed,
       wins: rating.wins,
       lastPlayedAt: rating.lastPlayedAt,
@@ -654,6 +663,7 @@ async function listPlayerRatingsForPlayers(
       playerId: playerRatings.playerId,
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
+      publicRating: playerRatings.publicRating,
       gamesPlayed: playerRatings.gamesPlayed,
       wins: playerRatings.wins,
       importedGames: playerRatings.importedGames,
@@ -681,6 +691,7 @@ async function listPlayerRatingsForPlayers(
       playerId: row.playerId,
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: row.publicRating,
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       importedGames: row.importedGames,
@@ -713,6 +724,7 @@ async function listPlayerRatingsForPlayers(
           playerId: row.playerId,
           mu: row.mu,
           sigma: row.sigma,
+          publicRating: row.publicRating,
           gamesPlayed: row.gamesPlayed,
           wins: row.wins,
           importedGames: row.importedGames,
@@ -866,7 +878,8 @@ function buildRatingScopeUpdateQueries(
 
   for (const update of ratingUpdates) {
     const ratingBeforeMu = update.before.mu
-    const ratingAfter = scaleRatingAfterForSource(update, input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1)
+    const sourceWeight = input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
+    const ratingAfter = scaleRatingAfterForSource(update, sourceWeight)
     const ratingAfterMu = ratingAfter.mu
     const ratingAfterSigma = ratingAfter.sigma
 
@@ -887,6 +900,16 @@ function buildRatingScopeUpdateQueries(
     }
 
     const existing = input.existingRatingsByPlayerId.get(update.playerId)
+    const publicUpdate = input.scope === GLOBAL_RATING_SCOPE
+      ? null
+      : calculatePublicRatingUpdate({
+          priorPublicRating: existing
+            ? resolvePublicRating(existing.publicRating, existing.mu)
+            : DISPLAY_RATING_BASE,
+          hiddenMuBefore: update.before.mu,
+          hiddenMuAfterRaw: update.after.mu,
+          sourceWeight,
+        })
     const isWin = placementByPlayerId.get(update.playerId) === 1
     const evidence = input.evidenceByPlayerId.get(update.playerId) ?? createEmptyMatchEvidenceDelta()
     const qualityWins = input.scope === GLOBAL_RATING_SCOPE
@@ -898,6 +921,7 @@ function buildRatingScopeUpdateQueries(
       mode: input.scope,
       mu: ratingAfterMu,
       sigma: ratingAfterSigma,
+      publicRating: publicUpdate?.after ?? null,
       gamesPlayed: (existing?.gamesPlayed ?? 0) + 1,
       wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
       importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
@@ -919,6 +943,8 @@ function buildRatingScopeUpdateQueries(
       ratingBeforeSigma: update.before.sigma,
       ratingAfterMu,
       ratingAfterSigma,
+      publicRatingBefore: publicUpdate?.before ?? null,
+      publicRatingAfter: publicUpdate?.after ?? null,
       gamesDelta: 1,
       winsDelta: isWin ? 1 : 0,
       importedGamesDelta: evidence.importedGames,

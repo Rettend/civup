@@ -296,7 +296,7 @@ Two ways:
 
 Ratings, history, leader stats, leaderboards, rank gates, and ranked roles are scoped to the server where the command or Activity is opened. A reported match updates only its owning server's stats, while still including every participant regardless of where they joined from.
 
-Every reported game updates ratings and adds hidden evidence.
+Every reported game updates public mode Elo, hidden skill ratings, and hidden evidence.
 Once a player has enough evidence, the bot assigns a ranked role.
 
 ### Commands
@@ -316,7 +316,7 @@ The bot keeps separate ratings for each game mode:
 - **FFA** = `ffa`
 - **Red Death** = any Red Death mode
 
-Every ranked game also updates the player's overall ranked rating which Discord ranked roles use.
+Every ranked game also updates the player's hidden overall ranked rating which Discord ranked roles use.
 
 ### Activity-adjusted leaderboard placement
 
@@ -325,7 +325,7 @@ Current per-mode leaderboard placement discourages inactivity at the top without
 - only the raw top 20 can receive an inactivity placement adjustment
 - the first one-place adjustment occurs after 120 days without a current, non-imported game in that mode, then increases by one place per 30 days up to 20
 - playing and reporting a current game clears the adjustment for that mode; imported or historical games do not
-- the displayed Elo, rating uncertainty, rating history, and ranked Discord roles remain unchanged
+- public Elo, hidden rating uncertainty, rating history, and ranked Discord roles remain unchanged
 
 Leaderboard images mark adjusted rows with `↓N`. Persistent images pick up time-based placement changes when that mode is next refreshed by the dirty-check flow, rather than exactly when a boundary is crossed.
 
@@ -379,9 +379,11 @@ Players with less than **8 games** are `Unranked`, which means the bot won't tou
 
 ### How ratings work
 
-- Ratings use **OpenSkill**, tuned for Civ 6.
-- New players start around `1000` display rating.
-- The first 10 games move the rating more due to uncertainty.
+- New players start at exactly `1000` public Elo in each mode.
+- A separate hidden **OpenSkill** rating, tuned for Civ 6, predicts matches and powers balancing and ranked roles.
+- Public Elo follows the direction of the hidden match update, normally moves by about 25 in a first even duel, and cannot move by more than 35 in one live game.
+- Public Elo can catch up slightly when a result moves it toward hidden skill. It does not receive catch-up movement in the opposite direction.
+- Imported games apply half of the normal public movement.
 - In team game modes, players are rated individually. A stronger teammate gains less for a win and loses more for a loss than a weaker teammate.
 - There is an anti-farming system, which reduces elo gains from expected wins when expected winrate is above 70%.
 - And there is an stablished protection system, veteran players can get partial protection from very large losses to highly uncertain lower rated players. This only reduces the losing player's loss, winner gains are unchanged.
@@ -450,7 +452,7 @@ Ending a season will rotate the Leaderboard embeds, and give past season roles t
 
 **Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
 
-Starting a season with soft reset enabled resets ratings instead of wiping them: players keep their skill estimate but their uncertainty is increased. Starting a season without soft reset only begins assigning new matches to that season and preserves past games.
+Starting a season with soft reset enabled resets season records and increases hidden rating uncertainty without changing public Elo. Starting a season without soft reset only begins assigning new matches to that season and preserves past games.
 
 ## Mod Tools
 

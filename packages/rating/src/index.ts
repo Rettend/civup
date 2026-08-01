@@ -13,14 +13,17 @@ export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 /** Default share of uncertainty restored between seasons */
 export const DEFAULT_SEASON_RESET_FACTOR = 0.5
 
-/** Starting elo for display */
+/** Starting public Elo. */
 export const DISPLAY_RATING_BASE = 1000
 
-/** Scale multiplier for display rating deltas and spread */
+/** Scale multiplier for the hidden-MMR-derived compatibility score. */
 export const DISPLAY_RATING_SCALE = 36
 
-/** Visible Elo intentionally ignores sigma; uncertainty stays internal. */
+/** The hidden-MMR-derived score intentionally ignores sigma. */
 export const Z_MULTIPLIER = 0
+
+/** Public rating transition model persisted with mode rating events. */
+export const PUBLIC_RATING_VERSION = 1
 
 /** Conservative uncertainty penalty used for official ranked role placement. */
 export const RANKED_ROLE_Z_MULTIPLIER = 0.75
@@ -65,13 +68,15 @@ function scaleRatingUpdate(update: RatingUpdate, weight: number): RatingUpdate {
 
   const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * weight)
   const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * weight)
-  const displayAfter = displayRating(afterMu, afterSigma)
+  const hiddenScoreAfter = hiddenRatingScore(afterMu, afterSigma)
 
   return {
     ...update,
     after: { mu: afterMu, sigma: afterSigma },
-    displayAfter,
-    displayDelta: displayAfter - update.displayBefore,
+    hiddenScoreAfter,
+    hiddenScoreDelta: hiddenScoreAfter - update.hiddenScoreBefore,
+    displayAfter: hiddenScoreAfter,
+    displayDelta: hiddenScoreAfter - update.hiddenScoreBefore,
   }
 }
 
@@ -143,11 +148,97 @@ export function createRating(playerId: string): PlayerRating {
 }
 
 /**
- * Visible Elo derived from skill.
+ * Compatibility score derived directly from hidden OpenSkill MMR.
+ * This is not the persisted public rating.
  */
-export function displayRating(mu: number, sigma: number): number {
-  const anchoredSkill = (mu - (Z_MULTIPLIER * sigma)) - (DEFAULT_MU - (Z_MULTIPLIER * DEFAULT_SIGMA))
+export function hiddenRatingScore(mu: number, _sigma?: number): number {
+  const anchoredSkill = mu - DEFAULT_MU
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
+}
+
+/** @deprecated Use hiddenRatingScore for hidden-MMR logic or resolvePublicRating for visible mode Elo. */
+export const displayRating = hiddenRatingScore
+
+export interface PublicRatingUpdateInput {
+  priorPublicRating: number
+  hiddenMuBefore: number
+  hiddenMuAfterRaw: number
+  sourceWeight?: number
+}
+
+export interface PublicRatingUpdate {
+  version: typeof PUBLIC_RATING_VERSION
+  before: number
+  after: number
+  delta: number
+}
+
+/** Resolve a persisted public rating, falling back to the legacy hidden score during backfill. */
+export function resolvePublicRating(publicRating: number | null | undefined, hiddenMu: number): number {
+  if (typeof publicRating === 'number' && Number.isFinite(publicRating)) return Math.max(0, publicRating)
+  const fallback = hiddenRatingScore(hiddenMu)
+  return Number.isFinite(fallback) ? Math.max(0, fallback) : DISPLAY_RATING_BASE
+}
+
+/** Calculate one full-precision v1 public rating transition without mutating hidden MMR. */
+export function calculatePublicRatingUpdate(input: PublicRatingUpdateInput): PublicRatingUpdate {
+  const before = Number.isFinite(input.priorPublicRating) ? Math.max(0, input.priorPublicRating) : DISPLAY_RATING_BASE
+  const weight = normalizeRatingSourceWeight(input.sourceWeight)
+  if (!Number.isFinite(input.hiddenMuBefore) || !Number.isFinite(input.hiddenMuAfterRaw) || weight === 0) {
+    return { version: PUBLIC_RATING_VERSION, before, after: before, delta: 0 }
+  }
+
+  const hiddenBefore = hiddenRatingScore(input.hiddenMuBefore)
+  const hiddenAfterRaw = hiddenRatingScore(input.hiddenMuAfterRaw)
+  const hiddenDelta = hiddenAfterRaw - hiddenBefore
+  if (!Number.isFinite(hiddenDelta) || hiddenDelta === 0) {
+    return { version: PUBLIC_RATING_VERSION, before, after: before, delta: 0 }
+  }
+
+  const direction = Math.sign(hiddenDelta)
+  const gapTowardHidden = Math.max(0, direction * (hiddenBefore - before))
+  const core = 25 * Math.tanh(Math.abs(hiddenDelta) / 25)
+  const catchup = Math.min(10, 0.05 * gapTowardHidden, 0.05 * hiddenDelta * hiddenDelta)
+  const deltaBeforeFloor = weight * direction * Math.min(35, core + catchup)
+  const after = Math.max(0, before + deltaBeforeFloor)
+  return {
+    version: PUBLIC_RATING_VERSION,
+    before,
+    after,
+    delta: after - before,
+  }
+}
+
+/** Clamp live or stored source evidence to the rating transition weight. */
+export function resolveRatingSourceWeight(effectiveGamesDelta?: number | null, importedGamesDelta = 0): number {
+  const evidenceWeight = normalizeRatingSourceWeight(effectiveGamesDelta)
+  return importedGamesDelta > 0 ? Math.min(IMPORTED_GAME_EFFECTIVE_WEIGHT, evidenceWeight) : evidenceWeight
+}
+
+/** Rebuild a public transition from a source-weighted hidden event snapshot. */
+export function calculatePublicRatingUpdateFromStoredEvent(input: {
+  priorPublicRating: number
+  hiddenMuBefore: number
+  hiddenMuAfter: number
+  effectiveGamesDelta?: number | null
+  importedGamesDelta?: number
+}): PublicRatingUpdate {
+  const sourceWeight = resolveRatingSourceWeight(input.effectiveGamesDelta, input.importedGamesDelta)
+  const hiddenMuAfterRaw = sourceWeight === 0
+    ? input.hiddenMuBefore
+    : input.hiddenMuBefore + ((input.hiddenMuAfter - input.hiddenMuBefore) / sourceWeight)
+  return calculatePublicRatingUpdate({
+    priorPublicRating: input.priorPublicRating,
+    hiddenMuBefore: input.hiddenMuBefore,
+    hiddenMuAfterRaw,
+    sourceWeight,
+  })
+}
+
+function normalizeRatingSourceWeight(value: number | null | undefined): number {
+  if (value == null) return 1
+  if (!Number.isFinite(value)) return 1
+  return clamp(value, 0, 1)
 }
 
 /** Conservative Elo-like score used for global ranked role bands. */
@@ -165,8 +256,14 @@ export interface RatingUpdate {
   playerId: string
   before: { mu: number, sigma: number }
   after: { mu: number, sigma: number }
+  hiddenScoreBefore: number
+  hiddenScoreAfter: number
+  hiddenScoreDelta: number
+  /** @deprecated Hidden score compatibility alias. */
   displayBefore: number
+  /** @deprecated Hidden score compatibility alias. */
   displayAfter: number
+  /** @deprecated Hidden score compatibility alias. */
   displayDelta: number
 }
 
@@ -224,12 +321,12 @@ function averageWinnerTeamEstablishedness(team: TeamInput): number | null {
   return values.reduce((total, value) => total + value, 0) / values.length
 }
 
-function sourceWeightedDisplayDelta(update: RatingUpdate, sourceWeight: number): number {
-  if (sourceWeight >= 1) return update.displayDelta
+function sourceWeightedHiddenScoreDelta(update: RatingUpdate, sourceWeight: number): number {
+  if (sourceWeight >= 1) return update.hiddenScoreDelta
 
   const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight)
   const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight)
-  return displayRating(afterMu, afterSigma) - update.displayBefore
+  return hiddenRatingScore(afterMu, afterSigma) - update.hiddenScoreBefore
 }
 
 function applyProvisionalLossProtection(
@@ -260,15 +357,15 @@ function applyDuelProvisionalLossProtection(
   if (loserGames < LEADERBOARD_MIN_GAMES) return updates
   if (winnerEstablishedness >= 0.999) return updates
 
-  const winnerDisplay = displayRating(winner.mu, winner.sigma)
-  const loserDisplay = displayRating(loser.mu, loser.sigma)
+  const winnerDisplay = hiddenRatingScore(winner.mu, winner.sigma)
+  const loserDisplay = hiddenRatingScore(loser.mu, loser.sigma)
   if (loserDisplay - winnerDisplay < DUEL_PROVISIONAL_MIN_DISPLAY_GAP) return updates
 
   const lossWeight = Math.max(DUEL_PROVISIONAL_LOSS_MIN_WEIGHT, winnerEstablishedness)
   if (lossWeight >= 0.999) return updates
 
   return updates.map((update) => {
-    if (update.playerId !== loser.playerId || update.displayDelta >= 0) return update
+    if (update.playerId !== loser.playerId || update.hiddenScoreDelta >= 0) return update
     return scaleRatingUpdate(update, lossWeight)
   })
 }
@@ -292,7 +389,7 @@ function applyTeamProvisionalLossProtection(
 
     const loserGames = knownGamesPlayed(loser)
     if (loserGames == null || loserGames < LEADERBOARD_MIN_GAMES) return update
-    if (sourceWeightedDisplayDelta(update, sourceWeight) > -TEAM_PROVISIONAL_MIN_RAW_LOSS) return update
+    if (sourceWeightedHiddenScoreDelta(update, sourceWeight) > -TEAM_PROVISIONAL_MIN_RAW_LOSS) return update
 
     return scaleRatingUpdate(update, lossWeight)
   })
@@ -341,16 +438,19 @@ export function calculateTeamRatings(teams: TeamInput[], options?: RatingCalcula
     for (let playerIdx = 0; playerIdx < team.players.length; playerIdx++) {
       const player = team.players[playerIdx]!
       const updated = updatedRatings[playerIdx]!
-      const displayBefore = displayRating(player.mu, player.sigma)
-      const displayAfter = displayRating(updated.mu, updated.sigma)
+      const hiddenScoreBefore = hiddenRatingScore(player.mu, player.sigma)
+      const hiddenScoreAfter = hiddenRatingScore(updated.mu, updated.sigma)
 
       updates.push({
         playerId: player.playerId,
         before: { mu: player.mu, sigma: player.sigma },
         after: { mu: updated.mu, sigma: updated.sigma },
-        displayBefore,
-        displayAfter,
-        displayDelta: displayAfter - displayBefore,
+        hiddenScoreBefore,
+        hiddenScoreAfter,
+        hiddenScoreDelta: hiddenScoreAfter - hiddenScoreBefore,
+        displayBefore: hiddenScoreBefore,
+        displayAfter: hiddenScoreAfter,
+        displayDelta: hiddenScoreAfter - hiddenScoreBefore,
       })
     }
   }
@@ -389,16 +489,19 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
 
   const updates = sorted.map((entry, i) => {
     const updated = updatedTeams[i]![0]!
-    const displayBefore = displayRating(entry.player.mu, entry.player.sigma)
-    const displayAfter = displayRating(updated.mu, updated.sigma)
+    const hiddenScoreBefore = hiddenRatingScore(entry.player.mu, entry.player.sigma)
+    const hiddenScoreAfter = hiddenRatingScore(updated.mu, updated.sigma)
 
     return {
       playerId: entry.player.playerId,
       before: { mu: entry.player.mu, sigma: entry.player.sigma },
       after: { mu: updated.mu, sigma: updated.sigma },
-      displayBefore,
-      displayAfter,
-      displayDelta: displayAfter - displayBefore,
+      hiddenScoreBefore,
+      hiddenScoreAfter,
+      hiddenScoreDelta: hiddenScoreAfter - hiddenScoreBefore,
+      displayBefore: hiddenScoreBefore,
+      displayAfter: hiddenScoreAfter,
+      displayDelta: hiddenScoreAfter - hiddenScoreBefore,
     }
   })
 
@@ -450,7 +553,7 @@ export interface LeaderboardEntry {
   sigma: number
   gamesPlayed: number
   wins: number
-  displayRating: number
+  publicRating: number
   winRate: number
 }
 
@@ -461,10 +564,11 @@ export interface ActivityLeaderboardPlayer {
   gamesPlayed: number
   wins?: number
   lastPlayedAt: number | null
+  publicRating?: number | null
 }
 
 export type ActivityAdjustedLeaderboardEntry<T extends ActivityLeaderboardPlayer = ActivityLeaderboardPlayer> = T & {
-  displayRating: number
+  publicRating: number
   winRate: number
   rawRank: number
   rank: number
@@ -483,6 +587,7 @@ export function buildLeaderboard(
     sigma: number
     gamesPlayed: number
     wins: number
+    publicRating?: number | null
   }>,
   minGames: number = LEADERBOARD_MIN_GAMES,
 ): LeaderboardEntry[] {
@@ -494,10 +599,10 @@ export function buildLeaderboard(
       sigma: p.sigma,
       gamesPlayed: p.gamesPlayed,
       wins: p.wins,
-      displayRating: displayRating(p.mu, p.sigma),
+      publicRating: resolvePublicRating(p.publicRating, p.mu),
       winRate: p.gamesPlayed > 0 ? p.wins / p.gamesPlayed : 0,
     }))
-    .sort((a, b) => b.displayRating - a.displayRating || a.playerId.localeCompare(b.playerId))
+    .sort((a, b) => b.publicRating - a.publicRating || a.playerId.localeCompare(b.playerId))
 }
 
 /** Calculate the placement-only inactivity offset for a recorded activity timestamp. */
@@ -533,7 +638,7 @@ export function buildActivityAdjustedLeaderboard<T extends ActivityLeaderboardPl
     .filter(player => player.gamesPlayed >= minGames)
     .map(player => ({
       ...player,
-      displayRating: displayRating(player.mu, player.sigma),
+      publicRating: resolvePublicRating(player.publicRating, player.mu),
       winRate: player.gamesPlayed > 0 ? (player.wins ?? 0) / player.gamesPlayed : 0,
     }))
     .sort(compareActivityLeaderboardRawEntry)
@@ -560,10 +665,10 @@ export function buildActivityAdjustedLeaderboard<T extends ActivityLeaderboardPl
 }
 
 function compareActivityLeaderboardRawEntry(
-  left: ActivityLeaderboardPlayer & { displayRating: number },
-  right: ActivityLeaderboardPlayer & { displayRating: number },
+  left: ActivityLeaderboardPlayer & { publicRating: number },
+  right: ActivityLeaderboardPlayer & { publicRating: number },
 ): number {
-  return right.displayRating - left.displayRating
+  return right.publicRating - left.publicRating
     || (right.lastPlayedAt ?? Number.NEGATIVE_INFINITY) - (left.lastPlayedAt ?? Number.NEGATIVE_INFINITY)
     || left.playerId.localeCompare(right.playerId)
 }

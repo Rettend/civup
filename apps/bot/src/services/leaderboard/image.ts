@@ -58,7 +58,7 @@ export interface PlayerLeaderboardImageRow extends AvatarPlayer {
   rank: number
   rawRank: number
   inactivityOffset: number
-  displayRating: number
+  publicRating: number
   gamesPlayed: number
   wins: number
   winRate: number
@@ -125,7 +125,7 @@ export async function buildPlayerLeaderboardImageDataBatch(
         rank: entry.rank,
         rawRank: entry.rawRank,
         inactivityOffset: entry.inactivityOffset,
-        displayRating: entry.displayRating,
+        publicRating: entry.publicRating,
         gamesPlayed: entry.gamesPlayed,
         wins: entry.wins,
         winRate: entry.winRate,
@@ -211,7 +211,7 @@ function renderRows(rows: readonly PlayerLeaderboardImageRow[], avatarData: Map<
       ${row.inactivityOffset > 0 ? `<text x="${x + 52}" y="${y + 19}" text-anchor="middle" fill="${COLORS.muted}" font-size="13" font-weight="900">↓${row.inactivityOffset}</text>` : ''}
       ${renderAvatar(row, x + 68, y + 7, 36, avatarClipId(row), avatarData.get(avatarKey(row)))}
       ${renderText(name, positions.nameX, y + 33, positions.nameMaxWidth, 22, 900, COLORS.fg)}
-      <text x="${positions.ratingX}" y="${y + 33}" text-anchor="end" fill="${COLORS.fg}" font-size="22" font-weight="900">${Math.round(row.displayRating)}</text>
+      <text x="${positions.ratingX}" y="${y + 33}" text-anchor="end" fill="${COLORS.fg}" font-size="22" font-weight="900">${Math.round(row.publicRating)}</text>
       <text x="${positions.gamesX}" y="${y + 33}" text-anchor="end" fill="${COLORS.fg}" font-size="20" font-weight="800">${row.wins}/${row.gamesPlayed}</text>
       <text x="${positions.winRateX}" y="${y + 33}" text-anchor="end" fill="${COLORS.muted}" font-size="20" font-weight="900">${Math.round(row.winRate * 100)}%</text>
     `

@@ -23,6 +23,10 @@ function withStatsKey<T extends Record<string, unknown>>(rows: T[]): Array<T & {
   return rows.map(row => ({ ...row, statsKey: STATS_KEY }))
 }
 
+function sortPublicEvents<T extends { matchId: string, playerId: string }>(rows: T[]): T[] {
+  return [...rows].sort((left, right) => left.matchId.localeCompare(right.matchId) || left.playerId.localeCompare(right.playerId))
+}
+
 function allowDiscordMembershipLookup(): void {
   globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
     status: 200,
@@ -633,6 +637,59 @@ describe('match moderation recalculation', () => {
         .from(matchParticipants)
         .where(eq(matchParticipants.matchId, 'civ-blitz-after'))
       expect(civBlitzParticipants.every(participant => participant.ratingAfterMu == null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('boundary replay reconstructs null public snapshots and converges with full replay', async () => {
+    const { db, sqlite } = await createTestDatabase()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      const full = await recalculateLeaderboardMode(db, 'duel', STATS_CONTEXT)
+      expect('error' in full).toBe(false)
+      const expectedEvents = await db.select({
+        matchId: playerRatingEvents.matchId,
+        playerId: playerRatingEvents.playerId,
+        publicRatingBefore: playerRatingEvents.publicRatingBefore,
+        publicRatingAfter: playerRatingEvents.publicRatingAfter,
+      }).from(playerRatingEvents).where(eq(playerRatingEvents.mode, 'duel'))
+      const expectedRatings = await db.select({
+        playerId: playerRatings.playerId,
+        publicRating: playerRatings.publicRating,
+      }).from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+
+      await db.update(playerRatingEvents).set({ publicRatingBefore: null, publicRatingAfter: null }).where(and(
+        eq(playerRatingEvents.mode, 'duel'),
+        eq(playerRatingEvents.matchId, 'm1'),
+      ))
+      await db.update(playerRatingEvents).set({ publicRatingBefore: null, publicRatingAfter: null }).where(and(
+        eq(playerRatingEvents.mode, 'duel'),
+        eq(playerRatingEvents.matchId, 'm2'),
+      ))
+      await db.update(playerRatings).set({ publicRating: null }).where(eq(playerRatings.mode, 'duel'))
+
+      const boundary = await recalculateLeaderboardMode(db, 'duel', STATS_CONTEXT, { fromMatchId: 'm3' })
+      expect('error' in boundary).toBe(false)
+      const actualEvents = await db.select({
+        matchId: playerRatingEvents.matchId,
+        playerId: playerRatingEvents.playerId,
+        publicRatingBefore: playerRatingEvents.publicRatingBefore,
+        publicRatingAfter: playerRatingEvents.publicRatingAfter,
+      }).from(playerRatingEvents).where(eq(playerRatingEvents.mode, 'duel'))
+      const actualRatings = await db.select({
+        playerId: playerRatings.playerId,
+        publicRating: playerRatings.publicRating,
+      }).from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+
+      expect(sortPublicEvents(actualEvents).filter(row => row.matchId === 'm3')).toEqual(
+        sortPublicEvents(expectedEvents).filter(row => row.matchId === 'm3'),
+      )
+      expect([...actualRatings].sort((left, right) => left.playerId.localeCompare(right.playerId))).toEqual(
+        [...expectedRatings].sort((left, right) => left.playerId.localeCompare(right.playerId)),
+      )
     }
     finally {
       sqlite.close()
@@ -1400,6 +1457,11 @@ describe('match moderation recalculation', () => {
       expect(displayDelta(result.participants, 'p1')).toBeCloseTo(displayDelta(result.participants, 'p2'), 10)
       expect(displayDelta(result.participants, 'p3')).toBeCloseTo(displayDelta(result.participants, 'p4'), 10)
       expect(displayDelta(result.participants, 'p5')).toBeCloseTo(displayDelta(result.participants, 'p6'), 10)
+      expect(publicDelta(result.participants, 'p1')).toBeCloseTo(publicDelta(result.participants, 'p2'), 10)
+      expect(publicDelta(result.participants, 'p3')).toBeCloseTo(publicDelta(result.participants, 'p4'), 10)
+      expect(publicDelta(result.participants, 'p5')).toBeCloseTo(publicDelta(result.participants, 'p6'), 10)
+      expect(publicDelta(result.participants, 'p3')).toBeGreaterThan(0)
+      expect(publicDelta(result.participants, 'p5')).toBeLessThan(0)
     }
     finally {
       sqlite.close()
@@ -1750,6 +1812,13 @@ function displayDelta(participants: Array<{ playerId: string, ratingBeforeMu: nu
   expect(typeof participant?.ratingAfterMu).toBe('number')
   expect(typeof participant?.ratingAfterSigma).toBe('number')
   return displayRating(participant!.ratingAfterMu!, participant!.ratingAfterSigma!) - displayRating(participant!.ratingBeforeMu!, participant!.ratingBeforeSigma!)
+}
+
+function publicDelta(participants: Array<{ playerId: string, publicRatingBefore?: number | null, publicRatingAfter?: number | null }>, playerId: string): number {
+  const participant = participants.find(candidate => candidate.playerId === playerId)
+  expect(participant?.publicRatingBefore).not.toBeNull()
+  expect(participant?.publicRatingAfter).not.toBeNull()
+  return participant!.publicRatingAfter! - participant!.publicRatingBefore!
 }
 
 async function seedActiveFfaMatch(db: any): Promise<void> {

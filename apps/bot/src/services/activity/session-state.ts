@@ -98,6 +98,7 @@ export interface LobbySnapshot {
     balanceRating?: {
       mu: number
       sigma: number
+      publicRating: number
       gamesPlayed: number
       wins?: number
       rank?: number | null
@@ -429,6 +430,7 @@ export async function attachLobbyBalanceRatingsToSnapshot(
     {
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: row.publicRating,
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       rank: rankByPlayerId.get(row.playerId) ?? null,

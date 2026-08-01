@@ -42,18 +42,19 @@ export function buildMultiServerBackfillSql(config: MultiServerBackfillConfig): 
     and not exists (select 1 from session_directory d where d.match_id = m.id)`)
 
   statements.push(`insert into scoped_player_ratings (
-    stats_key, player_id, mode, mu, sigma, games_played, wins, imported_games, effective_games,
+    stats_key, player_id, mode, mu, sigma, public_rating, games_played, wins, imported_games, effective_games,
     wins_vs_tier_1, wins_vs_tier_2_plus, effective_wins_vs_tier_1, effective_wins_vs_tier_2_plus,
     last_played_at, updated_at
   )
   select
-    ${primaryStatsKey}, player_id, mode, mu, sigma, games_played, wins, imported_games, effective_games,
+    ${primaryStatsKey}, player_id, mode, mu, sigma, public_rating, games_played, wins, imported_games, effective_games,
     wins_vs_tier_1, wins_vs_tier_2_plus, effective_wins_vs_tier_1, effective_wins_vs_tier_2_plus,
     last_played_at, updated_at
   from player_ratings where true
   on conflict(stats_key, player_id, mode) do update set
     mu = excluded.mu,
     sigma = excluded.sigma,
+    public_rating = excluded.public_rating,
     games_played = excluded.games_played,
     wins = excluded.wins,
     imported_games = excluded.imported_games,
@@ -67,14 +68,14 @@ export function buildMultiServerBackfillSql(config: MultiServerBackfillConfig): 
 
   statements.push(`insert into scoped_player_rating_events (
     stats_key, match_id, player_id, mode, game_mode, rating_before_mu, rating_before_sigma,
-    rating_after_mu, rating_after_sigma, games_delta, wins_delta, imported_games_delta,
+    rating_after_mu, rating_after_sigma, public_rating_before, public_rating_after, games_delta, wins_delta, imported_games_delta,
     effective_games_delta, wins_vs_tier_1_delta, wins_vs_tier_2_plus_delta,
     effective_wins_vs_tier_1_delta, effective_wins_vs_tier_2_plus_delta,
     match_created_at, match_completed_at, updated_at
   )
   select
     ${primaryStatsKey}, match_id, player_id, mode, game_mode, rating_before_mu, rating_before_sigma,
-    rating_after_mu, rating_after_sigma, games_delta, wins_delta, imported_games_delta,
+    rating_after_mu, rating_after_sigma, public_rating_before, public_rating_after, games_delta, wins_delta, imported_games_delta,
     effective_games_delta, wins_vs_tier_1_delta, wins_vs_tier_2_plus_delta,
     effective_wins_vs_tier_1_delta, effective_wins_vs_tier_2_plus_delta,
     match_created_at, match_completed_at, updated_at
@@ -85,6 +86,8 @@ export function buildMultiServerBackfillSql(config: MultiServerBackfillConfig): 
     rating_before_sigma = excluded.rating_before_sigma,
     rating_after_mu = excluded.rating_after_mu,
     rating_after_sigma = excluded.rating_after_sigma,
+    public_rating_before = excluded.public_rating_before,
+    public_rating_after = excluded.public_rating_after,
     games_delta = excluded.games_delta,
     wins_delta = excluded.wins_delta,
     imported_games_delta = excluded.imported_games_delta,

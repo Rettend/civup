@@ -2,7 +2,7 @@ import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
-import { DISPLAY_RATING_BASE, displayRating } from '@civup/rating'
+import { DISPLAY_RATING_BASE } from '@civup/rating'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { cn } from '~/client/lib/css'
@@ -391,11 +391,11 @@ function formatTeamBalanceRange(summary: LobbyBalanceTeamSummary): string | null
 
 function formatProjectedWinDelta(summary: LobbyBalanceTeamSummary): string | null {
   if (!summary.projectedWinDelta) return null
-  return formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
+  return formatSignedPublicRatingDelta(summary.projectedWinDelta.publicRatingDelta)
 }
 
-function formatSignedDisplayDelta(displayDelta: number): string {
-  const rounded = Math.round(displayDelta)
+function formatSignedPublicRatingDelta(publicRatingDelta: number): string {
+  const rounded = Math.round(publicRatingDelta)
   if (rounded === 0) return '0'
   return `${rounded > 0 ? '+' : ''}${rounded}`
 }
@@ -407,7 +407,7 @@ function formatTeamBalanceTitle(summary: LobbyBalanceTeamSummary, team: number):
 
   if (!summary.projectedWinDelta) return chanceText
 
-  const delta = formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
+  const delta = formatSignedPublicRatingDelta(summary.projectedWinDelta.publicRatingDelta)
   return `${chanceText} ${delta} is your Elo change if ${teamLabel} wins.`
 }
 
@@ -722,7 +722,7 @@ function PlayerStatsPopover(props: {
 export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
   if (unranked) return 'Unranked'
   if (!rating) return String(DISPLAY_RATING_BASE)
-  return String(Math.round(displayRating(rating.mu, rating.sigma)))
+  return String(Math.round(rating.publicRating ?? DISPLAY_RATING_BASE))
 }
 
 export function formatRecord(rating: PlayerRow['balanceRating']): string {

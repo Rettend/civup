@@ -30,6 +30,7 @@ import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentResultPng } from '../services/tournament/image.ts'
@@ -1620,10 +1621,18 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const reportedRedDeath = context?.redDeath ?? record.config.redDeath
     const reportedCivBlitz = context?.civBlitz ?? record.config.civBlitz
     const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
-    const participants = await db
+    const storedParticipants = await db
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
+    const statsGuildId = record.guildId ?? this.env.ALLOWED_DISCORD_GUILD_ID
+    const participants = statsGuildId
+      ? await hydrateModeRatingSnapshotsFromEvents(
+          db,
+          createStatsContext(statsGuildId, this.env.ALLOWED_DISCORD_GUILD_ID ?? ''),
+          storedParticipants.map(participant => ({ ...participant, gameMode: match.gameMode, draftData: match.draftData })),
+        )
+      : storedParticipants
     const tournamentLinked = await isMatchTournamentLinked(db, matchId)
     const tournamentResultPng = tournamentLinked
       ? await this.renderReportedTournamentResultImage(db, matchId, participants)
