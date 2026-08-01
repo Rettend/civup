@@ -100,9 +100,22 @@ export interface LobbySnapshot {
   tournament?: {
     id: string
     name: string
+    mode: '1v1' | '2v2' | '3v3' | '4v4' | '5v5' | '6v6'
     rematchPolicy: 'allow' | 'warn' | 'block'
     rematchWarning: string | null
     configLocked: true
+    rosterLocked: true
+    entryRosters: Array<{
+      entryId: string
+      side: 0 | 1
+      members: Array<{
+        position: number
+        slot: number
+        playerId: string | null
+        displayName: string
+        avatarUrl: string | null
+      }>
+    }>
   } | null
   repeatDraft?: {
     kind: 'resume' | 'complete'

@@ -13,7 +13,7 @@ import { findPersistedBlockingDraftMatchIdsForPlayers, findPersistedLiveMatchIds
 import { getMatchIdForMessage } from '../../services/match/message.ts'
 import { sendTransientEphemeralResponse } from '../../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../../services/session/index.ts'
-import { getTournamentMatchBySessionId, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
+import { getTournamentMatchBySessionId } from '../../services/tournament/index.ts'
 import { queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { factory } from '../../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, joinLobbyAndMaybeStartMatch } from './shared.ts'
@@ -92,10 +92,7 @@ export const component_match_join = factory.component(
 
       if (lobby.memberPlayerIds.length === 0) return
       if (!shouldJoinOpenLobbyFromActivityButton(lobby, identity.userId)) return
-      if (clickedTournamentMatch) {
-        const validation = await validateTournamentLobbyJoin(db, lobby, identity)
-        if (!validation.ok) return
-      }
+      if (clickedTournamentMatch) return
 
       const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [identity.userId], approvedGuildIds)
       const currentMatchId = blockingDraftMatchIdByPlayer.get(identity.userId) ?? null
@@ -126,7 +123,6 @@ export const component_match_join = factory.component(
       }
 
       try {
-        if (clickedTournamentMatch) await updateTournamentMatchRoster(db, outcome.lobby.id, outcome.lobby.memberPlayerIds)
         await upsertLobbyMessage(kv, env.DISCORD_TOKEN, outcome.lobby, {
           embeds: outcome.embeds,
           components: outcome.components,

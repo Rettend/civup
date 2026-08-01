@@ -63,7 +63,7 @@ export async function renderTournamentResultPng(data: TournamentResultImageData)
 
 export async function renderTournamentOpponentsSvg(data: TournamentOpponentCardData): Promise<string> {
   const players = collectOpponentPlayers(data)
-  const avatarData = await loadAvatarData(players)
+  const avatarData = await loadTournamentAvatars(players)
   return statsSvgShell(renderTournamentStatsBody(data, avatarData), players)
 }
 
@@ -71,13 +71,13 @@ export async function renderTournamentLeaderboardSvg(data: TournamentLeaderboard
   if (data.pairings.length > 0) return renderBracketLeaderboardSvg(data)
   const topRows = data.standings.slice(0, 20)
   const players = topRows.flatMap(row => row.playerId ? [{ playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }] : [])
-  const avatarData = await loadAvatarData(players)
+  const avatarData = await loadTournamentAvatars(players)
   return leaderboardSvgShell(getLeaderboardImageHeight(topRows.length), 'STANDINGS', renderStandingRows(topRows, avatarData, 0), players, data.tournamentName)
 }
 
 export async function renderTournamentResultSvg(data: TournamentResultImageData): Promise<string> {
   const players = data.players
-  const avatarData = await loadAvatarData(players)
+  const avatarData = await loadTournamentAvatars(players, players.length)
   const leaderIconData = await loadLeaderIconData(players)
   return resultSvgShell(data, renderResultRows(data, avatarData, leaderIconData), players)
 }
@@ -100,6 +100,7 @@ const LEADERBOARD_COLUMN_GAP = 34
 const LEADERBOARD_COLUMN_WIDTH = (IMAGE_WIDTH - 128 - LEADERBOARD_COLUMN_GAP) / 2
 const STATS_ROW_HEIGHT = 42
 const STATS_ROW_STEP = 47
+const MAX_AGGREGATE_AVATARS = 12
 
 const BRACKET_MATCH_W = 300
 const BRACKET_MATCH_H = 96
@@ -147,7 +148,7 @@ async function renderBracketLeaderboardSvg(data: TournamentLeaderboardImageData)
   const firstRoundCount = roundGroups[0]?.pairings.length ?? 0
   const height = getBracketImageHeight(firstRoundCount)
   const players = collectBracketPlayers(pairings, data.champion)
-  const avatarData = await loadAvatarData(players)
+  const avatarData = await loadTournamentAvatars(players)
   const body = renderBracket(roundGroups, height, data.champion, avatarData)
   return leaderboardSvgShell(height, 'PLAYOFFS', body, players, data.tournamentName)
 }
@@ -199,6 +200,8 @@ function projectNextBracketRound(sourcePairings: TournamentBracketPairing[], nex
       round: nextRound,
       seedOne: leftWinner?.seed ?? 0,
       seedTwo: rightWinner?.seed ?? 0,
+      entryOneId: null,
+      entryTwoId: null,
       playerOneId: leftWinner?.playerId ?? null,
       playerTwoId: rightWinner?.playerId ?? null,
       playerOneDisplayName: leftWinner?.displayName ?? 'TBD',
@@ -208,6 +211,7 @@ function projectNextBracketRound(sourcePairings: TournamentBracketPairing[], nex
       playerOneScore: 0,
       playerTwoScore: 0,
       requiredWins: getBracketRoundRequiredWins(nextRound),
+      winnerEntryId: null,
       winnerDisplayName: null,
       projected: true,
     })
@@ -419,7 +423,7 @@ function renderBracketSlot(
     const avatarSize = 30
     svg += `<text x="${x + 14}" y="${textY}" fill="${seedColor}" font-size="17" font-weight="900">${slot.seed}</text>`
     svg += renderAvatar(player, x + 36, y + 9, avatarSize, avatarClipId(player), avatarData.get(avatarKey(player)), seedColor, false)
-    svg += renderInlineText(slot.displayName, x + 76, textY, width - 124, 21, slot.isWinner ? 900 : 700, nameColor)
+    svg += renderWrappedEntryName(slot.displayName, x + 76, textY, width - 124, 19, slot.isWinner ? 900 : 700, nameColor, 18)
     if (slot.showScore) svg += `<text x="${x + width - 18}" y="${scoreY}" text-anchor="middle" fill="${scoreColor}" font-size="24" font-weight="900">${slot.score}</text>`
   }
 
@@ -523,7 +527,7 @@ function renderStandingStyleRow(
     <rect x="${x}" y="${y}" width="${width}" height="${rowHeight}" rx="16" fill="${fill}" />
     <text x="${x + rankX}" y="${y + rankY}" text-anchor="middle" fill="${rankColor}" font-size="${rankFont}" font-weight="900">#${rank}</text>
     ${renderAvatar(row, x + avatarX, y + avatarY, avatarSize, avatarClipId(row), avatarData.get(avatarKey(row)), rankColor, false)}
-    ${renderInlineText(row.displayName, x + nameX, y + textY, nameMaxWidth, nameFont, 900, COLORS.fg)}
+    ${renderWrappedEntryName(row.displayName, x + nameX, y + textY, nameMaxWidth, (row.members?.length ?? 1) > 1 ? (isCompact ? 15 : 18) : nameFont, 900, COLORS.fg, isCompact ? 15 : 18)}
     <text x="${x + width - metricOffset}" y="${y + textY}" text-anchor="end" fill="${COLORS.fg}" font-size="${metricFont}" font-weight="900">${row.wins}-${row.losses}</text>
     <text x="${x + width - percentOffset}" y="${y + textY}" text-anchor="end" fill="${highlighted ? COLORS.accent : COLORS.muted}" font-size="${metricFont}" font-weight="900">${Math.round(row.winRate * 100)}%</text>
   `
@@ -556,6 +560,11 @@ function resultSvgShell(data: TournamentResultImageData, body: string, players: 
 }
 
 function renderResultRows(data: TournamentResultImageData, avatarData: Map<string, string>, leaderIconData: Map<string, string>): string {
+  if (!data.entries || (data.entries.length === 2 && data.entries.every(entry => entry.members.length === 1))) return renderDuelResultRows(data, avatarData, leaderIconData)
+  return renderTeamResultRows(data, avatarData, leaderIconData)
+}
+
+function renderDuelResultRows(data: TournamentResultImageData, avatarData: Map<string, string>, leaderIconData: Map<string, string>): string {
   const ordered = [...data.players].sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))
   const rowX = 64
   const rowW = 1102
@@ -584,6 +593,32 @@ function renderResultRows(data: TournamentResultImageData, avatarData: Map<strin
   }).join('')
 }
 
+function renderTeamResultRows(data: TournamentResultImageData, avatarData: Map<string, string>, leaderIconData: Map<string, string>): string {
+  return [...(data.entries ?? [])].sort((left, right) => (left.placement ?? 99) - (right.placement ?? 99)).map((entry, side) => {
+    const x = side === 0 ? 64 : 620
+    const width = 516
+    const isWinner = entry.placement === 1
+    const color = isWinner ? COLORS.win : COLORS.loss
+    const heading = isWinner ? 'WINNING ENTRY' : 'OPPOSING ENTRY'
+    const rows = entry.members.map((player, index) => {
+      const y = 200 + (index * 66)
+      const leaderIcon = player.civId ? leaderIconData.get(player.civId) : null
+      return `
+        <rect x="${x}" y="${y}" width="${width}" height="58" rx="12" fill="${isWinner ? 'rgba(10,200,185,0.055)' : 'rgba(239,68,68,0.045)'}" />
+        ${renderAvatar(player, x + 10, y + 7, 44, avatarClipId(player), avatarData.get(avatarKey(player)), color, false)}
+        ${leaderIcon ? `<image href="${leaderIcon}" x="${x + 60}" y="${y + 9}" width="40" height="40" preserveAspectRatio="xMidYMid meet" />` : `<text x="${x + 80}" y="${y + 37}" text-anchor="middle" fill="${COLORS.accent}" font-size="18" font-weight="900">${escapeXml(getLeaderInitials(player.civId))}</text>`}
+        ${renderInlineText(player.displayName, x + 110, y + 27, width - 126, 22, 900, COLORS.fg)}
+        <text x="${x + 110}" y="${y + 48}" fill="${COLORS.muted}" font-size="16" font-weight="700">${escapeXml(truncateToWidth(formatLeader(player.civId), width - 126, 16, 700))}</text>
+      `
+    }).join('')
+    return `
+      <text x="${x}" y="170" fill="${color}" font-size="25" font-weight="900" letter-spacing="2">${heading}</text>
+      <text x="${x + width}" y="170" text-anchor="end" fill="${COLORS.fg}" font-size="25" font-weight="900">#${entry.placement ?? '?'}</text>
+      ${rows}
+    `
+  }).join('')
+}
+
 function chevronRect(x: number, y: number, w: number, h: number, d: number): string {
   return `M${x},${y} H${x + w - d} L${x + w},${y + h / 2} L${x + w - d},${y + h} H${x} Z`
 }
@@ -604,6 +639,10 @@ function collectOpponentPlayers(data: TournamentOpponentCardData): AvatarPlayer[
   const players: AvatarPlayer[] = [data.player, ...data.opponents]
   if (data.pairing) players.push(data.pairing.playerOne, data.pairing.playerTwo)
   return players
+}
+
+async function loadTournamentAvatars(players: readonly AvatarPlayer[], limit = MAX_AGGREGATE_AVATARS): Promise<Map<string, string>> {
+  return loadAvatarData(players.slice(0, Math.max(0, limit)))
 }
 
 function buildAvatarClipDefs(players: AvatarPlayer[]): string {
@@ -804,6 +843,14 @@ function renderInlineText(value: string, x: number, y: number, maxWidth: number,
   }
   flushText()
   return svg
+}
+
+function renderWrappedEntryName(value: string, x: number, y: number, maxWidth: number, fontSize: number, fontWeight: number, fill: string, lineStep: number): string {
+  const names = value.split(' / ')
+  if (names.length <= 1) return renderInlineText(value, x, y, maxWidth, fontSize, fontWeight, fill)
+  const split = Math.ceil(names.length / 2)
+  const lines = [names.slice(0, split).join(' / '), names.slice(split).join(' / ')].filter(Boolean)
+  return lines.map((line, index) => renderInlineText(line, x, y - ((lines.length - 1) * lineStep / 2) + (index * lineStep), maxWidth, fontSize, fontWeight, fill)).join('')
 }
 
 function measureTextWidth(value: string, fontSize: number, fontWeight: number): number {

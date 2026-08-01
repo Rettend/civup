@@ -1,5 +1,5 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentEntries, tournamentEntryMembers, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, cloneOfficialAppliedSettings, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -762,6 +762,38 @@ describe('SessionDO open session commands', () => {
       expect(tournamentMatch).toMatchObject({ status: 'open', matchId: null, winnerId: null })
       const [cutPairing] = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.sessionId, openLobby.id))
       expect(cutPairing).toMatchObject({ status: 'open', matchId: null, winnerId: null })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('explicit draft cancellation terminates the tournament match and releases its playoff pairing', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const room = new SessionDO(createFakeDurableObjectState(), {
+      DB: createSqliteD1Database(sqlite),
+      KV: createTestKv(),
+    } as any)
+    const openLobby = buildLobby({
+      memberPlayerIds: ['p1', 'p2'],
+      slots: ['p1', 'p2'],
+    })
+
+    try {
+      await createSessionFromLobby(room, openLobby, [
+        { playerId: 'p1', displayName: 'Player One', avatarUrl: null, joinedAt: 10 },
+        { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 11 },
+      ])
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      await insertDraftingTournamentLink(db, openLobby.id, started.matchId)
+
+      await (room as any).syncDraftRuntimeLifecyclePayload(buildCancelledPayload(openLobby.id, started.seats, 'cancel'), 'test-cancel')
+
+      expect(await getSessionRecordBody(room)).toMatchObject({ phase: 'cancelled' })
+      const [tournamentMatch] = await db.select().from(tournamentMatches).where(eq(tournamentMatches.sessionId, openLobby.id))
+      expect(tournamentMatch).toMatchObject({ status: 'cancelled', matchId: started.matchId, winnerEntryId: null })
+      const [cutPairing] = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, 'tournament-session-test'))
+      expect(cutPairing).toMatchObject({ status: 'scheduled', sessionId: null, matchId: null, winnerEntryId: null })
     }
     finally {
       sqlite.close()
@@ -1782,6 +1814,7 @@ async function insertDraftingTournamentLink(db: any, sessionId: string, matchId:
     createdAt: now,
     updatedAt: now,
   })
+  await insertTournamentEntryFixtures(db, 'tournament-session-test', now)
   await db.insert(tournamentMatches).values({
     sessionId,
     tournamentId: 'tournament-session-test',
@@ -1791,6 +1824,9 @@ async function insertDraftingTournamentLink(db: any, sessionId: string, matchId:
     playerOneId: null,
     playerTwoId: null,
     winnerId: 'p1',
+    entryOneId: 'tournament-session-test-entry-p1',
+    entryTwoId: 'tournament-session-test-entry-p2',
+    winnerEntryId: 'tournament-session-test-entry-p1',
     createdAt: now,
     updatedAt: now,
   })
@@ -1805,6 +1841,9 @@ async function insertDraftingTournamentLink(db: any, sessionId: string, matchId:
     sessionId,
     matchId,
     winnerId: 'p1',
+    entryOneId: 'tournament-session-test-entry-p1',
+    entryTwoId: 'tournament-session-test-entry-p2',
+    winnerEntryId: 'tournament-session-test-entry-p1',
     status: 'drafting',
     createdAt: now,
     updatedAt: now,
@@ -1827,6 +1866,7 @@ async function insertDraftingQualifierTournamentLink(db: any, sessionId: string,
     createdAt: now,
     updatedAt: now,
   })
+  await insertTournamentEntryFixtures(db, 'tournament-qualifier-session-test', now)
   await db.insert(tournamentMatches).values({
     sessionId,
     tournamentId: 'tournament-qualifier-session-test',
@@ -1836,9 +1876,23 @@ async function insertDraftingQualifierTournamentLink(db: any, sessionId: string,
     playerOneId: 'p1',
     playerTwoId: 'p2',
     winnerId: null,
+    entryOneId: 'tournament-qualifier-session-test-entry-p1',
+    entryTwoId: 'tournament-qualifier-session-test-entry-p2',
+    winnerEntryId: null,
     createdAt: now,
     updatedAt: now,
   })
+}
+
+async function insertTournamentEntryFixtures(db: any, tournamentId: string, now: number): Promise<void> {
+  await db.insert(tournamentEntries).values([
+    { id: `${tournamentId}-entry-p1`, tournamentId, seed: 1, status: 'active', createdAt: now, updatedAt: now },
+    { id: `${tournamentId}-entry-p2`, tournamentId, seed: 2, status: 'active', createdAt: now, updatedAt: now },
+  ])
+  await db.insert(tournamentEntryMembers).values([
+    { entryId: `${tournamentId}-entry-p1`, tournamentId, position: 0, playerId: 'p1', displayName: 'Player One', avatarUrl: null, active: true, linkedAt: now, createdAt: now, updatedAt: now },
+    { entryId: `${tournamentId}-entry-p2`, tournamentId, position: 0, playerId: 'p2', displayName: 'Player Two', avatarUrl: null, active: true, linkedAt: now, createdAt: now, updatedAt: now },
+  ])
 }
 
 function buildCompletePayload(matchId: string, seats: DraftSeat[]) {
