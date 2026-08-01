@@ -1,9 +1,10 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
+import type { ModerationContext } from '../../embeds/match.ts'
 import type { LobbyState } from '../lobby/index.ts'
 import type { SystemChannelType } from '../system/channels.ts'
 import type { MatchReporterIdentity, ParticipantRow } from './types.ts'
-import { lobbyResultEmbed } from '../../embeds/match.ts'
+import { formatModerationNote, lobbyResultEmbed } from '../../embeds/match.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
 import { setLobbyMessage, upsertLobbyMessage } from '../lobby/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
@@ -15,7 +16,7 @@ import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
 type ArchivePolicy = 'always' | 'if-missing'
 type ReportArchiveChannelType = Extract<SystemChannelType, 'archive' | 'tournament-archive'>
 
-interface SyncReportedMatchDiscordMessagesInput {
+export interface SyncReportedMatchDiscordMessagesInput {
   db: Database
   kv: KVNamespace
   token: string
@@ -29,6 +30,7 @@ interface SyncReportedMatchDiscordMessagesInput {
   rankedRoleLines?: string[]
   matchDraftData?: string | null
   reporter?: MatchReporterIdentity | null
+  moderation?: ModerationContext
   archivePolicy?: ArchivePolicy
   archiveChannelType?: ReportArchiveChannelType
   originGuildId: string
@@ -55,6 +57,7 @@ export async function syncReportedMatchDiscordMessages({
   rankedRoleLines = [],
   matchDraftData = null,
   reporter = null,
+  moderation,
   archivePolicy = 'always',
   archiveChannelType,
   originGuildId,
@@ -77,6 +80,15 @@ export async function syncReportedMatchDiscordMessages({
   const gameContext = getStoredGameModeContext(reportedMode, matchDraftData)
   const unranked = civBlitz || (gameContext ? gameContext.leaderboardMode == null : false)
   const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+  const tournamentModerationContent = moderation ? `Correction: ${formatModerationNote(moderation)}` : undefined
+  const resolvedArchiveChannelType = archiveChannelType ?? (tournamentLinked ? 'tournament-archive' : 'archive')
+  let archiveChannelLookupFailed = false
+  const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType, { guildId: originGuildId, legacyGuildId }).catch((error) => {
+    archiveChannelLookupFailed = true
+    console.error(`Failed to read ${resolvedArchiveChannelType} channel for reported match ${matchId}:`, error)
+    errors.push(`archive channel lookup failed: ${formatError(error)}`)
+    return null
+  })
   let tournamentResultPng: Uint8Array | null = null
   let tournamentImageFailed = false
   if (tournamentLinked) {
@@ -105,6 +117,7 @@ export async function syncReportedMatchDiscordMessages({
           filename: 'tournament-result.png',
           contentType: 'image/png',
           data: tournamentResultPng,
+          content: tournamentModerationContent,
           components: [],
         })
         await storeMatchMessageMapping(db, lobby.messageId, matchId)
@@ -112,7 +125,7 @@ export async function syncReportedMatchDiscordMessages({
       }
       else if (!tournamentLinked) {
         const updatedLobby = await upsertLobbyMessage(kv, token, lobby, {
-          embeds: [lobbyResultEmbed(lobby.mode, participants, undefined, {
+          embeds: [lobbyResultEmbed(lobby.mode, participants, moderation, {
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
@@ -135,6 +148,7 @@ export async function syncReportedMatchDiscordMessages({
             filename: 'tournament-result.png',
             contentType: 'image/png',
             data: tournamentResultPng,
+            content: tournamentModerationContent,
             components: [],
           })
           await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id, { db, sessionNamespace })
@@ -160,7 +174,7 @@ export async function syncReportedMatchDiscordMessages({
       draftUpdateError = error
       return null
     })
-    if (draftChannelId) {
+    if (draftChannelId && !archiveChannelLookupFailed && draftChannelId !== archiveChannelId) {
       let draftRepairError: unknown = null
       for (const messageId of messageIds) {
         try {
@@ -172,13 +186,14 @@ export async function syncReportedMatchDiscordMessages({
               filename: 'tournament-result.png',
               contentType: 'image/png',
               data: tournamentResultPng,
+              content: tournamentModerationContent,
               components: [],
             })
           }
           else if (!tournamentLinked) {
             await editChannelMessage(token, draftChannelId, messageId, {
               content: null,
-              embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+              embeds: [lobbyResultEmbed(reportedMode, participants, moderation, {
                 mapVoteResult,
                 rankedRoleLines,
                 reporter: resolvedReporter,
@@ -216,12 +231,6 @@ export async function syncReportedMatchDiscordMessages({
 
   if (tournamentImageFailed) return { draftMessageUpdated, archiveMessageCreated, errors }
 
-  const resolvedArchiveChannelType = archiveChannelType ?? await resolveReportedArchiveChannelType(db, matchId)
-  const archiveChannelId = await getSystemChannel(kv, resolvedArchiveChannelType, { guildId: originGuildId, legacyGuildId }).catch((error) => {
-    console.error(`Failed to read ${resolvedArchiveChannelType} channel for reported match ${matchId}:`, error)
-    errors.push(`archive channel lookup failed: ${formatError(error)}`)
-    return null
-  })
   if (!archiveChannelId) return { draftMessageUpdated, archiveMessageCreated, errors }
 
   const shouldCreateArchive = archivePolicy === 'always' || messageIds.length < 2
@@ -236,9 +245,10 @@ export async function syncReportedMatchDiscordMessages({
           filename: 'tournament-result.png',
           contentType: 'image/png',
           data: tournamentResultPng!,
+          content: tournamentModerationContent,
         })
       : await createChannelMessage(token, archiveChannelId, {
-          embeds: [lobbyResultEmbed(reportedMode, participants, undefined, {
+          embeds: [lobbyResultEmbed(reportedMode, participants, moderation, {
             mapVoteResult,
             rankedRoleLines,
             reporter: resolvedReporter,
@@ -257,10 +267,6 @@ export async function syncReportedMatchDiscordMessages({
   }
 
   return { draftMessageUpdated, archiveMessageCreated, errors }
-}
-
-async function resolveReportedArchiveChannelType(db: Database, matchId: string): Promise<ReportArchiveChannelType> {
-  return await isMatchTournamentLinked(db, matchId) ? 'tournament-archive' : 'archive'
 }
 
 function resolveMatchReporterIdentity(

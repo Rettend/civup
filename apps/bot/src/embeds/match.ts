@@ -21,7 +21,7 @@ interface LobbyParticipant {
   leaderboardEligibleCount?: number | null
 }
 
-interface ModerationContext {
+export interface ModerationContext {
   actorId?: string | null
   actorLabel?: string | null
   reason?: string | null
@@ -533,15 +533,20 @@ function blankInlineField(): TeamField {
 
 function buildModerationField(moderation?: ModerationContext): { name: string, value: string, inline: false } | null {
   if (!moderation) return null
-  const reason = moderation.reason?.trim() || 'No reason.'
-  const actor = moderation.actorId?.trim()
-    ? `<@${moderation.actorId}>`
-    : moderation.actorLabel?.trim() || 'System'
   return {
     name: 'Note',
-    value: `${actor} - ${reason}`,
+    value: formatModerationNote(moderation),
     inline: false,
   }
+}
+
+export function formatModerationNote(moderation: ModerationContext): string {
+  const reason = moderation.reason?.trim() || 'No reason.'
+  const actorId = moderation.actorId?.trim()
+  const actor = actorId
+    ? `<@${actorId}>`
+    : moderation.actorLabel?.trim() || 'System'
+  return `${actor} - ${reason}`
 }
 
 interface TeamField { name: string, value: string, inline: true }

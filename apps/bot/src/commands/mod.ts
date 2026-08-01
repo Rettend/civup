@@ -4,7 +4,7 @@ import type { MatchVar } from './match/shared'
 import { createDb } from '@civup/db'
 import { formatModeLabel, GAME_MODE_CHOICES, getLeader, getLeaders, maxPlayerCount, parseGameMode, playerCountOptions, searchLeaders, slotToTeamIndex, startPlayerCountOptions } from '@civup/game'
 import { Autocomplete, Command, Option, SubCommand, SubGroup } from 'discord-hono'
-import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match'
+import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed } from '../embeds/match'
 import { createChannelMessage } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
@@ -307,7 +307,6 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             const existingLobby = result.previousStatus === 'completed' ? null : await getSessionLobbyProjectionByMatch(db, result.match.id)
             const mode = matchContext.mode
-            const leaderDataVersion = getLeaderDataVersionFromDraftData(result.match.draftData, existingLobby?.draftConfig.leaderDataVersion ?? 'live')
             const moderation = { actorId, reason }
             const guildId = owningGuildId
             const originGuildId = await resolveMatchOriginGuildId(db, result.match.id)
@@ -377,64 +376,27 @@ export const command_mod = factory.autocomplete<ModVar>(
                 }
               }
 
-              if (isTournamentMatch) {
-                const syncResult = await syncReportedMatchDiscordMessages({
-                  db,
-                  kv,
-                  token: c.env.DISCORD_TOKEN,
-                  matchId: result.match.id,
-                  reportedMode: mode,
-                  reportedRedDeath: matchContext.redDeath,
-                  reportedCivBlitz: matchContext.civBlitz,
-                  participants: result.participants,
-                  lobby: existingLobby,
-                  sessionNamespace: c.env.SessionDO,
-                  matchDraftData: result.match.draftData,
-                  archivePolicy: 'always',
-                  archiveChannelType: 'tournament-archive',
-                  originGuildId,
-                  legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
-                })
-                if (syncResult.errors.length > 0) {
-                  console.error(`Failed to sync resolved tournament match ${result.match.id} images:`, syncResult.errors)
-                }
-                return
-              }
-
-              if (existingLobby) {
-                try {
-                  const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, existingLobby, {
-                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                      rankedRoleLines,
-                      leaderDataVersion,
-                      civBlitz: existingLobby.draftConfig.civBlitz,
-                      unranked: !matchContext.ranked,
-                    }, existingLobby.draftConfig.redDeath)],
-                    components: [],
-                  }, { db, sessionNamespace: c.env.SessionDO })
-                  await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-                }
-                catch (error) {
-                  console.error(`Failed to update resolved result embed for match ${result.match.id}:`, error)
-                }
-              }
-
-              const archiveChannelId = await getSystemChannel(kv, archiveChannelType, { guildId, legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID })
-              if (archiveChannelId) {
-                try {
-                  const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                    embeds: [lobbyResultEmbed(mode, result.participants, moderation, {
-                      rankedRoleLines,
-                      leaderDataVersion,
-                      civBlitz: matchContext.civBlitz,
-                      unranked: !matchContext.ranked,
-                    }, matchContext.redDeath)],
-                  })
-                  await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
-                }
-                catch (error) {
-                  console.error(`Failed to post archive resolve note for match ${result.match.id}:`, error)
-                }
+              const syncResult = await syncReportedMatchDiscordMessages({
+                db,
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                matchId: result.match.id,
+                reportedMode: mode,
+                reportedRedDeath: matchContext.redDeath,
+                reportedCivBlitz: matchContext.civBlitz,
+                participants: result.participants,
+                lobby: existingLobby,
+                sessionNamespace: c.env.SessionDO,
+                rankedRoleLines,
+                matchDraftData: result.match.draftData,
+                moderation,
+                archivePolicy: 'always',
+                archiveChannelType,
+                originGuildId,
+                legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
+              })
+              if (syncResult.errors.length > 0) {
+                console.error(`Failed to sync resolved match ${result.match.id} results:`, syncResult.errors)
               }
             })())
           }
@@ -622,6 +584,11 @@ export const command_mod = factory.autocomplete<ModVar>(
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           try {
             const db = createDb(c.env.DB)
+            const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
+            if (!actorId) {
+              await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+              return
+            }
             const origin = await getSessionOriginByMatch(db, matchId)
             const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
             if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
@@ -687,7 +654,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                 lobby: existingLobby,
                 sessionNamespace: c.env.SessionDO,
                 matchDraftData: result.match.draftData,
-                archivePolicy: 'if-missing',
+                moderation: { actorId, reason },
+                archivePolicy: 'always',
                 archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
                 originGuildId,
                 legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
@@ -731,6 +699,11 @@ export const command_mod = factory.autocomplete<ModVar>(
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           try {
             const db = createDb(c.env.DB)
+            const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
+            if (!actorId) {
+              await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+              return
+            }
             const origin = await getSessionOriginByMatch(db, matchId)
             const owningGuildId = origin?.guildId ?? await getStoredMatchGuildId(db, matchId)
             if (!canModerateSessionOrigin({ invokingGuildId: c.interaction.guild_id, originGuildId: owningGuildId })) {
@@ -833,7 +806,8 @@ export const command_mod = factory.autocomplete<ModVar>(
                 lobby: existingLobby,
                 sessionNamespace: c.env.SessionDO,
                 matchDraftData: result.match.draftData,
-                archivePolicy: 'if-missing',
+                moderation: { actorId, reason },
+                archivePolicy: 'always',
                 archiveChannelType: isTournamentMatch ? 'tournament-archive' : 'archive',
                 originGuildId,
                 legacyGuildId: c.env.ALLOWED_DISCORD_GUILD_ID,
