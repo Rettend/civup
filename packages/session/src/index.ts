@@ -10,6 +10,7 @@ import type {
   LeaderSwapState,
   MapVoteSelection,
   MapVoteSnapshot,
+  AppliedCivLobbySettings,
 } from '@civup/game'
 
 /** Configuration used by SessionDO to initialize its draft subruntime. */
@@ -32,6 +33,7 @@ export interface DraftRuntimeConfig {
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   steamLobbyLink?: string | null
+  gameSettings?: AppliedCivLobbySettings
 }
 
 export type SessionClientMessage

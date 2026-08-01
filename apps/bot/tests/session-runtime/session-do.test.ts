@@ -1,6 +1,6 @@
 import type { DraftSeat, DraftState } from '@civup/game'
 import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
-import { allLeaderIds, swapSeatPicks } from '@civup/game'
+import { allLeaderIds, cloneOfficialAppliedSettings, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -1094,10 +1094,13 @@ describe('SessionDO open session commands', () => {
     const d1 = createSqliteD1Database(sqlite)
     const env: { DB?: D1Database, KV?: KVNamespace, CIVUP_SECRET?: string } = { DB: d1, KV: kv, CIVUP_SECRET: 'secret' }
     const room = new SessionDO(createFakeDurableObjectState(), env as any)
+    const gameSettings = cloneOfficialAppliedSettings()
+    gameSettings.profile.base.autoBannedLeaderIds = allLeaderIds.slice(0, 32)
     const openLobby = buildLobby({
       memberPlayerIds: ['p1', 'p2'],
       slots: ['p1', 'p2'],
-      draftConfig: { ...DEFAULT_DRAFT_CONFIG, hiddenDraft: true },
+      draftConfig: { ...DEFAULT_DRAFT_CONFIG, hiddenDraft: true, leaderPoolSize: allLeaderIds.length },
+      gameSettings,
     })
     const accessToken = await createSessionAccessToken('secret', {
       userId: 'p1',

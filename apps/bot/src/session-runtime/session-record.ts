@@ -1,6 +1,7 @@
-import type { CompetitiveTier, GameMode, QueueEntry, SourceGuildIdentity } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, GameMode, QueueEntry, SourceGuildIdentity } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import { normalizeAppliedCivLobbySettings } from '@civup/game'
 
 export type SessionId = string
 export type SessionPhase = 'open' | 'draft' | 'swap' | 'active' | 'reported' | 'cancelled'
@@ -106,6 +107,7 @@ interface BaseSessionRecord {
   mode: GameMode
   matchId: string | null
   config: SessionConfig
+  gameSettings: AppliedCivLobbySettings
   roster: SessionRoster
   lastArrange: LobbyArrangeMarker | null
   projectionState: SessionProjectionState
@@ -211,6 +213,7 @@ export function buildSessionRecordFromLobby(
     mode: lobby.mode,
     matchId: lobby.matchId,
     config: buildSessionConfig(lobby),
+    gameSettings: normalizeAppliedCivLobbySettings(lobby.gameSettings),
     roster: buildSessionRoster(lobby, queueEntries),
     lastArrange: lobby.lastArrange ?? null,
     projectionState: {
@@ -302,6 +305,7 @@ export function buildLobbyStateFromSessionRecord(
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
     slots: [...record.roster.slots],
     draftConfig: buildLobbyDraftConfigFromSessionConfig(record.config),
+    gameSettings: normalizeAppliedCivLobbySettings(record.gameSettings),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     revision: record.version,
@@ -326,6 +330,7 @@ export function buildLobbyProjectionFromSessionRecord(record: SessionRecord): Lo
     memberPlayerIds: record.roster.participants.map(member => member.playerId),
     slots: [...record.roster.slots],
     draftConfig: buildLobbyDraftConfigFromSessionConfig(record.config),
+    gameSettings: normalizeAppliedCivLobbySettings(record.gameSettings),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     revision: record.version,
@@ -352,6 +357,41 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     hiddenDraft: config.hiddenDraft,
     duplicateFactions: config.duplicateFactions,
     closed: config.closed === true,
+  }
+}
+
+export function parseStoredSessionDirectoryConfig(raw: string, mode: GameMode): { config: SessionConfig, gameSettings: AppliedCivLobbySettings } | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<SessionConfig> & { gameSettings?: unknown }
+    if (!parsed || typeof parsed !== 'object') return null
+    return {
+      config: {
+        banTimerSeconds: typeof parsed.banTimerSeconds === 'number' ? parsed.banTimerSeconds : null,
+        pickTimerSeconds: typeof parsed.pickTimerSeconds === 'number' ? parsed.pickTimerSeconds : null,
+        leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
+        leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
+        mapVoteEnabled: parsed.mapVoteEnabled === true,
+        blindBans: parsed.blindBans !== false,
+        blindPicks: parsed.blindPicks === true,
+        simultaneousPick: parsed.simultaneousPick === true,
+        permanentAlly: mode === 'ffa' && parsed.redDeath !== true && parsed.civBlitz !== true ? parsed.permanentAlly !== false : false,
+        redDeath: parsed.redDeath === true,
+        dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
+        civBlitz: parsed.civBlitz === true,
+        civBlitzOptionCount: typeof parsed.civBlitzOptionCount === 'number' ? parsed.civBlitzOptionCount : 4,
+        civBlitzExcludeBbgExpanded: parsed.civBlitzExcludeBbgExpanded !== false,
+        randomDraft: parsed.randomDraft === true,
+        hiddenDraft: parsed.hiddenDraft === true,
+        duplicateFactions: parsed.duplicateFactions === true,
+        closed: parsed.closed === true,
+        minRole: parsed.minRole ?? null,
+        maxRole: parsed.maxRole ?? null,
+      },
+      gameSettings: normalizeAppliedCivLobbySettings(parsed.gameSettings),
+    }
+  }
+  catch {
+    return null
   }
 }
 
@@ -459,6 +499,7 @@ function preserveFrozenSessionState(existing: SessionRecord, next: SessionRecord
   return {
     ...withImmutableOrigin,
     config: existing.config,
+    gameSettings: existing.gameSettings,
     roster: existing.roster,
     frozenAt: existing.frozenAt ?? next.frozenAt,
   } as SessionRecord

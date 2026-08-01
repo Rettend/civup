@@ -92,11 +92,12 @@ export function sampleLeaderPool(
   leaderPoolSize: number,
   random: RandomSource = Math.random,
   version: LeaderDataVersion = 'live',
+  excludedLeaderIds: readonly string[] = [],
 ): string[] {
-  const allLeaderIds = getLeaderIds(version)
+  const allLeaderIds = getEligibleLeaderIds(version, excludedLeaderIds)
   const maxLeaderPoolSize = allLeaderIds.length
   if (!Number.isInteger(leaderPoolSize) || leaderPoolSize <= 0 || leaderPoolSize > maxLeaderPoolSize) {
-    throw new Error(`Leader pool size must be between 1 and ${maxLeaderPoolSize}.`)
+    throw new Error(`Only ${maxLeaderPoolSize} eligible leaders remain after automatic exclusions; reduce the leader pool or exclusions.`)
   }
 
   const pool = [...allLeaderIds]
@@ -110,4 +111,18 @@ export function sampleLeaderPool(
   }
 
   return pool.slice(0, leaderPoolSize)
+}
+
+export function getEligibleLeaderIds(
+  version: LeaderDataVersion = 'live',
+  excludedLeaderIds: readonly string[] = [],
+): string[] {
+  const allLeaderIds = getLeaderIds(version)
+  const available = new Set(allLeaderIds)
+  const excluded = new Set<string>()
+  for (const leaderId of excludedLeaderIds) {
+    if (!available.has(leaderId)) throw new Error(`Leader ${leaderId} is not available in the selected leader data version.`)
+    excluded.add(leaderId)
+  }
+  return allLeaderIds.filter(leaderId => !excluded.has(leaderId))
 }

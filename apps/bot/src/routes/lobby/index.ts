@@ -1,9 +1,9 @@
-import type { GameMode, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, formatModeLabel, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeCompetitiveTierBounds, parseGameMode, toBalanceLeaderboardMode } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES, CivLobbySettingsValidationError, cloneOfficialAppliedSettings, createAppliedCivLobbySettings, defaultPlayerCount, formatModeLabel, GAME_MODES, getCivBlitzOptionCountMaximum, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeAppliedCivLobbySettings, normalizeCivLobbySettingsProfile, normalizeCompetitiveTierBounds, parseGameMode, resolveCivLobbySettings, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -23,6 +23,7 @@ import {
   sameLobbySlots,
   setLobbyArranged,
   setLobbyDraftConfig,
+  setLobbyGameSettings,
   setLobbyHost,
   setLobbyLastActivityAt,
   setLobbyMaxRole,
@@ -41,6 +42,7 @@ import { findPersistedBlockingDraftMatchIdsForPlayers } from '../../services/mat
 import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleCalculationConfig } from '../../services/ranked/roles.ts'
 import { getCalculatedRankGateError } from '../../services/ranked/admission.ts'
+import { getGameSettingsPresetById } from '../../services/game-settings-presets.ts'
 import { createStatsContext } from '../../services/stats/context.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
@@ -48,6 +50,7 @@ import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markT
 import { getSessionRecord, repeatSessionDraft, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
+import { readJsonWithByteLimit, RequestBodyTooLargeError } from '../request-body.ts'
 import {
   buildLobbyQueueEntries,
   buildOpenLobbySnapshot,
@@ -64,6 +67,9 @@ import {
 } from './snapshot.ts'
 
 const DEBUG_TEST_PLAYER_ID_PREFIX = 'bot:'
+const LOBBY_CONFIG_REQUEST_MAX_BYTES = CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES + 4_096
+
+class CommunityPresetRevisionError extends Error {}
 
 function lobbySessionMutationOptions(c: Context<Env>, queueEntries?: readonly QueueEntry[]) {
   return {
@@ -155,6 +161,57 @@ function parseSessionDraftCommandError(error: unknown): { status: 400 | 403 | 40
   }
 }
 
+async function resolveAppliedGameSettingsRequest(
+  db: ReturnType<typeof createDb>,
+  value: unknown,
+): Promise<AppliedCivLobbySettings> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CivLobbySettingsValidationError('Game settings request must be an object.')
+  }
+  const request = value as { source?: unknown, presetId?: unknown, presetRevision?: unknown, profile?: unknown }
+  const allowedFields = request.source === 'official'
+    ? ['source']
+    : request.source === 'custom'
+      ? ['source', 'profile']
+      : request.source === 'community'
+        ? ['source', 'presetId', 'presetRevision']
+        : ['source']
+  const extraField = Object.keys(value).find(key => !allowedFields.includes(key))
+  if (extraField) throw new CivLobbySettingsValidationError(`Game settings request contains an unknown field: ${extraField}.`)
+  if (request.source === 'official') return cloneOfficialAppliedSettings()
+  if (request.source === 'custom') {
+    return createAppliedCivLobbySettings(normalizeCivLobbySettingsProfile(request.profile), {
+      kind: 'custom',
+      id: null,
+      name: 'Custom settings',
+      revision: null,
+    })
+  }
+  if (request.source === 'community') {
+    if (typeof request.presetId !== 'string' || !request.presetId) throw new CivLobbySettingsValidationError('Community preset ID is required.')
+    if (typeof request.presetRevision !== 'number' || !Number.isInteger(request.presetRevision) || request.presetRevision < 1) {
+      throw new CivLobbySettingsValidationError('Community preset revision is required.')
+    }
+    const preset = await getGameSettingsPresetById(db, request.presetId)
+    if (!preset) throw new CivLobbySettingsValidationError('Community preset not found.')
+    if (preset.revision !== request.presetRevision) throw new CommunityPresetRevisionError('Preset changed; refresh and try again.')
+    return createAppliedCivLobbySettings(preset.profile, {
+      kind: 'community',
+      id: preset.id,
+      name: preset.name,
+      revision: preset.revision,
+    })
+  }
+  throw new CivLobbySettingsValidationError('Game settings source must be official, community, or custom.')
+}
+
+function findGameSettingsLeaderUnavailableInVersion(settings: AppliedCivLobbySettings, version: LeaderDataVersion): string | null {
+  const versionIds = new Set(getLeaderIds(version))
+  return GAME_MODES
+    .flatMap(mode => resolveCivLobbySettings(settings.profile, mode).autoBannedLeaderIds)
+    .find(leaderId => !versionIds.has(leaderId)) ?? null
+}
+
 export function registerLobbyRoutes(app: Hono<Env>) {
   app.get('/api/lobby/:mode/fill-test', async (c) => {
     const auth = requireAuthenticatedActivity(c)
@@ -202,9 +259,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     let body: unknown
     try {
-      body = await c.req.json()
+      body = await readJsonWithByteLimit(c.req.raw, LOBBY_CONFIG_REQUEST_MAX_BYTES)
     }
-    catch {
+    catch (error) {
+      if (error instanceof RequestBodyTooLargeError) return c.json({ error: error.message }, 413)
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -212,7 +270,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, civBlitz: civBlitzRaw, civBlitzOptionCount: civBlitzOptionCountRaw, civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, blindBans: blindBansRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, civBlitz: civBlitzRaw, civBlitzOptionCount: civBlitzOptionCountRaw, civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId, gameSettings: gameSettingsRaw } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -237,6 +295,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       steamLobbyLink?: unknown
       targetSize?: unknown
       lobbyId?: unknown
+      gameSettings?: unknown
     }
 
     if (typeof userId !== 'string' || userId.length === 0) {
@@ -245,6 +304,39 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const mismatch = rejectMismatchedActivityUser(c, userId, auth.identity.userId)
     if (mismatch) return mismatch
+
+    if (Object.prototype.hasOwnProperty.call(body, 'gameSettings')) {
+      const extraField = Object.keys(body).find(key => key !== 'userId' && key !== 'lobbyId' && key !== 'gameSettings')
+      if (extraField) return c.json({ error: 'Game settings must be applied separately from draft config.' }, 400)
+      const db = createDb(c.env.DB)
+      const lobby = await resolveOpenLobbyFromBody(db, mode, { lobbyId })
+      if (!lobby || lobby.mode !== mode || lobby.status !== 'open') return c.json({ error: 'No open lobby for this mode' }, 404)
+      if (lobby.hostId !== auth.identity.userId) return c.json({ error: 'Only the lobby host can update game settings' }, 403)
+      if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament lobby game settings are locked.' }, 403)
+
+      let applied: AppliedCivLobbySettings
+      try {
+        applied = await resolveAppliedGameSettingsRequest(db, gameSettingsRaw)
+        const incompatibleId = findGameSettingsLeaderUnavailableInVersion(applied, lobby.draftConfig.leaderDataVersion)
+        if (incompatibleId) return c.json({ error: `Leader ${incompatibleId} is not available in the selected leader data version.` }, 400)
+      }
+      catch (error) {
+        if (error instanceof CommunityPresetRevisionError) return c.json({ error: error.message }, 409)
+        if (error instanceof CivLobbySettingsValidationError) return c.json({ error: error.message }, 400)
+        throw error
+      }
+
+      let updated: LobbyState
+      try {
+        updated = await setLobbyGameSettings(kv, lobby.id, applied, lobby, lobbySessionMutationOptions(c)) ?? lobby
+      }
+      catch (error) {
+        if (isSessionVersionStaleError(error)) return c.json({ error: 'Lobby changed; please retry.' }, 409)
+        throw error
+      }
+      const snapshot = await syncRequestLobbyDerivedState(c, kv, updated)
+      return c.json(snapshot ?? await buildOpenLobbySnapshot(kv, mode, updated, c.env.ALLOWED_DISCORD_GUILD_ID))
+    }
 
     const hasBanTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'banTimerSeconds')
     const hasPickTimerSeconds = Object.prototype.hasOwnProperty.call(body, 'pickTimerSeconds')
@@ -426,6 +518,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedLeaderPoolSize = requestedLeaderPoolSize == null || !leaderDataVersionChanged
       ? requestedLeaderPoolSize
       : Math.min(requestedLeaderPoolSize, getMaxLeaderPoolSize(normalizedLeaderDataVersion))
+    if (leaderDataVersionChanged) {
+      const incompatibleId = findGameSettingsLeaderUnavailableInVersion(normalizeAppliedCivLobbySettings(lobby.gameSettings), normalizedLeaderDataVersion)
+      if (incompatibleId) return c.json({ error: `Leader ${incompatibleId} is not available in the selected leader data version.` }, 400)
+    }
     const normalizedMapVoteEnabled = hasMapVoteEnabled
       ? parsedMapVoteEnabled ?? false
       : lobby.draftConfig.mapVoteEnabled

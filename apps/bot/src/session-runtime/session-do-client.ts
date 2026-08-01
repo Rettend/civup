@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, DraftSeat, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, SessionRecord } from './session-record.ts'
@@ -16,6 +16,12 @@ export type SessionOpenLobbyCommand
     type: 'set-draft-config'
     expectedVersion?: number
     draftConfig: LobbyDraftConfig
+    now?: number
+  }
+  | {
+    type: 'set-game-settings'
+    expectedVersion?: number
+    gameSettings: AppliedCivLobbySettings
     now?: number
   }
   | {

@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftDoublePickMetrics, DraftState, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type { AppliedCivLobbySettings, DraftCancelReason, DraftDoublePickMetrics, DraftState, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 
 export const DRAFT_LIFECYCLE_EVENT_KINDS = [
   'DraftCompleted',
@@ -23,6 +23,7 @@ export interface DraftLifecycleCompletePayload {
   civBlitz?: boolean
   hiddenDraft?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
+  gameSettings?: AppliedCivLobbySettings
 }
 
 export interface DraftLifecycleCancelledPayload {
@@ -40,6 +41,7 @@ export interface DraftLifecycleCancelledPayload {
   civBlitz?: boolean
   hiddenDraft?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
+  gameSettings?: AppliedCivLobbySettings
 }
 
 export type DraftLifecyclePayload = DraftLifecycleCompletePayload | DraftLifecycleCancelledPayload

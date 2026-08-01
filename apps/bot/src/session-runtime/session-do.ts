@@ -1,4 +1,4 @@
-import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { SQL } from 'drizzle-orm'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
@@ -10,7 +10,7 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, canStartWithPlayerCount, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeMapVoteSelection, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, canStartWithPlayerCount, civLobbySettingsProfilesEqual, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeMapVoteSelection, resolveCivLobbySettings, slotToTeamIndex } from '@civup/game'
 import { CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration, verifySessionAccessToken } from '@civup/utils'
 import { eq, sql } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
@@ -27,7 +27,7 @@ import { getCalculatedRankGateError } from '../services/ranked/admission.ts'
 import { createStatsContext } from '../services/stats/context.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
-import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getGameSettingsFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
@@ -106,6 +106,7 @@ type RepeatDraftSource
       hiddenDraft: boolean
       permanentAlly: boolean
       leaderDataVersion: LeaderDataVersion
+      gameSettings: AppliedCivLobbySettings
     }
 
 interface RepeatDraftAvailabilityCache {
@@ -131,6 +132,12 @@ type OpenLobbyCommandRequest
     type: 'set-draft-config'
     expectedVersion?: number
     draftConfig: LobbyDraftConfig
+    now?: number
+  }
+  | {
+    type: 'set-game-settings'
+    expectedVersion?: number
+    gameSettings: AppliedCivLobbySettings
     now?: number
   }
   | {
@@ -291,6 +298,7 @@ interface OpenSessionPatch {
   minRole?: CompetitiveTier | null
   maxRole?: CompetitiveTier | null
   draftConfig?: LobbyDraftConfig
+  gameSettings?: AppliedCivLobbySettings
   slots?: (string | null)[]
   memberPlayerIds?: string[]
   lastArrange?: LobbyArrangeMarker | null
@@ -353,6 +361,7 @@ class TerminalMatchNotFoundError extends Error {
 export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private commandQueue: Promise<void> = Promise.resolve()
   private repeatDraftAvailabilityCache: RepeatDraftAvailabilityCache | null = null
+  private gameSettingsCache: { version: number, value: AppliedCivLobbySettings } | null = null
 
   override async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url)
@@ -495,7 +504,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   protected async getRecord(): Promise<SessionRecord | null> {
-    return await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
+    const record = await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
+    if (!record) return null
+    if (this.gameSettingsCache?.version === record.version) return { ...record, gameSettings: this.gameSettingsCache.value }
+    const storedGameSettings = (record as Omit<SessionRecord, 'gameSettings'> & { gameSettings?: AppliedCivLobbySettings }).gameSettings
+    const gameSettings = normalizeAppliedCivLobbySettings(storedGameSettings)
+    this.gameSettingsCache = { version: record.version, value: gameSettings }
+    return { ...record, gameSettings }
   }
 
   protected override async getSessionAccessId(room: RoomRecord): Promise<string> {
@@ -591,6 +606,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       case 'set-draft-config':
         record = applyOpenSessionPatch(existing, {
           draftConfig: body.draftConfig,
+          updatedAt: body.now,
+        })
+        break
+      case 'set-game-settings':
+        record = applyOpenSessionPatch(existing, {
+          gameSettings: body.gameSettings,
           updatedAt: body.now,
         })
         break
@@ -731,7 +752,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (!canStartWithPlayerCount(record.mode, selectedEntries.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
       return json({ error: 'Session cannot start with the current player count.' }, 400)
     }
-    const leaderPoolError = getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, selectedEntries.length, record.config.leaderDataVersion)
+    const leaderPoolError = getLeaderPoolSizeError(record, selectedEntries.length)
     if (leaderPoolError) return json({ error: leaderPoolError }, 400)
 
     if (!this.env.DB) return json({ error: 'D1 binding is not configured' }, 503)
@@ -913,6 +934,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         mapVoteResult: null,
         hiddenDraft: source.hiddenDraft,
         permanentAlly: source.permanentAlly,
+        gameSettings: record.gameSettings,
       })
       if ('error' in activation) {
         await this.restoreRepeatDraftState(db, dbSnapshot, previousRoom)
@@ -1005,6 +1027,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       state,
       mapVoteResult: null,
       hiddenDraft: source.hiddenDraft === true ? true : undefined,
+      gameSettings: record.gameSettings,
     }
     await this.updateCompletedDraftProjection(db, payload, activated, record, { repeatDraft: true })
   }
@@ -1082,6 +1105,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       permanentAlly: context.permanentAlly,
       hiddenDraft: getHiddenDraftFromDraftData(match.draftData),
       leaderDataVersion,
+      gameSettings: getGameSettingsFromDraftData(match.draftData),
     })) return null
     return {
       kind: 'resume',
@@ -1125,6 +1149,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         permanentAlly: context.permanentAlly,
         hiddenDraft,
         leaderDataVersion,
+        gameSettings: getGameSettingsFromDraftData(draftData),
       })) continue
       return {
         kind: 'complete',
@@ -1133,6 +1158,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         hiddenDraft,
         permanentAlly: context.permanentAlly,
         leaderDataVersion,
+        gameSettings: getGameSettingsFromDraftData(draftData),
       }
     }
 
@@ -1170,6 +1196,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       leaderPoolSize: record.config.leaderPoolSize,
       dealOptionsSize: record.config.dealOptionsSize,
       steamLobbyLink: record.projectionState.steamLobbyLink,
+      gameSettings: record.gameSettings,
     })
 
     return {
@@ -1182,6 +1209,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       civPool: sourceConfig?.civPool ?? buildRepeatCivPool(state),
       timerConfig,
       steamLobbyLink: record.projectionState.steamLobbyLink,
+      gameSettings: record.gameSettings,
     }
   }
 
@@ -1401,6 +1429,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         leaderPoolRankTier,
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
+        gameSettings: record.gameSettings,
       })
       await createDraftMatch(db, this.buildDraftMatchInput(record, runtime.config.matchId, runtime.config.seats))
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
@@ -1428,6 +1457,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       state: room.state,
       mapVoteResult: room.mapVote.result ?? null,
       hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
+      gameSettings: room.config.gameSettings,
     }
     const payload: DraftLifecyclePayload = room.state.status === 'complete'
       ? {
@@ -1470,7 +1500,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return { ok: false, status: 503, error }
   }
 
-  private buildDraftMatchInput(record: Pick<SessionRecord, 'guildId' | 'sourceGuildPolicy' | 'mode'>, matchId: string, seats: DraftSeat[]) {
+  private buildDraftMatchInput(record: Pick<SessionRecord, 'guildId' | 'sourceGuildPolicy' | 'mode' | 'gameSettings'>, matchId: string, seats: DraftSeat[]) {
     const guildId = record.guildId?.trim() ?? ''
     const primaryGuildId = this.env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
     if (!guildId) throw new Error('Cannot create a match without an owning server')
@@ -1481,6 +1511,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       seats,
       guildId,
       primaryGuildId,
+      gameSettings: record.gameSettings,
       allowLegacyPrimarySource: record.sourceGuildPolicy !== 'required' && guildId === primaryGuildId,
     }
   }
@@ -1842,6 +1873,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
       doublePickMetrics: payload.doublePickMetrics,
+      gameSettings: payload.gameSettings ?? record.gameSettings,
     })
 
     if ('error' in result) {
@@ -1889,6 +1921,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hiddenDraft: payload.hiddenDraft === true,
       permanentAlly: record.config.permanentAlly === true,
       doublePickMetrics: payload.doublePickMetrics,
+      gameSettings: payload.gameSettings ?? record.gameSettings,
       allowActive: record.phase === 'swap' && payload.state.picks.length > 0,
     })
 
@@ -3266,6 +3299,7 @@ function applyOpenSessionPatch(record: OpenSessionRecord, patch: OpenSessionPatc
     hostId: typeof patch.hostId === 'string' && patch.hostId.length > 0 ? patch.hostId : record.hostId,
     mode,
     config,
+    gameSettings: patch.gameSettings === undefined ? record.gameSettings : normalizeAppliedCivLobbySettings(patch.gameSettings),
     roster,
     lastArrange,
     projectionState,
@@ -3329,6 +3363,7 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     mode: record.mode,
     matchId: null,
     config: record.config,
+    gameSettings: record.gameSettings,
     roster: record.roster,
     lastArrange: record.lastArrange,
     projectionState: record.projectionState,
@@ -3354,7 +3389,7 @@ function getRepeatDraftStartError(record: OpenSessionRecord, currentSeats: reado
   if (!canStartWithPlayerCount(record.mode, currentSeats.length, record.roster.slots.length, { redDeath: record.config.redDeath, permanentAlly: record.config.permanentAlly })) {
     return 'Session cannot start with the current player count.'
   }
-  return getLeaderPoolSizeError(record.mode, record.config.redDeath, record.config.leaderPoolSize, currentSeats.length, record.config.leaderDataVersion)
+  return getLeaderPoolSizeError(record, currentSeats.length)
 }
 
 function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, currentSeats: readonly DraftSeat[]): string {
@@ -3378,6 +3413,7 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
       randomDraft: record.config.randomDraft,
       redDeath: record.config.redDeath,
       simultaneousPick: record.config.simultaneousPick,
+      gameSettings: record.gameSettings,
     },
   })
 }
@@ -3385,7 +3421,7 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
 function isRepeatDraftDataCompatible(
   record: OpenSessionRecord,
   state: DraftState,
-  source: { redDeath: boolean, permanentAlly: boolean, hiddenDraft: boolean, leaderDataVersion: LeaderDataVersion },
+  source: { redDeath: boolean, permanentAlly: boolean, hiddenDraft: boolean, leaderDataVersion: LeaderDataVersion, gameSettings: AppliedCivLobbySettings },
 ): boolean {
   return isRepeatDraftFormatCompatible(record, state)
     && source.redDeath === record.config.redDeath
@@ -3394,6 +3430,7 @@ function isRepeatDraftDataCompatible(
     && source.permanentAlly === isPermanentAllyFfaConfig(record)
     && source.hiddenDraft === record.config.hiddenDraft
     && source.leaderDataVersion === (record.config.leaderDataVersion ?? 'live')
+    && sameAppliedGameSettings(source.gameSettings, record.gameSettings)
 }
 
 function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: DraftState, sourceConfig: RoomRecord['config']): boolean {
@@ -3406,6 +3443,7 @@ function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: Draft
     && (sourceConfig.permanentAlly === true) === isPermanentAllyFfaConfig(record)
     && (sourceConfig.mapVoteEnabled === true) === record.config.mapVoteEnabled
     && (sourceConfig.randomDraft === true) === (!record.config.hiddenDraft && record.config.randomDraft)
+    && sameAppliedGameSettings(normalizeAppliedCivLobbySettings(sourceConfig.gameSettings), record.gameSettings)
 }
 
 function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftState): boolean {
@@ -3673,10 +3711,16 @@ function sameOpenSessionRecord(left: OpenSessionRecord, right: OpenSessionRecord
   return left.hostId === right.hostId
     && left.mode === right.mode
     && sameSessionConfig(left.config, right.config)
+    && sameAppliedGameSettings(left.gameSettings, right.gameSettings)
     && sameSessionRoster(left.roster, right.roster)
     && sameProjectionState(left.projectionState, right.projectionState)
     && left.lastActivityAt === right.lastActivityAt
     && sameLobbyArrangeMarker(left.lastArrange, right.lastArrange)
+}
+
+function sameAppliedGameSettings(left: AppliedCivLobbySettings, right: AppliedCivLobbySettings): boolean {
+  return civLobbySettingsProfilesEqual(left.profile, right.profile)
+    && JSON.stringify(left.preset) === JSON.stringify(right.preset)
 }
 
 function sameSessionConfig(left: SessionConfig, right: SessionConfig): boolean {
@@ -3758,18 +3802,21 @@ function isAllowedSessionGuild(sessionGuildId: string | null, env: SessionDOEnv)
   return config.ok && sessionGuildId != null && config.guildIds.includes(sessionGuildId)
 }
 
-function getLeaderPoolSizeError(
-  mode: GameMode,
-  redDeath: boolean,
-  leaderPoolSize: number | null,
-  playerCount: number,
-  leaderDataVersion: LeaderDataVersion,
-): string | null {
-  if (redDeath) return null
+function getLeaderPoolSizeError(record: Pick<SessionRecord, 'mode' | 'config' | 'gameSettings'>, playerCount: number): string | null {
+  const { mode, config } = record
+  if (config.redDeath || config.civBlitz || config.hiddenDraft) return null
+  const excludedLeaderIds = resolveCivLobbySettings(record.gameSettings.profile, mode).autoBannedLeaderIds
+  let maximumSize: number
+  try {
+    maximumSize = getEligibleLeaderIds(config.leaderDataVersion, excludedLeaderIds).length
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  const leaderPoolSize = config.leaderPoolSize
   if (leaderPoolSize == null) return null
 
-  const maximumSize = getMaxLeaderPoolSize(leaderDataVersion)
-  if (leaderPoolSize > maximumSize) return `Leaders must be at most ${maximumSize} for this BBG version.`
+  if (leaderPoolSize > maximumSize) return `Only ${maximumSize} eligible leaders remain after automatic exclusions; reduce the leader pool or exclusions.`
 
   const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
   if (leaderPoolSize >= minimumSize) return null

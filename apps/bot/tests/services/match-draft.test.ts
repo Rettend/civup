@@ -1,6 +1,6 @@
 import type { DraftInput, DraftSeat, DraftState } from '@civup/game'
 import { matchBans, matches, matchParticipants } from '@civup/db'
-import { civBlitz2v2, createDraft, default2v2, getCivBlitzRegistry, isDraftError, processDraftInput, swapSeatPicks } from '@civup/game'
+import { civBlitz2v2, cloneOfficialAppliedSettings, createDraft, default2v2, getCivBlitzRegistry, isDraftError, processDraftInput, swapSeatPicks } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { splitValuesForD1InsertLimit } from '../../src/services/match/draft.ts'
@@ -19,19 +19,27 @@ describe('draft match activation', () => {
       const matchId = 'match-draft-activation'
       const seats = create2v2Seats()
       const completedState = buildCompleted2v2DraftState(matchId, seats)
+      const gameSettings = cloneOfficialAppliedSettings()
+      gameSettings.profile.base.hutFrequencyMultiplier = 2
+      gameSettings.preset = { kind: 'custom', id: null, name: 'Match settings', revision: null }
 
       await createDraftMatch(db, {
         ...MATCH_SCOPE,
         matchId,
         mode: '2v2',
         seats,
+        gameSettings,
       })
+
+      const [draftingMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      expect(JSON.parse(draftingMatch?.draftData ?? '{}').gameSettings).toEqual(gameSettings)
 
       const result = await activateDraftMatch(db, {
         state: completedState,
         completedAt: 1_700_000_000_000,
         hostId: seats[0]?.playerId ?? 'p1',
         leaderDataVersion: 'beta',
+        gameSettings,
       })
 
       expect('error' in result).toBe(false)
@@ -49,8 +57,9 @@ describe('draft match activation', () => {
       expect(storedMatch?.status).toBe('active')
       expect(storedMatch?.guildId).toBe(GUILD_ID)
       expect(storedMatch?.draftCompletedAt).toBe(1_700_000_000_000)
-      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string } : null
+      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string, gameSettings?: typeof gameSettings } : null
       expect(storedDraftData?.leaderDataVersion).toBe('beta')
+      expect(storedDraftData?.gameSettings).toEqual(gameSettings)
 
       const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
       expect(storedParticipants.every(participant => participant.sourceGuildId === GUILD_ID && participant.sourceKind === 'joined')).toBe(true)
@@ -353,8 +362,8 @@ describe('draft match activation', () => {
         status: 'drafting',
         completedAt: null,
         cancelledAt: null,
-        draftData: null,
       })
+      expect(JSON.parse(storedMatch?.draftData ?? '{}').gameSettings?.preset?.kind).toBe('official')
       expect(storedParticipants.map(participant => participant.playerId).sort()).toEqual(['p2', 'p3'])
       expect(storedParticipants.every(participant => participant.civId == null)).toBe(true)
       expect(storedBans).toEqual([])

@@ -7,3 +7,4 @@ export { scopedCivStatPoolTotals, scopedCivStats, scopedCivStatTotals, scopedMat
 export { seasonPeakModeRanks, seasonPeakRanks, seasons } from './seasons.ts'
 export { tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from './tournaments.ts'
 export { autosaveUploads } from './uploads.ts'
+export { gameSettingsPresets } from './game-settings.ts'

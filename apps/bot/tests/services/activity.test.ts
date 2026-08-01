@@ -1,5 +1,5 @@
-import type { QueueEntry } from '@civup/game'
-import { allLeaderIds } from '@civup/game'
+import type { AppliedCivLobbySettings, QueueEntry } from '@civup/game'
+import { allFactionIds, allLeaderIds, cloneOfficialAppliedSettings, getDefaultLeaderPoolSize, getLeaderIds } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromSessionRecord } from '../../src/services/activity/session-state.ts'
 import type { LobbyState } from '../../src/services/lobby/types.ts'
@@ -19,6 +19,13 @@ const baseFfaEntries: QueueEntry[] = Array.from({ length: 4 }, (_, index) => ({
   displayName: `P${index + 1}`,
   joinedAt: index,
 }))
+
+function gameSettingsWithExclusions(leaderIds: string[]): AppliedCivLobbySettings {
+  const settings = cloneOfficialAppliedSettings()
+  settings.profile.base.autoBannedLeaderIds = [...leaderIds]
+  settings.preset = { kind: 'custom', id: null, name: 'Automatic exclusions', revision: null }
+  return settings
+}
 
 describe('activity canonical lookup behavior', () => {
   test('getMatchForUser resolves from canonical live lobby membership', async () => {
@@ -150,6 +157,64 @@ describe('draft runtime config', () => {
     expect(result.config.hiddenDraft).toBe(true)
     expect(result.config.randomDraft).toBe(false)
     expect(result.config.civPool).toEqual(allLeaderIds)
+  })
+
+  test('applies automatic leader exclusions to standard, random, and hidden drafts', () => {
+    const excludedLeaderIds = getLeaderIds('live').slice(0, 2)
+    const gameSettings = gameSettingsWithExclusions(excludedLeaderIds)
+    const common = { hostId: 'p1', gameSettings }
+    const standard = buildDraftRuntimeConfig('1v1', baseFfaEntries.slice(0, 2), { ...common, matchId: 'session-excluded-standard' })
+    const random = buildDraftRuntimeConfig('1v1', baseFfaEntries.slice(0, 2), { ...common, matchId: 'session-excluded-random', randomDraft: true })
+    const hidden = buildDraftRuntimeConfig('1v1', baseFfaEntries.slice(0, 2), { ...common, matchId: 'session-excluded-hidden', hiddenDraft: true })
+
+    for (const result of [standard, random, hidden]) {
+      expect(result.config.civPool.some(id => excludedLeaderIds.includes(id))).toBe(false)
+      expect(result.config.gameSettings).toEqual(gameSettings)
+    }
+    expect(hidden.config.civPool).toHaveLength(getLeaderIds('live').length - excludedLeaderIds.length)
+  })
+
+  test('shrinks a default pool to the eligible roster without hiding invalid explicit sizes', () => {
+    const entries: QueueEntry[] = Array.from({ length: 10 }, (_, index) => ({
+      playerId: `ffa-${index + 1}`,
+      displayName: `FFA ${index + 1}`,
+      joinedAt: index,
+    }))
+    const excludedLeaderIds = getLeaderIds('live').slice(0, 32)
+    const eligibleCount = getLeaderIds('live').length - excludedLeaderIds.length
+    const options = {
+      matchId: 'session-excluded-default',
+      hostId: 'ffa-1',
+      gameSettings: gameSettingsWithExclusions(excludedLeaderIds),
+    }
+
+    const result = buildDraftRuntimeConfig('ffa', entries, options)
+    expect(result.config.civPool).toHaveLength(Math.min(getDefaultLeaderPoolSize('ffa', entries.length), eligibleCount))
+    expect(() => buildDraftRuntimeConfig('ffa', entries, { ...options, matchId: 'session-excluded-explicit', leaderPoolSize: eligibleCount + 1 })).toThrow('eligible leaders remain')
+  })
+
+  test('keeps automatic leader exclusions out of Red Death and CivBlitz pools', () => {
+    const gameSettings = gameSettingsWithExclusions(getLeaderIds('live').slice(0, 2))
+    const redDeath = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
+      matchId: 'session-excluded-red-death',
+      hostId: 'p1',
+      redDeath: true,
+      gameSettings,
+    })
+    const civBlitz = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
+      matchId: 'session-excluded-civblitz',
+      hostId: 'p1',
+      civBlitz: true,
+      gameSettings,
+    })
+    const civBlitzWithoutSettings = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
+      matchId: 'session-civblitz-control',
+      hostId: 'p1',
+      civBlitz: true,
+    })
+
+    expect(redDeath.config.civPool).toEqual(allFactionIds)
+    expect(civBlitz.config.civPool).toEqual(civBlitzWithoutSettings.config.civPool)
   })
 
   test('uses draft-format pick order for team draft seats', async () => {

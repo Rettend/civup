@@ -95,6 +95,7 @@ describe('DraftSetupPage UI', () => {
     expect(queryUiScaleControl()).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: /Game settings/ })).toBeTruthy()
   })
 
   test('shows accessible source server icons only for mixed-server rosters', () => {

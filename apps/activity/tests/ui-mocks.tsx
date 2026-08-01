@@ -3,7 +3,7 @@
 import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
-import { getPickSeatForPlayer } from '@civup/game'
+import { cloneOfficialAppliedSettings, getPickSeatForPlayer } from '@civup/game'
 import { mock } from 'bun:test'
 import { createMutable } from 'solid-js/store'
 import { getTagCategory } from '../src/client/lib/leader-tags'
@@ -51,6 +51,10 @@ export const storeSpies = {
     return { ok: true, lobby: mockLobbySnapshotFromConfigPatch(patch) }
   }),
   updateLobbyMode: mock(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
+  fetchGameSettingsPresets: mock(async () => []),
+  createGameSettingsPreset: mock(async () => { throw new Error('Not configured in this test') }),
+  updateGameSettingsPreset: mock(async () => { throw new Error('Not configured in this test') }),
+  deleteGameSettingsPreset: mock(async () => {}),
 }
 
 export const discordSpies = {
@@ -179,6 +183,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       hiddenDraft: false,
       duplicateFactions: false,
     },
+    gameSettings: cloneOfficialAppliedSettings(),
     serverDefaults: {
       banTimerSeconds: 60,
       pickTimerSeconds: 90,
@@ -635,6 +640,10 @@ mock.module('~/client/stores', () => ({
   },
   favoriteLeaderIds: () => uiMockState.favoriteLeaderIds,
   fetchLobbyRankedRoles: (...args: Parameters<typeof storeSpies.fetchLobbyRankedRoles>) => storeSpies.fetchLobbyRankedRoles(...args),
+  fetchGameSettingsPresets: (...args: Parameters<typeof storeSpies.fetchGameSettingsPresets>) => storeSpies.fetchGameSettingsPresets(...args),
+  createGameSettingsPreset: (...args: Parameters<typeof storeSpies.createGameSettingsPreset>) => storeSpies.createGameSettingsPreset(...args),
+  updateGameSettingsPreset: (...args: Parameters<typeof storeSpies.updateGameSettingsPreset>) => storeSpies.updateGameSettingsPreset(...args),
+  deleteGameSettingsPreset: (...args: Parameters<typeof storeSpies.deleteGameSettingsPreset>) => storeSpies.deleteGameSettingsPreset(...args),
   ffaPlacementOrder: () => uiMockState.ffaPlacementOrder,
   fillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.fillLobbyWithTestPlayers>) => storeSpies.fillLobbyWithTestPlayers(...args),
   finishMapVote,

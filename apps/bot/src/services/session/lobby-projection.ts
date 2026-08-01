@@ -1,11 +1,11 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import type { SessionConfig, SessionPhase, SessionRoster } from '../../session-runtime/session-record.ts'
+import type { SessionPhase, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LobbyState } from '../lobby/types.ts'
 import { matches, matchParticipants, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES } from '@civup/game'
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
-import { buildLobbyDraftConfigFromSessionConfig } from '../../session-runtime/session-record.ts'
+import { buildLobbyDraftConfigFromSessionConfig, parseStoredSessionDirectoryConfig } from '../../session-runtime/session-record.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from './directory.ts'
 
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
@@ -230,8 +230,9 @@ function compareLobbyProjectionByUpdatedAtDesc(left: LobbyState, right: LobbySta
 export function parseSessionLobbyProjection(row: SessionDirectoryRow): LobbyState | null {
   if (!isSessionPhase(row.phase) || !isGameMode(row.mode)) return null
   const roster = parseSessionRoster(row.rosterJson)
-  const config = parseSessionConfig(row.configJson, row.mode)
-  if (!roster || !config) return null
+  const storedConfig = parseStoredSessionDirectoryConfig(row.configJson, row.mode)
+  if (!roster || !storedConfig) return null
+  const { config, gameSettings } = storedConfig
 
   return {
     id: row.sessionId,
@@ -250,6 +251,7 @@ export function parseSessionLobbyProjection(row: SessionDirectoryRow): LobbyStat
     memberPlayerIds: roster.participants.map(member => member.playerId),
     slots: [...roster.slots],
     draftConfig: buildLobbyDraftConfigFromSessionConfig(config),
+    gameSettings,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     revision: row.version,
@@ -294,39 +296,6 @@ function parseSourceGuild(value: unknown): NonNullable<SessionRoster['participan
     id: candidate.id,
     ...(typeof candidate.name === 'string' && candidate.name.trim() ? { name: candidate.name.trim() } : {}),
     ...(typeof candidate.iconUrl === 'string' && candidate.iconUrl.startsWith('https://') ? { iconUrl: candidate.iconUrl } : {}),
-  }
-}
-
-function parseSessionConfig(raw: string, mode: SessionDirectoryRow['mode']): SessionConfig | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<SessionConfig>
-    if (!parsed || typeof parsed !== 'object') return null
-
-    return {
-      banTimerSeconds: typeof parsed.banTimerSeconds === 'number' ? parsed.banTimerSeconds : null,
-      pickTimerSeconds: typeof parsed.pickTimerSeconds === 'number' ? parsed.pickTimerSeconds : null,
-      leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
-      leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
-      mapVoteEnabled: parsed.mapVoteEnabled === true,
-      blindBans: parsed.blindBans !== false,
-      blindPicks: parsed.blindPicks === true,
-      simultaneousPick: parsed.simultaneousPick === true,
-      permanentAlly: mode === 'ffa' && parsed.redDeath !== true ? parsed.permanentAlly !== false : false,
-      redDeath: parsed.redDeath === true,
-      dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
-      civBlitz: parsed.civBlitz === true,
-      civBlitzOptionCount: typeof parsed.civBlitzOptionCount === 'number' ? parsed.civBlitzOptionCount : 4,
-      civBlitzExcludeBbgExpanded: parsed.civBlitzExcludeBbgExpanded !== false,
-      randomDraft: parsed.randomDraft === true,
-      hiddenDraft: parsed.hiddenDraft === true,
-      duplicateFactions: parsed.duplicateFactions === true,
-      closed: parsed.closed === true,
-      minRole: parsed.minRole ?? null,
-      maxRole: parsed.maxRole ?? null,
-    }
-  }
-  catch {
-    return null
   }
 }
 

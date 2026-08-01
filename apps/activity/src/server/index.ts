@@ -84,6 +84,7 @@ export default {
         url.pathname.startsWith('/api/activity/')
         || url.pathname.startsWith('/api/match/')
         || url.pathname.startsWith('/api/lobby/')
+        || url.pathname.startsWith('/api/game-settings/')
         || url.pathname.startsWith('/api/lobby-ranks/')
         || url.pathname.startsWith('/api/uploads/')
       ) {

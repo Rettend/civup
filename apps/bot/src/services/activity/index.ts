@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
-import type { CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getLeaderIds, isTeamMode, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getEligibleLeaderIds, isTeamMode, normalizeAppliedCivLobbySettings, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveCivLobbySettings, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
@@ -35,6 +35,7 @@ export interface CreateDraftRuntimeOptions {
   leaderPoolRankTier?: CompetitiveTier | null
   dealOptionsSize?: number | null
   steamLobbyLink?: string | null
+  gameSettings?: AppliedCivLobbySettings
 }
 
 export interface DraftRuntimeConfigResult extends MatchCreationResult {
@@ -71,13 +72,24 @@ export function buildDraftRuntimeConfig(
         getCivBlitzOptionCountMaximum(leaderDataVersion, { excludeBbgExpanded: civBlitzExcludeBbgExpanded }),
       )
     : undefined
+  const gameSettings = normalizeAppliedCivLobbySettings(options.gameSettings)
+  const autoBannedLeaderIds = redDeathMode || civBlitz
+    ? []
+    : resolveCivLobbySettings(gameSettings.profile, mode).autoBannedLeaderIds
+  const eligibleLeaderIds = redDeathMode || civBlitz
+    ? []
+    : getEligibleLeaderIds(leaderDataVersion, autoBannedLeaderIds)
+  const requestedLeaderPoolSize = resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion, options.leaderPoolRankTier)
+  const leaderPoolSize = options.leaderPoolSize == null
+    ? Math.min(requestedLeaderPoolSize, eligibleLeaderIds.length)
+    : requestedLeaderPoolSize
   const civPool = civBlitz
     ? getCivBlitzComponentIds(leaderDataVersion, { excludeBbgExpanded: civBlitzExcludeBbgExpanded })
     : redDeathMode
     ? [...allFactionIds]
     : hiddenDraft
-      ? getLeaderIds(leaderDataVersion)
-      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion, options.leaderPoolRankTier), Math.random, leaderDataVersion)
+      ? eligibleLeaderIds
+      : sampleLeaderPool(leaderPoolSize, Math.random, leaderDataVersion, autoBannedLeaderIds)
   const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,
@@ -97,6 +109,7 @@ export function buildDraftRuntimeConfig(
     leaderDataVersion,
     timerConfig: options.timerConfig,
     steamLobbyLink: options.steamLobbyLink ?? null,
+    gameSettings,
   }
 
   return { matchId, formatId: format.id, seats, config }

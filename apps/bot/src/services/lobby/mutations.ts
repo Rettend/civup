@@ -1,8 +1,9 @@
 import type { Database } from '@civup/db'
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { SessionOpenLobbyCommand } from '../../session-runtime/session-do-client.ts'
 import type { SessionRecord } from '../../session-runtime/session-record.ts'
 import type { LobbyArrangeStrategy, LobbyDraftConfig, LobbyState, LobbyStatus } from './types.ts'
+import { civLobbySettingsProfilesEqual, cloneOfficialAppliedSettings, normalizeAppliedCivLobbySettings } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { createSessionAggregateFromLobby, getSessionRecord, runSessionOpenLobbyCommand, runSessionProjectionCommand } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord, buildLobbyStateFromSessionRecord } from '../../session-runtime/session-record.ts'
@@ -70,6 +71,7 @@ export async function createLobby(
     memberPlayerIds: [input.hostId],
     slots,
     draftConfig: normalizeDraftConfigForMode(input.mode, DEFAULT_DRAFT_CONFIG, slots.length),
+    gameSettings: cloneOfficialAppliedSettings(),
     createdAt: now,
     updatedAt: now,
     revision: 1,
@@ -185,6 +187,31 @@ export async function setLobbyDraftConfig(
   }
   return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
     ? { type: 'set-draft-config', expectedVersion: lobby.revision, draftConfig: normalizedDraftConfig, now: updated.updatedAt }
+    : undefined)
+}
+
+export async function setLobbyGameSettings(
+  kv: KVNamespace,
+  lobbyId: string,
+  gameSettings: AppliedCivLobbySettings,
+  currentLobby?: LobbyState,
+  options?: LobbySessionProjectionOptions,
+): Promise<LobbyState | null> {
+  const lobby = await getMutationLobby(kv, lobbyId, currentLobby, options)
+  if (!lobby) return null
+  const normalized = normalizeAppliedCivLobbySettings(gameSettings)
+  const current = normalizeAppliedCivLobbySettings(lobby.gameSettings)
+  if (civLobbySettingsProfilesEqual(current.profile, normalized.profile)
+    && JSON.stringify(current.preset) === JSON.stringify(normalized.preset)) return lobby
+
+  const updated: LobbyState = {
+    ...lobby,
+    gameSettings: normalized,
+    updatedAt: Date.now(),
+    revision: lobby.revision + 1,
+  }
+  return commitLobbyMutation(kv, updated, options, putLobby, lobby.status === 'open'
+    ? { type: 'set-game-settings', expectedVersion: lobby.revision, gameSettings: normalized, now: updated.updatedAt }
     : undefined)
 }
 

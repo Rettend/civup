@@ -1,4 +1,5 @@
 import type { DraftState } from '@civup/game'
+import { cloneOfficialAppliedSettings } from '@civup/game'
 import type { ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../src/client/stores'
 
 type DraftStatus = DraftState['status']
@@ -87,6 +88,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       hiddenDraft: false,
       duplicateFactions: false,
     },
+    gameSettings: cloneOfficialAppliedSettings(),
     serverDefaults: {
       banTimerSeconds: 60,
       pickTimerSeconds: 90,

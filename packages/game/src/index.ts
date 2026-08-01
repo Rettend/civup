@@ -6,7 +6,7 @@ export { createDraft, getBansForSeat, getCurrentStep, getPendingSeats, getPickSe
 export type { DraftProcessOptions } from './draft-machine.ts'
 export { allFactionIds, factionMap, factions, getFaction, searchFactions } from './factions.ts'
 export { betaLeaderDataVersionLabel, hasBetaLeaderData, liveLeaderDataVersionLabel, normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
-export { DEFAULT_LEADER_POOL_RANK_TIER, formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
+export { DEFAULT_LEADER_POOL_RANK_TIER, formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getEligibleLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from './leader-pool.ts'
 export { allLeaderIds, getLeader, getLeaderIds, getLeaderMap, getLeaders, leaderBetaMap, leaderMap, leaders, leadersBeta, redDeathLeaderMap, redDeathLeaders, searchLeaders } from './leader-registry.ts'
 export {
   createMapVoteRng,
@@ -90,6 +90,40 @@ export {
 } from './mode.ts'
 export { createSeededRandom } from './random.ts'
 export type { RandomSource } from './random.ts'
+export {
+  CIV_LOBBY_SETTINGS_LIMITS,
+  CIV_LOBBY_SETTINGS_COMMUNITY_PRESET_LIST_LIMIT,
+  CIV_LOBBY_SETTINGS_MAX_COMMUNITY_PRESETS_PER_OWNER,
+  CIV_LOBBY_SETTINGS_MAX_AUTO_BANNED_LEADERS,
+  CIV_LOBBY_SETTINGS_PRESET_NAME_MAX_LENGTH,
+  CIV_LOBBY_SETTINGS_PRESET_NAME_MIN_LENGTH,
+  CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES,
+  CIV_LOBBY_SETTINGS_SCHEMA_VERSION,
+  CivLobbySettingsValidationError,
+  civLobbySettingsProfilesEqual,
+  cloneOfficialAppliedSettings,
+  createAppliedCivLobbySettings,
+  normalizeAppliedCivLobbySettings,
+  normalizeCivLobbySettingsPresetName,
+  normalizeCivLobbySettingsProfile,
+  OFFICIAL_PPL_APPLIED_CIV_LOBBY_SETTINGS,
+  OFFICIAL_PPL_CIV_LOBBY_SETTINGS_NAME,
+  OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE,
+  profileJsonByteLength,
+  resolveCivLobbySettings,
+} from './game-settings.ts'
+export type {
+  AppliedCivLobbySettings,
+  CivLobbyCompetitiveBans,
+  CivLobbyMphTimerFormula,
+  CivLobbyRidges,
+  CivLobbySettings,
+  CivLobbySettingsCommunityPreset,
+  CivLobbySettingsOverride,
+  CivLobbySettingsPresetKind,
+  CivLobbySettingsPresetMetadata,
+  CivLobbySettingsProfile,
+} from './game-settings.ts'
 export type {
   CompetitiveTier,
   CivBlitzCategoryOptions,

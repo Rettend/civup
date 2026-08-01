@@ -1,4 +1,4 @@
-import type { DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type { AppliedCivLobbySettings, DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 
 export interface MatchRow {
   id: string
@@ -147,6 +147,7 @@ export interface CreateDraftMatchInput {
   seats: DraftSeat[]
   guildId: string
   primaryGuildId: string
+  gameSettings?: AppliedCivLobbySettings
   allowLegacyPrimarySource?: boolean
 }
 
@@ -159,6 +160,7 @@ export interface ActivateDraftInput {
   hiddenDraft?: boolean
   permanentAlly?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
+  gameSettings?: AppliedCivLobbySettings
 }
 
 export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
@@ -173,6 +175,7 @@ export interface CancelDraftInput {
   hiddenDraft?: boolean
   permanentAlly?: boolean
   doublePickMetrics?: DraftDoublePickMetrics
+  gameSettings?: AppliedCivLobbySettings
   allowActive?: boolean
 }
 

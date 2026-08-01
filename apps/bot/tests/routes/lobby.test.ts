@@ -1,5 +1,5 @@
-import { matches, players, scopedPlayerRatings } from '@civup/db'
-import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
+import { matches, players, scopedPlayerRatings, sessionDirectory } from '@civup/db'
+import { cloneOfficialAppliedSettings, getCivBlitzOptionCountMaximum, getLeaderIds, getMaxLeaderPoolSize, normalizeAppliedCivLobbySettings, resolveCivLobbySettings } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -8,6 +8,8 @@ import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createGameSettingsPreset, updateGameSettingsPreset } from '../../src/services/game-settings-presets.ts'
+import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -733,6 +735,184 @@ describe('lobby routes', () => {
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
     expect(configuredLobby.maxRole).toBe('tier2')
+  })
+
+  test('applies copied custom game settings and preserves mode overrides when the lobby mode changes', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'host', displayName: 'Host', avatarUrl: null, joinedAt: 1 })
+    const profile = cloneOfficialAppliedSettings().profile
+    profile.modeOverrides['3v3'] = { hutFrequencyMultiplier: 2.5 }
+
+    const applyResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'custom', profile } }),
+    }, buildEnv(kv))
+
+    expect(applyResponse.status).toBe(200)
+    await expect(applyResponse.json()).resolves.toMatchObject({
+      gameSettings: { preset: { kind: 'custom', name: 'Custom settings' } },
+    })
+    expect(resolveCivLobbySettings((await getLobbyById(kv, lobby.id))!.gameSettings!.profile, '3v3').hutFrequencyMultiplier).toBe(2.5)
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+    const modeResponse = await app.request('/api/lobby/2v2/mode', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, nextMode: '3v3' }),
+    }, buildEnv(kv))
+
+    expect(modeResponse.status).toBe(200)
+    const updated = await getLobbyById(kv, lobby.id)
+    expect(updated?.mode).toBe('3v3')
+    expect(resolveCivLobbySettings(updated!.gameSettings!.profile, '3v3').hutFrequencyMultiplier).toBe(2.5)
+  })
+
+  test('restricts game setting application to the host and to a separate config request', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+
+    const nonHost = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('guest', 'Guest'),
+      body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, gameSettings: { source: 'official' } }),
+    }, buildEnv(kv))
+    expect(nonHost.status).toBe(403)
+
+    const mixed = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'official' }, blindBans: false }),
+    }, buildEnv(kv))
+    expect(mixed.status).toBe(400)
+    await expect(mixed.json()).resolves.toEqual({ error: 'Game settings must be applied separately from draft config.' })
+
+    const unknownField = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'official', profile: cloneOfficialAppliedSettings().profile } }),
+    }, buildEnv(kv))
+    expect(unknownField.status).toBe(400)
+    await expect(unknownField.json()).resolves.toEqual({ error: 'Game settings request contains an unknown field: profile.' })
+  })
+
+  test('copies a community preset into the lobby instead of following later catalog edits', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const runtime = getExistingTestLobbyRuntime(kv)
+    const firstProfile = cloneOfficialAppliedSettings().profile
+    firstProfile.base.hutFrequencyMultiplier = 2
+    const created = await createGameSettingsPreset(runtime.db, {
+      ownerDiscordUserId: 'owner',
+      ownerDisplayName: 'Owner',
+      name: 'Community rules',
+      profile: firstProfile,
+      now: 1,
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) throw new Error('Preset fixture was not created')
+
+    const applyResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'community', presetId: created.preset.id, presetRevision: created.preset.revision } }),
+    }, buildEnv(kv))
+    expect(applyResponse.status).toBe(200)
+
+    const revisedProfile = cloneOfficialAppliedSettings().profile
+    revisedProfile.base.hutFrequencyMultiplier = 3
+    const updated = await updateGameSettingsPreset(runtime.db, {
+      id: created.preset.id,
+      ownerDiscordUserId: 'owner',
+      revision: created.preset.revision,
+      profile: revisedProfile,
+      now: 2,
+    })
+    expect(updated.ok).toBe(true)
+
+    const staleApplyResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'community', presetId: created.preset.id, presetRevision: created.preset.revision } }),
+    }, buildEnv(kv))
+    expect(staleApplyResponse.status).toBe(409)
+    await expect(staleApplyResponse.json()).resolves.toEqual({ error: 'Preset changed; refresh and try again.' })
+
+    const stored = await getLobbyById(kv, lobby.id)
+    expect(stored?.gameSettings?.preset).toMatchObject({ kind: 'community', id: created.preset.id, revision: 1 })
+    expect(stored?.gameSettings?.profile.base.hutFrequencyMultiplier).toBe(2)
+  })
+
+  test('rejects a leader data version that would invalidate automatic exclusions', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: 'host',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    const betaOnlyLeaderId = getLeaderIds('beta').find(id => !getLeaderIds('live').includes(id))!
+    const betaResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'beta' }),
+    }, buildEnv(kv))
+    expect(betaResponse.status).toBe(200)
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.leaderDataVersion).toBe('beta')
+    const profile = cloneOfficialAppliedSettings().profile
+    profile.base.autoBannedLeaderIds = [betaOnlyLeaderId]
+
+    const applyResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, gameSettings: { source: 'custom', profile } }),
+    }, buildEnv(kv))
+    expect(applyResponse.status).toBe(200)
+    expect((await getLobbyById(kv, lobby.id))?.gameSettings?.profile.base.autoBannedLeaderIds).toEqual([betaOnlyLeaderId])
+    const [directoryRow] = await getExistingTestLobbyRuntime(kv).db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    const directoryConfig = JSON.parse(directoryRow!.configJson)
+    expect(directoryConfig.leaderDataVersion).toBe('beta')
+    expect(directoryConfig.gameSettings.profile.base.autoBannedLeaderIds).toEqual([betaOnlyLeaderId])
+    expect(normalizeAppliedCivLobbySettings(directoryConfig.gameSettings).profile.base.autoBannedLeaderIds).toEqual([betaOnlyLeaderId])
+    const projection = await getSessionLobbyProjectionByMatch(getExistingTestLobbyRuntime(kv).db, lobby.id)
+    expect(projection?.draftConfig.leaderDataVersion).toBe('beta')
+    expect(projection?.gameSettings?.profile.base.autoBannedLeaderIds).toEqual([betaOnlyLeaderId])
+
+    const versionResponse = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'live' }),
+    }, buildEnv(kv))
+    expect(versionResponse.status).toBe(400)
+    await expect(versionResponse.json()).resolves.toEqual({ error: `Leader ${betaOnlyLeaderId} is not available in the selected leader data version.` })
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.leaderDataVersion).toBe('beta')
   })
 
   test('config route swaps inverted matchmaking rank bounds', async () => {

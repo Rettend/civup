@@ -39,6 +39,20 @@ describe('activity party proxy', () => {
     expect(forwarded.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
   })
 
+  test('proxies the game settings preset catalog through the bot service binding', async () => {
+    const forwardedRequests: Request[] = []
+    const token = await createTestActivitySession('player-1', 'Player One')
+
+    const response = await activityWorker.fetch(new Request(
+      'https://civup-activity.thepeace.workers.dev/api/game-settings/presets',
+      { headers: { 'x-civup-activity-session': token } },
+    ), createEnv(forwardedRequests))
+
+    expect(response.status).toBe(200)
+    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/api/game-settings/presets')
+    expect(requireForwardedRequest(forwardedRequests).headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
+  })
+
   test('rejects unsupported websocket namespaces', async () => {
     const forwardedRequests: Request[] = []
     const token = await createTestActivitySession('player-1', 'Player One')

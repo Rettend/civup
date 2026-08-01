@@ -1,4 +1,4 @@
-import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 
 export type LobbyStatus = 'open' | 'drafting' | 'active' | 'completed' | 'cancelled' | 'scrubbed'
 export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
@@ -48,14 +48,17 @@ export interface LobbyState {
   /** Slot player IDs for open lobby ordering (null = empty slot) */
   slots: (string | null)[]
   draftConfig: LobbyDraftConfig
+  /** Frozen lobby checklist profile and preset attribution copied into this lobby. */
+  gameSettings?: AppliedCivLobbySettings
   createdAt: number
   updatedAt: number
   revision: number
 }
 
-export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt' | 'lastArrange'> {
+export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'gameSettings' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt' | 'lastArrange'> {
   steamLobbyLink?: unknown
   draftConfig?: Partial<LobbyDraftConfig> | null
+  gameSettings?: unknown
   slots?: unknown
   revision?: unknown
   lastArrange?: unknown

@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -49,6 +49,7 @@ export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
     steamLobbyLink: normalizeSteamLobbyLink(raw.steamLobbyLink),
     slots,
     draftConfig: normalizeDraftConfigForMode(raw.mode, raw.draftConfig, slots.length),
+    gameSettings: normalizeAppliedCivLobbySettings(raw.gameSettings),
     minRole: normalizeCompetitiveTier(raw.minRole),
     maxRole: normalizeCompetitiveTier(raw.maxRole),
     lastArrange: normalizeLobbyArrangeMarker(raw.lastArrange),

@@ -167,7 +167,7 @@ async function projectSessionRecordTransaction(
         steamLobbyLink: record.projectionState.steamLobbyLink,
         version: record.version,
         rosterJson: JSON.stringify(record.roster),
-        configJson: JSON.stringify(record.config),
+        configJson: serializeSessionDirectoryConfig(record),
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         lastActivityAt: record.lastActivityAt,
@@ -187,7 +187,7 @@ async function projectSessionRecordTransaction(
           steamLobbyLink: record.projectionState.steamLobbyLink,
           version: record.version,
           rosterJson: JSON.stringify(record.roster),
-          configJson: JSON.stringify(record.config),
+          configJson: serializeSessionDirectoryConfig(record),
           updatedAt: record.updatedAt,
           lastActivityAt: record.lastActivityAt,
           closedAt: isCurrentSessionPhase(record.phase) ? null : now,
@@ -209,6 +209,10 @@ async function projectSessionRecordTransaction(
     }
     throw error
   }
+}
+
+function serializeSessionDirectoryConfig(record: SessionRecord): string {
+  return JSON.stringify({ ...record.config, gameSettings: record.gameSettings })
 }
 
 async function readDirectoryProjectionSnapshot(

@@ -1,7 +1,7 @@
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
-import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
-import { formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
+import type { GameSettingsApplyRequest, LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
+import { cloneOfficialAppliedSettings, formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
 import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
 import {
   arrangeLobbySlots,
@@ -452,6 +452,26 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
       setLobbyActionPending(false)
     }
   }
+  const handleApplyGameSettings = async (request: GameSettingsApplyRequest) => {
+    const lobby = currentLobby()
+    const currentUserId = userId()
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || lobby.tournament?.configLocked) return false
+    setLobbyActionPending(true)
+    clearConfigMessage()
+    try {
+      const result = await updateLobbyConfig(lobby.mode, lobby.id, currentUserId, { gameSettings: request })
+      if (!result.ok) {
+        showErrorMessage(result.error)
+        return false
+      }
+      applyLobbySnapshot(result.lobby)
+      showInfoMessage('Game settings applied.')
+      return true
+    }
+    finally {
+      setLobbyActionPending(false)
+    }
+  }
   const handleMovePlayerToSlot = async (slot: number, draggedPlayerId: string) => {
     const lobby = currentLobby()
     const currentUserId = userId()
@@ -793,6 +813,15 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     ...configState,
   }
 
+  const gameSettings = {
+    applied: () => currentLobby()?.gameSettings ?? cloneOfficialAppliedSettings(),
+    mode: lobbyMode,
+    leaderDataVersion: () => currentLobby()?.draftConfig.leaderDataVersion ?? 'live',
+    canApply: () => isLobbyMode() && amHost() && !lobbyActionPending() && currentLobby()?.tournament?.configLocked !== true,
+    locked: () => currentLobby()?.tournament?.configLocked === true,
+    apply: handleApplyGameSettings,
+  }
+
   const mini = {
     formatLabel: miniFormatLabel,
     titleAccent: () => configState.derived.isCivBlitz() ? 'cyan' : configState.derived.isRedDeath() ? 'orange' : 'gold',
@@ -807,6 +836,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     status,
     actions,
     config,
+    gameSettings,
     mini,
   }
 }

@@ -1,6 +1,6 @@
-import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type { AppliedCivLobbySettings, DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
-import { formatModeLabel, normalizeAvailableLeaderDataVersion, parseGameMode, toLeaderboardMode } from '@civup/game'
+import { formatModeLabel, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
   manualReport?: unknown
@@ -14,6 +14,7 @@ interface ParsedDraftData {
   hiddenDraft?: unknown
   leaderDataVersion?: unknown
   doublePickMetrics?: unknown
+  gameSettings?: unknown
   state?: {
     seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown, team?: unknown }>
   }
@@ -100,6 +101,10 @@ export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
 export function getLeaderDataVersionFromDraftData(draftData: string | null, fallback: LeaderDataVersion = 'live'): LeaderDataVersion {
   const parsed = parseDraftData(draftData)
   return normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion, fallback)
+}
+
+export function getGameSettingsFromDraftData(draftData: string | null): AppliedCivLobbySettings {
+  return normalizeAppliedCivLobbySettings(parseDraftData(draftData)?.gameSettings)
 }
 
 export function getPermanentAllyFromDraftData(gameMode: string, draftData: string | null): boolean {

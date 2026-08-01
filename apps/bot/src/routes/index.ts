@@ -5,10 +5,12 @@ import { registerActivityRoutes } from './activity.ts'
 import { registerLobbyRoutes } from './lobby/index.ts'
 import { registerMatchRoutes } from './match.ts'
 import { registerUploadRoutes } from './uploads.ts'
+import { registerGameSettingsPresetRoutes } from './game-settings-presets.ts'
 
 export function registerApiRoutes(app: Hono<Env>) {
   registerActivityAdminRoutes(app)
   registerActivityRoutes(app)
+  registerGameSettingsPresetRoutes(app)
   registerLobbyRoutes(app)
   registerMatchRoutes(app)
   registerUploadRoutes(app)

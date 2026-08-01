@@ -1,4 +1,4 @@
-import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { AppliedCivLobbySettings, CivBlitzPartialKit, CivLobbySettingsCommunityPreset, CivLobbySettingsProfile, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { ACTIVITY_FEED_ROOM, ACTIVITY_VERSION_OUTDATED_MESSAGE, api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
@@ -95,6 +95,7 @@ export interface LobbySnapshot {
     duplicateFactions: boolean
     closed?: boolean
   }
+  gameSettings?: AppliedCivLobbySettings
   tournament?: {
     id: string
     name: string
@@ -660,6 +661,25 @@ function activityApiPost<T>(url: string, body: unknown): Promise<T> {
   return api.post<T>(url, body, { headers: buildActivitySessionHeaders() })
 }
 
+async function activityApiMutation<T>(method: 'PATCH' | 'DELETE', url: string, body: unknown): Promise<T> {
+  const response = await activityFetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`
+    let data: unknown
+    try {
+      data = await response.json()
+      if (data && typeof data === 'object' && 'error' in data) message = String(data.error)
+    }
+    catch {}
+    throw new ApiError(message, response.status, data, response.headers)
+  }
+  return response.status === 204 ? null as T : await response.json<T>()
+}
+
 function activityFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
     ...init,
@@ -736,6 +756,7 @@ export async function updateLobbyConfig(
     steamLobbyLink?: string | null
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
+    gameSettings?: GameSettingsApplyRequest
   },
 ): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
   try {
@@ -764,6 +785,7 @@ export async function updateLobbyConfig(
       steamLobbyLink: draftConfig.steamLobbyLink,
       minRole: draftConfig.minRole,
       maxRole: draftConfig.maxRole,
+      gameSettings: draftConfig.gameSettings,
     })
     return { ok: true, lobby }
   }
@@ -772,6 +794,58 @@ export async function updateLobbyConfig(
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby config' }
   }
+}
+
+export type GameSettingsApplyRequest
+  = | { source: 'official' }
+    | { source: 'community', presetId: string, presetRevision: number }
+    | { source: 'custom', profile: CivLobbySettingsProfile }
+
+let gameSettingsPresetCache: CivLobbySettingsCommunityPreset[] | null = null
+let gameSettingsPresetCacheToken: string | null | undefined
+
+/** Loads the bounded public catalog on demand and caches it for this Activity session. */
+export async function fetchGameSettingsPresets(options: { force?: boolean } = {}): Promise<CivLobbySettingsCommunityPreset[]> {
+  const token = getActivitySessionToken()
+  if (gameSettingsPresetCacheToken !== token) {
+    gameSettingsPresetCacheToken = token
+    gameSettingsPresetCache = null
+  }
+  if (!options.force && gameSettingsPresetCache) return [...gameSettingsPresetCache]
+  const response = await activityApiGet<{ presets: CivLobbySettingsCommunityPreset[] }>('/api/game-settings/presets')
+  gameSettingsPresetCache = response.presets
+  return [...response.presets]
+}
+
+export async function createGameSettingsPreset(name: string, profile: CivLobbySettingsProfile): Promise<CivLobbySettingsCommunityPreset> {
+  const preset = await activityApiPost<CivLobbySettingsCommunityPreset>('/api/game-settings/presets', { name, profile })
+  gameSettingsPresetCache = upsertCachedGameSettingsPreset(gameSettingsPresetCache, preset)
+  return preset
+}
+
+export async function updateGameSettingsPreset(
+  id: string,
+  revision: number,
+  input: { name?: string, profile?: CivLobbySettingsProfile },
+): Promise<CivLobbySettingsCommunityPreset> {
+  const preset = await activityApiMutation<CivLobbySettingsCommunityPreset>('PATCH', `/api/game-settings/presets/${encodeURIComponent(id)}`, { revision, ...input })
+  gameSettingsPresetCache = upsertCachedGameSettingsPreset(gameSettingsPresetCache, preset)
+  return preset
+}
+
+export async function deleteGameSettingsPreset(id: string, revision: number): Promise<void> {
+  await activityApiMutation<void>('DELETE', `/api/game-settings/presets/${encodeURIComponent(id)}`, { revision })
+  if (gameSettingsPresetCache) gameSettingsPresetCache = gameSettingsPresetCache.filter(preset => preset.id !== id)
+}
+
+function upsertCachedGameSettingsPreset(
+  current: CivLobbySettingsCommunityPreset[] | null,
+  preset: CivLobbySettingsCommunityPreset,
+): CivLobbySettingsCommunityPreset[] | null {
+  if (!current) return null
+  return [preset, ...current.filter(candidate => candidate.id !== preset.id)]
+    .sort((left, right) => right.updatedAt - left.updatedAt || right.id.localeCompare(left.id))
+    .slice(0, 50)
 }
 
 /** Fetch ranked-role option labels/colors for one open lobby. */

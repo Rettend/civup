@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
 import { matchBans, matches, matchParticipants, players } from '@civup/db'
-import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
+import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
 import { getActiveSeason } from '../season/index.ts'
 
@@ -18,6 +18,7 @@ export async function createDraftMatch(
   if (!DISCORD_ID_PATTERN.test(input.guildId)) throw new Error('Cannot create a match without a valid owning server')
   if (!DISCORD_ID_PATTERN.test(input.primaryGuildId)) throw new Error('Cannot create a match without a valid primary server')
   const activeSeason = input.guildId === input.primaryGuildId ? await getActiveSeason(db) : null
+  const initialDraftData = JSON.stringify({ gameSettings: normalizeAppliedCivLobbySettings(input.gameSettings) })
 
   const [existingMatch] = await db
     .select()
@@ -32,6 +33,7 @@ export async function createDraftMatch(
       gameMode: input.mode,
       status: 'drafting',
       seasonId: activeSeason?.id ?? null,
+      draftData: initialDraftData,
       createdAt: now,
       completedAt: null,
     })
@@ -48,7 +50,7 @@ export async function createDraftMatch(
         gameMode: input.mode,
         status: 'drafting',
         seasonId: activeSeason?.id ?? null,
-        draftData: null,
+        draftData: initialDraftData,
         createdAt: now,
         completedAt: null,
         draftCompletedAt: null,
@@ -179,6 +181,7 @@ export async function activateDraftMatch(
     civBlitz: isCivBlitzFormatId(input.state.formatId),
     permanentAlly,
     hiddenDraft: input.hiddenDraft === true,
+    gameSettings: input.gameSettings,
     ...(doublePickMetrics ? { doublePickMetrics } : {}),
     state: input.state,
   })
@@ -345,6 +348,7 @@ export async function cancelDraftMatch(
         civBlitz: isCivBlitzFormatId(input.state.formatId),
         permanentAlly: isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly),
         hiddenDraft: input.hiddenDraft === true,
+        gameSettings: input.gameSettings,
         ...(doublePickMetrics ? { doublePickMetrics } : {}),
         state: input.state,
       }),

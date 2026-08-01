@@ -835,6 +835,7 @@ function buildDirectoryEntryFromRecord(record: SessionRecord): ActivitySessionDi
     version: record.version,
     roster: record.roster,
     config: record.config,
+    gameSettings: record.gameSettings,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     lastActivityAt: record.lastActivityAt,

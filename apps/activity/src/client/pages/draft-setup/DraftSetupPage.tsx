@@ -8,6 +8,7 @@ import { DraftSetupConfigPanel } from './DraftSetupConfigPanel'
 import { DraftSetupHeader } from './DraftSetupHeader'
 import { DraftSetupMiniView } from './DraftSetupMiniView'
 import { DraftSetupPlayersPanel } from './DraftSetupPlayersPanel'
+import { GameSettingsCard } from './GameSettingsCard'
 import { useDraftSetupState } from './useDraftSetupState'
 
 export function DraftSetupPage(props: DraftSetupPageProps) {
@@ -57,6 +58,8 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
                       </div>
                     </div>
                   </Show>
+
+                  <GameSettingsCard state={state.gameSettings} />
                 </div>
               </div>
 

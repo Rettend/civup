@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import type { CompetitiveTier, GameMode, LeaderboardMode } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, GameMode, LeaderboardMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRecord, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { LobbyArrangeMarker } from '../lobby/types.ts'
@@ -7,7 +7,7 @@ import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { matches, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
-import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import { GAME_MODES, normalizeAppliedCivLobbySettings, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
 import {
   buildActivityAdjustedLeaderboard,
   getLeaderboardMinGames,
@@ -22,6 +22,7 @@ import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { buildTournamentLobbySnapshot } from '../tournament/index.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../match/retention.ts'
 import { createStatsContext } from '../stats/context.ts'
+import { parseStoredSessionDirectoryConfig } from '../../session-runtime/session-record.ts'
 
 const leaderboardRankCache = new WeakMap<LeaderboardModeSnapshot, {
   mode: LeaderboardMode
@@ -111,6 +112,7 @@ export interface LobbySnapshot {
   minPlayers: number
   targetSize: number
   draftConfig: Omit<SessionConfig, 'minRole' | 'maxRole'>
+  gameSettings: AppliedCivLobbySettings
   tournament?: TournamentLobbySnapshot | null
   repeatDraft?: RepeatDraftSnapshot | null
   serverDefaults: {
@@ -137,6 +139,7 @@ export interface ActivitySessionDirectoryEntry {
   version: number
   roster: SessionRoster
   config: SessionConfig
+  gameSettings: AppliedCivLobbySettings
   createdAt: number
   updatedAt: number
   lastActivityAt: number
@@ -374,6 +377,7 @@ export async function buildLobbySnapshotFromSessionRecord(
       lastArrange: record.lastArrange,
       roster: record.roster,
       config: record.config,
+      gameSettings: record.gameSettings,
     }, rankAssignments, options),
     balanceSnapshot,
     createOptionalStatsContext(record.guildId, options.legacyGuildId),
@@ -403,6 +407,7 @@ export async function buildLobbySnapshotFromDirectoryEntry(
       lastArrange: null,
       roster: session.roster,
       config: session.config,
+      gameSettings: session.gameSettings,
     }, rankAssignments, options),
     balanceSnapshot,
     createOptionalStatsContext(session.guildId, options.legacyGuildId),
@@ -501,8 +506,8 @@ export async function attachTournamentLobbySnapshot(db: Database, snapshot: Lobb
 function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): ActivitySessionDirectoryEntry[] {
   if (!isActivitySessionPhase(row.phase) || !isGameMode(row.mode)) return []
   const roster = parseSessionRoster(row.rosterJson)
-  const config = parseSessionConfig(row.configJson, row.mode)
-  if (!roster || !config) return []
+  const storedConfig = parseStoredSessionDirectoryConfig(row.configJson, row.mode)
+  if (!roster || !storedConfig) return []
 
   return [{
     sessionId: row.sessionId,
@@ -516,7 +521,8 @@ function parseActivitySessionDirectoryEntry(row: ActivityDirectoryRow): Activity
     steamLobbyLink: row.steamLobbyLink,
     version: row.version,
     roster,
-    config,
+    config: storedConfig.config,
+    gameSettings: storedConfig.gameSettings,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastActivityAt: row.lastActivityAt,
@@ -565,6 +571,7 @@ async function buildLobbySnapshotFromSessionParts(
     lastArrange: LobbyArrangeMarker | null
     roster: SessionRoster
     config: SessionConfig
+    gameSettings: AppliedCivLobbySettings
   },
   rankAssignments?: RankedRoleAssignments | null,
   options: { legacyGuildId?: string | null } = {},
@@ -637,6 +644,7 @@ async function buildLobbySnapshotFromSessionParts(
       duplicateFactions: session.config.duplicateFactions,
       closed: session.config.closed === true,
     },
+    gameSettings: normalizeAppliedCivLobbySettings(session.gameSettings),
     serverDefaults,
   }
 }
@@ -677,38 +685,6 @@ function parseSourceGuild(value: unknown): NonNullable<SessionRoster['participan
     id: candidate.id,
     ...(typeof candidate.name === 'string' && candidate.name.trim() ? { name: candidate.name.trim() } : {}),
     ...(typeof candidate.iconUrl === 'string' && candidate.iconUrl.startsWith('https://') ? { iconUrl: candidate.iconUrl } : {}),
-  }
-}
-
-function parseSessionConfig(raw: string, mode: GameMode): SessionConfig | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<SessionConfig>
-    if (!parsed || typeof parsed !== 'object') return null
-    return {
-      banTimerSeconds: typeof parsed.banTimerSeconds === 'number' ? parsed.banTimerSeconds : null,
-      pickTimerSeconds: typeof parsed.pickTimerSeconds === 'number' ? parsed.pickTimerSeconds : null,
-      leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
-      leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
-      mapVoteEnabled: parsed.mapVoteEnabled === true,
-      blindBans: parsed.blindBans !== false,
-      blindPicks: parsed.blindPicks === true,
-      simultaneousPick: parsed.simultaneousPick === true,
-      permanentAlly: mode === 'ffa' && parsed.redDeath !== true && parsed.civBlitz !== true ? parsed.permanentAlly !== false : false,
-      redDeath: parsed.redDeath === true,
-      dealOptionsSize: typeof parsed.dealOptionsSize === 'number' ? parsed.dealOptionsSize : null,
-      civBlitz: parsed.civBlitz === true,
-      civBlitzOptionCount: typeof parsed.civBlitzOptionCount === 'number' ? parsed.civBlitzOptionCount : 4,
-      civBlitzExcludeBbgExpanded: parsed.civBlitzExcludeBbgExpanded !== false,
-      randomDraft: parsed.randomDraft === true,
-      hiddenDraft: parsed.hiddenDraft === true,
-      duplicateFactions: parsed.duplicateFactions === true,
-      closed: parsed.closed === true,
-      minRole: parsed.minRole ?? null,
-      maxRole: parsed.maxRole ?? null,
-    }
-  }
-  catch {
-    return null
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import { formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getEligibleLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
 import { getLeaderIds } from '../src/leader-registry.ts'
 
 describe('leader pool helpers', () => {
@@ -82,7 +82,18 @@ describe('leader pool helpers', () => {
   test('rejects invalid sample sizes', () => {
     const liveMaxLeaderPoolSize = getMaxLeaderPoolSize('live')
 
-    expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
-    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
+    expect(() => sampleLeaderPool(0)).toThrow(`Only ${liveMaxLeaderPoolSize} eligible leaders remain`)
+    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(`Only ${liveMaxLeaderPoolSize} eligible leaders remain`)
+  })
+
+  test('filters exclusions before sampling and rejects version-invalid IDs or exhaustion', () => {
+    const excluded = getLeaderIds('live').slice(0, 2)
+    const eligible = getEligibleLeaderIds('live', excluded)
+    const pool = sampleLeaderPool(eligible.length, () => 0, 'live', excluded)
+
+    expect(pool).toHaveLength(eligible.length)
+    expect(pool.some(id => excluded.includes(id))).toBe(false)
+    expect(() => getEligibleLeaderIds('live', ['austria-maria-theresa'])).toThrow('not available in the selected leader data version')
+    expect(() => sampleLeaderPool(eligible.length + 1, () => 0, 'live', excluded)).toThrow('eligible leaders remain')
   })
 })

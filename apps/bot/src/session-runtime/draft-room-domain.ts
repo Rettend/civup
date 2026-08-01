@@ -681,6 +681,7 @@ function createCompleteLifecycleSync(
     civBlitz: room.config.civBlitz === true ? true : undefined,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
     doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
+    gameSettings: room.config.gameSettings,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
@@ -708,6 +709,7 @@ function createCancelledLifecycleSync(
     civBlitz: room.config.civBlitz === true ? true : undefined,
     hiddenDraft: room.config.hiddenDraft === true ? true : undefined,
     doublePickMetrics: room.doublePickMetrics.groups > 0 ? room.doublePickMetrics : undefined,
+    gameSettings: room.config.gameSettings,
   }
   return createLifecycleSyncEffect(room, payload, options.delivery)
 }
