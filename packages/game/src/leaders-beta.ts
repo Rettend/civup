@@ -1184,7 +1184,6 @@ export const leaders: Leader[] = [
       {
         name: 'Comandante General',
         description: 'A special type of Great Person only available to Simón Bolívar. Each has unique abilities, including a passive effect, and a Retire effect.',
-        replaces: 'Cavalry',
         iconUrl: '/assets/bbg/items/Comandante%20General.webp',
       },
       {
@@ -1677,7 +1676,6 @@ export const leaders: Leader[] = [
       {
         name: 'Hetairos',
         description: 'A unique heavy cavalry unit when Macedon is lead by Alexander. Additional +5 :strength: Combat Strength when adjacent to a :greatgeneral: Great General from any era. +5 :greatgeneral: Great General points when killing an enemy unit. Starts with :promotion: free Promotion.',
-        replaces: 'Swordsman',
         iconUrl: '/assets/bbg/items/Hetairoi.webp',
       },
     ],
@@ -2755,7 +2753,7 @@ export const leaders: Leader[] = [
       {
         name: 'Ehuatl Wearer',
         description: 'Unique Swordsman unlocked at Political Philosophy, +1 sight range and does not require strategic resources.',
-        replaces: 'Swordsmen',
+        replaces: 'Swordsman',
         iconUrl: '/assets/bbg/items/Ehuatl%20Wearer.webp',
       },
     ],

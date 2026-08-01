@@ -90,6 +90,11 @@ const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type']
   UNIT_MACEDONIAN_HETAIROI: 'Hetairoi',
   IMPROVEMENT_LIME_THULE_WBH: 'Hunter\'s House',
 }
+const ITEM_REPLACEMENT_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type'], string | null>> = {
+  UNIT_COMANDANTE_GENERAL: null,
+  UNIT_MACEDONIAN_HETAIROI: null,
+  UNIT_LIME_TEO_OWL_WARRIOR: 'Swordsman',
+}
 const ITEM_ICON_ASSET_NAME_OVERRIDES_BY_NAME: Record<string, string> = {
   'Whalebone House': 'Hunter\'s House',
 }
@@ -631,9 +636,16 @@ function buildUniqueFromItem(
   return {
     name,
     description: normalizedDescription,
-    replaces: extractReplaces(normalizedDescription) ?? inheritedUniqueReplaces(existing, item.Type, index),
+    replaces: resolveUniqueReplaces(item.Type, name, normalizedDescription, existing),
     iconUrl: resolveUniqueIconUrl(item, name, itemAssetIndex, existing, index),
   }
+}
+
+function resolveUniqueReplaces(type: string, name: string, description: string, existing: Leader | null): string | undefined {
+  const override = ITEM_REPLACEMENT_OVERRIDES[type]
+  if (override !== undefined) return override ?? undefined
+
+  return extractReplaces(description) ?? inheritedUniqueReplaces(existing, type, name)
 }
 
 async function buildItemAssetIndex(): Promise<Map<string, string>> {
@@ -698,8 +710,16 @@ function inheritedUniqueDescription(existing: Leader | null, type: string, index
   return getExistingUnique(existing, type, index)?.description
 }
 
-function inheritedUniqueReplaces(existing: Leader | null, type: string, index: number): string | undefined {
-  return getExistingUnique(existing, type, index)?.replaces
+function inheritedUniqueReplaces(existing: Leader | null, type: string, name: string): string | undefined {
+  if (!existing) return undefined
+  const normalizedName = normalizeCompareText(name)
+  const uniques = type.startsWith('UNIT_')
+    ? existing.uniqueUnits
+    : type.startsWith('IMPROVEMENT_')
+      ? getExistingUniqueImprovements(existing)
+      : getExistingUniqueBuildings(existing)
+
+  return uniques.find(unique => normalizeCompareText(unique.name) === normalizedName)?.replaces
 }
 
 function inheritedUniqueIconUrl(existing: Leader | null, type: string, index: number): string | undefined {

@@ -47,6 +47,14 @@ const undraftableCivBlitzComponentIds = [
   'civblitz:unit:viking-longship',
 ]
 
+const uniqueUnitReplacementCases = [
+  { leaderId: 'gran-colombia-simon-bolivar', unitName: 'Comandante General', replaces: undefined },
+  { leaderId: 'macedon-alexander', unitName: 'Hetairos', replaces: undefined },
+  { leaderId: 'gran-colombia-simon-bolivar', unitName: 'Llanero', replaces: 'Cavalry' },
+  { leaderId: 'macedon-alexander', unitName: 'Hypaspist', replaces: 'Swordsman' },
+  { leaderId: 'teotihuacan-spearthrower-owl', unitName: 'Ehuatl Wearer', replaces: 'Swordsman' },
+] as const
+
 describe('leader registry', () => {
   test('beta roster preserves live leader order and includes beta-only leaders', () => {
     const betaLeaderIds = getLeaders('beta').map(leader => leader.id)
@@ -71,6 +79,15 @@ describe('leader registry', () => {
 
     expect(hammurabi.civilizationAbility.name).toBe('Enuma Anu Enlil')
     expect(pedro.uniqueBuildings.map(unique => unique.name)).toEqual(['Street Carnival', 'Copacabana'])
+  })
+
+  test('unique units preserve standalone and replacement relationships', () => {
+    for (const leaderSet of [liveLeaders, betaLeaders]) {
+      for (const { leaderId, unitName, replaces } of uniqueUnitReplacementCases) {
+        const unit = leaderSet.find(leader => leader.id === leaderId)?.uniqueUnits.find(unique => unique.name === unitName)
+        expect({ name: unit?.name, replaces: unit?.replaces }).toEqual({ name: unitName, replaces })
+      }
+    }
   })
 
   test('CivBlitz leader ability components use ability names without leader prefixes', () => {
