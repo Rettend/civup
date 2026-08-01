@@ -4,8 +4,13 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   formatMapVoteResultLabel,
   formatMapVoteResultTitle,
+  getMapVoteMapIdForResult,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
+  MAP_SCRIPT_BY_ID,
+  MAP_SCRIPT_IDS,
+  MAP_VOTE_MAP_IDS,
+  MAP_VOTE_MAPS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
@@ -42,6 +47,46 @@ describe('map vote helpers', () => {
     })).toEqual({
       maps: ['pangaea-ultima-east-vs-west', 'seven-seas'],
     })
+
+    expect(normalizeMapVoteSelection({
+      maps: ['terra', 'pangaea'],
+    })).toEqual({
+      maps: ['terra', 'pangaea'],
+    })
+  })
+
+  test('registers Terra and classic Pangaea as standalone standard maps', () => {
+    expect(MAP_SCRIPT_IDS).toContain('pangaea')
+    expect(MAP_SCRIPT_IDS).toContain('terra')
+    expect(MAP_VOTE_MAP_IDS).toContain('pangaea')
+    expect(MAP_VOTE_MAP_IDS).toContain('terra')
+    expect(MAP_SCRIPT_BY_ID.pangaea).toEqual({
+      id: 'pangaea',
+      name: 'Pangaea',
+      hint: 'Classic',
+      imageUrl: '/assets/maps/Map_Pangaea.webp',
+    })
+    expect(MAP_SCRIPT_BY_ID.terra).toEqual({ id: 'terra', name: 'Terra' })
+
+    const expectedOptions = [
+      {
+        id: 'pangaea',
+        name: 'Pangaea',
+        mapType: 'standard',
+        mapScript: 'pangaea',
+        badgeLeft: 'Classic',
+        imageUrl: '/assets/maps/Map_Pangaea.webp',
+      },
+      { id: 'terra', name: 'Terra', mapType: 'standard', mapScript: 'terra' },
+    ] as const
+
+    for (const expectedOption of expectedOptions) {
+      const options = MAP_VOTE_MAPS.filter(option => option.mapScript === expectedOption.id)
+      expect(options).toHaveLength(1)
+      expect(options).toEqual([expectedOption])
+      expect(getMapVoteMapIdForResult('standard', expectedOption.id)).toBe(expectedOption.id)
+      expect(getMapVoteMapIdForResult('east-vs-west', expectedOption.id)).toBeNull()
+    }
   })
 
   test('treats empty ballots as no vote and allows confirming partial ranked ballots', () => {
@@ -118,10 +163,14 @@ describe('map vote helpers', () => {
     expect(formatMapVoteResultLabel('east-vs-west', 'pangaea-ultima-no-wrap')).toBe('Pangaea Ultima (No Wrap) EvW')
     expect(formatMapVoteResultLabel('standard', 'seven-seas')).toBe('Seven Seas Stnd')
     expect(formatMapVoteResultLabel('east-vs-west', 'seven-seas')).toBe('Seven Seas EvW')
+    expect(formatMapVoteResultLabel('standard', 'pangaea')).toBe('Pangaea (Classic) Stnd')
+    expect(formatMapVoteResultLabel('standard', 'terra')).toBe('Terra Stnd')
   })
 
   test('formats map type titles fully', () => {
     expect(formatMapVoteResultTitle('east-vs-west', 'pangaea-ultima-no-wrap')).toBe('Pangaea Ultima (No Wrap) East vs West')
     expect(formatMapVoteResultTitle('standard', 'seven-seas')).toBe('Seven Seas Standard')
+    expect(formatMapVoteResultTitle('standard', 'pangaea')).toBe('Pangaea (Classic) Standard')
+    expect(formatMapVoteResultTitle('standard', 'terra')).toBe('Terra Standard')
   })
 })
