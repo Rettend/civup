@@ -1,13 +1,11 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
 import type { LeaderboardSnapshotRow } from './snapshot.ts'
-import { players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { buildActivityAdjustedLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
-import { inArray } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
+import { buildPlayerLeaderboardProjections } from './player-projection.ts'
 
 const IMAGE_WIDTH = 1200
 const ROW_LIMIT = 20
@@ -103,34 +101,22 @@ export async function buildPlayerLeaderboardImageDataBatch(
   db: Database,
   inputs: readonly PlayerLeaderboardImageDataInput[],
 ): Promise<PlayerLeaderboardImageData[]> {
-  const now = Date.now()
-  const prepared = inputs.map((input) => {
-    const limit = Math.max(0, Math.round(input.options?.rowLimit ?? ROW_LIMIT))
-    return {
-      input,
-      entries: buildActivityAdjustedLeaderboard(input.rows, getLeaderboardMinGames(input.mode), input.options?.now ?? now).slice(0, limit),
-    }
-  })
-  const profiles = await getLeaderboardPlayerProfiles(db, prepared.flatMap(item => item.entries.map(entry => entry.playerId)))
-
-  return prepared.map(({ input, entries }) => ({
+  const projections = await buildPlayerLeaderboardProjections(db, inputs.map(input => ({
     mode: input.mode,
-    titlePrefix: input.options?.titlePrefix,
-    rows: entries.map((entry) => {
-      const profile = profiles.get(entry.playerId)
-      return {
-        playerId: entry.playerId,
-        displayName: profile?.displayName?.trim() || entry.playerId,
-        avatarUrl: profile?.avatarUrl ?? null,
-        rank: entry.rank,
-        rawRank: entry.rawRank,
-        inactivityOffset: entry.inactivityOffset,
-        publicRating: entry.publicRating,
-        gamesPlayed: entry.gamesPlayed,
-        wins: entry.wins,
-        winRate: entry.winRate,
-      }
-    }),
+    rows: input.rows,
+    options: {
+      rowLimit: input.options?.rowLimit ?? ROW_LIMIT,
+      ...(input.options?.now == null ? {} : { now: input.options.now }),
+    },
+  })))
+
+  return projections.map((projection, index) => ({
+    ...projection,
+    titlePrefix: inputs[index]?.options?.titlePrefix,
+    rows: projection.rows.map(entry => ({
+      ...entry,
+      displayName: entry.displayName ?? entry.playerId,
+    })),
   }))
 }
 
@@ -164,17 +150,6 @@ export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageDat
   ${renderTableHeader(data.rows.length)}
   ${data.rows.length > 0 ? renderRows(data.rows, avatarData, accent) : renderEmptyState()}
 </svg>`
-}
-
-async function getLeaderboardPlayerProfiles(db: Database, playerIds: readonly string[]): Promise<Map<string, { displayName: string, avatarUrl: string | null }>> {
-  const ids = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  if (ids.length === 0) return new Map()
-
-  const rows = await db
-    .select({ id: playerRows.id, displayName: playerRows.displayName, avatarUrl: playerRows.avatarUrl })
-    .from(playerRows)
-    .where(inArray(playerRows.id, ids))
-  return new Map(rows.map(row => [row.id, { displayName: row.displayName, avatarUrl: row.avatarUrl }]))
 }
 
 function renderTableHeader(rowCount: number): string {
