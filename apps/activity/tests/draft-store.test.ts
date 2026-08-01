@@ -1,7 +1,8 @@
 import type { DraftState } from '@civup/game'
-import { allFactionIds, createDraft, default2v2, default2v2BlindPick, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
+import { allFactionIds, createDraft, default2v2, default2v2BlindPick, default4v4, getCivBlitzRegistry, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import {
+  canOpenLeaderGrid,
   canSendPickPreview,
   canSwapLeadersWith,
   currentStep,
@@ -78,6 +79,18 @@ function createActiveBlindPickState(submissions: DraftState['submissions'] = {})
 
 function createActiveRedDeathState() {
   const waiting = createRedDeathWaitingState()
+  return resolveDraftState(processDraftInput(waiting, { type: 'START' }))
+}
+
+function createActiveCivBlitzState() {
+  const registry = getCivBlitzRegistry()
+  const waiting = createDraft('draft-store-civblitz-test', getDraftFormat('2v2', { civBlitz: true }), create2v2Seats(), [], {
+    civBlitz: {
+      componentPools: registry.componentPools,
+      optionCount: 4,
+      random: () => 0,
+    },
+  })
   return resolveDraftState(processDraftInput(waiting, { type: 'START' }))
 }
 
@@ -232,6 +245,39 @@ describe('draft-store helpers', () => {
 
     initDraft(dealtState, 'live', 'a1', 2, null, null, { bans: {}, picks: {} }, null)
     expect(canSendPickPreview()).toBe(false)
+  })
+
+  test('opens active CivBlitz catalogs for spectators while participants still require private options', () => {
+    const active = createActiveCivBlitzState()
+    if (!active.civBlitz) throw new Error('Missing CivBlitz state')
+    const censored: DraftState = {
+      ...active,
+      civBlitz: {
+        ...active.civBlitz,
+        optionsBySeat: {},
+      },
+    }
+    const reveal: DraftState = {
+      ...censored,
+      steps: censored.steps.map((step, index) => index === censored.currentStepIndex ? { ...step, reveal: true } : step),
+    }
+
+    try {
+      initDraft(censored, 'live', 'a1', null, null, null, { bans: {}, picks: {} }, null)
+      expect(canOpenLeaderGrid()).toBe(true)
+
+      initDraft(censored, 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
+      expect(canOpenLeaderGrid()).toBe(false)
+
+      initDraft(active, 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
+      expect(canOpenLeaderGrid()).toBe(true)
+
+      initDraft(reveal, 'live', 'a1', null, null, null, { bans: {}, picks: {} }, null)
+      expect(canOpenLeaderGrid()).toBe(false)
+    }
+    finally {
+      resetDraft()
+    }
   })
 
   test('opens the swap window only for completed team drafts with swap state', () => {

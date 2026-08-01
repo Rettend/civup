@@ -752,9 +752,18 @@ export function LeaderGridOverlay() {
     return !isDraftCardUnavailable(state(), id)
   }
 
-  const civBlitzCategoriesForSeat = (): CivBlitzComponentCategory[] => {
+  const isActiveCivBlitzSpectatorCatalog = () => {
+    const current = state()
+    return current?.status === 'active'
+      && current.civBlitz != null
+      && step()?.civBlitz === true
+      && ownSeatIndex() == null
+  }
+
+  const civBlitzCategoriesForViewer = (): CivBlitzComponentCategory[] => {
     const current = state()
     if (current?.status === 'complete' && current.civBlitz) return [...CIV_BLITZ_CATEGORIES]
+    if (isActiveCivBlitzSpectatorCatalog()) return [...CIV_BLITZ_CATEGORIES]
 
     const currentStep = step()
     const seatIndex = ownSeatIndex()
@@ -762,17 +771,19 @@ export function LeaderGridOverlay() {
     return getCivBlitzStepCategories(currentStep, seatIndex)
   }
 
-  const civBlitzOptionsForSeat = () => {
+  const civBlitzOptionsForViewer = () => {
     const current = state()
+    if (isActiveCivBlitzSpectatorCatalog()) return current?.civBlitz?.componentPools ?? null
+
     const seatIndex = ownSeatIndex()
     const options = seatIndex == null ? null : current?.civBlitz?.optionsBySeat[seatIndex] ?? null
     if (options) return options
     return current?.status === 'complete' && current.civBlitz ? createEmptyCivBlitzOptions() : null
   }
 
-  const civBlitzDisplayOptionsForSeat = createMemo(() => {
+  const civBlitzDisplayOptionsForViewer = createMemo(() => {
     const current = state()
-    const options = civBlitzOptionsForSeat()
+    const options = civBlitzOptionsForViewer()
     if (!options) return null
 
     const displayOptions = current?.status === 'complete' && current.civBlitz
@@ -801,19 +812,19 @@ export function LeaderGridOverlay() {
     const currentStep = step()
     const seatIndex = ownSeatIndex()
     if (!current || current.status !== 'active' || !currentStep?.civBlitz || seatIndex == null) return null
-    return `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}:${civBlitzCategoriesForSeat().join('|')}`
+    return `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}:${civBlitzCategoriesForViewer().join('|')}`
   }
 
-  const civBlitzOptionIdsForSeat = createMemo(() => {
-    const options = civBlitzDisplayOptionsForSeat()
+  const civBlitzOptionIdsForViewer = createMemo(() => {
+    const options = civBlitzDisplayOptionsForViewer()
     if (!options) return []
-    return civBlitzCategoriesForSeat().flatMap(category => options[category] ?? [])
+    return civBlitzCategoriesForViewer().flatMap(category => options[category] ?? [])
   })
 
   const civBlitzOptionEntries = createMemo(() => {
-    const options = civBlitzDisplayOptionsForSeat()
+    const options = civBlitzDisplayOptionsForViewer()
     if (!options) return []
-    return civBlitzCategoriesForSeat().flatMap(category => (options[category] ?? []).map(componentId => ({
+    return civBlitzCategoriesForViewer().flatMap(category => (options[category] ?? []).map(componentId => ({
       key: createCivBlitzEntryKey(category, componentId),
       category,
       componentId,
@@ -821,7 +832,7 @@ export function LeaderGridOverlay() {
   })
 
   const civBlitzEntryIndexMap = createMemo(() => new Map(civBlitzOptionEntries().map((entry, index) => [entry.key, index])))
-  const civBlitzMultiListColumnCount = () => Math.max(1, Math.min(multiListColumns() >= 4 ? 4 : 2, civBlitzCategoriesForSeat().length || 1))
+  const civBlitzMultiListColumnCount = () => Math.max(1, Math.min(multiListColumns() >= 4 ? 4 : 2, civBlitzCategoriesForViewer().length || 1))
   const civBlitzMultiListGridClass = () => {
     const columns = civBlitzMultiListColumnCount()
     if (columns >= 4) return 'grid-cols-4'
@@ -833,12 +844,12 @@ export function LeaderGridOverlay() {
   const civBlitzListNeighborMap = createMemo((): Map<string, LeaderListNeighborState> => {
     const viewMode = gridViewMode()
     if (viewMode === 'grid') return new Map()
-    const options = civBlitzDisplayOptionsForSeat()
+    const options = civBlitzDisplayOptionsForViewer()
     if (!options) return new Map()
     const hoveredIndex = hoveredListIndex()
     const cols = viewMode === 'multi-list' ? civBlitzMultiListColumnCount() : 1
     return computeCivBlitzListNeighborMap(
-      civBlitzCategoriesForSeat(),
+      civBlitzCategoriesForViewer(),
       options,
       cols,
       (category, componentId) => civBlitzSelections()[category] === componentId,
@@ -851,7 +862,13 @@ export function LeaderGridOverlay() {
     return componentId ? civBlitzComponentMap().get(componentId) ?? null : null
   })
 
-  const civBlitzHeaderCount = () => state()?.civBlitz?.optionCount ?? civBlitzOptionsForSeat()?.[civBlitzCategoriesForSeat()[0]!]?.length ?? 0
+  const civBlitzHeaderCount = () => {
+    if (isActiveCivBlitzSpectatorCatalog()) {
+      const options = civBlitzDisplayOptionsForViewer()
+      return options ? CIV_BLITZ_CATEGORIES.reduce((count, category) => count + options[category].length, 0) : 0
+    }
+    return state()?.civBlitz?.optionCount ?? civBlitzOptionsForViewer()?.[civBlitzCategoriesForViewer()[0]!]?.length ?? 0
+  }
 
   createRenderEffect(() => {
     const current = state()
@@ -865,12 +882,13 @@ export function LeaderGridOverlay() {
     }
 
     if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
-      clearCivBlitzState(!(current?.status === 'complete' && current.civBlitz))
+      const preserveDetails = (current?.status === 'complete' && current.civBlitz != null) || isActiveCivBlitzSpectatorCatalog()
+      clearCivBlitzState(!preserveDetails)
       return
     }
 
-    const options = civBlitzOptionsForSeat()
-    const categories = civBlitzCategoriesForSeat()
+    const options = civBlitzOptionsForViewer()
+    const categories = civBlitzCategoriesForViewer()
     if (!options || categories.length === 0) {
       clearCivBlitzState(true)
       return
@@ -901,26 +919,37 @@ export function LeaderGridOverlay() {
 
   createEffect(() => {
     const componentId = civBlitzDetailComponentId()
-    if (componentId && !civBlitzOptionIdsForSeat().includes(componentId)) setCivBlitzDetailComponentId(null)
+    if (componentId && !civBlitzOptionIdsForViewer().includes(componentId)) setCivBlitzDetailComponentId(null)
   })
 
+  const canEditCivBlitz = () => state()?.status === 'active'
+    && step()?.civBlitz === true
+    && ownSeatIndex() != null
+    && currentPickTargetSeatIndex() === ownSeatIndex()
+    && isMyTurn()
+    && !hasSubmitted()
+
   const canConfirmCivBlitz = () => {
-    if (!step()?.civBlitz || hasSubmitted()) return false
-    const options = civBlitzOptionsForSeat()
+    if (!canEditCivBlitz()) return false
+    const options = civBlitzOptionsForViewer()
     if (!options) return false
     const selections = civBlitzSelections()
-    return civBlitzCategoriesForSeat().every(category => !!selections[category] && options[category].includes(selections[category]!))
+    const categories = civBlitzCategoriesForViewer()
+    return categories.length > 0 && categories.every(category => !!selections[category] && options[category].includes(selections[category]!))
   }
   const civBlitzSelectedCategoryCount = createMemo(() => {
     const selections = civBlitzSelections()
-    return civBlitzCategoriesForSeat().filter(category => selections[category]).length
+    return civBlitzCategoriesForViewer().filter(category => selections[category]).length
   })
 
   const handleCivBlitzSelect = (category: CivBlitzComponentCategory, componentId: string) => {
-    if (state()?.status !== 'active') {
+    if (!canEditCivBlitz()) {
       toggleCivBlitzDetail(componentId)
       return
     }
+
+    const options = civBlitzOptionsForViewer()
+    if (!options || !civBlitzCategoriesForViewer().includes(category) || !options[category].includes(componentId)) return
 
     const wasSelected = civBlitzSelections()[category] === componentId
     const hydrationToken = currentCivBlitzSelectionToken()
@@ -1513,7 +1542,7 @@ export function LeaderGridOverlay() {
           </Switch>
         )}
         >
-          <Show when={civBlitzDisplayOptionsForSeat()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
+          <Show when={civBlitzDisplayOptionsForViewer()} fallback={<div class="p-6 text-sm text-fg-muted text-center">Waiting for dealt CivBlitz options.</div>}>
             {resolvedOptions => (
               <Switch>
                 <Match when={gridViewMode() === 'multi-list'}>
@@ -1535,21 +1564,21 @@ export function LeaderGridOverlay() {
                     class={cn('grid gap-0', civBlitzMultiListGridClass())}
                     onMouseLeave={() => setHoveredListIndex(null)}
                   >
-                    <For each={civBlitzCategoriesForSeat()}>
+                    <For each={civBlitzCategoriesForViewer()}>
                       {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], false)}
                     </For>
                   </div>
                 </Match>
                 <Match when={gridViewMode() === 'list'}>
                   <div class="flex flex-col gap-2" onMouseLeave={() => setHoveredListIndex(null)}>
-                    <For each={civBlitzCategoriesForSeat()}>
+                    <For each={civBlitzCategoriesForViewer()}>
                       {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], true)}
                     </For>
                   </div>
                 </Match>
                 <Match when={gridViewMode() === 'grid'}>
                   <div class="flex flex-col gap-2">
-                    <For each={civBlitzCategoriesForSeat()}>
+                    <For each={civBlitzCategoriesForViewer()}>
                       {category => (
                         <div>
                           <div class={CIV_BLITZ_SECTION_HEADER_CLASS} style={CIV_BLITZ_SECTION_HEADER_STYLE}>{CIV_BLITZ_CATEGORY_LABELS[category]}</div>
@@ -1600,7 +1629,7 @@ export function LeaderGridOverlay() {
               Confirm (
               {civBlitzSelectedCategoryCount()}
               /
-              {civBlitzCategoriesForSeat().length}
+              {civBlitzCategoriesForViewer().length}
               )
             </button>
           </Show>

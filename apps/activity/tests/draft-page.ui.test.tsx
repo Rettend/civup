@@ -274,17 +274,33 @@ describe('DraftPage UI', () => {
     expect(screen.getByText('Host Player')).toBeTruthy()
   })
 
-  test('shows spectator gating when the leader grid cannot be opened', () => {
+  test('lets a CivBlitz spectator open the leader grid without auto-opening it', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.gridOpen = false
-    uiMockState.canOpenLeaderGrid = false
+    uiMockState.canOpenLeaderGrid = true
     uiMockState.isSpectator = true
-    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.draftSeatIndex = null
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-ffa',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'] }],
+      civBlitz: createCivBlitzState(true),
+    })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    const { unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Spectating')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Open leader grid' }).hasAttribute('disabled')).toBe(true)
+    expect(uiMockState.gridOpen).toBe(false)
+    const toggle = screen.getByRole('button', { name: 'Open leader grid' })
+    expect(toggle.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.click(toggle)
+
+    expect(uiMockState.gridOpen).toBe(true)
+    unmount()
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    expect(screen.getByRole('button', { name: 'Close leader grid' })).toBeTruthy()
   })
 
   test('does not auto-open the leader grid for a teammate proxy-pick turn', async () => {

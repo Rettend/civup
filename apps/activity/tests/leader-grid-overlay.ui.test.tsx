@@ -297,6 +297,99 @@ describe('LeaderGridOverlay UI', () => {
     ])
   })
 
+  test('shows active CivBlitz spectators the public component catalog without private deals or edit controls', () => {
+    const registry = getCivBlitzRegistry()
+    const componentPools = Object.fromEntries(CIV_BLITZ_CATEGORIES.map(category => [category, registry.componentPools[category].slice(0, 2)])) as CivBlitzCategoryOptions
+    const privateUnitId = registry.componentPools.unit.find(componentId => !componentPools.unit.includes(componentId))!
+    const privateUnit = registry.componentMap.get(privateUnitId)!
+    const publicComponents = CIV_BLITZ_CATEGORIES.map(category => registry.componentMap.get(componentPools[category][0]!)!)
+
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.isSpectator = true
+    uiMockState.draftSeatIndex = null
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+      civBlitz: {
+        optionCount: 2,
+        excludeBbgExpanded: true,
+        componentPools,
+        optionsBySeat: {
+          0: {
+            ...componentPools,
+            unit: [...componentPools.unit, privateUnitId],
+          },
+        },
+        submissions: {},
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    for (const sectionLabel of ['Civilization Ability', 'Leader Ability', 'Unique Infrastructure', 'Unique Unit']) {
+      expect(screen.getByText(sectionLabel)).toBeTruthy()
+    }
+    for (const component of publicComponents) {
+      expect(screen.getByRole('button', { name: component.name })).toBeTruthy()
+    }
+    expect(screen.queryByRole('button', { name: privateUnit.name })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Confirm/ })).toBeNull()
+
+    const publicButton = screen.getByRole('button', { name: publicComponents[0]!.name })
+    fireEvent.click(publicButton)
+
+    expect(publicButton.firstElementChild?.className.includes('ring-accent')).toBe(false)
+    expect(screen.queryByRole('button', { name: /Confirm/ })).toBeNull()
+    expect(storeSpies.sendCivBlitzSubmit).toHaveBeenCalledTimes(0)
+    expect(storeSpies.sendPreview).toHaveBeenCalledTimes(0)
+  })
+
+  test('keeps a submitted CivBlitz captain from picking with private options for a pending teammate', () => {
+    const options = createCivBlitzOptions()
+    const firstCivilizationAbility = getCivBlitzRegistry().componentMap.get(options.civilizationAbility[0]!)!
+
+    uiMockState.isCivBlitzDraft = true
+    uiMockState.draftSeatIndex = 0
+    uiMockState.draftState = createActiveDraftState({
+      formatId: 'civblitz-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+      seats: [
+        { playerId: 'host-1', displayName: 'Host Player', team: 0 },
+        { playerId: 'player-2', displayName: 'Player 2', team: 1 },
+        { playerId: 'player-3', displayName: 'Player 3', team: 0 },
+        { playerId: 'player-4', displayName: 'Player 4', team: 1 },
+      ],
+      submissions: { 0: ['__civblitz__'] },
+      civBlitz: {
+        optionCount: 4,
+        excludeBbgExpanded: true,
+        componentPools: getCivBlitzRegistry().componentPools,
+        optionsBySeat: { 0: options },
+        submissions: { 0: Object.fromEntries(CIV_BLITZ_CATEGORIES.map(category => [category, options[category][0]])) },
+        lockedKits: {},
+        reveal: null,
+        conflictBans: [],
+        maxRedrafts: 2,
+      },
+    })
+
+    render(() => <LeaderGridOverlay />)
+
+    const confirm = screen.getByRole('button', { name: 'Confirm (0/4)' })
+    expect(confirm.hasAttribute('disabled')).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: firstCivilizationAbility.name }))
+
+    expect(confirm.hasAttribute('disabled')).toBe(true)
+    expect(storeSpies.sendCivBlitzSubmit).toHaveBeenCalledTimes(0)
+  })
+
   test('shows locked CivBlitz picks in the completed review grid', () => {
     const registry = getCivBlitzRegistry()
     const options = createCivBlitzOptions()

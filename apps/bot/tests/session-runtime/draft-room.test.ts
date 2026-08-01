@@ -168,7 +168,10 @@ describe('draft runtime alarm recovery', () => {
       1: kitB1,
       2: { unit: '__blind__' },
     })
-    expect(censorDraftStateForSeat(state, -1).civBlitz?.submissions).toEqual({
+    const spectatorState = censorDraftStateForSeat(state, -1)
+    expect(spectatorState.civBlitz?.optionsBySeat).toEqual({})
+    expect(spectatorState.civBlitz?.componentPools).toEqual(registry.componentPools)
+    expect(spectatorState.civBlitz?.submissions).toEqual({
       0: { unit: '__blind__' },
       1: { unit: '__blind__' },
       2: { unit: '__blind__' },

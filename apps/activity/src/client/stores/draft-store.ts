@@ -309,8 +309,9 @@ export function canOpenLeaderGrid(): boolean {
   const step = currentStep()
   if (step?.reveal) return false
   if (step?.civBlitz) {
+    if (!s.civBlitz) return false
     const seat = draftStore.seatIndex
-    return seat != null && !!s.civBlitz?.optionsBySeat[seat]
+    return seat == null || !!s.civBlitz.optionsBySeat[seat]
   }
   if (!isRedDeathDraft()) return true
   return (s.dealtCivIds?.length ?? 0) > 0
