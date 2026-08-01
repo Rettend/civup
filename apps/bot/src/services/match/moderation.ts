@@ -11,7 +11,7 @@ import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchCont
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
-import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
+import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport, validateTournamentMatchMutation } from '../tournament/index.ts'
 import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
@@ -59,6 +59,10 @@ export async function resolveMatchByModerator(
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  if (tournamentLinked) {
+    const mutation = await validateTournamentMatchMutation(db, input.matchId)
+    if (!mutation.ok) return { error: mutation.error }
+  }
 
   const previousStatus = match.status
 
@@ -344,6 +348,8 @@ export async function substituteMatchPlayerByModerator(
   if (match.status !== 'active' && match.status !== 'completed') {
     return { error: `Match **${input.matchId}** must be draft-complete or reported before players can be substituted.` }
   }
+  const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  if (tournamentLinked) return { error: 'Tournament rosters are locked and cannot use player substitutions.' }
 
   const participants = await db
     .select()
@@ -370,7 +376,6 @@ export async function substituteMatchPlayerByModerator(
     .select()
     .from(matchBans)
     .where(eq(matchBans.matchId, input.matchId))
-  const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
   const gameContext = getStoredGameModeContext(match.gameMode, draftSubstitution.nextDraftData)
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
 
@@ -1031,6 +1036,10 @@ export async function cancelMatchByModerator(
 
   const previousStatus = match.status
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+  if (tournamentLinked) {
+    const mutation = await validateTournamentMatchMutation(db, input.matchId)
+    if (!mutation.ok) return { error: mutation.error }
+  }
   const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
     ? await matchHasRatingEvents(db, input.matchId)
     : false

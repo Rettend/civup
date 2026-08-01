@@ -14,7 +14,7 @@ import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchCont
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
-import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
+import { isMatchTournamentLinked, syncTournamentMatchAfterReport, validateTournamentMatchParticipants } from '../tournament/index.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
@@ -110,6 +110,11 @@ export async function reportMatch(
     .from(matchParticipants)
     .where(eq(matchParticipants.matchId, input.matchId))
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
+
+  if (tournamentLinked) {
+    const validation = await validateTournamentMatchParticipants(db, input.matchId, participantRows)
+    if ('error' in validation) return validation
+  }
 
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {

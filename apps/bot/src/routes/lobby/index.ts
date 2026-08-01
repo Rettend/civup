@@ -42,7 +42,7 @@ import { storeMatchMessageMapping } from '../../services/match/message.ts'
 import { buildRankedRoleVisuals, getRankedRoleConfig, getRankedRoleGateError } from '../../services/ranked/roles.ts'
 import { formatSessionAdmissionError, getCurrentSessionLobbyProjectionsForPlayer, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
-import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, markTournamentMatchDrafting, updateTournamentMatchRoster, validateTournamentLobbyJoin } from '../../services/tournament/index.ts'
+import { buildTournamentReservedSlotLabels, cancelTournamentOpenLobby, claimTournamentQualifierOpponentEntry, getTournamentMatchBySessionId, markTournamentMatchDrafting, validateTournamentLobbyJoin, validateTournamentLobbyRoster } from '../../services/tournament/index.ts'
 import { getSessionRecord, repeatSessionDraft, startSessionDraft } from '../../session-runtime/session-do-client.ts'
 import { buildLobbyStateFromSessionRecord, buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from '../auth.ts'
@@ -792,7 +792,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
 
     const tournamentMatch = await getTournamentMatchBySessionId(db, lobby.id)
     if (tournamentMatch) {
-      return c.json({ error: 'Tournament lobbies are fixed at 1v1.' }, 403)
+      return c.json({ error: 'Tournament lobby mode is locked.' }, 403)
     }
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const sourceLobby = lobby
@@ -964,13 +964,14 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (tournamentMatch && movingPlayerId !== auth.identity.userId) {
       return c.json({ error: 'Tournament lobbies only allow players to join themselves.' }, 403)
     }
-    if (tournamentMatch && !alreadyInTargetLobby) {
-      const validation = await validateTournamentLobbyJoin(db, lobby, {
+    let tournamentAdmission: Awaited<ReturnType<typeof validateTournamentLobbyJoin>> | null = null
+    if (tournamentMatch) {
+      tournamentAdmission = await validateTournamentLobbyJoin(db, lobby, {
         userId: auth.identity.userId,
         displayName: auth.identity.displayName?.trim() || auth.identity.userId,
         avatarUrl: auth.identity.avatarUrl,
-      })
-      if (!validation.ok) return c.json({ error: validation.error }, 403)
+      }, targetSlot)
+      if (!tournamentAdmission.ok) return c.json({ error: tournamentAdmission.error }, 403)
     }
 
     let lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
@@ -1017,6 +1018,11 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         slots[sourceSlot] = targetPlayerId ?? null
         slots[targetSlot] = movingPlayerId
       }
+    }
+
+    if (tournamentAdmission?.ok && tournamentAdmission.needsClaim) {
+      const claim = await claimTournamentQualifierOpponentEntry(db, lobby.id, tournamentAdmission.entryId)
+      if (!claim.ok) return c.json({ error: claim.error }, 409)
     }
 
     let transferSource: { lobby: NonNullable<typeof blockingLobbyForPlayer>, queueEntries: QueueEntry[] } | null = null
@@ -1114,8 +1120,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       balanceSnapshot,
     })
 
-    if (tournamentMatch) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
-
     const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
     queueBackgroundTask(c, async () => {
       const currentLobby = nextLobby
@@ -1172,6 +1176,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (!lobby) {
       return c.json({ error: 'No open lobby for this mode' }, 404)
     }
+    if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament rosters are locked. Use `/tournament leave` to withdraw an entry.' }, 403)
 
     if (slot >= lobby.slots.length) {
       return c.json({ error: 'Invalid slot index' }, 400)
@@ -1212,7 +1217,6 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       slots,
       balanceSnapshot,
     })
-    if (await getTournamentMatchBySessionId(db, nextLobby.id)) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
     const slottedEntries = mapLobbySlotsToEntries(slots, nextLobbyQueueEntries)
 
     queueBackgroundTask(c, async () => {
@@ -1269,6 +1273,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can transfer host' }, 403)
     }
+    if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament lobby host transfer is locked.' }, 403)
 
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
     const slots = normalizeLobbySlots(mode, lobby.slots, lobbyQueueEntries)
@@ -1359,6 +1364,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can arrange the lobby' }, 403)
     }
+    if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament roster arrangement is locked.' }, 403)
 
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
@@ -1462,6 +1468,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (lobby.hostId !== auth.identity.userId) {
       return c.json({ error: 'Only the lobby host can fill test players' }, 403)
     }
+    if (await getTournamentMatchBySessionId(db, lobby.id)) return c.json({ error: 'Tournament rosters cannot use test players.' }, 403)
 
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
     const lobbyQueueEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
@@ -1586,6 +1593,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     if (lobby.status !== 'open') {
       return c.json({ error: `Lobby is not open (status: ${lobby.status}).` }, 409)
     }
+
+    const rosterValidation = await validateTournamentLobbyRoster(db, lobby)
+    if (!rosterValidation.ok) return c.json({ error: rosterValidation.error }, 400)
 
     try {
       const lobbyToStart = await randomizeTournamentFirstPickBeforeStart(c, db, kv, mode, lobby)
@@ -1763,6 +1773,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       updatedAt: Date.now(),
       revision: lobby.revision + 1,
     }
+    await cancelTournamentOpenLobby(createDb(c.env.DB), lobby.id)
 
     queueBackgroundTask(c, async () => {
       await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, cancelledLobby, {
@@ -1874,8 +1885,7 @@ function getTournamentLockedConfigError(
     maxRole: LobbyState['maxRole']
   },
 ): string | null {
-  if (lobby.mode !== '1v1') return 'Tournament lobbies are fixed at 1v1.'
-  if (request.hasTargetSize && request.targetSize !== 2) return 'Tournament lobbies are fixed at 1v1.'
+  if (request.hasTargetSize && request.targetSize !== lobby.slots.length) return 'Tournament lobby size is locked to its two registered entries.'
   if (isLockedValueChange(request.hasLeaderPoolSize, request.leaderPoolSize, lobby.draftConfig.leaderPoolSize, null)) return 'Tournament leader pool is fixed.'
   if (isLockedValueChange(request.hasMapVoteEnabled, request.mapVoteEnabled, lobby.draftConfig.mapVoteEnabled, false)) return 'Tournament lobbies do not use map vote.'
   if (isLockedValueChange(request.hasBlindBans, request.blindBans, lobby.draftConfig.blindBans, true)) return 'Tournament blind-ban settings are locked.'

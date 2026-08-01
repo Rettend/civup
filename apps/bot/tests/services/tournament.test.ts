@@ -14,6 +14,7 @@ import {
   buildTournamentReservedSlotLabels,
   buildTournamentResultImageData,
   buildTournamentStandings,
+  claimTournamentQualifierOpponentEntry,
   createTournament,
   createTournamentCut,
   createTournamentMatchLink,
@@ -252,7 +253,7 @@ describe('tournament service', () => {
       expect(data.player.displayName).toBe('Bob')
 
       const pending = await buildTournamentOpponentCardData(db, { userId: PLAYER_3, displayName: 'Pending Carol', avatarUrl: null }, { autoLink: false })
-      expect(pending).toEqual({ error: 'That player is not linked as a player in the active tournament.' })
+      expect(pending).toEqual({ error: 'That player is not linked to an active tournament entry.' })
       const [pendingRow] = await db
         .select({ playerId: tournamentPlayers.playerId })
         .from(tournamentPlayers)
@@ -278,45 +279,19 @@ describe('tournament service', () => {
       ]))
       await startTournament(db, tournament.id)
 
-      let matchIndex = 0
-      const reportRecord = async (playerId: string, wins: number, losses: number) => {
-        for (let index = 0; index < wins; index += 1) {
-          matchIndex += 1
-          const opponentId = `closest-opponent-${matchIndex}`
-          await db.insert(players).values({ id: opponentId, displayName: opponentId, avatarUrl: null, createdAt: Date.now() })
-          await reportTournamentMatch(db, tournament.id, `closest-session-${matchIndex}`, `closest-match-${matchIndex}`, [
-            [playerId, 1],
-            [opponentId, 2],
-          ])
-        }
-        for (let index = 0; index < losses; index += 1) {
-          matchIndex += 1
-          const opponentId = `closest-opponent-${matchIndex}`
-          await db.insert(players).values({ id: opponentId, displayName: opponentId, avatarUrl: null, createdAt: Date.now() })
-          await reportTournamentMatch(db, tournament.id, `closest-session-${matchIndex}`, `closest-match-${matchIndex}`, [
-            [playerId, 2],
-            [opponentId, 1],
-          ])
-        }
-      }
-
-      await reportRecord(PLAYER_1, 2, 1)
-      await reportRecord(PLAYER_2, 4, 0)
-      await reportRecord(PLAYER_3, 3, 0)
-      await reportRecord(PLAYER_4, 2, 0)
-      await reportRecord(PLAYER_5, 2, 1)
+      await reportTournamentMatch(db, tournament.id, 'closest-session-1', 'closest-match-1', [[PLAYER_1, 1], [PLAYER_2, 2]])
+      await reportTournamentMatch(db, tournament.id, 'closest-session-2', 'closest-match-2', [[PLAYER_1, 1], [PLAYER_3, 2]])
+      await reportTournamentMatch(db, tournament.id, 'closest-session-3', 'closest-match-3', [[PLAYER_4, 1], [PLAYER_1, 2]])
+      await reportTournamentMatch(db, tournament.id, 'closest-session-4', 'closest-match-4', [[PLAYER_5, 1], [PLAYER_2, 2]])
+      await reportTournamentMatch(db, tournament.id, 'closest-session-5', 'closest-match-5', [[PLAYER_5, 1], [PLAYER_3, 2]])
+      await reportTournamentMatch(db, tournament.id, 'closest-session-6', 'closest-match-6', [[PLAYER_4, 1], [PLAYER_5, 2]])
 
       const data = await buildTournamentOpponentCardData(db, { userId: PLAYER_1, displayName: 'Target', avatarUrl: null })
       expect('error' in data).toBe(false)
       if ('error' in data) return
       expect(data.player.wins).toBe(2)
       expect(data.player.losses).toBe(1)
-      expect(data.opponents.map(opponent => opponent.displayName)).toEqual([
-        'Same Record',
-        'Two Zero',
-        'Three Zero',
-        'Four Zero',
-      ])
+      expect(data.opponents[0]?.displayName).toBe('Same Record')
     }
     finally {
       sqlite.close()
@@ -335,10 +310,10 @@ describe('tournament service', () => {
       await expect(startTournament(db, tournament.id)).resolves.toEqual({ ok: true })
 
       const leaveResult = await leaveTournament(db, tournament.id, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
-      expect(leaveResult).toEqual({ ok: true })
+      expect(leaveResult).toMatchObject({ ok: true, entry: { status: 'withdrawn' } })
 
       const target = await resolveTournamentOpenLobbyTarget(db, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
-      expect(target).toEqual({ error: 'You have left this tournament.' })
+      expect(target).toEqual({ error: 'You are not linked as a player in the active tournament.' })
 
       await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'qualifier-session-1', hostId: PLAYER_2 })
       const join = await validateTournamentLobbyJoin(db, buildLobby('qualifier-session-1', [PLAYER_2, null]), {
@@ -346,7 +321,7 @@ describe('tournament service', () => {
         displayName: 'Alice',
         avatarUrl: null,
       })
-      expect(join).toEqual({ ok: false, error: 'You have left this tournament.' })
+      expect(join).toEqual({ ok: false, error: 'You are not linked as a player in the active tournament.' })
     }
     finally {
       sqlite.close()
@@ -361,7 +336,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
-      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: PLAYER_1 })
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'session-1', hostId: PLAYER_1, playerOneId: PLAYER_1, playerTwoId: PLAYER_2 })
       await markTournamentMatchDrafting(db, 'session-1', 'match-1')
       await insertReportedMatch(db, 'match-1', [
         [PLAYER_1, 1],
@@ -402,7 +377,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
-      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-report', hostId: PLAYER_1 })
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-report', hostId: PLAYER_1, playerOneId: PLAYER_1, playerTwoId: PLAYER_2 })
       await insertActiveMatch(db, 'tournament-report')
 
       const result = await reportMatch(db, kv, {
@@ -444,7 +419,7 @@ describe('tournament service', () => {
         ['1', 'Alice', PLAYER_1],
         ['2', 'Bob', PLAYER_2],
       ]))
-      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-mod', hostId: PLAYER_1 })
+      await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: 'tournament-mod', hostId: PLAYER_1, playerOneId: PLAYER_1, playerTwoId: PLAYER_2 })
       await insertActiveMatch(db, 'tournament-mod')
 
       const reported = await reportMatch(db, kv, {
@@ -499,7 +474,7 @@ describe('tournament service', () => {
         ['2', 'Bob', PLAYER_2],
       ]))
       await startTournament(db, blockedTournament.id)
-      await createTournamentMatchLink(db, { tournamentId: blockedTournament.id, sessionId: 'old-block-session', hostId: PLAYER_1 })
+      await createTournamentMatchLink(db, { tournamentId: blockedTournament.id, sessionId: 'old-block-session', hostId: PLAYER_1, playerOneId: PLAYER_1, playerTwoId: PLAYER_2 })
       await markTournamentMatchDrafting(db, 'old-block-session', 'old-block-match')
       await insertReportedMatch(db, 'old-block-match', [
         [PLAYER_1, 1],
@@ -513,7 +488,7 @@ describe('tournament service', () => {
         displayName: 'Bob',
         avatarUrl: null,
       })
-      expect(blocked).toEqual({ ok: false, error: 'You already played this opponent in the tournament.' })
+      expect(blocked).toEqual({ ok: false, error: 'These entries already played in the tournament.' })
 
       await db.update(tournaments).set({ status: 'completed' }).where(eq(tournaments.id, blockedTournament.id))
       const warnTournament = await createTournament(db, { name: 'Warn Cup', createdById: 'admin', rematchPolicy: 'warn' })
@@ -522,7 +497,7 @@ describe('tournament service', () => {
         ['2', 'Bob', PLAYER_2],
       ]))
       await startTournament(db, warnTournament.id)
-      await createTournamentMatchLink(db, { tournamentId: warnTournament.id, sessionId: 'old-warn-session', hostId: PLAYER_1 })
+      await createTournamentMatchLink(db, { tournamentId: warnTournament.id, sessionId: 'old-warn-session', hostId: PLAYER_1, playerOneId: PLAYER_1, playerTwoId: PLAYER_2 })
       await markTournamentMatchDrafting(db, 'old-warn-session', 'old-warn-match')
       await insertReportedMatch(db, 'old-warn-match', [
         [PLAYER_1, 1],
@@ -536,7 +511,8 @@ describe('tournament service', () => {
         displayName: 'Bob',
         avatarUrl: null,
       })
-      expect(allowed).toEqual({ ok: true })
+      expect(allowed).toMatchObject({ ok: true, expectedSlot: 1, needsClaim: true })
+      if (allowed.ok) await claimTournamentQualifierOpponentEntry(db, 'new-warn-session', allowed.entryId)
 
       const snapshot = await buildTournamentLobbySnapshot(db, 'new-warn-session', [PLAYER_1, PLAYER_2])
       expect(snapshot?.rematchPolicy).toBe('warn')
@@ -690,9 +666,8 @@ describe('tournament service', () => {
       expect('error' in target).toBe(false)
       if ('error' in target) return
       expect(target.stage).toBe('semifinal')
-      expect(target.playerOneId).toBe(PLAYER_1)
-      expect(target.playerTwoId).toBe(PLAYER_4)
-      expect(target.opponentId).toBe(PLAYER_1)
+      expect(target.creatorEntry.members[0]?.playerId).toBe(PLAYER_4)
+      expect(target.opponentEntry?.members[0]?.playerId).toBe(PLAYER_1)
       expect(target.opponentDisplayName).toBe('Alice')
       expect(target.existingSessionId).toBeNull()
 
@@ -702,8 +677,8 @@ describe('tournament service', () => {
         hostId: PLAYER_4,
         stage: target.stage,
         cutPairingId: target.cutPairingId,
-        playerOneId: target.playerOneId,
-        playerTwoId: target.playerTwoId,
+        entryOneId: target.entryOneId,
+        entryTwoId: target.entryTwoId,
       })
 
       const labels = await buildTournamentReservedSlotLabels(db, buildLobby('cut-session-1', [PLAYER_4, null]))
@@ -714,14 +689,14 @@ describe('tournament service', () => {
         displayName: 'Alice',
         avatarUrl: null,
       })
-      expect(pairedJoin).toEqual({ ok: true })
+      expect(pairedJoin).toMatchObject({ ok: true, expectedSlot: 1, needsClaim: false })
 
       const unpairedJoin = await validateTournamentLobbyJoin(db, buildLobby('cut-session-1', [PLAYER_4, null]), {
         userId: PLAYER_2,
         displayName: 'Bob',
         avatarUrl: null,
       })
-      expect(unpairedJoin).toEqual({ ok: false, error: 'This playoff lobby is reserved for its paired players.' })
+      expect(unpairedJoin).toEqual({ ok: false, error: 'This playoff lobby is reserved for its paired entries.' })
 
       const existingTarget = await resolveTournamentOpenLobbyTarget(db, { userId: PLAYER_1, displayName: 'Alice', avatarUrl: null })
       expect('error' in existingTarget).toBe(false)
@@ -796,7 +771,7 @@ describe('tournament service', () => {
       expect('error' in earlyTarget).toBe(false)
       if ('error' in earlyTarget) return
       expect(earlyTarget.stage).toBe('semifinal')
-      expect(earlyTarget.opponentId).toBe(PLAYER_1)
+      expect(earlyTarget.opponentEntry?.members[0]?.playerId).toBe(PLAYER_1)
 
       await reportTopCutPairing(db, tournament.id, findPairing(quarterfinals, 2, 7), 'quarter-session-3a', 'quarter-match-3a', PLAYER_2)
       await reportTopCutPairing(db, tournament.id, findPairing(quarterfinals, 2, 7), 'quarter-session-3b', 'quarter-match-3b', PLAYER_2)
@@ -868,7 +843,7 @@ describe('tournament service', () => {
       expect('error' in finalTarget).toBe(false)
       if ('error' in finalTarget) return
       expect(finalTarget.stage).toBe('final')
-      expect(finalTarget.opponentId).toBe(PLAYER_1)
+      expect(finalTarget.opponentEntry?.members[0]?.playerId).toBe(PLAYER_1)
       expect(finalTarget.opponentDisplayName).toBe('Alice')
       const finalImageData = await buildTournamentLeaderboardImageData(db, tournament.id)
       expect(finalImageData?.pairings.find(pairing => pairing.round === 'final')?.requiredWins).toBe(3)
@@ -988,7 +963,7 @@ describe('tournament service', () => {
       if ('error' in target) return
       expect(target.stage).toBe('semifinal')
       expect(target.existingSessionId).toBeNull()
-      expect(target.opponentId).toBe(PLAYER_3)
+      expect(target.opponentEntry?.members[0]?.playerId).toBe(PLAYER_3)
     }
     finally {
       sqlite.close()
@@ -1057,7 +1032,7 @@ async function reportTournamentMatch(
   matchId: string,
   participants: [playerId: string, placement: number][],
 ) {
-  await createTournamentMatchLink(db, { tournamentId, sessionId, hostId: participants[0]![0] })
+  await createTournamentMatchLink(db, { tournamentId, sessionId, hostId: participants[0]![0], playerOneId: participants[0]![0], playerTwoId: participants[1]![0] })
   await markTournamentMatchDrafting(db, sessionId, matchId)
   await insertReportedMatch(db, matchId, participants)
   await syncTournamentMatchAfterReport(db, matchId)

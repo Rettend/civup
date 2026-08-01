@@ -36,6 +36,7 @@ export function canTransitionLobbyStatus(from: LobbyStatus, to: LobbyStatus): bo
 export async function createLobby(
   kv: KVNamespace,
   input: {
+    id?: string
     mode: GameMode
     guildId?: string | null
     hostId: string
@@ -43,16 +44,27 @@ export async function createLobby(
     messageId: string
     steamLobbyLink?: string | null
     queueEntries?: QueueEntry[]
+    /** Optional authoritative initial layout for pre-registered rosters. */
+    initialSlots?: (string | null)[]
     db?: Database | null
     sessionNamespace?: DurableObjectNamespace | null
   },
 ): Promise<LobbyState> {
   const now = Date.now()
-  const slots = createEmptySlots(input.mode)
-  slots[0] = input.hostId
+  const queueEntries = input.queueEntries ?? []
+  const slots = input.initialSlots
+    ? normalizeStoredSlots(input.mode, input.initialSlots)
+    : createEmptySlots(input.mode)
+  if (!slots.includes(input.hostId)) slots[0] = input.hostId
+  const memberPlayerIds = input.initialSlots
+    ? [...new Set([
+        ...slots.filter((playerId): playerId is string => Boolean(playerId)),
+        ...queueEntries.map(entry => entry.playerId),
+      ])]
+    : [input.hostId]
 
   const lobby: LobbyState = {
-    id: nanoid(10),
+    id: input.id?.trim() || nanoid(10),
     mode: input.mode,
     status: 'open',
     guildId: input.guildId?.trim() || null,
@@ -65,14 +77,13 @@ export async function createLobby(
     maxRole: null,
     lastArrange: null,
     lastActivityAt: now,
-    memberPlayerIds: [input.hostId],
+    memberPlayerIds,
     slots,
     draftConfig: normalizeDraftConfigForMode(input.mode, DEFAULT_DRAFT_CONFIG, slots.length),
     createdAt: now,
     updatedAt: now,
     revision: 1,
   }
-  const queueEntries = input.queueEntries ?? []
   const record = await createSessionAggregateFromLobby(input.sessionNamespace, lobby, queueEntries)
   const visibleLobby = buildLobbyStateFromSessionRecord(record, lobby)
   if (!input.sessionNamespace) {

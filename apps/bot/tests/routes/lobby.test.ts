@@ -1,4 +1,4 @@
-import { matches, players, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import { matches } from '@civup/db'
 import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -8,6 +8,7 @@ import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createTournament, createTournamentMatchLink, registerTournamentEntry, startTournament } from '../../src/services/tournament/index.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -604,40 +605,17 @@ describe('lobby routes', () => {
     await setLobbySlots(kv, lobby.id, [hostId, opponentId], withMembers ?? lobby)
 
     const { db } = getExistingTestLobbyRuntime(kv)
-    const now = Date.now()
-    await db.insert(players).values([
-      { id: hostId, displayName: 'Host', avatarUrl: null, createdAt: now },
-      { id: opponentId, displayName: 'Player 2', avatarUrl: null, createdAt: now },
-    ])
-    await db.insert(tournaments).values({
-      id: 'tournament-route-test',
-      name: 'Test Cup',
-      mode: '1v1',
-      status: 'qualifier',
-      scoring: 'open_win_rate',
-      rematchPolicy: 'warn',
-      minGames: 6,
-      topCut: 8,
-      roleId: null,
-      createdById: 'admin',
-      createdAt: now,
-      updatedAt: now,
-    })
-    await db.insert(tournamentPlayers).values([
-      { tournamentId: 'tournament-route-test', seed: 1, playerId: hostId, displayName: 'Host', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
-      { tournamentId: 'tournament-route-test', seed: 2, playerId: opponentId, displayName: 'Player 2', avatarUrl: null, confirmed: true, linkedAt: now, createdAt: now, updatedAt: now },
-    ])
-    await db.insert(tournamentMatches).values({
+    const tournament = await createTournament(db, { name: 'Test Cup', mode: '1v1', createdById: 'admin' })
+    const hostEntry = await registerTournamentEntry(db, tournament.id, [{ userId: hostId, displayName: 'Host', avatarUrl: null }])
+    const opponentEntry = await registerTournamentEntry(db, tournament.id, [{ userId: opponentId, displayName: 'Player 2', avatarUrl: null }])
+    if ('error' in hostEntry || 'error' in opponentEntry) throw new Error('Tournament registration failed')
+    await startTournament(db, tournament.id)
+    await createTournamentMatchLink(db, {
+      tournamentId: tournament.id,
       sessionId: lobby.id,
-      tournamentId: 'tournament-route-test',
-      matchId: null,
-      stage: 'qualifier',
-      status: 'open',
-      playerOneId: hostId,
-      playerTwoId: null,
-      winnerId: null,
-      createdAt: now,
-      updatedAt: now,
+      hostId,
+      entryOneId: hostEntry.entry.entryId,
+      entryTwoId: opponentEntry.entry.entryId,
     })
 
     globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
@@ -2419,6 +2397,66 @@ describe('lobby routes', () => {
     })
     expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, null, null])
+  })
+
+  test('team tournament routes lock rosters, enforce reserved sides, and validate before start', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerLobbyRoutes(app as any)
+    const playerIds = ['300000000000000001', '300000000000000002', '300000000000000003', '300000000000000004', '300000000000000005', '300000000000000006']
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      hostId: playerIds[0]!,
+      channelId: 'tournament-channel',
+      messageId: 'tournament-message',
+      initialSlots: [playerIds[0]!, playerIds[1]!, null, null],
+      queueEntries: playerIds.slice(0, 2).map((playerId, index) => ({ playerId, displayName: `Team One ${index + 1}`, avatarUrl: null, joinedAt: Date.now() + index, partyIds: playerIds.slice(0, 2).filter(id => id !== playerId) })),
+    })
+    const db = getExistingTestLobbyRuntime(kv).db
+    const tournament = await createTournament(db, { name: 'Route Duo', createdById: 'admin', mode: '2v2' })
+    const one = await registerTournamentEntry(db, tournament.id, playerIds.slice(0, 2).map((userId, index) => ({ userId, displayName: `Team One ${index + 1}`, avatarUrl: null })))
+    const two = await registerTournamentEntry(db, tournament.id, playerIds.slice(2, 4).map((userId, index) => ({ userId, displayName: `Team Two ${index + 1}`, avatarUrl: null })))
+    await registerTournamentEntry(db, tournament.id, playerIds.slice(4, 6).map((userId, index) => ({ userId, displayName: `Team Three ${index + 1}`, avatarUrl: null })))
+    if ('error' in one || 'error' in two) throw new Error('Tournament registration failed')
+    await startTournament(db, tournament.id)
+    await createTournamentMatchLink(db, { tournamentId: tournament.id, sessionId: lobby.id, hostId: playerIds[0]!, entryOneId: one.entry.entryId })
+
+    const remove = await app.request('/api/lobby/2v2/remove', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[0]!, 'Team One 1'), body: JSON.stringify({ userId: playerIds[0], lobbyId: lobby.id, slot: 1 }),
+    }, buildEnv(kv))
+    expect(remove.status).toBe(403)
+
+    const transfer = await app.request('/api/lobby/2v2/transfer-host', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[0]!, 'Team One 1'), body: JSON.stringify({ userId: playerIds[0], lobbyId: lobby.id, targetPlayerId: playerIds[1] }),
+    }, buildEnv(kv))
+    expect(transfer.status).toBe(403)
+
+    const wrongSide = await app.request('/api/lobby/2v2/place', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[2]!, 'Team Two 1'), body: JSON.stringify({ userId: playerIds[2], lobbyId: lobby.id, targetSlot: 3 }),
+    }, buildEnv(kv))
+    expect(wrongSide.status).toBe(403)
+
+    const firstJoin = await app.request('/api/lobby/2v2/place', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[2]!, 'Team Two 1'), body: JSON.stringify({ userId: playerIds[2], lobbyId: lobby.id, targetSlot: 2 }),
+    }, buildEnv(kv))
+    expect(firstJoin.status).toBe(200)
+
+    const thirdEntry = await app.request('/api/lobby/2v2/place', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[4]!, 'Team Three 1'), body: JSON.stringify({ userId: playerIds[4], lobbyId: lobby.id, targetSlot: 2 }),
+    }, buildEnv(kv))
+    expect(thirdEntry.status).toBe(403)
+    await expect(thirdEntry.json()).resolves.toEqual({ error: 'This lobby is already reserved for two tournament entries.' })
+
+    const earlyStart = await app.request('/api/lobby/2v2/start', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[0]!, 'Team One 1'), body: JSON.stringify({ userId: playerIds[0], lobbyId: lobby.id }),
+    }, buildEnv(kv))
+    expect(earlyStart.status).toBe(400)
+    await expect(earlyStart.json()).resolves.toEqual({ error: 'Team Two 2 must remain on their registered team side.' })
+
+    const secondJoin = await app.request('/api/lobby/2v2/place', {
+      method: 'POST', headers: buildAuthHeaders(playerIds[3]!, 'Team Two 2'), body: JSON.stringify({ userId: playerIds[3], lobbyId: lobby.id, targetSlot: 3 }),
+    }, buildEnv(kv))
+    expect(secondJoin.status).toBe(200)
   })
 })
 

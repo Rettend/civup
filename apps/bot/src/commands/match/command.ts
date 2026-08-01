@@ -25,7 +25,7 @@ import { clearDeferredEphemeralResponse, sendEphemeralResponse, sendTransientEph
 import { formatSessionAdmissionError, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsForUser, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionHostedBy, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch, isSessionAdmissionError } from '../../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../../services/steam-link.ts'
 import { getSystemChannel } from '../../services/system/channels.ts'
-import { buildTournamentReservedSlotLabels, getTournamentMatchBySessionId, isMatchTournamentLinked, listOpenTournamentSessionIds, refreshTournamentLeaderboard, updateTournamentMatchRoster } from '../../services/tournament/index.ts'
+import { buildTournamentReservedSlotLabels, cancelTournamentOpenLobby, getTournamentMatchBySessionId, isMatchTournamentLinked, listOpenTournamentSessionIds, refreshTournamentLeaderboard } from '../../services/tournament/index.ts'
 import { getSessionRecord, queueSessionReportedDiscordSync } from '../../session-runtime/session-do-client.ts'
 import { buildSessionRosterQueueEntries } from '../../session-runtime/session-record.ts'
 import { factory } from '../../setup.ts'
@@ -392,6 +392,10 @@ export const command_match = factory.command<MatchVar>(
 
           const lobby = currentLobby
           if (lobby?.status === 'open') {
+            if (await getTournamentMatchBySessionId(db, lobby.id)) {
+              await sendTransientEphemeralResponse(c, 'Tournament rosters are locked. Use `/tournament leave` to withdraw your entry.', 'error')
+              return
+            }
             const rosterEntries = await getLobbyRosterEntriesForRender(c.env.SessionDO, lobby)
             const nextMemberIds = lobby.memberPlayerIds.filter(playerId => playerId !== identity.userId)
             const lobbyQueueEntries = filterQueueEntriesForLobby({ ...lobby, memberPlayerIds: nextMemberIds }, rosterEntries)
@@ -409,7 +413,6 @@ export const command_match = factory.command<MatchVar>(
               queueEntries: nextLobbyQueueEntries,
               slots: nextSlots,
             })
-            if (await getTournamentMatchBySessionId(db, nextLobby.id)) await updateTournamentMatchRoster(db, nextLobby.id, nextMemberIds)
             const slottedEntries = mapLobbySlotsToEntries(nextSlots, nextLobbyQueueEntries)
             try {
               const renderPayload = await buildOpenLobbyRenderPayload(kv, nextLobby, slottedEntries, {
@@ -1272,6 +1275,7 @@ async function cancelHostedOpenLobby(
     ...options,
     queueEntries: lobbyQueueEntries,
   }) ?? lobby
+  if (options?.db) await cancelTournamentOpenLobby(options.db, lobby.id)
   try {
     await upsertLobbyMessage(kv, token, cancelledLobby, {
       embeds: [lobbyCancelledEmbed(lobby.mode, buildCancelledLobbyParticipants(lobby, lobbyQueueEntries), 'cancel', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, undefined, lobby.draftConfig.civBlitz)],

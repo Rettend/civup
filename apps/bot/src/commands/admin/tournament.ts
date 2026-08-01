@@ -5,7 +5,7 @@ import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { fetchGuildMember, isDiscordApiError } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament, type TournamentPlayerImportRow } from '../../services/tournament/index.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, listTournamentEntrySnapshots, normalizeTournamentMode, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_MODES, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament, type TournamentPlayerImportRow } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -32,7 +32,8 @@ export function handleTournamentCreate(c: AdminCommandContext) {
       .row(new TextInput('name', 'Name').required().max_length(80).placeholder('1v1 Tournament'))
       .row(new TextInput('min_games', 'Minimum games').value(String(DEFAULT_TOURNAMENT_MIN_GAMES)).required())
       .row(new TextInput('top_cut', 'Top cut').value(String(DEFAULT_TOURNAMENT_TOP_CUT)).required())
-      .row(new TextInput('rematch_policy', 'Rematch policy').value(DEFAULT_TOURNAMENT_REMATCH_POLICY).required()),
+      .row(new TextInput('rematch_policy', 'Rematch policy').value(DEFAULT_TOURNAMENT_REMATCH_POLICY).required())
+      .row(new TextInput('mode', 'Mode (1v1 through 6v6)').value('1v1').required()),
   )
 }
 
@@ -42,6 +43,10 @@ export function handleTournamentImport(c: AdminCommandContext) {
     const tournament = await getCurrentTournament(db)
     if (!tournament) {
       await sendTransientEphemeralResponse(c, 'No current tournament. Create one first with `/admin tournament create`.', 'error')
+      return
+    }
+    if (tournament.mode !== '1v1') {
+      await sendTransientEphemeralResponse(c, 'CSV import is only available for 1v1 tournaments.', 'error')
       return
     }
 
@@ -155,12 +160,13 @@ export function handleTournamentStatus(c: AdminCommandContext) {
       return
     }
 
-    const standings = await buildTournamentStandings(db, tournament.id)
-    const linked = standings.filter(row => row.playerId).length
-    const pending = standings.length - linked
+    const entries = await listTournamentEntrySnapshots(db, tournament.id, { activeOnly: true })
+    const playerCount = entries.reduce((sum, entry) => sum + entry.members.length, 0)
+    const linked = entries.reduce((sum, entry) => sum + entry.members.filter(member => member.playerId).length, 0)
+    const pending = playerCount - linked
     await sendEphemeralResponse(
       c,
-      `**${tournament.name}**\nStatus: **${tournament.status}**\nPlayers: **${standings.length}** (${linked} linked, ${pending} pending)\nMinimum games: **${tournament.minGames}**\nTop cut: **${tournament.topCut}**\nRematch policy: **${tournament.rematchPolicy}**`,
+      `**${tournament.name}**\nMode: **${tournament.mode}**\nStatus: **${tournament.status}**\nEntries: **${entries.length}**\nPlayers: **${playerCount}** (${linked} linked, ${pending} pending)\nMinimum games: **${tournament.minGames}**\nTop cut: **${tournament.topCut}**\nRematch policy: **${tournament.rematchPolicy}**`,
       'info',
     )
   })
@@ -247,11 +253,14 @@ export const modal_admin_tournament_create = factory.modal(
       min_games?: string
       top_cut?: string
       rematch_policy?: string
+      mode?: string
     }>
     const name = vars.name?.trim() ?? ''
     if (!name) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
 
     const rematchPolicy = normalizeTournamentRematchPolicy(vars.rematch_policy) ?? DEFAULT_TOURNAMENT_REMATCH_POLICY
+    const mode = vars.mode == null || vars.mode.trim() === '' ? '1v1' : normalizeTournamentMode(vars.mode)
+    if (!mode) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Mode must be one of: ${SUPPORTED_TOURNAMENT_MODES.join(', ')}.`, 'error')] })
     const topCut = normalizeTournamentPositiveInteger(vars.top_cut, 0)
     if (!isSupportedTournamentTopCut(topCut)) {
       return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
@@ -265,13 +274,14 @@ export const modal_admin_tournament_create = factory.modal(
     const tournament = await createTournament(db, {
       name,
       createdById: actorId,
+      mode,
       minGames: normalizeTournamentPositiveInteger(vars.min_games, DEFAULT_TOURNAMENT_MIN_GAMES),
       topCut,
       rematchPolicy,
     })
 
     return c.flags('EPHEMERAL').res({
-      embeds: [ephemeralResponseEmbed(`Created tournament **${tournament.name}** in setup. Import players with \`/admin tournament import\`, then start it with \`/admin tournament start\`.`, 'success')],
+      embeds: [ephemeralResponseEmbed(`Created **${tournament.mode}** tournament **${tournament.name}** in setup. Players can register with \`/tournament register\`${tournament.mode === '1v1' ? ' or be imported by an admin' : ''}.`, 'success')],
     })
   },
 )

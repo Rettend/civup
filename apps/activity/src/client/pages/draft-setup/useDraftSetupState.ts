@@ -270,9 +270,10 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const randomizeButtonTitle = () => isTeamGameMode(lobbyMode()) ? 'Shuffle players' : `Randomize ${arrangeTargetLabel()}`
   const shuffleTeamsButtonLabel = () => lobbyMode() === '1v1' ? 'Randomize First Pick' : 'Shuffle teams'
   const isTournamentOneVsOneLobby = () => lobbyMode() === '1v1' && currentLobby()?.tournament?.configLocked === true
-  const showRandomizeLobbyAction = () => lobbyMode() !== '1v1'
-  const showShuffleTeamsLobbyAction = () => !isTournamentOneVsOneLobby() && (lobbyMode() === '1v1' || isTeamGameMode(lobbyMode()))
-  const showBalanceLobbyAction = () => lobbyMode() !== '1v1'
+  const isTournamentRosterLocked = () => currentLobby()?.tournament?.rosterLocked === true
+  const showRandomizeLobbyAction = () => lobbyMode() !== '1v1' && !isTournamentRosterLocked()
+  const showShuffleTeamsLobbyAction = () => !isTournamentOneVsOneLobby() && !isTournamentRosterLocked() && (lobbyMode() === '1v1' || isTeamGameMode(lobbyMode()))
+  const showBalanceLobbyAction = () => lobbyMode() !== '1v1' && !isTournamentRosterLocked()
   const seatCountToggleConfig = () => {
     const lobby = currentLobby()
     if (!lobby) return null
@@ -328,6 +329,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     if (!lobby || !currentUserId || isCurrentUserSlotted()) return null
     const suggestedSlot = resolvePendingJoinGhostSlot(lobby, currentUserId, true, props.joinEligibility ?? null)
     if (suggestedSlot != null) return suggestedSlot
+    if (lobby.tournament?.rosterLocked) return null
     const firstEmptySlot = lobby.entries.findIndex(entry => entry == null)
     return firstEmptySlot >= 0 ? firstEmptySlot : null
   })
@@ -367,15 +369,26 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const ffaSecondColumn = () => ffaColumnsSplit()[1]
   const ffaColumnsPair = createMemo<[PlayerRow[], PlayerRow[]]>(() => [ffaFirstColumn(), ffaSecondColumn()])
 
-  const canJoinSlot = (row: PlayerRow) => row.empty && canCurrentUserPlaceSelf()
+  const registeredTournamentSlot = () => {
+    const id = userId()
+    if (!id) return null
+    return currentLobby()?.tournament?.entryRosters.flatMap(entry => entry.members).find(member => member.playerId === id)?.slot
+      ?? props.joinEligibility?.pendingSlot
+      ?? null
+  }
+  const canJoinSlot = (row: PlayerRow) => row.empty
+    && canCurrentUserPlaceSelf()
+    && (currentLobby()?.tournament?.rosterLocked !== true || registeredTournamentSlot() === row.slot)
   const canRemoveSlot = (row: PlayerRow) => {
+    if (currentLobby()?.tournament?.rosterLocked) return false
     if (!isLobbyMode() || row.empty || !row.playerId || row.pendingSelf || row.isHost) return false
     const id = userId()
     if (!id) return false
     return amHost() || row.playerId === id
   }
-  const canTransferHostToRow = (row: PlayerRow) => isLobbyMode() && amHost() && !row.empty && !row.pendingSelf && !!row.playerId && !row.isHost
+  const canTransferHostToRow = (row: PlayerRow) => currentLobby()?.tournament?.rosterLocked !== true && isLobbyMode() && amHost() && !row.empty && !row.pendingSelf && !!row.playerId && !row.isHost
   const canDragRow = (row: PlayerRow) => {
+    if (currentLobby()?.tournament?.rosterLocked) return false
     if (!isLobbyMode() || lobbyActionPending() || row.empty || !row.playerId || row.pendingSelf) return false
     const id = userId()
     if (!id) return false
@@ -383,6 +396,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return row.playerId === id
   }
   const canDropOnRow = (row: PlayerRow) => {
+    if (currentLobby()?.tournament?.rosterLocked) return false
     if (!isLobbyMode() || lobbyActionPending()) return false
     const dragged = draggingPlayerId()
     const id = userId()
@@ -395,7 +409,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     const lobby = currentLobby()
     const currentUserId = userId()
     const config = seatCountToggleConfig()
-    if (!lobby || !currentUserId || !amHost() || !config || lobbyActionPending()) return
+    if (!lobby || !currentUserId || !amHost() || !config || lobbyActionPending() || lobby.tournament?.rosterLocked) return
     const nextTargetSize = lobby.targetSize > config.collapsedSize ? config.collapsedSize : config.expandedSize
     setLobbyActionPending(true)
     clearConfigMessage()
@@ -411,7 +425,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const handleFillTestPlayers = async () => {
     const lobby = currentLobby()
     const currentUserId = userId()
-    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending()) return
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending() || lobby.tournament?.rosterLocked) return
     setLobbyActionPending(true)
     clearConfigMessage()
     try {
@@ -553,7 +567,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const handleArrangeLobby = async (strategy: LobbyArrangeStrategy) => {
     const lobby = currentLobby()
     const currentUserId = userId()
-    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending()) return
+    if (!lobby || !currentUserId || !amHost() || lobbyActionPending() || startPending() || cancelPending() || lobby.tournament?.rosterLocked) return
     setPendingArrangeStrategy(strategy)
     setLobbyActionPending(true)
     clearConfigMessage()
@@ -739,7 +753,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     showRandomizeLobbyAction,
     showShuffleTeamsLobbyAction,
     showBalanceLobbyAction,
-    fillTestPlayersAvailable: configState.derived.fillTestPlayersAvailable,
+    fillTestPlayersAvailable: () => configState.derived.fillTestPlayersAvailable() && currentLobby()?.tournament?.rosterLocked !== true,
     sendStart: sendStartAction,
     cancel: handleCancelAction,
     joinLobby: handleJoinLobby,

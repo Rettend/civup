@@ -283,6 +283,58 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('mod player sub rejects tournament-linked matches', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedCompletedDuelWithRatingEvents(db)
+      const now = Date.now()
+      await db.insert(tournaments).values({
+        id: 'sub-cup',
+        name: 'Sub Cup',
+        mode: '1v1',
+        status: 'qualifier',
+        scoring: 'open_win_rate',
+        rematchPolicy: 'warn',
+        minGames: 1,
+        topCut: 2,
+        roleId: null,
+        createdById: 'admin',
+        createdAt: now,
+        updatedAt: now,
+      })
+      await db.insert(tournamentMatches).values({
+        sessionId: 'sub-cup-session',
+        tournamentId: 'sub-cup',
+        matchId: 'sub-duel',
+        stage: 'qualifier',
+        status: 'reported',
+        playerOneId: 'p1',
+        playerTwoId: 'p2',
+        winnerId: 'p1',
+        entryOneId: null,
+        entryTwoId: null,
+        winnerEntryId: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      const result = await substituteMatchPlayerByModerator(db, kv, {
+        matchId: 'sub-duel',
+        playerId: 'p1',
+        subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
+        correctedAt: now,
+      })
+
+      expect(result).toEqual({ error: 'Tournament rosters are locked and cannot use player substitutions.' })
+      expect((await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'sub-duel'))).map(row => row.playerId).sort()).toEqual(['p1', 'p2'])
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('mod player sub swaps existing participants across teams by draft seat', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

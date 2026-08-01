@@ -5,6 +5,7 @@ interface InteractionUser {
   username?: string
   global_name?: string | null
   avatar?: string | null
+  bot?: boolean
 }
 
 interface InteractionMember {
@@ -24,6 +25,7 @@ export interface CommandIdentity {
   userId: string
   displayName: string
   avatarUrl: string
+  bot?: boolean
 }
 
 export interface InteractionIdentityContext {
@@ -45,6 +47,7 @@ export function getIdentity(c: InteractionIdentityContext): CommandIdentity | nu
     userId,
     displayName: resolveDisplayName(member?.nick, user.global_name, user.username, userId),
     avatarUrl: resolveAvatarUrl(c.interaction.guild_id, userId, member?.avatar, user.avatar),
+    ...(user.bot === true ? { bot: true } : {}),
   }
 }
 
@@ -61,6 +64,7 @@ export function getIdentityByUserId(c: InteractionIdentityContext, userId: strin
     userId,
     displayName: resolveDisplayName(member?.nick, user.global_name, user.username, user.id ?? userId),
     avatarUrl: resolveAvatarUrl(c.interaction.guild_id, userId, member?.avatar, user.avatar),
+    ...(user.bot === true ? { bot: true } : {}),
   }
 }
 

@@ -4,35 +4,46 @@ import type { TournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { createDb } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { Command, Option, SubCommand } from 'discord-hono'
+import { nanoid } from 'nanoid'
 import { lobbyOpenEmbed } from '../embeds/match.ts'
 import { ephemeralResponseEmbed } from '../embeds/response.ts'
 import { storeActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
 import { createChannelMessage, deleteChannelMessage, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { createLobby, mapLobbySlotsToEntries, upsertLobbyMessage } from '../services/lobby/index.ts'
+import { createLobby, mapLobbySlotsToEntries, setLobbyStatus, upsertLobbyMessage } from '../services/lobby/index.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { sendEphemeralResponse, sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSessionLobbyProjectionByMatch } from '../services/session/index.ts'
 import { MAX_STEAM_LOBBY_LINK_LENGTH, parseSteamLobbyLink, STEAM_LOBBY_LINK_ERROR } from '../services/steam-link.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import { renderTournamentLeaderboardPng, renderTournamentOpponentsPng } from '../services/tournament/image.ts'
-import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, createTournamentMatchLink, getActiveTournament, leaveTournament, refreshTournamentLeaderboard, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
+import { buildTournamentLeaderboardImageData, buildTournamentOpponentCardData, buildTournamentReservedSlotLabels, buildTournamentStandings, claimTournamentPlayoffLobby, createTournamentMatchLink, formatTournamentEntryName, getCurrentTournament, leaveTournament, refreshTournamentLeaderboard, registerTournamentEntry, releaseTournamentPlayoffLobbyClaim, resolveTournamentOpenLobbyTarget } from '../services/tournament/index.ts'
 import { factory } from '../setup.ts'
 import { findBlockingDraftMatchIdsForPlayers, getIdentity, getIdentityByUserId, preflightMatchCreateSessionState } from './match/shared.ts'
 
 interface TournamentVar {
   steam_link?: string
   player?: string
+  teammate_1?: string
+  teammate_2?: string
+  teammate_3?: string
+  teammate_4?: string
+  teammate_5?: string
 }
 
 interface BackgroundContext {
   waitUntil: (promise: Promise<unknown>) => void
 }
 
-const TOURNAMENT_MODE = '1v1'
-
 export const command_tournament = factory.command<TournamentVar>(
   new Command('tournament', 'Tournament lobby and standings').options(
+    new SubCommand('register', 'Register your tournament roster').options(
+      new Option('teammate_1', 'First teammate', 'User'),
+      new Option('teammate_2', 'Second teammate', 'User'),
+      new Option('teammate_3', 'Third teammate', 'User'),
+      new Option('teammate_4', 'Fourth teammate', 'User'),
+      new Option('teammate_5', 'Fifth teammate', 'User'),
+    ),
     new SubCommand('create', 'Create an open tournament lobby').options(
       new Option('steam_link', 'Optional Civ 6 Steam lobby link').max_length(MAX_STEAM_LOBBY_LINK_LENGTH),
     ),
@@ -44,6 +55,37 @@ export const command_tournament = factory.command<TournamentVar>(
   ),
   async (c) => {
     switch (c.sub.string) {
+      case 'register': {
+        return c.flags('EPHEMERAL').resDefer(async (c) => {
+          const caller = getIdentity(c)
+          if (!caller) {
+            await sendTransientEphemeralResponse(c, 'Could not identify you.', 'error')
+            return
+          }
+          const db = createDb(c.env.DB)
+          const tournament = await getCurrentTournament(db)
+          if (!tournament || tournament.status !== 'setup') {
+            await sendTransientEphemeralResponse(c, 'No tournament is currently accepting registration.', 'info')
+            return
+          }
+          const teammateIds = [c.var.teammate_1, c.var.teammate_2, c.var.teammate_3, c.var.teammate_4, c.var.teammate_5].filter((id): id is string => Boolean(id))
+          const teammates = teammateIds.map(id => getIdentityByUserId(c, id))
+          if (teammates.some(identity => !identity)) {
+            await sendTransientEphemeralResponse(c, 'Every selected teammate must resolve to a Discord user.', 'error')
+            return
+          }
+          const result = await registerTournamentEntry(db, tournament.id, [caller, ...teammates.filter((identity): identity is NonNullable<typeof identity> => identity != null)])
+          if ('error' in result) {
+            await sendTransientEphemeralResponse(c, result.error, 'error')
+            return
+          }
+          const names = result.entry.members.map(member => member.displayName).join(', ')
+          await sendEphemeralResponse(c, result.idempotent
+            ? `This roster is already registered for **${tournament.name}**: **${names}**.`
+            : `Registered for **${tournament.name}**: **${names}**.`, 'success')
+        })
+      }
+
       case 'create': {
         const identity = getIdentity(c)
         const steamLobbyLink = parseSteamLobbyLink(c.var.steam_link)
@@ -105,7 +147,7 @@ export const command_tournament = factory.command<TournamentVar>(
       case 'standings': {
         return c.flags('EPHEMERAL').resDefer(async (c) => {
           const db = createDb(c.env.DB)
-          const tournament = await getActiveTournament(db)
+          const tournament = await getCurrentTournament(db)
           if (!tournament) {
             await sendTransientEphemeralResponse(c, 'No active tournament.', 'info')
             return
@@ -164,7 +206,7 @@ export const command_tournament = factory.command<TournamentVar>(
           }
 
           const db = createDb(c.env.DB)
-          const tournament = await getActiveTournament(db)
+          const tournament = await getCurrentTournament(db)
           if (!tournament) {
             await sendTransientEphemeralResponse(c, 'No active tournament.', 'info')
             return
@@ -176,10 +218,12 @@ export const command_tournament = factory.command<TournamentVar>(
             return
           }
 
-          await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
-            console.error('[tournament:leave] failed to refresh tournament leaderboard', error)
-          })
-          await sendEphemeralResponse(c, `You have left **${tournament.name}**.`, 'success')
+          if (tournament.status !== 'setup') {
+            await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+              console.error('[tournament:leave] failed to refresh tournament leaderboard', error)
+            })
+          }
+          await sendEphemeralResponse(c, `Withdrew **${formatTournamentEntryName(result.entry)}** from **${tournament.name}**.`, 'success')
         })
       }
 
@@ -219,9 +263,10 @@ async function createTournamentLobbyForCommand(input: {
     return { error: `You are already in an open ${formatModeLabel(createPreflight.lobby.mode)} lobby. Leave it first with "/match leave".`, tone: 'error' }
   }
 
-  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, [input.identity.userId])
-  if (blockingDraftMatchIdByPlayer.has(input.identity.userId)) {
-    return { error: 'You are already in a live match. Finish or cancel it before creating a tournament lobby.', tone: 'error' }
+  const entryPlayerIds = target.creatorEntry.members.flatMap(member => member.playerId ? [member.playerId] : [])
+  const blockingDraftMatchIdByPlayer = await findBlockingDraftMatchIdsForPlayers(db, entryPlayerIds)
+  if (blockingDraftMatchIdByPlayer.size > 0) {
+    return { error: 'A roster member is already in a live match. Finish or cancel it before creating a tournament lobby.', tone: 'error' }
   }
 
   const result = await createTournamentLobby({
@@ -251,16 +296,30 @@ async function createTournamentLobby(input: {
   executionCtx?: BackgroundContext
 }): Promise<{ ok: true, lobbyId: string } | { error: string }> {
   const db = createDb(input.env.DB)
-  const hostEntry: QueueEntry = {
-    playerId: input.identity.userId,
-    displayName: input.identity.displayName,
-    avatarUrl: input.identity.avatarUrl,
-    joinedAt: Date.now(),
+  const entryPlayerIds = input.target.creatorEntry.members.flatMap(member => member.playerId ? [member.playerId] : [])
+  if (entryPlayerIds.length !== input.target.creatorEntry.members.length) return { error: 'Your tournament roster is not fully linked.' }
+  const joinedAt = Date.now()
+  const rosterEntries: QueueEntry[] = input.target.creatorEntry.members.map((member, index) => ({
+    playerId: member.playerId!,
+    displayName: member.displayName,
+    avatarUrl: member.avatarUrl,
+    joinedAt: joinedAt + index,
+    partyIds: entryPlayerIds.filter(playerId => playerId !== member.playerId),
+  }))
+  const targetSize = input.target.creatorEntry.members.length * 2
+  const previewSlots = [...entryPlayerIds, ...Array.from({ length: entryPlayerIds.length }, () => null)]
+  const reservedLabels = [...Array.from({ length: entryPlayerIds.length }, () => null), ...(input.target.opponentEntry?.members.map(member => member.displayName) ?? Array.from({ length: entryPlayerIds.length }, () => null))]
+  const embed = lobbyOpenEmbed(input.target.mode, mapLobbySlotsToEntries(previewSlots, rosterEntries), targetSize, undefined, undefined, 'live', false, { reservedSlotLabels: reservedLabels })
+  const lobbyId = nanoid(10)
+  let claimedPlayoffPairing = false
+  if (input.target.cutPairingId) {
+    const claim = await claimTournamentPlayoffLobby(db, input.target.cutPairingId, lobbyId)
+    if (!claim.ok) return { error: claim.error }
+    if (!claim.claimed) return { ok: true, lobbyId: claim.sessionId }
+    claimedPlayoffPairing = true
   }
-  const previewSlots = [input.identity.userId, null]
-  const reservedLabels = [null, input.target.opponentDisplayName]
-  const embed = lobbyOpenEmbed(TOURNAMENT_MODE, mapLobbySlotsToEntries(previewSlots, [hostEntry]), previewSlots.length, undefined, undefined, 'live', false, { reservedSlotLabels: reservedLabels })
   let createdMessage: Awaited<ReturnType<typeof createChannelMessage>> | null = null
+  let createdLobby: Awaited<ReturnType<typeof createLobby>> | null = null
 
   try {
     createdMessage = await createChannelMessage(input.env.DISCORD_TOKEN, input.channelId, {
@@ -269,35 +328,49 @@ async function createTournamentLobby(input: {
       allowed_mentions: { parse: [] },
     })
     const lobby = await createLobby(input.kv, {
-      mode: TOURNAMENT_MODE,
+      id: lobbyId,
+      mode: input.target.mode,
       guildId: input.guildId,
       hostId: input.identity.userId,
       channelId: input.channelId,
       messageId: createdMessage.id,
       steamLobbyLink: input.steamLobbyLink,
-      queueEntries: [hostEntry],
+      queueEntries: rosterEntries,
+      initialSlots: previewSlots,
       db,
       sessionNamespace: input.env.SessionDO,
     })
+    createdLobby = lobby
     await createTournamentMatchLink(db, {
       tournamentId: input.target.tournamentId,
       sessionId: lobby.id,
       hostId: input.identity.userId,
       stage: input.target.stage,
       cutPairingId: input.target.cutPairingId,
-      playerOneId: input.target.playerOneId ?? input.identity.userId,
-      playerTwoId: input.target.playerTwoId,
+      entryOneId: input.target.entryOneId,
+      entryTwoId: input.target.entryTwoId,
     })
     if (input.deferPostCreateWork) {
-      queueTournamentCreatePostWork(input, db, lobby, hostEntry)
+      queueTournamentCreatePostWork(input, db, lobby, rosterEntries)
     }
     else {
-      await updateTournamentCreatePostWork(input, db, lobby, hostEntry)
+      await updateTournamentCreatePostWork(input, db, lobby, rosterEntries)
     }
     return { ok: true, lobbyId: lobby.id }
   }
   catch (error) {
     console.error('[tournament:create] failed to create lobby', error)
+    if (createdLobby) {
+      await setLobbyStatus(input.kv, createdLobby.id, 'cancelled', createdLobby, {
+        db,
+        sessionNamespace: input.env.SessionDO,
+        queueEntries: rosterEntries,
+      }).catch(cancelError => console.error('[tournament:create] failed to cancel abandoned session', cancelError))
+    }
+    if (claimedPlayoffPairing && input.target.cutPairingId) {
+      await releaseTournamentPlayoffLobbyClaim(db, input.target.cutPairingId, lobbyId)
+        .catch(releaseError => console.error('[tournament:create] failed to release playoff lobby claim', releaseError))
+    }
     if (createdMessage) {
       try {
         await deleteChannelMessage(input.env.DISCORD_TOKEN, input.channelId, createdMessage.id)
@@ -317,9 +390,9 @@ async function updateTournamentCreatePostWork(
   },
   db: ReturnType<typeof createDb>,
   lobby: Awaited<ReturnType<typeof createLobby>>,
-  hostEntry: QueueEntry,
+  rosterEntries: QueueEntry[],
 ): Promise<void> {
-  const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, [hostEntry]), {
+  const renderPayload = await buildOpenLobbyRenderPayload(input.kv, lobby, mapLobbySlotsToEntries(lobby.slots, rosterEntries), {
     reservedSlotLabels: await buildTournamentReservedSlotLabels(db, lobby),
   })
   await upsertLobbyMessage(input.kv, input.env.DISCORD_TOKEN, lobby, {
@@ -336,9 +409,9 @@ function queueTournamentCreatePostWork(
   },
   db: ReturnType<typeof createDb>,
   lobby: Awaited<ReturnType<typeof createLobby>>,
-  hostEntry: QueueEntry,
+  rosterEntries: QueueEntry[],
 ): void {
-  queueBackgroundTask(input.executionCtx, updateTournamentCreatePostWork(input, db, lobby, hostEntry), '[tournament:create] failed to finish auto-open post-create work')
+  queueBackgroundTask(input.executionCtx, updateTournamentCreatePostWork(input, db, lobby, rosterEntries), '[tournament:create] failed to finish auto-open post-create work')
 }
 
 function queueBackgroundTask(context: BackgroundContext | undefined, task: Promise<unknown>, errorMessage: string): void {
