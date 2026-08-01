@@ -35,6 +35,8 @@ interface UiPersistedState {
   gridViewMode: GridViewMode
   favoriteLeaderIds: string[]
   uiScale: number
+  draftSetupHintId: string | null
+  draftSetupHintsCollapsed: boolean
 }
 
 // ── UI State ───────────────────────────────────────────────
@@ -57,18 +59,13 @@ const [uiState, setUiState] = createStore<UiMemoryState>({
   hiddenDraftLeaderSelections: [],
 })
 
-const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>({
-  gridExpanded: false,
-  gridViewMode: 'grid',
-  favoriteLeaderIds: [],
-  uiScale: UI_SCALE_DEFAULT,
-})
+const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedState>(createDefaultPersistedUiState())
 
 const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateBase, setPersistedUiStateBase], {
   name: 'civup:activity:ui',
-  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  storage: getActivityUiStorage(),
   serialize: value => JSON.stringify(unwrap(value)),
-  deserialize: value => normalizePersistedUiState(JSON.parse(value)),
+  deserialize: deserializePersistedUiState,
 })
 
 export const pickSelections = () => uiState.pickSelections
@@ -84,6 +81,8 @@ export const gridExpanded = () => persistedUiState.gridExpanded
 export const gridViewMode = () => persistedUiState.gridViewMode
 export const favoriteLeaderIds = () => persistedUiState.favoriteLeaderIds
 export const uiScale = () => persistedUiState.uiScale
+export const draftSetupHintId = () => persistedUiState.draftSetupHintId
+export const draftSetupHintsCollapsed = () => persistedUiState.draftSetupHintsCollapsed
 export const detailLeaderId = () => uiState.detailLeaderId
 export const isMiniView = () => uiState.isMiniView
 export const isMobileLayout = () => uiState.isMobileLayout
@@ -127,6 +126,14 @@ export function setGridViewMode(next: GridViewMode | ((prev: GridViewMode) => Gr
 
 export function setUiScale(next: number | ((prev: number) => number)) {
   setPersistedUiState('uiScale', prev => normalizeUiScale(typeof next === 'function' ? next(prev) : next))
+}
+
+export function setDraftSetupHintId(next: string | null | ((prev: string | null) => string | null)) {
+  setPersistedUiState('draftSetupHintId', prev => normalizeDraftSetupHintId(typeof next === 'function' ? next(prev) : next))
+}
+
+export function setDraftSetupHintsCollapsed(next: boolean | ((prev: boolean) => boolean)) {
+  setPersistedUiState('draftSetupHintsCollapsed', next)
 }
 
 export function increaseUiScale() {
@@ -350,9 +357,9 @@ export function normalizeUiScale(value: unknown): number {
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, stepped))
 }
 
-function normalizePersistedUiState(value: unknown): UiPersistedState {
+export function normalizePersistedUiState(value: unknown): UiPersistedState {
   if (!value || typeof value !== 'object') {
-    return { gridExpanded: false, gridViewMode: 'grid', favoriteLeaderIds: [], uiScale: UI_SCALE_DEFAULT }
+    return createDefaultPersistedUiState()
   }
 
   const record = value as Record<string, unknown>
@@ -362,11 +369,96 @@ function normalizePersistedUiState(value: unknown): UiPersistedState {
     ? normalizeIdList(record.favoriteLeaderIds)
     : []
   const uiScale = normalizeUiScale(record.uiScale)
+  const draftSetupHintId = normalizeDraftSetupHintId(record.draftSetupHintId)
+  const draftSetupHintsCollapsed = record.draftSetupHintsCollapsed === true
 
   return {
     gridExpanded,
     gridViewMode,
     favoriteLeaderIds,
     uiScale,
+    draftSetupHintId,
+    draftSetupHintsCollapsed,
+  }
+}
+
+export function deserializePersistedUiState(value: string): UiPersistedState {
+  try {
+    return normalizePersistedUiState(JSON.parse(value))
+  }
+  catch {
+    return createDefaultPersistedUiState()
+  }
+}
+
+export function createSafeStorage(storage: Storage | null): Storage {
+  return {
+    get length() {
+      try {
+        return storage?.length ?? 0
+      }
+      catch {
+        return 0
+      }
+    },
+    clear() {
+      try {
+        storage?.clear()
+      }
+      catch {}
+    },
+    getItem(key: string) {
+      try {
+        return storage?.getItem(key) ?? null
+      }
+      catch {
+        return null
+      }
+    },
+    key(index: number) {
+      try {
+        return storage?.key(index) ?? null
+      }
+      catch {
+        return null
+      }
+    },
+    removeItem(key: string) {
+      try {
+        storage?.removeItem(key)
+      }
+      catch {}
+    },
+    setItem(key: string, value: string) {
+      try {
+        storage?.setItem(key, value)
+      }
+      catch {}
+    },
+  }
+}
+
+function createDefaultPersistedUiState(): UiPersistedState {
+  return {
+    gridExpanded: false,
+    gridViewMode: 'grid',
+    favoriteLeaderIds: [],
+    uiScale: UI_SCALE_DEFAULT,
+    draftSetupHintId: null,
+    draftSetupHintsCollapsed: false,
+  }
+}
+
+function normalizeDraftSetupHintId(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function getActivityUiStorage(): Storage | undefined {
+  if (typeof window === 'undefined') return undefined
+  try {
+    return createSafeStorage(window.localStorage)
+  }
+  catch {
+    return createSafeStorage(null)
   }
 }

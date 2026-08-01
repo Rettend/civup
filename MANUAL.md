@@ -170,6 +170,8 @@ Players can:
 - set, update, or clear the Steam lobby link while slotted
 - see the current config and draft state
 
+The full Draft Setup page shows a small Hint card below Game settings. **Next** cycles through hints that apply to the current mode. **Hide** collapses the card to a persistent **Show hint** button. The current hint and collapsed state are saved locally; the mini view does not show hints.
+
 In team modes, the first player in an empty team column locks that column to the server they joined from. Only players from that server can use it until the column is empty again. FFA has no team-column lock.
 
 ##### Captain Pick

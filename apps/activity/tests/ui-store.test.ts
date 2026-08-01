@@ -7,14 +7,19 @@ import {
   clearResultSelections,
   clearSelections,
   clearTagFilters,
+  createSafeStorage,
+  deserializePersistedUiState,
   detailLeaderId,
   decreaseUiScale,
+  draftSetupHintId,
+  draftSetupHintsCollapsed,
   favoriteLeaderIds,
   ffaPlacementOrder,
   gridExpanded,
   gridViewMode,
   increaseUiScale,
   normalizeUiScale,
+  normalizePersistedUiState,
   pickSelections,
   resetUiScale,
   searchQuery,
@@ -24,6 +29,8 @@ import {
   setBanSelections,
   setBanSelectionStepToken,
   setDetailLeaderId,
+  setDraftSetupHintId,
+  setDraftSetupHintsCollapsed,
   setGridExpanded,
   setGridViewMode,
   setPickSelections,
@@ -52,6 +59,8 @@ describe('ui-store helpers', () => {
     clearLeaderFavorites()
     setGridExpanded(false)
     setGridViewMode('grid')
+    setDraftSetupHintId(null)
+    setDraftSetupHintsCollapsed(false)
     resetUiScale()
   })
 
@@ -177,6 +186,65 @@ describe('ui-store helpers', () => {
 
     expect(gridExpanded()).toBe(true)
     expect(gridViewMode()).toBe('list')
+  })
+
+  test('persists draft setup hint position and collapsed state', () => {
+    setDraftSetupHintId('leader-grid-views')
+    setDraftSetupHintsCollapsed(true)
+
+    expect(draftSetupHintId()).toBe('leader-grid-views')
+    expect(draftSetupHintsCollapsed()).toBe(true)
+  })
+
+  test('normalizes missing hint preferences and malformed persisted JSON', () => {
+    expect(normalizePersistedUiState({ gridExpanded: true })).toMatchObject({
+      gridExpanded: true,
+      draftSetupHintId: null,
+      draftSetupHintsCollapsed: false,
+    })
+    expect(normalizePersistedUiState({
+      draftSetupHintId: 'removed-hint',
+      draftSetupHintsCollapsed: true,
+    })).toMatchObject({
+      draftSetupHintId: 'removed-hint',
+      draftSetupHintsCollapsed: true,
+    })
+    expect(deserializePersistedUiState('{not json')).toMatchObject({
+      draftSetupHintId: null,
+      draftSetupHintsCollapsed: false,
+    })
+  })
+
+  test('safe storage contains unavailable localStorage failures', () => {
+    const unavailable = (): never => { throw new Error('unavailable') }
+    const unavailableStorage: Storage = {
+      get length() {
+        return unavailable()
+      },
+      clear() {
+        unavailable()
+      },
+      getItem() {
+        return unavailable()
+      },
+      key() {
+        return unavailable()
+      },
+      removeItem() {
+        unavailable()
+      },
+      setItem() {
+        unavailable()
+      },
+    }
+    const storage = createSafeStorage(unavailableStorage)
+
+    expect(storage.length).toBe(0)
+    expect(storage.getItem('hint')).toBeNull()
+    expect(storage.key(0)).toBeNull()
+    expect(() => storage.setItem('hint', 'value')).not.toThrow()
+    expect(() => storage.removeItem('hint')).not.toThrow()
+    expect(() => storage.clear()).not.toThrow()
   })
 
   test('toggleLeaderFavorite keeps a unique persisted favorites list', () => {

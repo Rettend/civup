@@ -6,6 +6,7 @@ import { cn } from '~/client/lib/css'
 import { DraftSetupActions } from './DraftSetupActions'
 import { DraftSetupConfigPanel } from './DraftSetupConfigPanel'
 import { DraftSetupHeader } from './DraftSetupHeader'
+import { DraftSetupHints } from './DraftSetupHints'
 import { DraftSetupMiniView } from './DraftSetupMiniView'
 import { DraftSetupPlayersPanel } from './DraftSetupPlayersPanel'
 import { GameSettingsCard } from './GameSettingsCard'
@@ -60,6 +61,7 @@ export function DraftSetupPage(props: DraftSetupPageProps) {
                   </Show>
 
                   <GameSettingsCard state={state.gameSettings} />
+                  <DraftSetupHints mode={state.config.lobbyMode} />
                 </div>
               </div>
 

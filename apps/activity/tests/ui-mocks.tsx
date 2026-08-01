@@ -86,6 +86,8 @@ interface MockState {
   gridOpen: boolean
   gridExpanded: boolean
   gridViewMode: 'grid' | 'multi-list' | 'list'
+  draftSetupHintId: string | null
+  draftSetupHintsCollapsed: boolean
   resultSelectionsLocked: boolean
   selectedWinningTeam: number | null
   selectedLeaderId: string | null
@@ -249,6 +251,8 @@ function defaults(): MockState {
     gridOpen: false,
     gridExpanded: false,
     gridViewMode: 'grid',
+    draftSetupHintId: null,
+    draftSetupHintsCollapsed: false,
     resultSelectionsLocked: false,
     selectedWinningTeam: null,
     selectedLeaderId: null,
@@ -331,6 +335,8 @@ export function resetUiMocks() {
   uiMockState.gridOpen = false
   uiMockState.gridExpanded = false
   uiMockState.gridViewMode = 'grid'
+  uiMockState.draftSetupHintId = null
+  uiMockState.draftSetupHintsCollapsed = false
   uiMockState.resultSelectionsLocked = false
   uiMockState.selectedWinningTeam = null
   uiMockState.selectedLeaderId = null
@@ -669,6 +675,8 @@ mock.module('~/client/stores', () => ({
     },
     initVersion: 1,
   },
+  draftSetupHintId: () => uiMockState.draftSetupHintId,
+  draftSetupHintsCollapsed: () => uiMockState.draftSetupHintsCollapsed,
   favoriteLeaderIds: () => uiMockState.favoriteLeaderIds,
   fetchLobbyRankedRoles: (...args: Parameters<typeof storeSpies.fetchLobbyRankedRoles>) => storeSpies.fetchLobbyRankedRoles(...args),
   fetchGameSettingsPresets: (...args: Parameters<typeof storeSpies.fetchGameSettingsPresets>) => storeSpies.fetchGameSettingsPresets(...args),
@@ -751,6 +759,8 @@ mock.module('~/client/stores', () => ({
   sendLeaderSwap: (...args: Parameters<typeof storeSpies.sendLeaderSwap>) => storeSpies.sendLeaderSwap(...args),
   setBanSelections: (next: string[]) => { uiMockState.banSelections = [...next] },
   setDetailLeaderId: (leaderId: string | null) => { uiMockState.detailLeaderId = leaderId },
+  setDraftSetupHintId: (hintId: string | null) => { uiMockState.draftSetupHintId = hintId },
+  setDraftSetupHintsCollapsed: (collapsed: boolean) => { uiMockState.draftSetupHintsCollapsed = collapsed },
   setIsMiniView: () => {},
   setIsMobileLayout: () => {},
   setGridExpanded: (next: boolean) => { uiMockState.gridExpanded = next },
