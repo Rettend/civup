@@ -111,6 +111,9 @@ export function buildMiniColumns(input: {
   isTeamMode: boolean
   teamIndices: number[]
   teamRows: (team: number) => PlayerRow[]
+  captainPickSetupEnabled: () => boolean
+  captainRows: () => PlayerRow[]
+  unassignedRows: () => PlayerRow[]
   ffaColumns: [PlayerRow[], PlayerRow[]]
   draftState: DraftState | null
   previewPicks: Record<number, string[] | undefined>
@@ -125,6 +128,14 @@ export function buildMiniColumns(input: {
     team,
     empty: row.empty,
   })
+
+  if (input.captainPickSetupEnabled()) {
+    const captains = input.captainRows()
+    const columns = captains.map((row, team) => [toMiniSeatItem(row, team)])
+    if (columns.length !== 2) return columns
+    input.unassignedRows().forEach((row, index) => columns[index % 2]!.push(toMiniSeatItem(row, null)))
+    return columns
+  }
 
   if (input.isTeamMode) {
     const teamColumns = input.teamIndices.map(team => input.teamRows(team).map(row => toMiniSeatItem(row, team)))

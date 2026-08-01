@@ -1,7 +1,7 @@
 import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps } from './types'
 import type { GameSettingsApplyRequest, LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
-import { cloneOfficialAppliedSettings, formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
+import { cloneOfficialAppliedSettings, formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isCaptainPickSupported, isTeamMode as isTeamGameMode, slotToTeamIndex, teamSize } from '@civup/game'
 import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
 import {
   arrangeLobbySlots,
@@ -366,6 +366,23 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return map
   })
   const teamRows = (team: number) => teamRowsByTeam().get(team) ?? []
+  const captainPickSetupEnabled = () => {
+    const lobby = currentLobby()
+    return Boolean(lobby?.draftConfig.teamFormationEnabled && isCaptainPickSupported(lobbyMode(), lobby.targetSize))
+  }
+  const captainRows = createMemo(() => {
+    const lobby = currentLobby()
+    if (!lobby || !captainPickSetupEnabled()) return []
+    const size = teamSize(lobbyMode(), lobby.targetSize)
+    if (!size) return []
+    const rowsBySlot = new Map(teamIndices().flatMap(team => teamRows(team)).map(row => [row.slot, row]))
+    return [rowsBySlot.get(0), rowsBySlot.get(size)].filter((row): row is PlayerRow => row != null)
+  })
+  const unassignedRows = createMemo(() => {
+    if (!captainPickSetupEnabled()) return []
+    const captainSlots = new Set(captainRows().map(row => row.slot))
+    return teamIndices().flatMap(team => teamRows(team)).filter(row => !captainSlots.has(row.slot)).sort((left, right) => left.slot - right.slot)
+  })
   const ffaRows = createMemo(() => buildFfaRows(rowBuildInput()))
   const ffaColumnsSplit = createMemo(() => splitFfaRows(ffaRows()))
   const ffaFirstColumn = () => ffaColumnsSplit()[0]
@@ -381,6 +398,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return null
   }
   const canPlayerUseRowTeam = (row: PlayerRow, playerId: string | null): boolean => {
+    if (captainPickSetupEnabled()) return true
     if (!isTeamMode() || row.team == null) return true
     const sourceGuildId = playerSourceGuildId(playerId)
     if (!sourceGuildId) return false
@@ -388,6 +406,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     return !lock || lock.id === sourceGuildId
   }
   const canCurrentUserUseTeam = (team: number): boolean => {
+    if (captainPickSetupEnabled()) return true
     if (!isTeamMode()) return true
     const sourceGuildId = currentUser()?.guildId ?? null
     if (!sourceGuildId) return false
@@ -649,6 +668,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     isTeamMode: isTeamMode(),
     teamIndices: teamIndices(),
     teamRows,
+    captainPickSetupEnabled,
+    captainRows,
+    unassignedRows,
     ffaColumns: [ffaFirstColumn(), ffaSecondColumn()],
     draftState: state(),
     previewPicks: draftStore.previews.picks,
@@ -727,6 +749,9 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
   const players = {
     isTeamMode,
     isLargeTeamLobbyMode,
+    captainPickSetupEnabled,
+    captainRows,
+    unassignedRows,
     teamIndices,
     teamRows,
     teamBalance,

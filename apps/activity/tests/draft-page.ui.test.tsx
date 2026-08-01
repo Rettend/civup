@@ -102,6 +102,45 @@ describe('DraftPage UI', () => {
     expect(screen.queryByText('Waiting for host to start draft...')).toBeNull()
   })
 
+  test('renders Captain Pick before map vote and lets only the current captain choose a legal player', () => {
+    uiMockState.connectionStatus = 'connected'
+    uiMockState.draftState = createWaitingDraftState({ formatId: 'default-2v2' })
+    uiMockState.draftSeatIndex = 0
+    uiMockState.teamFormation = {
+      enabled: true,
+      phase: 'active',
+      revision: 3,
+      firstTeam: 0,
+      currentTeam: 0,
+      captainSeatIndices: [0, 1],
+      teamSeatIndices: [[0], [1]],
+      unassignedSeatIndices: [2, 3],
+      groups: [
+        { id: 'group:2', seatIndices: [2] },
+        { id: 'group:3', seatIndices: [3] },
+      ],
+      legalGroupIds: ['group:2'],
+      legalSeatIndices: [2],
+      endsAt: Date.now() + 90_000,
+      timerSeconds: 90,
+      statsBySeat: {
+        2: { publicRating: 1234, rank: 7, gamesPlayed: 10, wins: 6 },
+      },
+    }
+
+    render(() => <DraftPage matchId="match-1" autoStart steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="2v2" />)
+
+    expect(screen.getByText('CAPTAIN PICK')).toBeTruthy()
+    expect(screen.getByText('TEAM')).toBeTruthy()
+    expect(screen.queryByText('Starting draft...')).toBeNull()
+    expect(screen.queryByText('MAP VOTING')).toBeNull()
+    const pickButtons = screen.getAllByRole('button', { name: 'Pick player' }) as HTMLButtonElement[]
+    expect(pickButtons.map(button => button.disabled)).toEqual([false, true])
+
+    fireEvent.click(pickButtons[0]!)
+    expect(storeSpies.sendTeamFormationPick).toHaveBeenCalledWith('group:2', 3)
+  })
+
   test('closes the map vote overlay and hides the toggle while reveal results are showing', async () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })

@@ -8,6 +8,7 @@ import type {
   MapVoteSelection,
   RandomSource,
   RevealedMapVoteSeatBallot,
+  TeamFormationState,
 } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
@@ -17,12 +18,15 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   getCurrentStep,
+  isCaptainPickSupported,
   isDoublePickStep,
   isRedDeathFormatId,
   MAP_VOTE_REVEAL_DURATION_MS,
   MAP_VOTE_VOTING_DURATION_MS,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
+  createTeamFormationState,
+  EMPTY_TEAM_FORMATION_STATE,
 } from '@civup/game'
 import { createEmptyDraftPreviews, sanitizeDraftPreviews } from './draft-previews.ts'
 import {
@@ -52,6 +56,7 @@ export interface RoomRecord {
   swapDisconnectFinalizeAt: number | null
   swapSafetyEndsAt: number | null
   mapVote: StoredMapVoteState
+  teamFormation: TeamFormationState
   lifecycleEventSequence: number
   repeatDraft: RepeatDraftRoomSnapshot | null
   doublePickMetrics: DraftDoublePickMetrics
@@ -63,6 +68,7 @@ export interface RepeatDraftRoomSnapshot {
   mapVote: StoredMapVoteState
   previews: DraftPreviewState
   doublePickMetrics: DraftDoublePickMetrics
+  teamFormation: TeamFormationState
 }
 
 export type RoomEffect
@@ -168,9 +174,16 @@ export function createRoomRecord(
   mapVote: StoredMapVoteState,
   overrides: Partial<Omit<RoomRecord, 'version' | 'config' | 'state' | 'mapVote'>> = {},
 ): RoomRecord {
+  const format = draftFormatMap.get(config.formatId)
+  const normalizedConfig = {
+    ...config,
+    teamFormationEnabled: config.teamFormationEnabled === true
+      && !!format
+      && isCaptainPickSupported(format.gameMode, state.seats.length),
+  }
   return {
     version: ROOM_RECORD_VERSION,
-    config,
+    config: normalizedConfig,
     state,
     timerEndsAt: overrides.timerEndsAt ?? null,
     alarmStepIndex: overrides.alarmStepIndex ?? -1,
@@ -182,6 +195,7 @@ export function createRoomRecord(
     swapDisconnectFinalizeAt: overrides.swapDisconnectFinalizeAt ?? null,
     swapSafetyEndsAt: overrides.swapSafetyEndsAt ?? null,
     mapVote,
+    teamFormation: normalizeStoredTeamFormationState(overrides.teamFormation, normalizedConfig, state),
     lifecycleEventSequence: typeof overrides.lifecycleEventSequence === 'number' && Number.isFinite(overrides.lifecycleEventSequence)
       ? overrides.lifecycleEventSequence
       : 0,
@@ -219,6 +233,7 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
         ? raw.lifecycleEventSequence
         : 0,
       repeatDraft: normalizeRepeatDraftRoomSnapshot(raw.repeatDraft, raw.doublePickMetrics),
+      teamFormation: normalizeStoredTeamFormationState(raw.teamFormation, raw.config, raw.state),
       doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics, raw.state),
     },
   )
@@ -241,7 +256,67 @@ function normalizeRepeatDraftRoomSnapshot(value: unknown, fallbackMetrics?: unkn
       raw.previews ?? createEmptyDraftPreviews(),
     ),
     doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics ?? fallbackMetrics, raw.state),
+    teamFormation: normalizeStoredTeamFormationState(raw.teamFormation, undefined, raw.state),
   }
+}
+
+function normalizeStoredTeamFormationState(
+  value: unknown,
+  config: DraftRuntimeConfig | undefined,
+  state: DraftState,
+): TeamFormationState {
+  if (value && typeof value === 'object') {
+    const raw = value as Partial<TeamFormationState>
+    if (raw.enabled === true && (raw.phase === 'idle' || raw.phase === 'active' || raw.phase === 'done')) {
+      const teamSeatIndices = Array.isArray(raw.teamSeatIndices) && raw.teamSeatIndices.length === 2
+        ? raw.teamSeatIndices.map(team => Array.isArray(team) ? team.filter(isSeatIndex) : []) as [number[], number[]]
+        : [[0], [1]] as [number[], number[]]
+      const groups = Array.isArray(raw.groups)
+        ? raw.groups.flatMap((group) => {
+            if (!group || typeof group !== 'object' || typeof group.id !== 'string' || !Array.isArray(group.seatIndices)) return []
+            return [{ id: group.id, seatIndices: group.seatIndices.filter(isSeatIndex) }]
+          })
+        : []
+      const consumed = Array.isArray(raw.consumedByTeam) ? raw.consumedByTeam : []
+      return {
+        enabled: true,
+        phase: raw.phase,
+        revision: normalizeFormationCount(raw.revision),
+        firstTeam: raw.firstTeam === 0 || raw.firstTeam === 1 ? raw.firstTeam : null,
+        currentTeam: raw.currentTeam === 0 || raw.currentTeam === 1 ? raw.currentTeam : null,
+        captainSeatIndices: [0, 1],
+        teamSeatIndices,
+        unassignedSeatIndices: Array.isArray(raw.unassignedSeatIndices) ? raw.unassignedSeatIndices.filter(isSeatIndex) : [],
+        groups,
+        legalGroupIds: Array.isArray(raw.legalGroupIds) ? raw.legalGroupIds.filter((id): id is string => typeof id === 'string') : [],
+        consumedByTeam: [normalizeFormationCount(consumed[0]), normalizeFormationCount(consumed[1])],
+        timerSeconds: normalizeFormationCount(raw.timerSeconds),
+        endsAt: typeof raw.endsAt === 'number' && Number.isFinite(raw.endsAt) ? raw.endsAt : null,
+        statsBySeat: raw.statsBySeat && typeof raw.statsBySeat === 'object' ? raw.statsBySeat : {},
+      }
+    }
+  }
+
+  if (!config?.teamFormationEnabled) return { ...EMPTY_TEAM_FORMATION_STATE }
+  const format = draftFormatMap.get(config.formatId)
+  if (!format || !isCaptainPickSupported(format.gameMode, state.seats.length)) return { ...EMPTY_TEAM_FORMATION_STATE }
+  const timerSeconds = state.steps.find(step => step.action === 'pick')?.timer ?? 0
+  const created = createTeamFormationState({
+    mode: format.gameMode,
+    seats: state.seats,
+    partySeatIndices: config.teamFormationPartySeatIndices,
+    timerSeconds,
+    statsBySeat: config.teamFormationStatsBySeat,
+  })
+  return 'error' in created ? { ...EMPTY_TEAM_FORMATION_STATE } : created.state
+}
+
+function isSeatIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function normalizeFormationCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
 }
 
 export function applyDraftResultCommand(
@@ -341,6 +416,7 @@ export function applyDraftResultCommand(
           mapVote: room.mapVote,
           previews: sanitizeDraftPreviews(room.state, room.previews),
           doublePickMetrics: nextRoom.doublePickMetrics,
+          teamFormation: room.teamFormation,
         } satisfies RepeatDraftRoomSnapshot
       : null
     nextRoom = {

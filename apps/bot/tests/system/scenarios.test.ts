@@ -191,6 +191,36 @@ describe('system scenarios', () => {
     expect((await world.lobby.getById(lobby.id))?.matchId).toBe(started.matchId)
   })
 
+  test('Captain Pick preserves grouped lobby order and freezes both captains as stable draft seats', async () => {
+    const world = await createTrackedWorld()
+    const players = createPlayers(4, 'captain')
+    const lobby = await world.lobby.createOpen({
+      mode: '2v2',
+      players,
+      slots: players.map(player => player.id),
+    })
+    const configured = await world.lobby.config('2v2', {
+      hostId: players[0]!.id,
+      lobbyId: lobby.id,
+      teamFormationEnabled: true,
+    })
+    expect(configured.status).toBe(200)
+    expect(configured.body).toMatchObject({ draftConfig: { teamFormationEnabled: true } })
+    expect((await getSessionRecord(world.env.SessionDO, lobby.id))?.config.teamFormationEnabled).toBe(true)
+
+    const started = await world.lobby.start('2v2', { hostId: players[0]!.id, lobbyId: lobby.id })
+    expect(started.ok).toBe(true)
+    const runtime = world.party.rooms()[0]?.config
+    expect(runtime?.teamFormationEnabled).toBe(true)
+    expect(runtime?.seats.map(seat => seat.playerId)).toEqual([
+      players[0]!.id,
+      players[2]!.id,
+      players[1]!.id,
+      players[3]!.id,
+    ])
+    expect(runtime?.seats.map(seat => seat.team ?? null)).toEqual([0, 1, null, null])
+  })
+
   test('hibernated selected draft sockets resume from attachments after DO wakeup', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({

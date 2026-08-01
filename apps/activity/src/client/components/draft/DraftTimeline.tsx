@@ -2,27 +2,28 @@ import type { DraftState, DraftStep } from '@civup/game'
 import { formatDraftStepLabel } from '@civup/game'
 import { createEffect, For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, isHiddenDraftMode, isMapVotePhase, mapVotePhase } from '~/client/stores'
+import { draftStore, isHiddenDraftMode, isMapVotePhase, isTeamFormationPhase, mapVotePhase } from '~/client/stores'
 import { HorizontalScroller } from '../ui'
 
-type TimelineEntry = { kind: 'map' } | { kind: 'hidden' } | { kind: 'draft', stepIndex: number, step: DraftStep }
+type TimelineEntry = { kind: 'team' } | { kind: 'map' } | { kind: 'hidden' } | { kind: 'draft', stepIndex: number, step: DraftStep }
 
 /** Horizontal step sequence indicator: BAN > PICK T1 > PICK T2 > ... */
 export function DraftTimeline() {
   const state = () => draftStore.state
   const steps = () => state()?.steps ?? []
   const hasMapStep = () => mapVotePhase() !== 'idle'
+  const hasTeamStep = () => draftStore.teamFormation.enabled && draftStore.teamFormation.phase !== 'idle'
   const timelineSteps = (): TimelineEntry[] => {
-    if (isHiddenDraftMode()) return hasMapStep()
-      ? [{ kind: 'map' as const }, { kind: 'hidden' as const }]
-      : [{ kind: 'hidden' as const }]
+    const preDraftSteps: TimelineEntry[] = [
+      ...(hasTeamStep() ? [{ kind: 'team' as const }] : []),
+      ...(hasMapStep() ? [{ kind: 'map' as const }] : []),
+    ]
+    if (isHiddenDraftMode()) return [...preDraftSteps, { kind: 'hidden' as const }]
 
     const draftSteps = steps()
       .map((step, stepIndex) => ({ kind: 'draft' as const, stepIndex, step }))
       .filter(entry => !entry.step.reveal)
-    return hasMapStep()
-      ? [{ kind: 'map' as const }, ...draftSteps]
-      : draftSteps
+    return [...preDraftSteps, ...draftSteps]
   }
   const visibleCurrentStepIndex = () => {
     const current = state()
@@ -36,11 +37,13 @@ export function DraftTimeline() {
     return current.currentStepIndex
   }
   const isCurrentEntry = (entry: TimelineEntry) => {
+    if (entry.kind === 'team') return isTeamFormationPhase()
     if (entry.kind === 'map') return isMapVotePhase()
     if (entry.kind === 'hidden') return false
-    return !isMapVotePhase() && entry.stepIndex === visibleCurrentStepIndex()
+    return !isTeamFormationPhase() && !isMapVotePhase() && entry.stepIndex === visibleCurrentStepIndex()
   }
   const isPastEntry = (entry: TimelineEntry) => {
+    if (entry.kind === 'team') return hasTeamStep() && !isTeamFormationPhase()
     if (entry.kind === 'map') return hasMapStep() && !isMapVotePhase()
     if (entry.kind === 'hidden') return false
     return entry.stepIndex < visibleCurrentStepIndex()
@@ -49,6 +52,7 @@ export function DraftTimeline() {
 
   createEffect(() => {
     state()?.currentStepIndex
+    isTeamFormationPhase()
     isMapVotePhase()
     currentStepRef?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   })
@@ -61,7 +65,9 @@ export function DraftTimeline() {
             const isCurrent = () => isCurrentEntry(entry)
             const isPast = () => isPastEntry(entry)
             const isBan = () => entry.kind === 'draft' && entry.step.action === 'ban'
-            const labels = () => entry.kind === 'map'
+            const labels = () => entry.kind === 'team'
+              ? ['TEAM']
+              : entry.kind === 'map'
               ? ['MAP']
               : entry.kind === 'hidden'
                 ? ['HIDDEN']

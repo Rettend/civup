@@ -363,6 +363,7 @@ describe('DraftSetupPage UI', () => {
     ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Captain Pick' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Random draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Duplicate leaders' }))
 
@@ -378,10 +379,11 @@ describe('DraftSetupPage UI', () => {
     fireEvent.input(pickInput, { target: { value: '3' } })
     fireEvent.blur(pickInput)
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBeGreaterThanOrEqual(6))
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBeGreaterThanOrEqual(7))
 
     const patches = storeSpies.updateLobbyConfig.mock.calls.map(call => call[3] as Record<string, unknown>)
     expect(patches.some(patch => patch.blindBans === false)).toBe(true)
+    expect(patches.some(patch => patch.teamFormationEnabled === true)).toBe(true)
     expect(patches.some(patch => patch.randomDraft === true)).toBe(true)
     expect(patches.some(patch => patch.duplicateFactions === true)).toBe(true)
     expect(patches.some(patch => patch.leaderPoolSize === 12)).toBe(true)
@@ -394,6 +396,25 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Red Death' }))
 
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
+  })
+
+  test('shows captains and an unassigned pool when Captain Pick is enabled', () => {
+    const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
+    render(() => <DraftSetupPage lobby={{
+      ...lobby,
+      draftConfig: { ...lobby.draftConfig, teamFormationEnabled: true },
+      entries: [
+        { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+        { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+        { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+        { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+      ],
+    }} />)
+
+    expect(screen.getByText('Captains')).toBeTruthy()
+    expect(screen.getByText('Unassigned players')).toBeTruthy()
+    expect(screen.getByText('Team A captain')).toBeTruthy()
+    expect(screen.getByText('Team B captain')).toBeTruthy()
   })
 
   test('hides invalid ban and pick config while hidden draft is on', () => {

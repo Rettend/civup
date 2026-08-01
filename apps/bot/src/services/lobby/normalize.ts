@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, isCaptainPickSupported, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -11,6 +11,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   leaderPoolSize: null,
   leaderDataVersion: 'live',
   mapVoteEnabled: false,
+  teamFormationEnabled: false,
   blindBans: true,
   simultaneousPick: false,
   permanentAlly: true,
@@ -94,6 +95,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     leaderPoolSize: normalizeLeaderPoolSize(config?.leaderPoolSize, leaderDataVersion),
     leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteFlag(config?.mapVoteEnabled),
+    teamFormationEnabled: config?.teamFormationEnabled === true,
     blindBans: normalizeBlindBans(config?.blindBans),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     permanentAlly: normalizePermanentAlly(config?.permanentAlly),
@@ -123,6 +125,7 @@ export function normalizeDraftConfigForMode(
     leaderPoolSize: redDeath || civBlitz ? null : normalized.leaderPoolSize,
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
+    teamFormationEnabled: isCaptainPickSupported(mode, targetSize ?? defaultPlayerCount(mode)) && normalized.teamFormationEnabled,
     blindBans: supportsBlindBans(mode, redDeath, targetSize) && !civBlitz ? normalized.blindBans : true,
     simultaneousPick: mode === 'ffa' && !redDeath && !civBlitz && !normalized.blindPicks ? normalized.simultaneousPick : false,
     permanentAlly: mode === 'ffa' && !redDeath && !civBlitz ? normalized.permanentAlly : false,
@@ -194,6 +197,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
     && a.mapVoteEnabled === b.mapVoteEnabled
+    && a.teamFormationEnabled === b.teamFormationEnabled
     && a.blindBans === b.blindBans
     && a.simultaneousPick === b.simultaneousPick
     && a.permanentAlly === b.permanentAlly

@@ -344,6 +344,7 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     leaderPoolSize: config.leaderPoolSize,
     leaderDataVersion: config.leaderDataVersion,
     mapVoteEnabled: config.mapVoteEnabled,
+    teamFormationEnabled: config.teamFormationEnabled === true,
     blindBans: config.blindBans,
     simultaneousPick: config.simultaneousPick,
     permanentAlly: config.redDeath || config.civBlitz ? false : config.permanentAlly !== false,
@@ -371,6 +372,7 @@ export function parseStoredSessionDirectoryConfig(raw: string, mode: GameMode): 
         leaderPoolSize: typeof parsed.leaderPoolSize === 'number' ? parsed.leaderPoolSize : null,
         leaderDataVersion: parsed.leaderDataVersion === 'beta' ? 'beta' : 'live',
         mapVoteEnabled: parsed.mapVoteEnabled === true,
+        teamFormationEnabled: parsed.teamFormationEnabled === true,
         blindBans: parsed.blindBans !== false,
         blindPicks: parsed.blindPicks === true,
         simultaneousPick: parsed.simultaneousPick === true,
@@ -436,6 +438,23 @@ export function buildSessionRoster(
       }
     }),
     slots: [...lobby.slots],
+  }
+}
+
+/** Project final draft team assignments back into team-grouped lobby slots. */
+export function buildSessionRosterFromDraftSeats(roster: SessionRoster, seats: readonly { playerId: string, team?: number }[]): SessionRoster {
+  if (seats.length === 0 || seats.some(seat => seat.team == null)) return roster
+  const teamIndexes = [...new Set(seats.map(seat => seat.team!))].sort((left, right) => left - right)
+  if (teamIndexes.length < 2) return roster
+  const slots = teamIndexes.flatMap(team => seats.filter(seat => seat.team === team).map(seat => seat.playerId))
+  if (slots.length !== seats.length || new Set(slots).size !== seats.length) return roster
+  const slotIndexByPlayerId = new Map(slots.map((playerId, slotIndex) => [playerId, slotIndex]))
+  return {
+    slots,
+    participants: roster.participants.map(member => ({
+      ...member,
+      slotIndex: slotIndexByPlayerId.get(member.playerId) ?? null,
+    })),
   }
 }
 

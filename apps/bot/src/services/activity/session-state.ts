@@ -630,6 +630,7 @@ async function buildLobbySnapshotFromSessionParts(
       leaderPoolSize: session.config.leaderPoolSize,
       leaderDataVersion: session.config.leaderDataVersion,
       mapVoteEnabled: session.config.mapVoteEnabled,
+      teamFormationEnabled: session.config.teamFormationEnabled === true,
       blindBans: session.config.blindBans,
       blindPicks: session.config.blindPicks,
       simultaneousPick: session.config.simultaneousPick,

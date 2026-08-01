@@ -2,10 +2,11 @@ import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
-import { DISPLAY_RATING_BASE } from '@civup/rating'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { cn } from '~/client/lib/css'
+import { PlayerStatsPopover } from '~/client/components/player/PlayerStatsPopover'
+export { formatRating, formatRecord, formatWinRate } from '~/client/components/player/PlayerStatsPopover'
 
 type DraftSetupPlayersPanelState = ReturnType<typeof useDraftSetupState>['players']
 
@@ -247,87 +248,113 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   return (
     <div class="relative">
       <Show
-        when={state().isTeamMode()}
+        when={!state().captainPickSetupEnabled()}
         fallback={(
-          <div class="gap-3 grid grid-cols-2">
-            <For each={state().ffaColumns()}>
-              {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())} />}
-            </For>
+          <div class="flex flex-col gap-5">
+            <div>
+              <div class="mb-2 text-xs text-accent tracking-wider font-bold uppercase">Captains</div>
+              <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
+                <For each={state().captainRows()}>
+                  {(row, index) => (
+                    <div>
+                      <div class="mb-1.5 text-[11px] text-fg-subtle tracking-wide font-semibold uppercase">
+                        Team
+                        {' '}
+                        {String.fromCharCode(65 + index())}
+                        {' '}
+                        captain
+                      </div>
+                      <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), [row], flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())} />
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+            <div class="pt-4 border-t border-border-subtle">
+              <div class="mb-1 text-xs text-fg tracking-wider font-bold uppercase">Unassigned players</div>
+              <div class="mb-3 text-xs text-fg-subtle">Captains will choose these players after the lobby starts.</div>
+              <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
+                <For each={state().unassignedRows()}>
+                  {row => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), [row], flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())} />}
+                </For>
+              </div>
+            </div>
           </div>
         )}
       >
-        <div class={state().isLargeTeamLobbyMode()
-          ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
-          : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}
+        <Show
+          when={state().isTeamMode()}
+          fallback={(
+            <div class="gap-3 grid grid-cols-2">
+              <For each={state().ffaColumns()}>
+                {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())} />}
+              </For>
+            </div>
+          )}
         >
-          <For each={state().teamIndices()}>
-            {team => (
-              <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
-                <div class="mb-2 flex gap-3 items-center justify-between">
-                  <div class="text-xs text-accent tracking-wider font-bold flex min-w-0 items-center gap-1.5">
-                    <span>
-                      Team
-                      {' '}
-                      {String.fromCharCode(65 + team)}
-                    </span>
-                    <Show when={state().teamGuild(team)}>
-                      {guild => (
-                        <span class="text-fg-muted normal-case tracking-normal font-medium min-w-0 flex items-center gap-1" title={`Locked to ${guild().name || guild().id}`}>
-                          <Show
-                            when={guild().iconUrl}
-                            fallback={<span class="rounded-sm bg-white/12 text-[7px] text-fg-subtle font-bold shrink-0 inline-flex h-4 w-4 items-center justify-center">{(guild().name || 'S').slice(0, 1).toUpperCase()}</span>}
-                          >
-                            {iconUrl => <img src={iconUrl()} alt="" draggable={false} class="rounded-sm shrink-0 h-4 w-4 object-cover" />}
+          <div class={state().isLargeTeamLobbyMode()
+            ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
+            : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}
+          >
+            <For each={state().teamIndices()}>
+              {team => (
+                <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
+                  <div class="mb-2 flex gap-3 items-center justify-between">
+                    <div class="text-xs text-accent tracking-wider font-bold flex min-w-0 items-center gap-1.5">
+                      <span>
+                        Team
+                        {' '}
+                        {String.fromCharCode(65 + team)}
+                      </span>
+                      <Show when={state().teamGuild(team)}>
+                        {guild => (
+                          <span class="text-fg-muted normal-case tracking-normal font-medium min-w-0 flex items-center gap-1" title={`Locked to ${guild().name || guild().id}`}>
+                            <Show
+                              when={guild().iconUrl}
+                              fallback={<span class="rounded-sm bg-white/12 text-[7px] text-fg-subtle font-bold shrink-0 inline-flex h-4 w-4 items-center justify-center">{(guild().name || 'S').slice(0, 1).toUpperCase()}</span>}
+                            >
+                              {iconUrl => <img src={iconUrl()} alt="" draggable={false} class="rounded-sm shrink-0 h-4 w-4 object-cover" />}
+                            </Show>
+                            <span class="truncate max-w-28">{guild().name || guild().id}</span>
+                          </span>
+                        )}
+                      </Show>
+                    </div>
+                    <Show when={state().teamBalance(team)}>
+                      {summary => (
+                        <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap" title={formatTeamBalanceTitle(summary(), team)}>
+                          {Math.round(summary().probability * 100)}
+                          %
+                          <Show when={formatTeamBalanceRange(summary())}>
+                            {range => <span class="text-fg-subtle font-normal ml-1">({range()})</span>}
                           </Show>
-                          <span class="truncate max-w-28">{guild().name || guild().id}</span>
-                        </span>
+                          <Show when={formatProjectedWinDelta(summary())}>
+                            {delta => <span class="text-fg-subtle font-normal ml-1">· {delta()}</span>}
+                          </Show>
+                        </div>
                       )}
                     </Show>
                   </div>
-                  <Show when={state().teamBalance(team)}>
-                    {summary => (
-                      <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap" title={formatTeamBalanceTitle(summary(), team)}>
-                        {Math.round(summary().probability * 100)}
-                        %
-                        <Show when={formatTeamBalanceRange(summary())}>
-                          {range => (
-                            <span class="text-fg-subtle font-normal ml-1">
-                              (
-                              {range()}
-                              )
-                            </span>
-                          )}
-                        </Show>
-                        <Show when={formatProjectedWinDelta(summary())}>
-                          {delta => (
-                            <span class="text-fg-subtle font-normal ml-1">
-                              ·
-                              {' '}
-                              {delta()}
-                            </span>
-                          )}
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
+                  <DraftSetupPlayerColumn
+                    {...createPlayerColumnProps(state(), state().teamRows(team), flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())}
+                  />
                 </div>
-                <DraftSetupPlayerColumn
-                  {...createPlayerColumnProps(state(), state().teamRows(team), flip, openPlayerId(), openPlayerPopover, closePlayerPopover, showSourceGuild())}
-                />
-              </div>
-            )}
-          </For>
-        </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </Show>
 
       <Show when={selectedPlayerRow()}>
         {row => (
           <Portal>
             <PlayerStatsPopover
-              row={row()}
-              rankedRoles={state().rankedRoles()}
+              name={row().name}
+              avatarUrl={row().avatarUrl}
+              stats={row().balanceRating}
               statsLabel={state().statsLabel()}
               unranked={state().unranked()}
+              role={resolvePlayerRole(row(), state().rankedRoles())}
               style={playerPopoverStyle()}
               setRef={(element) => { playerPopoverRef = element }}
             />
@@ -652,101 +679,13 @@ function PlayerChip(props: {
   )
 }
 
-function PlayerStatsPopover(props: {
-  row: PlayerRow
-  rankedRoles: RankedRoleOptionSnapshot[]
-  statsLabel: string
-  unranked: boolean
-  style: { left: string, top: string } | undefined
-  setRef: (element: HTMLDivElement) => void
-}) {
-  const ratingValue = () => formatRating(props.row.balanceRating, props.unranked)
-  const recordValue = () => formatRecord(props.row.balanceRating)
-  const winRateValue = () => formatWinRate(props.row.balanceRating)
-  const rankValue = () => props.row.balanceRating?.rank ? `#${props.row.balanceRating.rank}` : 'Unranked'
-  const role = createMemo(() => formatRankedRole(props.row.rankedRole, props.rankedRoles))
-
-  return (
-    <div
-      ref={props.setRef}
-      role="dialog"
-      aria-label={`${props.row.name} stats`}
-      class="pointer-events-none fixed z-50 w-fit min-w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
-      style={props.style}
-    >
-      <div class="flex items-start gap-3">
-        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/8 ring-1 ring-white/12 overflow-hidden">
-          <Show when={props.row.avatarUrl} fallback={<span class="i-ph:user-bold text-lg text-fg-subtle" />}>
-            {avatar => <img src={avatar()} alt="" class="h-full w-full object-cover" draggable={false} />}
-          </Show>
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-start gap-2">
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm font-semibold text-fg">{props.row.name}</div>
-              <Show when={role().label !== 'Unassigned'}>
-                <span
-                  class="mt-1 text-[11px] leading-none font-semibold px-2 py-1 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center justify-center max-w-full"
-                  style={buildRolePillStyle(role().color)}
-                >
-                  {role().label}
-                </span>
-              </Show>
-            </div>
-            <div class="shrink-0 text-right text-[10px] text-fg-subtle font-semibold tracking-wide whitespace-nowrap" title={props.statsLabel}>
-              {props.statsLabel}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
-        <div class="px-3 py-2 text-center">
-          <div class="text-sm font-semibold text-fg whitespace-nowrap">{ratingValue()}</div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Elo</div>
-        </div>
-        <div class="px-3 py-2 text-center">
-          <div class="text-sm font-semibold text-fg whitespace-nowrap">{rankValue()}</div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Rank</div>
-        </div>
-        <div class="px-3 py-2 text-center">
-          <div class="text-sm font-semibold text-fg whitespace-nowrap">
-            {recordValue()}
-            <Show when={winRateValue() !== 'No data'}>
-              <span class="text-fg-subtle font-normal text-xs ml-1">({winRateValue()})</span>
-            </Show>
-          </div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">W-L (WR)</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
-  if (unranked) return 'Unranked'
-  if (!rating) return String(DISPLAY_RATING_BASE)
-  return String(Math.round(rating.publicRating ?? DISPLAY_RATING_BASE))
-}
-
-export function formatRecord(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
-  const wins = Math.max(0, Math.min(gamesPlayed, rating?.wins ?? 0))
-  return `${wins}-${gamesPlayed - wins}`
-}
-
-export function formatWinRate(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
-  if (gamesPlayed === 0) return '0%'
-  return `${Math.round(((rating?.wins ?? 0) / gamesPlayed) * 100)}%`
-}
-
-function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {
-  if (!rankedRole) return { label: 'Unassigned', color: null }
+function resolvePlayerRole(row: PlayerRow, rankedRoles: RankedRoleOptionSnapshot[]): { label: string, style: Record<string, string> } | null {
+  if (!row.rankedRole) return null
+  const rankedRole = row.rankedRole
   const option = rankedRoles.find(candidate => candidate.tier === rankedRole.tier) ?? null
   return {
     label: option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier),
-    color: option?.color ?? null,
+    style: buildRolePillStyle(option?.color ?? null),
   }
 }
 

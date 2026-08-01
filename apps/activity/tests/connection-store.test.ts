@@ -1,5 +1,5 @@
-import type { DraftState, MapVoteSnapshot } from '@civup/game'
-import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, isDraftError, processDraftInput } from '@civup/game'
+import type { DraftState, MapVoteSnapshot, TeamFormationSnapshot } from '@civup/game'
+import { buildTeamFormationSnapshot, createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
@@ -28,6 +28,18 @@ function createVotingMapVote(endsAt: number): MapVoteSnapshot {
     phase: 'voting',
     endsAt,
   }
+}
+
+function createActiveTeamFormation(endsAt: number): TeamFormationSnapshot {
+  return buildTeamFormationSnapshot({
+    ...EMPTY_TEAM_FORMATION_STATE,
+    enabled: true,
+    phase: 'active',
+    currentTeam: 0,
+    captainSeatIndices: [0, 1],
+    teamSeatIndices: [[0], [1]],
+    endsAt,
+  })
 }
 
 describe('stale draft reconnect watchdog', () => {
@@ -67,6 +79,19 @@ describe('stale draft reconnect watchdog', () => {
       mapVote: createVotingMapVote(mapVoteEndsAt),
       lastSocketActivityAt: mapVoteEndsAt - 1,
       nowMs: mapVoteEndsAt + 5_001,
+    })).toBe(true)
+  })
+
+  test('reconnects when a Captain Pick timer stays expired without newer socket activity', () => {
+    const endsAt = 10_000
+
+    expect(shouldForceReconnectForStaleDraft({
+      connectionStatus: 'connected',
+      state: null,
+      timerEndsAt: endsAt,
+      teamFormation: createActiveTeamFormation(endsAt),
+      lastSocketActivityAt: endsAt - 1,
+      nowMs: endsAt + 5_001,
     })).toBe(true)
   })
 

@@ -1,4 +1,4 @@
-import type { DraftState, MapVoteSnapshot } from '@civup/game'
+import type { DraftState, MapVoteSnapshot, TeamFormationSnapshot } from '@civup/game'
 
 export const STALE_DRAFT_RECONNECT_GRACE_MS = 5_000
 
@@ -7,6 +7,7 @@ export function shouldForceReconnectForStaleDraft(params: {
   state: DraftState | null
   timerEndsAt: number | null
   mapVote?: Pick<MapVoteSnapshot, 'phase' | 'endsAt'> | null
+  teamFormation?: Pick<TeamFormationSnapshot, 'enabled' | 'phase' | 'endsAt'> | null
   lastSocketActivityAt: number
   lastForcedReconnectTimerEndsAt?: number | null
   nowMs?: number
@@ -29,7 +30,12 @@ function getReconnectWatchdogTimerEndsAt(params: {
   state: DraftState | null
   timerEndsAt: number | null
   mapVote?: Pick<MapVoteSnapshot, 'phase' | 'endsAt'> | null
+  teamFormation?: Pick<TeamFormationSnapshot, 'enabled' | 'phase' | 'endsAt'> | null
 }): number | null {
+  if (params.teamFormation?.enabled && params.teamFormation.phase === 'active' && params.teamFormation.endsAt != null) {
+    return params.teamFormation.endsAt
+  }
+
   if ((params.mapVote?.phase === 'voting' || params.mapVote?.phase === 'reveal') && params.mapVote.endsAt != null) {
     return params.mapVote.endsAt
   }

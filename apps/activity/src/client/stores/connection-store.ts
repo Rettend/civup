@@ -81,6 +81,7 @@ export interface LobbySnapshot {
     leaderPoolSize: number | null
     leaderDataVersion: LeaderDataVersion
     mapVoteEnabled: boolean
+    teamFormationEnabled: boolean
     blindBans: boolean
     blindPicks: boolean
     simultaneousPick: boolean
@@ -451,6 +452,7 @@ function startStaleDraftReconnectWatchdog() {
       state: draftStore.state,
       timerEndsAt: draftStore.timerEndsAt,
       mapVote: draftStore.mapVote,
+      teamFormation: draftStore.teamFormation,
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
       nowMs: draftNow(),
@@ -465,6 +467,7 @@ function startStaleDraftReconnectWatchdog() {
       timerEndsAt: draftStore.timerEndsAt,
       mapVotePhase: draftStore.mapVote.phase,
       mapVoteEndsAt: draftStore.mapVote.endsAt,
+      teamFormationEndsAt: draftStore.teamFormation.endsAt,
       currentStepIndex: draftStore.state?.currentStepIndex ?? null,
       lastSocketActivityAt,
       target: describeSessionSocketTarget(currentSession.target),
@@ -581,6 +584,10 @@ export function sendMapVoteSelection(selection: MapVoteSelection) {
 
 export function sendMapVoteConfirm() {
   return sendMessage({ type: 'map-vote-confirm' })
+}
+
+export function sendTeamFormationPick(groupId: string, revision: number) {
+  return sendMessage({ type: 'team-formation-pick', groupId, revision })
 }
 
 export function sendBan(civIds: string[]) {
@@ -739,6 +746,7 @@ export async function updateLobbyConfig(
     leaderPoolSize?: number | null
     leaderDataVersion?: LeaderDataVersion
     mapVoteEnabled?: boolean
+    teamFormationEnabled?: boolean
     blindBans?: boolean
     blindPicks?: boolean
     simultaneousPick?: boolean
@@ -768,6 +776,7 @@ export async function updateLobbyConfig(
       leaderPoolSize: draftConfig.leaderPoolSize,
       leaderDataVersion: draftConfig.leaderDataVersion,
       mapVoteEnabled: draftConfig.mapVoteEnabled,
+      teamFormationEnabled: draftConfig.teamFormationEnabled,
       blindBans: draftConfig.blindBans,
       blindPicks: draftConfig.blindPicks,
       simultaneousPick: draftConfig.simultaneousPick,
@@ -1188,7 +1197,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
+      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.teamFormation, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -1196,7 +1205,7 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.timerEndsAt)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
+      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.teamFormation, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()

@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 
-import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
+import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot, TeamFormationSnapshot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { cloneOfficialAppliedSettings, getPickSeatForPlayer } from '@civup/game'
@@ -19,6 +19,7 @@ export const storeSpies = {
   sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
   sendMapVoteConfirm: mock(() => true),
   sendMapVoteSelection: mock((_selection: { maps: MapVoteMapId[] }) => true),
+  sendTeamFormationPick: mock((_groupId: string, _revision: number) => true),
   sendLeaderSwap: mock((_seatIndex: number) => {}),
   updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
     uiMockState.steamLobbyLink = steamLobbyLink
@@ -114,6 +115,7 @@ interface MockState {
   mapVoteScriptRounds: RankedChoiceRound<MapScriptId>[]
   mapVoteVotingEndsAt: number | null
   mapVoteRevealEndsAt: number | null
+  teamFormation: TeamFormationSnapshot
   searchQuery: string
   previewPicks: Record<number, string | null>
   draftPreviewBans: Record<number, string[]>
@@ -182,6 +184,7 @@ function mockLobbySnapshot(): LobbySnapshot {
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
+      teamFormationEnabled: false,
     },
     gameSettings: cloneOfficialAppliedSettings(),
     serverDefaults: {
@@ -219,6 +222,7 @@ function mockLobbySnapshotFromConfigPatch(patch: Record<string, unknown>): Lobby
       randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : snapshot.draftConfig.randomDraft,
       hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : snapshot.draftConfig.hiddenDraft,
       duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : snapshot.draftConfig.duplicateFactions,
+      teamFormationEnabled: typeof patch.teamFormationEnabled === 'boolean' ? patch.teamFormationEnabled : snapshot.draftConfig.teamFormationEnabled,
       closed: typeof patch.closed === 'boolean' ? patch.closed : snapshot.draftConfig.closed,
     },
   }
@@ -274,6 +278,7 @@ function defaults(): MockState {
     mapVoteScriptRounds: [],
     mapVoteVotingEndsAt: null,
     mapVoteRevealEndsAt: null,
+    teamFormation: emptyTeamFormation(),
     searchQuery: '',
     previewPicks: {},
     draftPreviewBans: {},
@@ -301,6 +306,25 @@ function defaults(): MockState {
 }
 
 export const uiMockState: MockState = createMutable(defaults())
+
+function emptyTeamFormation(): TeamFormationSnapshot {
+  return {
+    enabled: false,
+    phase: 'idle',
+    revision: 0,
+    firstTeam: null,
+    currentTeam: null,
+    captainSeatIndices: [0, 1],
+    teamSeatIndices: [[], []],
+    unassignedSeatIndices: [],
+    groups: [],
+    legalGroupIds: [],
+    legalSeatIndices: [],
+    endsAt: null,
+    timerSeconds: 0,
+    statsBySeat: {},
+  }
+}
 
 export function resetUiMocks() {
   Object.assign(uiMockState, defaults())
@@ -458,6 +482,10 @@ function getSeatMapVote(seatIndex: number) {
 
 function isMapVotePhase() {
   return uiMockState.mapVotePhase === 'voting' || uiMockState.mapVotePhase === 'reveal'
+}
+
+function isTeamFormationPhase() {
+  return uiMockState.teamFormation.enabled && uiMockState.teamFormation.phase === 'active'
 }
 
 function isHiddenDraftMode() {
@@ -618,6 +646,9 @@ mock.module('~/client/stores', () => ({
           : null,
       }
     },
+    get teamFormation() {
+      return uiMockState.teamFormation
+    },
     get previews() {
       return {
         bans: uiMockState.draftPreviewBans,
@@ -661,6 +692,9 @@ mock.module('~/client/stores', () => ({
   isCivBlitzDraft: () => uiMockState.isCivBlitzDraft,
   isMiniView: () => uiMockState.isMiniView,
   isMapVotePhase,
+  isTeamFormationPhase,
+  isMyTeamFormationTurn: () => uiMockState.teamFormation.currentTeam != null
+    && uiMockState.draftSeatIndex === uiMockState.teamFormation.captainSeatIndices[uiMockState.teamFormation.currentTeam],
   isSeatMapVoteConfirmed: (seatIndex: number) => uiMockState.mapVoteConfirmedSeatIndices.includes(seatIndex),
   isLeaderFavorited: (leaderId: string) => uiMockState.favoriteLeaderIds.includes(leaderId),
   isMyTurn,
@@ -708,6 +742,7 @@ mock.module('~/client/stores', () => ({
   sendConfig: async () => {},
   sendMapVoteConfirm: (...args: Parameters<typeof storeSpies.sendMapVoteConfirm>) => storeSpies.sendMapVoteConfirm(...args),
   sendMapVoteSelection: (...args: Parameters<typeof storeSpies.sendMapVoteSelection>) => storeSpies.sendMapVoteSelection(...args),
+  sendTeamFormationPick: (...args: Parameters<typeof storeSpies.sendTeamFormationPick>) => storeSpies.sendTeamFormationPick(...args),
   sendPick: (...args: Parameters<typeof storeSpies.sendPick>) => storeSpies.sendPick(...args),
   sendPreview: (...args: Parameters<typeof storeSpies.sendPreview>) => storeSpies.sendPreview(...args),
   sendRevert: (...args: Parameters<typeof storeSpies.sendRevert>) => storeSpies.sendRevert(...args),

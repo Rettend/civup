@@ -67,6 +67,7 @@ export {
   GAME_MODE_CHOICES,
   inferGameMode,
   isGameMode,
+  isCaptainPickSupported,
   isLeaderboardMode,
   isTeamMode,
   isUnrankedMode,
@@ -88,6 +89,26 @@ export {
   toBalanceLeaderboardMode,
   toLeaderboardMode,
 } from './mode.ts'
+export {
+  applyTeamFormationToDraftState,
+  buildTeamFormationSeatIndexMap,
+  buildTeamFormationSnapshot,
+  createTeamFormationState,
+  EMPTY_TEAM_FORMATION_STATE,
+  getNextTeamFormationOwner,
+  getTeamFormationSnakeOrder,
+  remapDraftSteps,
+  selectTeamFormationGroup,
+  selectTeamFormationTimeout,
+  startTeamFormation,
+} from './team-formation.ts'
+export type {
+  TeamFormationGroup,
+  TeamFormationPlayerStats,
+  TeamFormationResult,
+  TeamFormationSnapshot,
+  TeamFormationState,
+} from './team-formation.ts'
 export { createSeededRandom } from './random.ts'
 export type { RandomSource } from './random.ts'
 export {

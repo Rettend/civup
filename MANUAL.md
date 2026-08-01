@@ -159,6 +159,7 @@ The host can:
 - set Min and Max Rank. Joining players are checked against the owning server's calculated standings, and every slotted player is checked again when the draft starts.
 - set the leader pool size
 - set ban and pick timers
+- enable **Captain Pick** for a full two-team lobby
 - set or update the Steam lobby link
 - toggle BBG live and beta, this will change the leader details inside the draft
 - start, cancel, or later scrub the match
@@ -170,6 +171,12 @@ Players can:
 - see the current config and draft state
 
 In team modes, the first player in an empty team column locks that column to the server they joined from. Only players from that server can use it until the column is empty again. FFA has no team-column lock.
+
+##### Captain Pick
+
+Captain Pick is available for full two-team modes from `2v2` through `6v6`. The first player in each grouped team column is the captain; everyone else starts in the unassigned pool.
+
+After the host starts, captains choose players in a mirrored snake order. Parties are selected together and cannot be split, source-server team locks still apply, and a timed-out turn chooses a legal player or party automatically. Hover or focus a player to see the public stats snapshot used for the phase. When both teams are full, Map Vote runs if enabled, followed by the leader draft.
 
 #### Spectators
 

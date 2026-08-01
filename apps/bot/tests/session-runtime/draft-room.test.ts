@@ -1,15 +1,16 @@
 import type { DraftState } from '@civup/game'
 import type { RoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
 import type { DraftRuntimeEnv } from '../../src/session-runtime/draft-room.ts'
-import { CIV_BLITZ_CATEGORIES, createDraft, draftFormatMap, getCivBlitzRegistry, isDraftError, processDraftInput } from '@civup/game'
+import { CIV_BLITZ_CATEGORIES, createDraft, createTeamFormationState, draftFormatMap, getCivBlitzRegistry, isDraftError, processDraftInput, startTeamFormation } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { createRoomRecord, ROOM_RECORD_KEY } from '../../src/session-runtime/draft-room-domain.ts'
 import { censorDraftStateForSeat, SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
-import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
+import { createInitialMapVoteState, EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
 
 class TestStorage {
   alarm: number | null = null
+  readonly writes: RoomRecord[] = []
 
   constructor(private room: RoomRecord | null) {}
 
@@ -18,7 +19,10 @@ class TestStorage {
   }
 
   async put(key: string, value: unknown): Promise<void> {
-    if (key === ROOM_RECORD_KEY) this.room = value as RoomRecord
+    if (key === ROOM_RECORD_KEY) {
+      this.room = value as RoomRecord
+      this.writes.push(structuredClone(this.room))
+    }
   }
 
   async setAlarm(scheduledTime: number | Date): Promise<void> {
@@ -70,6 +74,116 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
 }
 
 describe('draft runtime alarm recovery', () => {
+  test('timeout picks a legal Captain Pick candidate and schedules the next captain', async () => {
+    const format = draftFormatMap.get('default-2v2')
+    if (!format) throw new Error('Missing 2v2 format')
+    const seats = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2' },
+      { playerId: 'b2', displayName: 'B2' },
+    ]
+    const state = createDraft('formation-timeout', format, seats, ['civ-1', 'civ-2', 'civ-3', 'civ-4'])
+    const created = createTeamFormationState({ mode: '2v2', seats, timerSeconds: 1 })
+    if ('error' in created) throw new Error(created.error)
+    const started = startTeamFormation(created.state, seats, 0, 1_000)
+    if ('error' in started) throw new Error(started.error)
+    const room = createRoomRecord({
+      matchId: state.matchId,
+      hostId: 'a1',
+      formatId: format.id,
+      seats,
+      civPool: state.availableCivIds,
+      teamFormationEnabled: true,
+    }, state, EMPTY_STORED_MAP_VOTE_STATE, { teamFormation: started.state, timerEndsAt: started.state.endsAt })
+    const storage = new TestStorage(room)
+    const runtime = new TestSessionDraftRuntime(storage)
+
+    expect(await runtime.runAlarm(2_000)).toBe(true)
+    const next = await runtime.readRoom()
+    expect(next?.state.status).toBe('waiting')
+    expect(next?.teamFormation.phase).toBe('active')
+    expect(next?.teamFormation.teamSeatIndices[0]).toEqual([0, 2])
+    expect(next?.teamFormation.currentTeam).toBe(1)
+    expect(next?.teamFormation.endsAt).toBe(3_000)
+    expect(storage.alarm).toBe(3_000)
+  })
+
+  test('Captain Pick completes through captain messages before starting the leader draft', async () => {
+    const format = draftFormatMap.get('default-2v2')
+    if (!format) throw new Error('Missing 2v2 format')
+    const seats = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2' },
+      { playerId: 'b2', displayName: 'B2' },
+    ]
+    const state = createDraft('formation-complete', format, seats, ['civ-1', 'civ-2', 'civ-3', 'civ-4'])
+    const room = createRoomRecord({
+      matchId: state.matchId,
+      hostId: 'a1',
+      formatId: format.id,
+      seats,
+      civPool: state.availableCivIds,
+      teamFormationEnabled: true,
+    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const storage = new TestStorage(room)
+    const runtime = new TestSessionDraftRuntime(storage)
+    const captainA = createFakeSessionWebSocket({ id: 'conn-a1', sessionId: state.matchId, playerId: 'a1', kind: 'draft', connectedAt: 1 })
+    const captainB = createFakeSessionWebSocket({ id: 'conn-b1', sessionId: state.matchId, playerId: 'b1', kind: 'draft', connectedAt: 1 })
+
+    await runtime.webSocketMessage(captainA.connection, JSON.stringify({ type: 'start' }))
+    expect((await runtime.readRoom())?.teamFormation.currentTeam).toBe(0)
+    await runtime.webSocketMessage(captainA.connection, JSON.stringify({ type: 'team-formation-pick', groupId: 'group:2', revision: 0 }))
+    expect((await runtime.readRoom())?.teamFormation.currentTeam).toBe(1)
+    await runtime.webSocketMessage(captainB.connection, JSON.stringify({ type: 'team-formation-pick', groupId: 'group:3', revision: 1 }))
+
+    const completed = await runtime.readRoom()
+    expect(completed?.teamFormation.phase).toBe('done')
+    expect(completed?.state.status).toBe('active')
+    expect(completed?.state.seats.map(seat => seat.team)).toEqual([0, 1, 0, 1])
+  })
+
+  test('Captain Pick starts Map Vote before the leader draft when both are enabled', async () => {
+    const format = draftFormatMap.get('default-2v2')
+    if (!format) throw new Error('Missing 2v2 format')
+    const seats = [
+      { playerId: 'a1', displayName: 'A1', team: 0 },
+      { playerId: 'b1', displayName: 'B1', team: 1 },
+      { playerId: 'a2', displayName: 'A2' },
+      { playerId: 'b2', displayName: 'B2' },
+    ]
+    const state = createDraft('formation-map-vote', format, seats, ['civ-1', 'civ-2', 'civ-3', 'civ-4'])
+    const config = {
+      matchId: state.matchId,
+      hostId: 'a1',
+      formatId: format.id,
+      seats,
+      civPool: state.availableCivIds,
+      teamFormationEnabled: true,
+      mapVoteEnabled: true,
+    }
+    const room = createRoomRecord(config, state, createInitialMapVoteState(state, config, false))
+    const storage = new TestStorage(room)
+    const runtime = new TestSessionDraftRuntime(storage)
+    const captainA = createFakeSessionWebSocket({ id: 'conn-a1', sessionId: state.matchId, playerId: 'a1', kind: 'draft', connectedAt: 1 })
+    const captainB = createFakeSessionWebSocket({ id: 'conn-b1', sessionId: state.matchId, playerId: 'b1', kind: 'draft', connectedAt: 1 })
+
+    await runtime.webSocketMessage(captainA.connection, JSON.stringify({ type: 'start' }))
+    await runtime.webSocketMessage(captainA.connection, JSON.stringify({ type: 'team-formation-pick', groupId: 'group:3', revision: 0 }))
+    await runtime.webSocketMessage(captainB.connection, JSON.stringify({ type: 'team-formation-pick', groupId: 'group:2', revision: 1 }))
+
+    const completed = await runtime.readRoom()
+    expect(completed?.teamFormation.phase).toBe('done')
+    expect(completed?.mapVote.phase).toBe('voting')
+    expect(completed?.state.status).toBe('waiting')
+    const completedFormationWrites = storage.writes.filter(write => write.teamFormation.phase === 'done')
+    expect(completedFormationWrites.length).toBeGreaterThan(0)
+    expect(completedFormationWrites.every(write => JSON.stringify(write.state.steps) !== JSON.stringify(state.steps))).toBe(true)
+    expect(completedFormationWrites.every(write => write.state.steps.some(step => step.seats !== 'all' && step.seats.includes(3)))).toBe(true)
+    expect(completedFormationWrites.every(write => write.state.seats.map(seat => seat.team).join(',') === '0,1,1,0')).toBe(true)
+  })
+
   test('censors blind-pick submissions to opponents but not teammates', () => {
     const state: DraftState = {
       matchId: 'blind-pick-censor-test',

@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js'
 import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isCaptainPickSupported, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -41,6 +41,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.leaderPoolSize === b.leaderPoolSize
     && a.leaderDataVersion === b.leaderDataVersion
     && a.mapVoteEnabled === b.mapVoteEnabled
+    && a.teamFormationEnabled === b.teamFormationEnabled
     && a.blindBans === b.blindBans
     && a.blindPicks === b.blindPicks
     && a.simultaneousPick === b.simultaneousPick
@@ -79,6 +80,7 @@ export function useDraftSetupConfigState(input: {
   const [editingField, setEditingField] = createSignal<EditableConfigField | null>(null)
   const [leaderDataVersionPending, setLeaderDataVersionPending] = createSignal(false)
   const [mapVoteEnabledPending, setMapVoteEnabledPending] = createSignal(false)
+  const [teamFormationEnabledPending, setTeamFormationEnabledPending] = createSignal(false)
   const [blindBansPending, setBlindBansPending] = createSignal(false)
   const [blindPicksPending, setBlindPicksPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
@@ -194,6 +196,7 @@ export function useDraftSetupConfigState(input: {
       leaderPoolSize: null,
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
+      teamFormationEnabled: false,
       blindBans: true,
       blindPicks: false,
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
@@ -269,6 +272,7 @@ export function useDraftSetupConfigState(input: {
   const optimisticTimerConfig = createOptimisticState(draftConfig, { equals: sameLobbyDraftConfig })
   const optimisticDraftConfig = () => optimisticTimerConfig.value()
   const formattedMapVote = () => draftConfig().mapVoteEnabled ? 'On' : 'Off'
+  const formattedTeamFormation = () => draftConfig().teamFormationEnabled ? 'On' : 'Off'
   const formattedBbgVersion = () => normalizeAvailableLeaderDataVersion(draftConfig().leaderDataVersion) === 'beta' ? 'Beta' : 'Live'
   const formattedBlindBans = () => draftConfig().blindBans ? 'Blind' : 'Draft'
   const formattedBlindPicks = () => draftConfig().blindPicks ? 'Blind' : 'Draft'
@@ -313,6 +317,7 @@ export function useDraftSetupConfigState(input: {
   }
   const canToggleRedDeath = () => !isTournamentLobby() && !redDeathExtraFfaSeatsOccupied()
   const supportsMapVoteToggle = () => input.isLobbyMode() && !isTournamentLobby() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
+  const supportsTeamFormationToggle = () => input.isLobbyMode() && !isTournamentLobby() && isCaptainPickSupported(input.lobbyMode(), input.currentLobby()?.targetSize)
   const supportsBlindBansToggle = () => input.isLobbyMode() && !isTournamentLobby() && supportsBlindBansControl(input.lobbyMode(), { redDeath: isRedDeathLobbyMode(), targetSize: input.currentLobby()?.targetSize })
   const supportsBlindPicksToggle = () => input.isLobbyMode() && !isTournamentLobby()
   const focusedTextInputField = (): EditableConfigField | null => {
@@ -380,6 +385,7 @@ export function useDraftSetupConfigState(input: {
               leaderPoolSize: nextConfig.leaderPoolSize,
               leaderDataVersion: nextConfig.leaderDataVersion,
               mapVoteEnabled: nextConfig.mapVoteEnabled,
+              teamFormationEnabled: nextConfig.teamFormationEnabled,
               blindBans: nextConfig.blindBans,
               blindPicks: nextConfig.blindPicks,
               simultaneousPick: nextConfig.simultaneousPick,
@@ -455,6 +461,7 @@ export function useDraftSetupConfigState(input: {
         leaderPoolSize,
         leaderDataVersion: current.leaderDataVersion,
         mapVoteEnabled: current.mapVoteEnabled,
+        teamFormationEnabled: current.teamFormationEnabled,
         blindBans: current.blindBans,
         blindPicks: current.blindPicks,
         simultaneousPick: current.simultaneousPick,
@@ -509,6 +516,10 @@ export function useDraftSetupConfigState(input: {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || mapVoteEnabledPending() || !supportsMapVoteToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().mapVoteEnabled, setMapVoteEnabledPending, current => ({ ...current, mapVoteEnabled: checked }))
   }
+  const handleTeamFormationEnabledChange = async (checked: boolean) => {
+    if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || teamFormationEnabledPending() || !supportsTeamFormationToggle()) return
+    await commitToggleConfigChange(checked, optimisticDraftConfig().teamFormationEnabled, setTeamFormationEnabledPending, current => ({ ...current, teamFormationEnabled: checked }))
+  }
   const handleBlindBansChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || blindBansPending() || !supportsBlindBansToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().blindBans, setBlindBansPending, current => ({ ...current, blindBans: checked }))
@@ -538,6 +549,7 @@ export function useDraftSetupConfigState(input: {
         leaderPoolSize: checked ? null : current.leaderPoolSize,
         leaderDataVersion: checked ? 'live' : current.leaderDataVersion,
         mapVoteEnabled: checked ? false : current.mapVoteEnabled,
+        teamFormationEnabled: current.teamFormationEnabled,
         blindBans: checked ? true : current.blindBans,
         blindPicks: current.blindPicks,
         simultaneousPick: checked ? false : current.simultaneousPick,
@@ -763,6 +775,7 @@ export function useDraftSetupConfigState(input: {
   const pending = {
     leaderDataVersion: leaderDataVersionPending,
     mapVoteEnabled: mapVoteEnabledPending,
+    teamFormationEnabled: teamFormationEnabledPending,
     blindBans: blindBansPending,
     blindPicks: blindPicksPending,
     simultaneousPick: simultaneousPickPending,
@@ -790,6 +803,7 @@ export function useDraftSetupConfigState(input: {
     canStartLobby,
     canToggleRedDeath,
     supportsMapVote: supportsMapVoteToggle,
+    supportsTeamFormation: supportsTeamFormationToggle,
     supportsBlindBans: supportsBlindBansToggle,
     supportsBlindPicks: supportsBlindPicksToggle,
     leaderPoolMinimum: leaderPoolMinimumValue,
@@ -818,6 +832,7 @@ export function useDraftSetupConfigState(input: {
     formattedLobbyMinRole,
     formattedLobbyMaxRole,
     formattedMapVote,
+    formattedTeamFormation,
     formattedPickTimer,
     formattedRandomDraft,
     formattedSimultaneousPick,
@@ -838,6 +853,7 @@ export function useDraftSetupConfigState(input: {
     inputPickMinutes: handlePickMinutesInput,
     changeLeaderDataVersion: handleLeaderDataVersionChange,
     changeMapVoteEnabled: handleMapVoteEnabledChange,
+    changeTeamFormationEnabled: handleTeamFormationEnabledChange,
     changeBlindBans: handleBlindBansChange,
     changeBlindPicks: handleBlindPicksChange,
     changeSimultaneousPick: handleSimultaneousPickChange,
@@ -871,6 +887,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     leaderPoolSize: lobby.draftConfig.leaderPoolSize,
     leaderDataVersion: lobby.draftConfig.leaderDataVersion,
     mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
+    teamFormationEnabled: lobby.draftConfig.teamFormationEnabled,
     blindBans: lobby.draftConfig.blindBans,
     blindPicks: lobby.draftConfig.blindPicks,
     simultaneousPick: lobby.draftConfig.simultaneousPick,

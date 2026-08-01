@@ -1,4 +1,4 @@
-import type { AppliedCivLobbySettings, CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry, TeamFormationPlayerStats } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { SQL } from 'drizzle-orm'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
@@ -10,20 +10,22 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, canStartWithPlayerCount, civLobbySettingsProfilesEqual, EMPTY_MAP_VOTE_SNAPSHOT, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeMapVoteSelection, resolveCivLobbySettings, slotToTeamIndex } from '@civup/game'
+import { allFactionIds, buildTeamFormationSnapshot, canStartWithPlayerCount, civLobbySettingsProfilesEqual, createTeamFormationState, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeMapVoteSelection, remapDraftSteps, resolveCivLobbySettings, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
+import { DISPLAY_RATING_BASE } from '@civup/rating'
 import { CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration, verifySessionAccessToken } from '@civup/utils'
 import { eq, sql } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
-import { buildDraftRuntimeConfig, buildDraftSeats } from '../services/activity/index.ts'
-import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord } from '../services/activity/session-state.ts'
+import { buildDraftRuntimeConfig, buildDraftSeats, buildTeamFormationPartySeatIndices } from '../services/activity/index.ts'
+import { attachTournamentLobbySnapshot, buildLobbySnapshotFromSessionRecord, getLeaderboardRankByPlayer } from '../services/activity/session-state.ts'
 import { resolveDraftTimerConfig } from '../services/config/index.ts'
 import { createChannelMessage, createChannelMessageWithFile, editChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../services/discord/index.ts'
 import { arrangeLobbySlots } from '../services/lobby/arrange.ts'
-import { validateTeamGuildSlots } from '../services/lobby/team-guilds.ts'
+import { resolveQueueEntrySourceGuild, validateLobbyParties, validateTeamGuildSlots } from '../services/lobby/team-guilds.ts'
 import { upsertLobbyMessage } from '../services/lobby/message.ts'
 import { normalizeCompetitiveTier, normalizeDraftConfigForMode, normalizeMemberPlayerIds, normalizeStoredSlots, sameDraftConfig, sameStringArray } from '../services/lobby/normalize.ts'
 import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
 import { getCalculatedRankGateError } from '../services/ranked/admission.ts'
+import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { createStatsContext } from '../services/stats/context.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
@@ -39,7 +41,7 @@ import { publishActivitySessionUpdate } from './activity-feed-client.ts'
 import { createRoomRecord, ROOM_RECORD_KEY } from './draft-room-domain.ts'
 import { SessionDraftRuntime } from './draft-room.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE, isMapVoteInProgress } from './map-vote-room-state.ts'
-import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterQueueEntries, buildSessionRosterSlotEntries } from './session-record.ts'
+import { buildLobbyDraftConfigFromSessionConfig, buildLobbyProjectionFromSessionRecord, buildOpenSessionRecordFromLobby, buildSessionRoster, buildSessionRosterFromDraftSeats, buildSessionRosterQueueEntries } from './session-record.ts'
 import { canOpenSwapWindowForState } from './swap-window.ts'
 
 interface SessionDOEnv extends DraftRuntimeEnv {
@@ -98,6 +100,7 @@ type RepeatDraftSource
     previews?: RepeatDraftRoomSnapshot['previews']
     config?: RoomRecord['config']
     doublePickMetrics?: DraftDoublePickMetrics
+    teamFormation: RoomRecord['teamFormation']
   }
     | {
       kind: 'complete'
@@ -506,11 +509,16 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   protected async getRecord(): Promise<SessionRecord | null> {
     const record = await this.ctx.storage.get<SessionRecord>(SESSION_RECORD_STORAGE_KEY) ?? null
     if (!record) return null
-    if (this.gameSettingsCache?.version === record.version) return { ...record, gameSettings: this.gameSettingsCache.value }
+    const config: SessionConfig = {
+      ...normalizeDraftConfigForMode(record.mode, record.config, record.roster.slots.length),
+      minRole: record.config.minRole ?? null,
+      maxRole: record.config.maxRole ?? null,
+    }
+    if (this.gameSettingsCache?.version === record.version) return { ...record, config, gameSettings: this.gameSettingsCache.value }
     const storedGameSettings = (record as Omit<SessionRecord, 'gameSettings'> & { gameSettings?: AppliedCivLobbySettings }).gameSettings
     const gameSettings = normalizeAppliedCivLobbySettings(storedGameSettings)
     this.gameSettingsCache = { version: record.version, value: gameSettings }
-    return { ...record, gameSettings }
+    return { ...record, config, gameSettings }
   }
 
   protected override async getSessionAccessId(room: RoomRecord): Promise<string> {
@@ -706,8 +714,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
 
     if (validateRoster && record.phase === 'open') {
-      const validation = validateTeamGuildSlots(record.mode, record.roster.slots, buildSessionRosterQueueEntries(record), this.teamGuildPolicy(record))
-      if (validation.error) return json({ error: validation.error }, 400)
+      const validationError = this.validateOpenRoster(record)
+      if (validationError) return json({ error: validationError }, 400)
     }
 
     if (record === existing) return json({ ok: true, record })
@@ -742,7 +750,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const expected = normalizeOptionalPositiveInteger(body?.expectedVersion)
     if (expected != null && expected !== record.version) return json({ error: 'Session changed before draft start' }, 409)
 
-    const selectedEntries = buildSessionRosterSlotEntries(record)
+    const selectedEntries = this.buildEffectiveSlotEntries(record)
     if (!selectedEntries.some(entry => entry.playerId === record.hostId)) {
       return json({ error: 'Host must be in a lobby slot before starting.' }, 400)
     }
@@ -760,16 +768,29 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const now = normalizePositiveInteger(body?.now, Date.now())
     const matchId = record.id
     const arrangeStrategy = record.mode === 'ffa' ? 'randomize' : 'shuffle-teams'
-    const arranged = arrangeLobbySlots({
-      mode: record.mode,
-      slots: record.roster.slots,
-      queueEntries: buildSessionRosterQueueEntries(record),
-      strategy: arrangeStrategy,
-      teamGuildPolicy: this.teamGuildPolicy(record),
-    })
+    const arranged = record.config.teamFormationEnabled
+      ? { slots: [...record.roster.slots] }
+      : arrangeLobbySlots({
+          mode: record.mode,
+          slots: record.roster.slots,
+          queueEntries: this.buildEffectiveQueueEntries(record),
+          strategy: arrangeStrategy,
+          teamGuildPolicy: this.teamGuildPolicy(record),
+        })
     if ('error' in arranged) return json({ error: arranged.error }, 400)
-    const teamValidation = validateTeamGuildSlots(record.mode, arranged.slots, buildSessionRosterQueueEntries(record), this.teamGuildPolicy(record))
-    if (teamValidation.error) return json({ error: teamValidation.error }, 400)
+    if (record.config.teamFormationEnabled) {
+      const formationSeats = buildDraftSeats(record.mode, selectedEntries)
+      const validation = createTeamFormationState({
+        mode: record.mode,
+        seats: formationSeats,
+        partySeatIndices: buildTeamFormationPartySeatIndices(formationSeats, selectedEntries),
+      })
+      if ('error' in validation) return json({ error: validation.error }, 400)
+    }
+    else {
+      const teamValidation = validateTeamGuildSlots(record.mode, arranged.slots, this.buildEffectiveQueueEntries(record), this.teamGuildPolicy(record))
+      if (teamValidation.error) return json({ error: teamValidation.error }, 400)
+    }
     if (record.config.minRole || record.config.maxRole) {
       if (!this.env.KV) return json({ error: 'KV binding is not configured' }, 503)
       if (!record.guildId) return json({ error: 'Session is missing owning-server data' }, 409)
@@ -785,7 +806,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const randomized = applyOpenSessionPatch(record, {
       slots: arranged.slots,
-      lastArrange: { strategy: arrangeStrategy, at: now },
+      ...(record.config.teamFormationEnabled ? {} : { lastArrange: { strategy: arrangeStrategy, at: now } }),
       lastActivityAt: now,
       updatedAt: now,
     })
@@ -873,6 +894,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       lifecycleEventSequence: previousRoom?.lifecycleEventSequence ?? record.lifecycleEventSequence ?? 0,
       repeatDraft: null,
       doublePickMetrics: source.doublePickMetrics ?? previousRoom?.doublePickMetrics,
+      teamFormation: prepareRepeatedTeamFormation(source.teamFormation, now, seatIndexMap),
     })
 
     try {
@@ -1060,7 +1082,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   private async findResumeDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'resume' }> | null> {
     const room = await this.getRoomRecord()
     const repeatDraft = room?.repeatDraft ?? null
-    if (repeatDraft && sameRepeatDraftRoster(record.mode, repeatDraft.state.seats, currentSeats) && (!room?.config || isRepeatRuntimeConfigCompatible(record, repeatDraft.state, room.config))) {
+    if (repeatDraft && sameRepeatDraftRoster(record.mode, repeatDraft.state.seats, currentSeats, repeatDraft.teamFormation) && (!room?.config || isRepeatRuntimeConfigCompatible(record, repeatDraft.state, room.config))) {
       return {
         kind: 'resume',
         matchId: record.id,
@@ -1069,12 +1091,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         previews: repeatDraft.previews,
         config: room?.config,
         doublePickMetrics: repeatDraft.doublePickMetrics,
+        teamFormation: repeatDraft.teamFormation,
       }
     }
 
     if (room?.state.status === 'cancelled'
       && (room.state.cancelReason === 'timeout' || room.state.cancelReason === 'revert')
-      && sameRepeatDraftRoster(record.mode, room.state.seats, currentSeats)
+      && sameRepeatDraftRoster(record.mode, room.state.seats, currentSeats, room.teamFormation)
       && isRepeatRuntimeConfigCompatible(record, room.state, room.config)) {
       return {
         kind: 'resume',
@@ -1084,6 +1107,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         previews: room.previews,
         config: room.config,
         doublePickMetrics: room.doublePickMetrics,
+        teamFormation: room.teamFormation,
       }
     }
 
@@ -1113,10 +1137,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       state,
       mapVote: { ...EMPTY_STORED_MAP_VOTE_STATE },
       doublePickMetrics: getDoublePickMetricsFromDraftData(match.draftData),
+      teamFormation: { ...EMPTY_TEAM_FORMATION_STATE },
     }
   }
 
   private async findCompletedRepeatDraftSource(record: OpenSessionRecord, currentSeats: DraftSeat[]): Promise<Extract<RepeatDraftSource, { kind: 'complete' }> | null> {
+    if (record.config.teamFormationEnabled) return null
     if (!this.env.DB || currentSeats.length === 0) return null
     const playerIds = [...new Set(currentSeats.map(seat => seat.playerId))]
     const placeholders = playerIds.map(() => '?').join(', ')
@@ -1166,7 +1192,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private buildCurrentDraftSeats(record: OpenSessionRecord): DraftSeat[] {
-    return buildDraftSeats(record.mode, buildSessionRosterSlotEntries(record))
+    return buildDraftSeats(record.mode, this.buildEffectiveSlotEntries(record))
   }
 
   private async buildRepeatRuntimeConfig(
@@ -1176,7 +1202,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     sourceConfig?: RoomRecord['config'],
   ): Promise<RoomRecord['config']> {
     const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config, { guildId: record.guildId, legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
-    const runtime = buildDraftRuntimeConfig(record.mode, buildSessionRosterSlotEntries(record), {
+    const runtime = buildDraftRuntimeConfig(record.mode, this.buildEffectiveSlotEntries(record), {
       matchId: record.id,
       hostId: record.hostId,
       leaderDataVersion: record.config.leaderDataVersion,
@@ -1189,6 +1215,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       civBlitzOptionCount: record.config.civBlitzOptionCount,
       civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
       mapVoteEnabled: record.config.mapVoteEnabled,
+      teamFormationEnabled: record.config.teamFormationEnabled,
       randomDraft: record.config.randomDraft,
       hiddenDraft: record.config.hiddenDraft,
       duplicateFactions: record.config.duplicateFactions,
@@ -1404,10 +1431,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
     else {
       const timerConfig = await resolveDraftTimerConfig(this.env.KV, record.config, { guildId: record.guildId, legacyGuildId: this.env.ALLOWED_DISCORD_GUILD_ID })
-      const slotEntries = buildSessionRosterSlotEntries(record)
+      const slotEntries = this.buildEffectiveSlotEntries(record)
       const leaderPoolRankTier = record.config.leaderPoolSize == null && !record.config.redDeath && !record.config.civBlitz && !record.config.hiddenDraft && this.env.KV
         ? await resolveLobbyRankTier(this.env.KV, record.guildId, slotEntries.map(entry => entry.playerId))
         : null
+      const provisionalSeats = buildDraftSeats(record.mode, slotEntries)
+      const teamFormationStatsBySeat = record.config.teamFormationEnabled
+        ? await this.loadTeamFormationStats(record, provisionalSeats)
+        : undefined
       const runtime = buildDraftRuntimeConfig(record.mode, slotEntries, {
         matchId: record.matchId,
         hostId: record.hostId,
@@ -1421,6 +1452,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         civBlitzOptionCount: record.config.civBlitzOptionCount,
         civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
         mapVoteEnabled: record.config.mapVoteEnabled,
+        teamFormationEnabled: record.config.teamFormationEnabled,
+        teamFormationStatsBySeat,
         randomDraft: record.config.randomDraft,
         hiddenDraft: record.config.hiddenDraft,
         duplicateFactions: record.config.duplicateFactions,
@@ -1431,13 +1464,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         steamLobbyLink: record.projectionState.steamLobbyLink,
         gameSettings: record.gameSettings,
       })
-      await createDraftMatch(db, this.buildDraftMatchInput(record, runtime.config.matchId, runtime.config.seats))
+      await createDraftMatch(db, this.buildDraftMatchInput(record, runtime.config.matchId, runtime.seats))
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
     if (existingRoom && existingRoom.state.status !== 'cancelled') {
-      await createDraftMatch(db, this.buildDraftMatchInput(record, room.matchId, room.seats))
+      await createDraftMatch(db, this.buildDraftMatchInput(record, room.matchId, buildDraftSeats(record.mode, this.buildEffectiveSlotEntries(record))))
     }
     return room
   }
@@ -1516,11 +1549,76 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     }
   }
 
+  private async loadTeamFormationStats(record: DraftSessionRecord, seats: readonly DraftSeat[]): Promise<Record<number, TeamFormationPlayerStats>> {
+    const fallback = Object.fromEntries(seats.map((_, seatIndex) => [seatIndex, {
+      publicRating: DISPLAY_RATING_BASE,
+      rank: null,
+      gamesPlayed: 0,
+      wins: 0,
+    } satisfies TeamFormationPlayerStats]))
+    const mode = toBalanceLeaderboardMode(record.mode, { redDeath: record.config.redDeath, civBlitz: record.config.civBlitz })
+    if (!mode || !this.env.KV || !record.guildId || !this.env.ALLOWED_DISCORD_GUILD_ID) return fallback
+
+    const snapshot = await getStoredLeaderboardModeSnapshot(
+      this.env.KV,
+      createStatsContext(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID),
+      mode,
+    )
+    if (!snapshot) return fallback
+    const rowByPlayerId = new Map(snapshot.rows.map(row => [row.playerId, row]))
+    const rankByPlayerId = getLeaderboardRankByPlayer(snapshot, mode)
+    return Object.fromEntries(seats.map((seat, seatIndex) => {
+      const row = rowByPlayerId.get(seat.playerId)
+      return [seatIndex, row
+        ? {
+            publicRating: row.publicRating,
+            rank: rankByPlayerId.get(seat.playerId) ?? null,
+            gamesPlayed: row.gamesPlayed,
+            wins: row.wins,
+          }
+        : fallback[seatIndex]!]
+    }))
+  }
+
   private teamGuildPolicy(record: Pick<SessionRecord, 'sourceGuildPolicy'>) {
     return {
       primaryGuildId: this.env.ALLOWED_DISCORD_GUILD_ID,
       allowLegacyPrimarySource: record.sourceGuildPolicy !== 'required',
     }
+  }
+
+  private buildEffectiveQueueEntries(record: Pick<SessionRecord, 'roster' | 'sourceGuildPolicy'>): QueueEntry[] {
+    const policy = this.teamGuildPolicy(record)
+    return buildSessionRosterQueueEntries(record).map((entry) => {
+      const sourceGuild = resolveQueueEntrySourceGuild(entry, policy)
+      return sourceGuild && !entry.sourceGuild ? { ...entry, sourceGuild } : entry
+    })
+  }
+
+  private buildEffectiveSlotEntries(record: Pick<SessionRecord, 'roster' | 'sourceGuildPolicy'>): QueueEntry[] {
+    const entryByPlayerId = new Map(this.buildEffectiveQueueEntries(record).map(entry => [entry.playerId, entry]))
+    return record.roster.slots.flatMap(playerId => playerId && entryByPlayerId.get(playerId) ? [entryByPlayerId.get(playerId)!] : [])
+  }
+
+  private validateOpenRoster(record: OpenSessionRecord): string | null {
+    const entries = this.buildEffectiveQueueEntries(record)
+    if (!record.config.teamFormationEnabled) {
+      return validateTeamGuildSlots(record.mode, record.roster.slots, entries, this.teamGuildPolicy(record)).error
+    }
+
+    const selectedPlayerIds = record.roster.slots.filter((playerId): playerId is string => playerId != null)
+    const partyError = validateLobbyParties(record.mode, entries, selectedPlayerIds, record.roster.slots.length, this.teamGuildPolicy(record))
+    if (partyError) return partyError
+    if (selectedPlayerIds.length !== record.roster.slots.length) return null
+
+    const slotEntries = this.buildEffectiveSlotEntries(record)
+    const seats = buildDraftSeats(record.mode, slotEntries)
+    const formation = createTeamFormationState({
+      mode: record.mode,
+      seats,
+      partySeatIndices: buildTeamFormationPartySeatIndices(seats, slotEntries),
+    })
+    return 'error' in formation ? formation.error : null
   }
 
   private async retryPendingLifecycleSync(): Promise<void> {
@@ -1888,9 +1986,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return { ok: false, status: 400, error: result.error }
     }
 
-    const transition = transitionRecordForDraftLifecycle(record, payload)
+    const recordWithFinalRoster = { ...record, roster: buildSessionRosterFromDraftSeats(record.roster, payload.state.seats) } as SessionRecord
+    const transition = transitionRecordForDraftLifecycle(recordWithFinalRoster, payload)
     if ('error' in transition) return transition
-    const transitionWasNoop = transition.record === record
+    const transitionWasNoop = transition.record === recordWithFinalRoster
     const transitionRecord = withLifecycleEventSequence(transition.record, payload.eventSequence)
     const committed = await this.finishLifecycleSync(transitionRecord)
     if (!committed.ok) return committed
@@ -1938,7 +2037,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await reopenTournamentMatchAfterDraftCancel(db, record.id)
     }
 
-    const transition = transitionRecordForDraftLifecycle(record, payload)
+    const recordWithFinalRoster = { ...record, roster: buildSessionRosterFromDraftSeats(record.roster, payload.state.seats) } as SessionRecord
+    const transition = transitionRecordForDraftLifecycle(recordWithFinalRoster, payload)
     if ('error' in transition) return transition
     const transitionRecord = withLifecycleEventSequence(transition.record, payload.eventSequence)
     const committed = await this.finishLifecycleSync(transitionRecord)
@@ -2873,6 +2973,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       type: 'init',
       state: snapshot.state,
       mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
+      teamFormation: buildTeamFormationSnapshot(EMPTY_TEAM_FORMATION_STATE),
       leaderDataVersion: record.config.leaderDataVersion ?? 'live',
       hostId: record.hostId,
       seatIndex: snapshot.seatIndex,
@@ -3359,6 +3460,7 @@ function reopenDraftSession(record: DraftSessionRecord, at: number): OpenSession
     version: record.version + 1,
     hostId: record.hostId,
     guildId: record.guildId,
+    sourceGuildPolicy: record.sourceGuildPolicy,
     channelId: record.channelId,
     mode: record.mode,
     matchId: null,
@@ -3409,6 +3511,7 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
       leaderDataVersion: record.config.leaderDataVersion,
       leaderPoolSize: record.config.leaderPoolSize,
       mapVoteEnabled: record.config.mapVoteEnabled,
+      teamFormationEnabled: record.config.teamFormationEnabled,
       permanentAlly: record.config.permanentAlly,
       randomDraft: record.config.randomDraft,
       redDeath: record.config.redDeath,
@@ -3442,6 +3545,7 @@ function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: Draft
     && (!record.config.civBlitz || (sourceConfig.civBlitzExcludeBbgExpanded !== false) === record.config.civBlitzExcludeBbgExpanded)
     && (sourceConfig.permanentAlly === true) === isPermanentAllyFfaConfig(record)
     && (sourceConfig.mapVoteEnabled === true) === record.config.mapVoteEnabled
+    && (sourceConfig.teamFormationEnabled === true) === record.config.teamFormationEnabled
     && (sourceConfig.randomDraft === true) === (!record.config.hiddenDraft && record.config.randomDraft)
     && sameAppliedGameSettings(normalizeAppliedCivLobbySettings(sourceConfig.gameSettings), record.gameSettings)
 }
@@ -3502,6 +3606,27 @@ function prepareRepeatedMapVote(mapVote: StoredMapVoteState, now: number, seatIn
   }
 }
 
+function prepareRepeatedTeamFormation(
+  formation: RoomRecord['teamFormation'],
+  now: number,
+  seatIndexMap: ReadonlyMap<number, number>,
+): RoomRecord['teamFormation'] {
+  if (!formation.enabled) return { ...EMPTY_TEAM_FORMATION_STATE }
+  const statsBySeat = Object.fromEntries(Object.entries(formation.statsBySeat).map(([seatIndex, stats]) => [
+    remapSeatIndex(Number(seatIndex), seatIndexMap),
+    { ...stats },
+  ]))
+  return {
+    ...formation,
+    captainSeatIndices: formation.captainSeatIndices.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)) as [number, number],
+    teamSeatIndices: formation.teamSeatIndices.map(team => team.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap))) as [number[], number[]],
+    unassignedSeatIndices: formation.unassignedSeatIndices.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
+    groups: formation.groups.map(group => ({ ...group, seatIndices: group.seatIndices.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)) })),
+    statsBySeat,
+    endsAt: formation.phase === 'active' && formation.timerSeconds > 0 ? now + formation.timerSeconds * 1000 : null,
+  }
+}
+
 function prepareRepeatedDraftPreviews(previews: DraftPreviewState | undefined, seatIndexMap: ReadonlyMap<number, number>): DraftPreviewState | undefined {
   if (!previews) return undefined
   return {
@@ -3519,7 +3644,7 @@ function getRepeatDraftTiming(state: DraftState, mapVote: StoredMapVoteState, no
   return { timerEndsAt: now + step.timer * 1000, alarmStepIndex: state.currentStepIndex }
 }
 
-function sameRepeatDraftRoster(mode: GameMode, left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
+function sameRepeatDraftRoster(mode: GameMode, left: readonly DraftSeat[], right: readonly DraftSeat[], formation?: RoomRecord['teamFormation']): boolean {
   if (left.length !== right.length) return false
   const rightSeatsByPlayerId = new Map<string, DraftSeat>()
   for (const seat of right) {
@@ -3532,7 +3657,11 @@ function sameRepeatDraftRoster(mode: GameMode, left: readonly DraftSeat[], right
     leftPlayerIds.add(leftSeat.playerId)
     if (!rightSeatsByPlayerId.has(leftSeat.playerId)) return false
   }
-  return !isTeamMode(mode) || sameRepeatDraftTeamPartitions(left, right)
+  if (!isTeamMode(mode)) return true
+  if (formation?.enabled && formation.phase !== 'done') {
+    return left[0]?.playerId === right[0]?.playerId && left[1]?.playerId === right[1]?.playerId
+  }
+  return sameRepeatDraftTeamPartitions(left, right)
 }
 
 function sameRepeatDraftTeamPartitions(left: readonly DraftSeat[], right: readonly DraftSeat[]): boolean {
@@ -3631,25 +3760,6 @@ function remapSeatSelectionRecord(record: Record<number, string[]>, seatIndexMap
     next[nextSeatIndex] = [...selections]
   }
   return next
-}
-
-function remapDraftSteps(steps: DraftState['steps'], seatIndexMap: ReadonlyMap<number, number>): DraftState['steps'] {
-  return steps.map((step) => {
-    const fallbackPickOrder = step.fallbackPickOrder?.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap))
-    const civBlitzCategoriesBySeat = step.civBlitzCategoriesBySeat
-      ? remapSeatValueRecord(step.civBlitzCategoriesBySeat, seatIndexMap, categories => [...categories])
-      : undefined
-    const remappedMetadata = {
-      ...(fallbackPickOrder ? { fallbackPickOrder } : {}),
-      ...(civBlitzCategoriesBySeat ? { civBlitzCategoriesBySeat } : {}),
-    }
-    if (step.seats === 'all') return Object.keys(remappedMetadata).length > 0 ? { ...step, ...remappedMetadata } : step
-    return {
-      ...step,
-      seats: step.seats.map(seatIndex => remapSeatIndex(seatIndex, seatIndexMap)),
-      ...remappedMetadata,
-    }
-  })
 }
 
 function remapStoredMapVote(mapVote: StoredMapVoteState, seatIndexMap: ReadonlyMap<number, number>): StoredMapVoteState {

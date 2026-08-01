@@ -5,6 +5,7 @@ import {
   formatLeaderboardModeLabel,
   formatModeLabel,
   inferGameMode,
+  isCaptainPickSupported,
   isUnrankedMode,
   leaderboardModesToGameModes,
   maxPlayerCount,
@@ -152,6 +153,12 @@ describe('shared mode helpers', () => {
   })
 
   test('derives shared team helpers', () => {
+    expect(isCaptainPickSupported('ffa', 8)).toBe(false)
+    expect(isCaptainPickSupported('1v1', 2)).toBe(false)
+    expect(isCaptainPickSupported('2v2', 4)).toBe(true)
+    expect(isCaptainPickSupported('2v2', 8)).toBe(false)
+    expect(isCaptainPickSupported('3v3', 4)).toBe(false)
+    expect(isCaptainPickSupported('3v3', 6)).toBe(true)
     expect(teamSize('ffa')).toBeNull()
     expect(teamSize('1v1')).toBe(1)
     expect(teamSize('2v2')).toBe(2)

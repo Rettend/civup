@@ -14,6 +14,7 @@ export interface LobbyDraftConfig {
   leaderPoolSize: number | null
   leaderDataVersion: LeaderDataVersion
   mapVoteEnabled: boolean
+  teamFormationEnabled: boolean
   blindBans: boolean
   simultaneousPick: boolean
   permanentAlly: boolean

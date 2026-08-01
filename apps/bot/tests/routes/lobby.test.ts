@@ -1233,6 +1233,7 @@ describe('lobby routes', () => {
       leaderPoolSize: 12,
       leaderDataVersion: 'live',
       simultaneousPick: false,
+      teamFormationEnabled: false,
       redDeath: false,
       dealOptionsSize: 2,
       randomDraft: false,
@@ -1275,6 +1276,7 @@ describe('lobby routes', () => {
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
+      teamFormationEnabled: false,
       closed: false,
     })
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')

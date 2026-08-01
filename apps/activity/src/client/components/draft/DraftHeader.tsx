@@ -14,6 +14,7 @@ import {
   isHiddenDraftComplete,
   isMapVotePhase,
   isMobileLayout,
+  isTeamFormationPhase,
   MAP_VOTE_REVEAL_DURATION_SECONDS,
   MAP_VOTE_VOTING_DURATION_SECONDS,
   mapVotePhase,
@@ -57,9 +58,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   type DraftHostAction = 'scrub' | 'revert'
 
   const state = () => draftStore.state
-  const accent = () => isMapVotePhase() ? ('gold' as const) : phaseAccent()
-  const accentColor = () => isMapVotePhase() ? 'var(--accent)' : phaseAccentColor()
-  const headerBg = () => isComplete() ? 'bg-bg-subtle' : isMapVotePhase() ? 'bg-bg-subtle' : phaseHeaderBg()
+  const accent = () => isMapVotePhase() || isTeamFormationPhase() ? ('gold' as const) : phaseAccent()
+  const accentColor = () => isMapVotePhase() || isTeamFormationPhase() ? 'var(--accent)' : phaseAccentColor()
+  const headerBg = () => isComplete() ? 'bg-bg-subtle' : isMapVotePhase() || isTeamFormationPhase() ? 'bg-bg-subtle' : phaseHeaderBg()
   const amHost = () => userId() === draftStore.hostId
   const isParticipant = () => {
     const uid = userId()
@@ -78,7 +79,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
 
-  const displayPhaseLabel = () => isMapVotePhase() ? 'MAP VOTING' : phaseLabel()
+  const displayPhaseLabel = () => isTeamFormationPhase() ? 'CAPTAIN PICK' : isMapVotePhase() ? 'MAP VOTING' : phaseLabel()
   const winningMapTypeOption = () => {
     const id = mapVoteWinningType()
     return id ? MAP_TYPE_BY_ID[id] : null
@@ -89,7 +90,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
   const hasWinningMap = () => winningMapTypeOption() != null && winningMapScriptOption() != null
   const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && (state()?.status === 'active' || state()?.status === 'complete')
-  const showHostActions = () => amHost() && (state()?.status === 'active' || isMapVotePhase())
+  const showHostActions = () => amHost() && (state()?.status === 'active' || isMapVotePhase() || isTeamFormationPhase())
 
   const clearPhaseFlashTimeout = () => {
     if (phaseFlashTimeout == null) return
@@ -142,6 +143,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const [remaining, setRemaining] = createSignal(0)
   const timerEndsAt = () => {
+    if (isTeamFormationPhase()) return draftStore.teamFormation.endsAt
     if (!isMapVotePhase()) return draftStore.timerEndsAt
     return mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt()
   }
@@ -162,6 +164,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const seconds = () => Math.ceil(remaining() / 1000)
   const duration = () => {
+    if (isTeamFormationPhase()) return draftStore.teamFormation.timerSeconds
     if (!isMapVotePhase()) return currentStepDuration()
     return mapVotePhase() === 'voting' ? MAP_VOTE_VOTING_DURATION_SECONDS : MAP_VOTE_REVEAL_DURATION_SECONDS
   }
@@ -238,7 +241,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   })
 
   createEffect(on(
-    () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isMapVotePhase() ? mapVotePhase() : 'draft'}`,
+    () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isTeamFormationPhase() ? 'team' : isMapVotePhase() ? mapVotePhase() : 'draft'}`,
     () => disarmHostAction(),
     { defer: true },
   ))
@@ -366,7 +369,7 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const revertDraft = () => {
     const s = state()
-    if (!amHost() || !s || pendingHostAction() != null || resultLocked() || (s.status !== 'active' && !isMapVotePhase())) return
+    if (!amHost() || !s || pendingHostAction() != null || resultLocked() || (s.status !== 'active' && !isMapVotePhase() && !isTeamFormationPhase())) return
 
     setPendingHostAction('revert')
     if (sendRevert() === false) setPendingHostAction(null)

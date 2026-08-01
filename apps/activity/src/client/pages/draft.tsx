@@ -2,7 +2,7 @@ import type { JSX } from 'solid-js'
 import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
 import { FloatingUiScaleMenu } from '~/client/components/ui/UiScaleMenu'
-import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
+import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, isTeamFormationPhase, sendStart, userId } from '~/client/stores'
 
 type ReportResultStatus = 'idle' | 'submitting' | 'done'
 
@@ -37,7 +37,7 @@ export function DraftPage(props: DraftPageProps) {
       || (status === 'reconnecting' && hasDraftState())
       || (hasTerminalState() && (status === 'error' || status === 'disconnected'))
   }
-  const isWaitingForDraftStart = () => draftStore.state?.status === 'waiting' && !isMapVotePhase()
+  const isWaitingForDraftStart = () => draftStore.state?.status === 'waiting' && !isMapVotePhase() && !isTeamFormationPhase()
   const shouldShowDraftView = () => draftStore.state != null && (isMiniView() || !isWaitingForDraftStart())
   const reportResultStatus = (): ReportResultStatus => {
     if (props.reported) return 'done'

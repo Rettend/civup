@@ -1,5 +1,5 @@
-import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
-import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
+import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot, TeamFormationSnapshot } from '@civup/game'
+import { buildTeamFormationSnapshot, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
 import { createSignal } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
 
@@ -7,6 +7,7 @@ const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
   bans: {},
   picks: {},
 }
+const EMPTY_TEAM_FORMATION_SNAPSHOT = buildTeamFormationSnapshot(EMPTY_TEAM_FORMATION_STATE)
 
 const SWAP_FLASH_DURATION_MS = 600
 export const BLIND_PICK_SUBMISSION_PLACEHOLDER = '__blind__'
@@ -42,6 +43,8 @@ export interface DraftStore {
   hiddenDraft: boolean
   /** Server-authoritative pre-draft map vote state. */
   mapVote: MapVoteSnapshot
+  /** Server-authoritative Captain Pick phase. */
+  teamFormation: TeamFormationSnapshot
   /** Recently swapped seats for transient portrait flash effects. */
   swapFlashSeatIndices: number[]
   /** Increments whenever the socket receives a fresh init payload. */
@@ -65,6 +68,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
   permanentAlly: false,
   hiddenDraft: false,
   mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
+  teamFormation: EMPTY_TEAM_FORMATION_SNAPSHOT,
   swapFlashSeatIndices: [],
   initVersion: 0,
 })
@@ -87,6 +91,7 @@ export function initDraft(
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
+  teamFormation: TeamFormationSnapshot = EMPTY_TEAM_FORMATION_SNAPSHOT,
   steamLobbyLink: string | null = null,
   permanentAlly = false,
   hiddenDraft = false,
@@ -108,6 +113,7 @@ export function initDraft(
     permanentAlly,
     hiddenDraft,
     mapVote,
+    teamFormation,
     swapFlashSeatIndices: [],
     initVersion: nextInitVersion,
   })
@@ -131,6 +137,7 @@ export function resetDraft() {
     permanentAlly: false,
     hiddenDraft: false,
     mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
+    teamFormation: EMPTY_TEAM_FORMATION_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
   })
@@ -155,6 +162,7 @@ export function updateDraft(
   previews: DraftPreviewState,
   swapState: LeaderSwapState | null,
   mapVote: MapVoteSnapshot = EMPTY_MAP_VOTE_SNAPSHOT,
+  teamFormation: TeamFormationSnapshot = EMPTY_TEAM_FORMATION_SNAPSHOT,
   steamLobbyLink: string | null = null,
   permanentAlly = false,
   hiddenDraft = false,
@@ -175,6 +183,7 @@ export function updateDraft(
     s.permanentAlly = permanentAlly
     s.hiddenDraft = hiddenDraft
     s.mapVote = mapVote
+    s.teamFormation = teamFormation
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
   }))
 
@@ -329,6 +338,18 @@ export function canOpenLeaderGrid(): boolean {
   return (s.dealtCivIds?.length ?? 0) > 0
 }
 
+export function isTeamFormationPhase(): boolean {
+  return draftStore.teamFormation.enabled && draftStore.teamFormation.phase === 'active'
+}
+
+export function isMyTeamFormationTurn(): boolean {
+  const formation = draftStore.teamFormation
+  const seatIndex = draftStore.seatIndex
+  return formation.phase === 'active'
+    && formation.currentTeam != null
+    && seatIndex === formation.captainSeatIndices[formation.currentTeam]
+}
+
 // ── Derived Helpers ────────────────────────────────────────
 
 /** Current step or null */
@@ -379,6 +400,7 @@ export function isSpectator(): boolean {
 export function phaseLabel(): string {
   const s = draftStore.state
   if (!s) return ''
+  if (isTeamFormationPhase()) return 'CAPTAIN PICK'
   if (s.status === 'waiting') return 'WAITING'
   if (s.status === 'complete') return 'DRAFT COMPLETE'
   if (s.status === 'cancelled') {

@@ -73,6 +73,21 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
   },
   {
+    key: 'teamFormation',
+    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.derived.supportsTeamFormation(),
+    renderEditable: state => (
+      <SwitchRow
+        label="Captain Pick"
+        active={() => state.derived.optimisticDraftConfig().teamFormationEnabled}
+        disabled={() => state.lobbyActionPending() || state.pending.teamFormationEnabled()}
+        onChange={checked => void state.actions.changeTeamFormationEnabled(checked)}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Captain Pick" value={state.derived.formattedTeamFormation()} valueClass={state.derived.draftConfig().teamFormationEnabled ? 'text-accent' : undefined} />
+    ),
+  },
+  {
     key: 'leaderDataVersion',
     when: state => state.isLobbyMode() && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && hasBetaLeaderData,
     renderEditable: state => (

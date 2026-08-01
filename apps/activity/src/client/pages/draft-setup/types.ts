@@ -17,6 +17,7 @@ export interface LobbyEditableDraftConfig {
   leaderPoolSize: number | null
   leaderDataVersion: 'live' | 'beta'
   mapVoteEnabled: boolean
+  teamFormationEnabled: boolean
   blindBans: boolean
   blindPicks: boolean
   simultaneousPick: boolean

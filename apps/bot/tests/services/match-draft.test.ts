@@ -75,6 +75,37 @@ describe('draft match activation', () => {
     }
   })
 
+  test('activation replaces provisional participant teams with the final draft teams', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const matchId = 'match-final-formation-teams'
+      const provisionalSeats = create2v2Seats()
+      const formedSeats = provisionalSeats.map(seat => ({
+        ...seat,
+        team: seat.playerId === 'p3' ? 1 : seat.playerId === 'p4' ? 0 : seat.team,
+      }))
+      await createDraftMatch(db, { ...MATCH_SCOPE, matchId, mode: '2v2', seats: provisionalSeats })
+
+      const result = await activateDraftMatch(db, {
+        state: buildCompleted2v2DraftState(matchId, formedSeats),
+        completedAt: 1_700_000_000_000,
+        hostId: 'p1',
+      })
+      if ('error' in result) throw new Error(result.error)
+
+      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      expect(Object.fromEntries(participants.map(participant => [participant.playerId, participant.team]))).toEqual({
+        p1: 0,
+        p2: 1,
+        p3: 1,
+        p4: 0,
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('stores double-pick metrics in draft data when provided', async () => {
     const { db, sqlite } = await createTestDatabase()
 
@@ -143,6 +174,45 @@ describe('draft match activation', () => {
         completedAt: null,
         cancelledAt: 1_700_000_000_000,
         resultRevision: 1,
+      })
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('repairs final teams when cancellation is retried after the match was already cancelled', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      const matchId = 'match-cancelled-team-repair'
+      const provisionalSeats = create2v2Seats()
+      const formedSeats = provisionalSeats.map(seat => ({
+        ...seat,
+        team: seat.playerId === 'p3' ? 1 : seat.playerId === 'p4' ? 0 : seat.team,
+      }))
+      await createDraftMatch(db, { ...MATCH_SCOPE, matchId, mode: '2v2', seats: provisionalSeats })
+      await db.update(matches).set({ status: 'cancelled', cancelledAt: 10 }).where(eq(matches.id, matchId))
+
+      const result = await cancelDraftMatch(db, {
+        state: buildCompleted2v2DraftState(matchId, formedSeats),
+        cancelledAt: 10,
+        reason: 'cancel',
+        hostId: 'p1',
+      })
+      if ('error' in result) throw new Error(result.error)
+
+      expect(Object.fromEntries(result.participants.map(participant => [participant.playerId, participant.team]))).toEqual({
+        p1: 0,
+        p2: 1,
+        p3: 1,
+        p4: 0,
+      })
+      const stored = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      expect(Object.fromEntries(stored.map(participant => [participant.playerId, participant.team]))).toEqual({
+        p1: 0,
+        p2: 1,
+        p3: 1,
+        p4: 0,
       })
     }
     finally {

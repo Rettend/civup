@@ -191,6 +191,12 @@ export function teamCount(mode: GameMode, playerCount: number = defaultPlayerCou
   return teamSize(mode, playerCount) == null ? 0 : 2
 }
 
+/** Whether Captain Pick can form exactly two non-duel teams for this seat count. */
+export function isCaptainPickSupported(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): boolean {
+  const size = teamSize(mode, playerCount)
+  return size != null && size > 1 && playerCount === size * 2 && teamCount(mode, playerCount) === 2
+}
+
 /** Players per team. */
 export function playersPerTeam(mode: GameMode, playerCount: number = defaultPlayerCount(mode)): number {
   return teamSize(mode, playerCount) ?? 1

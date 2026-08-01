@@ -1,10 +1,11 @@
 import type { Database } from '@civup/db'
-import type { AppliedCivLobbySettings, CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
+import type { AppliedCivLobbySettings, CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, TeamFormationPlayerStats } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getEligibleLeaderIds, isTeamMode, normalizeAppliedCivLobbySettings, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveCivLobbySettings, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getEligibleLeaderIds, isCaptainPickSupported, isTeamMode, normalizeAppliedCivLobbySettings, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveCivLobbySettings, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
+import { buildLobbyPartyPlayerIds } from '../lobby/team-guilds.ts'
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ export interface CreateDraftRuntimeOptions {
   civBlitzOptionCount?: number | null
   civBlitzExcludeBbgExpanded?: boolean
   mapVoteEnabled?: boolean
+  teamFormationEnabled?: boolean
+  teamFormationStatsBySeat?: Record<number, TeamFormationPlayerStats>
   randomDraft?: boolean
   hiddenDraft?: boolean
   duplicateFactions?: boolean
@@ -54,6 +57,10 @@ export function buildDraftRuntimeConfig(
   const civBlitz = options.civBlitz === true
   const redDeathMode = !civBlitz && options.redDeath === true
   const seats: DraftSeat[] = buildDraftSeats(mode, entries)
+  const teamFormationEnabled = options.teamFormationEnabled === true && isCaptainPickSupported(mode, seats.length)
+  const runtimeSeats = teamFormationEnabled
+    ? seats.map((seat, seatIndex) => ({ ...seat, team: seatIndex < 2 ? seatIndex : undefined }))
+    : seats
   const simultaneousPick = mode === 'ffa' && !redDeathMode && !civBlitz && options.simultaneousPick === true
   const blindPicks = !civBlitz && options.blindPicks === true
   const hiddenDraft = !civBlitz && options.hiddenDraft === true
@@ -94,7 +101,7 @@ export function buildDraftRuntimeConfig(
     matchId,
     hostId: options.hostId,
     formatId: format.id,
-    seats,
+    seats: runtimeSeats,
     civPool,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     civBlitz,
@@ -106,6 +113,9 @@ export function buildDraftRuntimeConfig(
     permanentAlly: mode === 'ffa' && !redDeathMode && !civBlitz && options.permanentAlly !== false,
     duplicateFactions,
     mapVoteEnabled,
+    teamFormationEnabled,
+    teamFormationPartySeatIndices: teamFormationEnabled ? buildTeamFormationPartySeatIndices(seats, entries) : undefined,
+    teamFormationStatsBySeat: teamFormationEnabled ? options.teamFormationStatsBySeat : undefined,
     leaderDataVersion,
     timerConfig: options.timerConfig,
     steamLobbyLink: options.steamLobbyLink ?? null,
@@ -113,6 +123,18 @@ export function buildDraftRuntimeConfig(
   }
 
   return { matchId, formatId: format.id, seats, config }
+}
+
+export function buildTeamFormationPartySeatIndices(seats: readonly DraftSeat[], entries: readonly QueueEntry[]): number[][] {
+  const seatIndexByPlayerId = new Map(seats.map((seat, seatIndex) => [seat.playerId, seatIndex]))
+  const selected = new Set(seats.map(seat => seat.playerId))
+  return buildLobbyPartyPlayerIds(entries, selected)
+    .filter(party => party.length > 1)
+    .map(party => party.flatMap(playerId => {
+      const seatIndex = seatIndexByPlayerId.get(playerId)
+      return seatIndex == null ? [] : [seatIndex]
+    }))
+    .filter(party => party.length > 1)
 }
 
 // ── Build seats with team assignment ────────────────────────

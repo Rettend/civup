@@ -1,7 +1,7 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel, inferGameMode } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
-import { draftNow, draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
+import { draftNow, draftStore, isMapVotePhase, isRedDeathDraft, isTeamFormationPhase, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
 /** Minimized PiP view */
@@ -11,7 +11,9 @@ export function MiniView() {
 
   const [remaining, setRemaining] = createSignal(0)
   createEffect(() => {
-    const endsAt = isMapVotePhase()
+    const endsAt = isTeamFormationPhase()
+      ? draftStore.teamFormation.endsAt
+      : isMapVotePhase()
       ? (mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt())
       : draftStore.timerEndsAt
     if (endsAt == null) {
@@ -31,7 +33,8 @@ export function MiniView() {
     targetSize: state()?.seats.length,
   })
   const timerLabel = () => {
-    if (!isMapVotePhase() && (state()?.status !== 'active' || draftStore.timerEndsAt == null)) return null
+    if (isTeamFormationPhase() && draftStore.teamFormation.endsAt == null) return null
+    if (!isTeamFormationPhase() && !isMapVotePhase() && (state()?.status !== 'active' || draftStore.timerEndsAt == null)) return null
 
     const seconds = Math.ceil(remaining() / 1000)
     const minutes = Math.floor(seconds / 60)
@@ -41,6 +44,7 @@ export function MiniView() {
   const title = () => {
     const current = state()
     if (!current) return 'Draft'
+    if (isTeamFormationPhase()) return 'Captain Pick'
     if (isMapVotePhase()) return 'Map Voting'
     if (current.status === 'waiting') return 'Draft Setup'
     if (current.status === 'complete') return 'Draft Complete'
@@ -62,6 +66,9 @@ export function MiniView() {
 
   const activeSeatSet = () => {
     const current = state()
+    if (current && isTeamFormationPhase() && draftStore.teamFormation.currentTeam != null) {
+      return new Set([draftStore.teamFormation.captainSeatIndices[draftStore.teamFormation.currentTeam]])
+    }
     if (!current || current.status !== 'active') return new Set<number>()
 
     const step = current.steps[current.currentStepIndex]
@@ -98,6 +105,14 @@ export function MiniView() {
 
   const columns = () => {
     const items = seatItems()
+    if (isTeamFormationPhase()) {
+      const assigned = new Set(draftStore.teamFormation.teamSeatIndices.flat())
+      const left = draftStore.teamFormation.teamSeatIndices[0].map(seatIndex => items[seatIndex]!).filter(Boolean)
+      const right = draftStore.teamFormation.teamSeatIndices[1].map(seatIndex => items[seatIndex]!).filter(Boolean)
+      const unassigned = items.filter((_, seatIndex) => !assigned.has(seatIndex))
+      unassigned.forEach((item, index) => (index % 2 === 0 ? left : right).push(item))
+      return [left, right]
+    }
     if (items.some(item => item.team != null)) {
       const teamIndices = Array.from(new Set(items.flatMap(item => item.team == null ? [] : [item.team]))).sort((a, b) => a - b)
       const teamColumns = teamIndices.map(team => items.filter(item => item.team === team))

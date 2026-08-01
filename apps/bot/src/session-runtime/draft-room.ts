@@ -6,6 +6,8 @@ import type {
   LeaderSwapState,
   MapVoteSelection,
   MapVoteSnapshot,
+  TeamFormationSnapshot,
+  TeamFormationState,
 } from '@civup/game'
 import type { DraftRuntimeConfig, SessionClientMessage, SessionServerMessage } from '@civup/session'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
@@ -14,6 +16,9 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import {
   createDraft,
+  applyTeamFormationToDraftState,
+  buildTeamFormationSnapshot,
+  createTeamFormationState,
   DEFAULT_MAP_VOTE_SELECTION,
   draftFormatMap,
   EMPTY_MAP_VOTE_SNAPSHOT,
@@ -30,6 +35,9 @@ import {
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   processDraftInput,
+  selectTeamFormationGroup,
+  selectTeamFormationTimeout,
+  startTeamFormation,
   swapSeatDraftChoices,
 } from '@civup/game'
 import {
@@ -208,9 +216,22 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
     const previews = createEmptyDraftPreviews()
     const mapVote = createInitialMapVoteState(state, nextConfig, format.redDeath)
+    const teamFormation = (() => {
+      if (!nextConfig.teamFormationEnabled) return undefined
+      const created = createTeamFormationState({
+        mode: format.gameMode,
+        seats: state.seats,
+        partySeatIndices: nextConfig.teamFormationPartySeatIndices,
+        timerSeconds: state.steps.find(step => step.action === 'pick')?.timer ?? 0,
+        statsBySeat: nextConfig.teamFormationStatsBySeat,
+      })
+      if ('error' in created) throw new Error(created.error)
+      return created.state
+    })()
     const room = createRoomRecord(nextConfig, state, mapVote, {
       previews,
       lifecycleEventSequence: existing?.lifecycleEventSequence ?? 0,
+      teamFormation,
     })
 
     await this.setRoomRecord(room)
@@ -245,6 +266,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       timerEndsAt: room.timerEndsAt,
       serverNow: Date.now(),
       mapVote,
+      teamFormation: buildTeamFormationSnapshot(room.teamFormation),
       completedAt: room.completedAt,
       cancelledAt: room.cancelledAt,
       previews: censorDraftPreviews(room.state, room.previews, seatIndex),
@@ -364,6 +386,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       room.previews,
       swapState,
       room.mapVote,
+      room.teamFormation,
       room.config.steamLobbyLink ?? null,
       room.config.permanentAlly === true,
       room.config.hiddenDraft === true,
@@ -419,6 +442,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       type: 'init',
       state: this.censorState(room.state, seatIndex),
       mapVote,
+      teamFormation: buildTeamFormationSnapshot(room.teamFormation),
       leaderDataVersion: room.config.leaderDataVersion ?? 'live',
       hostId,
       seatIndex: seatIndex >= 0 ? seatIndex : null,
@@ -496,7 +520,29 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         break
       }
 
+      case 'team-formation-pick': {
+        if (seatIndex < 0) {
+          this.send(sender, { type: 'error', message: 'Not a participant' })
+          return
+        }
+        if (typeof msg.groupId !== 'string' || msg.groupId.length === 0) {
+          this.send(sender, { type: 'error', message: 'Player group is required' })
+          return
+        }
+        if (!Number.isInteger(msg.revision) || msg.revision < 0) {
+          this.send(sender, { type: 'error', message: 'Invalid Captain Pick turn' })
+          return
+        }
+        const result = await this.handleTeamFormationPick(seatIndex, msg.groupId, msg.revision)
+        if (result) this.send(sender, { type: 'error', message: result })
+        break
+      }
+
       case 'map-vote-selection': {
+        if (room.teamFormation.phase === 'active') {
+          this.send(sender, { type: 'error', message: 'Map voting starts after Captain Pick.' })
+          return
+        }
         if (seatIndex < 0) {
           this.send(sender, { type: 'error', message: 'Not a participant' })
           return
@@ -519,6 +565,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
       }
 
       case 'map-vote-confirm': {
+        if (room.teamFormation.phase === 'active') {
+          this.send(sender, { type: 'error', message: 'Map voting starts after Captain Pick.' })
+          return
+        }
         if (seatIndex < 0) {
           this.send(sender, { type: 'error', message: 'Not a participant' })
           return
@@ -643,7 +693,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
           return
         }
 
-        if (msg.reason === 'revert' && state.status !== 'active' && !isMapVoteInProgress(await this.getStoredMapVoteState())) {
+        if (msg.reason === 'revert' && state.status !== 'active' && !isMapVoteInProgress(await this.getStoredMapVoteState()) && room.teamFormation.phase !== 'active') {
           this.send(sender, { type: 'error', message: 'Draft can only be reverted during an active draft' })
           return
         }
@@ -780,6 +830,8 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
 
     const state = room.state
     const config = room.config
+
+    if (await this.handleTeamFormationTimeout(room, now)) return true
 
     if (await this.handleMapVoteAlarm(state, config)) {
       return true
@@ -1096,6 +1148,12 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
 
     const room = await this.requireRoomRecord()
+    if (room.teamFormation.enabled && room.teamFormation.phase === 'idle') {
+      return await this.startTeamFormationPhase(room)
+    }
+    if (room.teamFormation.enabled && room.teamFormation.phase === 'active') {
+      return 'Captain Pick is already in progress'
+    }
     const mapVoteState = room.mapVote
     if (mapVoteState.enabled && mapVoteState.phase === 'idle') {
       await this.applyRoomTransition(startMapVoteCommand(room, {
@@ -1110,6 +1168,104 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
 
     return this.startActualDraft(state, config, format)
+  }
+
+  private async startTeamFormationPhase(room: RoomRecord): Promise<string | null> {
+    const firstTeam = this.random() < 0.5 ? 0 : 1
+    const result = startTeamFormation(room.teamFormation, room.state.seats, firstTeam, this.now())
+    if ('error' in result) return result.error
+
+    const nextRoom = await this.persistTeamFormation(room, result.state)
+    if (typeof nextRoom === 'string') return nextRoom
+    if (result.state.phase === 'done') return await this.advanceAfterTeamFormation(nextRoom)
+    this.scheduleDebugTeamFormationBot(result.state, nextRoom.state)
+    return null
+  }
+
+  private async handleTeamFormationPick(seatIndex: number, groupId: string, revision: number): Promise<string | null> {
+    const room = await this.requireRoomRecord()
+    const result = selectTeamFormationGroup(room.teamFormation, room.state.seats, seatIndex, groupId, revision, this.now())
+    if ('error' in result) return result.error
+
+    const nextRoom = await this.persistTeamFormation(room, result.state)
+    if (typeof nextRoom === 'string') return nextRoom
+    if (result.state.phase === 'done') return await this.advanceAfterTeamFormation(nextRoom)
+    this.scheduleDebugTeamFormationBot(result.state, nextRoom.state)
+    return null
+  }
+
+  private async handleTeamFormationTimeout(room: RoomRecord, now: number): Promise<boolean> {
+    if (room.teamFormation.phase !== 'active' || room.teamFormation.endsAt == null || room.teamFormation.endsAt > now + 50) return false
+    const result = selectTeamFormationTimeout(room.teamFormation, room.state.seats, now, () => this.random())
+    if ('error' in result) {
+      console.error('[draft-room] Captain Pick timeout failed', buildDraftRoomLogContext('team-formation-timeout', room.state, { error: result.error }))
+      return false
+    }
+
+    const nextRoom = await this.persistTeamFormation(room, result.state)
+    if (typeof nextRoom === 'string') {
+      console.error('[draft-room] Captain Pick completion failed', buildDraftRoomLogContext('team-formation-timeout', room.state, { error: nextRoom }))
+      return false
+    }
+    if (result.state.phase === 'done') await this.advanceAfterTeamFormation(nextRoom)
+    else this.scheduleDebugTeamFormationBot(result.state, nextRoom.state)
+    return true
+  }
+
+  private async persistTeamFormation(room: RoomRecord, formation: TeamFormationState): Promise<RoomRecord | string> {
+    let state = withTeamFormationSeatAssignments(room.state, formation)
+    let config = room.config
+    if (formation.phase === 'done') {
+      const completed = applyTeamFormationToDraftState(room.state, formation)
+      if ('error' in completed) return completed.error
+      state = completed.state
+      config = {
+        ...room.config,
+        seats: completed.state.seats,
+        teamFormationPartySeatIndices: undefined,
+        teamFormationStatsBySeat: undefined,
+      }
+    }
+    const nextRoom = await this.setRoomRecord({
+      ...room,
+      state,
+      config,
+      teamFormation: formation,
+      timerEndsAt: formation.phase === 'active' ? formation.endsAt : null,
+      alarmStepIndex: -1,
+    })
+    this.broadcastRoomRecord(nextRoom, [])
+    await this.rescheduleRoomAlarm()
+    return nextRoom
+  }
+
+  private async advanceAfterTeamFormation(room: RoomRecord): Promise<string | null> {
+    if (room.mapVote.enabled && room.mapVote.phase === 'idle') {
+      await this.applyRoomTransition(startMapVoteCommand(room, {
+        type: 'start-map-vote',
+        now: this.now(),
+      }), 'start-map-vote-after-team-formation')
+      return null
+    }
+    const format = draftFormatMap.get(room.config.formatId)
+    if (!format) return 'Unknown format'
+    return await this.startActualDraft(room.state, room.config, format)
+  }
+
+  private scheduleDebugTeamFormationBot(formation: TeamFormationState, state: DraftState): void {
+    if (!this.debugActiveBotActionsEnabled() || formation.phase !== 'active' || formation.currentTeam == null) return
+    const captainSeatIndex = formation.captainSeatIndices[formation.currentTeam]
+    if (!isDebugActiveBotPlayerId(state.seats[captainSeatIndex]?.playerId)) return
+    const firstGroupId = formation.legalGroupIds[0]
+    if (!firstGroupId) return
+
+    const expectedEndsAt = formation.endsAt
+    this.ctx.waitUntil(this.sleep(DEBUG_ACTIVE_BOT_DELAY_MS)
+      .then(() => this.runBackgroundRoomOperation(async () => {
+        const current = await this.getRoomRecord()
+        if (!current || current.teamFormation.phase !== 'active' || current.teamFormation.endsAt !== expectedEndsAt) return
+        await this.handleTeamFormationPick(captainSeatIndex, current.teamFormation.legalGroupIds[0] ?? firstGroupId, current.teamFormation.revision)
+      })))
   }
 
   private async handleMapVoteAlarm(state: DraftState, _config: DraftRuntimeConfig): Promise<boolean> {
@@ -1293,6 +1449,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     previews: DraftPreviewState,
     swapState: LeaderSwapState | null,
     mapVoteState: StoredMapVoteState,
+    teamFormationState: TeamFormationState,
     steamLobbyLink: string | null,
     permanentAlly: boolean,
     hiddenDraft: boolean,
@@ -1309,6 +1466,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         type: 'update',
         state: this.censorState(state, seatIndex),
         mapVote: this.buildMapVoteSnapshot(mapVoteState, seatIndex),
+        teamFormation: buildTeamFormationSnapshot(teamFormationState),
         leaderDataVersion: leaderDataVersion ?? 'live',
         hostId,
         events: this.censorEvents(events, seatIndex),
@@ -1437,6 +1595,20 @@ function getCachedSeatIndex(state: DraftState, cache: Map<string, number>, playe
   return seatIndex
 }
 
+function withTeamFormationSeatAssignments(state: DraftState, formation: TeamFormationState): DraftState {
+  const teamBySeatIndex = new Map<number, number>()
+  formation.teamSeatIndices.forEach((seatIndices, team) => {
+    for (const seatIndex of seatIndices) teamBySeatIndex.set(seatIndex, team)
+  })
+  return {
+    ...state,
+    seats: state.seats.map((seat, seatIndex) => ({
+      ...seat,
+      team: teamBySeatIndex.get(seatIndex),
+    })),
+  }
+}
+
 function getCachedCensoredPreviews(
   state: DraftState,
   sanitizedPreviews: DraftPreviewState,
@@ -1486,6 +1658,14 @@ function buildDraftLifecycleLogContext(
 
 function getNextRoomAlarmAt(room: RoomRecord): number | null {
   const candidates: number[] = []
+
+  if (
+    room.teamFormation.enabled
+    && room.teamFormation.phase === 'active'
+    && room.teamFormation.endsAt != null
+  ) {
+    candidates.push(room.teamFormation.endsAt)
+  }
 
   if (
     room.state.status === 'active'

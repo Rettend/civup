@@ -157,11 +157,19 @@ export function lobbyDraftingEmbed(mode: GameMode, seats: DraftSeat[], leaderDat
 
   if (hasTeams) {
     const teamIndexes = Array.from(new Set(seats.flatMap(seat => seat.team == null ? [] : [seat.team]))).sort((a, b) => a - b)
-    return embed.fields(...layoutTeamFields(teamIndexes.map(teamIndex => ({
+    const fields = layoutTeamFields(teamIndexes.map(teamIndex => ({
       name: `Team ${String.fromCharCode(65 + teamIndex)}`,
       value: seats.filter(seat => seat.team === teamIndex).map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n') || '`[empty]`',
       inline: true,
-    }))))
+    })))
+    const unassigned = seats.filter(seat => seat.team == null)
+    return unassigned.length > 0
+      ? embed.fields(...fields, {
+        name: 'Unassigned',
+        value: unassigned.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n'),
+        inline: false,
+      })
+      : embed.fields(...fields)
   }
 
   const playerLines = seats.map((seat, i) => `${i + 1}. <@${seat.playerId}>`).join('\n')

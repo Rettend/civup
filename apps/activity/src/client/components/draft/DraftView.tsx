@@ -15,6 +15,7 @@ import {
   isMobileLayout,
   isMyTurn,
   isSpectator,
+  isTeamFormationPhase,
   mapVotePhase,
   setGridOpen,
   updateDraftSteamLobbyLink,
@@ -24,6 +25,7 @@ import {
 import { FloatingUiScaleMenu } from '../ui/UiScaleMenu'
 import { DraftHeader } from './DraftHeader'
 import { DraftTimeline } from './DraftTimeline'
+import { CaptainPickOverlay } from './CaptainPickOverlay'
 import { LeaderGridOverlay } from './LeaderGridOverlay'
 import { MapVoteOverlay } from './MapVoteOverlay'
 import { MiniView } from './MiniView'
@@ -136,6 +138,10 @@ export function DraftView(props: DraftViewProps) {
     setGridOpen(false)
   })
 
+  createEffect(() => {
+    if (isTeamFormationPhase()) setGridOpen(false)
+  })
+
   const isMapVoteVoting = () => mapVotePhase() === 'voting'
   const isMapVoteReveal = () => mapVotePhase() === 'reveal'
   const canReviewCompleteDraft = () => state()?.status === 'complete' && !isHiddenDraftComplete()
@@ -189,7 +195,7 @@ export function DraftView(props: DraftViewProps) {
     setAutoOpenedGridToken(nextToken)
   })
 
-  const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
+  const isActiveOrComplete = () => isTeamFormationPhase() || isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => draftStore.seatIndex != null && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
   const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete() || canReviewCompleteDraft()
   const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete() || canReviewCompleteDraft()
@@ -260,8 +266,9 @@ export function DraftView(props: DraftViewProps) {
               {/* Main area */}
               <div class="flex flex-1 min-h-0 relative z-0">
                 <FloatingUiScaleMenu class={gridOpen() ? 'z-5' : 'z-40'} disabled={gridOpen()} />
-                <SlotStrip />
-                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete() || canReviewCompleteDraft()}>
+                <Show when={!isTeamFormationPhase()}><SlotStrip /></Show>
+                <Show when={isTeamFormationPhase()}><CaptainPickOverlay /></Show>
+                <Show when={!isTeamFormationPhase() && ((state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete() || canReviewCompleteDraft())}>
                   <LeaderGridOverlay />
                 </Show>
                 <Show when={isMapVoteVoting()}>

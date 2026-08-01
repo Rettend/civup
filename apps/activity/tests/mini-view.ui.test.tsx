@@ -64,6 +64,44 @@ describe('MiniView UI', () => {
     expect(screen.getByText(/\d+:\d{2}/)).toBeTruthy()
   })
 
+  test('shows Captain Pick teams and its timer in the minimized view', () => {
+    const endsAt = Date.now() + 61_000
+    uiMockState.draftState = createWaitingDraftState({
+      formatId: 'default-2v2',
+      seats: createSeats([
+        ['alpha', 'Alpha', 0],
+        ['bravo', 'Bravo', 1],
+        ['charlie', 'Charlie'],
+        ['delta', 'Delta'],
+      ]),
+    })
+    uiMockState.teamFormation = {
+      enabled: true,
+      phase: 'active',
+      revision: 0,
+      firstTeam: 0,
+      currentTeam: 0,
+      captainSeatIndices: [0, 1],
+      teamSeatIndices: [[0], [1]],
+      unassignedSeatIndices: [2, 3],
+      groups: [{ id: 'group:2', seatIndices: [2] }, { id: 'group:3', seatIndices: [3] }],
+      legalGroupIds: ['group:2', 'group:3'],
+      legalSeatIndices: [2, 3],
+      endsAt,
+      timerSeconds: 90,
+      statsBySeat: {},
+    }
+
+    const { container } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="2v2" />)
+
+    expect(screen.getByText('Captain Pick')).toBeTruthy()
+    expect(screen.getByText(/\d+:\d{2}/)).toBeTruthy()
+    expect(readColumnNames(container, ['Alpha', 'Bravo', 'Charlie', 'Delta'])).toEqual([
+      ['Alpha', 'Charlie'],
+      ['Bravo', 'Delta'],
+    ])
+  })
+
   test('renders locked picks and preview picks through the minimized draft view', () => {
     uiMockState.draftState = createWaitingDraftState({
       picks: [

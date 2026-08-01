@@ -11,6 +11,8 @@ import type {
   MapVoteSelection,
   MapVoteSnapshot,
   AppliedCivLobbySettings,
+  TeamFormationPlayerStats,
+  TeamFormationSnapshot,
 } from '@civup/game'
 
 /** Configuration used by SessionDO to initialize its draft subruntime. */
@@ -30,6 +32,9 @@ export interface DraftRuntimeConfig {
   permanentAlly?: boolean
   duplicateFactions?: boolean
   mapVoteEnabled?: boolean
+  teamFormationEnabled?: boolean
+  teamFormationPartySeatIndices?: number[][]
+  teamFormationStatsBySeat?: Record<number, TeamFormationPlayerStats>
   leaderDataVersion?: LeaderDataVersion
   timerConfig?: DraftTimerConfig
   steamLobbyLink?: string | null
@@ -40,6 +45,7 @@ export type SessionClientMessage
   = | { type: 'start' }
     | { type: 'map-vote-selection', selection: MapVoteSelection }
     | { type: 'map-vote-confirm' }
+    | { type: 'team-formation-pick', groupId: string, revision: number }
     | { type: 'ban', civIds: string[] }
     | { type: 'pick', civId: string }
     | { type: 'civ-blitz-submit', kit: CivBlitzPartialKit }
@@ -70,6 +76,7 @@ export type SessionServerMessage
     type: 'init'
     state: DraftState
     mapVote: MapVoteSnapshot
+    teamFormation: TeamFormationSnapshot
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     seatIndex: number | null
@@ -86,6 +93,7 @@ export type SessionServerMessage
     type: 'update'
     state: DraftState
     mapVote: MapVoteSnapshot
+    teamFormation: TeamFormationSnapshot
     leaderDataVersion?: LeaderDataVersion
     hostId?: string
     events: DraftEvent[]

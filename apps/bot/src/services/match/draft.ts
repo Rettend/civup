@@ -170,6 +170,7 @@ export async function activateDraftMatch(
 
   const leaderDataVersion = normalizeAvailableLeaderDataVersion(input.leaderDataVersion)
   const civByPlayer = mapCivsFromDraftState(input.state, leaderDataVersion)
+  const teamByPlayer = mapTeamsFromDraftState(input.state)
   const permanentAlly = isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly)
   const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
   const draftData = JSON.stringify({
@@ -189,11 +190,12 @@ export async function activateDraftMatch(
   if (match.status === 'active') {
     for (const participant of participantRows) {
       const nextCivId = civByPlayer.get(participant.playerId) ?? null
-      if (participant.civId === nextCivId) continue
+      const nextTeam = teamByPlayer.get(participant.playerId) ?? null
+      if (participant.civId === nextCivId && participant.team === nextTeam) continue
 
       await db
         .update(matchParticipants)
-        .set({ civId: nextCivId })
+        .set({ civId: nextCivId, team: nextTeam })
         .where(
           and(
             eq(matchParticipants.matchId, matchId),
@@ -220,6 +222,7 @@ export async function activateDraftMatch(
       participants: participantRows.map(participant => ({
         ...participant,
         civId: civByPlayer.get(participant.playerId) ?? null,
+        team: teamByPlayer.get(participant.playerId) ?? null,
       })),
     }
   }
@@ -227,7 +230,10 @@ export async function activateDraftMatch(
   for (const participant of participantRows) {
     await db
       .update(matchParticipants)
-      .set({ civId: civByPlayer.get(participant.playerId) ?? null })
+      .set({
+        civId: civByPlayer.get(participant.playerId) ?? null,
+        team: teamByPlayer.get(participant.playerId) ?? null,
+      })
       .where(
         and(
           eq(matchParticipants.matchId, matchId),
@@ -277,6 +283,7 @@ export async function activateDraftMatch(
     participants: participantRows.map(participant => ({
       ...participant,
       civId: civByPlayer.get(participant.playerId) ?? null,
+      team: teamByPlayer.get(participant.playerId) ?? null,
     })),
   }
 }
@@ -310,18 +317,39 @@ export async function cancelDraftMatch(
     return { error: `Match **${matchId}** has no participants.` }
   }
 
-  if (match.status === 'cancelled') {
-    return { match, participants: participantRows }
-  }
-
   const leaderDataVersion = normalizeAvailableLeaderDataVersion(input.leaderDataVersion)
   const civByPlayer = mapCivsFromDraftState(input.state, leaderDataVersion)
+  const teamByPlayer = mapTeamsFromDraftState(input.state)
+
+  if (match.status === 'cancelled') {
+    for (const participant of participantRows) {
+      const nextCivId = civByPlayer.get(participant.playerId) ?? null
+      const nextTeam = teamByPlayer.get(participant.playerId) ?? null
+      if (participant.civId === nextCivId && participant.team === nextTeam) continue
+      await db
+        .update(matchParticipants)
+        .set({ civId: nextCivId, team: nextTeam })
+        .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId)))
+    }
+    return {
+      match,
+      participants: participantRows.map(participant => ({
+        ...participant,
+        civId: civByPlayer.get(participant.playerId) ?? null,
+        team: teamByPlayer.get(participant.playerId) ?? null,
+      })),
+    }
+  }
+
   const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)
 
   for (const participant of participantRows) {
     await db
       .update(matchParticipants)
-      .set({ civId: civByPlayer.get(participant.playerId) ?? null })
+      .set({
+        civId: civByPlayer.get(participant.playerId) ?? null,
+        team: teamByPlayer.get(participant.playerId) ?? null,
+      })
       .where(
         and(
           eq(matchParticipants.matchId, matchId),
@@ -419,4 +447,8 @@ function mapCivsFromDraftState(
   })
 
   return civByPlayer
+}
+
+function mapTeamsFromDraftState(state: DraftState): Map<string, number | null> {
+  return new Map(state.seats.map(seat => [seat.playerId, seat.team ?? null]))
 }

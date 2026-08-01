@@ -87,6 +87,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
       randomDraft: false,
       hiddenDraft: false,
       duplicateFactions: false,
+      teamFormationEnabled: false,
     },
     gameSettings: cloneOfficialAppliedSettings(),
     serverDefaults: {

@@ -39,6 +39,7 @@ const baseLobby: LobbySnapshot = {
     randomDraft: false,
     hiddenDraft: false,
     duplicateFactions: false,
+    teamFormationEnabled: false,
   },
   serverDefaults: {
     banTimerSeconds: null,
