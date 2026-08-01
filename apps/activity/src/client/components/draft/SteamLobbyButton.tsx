@@ -3,10 +3,21 @@ import { createSignal, onCleanup, Show } from 'solid-js'
 import { copyTextToClipboard } from '~/client/lib/clipboard'
 import { cn } from '~/client/lib/css'
 import { openExternalLink } from '~/client/platform/external-links'
-import { isMobileLayout } from '~/client/stores'
 
 const COPY_ICON_TIMEOUT_MS = 1200
 const BLUR_CLOSE_DELAY_MS = 150
+const HOLD_EDIT_DELAY_MS = 500
+const HOLD_MOVE_TOLERANCE_PX = 10
+const POINTER_FOLLOWUP_TIMEOUT_MS = 1000
+
+interface HoldPointer {
+  pointerId: number
+  pointerType: string
+  startX: number
+  startY: number
+  element: HTMLButtonElement
+  triggered: boolean
+}
 
 interface SteamLobbyButtonProps {
   /** Current steam lobby link, or null if not set. */
@@ -26,13 +37,19 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   let copiedTimeout: ReturnType<typeof setTimeout> | null = null
   let blurCloseTimeout: ReturnType<typeof setTimeout> | null = null
   let missingLinkHintTimeout: ReturnType<typeof setTimeout> | null = null
+  let holdEditTimeout: ReturnType<typeof setTimeout> | null = null
+  let pointerFollowupTimeout: ReturnType<typeof setTimeout> | null = null
+  let holdPointer: HoldPointer | null = null
+  let suppressNextClick = false
+  let suppressNextContextMenu = false
+  let buttonRef: HTMLButtonElement | undefined
   let inputRef: HTMLInputElement | undefined
 
   const canSave = () => Boolean(props.onSaveSteamLink)
   const canEdit = canSave
   const isGhost = () => !props.steamLobbyLink
 
-  // ── Copy / flash logic (read-only) ────────────
+  // ── Copy / flash logic ────────────
 
   const clearCopiedTimeout = () => {
     if (!copiedTimeout) return
@@ -62,11 +79,6 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       setMissingLinkHintVisible(false)
       missingLinkHintTimeout = null
     }, 4000)
-  }
-
-  const shouldCopyOnPrimaryAction = () => {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) return true
-    return isMobileLayout()
   }
 
   const copyLink = async () => {
@@ -112,16 +124,68 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     setDropdownOpen(false)
   }
 
+  const restoreButtonFocus = () => queueMicrotask(() => buttonRef?.focus())
+
+  // ── Hold-to-edit logic ───────────────────────
+
+  const clearHoldEditTimeout = () => {
+    if (!holdEditTimeout) return
+    clearTimeout(holdEditTimeout)
+    holdEditTimeout = null
+  }
+
+  const clearPointerFollowupTimeout = () => {
+    if (!pointerFollowupTimeout) return
+    clearTimeout(pointerFollowupTimeout)
+    pointerFollowupTimeout = null
+  }
+
+  const clearPointerFollowupSuppression = () => {
+    clearPointerFollowupTimeout()
+    suppressNextClick = false
+    suppressNextContextMenu = false
+  }
+
+  const schedulePointerFollowupReset = () => {
+    clearPointerFollowupTimeout()
+    pointerFollowupTimeout = setTimeout(() => {
+      pointerFollowupTimeout = null
+      suppressNextClick = false
+      suppressNextContextMenu = false
+    }, POINTER_FOLLOWUP_TIMEOUT_MS)
+  }
+
+  const releaseHoldPointer = () => {
+    const pointer = holdPointer
+    holdPointer = null
+    if (!pointer) return
+
+    try {
+      if (pointer.element.hasPointerCapture(pointer.pointerId)) pointer.element.releasePointerCapture(pointer.pointerId)
+    }
+    catch {
+      // Capture may already be gone after cancellation or element removal.
+    }
+  }
+
+  const stopHoldInteraction = () => {
+    clearHoldEditTimeout()
+    releaseHoldPointer()
+  }
+
+  const finishHoldInteraction = () => {
+    const triggered = holdPointer?.triggered === true
+    stopHoldInteraction()
+    if (triggered) schedulePointerFollowupReset()
+  }
+
   // ── Event handlers ───────────────────────────
 
-  const handleButtonClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = () => {
-    if (!canEdit()) {
-      if (!props.steamLobbyLink) {
-        flashMissingLinkHint()
-        return
-      }
-      if (shouldCopyOnPrimaryAction()) void copyLink()
-      else void openLink()
+  const handleButtonClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
+    if (suppressNextClick) {
+      event.preventDefault()
+      event.stopPropagation()
+      suppressNextClick = false
       return
     }
 
@@ -132,18 +196,103 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
       return
     }
 
-    if (dropdownOpen()) saveAndClose()
-    else openDropdown()
+    if (dropdownOpen()) {
+      saveAndClose()
+      return
+    }
+
+    if (props.steamLobbyLink) {
+      void openLink()
+      return
+    }
+
+    if (canEdit()) openDropdown()
+    else flashMissingLinkHint()
   }
 
   const handleContextMenu: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
-    if (canEdit()) return
     event.preventDefault()
+
+    if (suppressNextContextMenu || (holdPointer != null && holdPointer.pointerType !== 'mouse')) {
+      event.stopPropagation()
+      suppressNextContextMenu = false
+      return
+    }
+
     if (!props.steamLobbyLink) {
-      flashMissingLinkHint()
+      if (!canEdit()) flashMissingLinkHint()
       return
     }
     void copyLink()
+  }
+
+  const handleButtonKeyDown: JSX.EventHandler<HTMLButtonElement, KeyboardEvent> = (event) => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      suppressNextContextMenu = false
+      return
+    }
+    if (event.key !== 'F2' || !canEdit()) return
+    event.preventDefault()
+    if (dropdownOpen()) inputRef?.focus()
+    else openDropdown()
+  }
+
+  const handlePointerDown: JSX.EventHandler<HTMLButtonElement, PointerEvent> = (event) => {
+    if (event.button === 2) {
+      suppressNextContextMenu = false
+      return
+    }
+    if (!event.isPrimary || event.button !== 0 || !canEdit() || !props.steamLobbyLink || dropdownOpen()) return
+
+    stopHoldInteraction()
+    holdPointer = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startX: event.clientX,
+      startY: event.clientY,
+      element: event.currentTarget,
+      triggered: false,
+    }
+
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    catch {
+      holdPointer = null
+      return
+    }
+
+    holdEditTimeout = setTimeout(() => {
+      holdEditTimeout = null
+      if (!holdPointer || !canEdit() || !props.steamLobbyLink || props.savePending) {
+        releaseHoldPointer()
+        return
+      }
+
+      holdPointer.triggered = true
+      suppressNextClick = true
+      suppressNextContextMenu = true
+      openDropdown()
+    }, HOLD_EDIT_DELAY_MS)
+  }
+
+  const handlePointerMove: JSX.EventHandler<HTMLButtonElement, PointerEvent> = (event) => {
+    if (holdPointer?.pointerId !== event.pointerId) return
+    if (Math.hypot(event.clientX - holdPointer.startX, event.clientY - holdPointer.startY) <= HOLD_MOVE_TOLERANCE_PX) return
+    finishHoldInteraction()
+  }
+
+  const handlePointerEnd: JSX.EventHandler<HTMLButtonElement, PointerEvent> = (event) => {
+    if (holdPointer?.pointerId !== event.pointerId) return
+    finishHoldInteraction()
+  }
+
+  const handleLostPointerCapture: JSX.EventHandler<HTMLButtonElement, PointerEvent> = (event) => {
+    if (holdPointer?.pointerId !== event.pointerId) return
+    const triggered = holdPointer.triggered
+    holdPointer = null
+    clearHoldEditTimeout()
+    if (triggered) schedulePointerFollowupReset()
   }
 
   const handleInputBlur = () => {
@@ -158,37 +307,50 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     if (event.key === 'Enter') {
       event.preventDefault()
       saveAndClose()
+      restoreButtonFocus()
     }
     if (event.key === 'Escape') {
       event.preventDefault()
       discardAndClose()
+      restoreButtonFocus()
     }
   }
 
   const buttonTitle = () => {
-    if (canEdit()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
-    if (!props.steamLobbyLink) return 'No Steam link set'
-    return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link, or right-click to copy'
+    if (props.steamLobbyLink && canEdit()) return 'Open Steam link; right-click to copy; hold or press F2 to edit'
+    if (props.steamLobbyLink) return 'Open Steam link; right-click to copy'
+    if (canEdit()) return 'Set Steam lobby link; click or press F2 to edit'
+    return 'No Steam link set'
   }
 
   const buttonAriaLabel = () => {
-    if (canEdit()) return props.steamLobbyLink ? 'Edit Steam lobby link' : 'Set Steam lobby link'
-    if (!props.steamLobbyLink) return 'No Steam link set'
-    return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link'
+    if (props.steamLobbyLink) return 'Open Steam link'
+    if (canEdit()) return 'Set Steam lobby link'
+    return 'No Steam link set'
+  }
+
+  const buttonAriaDescription = () => {
+    if (props.steamLobbyLink && canEdit()) return 'Right-click to copy. Hold the primary pointer for half a second or press F2 to edit.'
+    if (props.steamLobbyLink) return 'Right-click to copy.'
+    if (canEdit()) return 'Click, press Enter or Space, or press F2 to set the link.'
+    return undefined
   }
 
   onCleanup(() => {
     clearCopiedTimeout()
     clearBlurTimeout()
     clearMissingLinkHintTimeout()
+    stopHoldInteraction()
+    clearPointerFollowupSuppression()
   })
 
   return (
     <div class={cn('relative', props.class)}>
       <button
+        ref={element => buttonRef = element}
         type="button"
         class={cn(
-          'h-full w-full rounded-md flex shrink-0 cursor-pointer items-center justify-center transition-[filter,background-color,color,opacity] duration-200',
+          'h-full w-full rounded-md flex shrink-0 cursor-pointer touch-manipulation select-none items-center justify-center transition-[filter,background-color,color,opacity] duration-200',
           isGhost()
             ? 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg'
             : 'bg-accent text-bg hover:brightness-110',
@@ -196,9 +358,19 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
         )}
         title={buttonTitle()}
         aria-label={buttonAriaLabel()}
+        aria-description={buttonAriaDescription()}
+        aria-keyshortcuts={canEdit() ? 'F2' : undefined}
+        aria-expanded={canEdit() ? dropdownOpen() : undefined}
+        aria-haspopup={canEdit() ? 'dialog' : undefined}
         disabled={props.savePending}
         onClick={handleButtonClick}
         onContextMenu={handleContextMenu}
+        onKeyDown={handleButtonKeyDown}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onLostPointerCapture={handleLostPointerCapture}
       >
         <div class="h-[18px] w-[18px] relative">
           <span
@@ -224,7 +396,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
 
       {/* Steam link editor */}
       <Show when={dropdownOpen()}>
-        <div class="mt-1.5 left-0 top-full absolute z-[100]">
+        <div role="dialog" aria-label="Edit Steam lobby link" class="mt-1.5 left-0 top-full absolute z-[100]">
           <div class="p-2 border border-border rounded-lg bg-bg-subtle shadow-black/25 shadow-xl">
             <input
               ref={inputRef}

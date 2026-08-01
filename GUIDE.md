@@ -34,7 +34,7 @@ Once the Activity is open, you can see the players and the lobby settings. Drag 
 >
 > #### Steam lobby link
 >
-> Use the **Steam button** (top left) to set the steam lobby link. If set, it will turn golden and other players can click it to open the Civ lobby.
+> Any slotted player can use the **Steam button** (top left). Click an unset link to set it. Once set, click or tap to open the Civ lobby, right-click to copy, or hold for about half a second (or press `F2` while focused) to edit. Spectators can open or copy the link but cannot edit it.
 >
 > ![steam button](images/steam-button.webp) ![steam button active](images/steam-button-active.webp)
 

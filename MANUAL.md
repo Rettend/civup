@@ -160,7 +160,6 @@ The host can:
 - set the leader pool size
 - set ban and pick timers
 - enable **Captain Pick** for a full two-team lobby
-- set or update the Steam lobby link
 - toggle BBG live and beta, this will change the leader details inside the draft
 - start, cancel, or later scrub the match
 
@@ -168,6 +167,7 @@ Players can:
 
 - move themselves into open seats
 - leave their own slot
+- set, update, or clear the Steam lobby link while slotted
 - see the current config and draft state
 
 In team modes, the first player in an empty team column locks that column to the server they joined from. Only players from that server can use it until the column is empty again. FFA has no team-column lock.
@@ -188,16 +188,14 @@ It's possible to spectate another lobby while being a player in a different lobb
 
 Optional feature.
 
-In the Activity:
-
-- host sees a dark Steam button top left where they can set/update/clear the link anytime
+In the Activity, every slotted player can manage the Steam button at the top left. Click an unset link to set it. Once set, click or tap to open the Civ lobby, right-click to copy the link, or hold the button for about half a second to edit it. With the button focused, press `F2` to edit. Spectators can open or copy a set link but cannot edit it.
 
 Using commands:
 
 - for a new lobby: `/match create` `steam_link` parameter
 - existing lobby: `/match steam set` and `/match steam clear`
 
-When the Steam lobby link is set, other players see a gold Steam button top left, clicking that will open Civ and join the Civ lobby.
+When the Steam lobby link is set, the button turns gold.
 
 ## Draft Rules
 
