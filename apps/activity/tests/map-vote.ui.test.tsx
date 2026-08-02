@@ -46,6 +46,15 @@ describe('Map vote UI', () => {
     expect(uiMockState.gridOpen).toBe(true)
   })
 
+  test('offers Rich Riverlands as a standard map option', async () => {
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+
+    fireEvent.click(mapButton('Rich Riverlands'))
+
+    await waitFor(() => expect(uiMockState.mapVoteSelectedMaps).toEqual(['rich-riverlands']))
+    expect(storeSpies.sendMapVoteSelection).toHaveBeenCalledWith({ maps: ['rich-riverlands'] })
+  })
+
   test('collapses the map vote overlay only after confirm', async () => {
     uiMockState.mapVoteSelectedMaps = ['lakes']
 
