@@ -215,7 +215,7 @@ function PlayerLeaderboards(props: {
           <div class="border-border mt-5 overflow-x-auto rounded-xl border" tabindex="0" aria-label={`${PLAYER_MODE_LABELS[props.mode]} player leaderboard table`}>
             <table class="w-full min-w-155 border-collapse text-left">
               <thead class="bg-bg-elevated text-fg-subtle text-xs uppercase tracking-wider">
-                <tr><th class="px-4 py-3" scope="col">Rank</th><th class="px-4 py-3" scope="col">Player</th><th class="px-4 py-3 text-right" scope="col">Rating</th><th class="px-4 py-3 text-right" scope="col">Record</th><th class="px-4 py-3 text-right" scope="col">Win rate</th></tr>
+                <tr><th class="px-4 py-3" scope="col">Rank</th><th class="px-4 py-3" scope="col">Player</th><th class="px-4 py-3 text-right" scope="col">RP</th><th class="px-4 py-3 text-right" scope="col">Record</th><th class="px-4 py-3 text-right" scope="col">Win rate</th></tr>
               </thead>
               <tbody class="divide-border-subtle divide-y">
                 <For each={props.board?.rows ?? []}>
@@ -223,7 +223,7 @@ function PlayerLeaderboards(props: {
                     <tr class="bg-bg-subtle hover:bg-bg-elevated">
                       <td class="px-4 py-3 font-black">#{row.rank}<Show when={row.placementAdjustment}>{adjustment => <span class="text-fg-subtle ml-1 text-xs" title={`Raw rank ${adjustment().rawRank}; adjusted ${adjustment().places} places for activity`}>↓{adjustment().places}</span>}</Show></td>
                       <th class="px-4 py-3 font-bold" scope="row">{row.displayName}</th>
-                      <td class="px-4 py-3 text-right tabular-nums">{row.rating}</td>
+                      <td class="px-4 py-3 text-right tabular-nums">{row.rating} RP</td>
                       <td class="px-4 py-3 text-right tabular-nums">{row.wins}/{row.games}</td>
                       <td class="text-fg-muted px-4 py-3 text-right tabular-nums">{formatPercent(row.winRatePct)}</td>
                     </tr>
