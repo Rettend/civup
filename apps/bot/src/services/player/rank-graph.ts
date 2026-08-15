@@ -4,7 +4,7 @@ import type { RankedRoleConfig } from '../ranked/roles.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, players as playerRows } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
+import { getLeaderboardMinGames, publicRankTierMinimum, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
@@ -273,6 +273,7 @@ async function loadOverallRankGraphScores(db: Database, statsContext: StatsConte
       playerId: playerRatings.playerId,
       mu: playerRatings.mu,
       sigma: playerRatings.sigma,
+      publicRating: playerRatings.publicRating,
       effectiveGames: playerRatings.effectiveGames,
       lastPlayedAt: playerRatings.lastPlayedAt,
     })
@@ -283,7 +284,7 @@ async function loadOverallRankGraphScores(db: Database, statsContext: StatsConte
     .filter(row => row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES)
     .map(row => ({
       playerId: row.playerId,
-      score: roleRating(row.mu, row.sigma),
+      score: row.publicRating ?? roleRating(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt ?? null,
       qualified: true,
     }))
@@ -291,7 +292,12 @@ async function loadOverallRankGraphScores(db: Database, statsContext: StatsConte
 }
 
 function buildRankGraphBands(config: RankedRoleConfig, sortedScores: readonly RankGraphScoreRow[]): RankGraphBand[] {
-  const cutoffByTier = buildRankGraphCutoffs(config, sortedScores)
+  const cutoffByTier = config.tiers.length === 5
+    ? new Map(config.tiers.slice(0, -1).map((_tier, index) => {
+        const tier = `tier${index + 1}` as CompetitiveTier
+        return [tier, publicRankTierMinimum(tier as Parameters<typeof publicRankTierMinimum>[0])] as const
+      }))
+    : buildRankGraphCutoffs(config, sortedScores)
   return config.tiers.map((_tier, index) => {
     const tier = `tier${index + 1}` as CompetitiveTier
     const fallback = index === config.tiers.length - 1
@@ -375,7 +381,7 @@ function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGra
 
   const points: RankGraphPoint[] = [{
     x: 0,
-    rating: Math.round(scope === 'overall'
+    rating: Math.round(scope === 'overall' && first.publicRatingBefore == null
       ? roleRating(first.ratingBeforeMu, first.ratingBeforeSigma)
       : resolvePublicRating(first.publicRatingBefore, first.ratingBeforeMu)),
   }]
@@ -383,7 +389,7 @@ function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGra
   rows.forEach((row, index) => {
     points.push({
       x: index + 1,
-      rating: Math.round(scope === 'overall'
+      rating: Math.round(scope === 'overall' && row.publicRatingAfter == null
         ? roleRating(row.ratingAfterMu, row.ratingAfterSigma)
         : resolvePublicRating(row.publicRatingAfter, row.ratingAfterMu)),
     })
@@ -445,7 +451,7 @@ function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | u
   const avatarY = 24
   const nameX = avatarX - 14
   const name = truncateToWidth(stripUnsupportedEmoji(player.displayName), 360, 22, 900)
-  const ratingLabel = player.currentRating != null ? `${player.currentRating} ELO` : 'UNRATED'
+  const ratingLabel = player.currentRating != null ? `${player.currentRating} RP` : 'UNRATED'
   const center = avatarSize / 2
   const initials = getInitials(stripUnsupportedEmoji(player.displayName))
   return `

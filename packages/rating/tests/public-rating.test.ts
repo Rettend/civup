@@ -7,8 +7,11 @@ import {
   calculateTeamRatings,
   createRating,
   DISPLAY_RATING_BASE,
+  formatPublicRankLabel,
   hiddenRatingScore,
   IMPORTED_GAME_EFFECTIVE_WEIGHT,
+  publicRank,
+  PUBLIC_RATING_START,
   resolvePublicRating,
 } from '../src/index.ts'
 
@@ -43,6 +46,18 @@ describe('public rating v1 formula', () => {
     expect(loser.delta).toBeCloseTo(-24.98, 2)
     expect(winner.after).toBeCloseTo(1024.98, 2)
     expect(loser.after).toBeCloseTo(975.02, 2)
+  })
+
+  test('starts public progression at 900 with favorable catch-up toward hidden skill', () => {
+    const updates = calculateTeamRatings([
+      { players: [createRating('winner')] },
+      { players: [createRating('loser')] },
+    ])
+    const winner = publicFromHidden(byId(updates, 'winner'), PUBLIC_RATING_START)
+    const loser = publicFromHidden(byId(updates, 'loser'), PUBLIC_RATING_START)
+
+    expect(winner.delta).toBeCloseTo(29.98, 2)
+    expect(loser.delta).toBeCloseTo(-24.98, 2)
   })
 
   test('applies aligned catch-up but never catch-up away from hidden MMR', () => {
@@ -107,14 +122,6 @@ describe('public rating v1 formula', () => {
     expect(publicUpdate.delta).toBeLessThan(1)
   })
 
-  test('resolves persisted values first and only uses hidden score during transition', () => {
-    expect(resolvePublicRating(1111.25, 40)).toBe(1111.25)
-    expect(resolvePublicRating(null, 30)).toBe(hiddenRatingScore(30))
-    expect(resolvePublicRating(undefined, Number.NaN)).toBe(DISPLAY_RATING_BASE)
-  })
-})
-
-describe('public rating match mechanics and trajectories', () => {
   test('preserves final hidden direction for established upsets, teams, and FFA placements', () => {
     const upset = calculateTeamRatings([
       { players: [{ playerId: 'dog', mu: 20, sigma: 4, gamesPlayed: 20 }] },
@@ -140,9 +147,33 @@ describe('public rating match mechanics and trajectories', () => {
     expect(publicFromHidden(byId(ffa, 'f8')).delta).toBeLessThan(0)
   })
 
+  test('resolves persisted values first and only uses hidden score during transition', () => {
+    expect(resolvePublicRating(1111.25, 40)).toBe(1111.25)
+    expect(resolvePublicRating(null, 30)).toBe(hiddenRatingScore(30))
+    expect(resolvePublicRating(undefined, Number.NaN)).toBe(DISPLAY_RATING_BASE)
+  })
+
+  test('maps fixed public ranks and protects the first loss across a boundary', () => {
+    expect(publicRank(649.9)).toMatchObject({ tier: 'tier5', division: null })
+    expect(publicRank(650)).toMatchObject({ tier: 'tier4', division: 3 })
+    expect(publicRank(800)).toMatchObject({ tier: 'tier4', division: 1 })
+    expect(publicRank(950)).toMatchObject({ tier: 'tier3', division: 2 })
+    expect(publicRank(1250)).toMatchObject({ tier: 'tier2', division: 1 })
+    expect(publicRank(1325)).toMatchObject({ tier: 'tier1', division: null })
+    expect(formatPublicRankLabel('Gladiator', publicRank(950))).toBe('Gladiator II')
+    expect(formatPublicRankLabel('Elite', publicRank(1400))).toBe('Elite')
+
+    const shielded = calculatePublicRatingUpdate({ priorPublicRating: 660, hiddenMuBefore: 25, hiddenMuAfterRaw: 24 })
+    const demoted = calculatePublicRatingUpdate({ priorPublicRating: shielded.after, hiddenMuBefore: 25, hiddenMuAfterRaw: 24 })
+    expect(shielded).toMatchObject({ after: 650, delta: -10 })
+    expect(demoted.after).toBeLessThan(650)
+  })
+})
+
+describe('public rating match mechanics and trajectories', () => {
   test('long win/loss streaks stay finite, nonnegative, and move monotonically', () => {
     let hidden: PlayerRating = createRating('hero')
-    let publicRating = DISPLAY_RATING_BASE
+    let publicRating = PUBLIC_RATING_START
     const opponent = rated('opponent')
     const wins: number[] = []
     const losses: number[] = []

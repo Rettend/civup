@@ -39,6 +39,7 @@
     "bot:backfill:player-civs": "bun run --filter civup-bot backfill:player-civs",
     "bot:backfill:multi-server": "bun run --filter civup-bot backfill:multi-server",
     "bot:backfill:public-ratings": "bun run --filter civup-bot backfill:public-ratings",
+    "bot:estimate:public-rating-rollout": "bun run --filter civup-bot estimate:public-rating-rollout",
     "bot:seed:dev:leaders": "bun run --filter civup-bot seed:dev:leaders",
     "bot:l:migrate": "bun run --filter civup-bot l:migrate",
     "bot:r:migrate": "bun run --filter civup-bot r:migrate",

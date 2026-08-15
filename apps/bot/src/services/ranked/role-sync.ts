@@ -4,7 +4,7 @@ import type { RankedRoleConfig } from './roles.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { buildActivityAdjustedLeaderboard, getLeaderboardMinGames, hiddenRatingScore, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
+import { buildActivityAdjustedLeaderboard, getLeaderboardMinGames, hiddenRatingScore, publicRank, PUBLIC_RANK_ROLE_KEEP_BUFFER, publicRankTierMinimum, RANKED_ROLE_MIN_EFFECTIVE_GAMES, resolvePublicRating, roleRating } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
@@ -97,6 +97,8 @@ export interface RankedPreviewBandSummary {
   cumulativeEarnPercent: number
   keepPercent: number | null
   cumulativeKeepPercent: number | null
+  minimumRating: number | null
+  keepMinimumRating: number | null
 }
 
 export interface RankedPreviewModeTierSummary {
@@ -164,6 +166,7 @@ interface GlobalRatingSnapshotRow {
   playerId: string
   mu: number
   sigma: number
+  publicRating: number | null
   gamesPlayed: number
   wins: number
   importedGames: number
@@ -291,6 +294,24 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
   const tierCount = getRankedRoleTierCount(config)
   if (tierCount <= 0) return []
 
+  if (usesFixedPublicRanks(config)) {
+    return config.tiers.map((_slot, index) => {
+      const tier = createRankedRoleTierId(index + 1)
+      const minimumRating = publicRankTierMinimumForConfig(tier, config)
+      return {
+        tier,
+        roleId: getConfiguredRankedRoleId(config, tier),
+        isFallback: index === config.tiers.length - 1,
+        earnPercent: null,
+        cumulativeEarnPercent: 1,
+        keepPercent: null,
+        cumulativeKeepPercent: null,
+        minimumRating,
+        keepMinimumRating: Math.max(0, minimumRating - PUBLIC_RANK_ROLE_KEEP_BUFFER),
+      }
+    })
+  }
+
   const bands: RankedPreviewBandSummary[] = []
   let cumulativeEarnPercent = 0
   let previousKeepCumulativePercent = 0
@@ -305,6 +326,8 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
       cumulativeEarnPercent,
       keepPercent: Math.max(0, threshold.keepCumulativePercent - previousKeepCumulativePercent),
       cumulativeKeepPercent: threshold.keepCumulativePercent,
+      minimumRating: null,
+      keepMinimumRating: null,
     })
     previousKeepCumulativePercent = threshold.keepCumulativePercent
   }
@@ -318,6 +341,8 @@ function buildRankedPreviewBands(config: RankedRoleConfig): RankedPreviewBandSum
     cumulativeEarnPercent: 1,
     keepPercent: null,
     cumulativeKeepPercent: null,
+    minimumRating: null,
+    keepMinimumRating: null,
   })
 
   return bands
@@ -834,6 +859,7 @@ async function buildRankedRolePreviewState({
         playerId: playerRatings.playerId,
         mu: playerRatings.mu,
         sigma: playerRatings.sigma,
+        publicRating: playerRatings.publicRating,
         gamesPlayed: playerRatings.gamesPlayed,
         wins: playerRatings.wins,
         importedGames: playerRatings.importedGames,
@@ -868,6 +894,7 @@ async function buildRankedRolePreviewState({
       playerId: row.playerId,
       mu: row.mu,
       sigma: row.sigma,
+      publicRating: row.publicRating,
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       importedGames: row.importedGames,
@@ -973,7 +1000,7 @@ async function buildRankedRolePreviewState({
       displayName: playerIdentityById.get(playerId)?.displayName ?? `<@${playerId}>`,
       qualified,
       managed: qualified,
-      globalScore: globalRating ? roleRating(globalRating.mu, globalRating.sigma) : null,
+      globalScore: globalRating ? resolveGlobalPublicRating(globalRating) : null,
       liveAssignment: liveAssignment.assignment,
       assignment: finalAssignment.assignment,
       previousAssignment,
@@ -1163,10 +1190,14 @@ function buildGlobalLadderEntries(rows: GlobalRatingSnapshotRow[]): LadderEntry[
     .filter(isGlobalRatingQualified)
     .map(row => ({
       playerId: row.playerId,
-      score: roleRating(row.mu, row.sigma),
+      score: resolveGlobalPublicRating(row),
       lastPlayedAt: row.lastPlayedAt,
     }))
     .sort(compareLadderEntry)
+}
+
+function resolveGlobalPublicRating(row: Pick<GlobalRatingSnapshotRow, 'mu' | 'sigma' | 'publicRating'>): number {
+  return row.publicRating ?? roleRating(row.mu, row.sigma)
 }
 
 function applyGraceCaps(
@@ -1175,6 +1206,7 @@ function applyGraceCaps(
   globalRatingByPlayerId: Map<string, GlobalRatingSnapshotRow>,
   config: RankedRoleConfig,
 ): void {
+  const fixedPublicRanks = usesFixedPublicRanks(config)
   const rawBandSizes = createTierCounter(config)
   for (const assignment of rawGlobalEarnAssignments.values()) {
     rawBandSizes[assignment.tier] = (rawBandSizes[assignment.tier] ?? 0) + 1
@@ -1188,6 +1220,7 @@ function applyGraceCaps(
     if (competitiveTierRank(player.assignment.tier) <= competitiveTierRank(rawAssignment.tier)) continue
 
     capGraceAssignmentByBestMode(player, rawAssignment, config)
+    if (fixedPublicRanks) continue
     const targetRank = rankedRoleTierNumber(player.assignment.tier)
     if (targetRank == null || !GRACE_CAP_RATIO_BY_TIER_RANK.has(targetRank)) continue
     if (competitiveTierRank(player.assignment.tier) <= competitiveTierRank(rawAssignment.tier)) continue
@@ -1196,6 +1229,8 @@ function applyGraceCaps(
     candidates.push(player)
     graceCandidatesByTier.set(player.assignment.tier, candidates)
   }
+
+  if (fixedPublicRanks) return
 
   for (const [tier, candidates] of graceCandidatesByTier) {
     const tierRank = rankedRoleTierNumber(tier)
@@ -1401,7 +1436,7 @@ function resolveQualityFloorTier(input: {
     }
     if (
       hasTier2ModeQualityFloorEvidence
-      && roleRating(input.globalRating.mu, input.globalRating.sigma) >= TIER_2_MODE_QUALITY_FLOOR.minRoleScore
+      && resolveGlobalPublicRating(input.globalRating) >= TIER_2_MODE_QUALITY_FLOOR.minRoleScore
       && input.globalRating.winsVsTier1 >= TIER_2_MODE_QUALITY_FLOOR.winsVsTier1
     ) {
       floorTier = morePrestigiousFloor(floorTier, tier2)
@@ -1471,6 +1506,10 @@ function buildEarnAssignments(
   config: RankedRoleConfig,
   qualifiedPlayerIds: Set<string>,
 ): Map<string, LadderAssignment> {
+  if (mode == null && usesFixedPublicRanks(config)) {
+    return buildFixedPublicRankAssignments(entries, mode, config, qualifiedPlayerIds, 0)
+  }
+
   const n = entries.length
   const assignmentByPlayerId = new Map<string, LadderAssignment>()
   if (n === 0) return assignmentByPlayerId
@@ -1495,6 +1534,10 @@ function buildKeepAssignments(
   config: RankedRoleConfig,
   qualifiedPlayerIds: Set<string>,
 ): Map<string, LadderAssignment> {
+  if (mode == null && usesFixedPublicRanks(config)) {
+    return buildFixedPublicRankAssignments(entries, mode, config, qualifiedPlayerIds, PUBLIC_RANK_ROLE_KEEP_BUFFER)
+  }
+
   const n = entries.length
   const assignmentByPlayerId = new Map<string, LadderAssignment>()
   if (n === 0) return assignmentByPlayerId
@@ -1511,6 +1554,65 @@ function buildKeepAssignments(
   assignTierSlice(assignmentByPlayerId, entries, fallbackTier, mode, previousCount, Math.max(0, n - previousCount), qualifiedPlayerIds)
 
   return assignmentByPlayerId
+}
+
+function buildFixedPublicRankAssignments(
+  entries: LadderEntry[],
+  mode: LeaderboardMode | null,
+  config: RankedRoleConfig,
+  qualifiedPlayerIds: Set<string>,
+  ratingBuffer: number,
+): Map<string, LadderAssignment> {
+  const tierByPlayerId = new Map<string, CompetitiveTier>()
+  const playersByTier = new Map<CompetitiveTier, string[]>()
+
+  for (const entry of entries) {
+    if (!qualifiedPlayerIds.has(entry.playerId)) continue
+    const tier = publicRankTierForConfig(entry.score + ratingBuffer, config)
+    tierByPlayerId.set(entry.playerId, tier)
+    const players = playersByTier.get(tier) ?? []
+    players.push(entry.playerId)
+    playersByTier.set(tier, players)
+  }
+
+  const tierRankByPlayerId = new Map<string, number>()
+  for (const players of playersByTier.values()) {
+    players.forEach((playerId, index) => tierRankByPlayerId.set(playerId, index + 1))
+  }
+
+  const assignments = new Map<string, LadderAssignment>()
+  entries.forEach((entry, index) => {
+    const tier = tierByPlayerId.get(entry.playerId)
+    if (!tier) return
+    assignments.set(entry.playerId, {
+      playerId: entry.playerId,
+      tier,
+      mode,
+      score: entry.score,
+      lastPlayedAt: entry.lastPlayedAt,
+      overallRank: index + 1,
+      tierRank: tierRankByPlayerId.get(entry.playerId) ?? 1,
+      tierSize: playersByTier.get(tier)?.length ?? 1,
+    })
+  })
+  return assignments
+}
+
+function usesFixedPublicRanks(config: RankedRoleConfig): boolean {
+  return getRankedRoleTierCount(config) === 5
+}
+
+function publicRankTierForConfig(score: number, config: RankedRoleConfig): CompetitiveTier {
+  const tier = publicRank(score).tier
+  return hasConfiguredRankedRoleTier(config, tier)
+    ? tier
+    : getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
+}
+
+function publicRankTierMinimumForConfig(tier: CompetitiveTier, config: RankedRoleConfig): number {
+  if (!usesFixedPublicRanks(config)) return 0
+  if (!hasConfiguredRankedRoleTier(config, tier)) return 0
+  return publicRankTierMinimum(tier as Parameters<typeof publicRankTierMinimum>[0])
 }
 
 function assignTierSlice(
@@ -1546,7 +1648,6 @@ function resolveProjectedTierForScore(
   score: number,
 ): CompetitiveTier | null {
   if (!Number.isFinite(score)) return null
-
   const rankedScores = [...(ladders?.scores.values() ?? [])].sort((a, b) => b - a)
   const rankedCount = rankedScores.length
   if (rankedCount <= 0) return null

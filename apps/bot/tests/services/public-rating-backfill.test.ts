@@ -1,4 +1,5 @@
 import { matches, playerRatingEvents, playerRatings, players, scopedPlayerRatingEvents, scopedPlayerRatings } from '@civup/db'
+import { PUBLIC_RATING_START } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, asc, eq } from 'drizzle-orm'
 import { applyPublicRatingBackfillBatch, calculatePublicRatingBackfill, type PublicRatingBackfillEvent } from '../../scripts/public-rating-backfill-shared.ts'
@@ -8,7 +9,7 @@ const PRIMARY_STATS_KEY = 'server:111111111111111111'
 const OTHER_STATS_KEY = 'server:222222222222222222'
 
 describe('public rating backfill', () => {
-  test('uses populated events as authoritative anchors for a partially backfilled chain', () => {
+  test('replays complete chains from the public start instead of preserving temporary anchors', () => {
     const events: PublicRatingBackfillEvent[] = [
       backfillEvent('m1', 100, 25, 27),
       { ...backfillEvent('m2', 200, 27, 28), publicRatingBefore: 1090, publicRatingAfter: 1100 },
@@ -17,12 +18,14 @@ describe('public rating backfill', () => {
 
     const calculated = calculatePublicRatingBackfill(events)
 
-    expect(calculated.events[1]).toMatchObject({ publicRatingBefore: 1090, publicRatingAfter: 1100 })
-    expect(calculated.events[2]?.publicRatingBefore).toBe(1100)
+    expect(calculated.events[0]?.publicRatingBefore).toBe(PUBLIC_RATING_START)
+    expect(calculated.events[1]?.publicRatingBefore).toBe(calculated.events[0]?.publicRatingAfter)
+    expect(calculated.events[1]?.publicRatingAfter).not.toBe(1100)
+    expect(calculated.events[2]?.publicRatingBefore).toBe(calculated.events[1]?.publicRatingAfter)
     expect(calculated.summaries[0]?.publicRating).toBe(calculated.events[2]?.publicRatingAfter)
   })
 
-  test('rebuilds canonical chains, mirrors only primary PPL data, skips global, and is idempotent', async () => {
+  test('rebuilds all canonical chains, mirrors only primary PPL data, and is idempotent', async () => {
     const { db, sqlite } = await createTestDatabase()
     await db.insert(players).values({ id: 'p1', displayName: 'P1', createdAt: 1 })
     await db.insert(matches).values([
@@ -66,6 +69,7 @@ describe('public rating backfill', () => {
     expect(calculated.events.map(row => `${row.statsKey}:${row.mode}:${row.matchId}`)).toEqual([
       `${PRIMARY_STATS_KEY}:duel:m1`,
       `${PRIMARY_STATS_KEY}:duel:m2`,
+      `${PRIMARY_STATS_KEY}:global:m1`,
       `${OTHER_STATS_KEY}:duel:m3`,
     ])
     expect(calculated.events[1]?.publicRatingBefore).toBe(calculated.events[0]?.publicRatingAfter)
@@ -83,7 +87,7 @@ describe('public rating backfill', () => {
     expect(primaryScoped.map(row => [row.publicRatingBefore, row.publicRatingAfter])).toEqual(
       primaryLegacy.map(row => [row.publicRatingBefore, row.publicRatingAfter]),
     )
-    expect(primaryScoped[0]?.publicRatingBefore).toBe(1000)
+    expect(primaryScoped[0]?.publicRatingBefore).toBe(PUBLIC_RATING_START)
     expect(primaryScoped[1]?.publicRatingBefore).toBe(primaryScoped[0]?.publicRatingAfter)
     expect(primaryScoped[1]!.publicRatingAfter! - primaryScoped[1]!.publicRatingBefore!).toBeGreaterThan(0)
     expect(primaryScoped[1]!.publicRatingAfter! - primaryScoped[1]!.publicRatingBefore!).toBeLessThan(18)
@@ -100,13 +104,13 @@ describe('public rating backfill', () => {
     const [globalLegacyEvent] = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.mode, 'global'))
     const [globalScopedSummary] = await db.select().from(scopedPlayerRatings).where(eq(scopedPlayerRatings.mode, 'global'))
     const [globalLegacySummary] = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
-    expect(globalScopedEvent?.publicRatingBefore).toBeNull()
-    expect(globalLegacyEvent?.publicRatingAfter).toBeNull()
-    expect(globalScopedSummary?.publicRating).toBeNull()
-    expect(globalLegacySummary?.publicRating).toBeNull()
+    expect(globalScopedEvent?.publicRatingBefore).toBe(PUBLIC_RATING_START)
+    expect(globalLegacyEvent?.publicRatingAfter).toBe(globalScopedEvent?.publicRatingAfter)
+    expect(globalScopedSummary?.publicRating).toBe(globalScopedEvent?.publicRatingAfter)
+    expect(globalLegacySummary?.publicRating).toBe(globalScopedSummary?.publicRating)
 
     const [otherScoped] = await db.select().from(scopedPlayerRatingEvents).where(eq(scopedPlayerRatingEvents.statsKey, OTHER_STATS_KEY))
-    expect(otherScoped?.publicRatingBefore).toBe(1000)
+    expect(otherScoped?.publicRatingBefore).toBe(PUBLIC_RATING_START)
 
     sqlite.query('update scoped_player_rating_events set public_rating_before = 1090, public_rating_after = 1100 where stats_key = ? and match_id = ? and mode = ?').run(PRIMARY_STATS_KEY, 'm2', 'duel')
     sqlite.query('update player_rating_events set public_rating_before = 1090, public_rating_after = 1100 where match_id = ? and mode = ?').run('m2', 'duel')
@@ -114,10 +118,13 @@ describe('public rating backfill', () => {
     sqlite.query('update player_ratings set public_rating = 1100 where mode = ?').run('duel')
     applyPublicRatingBackfillBatch(sqlite, calculated, PRIMARY_STATS_KEY)
 
-    const preservedScoped = sqlite.query('select public_rating_before, public_rating_after from scoped_player_rating_events where stats_key = ? and match_id = ? and mode = ?').get(PRIMARY_STATS_KEY, 'm2', 'duel') as { public_rating_before: number, public_rating_after: number }
-    const preservedSummary = sqlite.query('select public_rating from scoped_player_ratings where stats_key = ? and mode = ?').get(PRIMARY_STATS_KEY, 'duel') as { public_rating: number }
-    expect(preservedScoped).toEqual({ public_rating_before: 1090, public_rating_after: 1100 })
-    expect(preservedSummary.public_rating).toBe(1100)
+    const replayedScoped = sqlite.query('select public_rating_before, public_rating_after from scoped_player_rating_events where stats_key = ? and match_id = ? and mode = ?').get(PRIMARY_STATS_KEY, 'm2', 'duel') as { public_rating_before: number, public_rating_after: number }
+    const replayedSummary = sqlite.query('select public_rating from scoped_player_ratings where stats_key = ? and mode = ?').get(PRIMARY_STATS_KEY, 'duel') as { public_rating: number }
+    expect(replayedScoped).toEqual({
+      public_rating_before: calculated.events[1]?.publicRatingBefore,
+      public_rating_after: calculated.events[1]?.publicRatingAfter,
+    })
+    expect(replayedSummary.public_rating).toBe(calculated.events[1]?.publicRatingAfter)
     sqlite.close()
   })
 })

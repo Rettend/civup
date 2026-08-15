@@ -2,12 +2,13 @@ import type { Database } from '@civup/db'
 import type { PlayerRating, RatingUpdate } from '@civup/rating'
 import type { StatsContext } from '../services/stats/context.ts'
 import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
-import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, predictWinProbabilities, resolvePublicRating } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, predictWinProbabilities, PUBLIC_RATING_START, resolvePublicRating } from '@civup/rating'
 import { Button, Command, Components, Embed } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
 import { getIdentity, getIdentityByUserId } from './identity.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../services/response/ephemeral.ts'
+import { formatPublicRatingValue, formatSignedPublicRatingDelta } from '../embeds/rating-change.ts'
 import { factory } from '../setup.ts'
 import { resolveStatsContext } from '../services/stats/context.ts'
 
@@ -42,7 +43,7 @@ export interface DuelEloPreview {
 }
 
 export const command_preview_elo = factory.command(
-  new Command('Preview Elo').type(USER_COMMAND_TYPE),
+  new Command('Preview Rating').type(USER_COMMAND_TYPE),
   (c) => {
     const targetId = getInteractionTargetId(c.interaction.data)
     const viewer = getIdentity(c)
@@ -50,7 +51,7 @@ export const command_preview_elo = factory.command(
     if (!c.interaction.guild_id) return c.flags('EPHEMERAL').res('This command can only be used in a server.')
     if (!viewer) return c.flags('EPHEMERAL').res('Could not identify you.')
     if (!targetId) return c.flags('EPHEMERAL').res('Could not identify the target player.')
-    if (targetId === viewer.userId) return c.flags('EPHEMERAL').res('Pick another player to preview duel Elo.')
+    if (targetId === viewer.userId) return c.flags('EPHEMERAL').res('Pick another player to preview duel rating.')
 
     return c.flags('EPHEMERAL').resDefer(async (c) => {
       try {
@@ -70,8 +71,8 @@ export const command_preview_elo = factory.command(
         await c.followup({ embeds: [embed], components: previewEloComponents(), allowed_mentions: { parse: [] } })
       }
       catch (error) {
-        console.error('Failed to build duel Elo preview:', error)
-        await c.followup({ content: 'Failed to build this Elo preview.', allowed_mentions: { parse: [] } })
+        console.error('Failed to build duel rating preview:', error)
+        await c.followup({ content: 'Failed to build this rating preview.', allowed_mentions: { parse: [] } })
       }
     })
   },
@@ -96,12 +97,12 @@ export async function duelEloPreviewEmbed(db: Database, statsContext: StatsConte
   const preview = calculateDuelEloPreview(viewerRating, targetRating)
 
   return new Embed()
-    .title('Preview Elo (1v1)')
+    .title('Preview Rating (1v1)')
     .description(`${formatUserMention(viewer.userId)} vs ${formatUserMention(target.userId)}`)
     .color(0xC8AA6E)
     .fields(
       {
-        name: 'Current Elo',
+        name: 'Current RP',
         value: `${viewer.displayName}: \`${formatPublicRating(preview.viewerWin.publicRatingBefore)}\`\n${target.displayName}: \`${formatPublicRating(preview.targetWin.publicRatingBefore)}\``,
         inline: true,
       },
@@ -181,7 +182,7 @@ async function loadDuelPreviewRatings(db: Database, statsContext: StatsContext, 
 
 function defaultPreviewRating(playerId: string): DuelEloPreviewInput {
   const rating = createRating(playerId)
-  return { ...rating, gamesPlayed: 0, publicRating: DISPLAY_RATING_BASE }
+  return { ...rating, gamesPlayed: 0, publicRating: PUBLIC_RATING_START }
 }
 
 function requireUpdate(updates: readonly RatingUpdate[], playerId: string): RatingUpdate {
@@ -206,7 +207,7 @@ function projectPublicUpdate(hidden: RatingUpdate, priorPublicRating: number): D
 }
 
 function formatOutcomeLine(name: string, update: DuelEloPreviewUpdate): string {
-  return `${name}: \`${formatSignedPublicRatingDelta(update.publicRatingDelta)}\` -> \`${formatPublicRating(update.publicRatingAfter)}\``
+  return `${name}: \`${formatSignedPublicRatingDelta(update.publicRatingDelta)} RP\` -> \`${formatPublicRatingValue(update.publicRatingAfter, update.publicRatingDelta)} RP\``
 }
 
 function formatUserMention(userId: string): string {
@@ -215,12 +216,6 @@ function formatUserMention(userId: string): string {
 
 function formatPublicRating(value: number): number {
   return Math.round(value)
-}
-
-function formatSignedPublicRatingDelta(publicRatingDelta: number): string {
-  const rounded = Math.round(publicRatingDelta)
-  if (rounded === 0) return '0'
-  return `${rounded > 0 ? '+' : ''}${rounded}`
 }
 
 function formatPercent(probability: number): number {

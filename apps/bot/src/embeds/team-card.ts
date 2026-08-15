@@ -4,7 +4,7 @@ import type { PlayerRating } from '@civup/rating'
 import type { StatsContext } from '../services/stats/context.ts'
 import { matches, matchParticipants, players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
-import { createRating, DISPLAY_RATING_BASE, resolvePublicRating } from '@civup/rating'
+import { createRating, PUBLIC_RATING_START, resolvePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -98,7 +98,7 @@ export async function teamCardEmbed(
   const projectedRating = modeContext.leaderboardMode
     ? Math.round(uniquePlayerIds.reduce((total, playerId) => {
         const row = ratingByPlayerId.get(playerId)
-        return total + (row ? resolvePublicRating(row.publicRating, row.mu) : DISPLAY_RATING_BASE)
+        return total + (row ? resolvePublicRating(row.publicRating, row.mu) : PUBLIC_RATING_START)
       }, 0) / uniquePlayerIds.length)
     : null
   const visual = projectedHiddenScore != null && modeContext.leaderboardMode
@@ -243,9 +243,9 @@ function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all
 }
 
 function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {
-  if (visual.roleId) return `<@&${visual.roleId}> (${rating})`
-  if (visual.label) return `${visual.label} (${rating})`
-  return String(rating)
+  if (visual.roleId) return `<@&${visual.roleId}> · ${rating} RP`
+  if (visual.label) return `${visual.label} · ${rating} RP`
+  return `${rating} RP`
 }
 
 function formatProjectedRoleMention(visual: TeamRatingVisual): string | null {

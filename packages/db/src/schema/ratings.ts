@@ -14,7 +14,7 @@ export const playerRatings = sqliteTable('player_ratings', {
   mu: real('mu').notNull().default(25.0),
   /** OpenSkill sigma (uncertainty, default 8.333) */
   sigma: real('sigma').notNull().default(8.333),
-  /** Persisted public Elo for leaderboard modes; null for global or pending backfill. */
+  /** Persisted public Rank Points; null while a chain is pending backfill. */
   publicRating: real('public_rating'),
   /** Total games played in this mode */
   gamesPlayed: integer('games_played').notNull().default(0),
@@ -53,7 +53,7 @@ export const playerRatingEvents = sqliteTable('player_rating_events', {
   ratingBeforeSigma: real('rating_before_sigma').notNull(),
   ratingAfterMu: real('rating_after_mu').notNull(),
   ratingAfterSigma: real('rating_after_sigma').notNull(),
-  /** Persisted public Elo snapshots; null for global or pending backfill. */
+  /** Persisted public Rank Point snapshots; null while an event is pending backfill. */
   publicRatingBefore: real('public_rating_before'),
   publicRatingAfter: real('public_rating_after'),
   gamesDelta: integer('games_delta').notNull().default(1),

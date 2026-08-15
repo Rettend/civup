@@ -5,7 +5,7 @@
 - live lobby embeds
 - the draft inside a Discord Activity
 - result reporting
-- elo rating calculation
+- public RP and hidden skill rating calculation
 - ranked Discord roles
 - leaderboard embeds
 
@@ -296,7 +296,7 @@ Two ways:
 
 Ratings, history, leader stats, leaderboards, rank gates, and ranked roles are scoped to the server where the command or Activity is opened. A reported match updates only its owning server's stats, while still including every participant regardless of where they joined from.
 
-Every reported game updates public mode Elo, hidden skill ratings, and hidden evidence.
+Every reported ranked game updates public mode and overall Rank Points (RP), hidden skill ratings, and hidden evidence.
 Once a player has enough evidence, the bot assigns a ranked role.
 
 ### Commands
@@ -325,13 +325,13 @@ Current per-mode leaderboard placement discourages inactivity at the top without
 - only the raw top 20 can receive an inactivity placement adjustment
 - the first one-place adjustment occurs after 120 days without a current, non-imported game in that mode, then increases by one place per 30 days up to 20
 - playing and reporting a current game clears the adjustment for that mode; imported or historical games do not
-- public Elo, hidden rating uncertainty, rating history, and ranked Discord roles remain unchanged
+- public RP, hidden rating uncertainty, rating history, and ranked Discord roles remain unchanged
 
 Leaderboard images mark adjusted rows with `↓N`. Persistent images pick up time-based placement changes when that mode is next refreshed by the dirty-check flow, rather than exactly when a boundary is crossed.
 
 ### Leader ranks
 
-Leader ranks use a smoothed win rate plus current global elo and a volume bonus:
+Leader ranks use a smoothed win rate plus a hidden global skill score and a volume bonus. This score is separate from public RP:
 
 ```txt
 serverWinRate = serverWins / serverPicks
@@ -342,51 +342,52 @@ adjustedWinRate =
 
 confidence = playerPicks / (playerPicks + 20)
 
-globalEloBonus =
-  clamp(((globalElo - 1000) / 500) * 20pp, -20pp, 20pp)
+globalSkillBonus =
+  clamp(((hiddenGlobalSkill - 1000) / 500) * 20pp, -20pp, 20pp)
   * confidence
 
 volumeBonus = min(log1p(playerPicks) / log1p(25), 1) * 2pp
 
-score = adjustedWinRate + globalEloBonus + volumeBonus
+score = adjustedWinRate + globalSkillBonus + volumeBonus
 ```
 
 - `20` is the smoothing strength, it acts like 20 virtual games at the leader's server win rate, so that someone with 100% win rate and few games does not automatically beat everyone else
-- the volume bonus is capped at 2 percentage points, grows slower as games go up, and reaches the cap at 25 games, it only helps break close cases, it does not let games played beat much better win rate or global Elo
+- the volume bonus is capped at 2 percentage points, grows slower as games go up, and reaches the cap at 25 games; it only helps break close cases and does not let games played beat much better win rate or hidden global skill
 
 Players are ranked by:
 
 - total score, highest first
 - adjusted win rate
-- global Elo
+- hidden global skill
 - games on the leader
 - wins on the leader
 - player id as a stable tie-breaker
 
 ### Ranked roles
 
-Example with 5 configured roles:
+With five configured roles, qualified players use fixed overall RP boundaries:
 
-| Role    | Overall pool |
-| ------- | ------------ |
-| `tier1` | top 5%       |
-| `tier2` | next 15%     |
-| `tier3` | next 20%     |
-| `tier4` | next 50%     |
-| `tier5` | bottom 10%   |
+| Role | Public RP | Visible rank |
+| --- | ---: | --- |
+| `tier1` | `1325+` | Elite |
+| `tier2` | `1100-1324` | Legion III to I |
+| `tier3` | `875-1099` | Gladiator III to I |
+| `tier4` | `650-874` | Squire III to I |
+| `tier5` | `<650` | Pleb |
 
-Players with less than **8 games** are `Unranked`, which means the bot won't touch their roles.
+Players with less than **8 effective overall games** are `Unranked`, which means the bot won't touch their roles. Discord manages only the five broad roles; divisions are display labels.
 
 ### How ratings work
 
-- New players start at exactly `1000` public Elo in each mode.
-- A separate hidden **OpenSkill** rating, tuned for Civ 6, predicts matches and powers balancing and ranked roles.
-- Public Elo follows the direction of the hidden match update, normally moves by about 25 in a first even duel, and cannot move by more than 35 in one live game.
-- Public Elo can catch up slightly when a result moves it toward hidden skill. It does not receive catch-up movement in the opposite direction.
+- New public mode and overall rating chains start at exactly `900 RP`.
+- A separate hidden **OpenSkill** rating, tuned for Civ 6, predicts matches, powers balancing, and determines the direction and size of RP changes.
+- Public RP follows the direction of the hidden match update, normally moves by about 25-30 in a first even duel, and cannot move by more than 35 in one live game.
+- Public RP can catch up slightly when a result moves it toward hidden skill. It does not receive catch-up movement in the opposite direction.
 - Imported games apply half of the normal public movement.
+- The first loss that would cross a visible division boundary stops exactly at that boundary. A later loss from the boundary can demote the player.
 - In team game modes, players are rated individually. A stronger teammate gains less for a win and loses more for a loss than a weaker teammate.
-- There is an anti-farming system, which reduces elo gains from expected wins when expected winrate is above 70%.
-- And there is an stablished protection system, veteran players can get partial protection from very large losses to highly uncertain lower rated players. This only reduces the losing player's loss, winner gains are unchanged.
+- There is an anti-farming system, which reduces gains from expected wins when expected win rate is above 70%.
+- There is also an established-player protection system: veteran players can get partial protection from very large losses to highly uncertain lower-rated players. This only reduces the losing player's loss; winner gains are unchanged.
 
 ### Extra requirements for high ranks
 
@@ -430,7 +431,7 @@ These rules do not chain.
 
 The bot uses a small keep-role buffer so players do not promote and demote constantly.
 
-Any role retained or raised above the raw overall ladder placement is a grace role. A grace role can be at most one tier above the player's best game mode in which they have at least 10 games.
+Any role retained or raised above the raw overall public rank is a grace role. A grace role can be at most one tier above the player's best game mode in which they have at least 10 games.
 
 If a qualified player falls below the keep line, the demotion is delayed. They need to remain below the keep line for 7 days before the bot demotes them.
 
@@ -452,7 +453,7 @@ Ending a season will rotate the Leaderboard embeds, and give past season roles t
 
 **Season roles** are Ranked roles prefixed with the season number, for example `@Role1` becomes `@S1 Role1`. These are only kept for the past 4 seasons, ratings after that can only be viewed with the `/rank` command.
 
-Starting a season with soft reset enabled resets season records and increases hidden rating uncertainty without changing public Elo. Starting a season without soft reset only begins assigning new matches to that season and preserves past games.
+Starting a season with soft reset enabled resets season records and increases hidden rating uncertainty without changing public RP. Starting a season without soft reset only begins assigning new matches to that season and preserves past games.
 
 ## Mod Tools
 

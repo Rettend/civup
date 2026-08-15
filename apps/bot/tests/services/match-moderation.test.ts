@@ -1457,11 +1457,12 @@ describe('match moderation recalculation', () => {
       expect(displayDelta(result.participants, 'p1')).toBeCloseTo(displayDelta(result.participants, 'p2'), 10)
       expect(displayDelta(result.participants, 'p3')).toBeCloseTo(displayDelta(result.participants, 'p4'), 10)
       expect(displayDelta(result.participants, 'p5')).toBeCloseTo(displayDelta(result.participants, 'p6'), 10)
-      expect(publicDelta(result.participants, 'p1')).toBeCloseTo(publicDelta(result.participants, 'p2'), 10)
-      expect(publicDelta(result.participants, 'p3')).toBeCloseTo(publicDelta(result.participants, 'p4'), 10)
-      expect(publicDelta(result.participants, 'p5')).toBeCloseTo(publicDelta(result.participants, 'p6'), 10)
       expect(publicDelta(result.participants, 'p3')).toBeGreaterThan(0)
+      expect(publicDelta(result.participants, 'p4')).toBeGreaterThan(0)
+      expect(publicDelta(result.participants, 'p1')).toBeLessThan(0)
+      expect(publicDelta(result.participants, 'p2')).toBeLessThan(0)
       expect(publicDelta(result.participants, 'p5')).toBeLessThan(0)
+      expect(publicDelta(result.participants, 'p6')).toBeLessThan(0)
     }
     finally {
       sqlite.close()

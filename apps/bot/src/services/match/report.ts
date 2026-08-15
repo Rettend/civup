@@ -8,7 +8,7 @@ import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, Repo
 import type { StatsContext } from '../stats/context.ts'
 import { matchBans, matches, matchParticipants, playerRatingEvents as legacyPlayerRatingEvents, playerRatings as legacyPlayerRatings, players, scopedPlayerRatingEvents as playerRatingEvents, scopedPlayerRatings as playerRatings, sessionDirectory } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
-import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, IMPORTED_GAME_EFFECTIVE_WEIGHT, resolvePublicRating } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT, PUBLIC_RATING_START, resolvePublicRating } from '@civup/rating'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
@@ -900,16 +900,12 @@ function buildRatingScopeUpdateQueries(
     }
 
     const existing = input.existingRatingsByPlayerId.get(update.playerId)
-    const publicUpdate = input.scope === GLOBAL_RATING_SCOPE
-      ? null
-      : calculatePublicRatingUpdate({
-          priorPublicRating: existing
-            ? resolvePublicRating(existing.publicRating, existing.mu)
-            : DISPLAY_RATING_BASE,
-          hiddenMuBefore: update.before.mu,
-          hiddenMuAfterRaw: update.after.mu,
-          sourceWeight,
-        })
+    const publicUpdate = calculatePublicRatingUpdate({
+      priorPublicRating: existing ? resolvePublicRating(existing.publicRating, existing.mu) : PUBLIC_RATING_START,
+      hiddenMuBefore: update.before.mu,
+      hiddenMuAfterRaw: update.after.mu,
+      sourceWeight,
+    })
     const isWin = placementByPlayerId.get(update.playerId) === 1
     const evidence = input.evidenceByPlayerId.get(update.playerId) ?? createEmptyMatchEvidenceDelta()
     const qualityWins = input.scope === GLOBAL_RATING_SCOPE
@@ -921,7 +917,7 @@ function buildRatingScopeUpdateQueries(
       mode: input.scope,
       mu: ratingAfterMu,
       sigma: ratingAfterSigma,
-      publicRating: publicUpdate?.after ?? null,
+      publicRating: publicUpdate.after,
       gamesPlayed: (existing?.gamesPlayed ?? 0) + 1,
       wins: (existing?.wins ?? 0) + (isWin ? 1 : 0),
       importedGames: (existing?.importedGames ?? 0) + evidence.importedGames,
@@ -943,8 +939,8 @@ function buildRatingScopeUpdateQueries(
       ratingBeforeSigma: update.before.sigma,
       ratingAfterMu,
       ratingAfterSigma,
-      publicRatingBefore: publicUpdate?.before ?? null,
-      publicRatingAfter: publicUpdate?.after ?? null,
+      publicRatingBefore: publicUpdate.before,
+      publicRatingAfter: publicUpdate.after,
       gamesDelta: 1,
       winsDelta: isWin ? 1 : 0,
       importedGamesDelta: evidence.importedGames,

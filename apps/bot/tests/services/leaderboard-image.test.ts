@@ -7,7 +7,7 @@ const DAY_MS = 24 * 60 * 60 * 1_000
 const NOW = 200 * DAY_MS
 
 describe('player leaderboard image activity placement', () => {
-  test('orders adjusted rows while keeping Elo visible and explaining the marker', async () => {
+  test('orders adjusted rows while keeping RP visible and explaining the marker', async () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
@@ -27,6 +27,7 @@ describe('player leaderboard image activity placement', () => {
       expect(data.rows[1]!.publicRating).toBeGreaterThan(data.rows[0]!.publicRating)
 
       const svg = await renderPlayerLeaderboardSvg(data, { avatarData: new Map() })
+      expect(svg).toContain('RP')
       expect(svg).toContain('↓1')
       expect(svg).toContain('↓N = activity placement adjustment')
       expect(svg.indexOf('Active Challenger')).toBeLessThan(svg.indexOf('Stale Leader'))

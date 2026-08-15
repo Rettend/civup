@@ -189,7 +189,8 @@ describe('team stats embed', () => {
     const recentMatchesField = embed.fields?.find(field => field.name === 'Recent Matches')
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&44444444444444444>`)
-    expect(duoField?.value).toContain('Rating: <@&44444444444444444> (')
+    expect(duoField?.value).toContain('Rating: <@&44444444444444444> · ')
+    expect(duoField?.value).toContain(' RP')
     expect(duoField?.value).toContain('Games: 1')
     expect(duoField?.value).toContain('Wins: 1 (100%)')
     expect(recentMatchesField?.value).toContain('2v2')
@@ -516,7 +517,8 @@ describe('team stats embed', () => {
     const duoField = embed.fields?.find(field => field.name === 'Duo')
 
     expect(embed.description).toBe(`<@${HERO_ID}> + <@${MATE_ID}> - <@&44444444444444444>`)
-    expect(duoField?.value).toContain('Rating: <@&44444444444444444> (')
+    expect(duoField?.value).toContain('Rating: <@&44444444444444444> · ')
+    expect(duoField?.value).toContain(' RP')
 
     sqlite.close()
   })

@@ -395,6 +395,10 @@ function formatProjectedWinDelta(summary: LobbyBalanceTeamSummary): string | nul
 }
 
 function formatSignedPublicRatingDelta(publicRatingDelta: number): string {
+  if (publicRatingDelta !== 0 && Math.abs(publicRatingDelta) < 1) {
+    const visible = Math.max(0.1, Math.round(Math.abs(publicRatingDelta) * 10) / 10)
+    return `${publicRatingDelta > 0 ? '+' : '-'}${visible.toFixed(1)}`
+  }
   const rounded = Math.round(publicRatingDelta)
   if (rounded === 0) return '0'
   return `${rounded > 0 ? '+' : ''}${rounded}`
@@ -408,7 +412,7 @@ function formatTeamBalanceTitle(summary: LobbyBalanceTeamSummary, team: number):
   if (!summary.projectedWinDelta) return chanceText
 
   const delta = formatSignedPublicRatingDelta(summary.projectedWinDelta.publicRatingDelta)
-  return `${chanceText} ${delta} is your Elo change if ${teamLabel} wins.`
+  return `${chanceText} ${delta} RP is your rating change if ${teamLabel} wins.`
 }
 
 function getArrangeOverlayIconClass(strategy: LobbyArrangeStrategy | null) {

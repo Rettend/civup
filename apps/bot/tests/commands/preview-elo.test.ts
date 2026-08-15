@@ -7,12 +7,12 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 
 const STATS_CONTEXT = createStatsContext('111111111111111111', '111111111111111111')
 
-describe('preview elo command', () => {
+describe('preview rating command', () => {
   test('registers as a user context command', () => {
     const [commandBuilder] = factory.getCommands([command_preview_elo])
     const command = commandBuilder?.toJSON() as { name?: string, type?: number, description?: string, options?: unknown[] } | undefined
 
-    expect(command?.name).toBe('Preview Elo')
+    expect(command?.name).toBe('Preview Rating')
     expect(command?.type).toBe(2)
     expect(command?.description).toBe('')
     expect(command?.options).toBeUndefined()
@@ -53,9 +53,9 @@ describe('preview elo command', () => {
       { userId: 'target', displayName: 'Target', avatarUrl: null },
     )).toJSON()
 
-    expect(embed.title).toBe('Preview Elo (1v1)')
+    expect(embed.title).toBe('Preview Rating (1v1)')
     expect(embed.description).toBe('<@viewer> vs <@target>')
-    expect(embed.fields?.find(field => field.name === 'Current Elo')?.value).toContain('`1000`')
+    expect(embed.fields?.find(field => field.name === 'Current RP')?.value).toContain('`900`')
     expect(embed.fields?.find(field => field.name === 'Win Chance')?.value).toContain('`50%`')
     expect(embed.fields?.find(field => field.name === 'If You Win')?.value).toContain('Viewer: `+')
     expect(embed.fields?.find(field => field.name === 'If You Lose')?.value).toContain('Viewer: `-')

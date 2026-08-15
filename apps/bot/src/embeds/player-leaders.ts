@@ -123,6 +123,7 @@ function buildLeadersDescription(playerId: string, requestedModeLabel: string | 
   const parts = [`<@${playerId}>`]
   if (rankProfile?.overallRoleId) parts.push(`<@&${rankProfile.overallRoleId}>`)
   else if (rankProfile?.overallLabel) parts.push(rankProfile.overallLabel)
+  if (rankProfile?.overallLabel && rankProfile.overallRating != null) parts.push(`${rankProfile.overallLabel} · ${rankProfile.overallRating} RP`)
   if (requestedModeLabel) parts.push(requestedModeLabel)
   return parts.join(' - ')
 }

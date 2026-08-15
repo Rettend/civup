@@ -1,7 +1,7 @@
-import { calculatePublicRatingUpdateFromStoredEvent, DISPLAY_RATING_BASE } from '@civup/rating'
+import { calculatePublicRatingUpdateFromStoredEvent, PUBLIC_RATING_START } from '@civup/rating'
 import type { Database } from 'bun:sqlite'
 
-export const PUBLIC_RATING_BACKFILL_MODES = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const
+export const PUBLIC_RATING_BACKFILL_MODES = ['global', 'duel', 'duo', 'squad', 'ffa', 'red-death'] as const
 
 export interface PublicRatingBackfillEvent {
   statsKey: string
@@ -38,7 +38,7 @@ export interface PublicRatingBackfillResult {
   summaries: PublicRatingBackfillSummaryUpdate[]
 }
 
-/** Fill mode chains from public 1000 while preserving populated event anchors. */
+/** Replay complete public chains from 900 RP. */
 export function calculatePublicRatingBackfill(events: readonly PublicRatingBackfillEvent[]): PublicRatingBackfillResult {
   const eligible = events
     .filter(event => isPublicRatingMode(event.mode))
@@ -49,8 +49,7 @@ export function calculatePublicRatingBackfill(events: readonly PublicRatingBackf
 
   for (const event of eligible) {
     const chain = chainKey(event)
-    const chainBefore = publicByChain.get(chain) ?? DISPLAY_RATING_BASE
-    const before = validStoredPublicRating(event.publicRatingBefore) ?? chainBefore
+    const before = publicByChain.get(chain) ?? PUBLIC_RATING_START
     const update = calculatePublicRatingUpdateFromStoredEvent({
       priorPublicRating: before,
       hiddenMuBefore: event.ratingBeforeMu,
@@ -64,7 +63,7 @@ export function calculatePublicRatingBackfill(events: readonly PublicRatingBackf
       playerId: event.playerId,
       mode: event.mode,
     }
-    const after = validStoredPublicRating(event.publicRatingAfter) ?? update.after
+    const after = update.after
     eventUpdates.push({
       ...identity,
       publicRatingBefore: before,
@@ -111,25 +110,25 @@ export function applyPublicRatingBackfillBatch(
       ]))
     }
     db.exec(`update scoped_player_rating_events as e set
-      public_rating_before = coalesce(e.public_rating_before, (select s.public_rating_before from public_rating_backfill_stage s where s.stats_key = e.stats_key and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)),
-      public_rating_after = coalesce(e.public_rating_after, (select s.public_rating_after from public_rating_backfill_stage s where s.stats_key = e.stats_key and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode))
+      public_rating_before = (select s.public_rating_before from public_rating_backfill_stage s where s.stats_key = e.stats_key and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode),
+      public_rating_after = (select s.public_rating_after from public_rating_backfill_stage s where s.stats_key = e.stats_key and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)
       where exists (select 1 from public_rating_backfill_stage s where s.stats_key = e.stats_key and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)`)
-    db.exec(`update scoped_player_ratings as r set public_rating = coalesce(r.public_rating, (
+    db.exec(`update scoped_player_ratings as r set public_rating = (
       select s.public_rating_after from public_rating_backfill_stage s
       where s.stats_key = r.stats_key and s.player_id = r.player_id and s.mode = r.mode
       order by s.rowid desc limit 1
-    )) where exists (select 1 from public_rating_backfill_stage s where s.stats_key = r.stats_key and s.player_id = r.player_id and s.mode = r.mode)`)
+    ) where exists (select 1 from public_rating_backfill_stage s where s.stats_key = r.stats_key and s.player_id = r.player_id and s.mode = r.mode)`)
 
     if (primaryStatsKey) {
       db.query(`update player_rating_events as e set
-        public_rating_before = coalesce(e.public_rating_before, (select s.public_rating_before from public_rating_backfill_stage s where s.stats_key = ? and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)),
-        public_rating_after = coalesce(e.public_rating_after, (select s.public_rating_after from public_rating_backfill_stage s where s.stats_key = ? and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode))
+        public_rating_before = (select s.public_rating_before from public_rating_backfill_stage s where s.stats_key = ? and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode),
+        public_rating_after = (select s.public_rating_after from public_rating_backfill_stage s where s.stats_key = ? and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)
         where exists (select 1 from public_rating_backfill_stage s where s.stats_key = ? and s.match_id = e.match_id and s.player_id = e.player_id and s.mode = e.mode)`).run(primaryStatsKey, primaryStatsKey, primaryStatsKey)
-      db.query(`update player_ratings as r set public_rating = coalesce(r.public_rating, (
+      db.query(`update player_ratings as r set public_rating = (
         select s.public_rating_after from public_rating_backfill_stage s
         where s.stats_key = ? and s.player_id = r.player_id and s.mode = r.mode
         order by s.rowid desc limit 1
-      )) where exists (select 1 from public_rating_backfill_stage s where s.stats_key = ? and s.player_id = r.player_id and s.mode = r.mode)`).run(primaryStatsKey, primaryStatsKey)
+      ) where exists (select 1 from public_rating_backfill_stage s where s.stats_key = ? and s.player_id = r.player_id and s.mode = r.mode)`).run(primaryStatsKey, primaryStatsKey)
     }
   })()
 }
@@ -144,10 +143,6 @@ function compareBackfillEvents(left: PublicRatingBackfillEvent, right: PublicRat
 
 function chainKey(event: Pick<PublicRatingBackfillEvent, 'statsKey' | 'playerId' | 'mode'>): string {
   return `${event.statsKey}\0${event.playerId}\0${event.mode}`
-}
-
-function validStoredPublicRating(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function chunks<T>(values: readonly T[], size: number): T[][] {

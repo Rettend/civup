@@ -32,16 +32,10 @@ describe('ranked preview summary', () => {
       roleId: '55555555555555555',
       isFallback: false,
     })
-    expect(summary.bands[0]?.earnPercent).toBeCloseTo(0.05, 6)
-    expect(summary.bands[0]?.cumulativeEarnPercent).toBeCloseTo(0.05, 6)
-    expect(summary.bands[0]?.keepPercent).toBeCloseTo(0.055, 6)
-    expect(summary.bands[0]?.cumulativeKeepPercent).toBeCloseTo(0.055, 6)
-    expect(summary.bands[1]?.keepPercent).toBeCloseTo(0.155, 6)
-    expect(summary.bands[1]?.cumulativeKeepPercent).toBeCloseTo(0.21, 6)
-    expect(summary.bands[2]?.keepPercent).toBeCloseTo(0.205, 6)
-    expect(summary.bands[2]?.cumulativeKeepPercent).toBeCloseTo(0.415, 6)
-    expect(summary.bands[3]?.keepPercent).toBeCloseTo(0.505, 6)
-    expect(summary.bands[3]?.cumulativeKeepPercent).toBeCloseTo(0.92, 6)
+    expect(summary.bands[0]).toMatchObject({ minimumRating: 1325, keepMinimumRating: 1300 })
+    expect(summary.bands[1]).toMatchObject({ minimumRating: 1100, keepMinimumRating: 1075 })
+    expect(summary.bands[2]).toMatchObject({ minimumRating: 875, keepMinimumRating: 850 })
+    expect(summary.bands[3]).toMatchObject({ minimumRating: 650, keepMinimumRating: 625 })
     expect(summary.bands[4]).toMatchObject({
       tier: 'tier5',
       roleId: '11111111111111111',
@@ -142,11 +136,12 @@ describe('ranked preview summary', () => {
     expect(summaryFields).toContain('Earn')
     expect(summaryFields).toContain('Keep')
     expect(summaryFields).toContain('<@&55555555555555555>')
-    expect(summaryFields).toContain('5.0% (Top 5.0%)')
-    expect(summaryFields).toContain('5.5% (Top 5.5%)')
-    expect(summaryFields).toContain('15.5% (Top 21.0%)')
-    expect(summaryFields).toContain('20.5% (Top 41.5%)')
-    expect(summaryFields).toContain('50.5% (Top 92.0%)')
+    expect(summaryFields).toContain('1325+ RP')
+    expect(summaryFields).toContain('1100+ RP')
+    expect(summaryFields).toContain('875+ RP')
+    expect(summaryFields).toContain('650+ RP')
+    expect(summaryFields).toContain('<650 RP')
+    expect(summaryFields).toContain('1300+ RP')
     expect(summaryFields).toContain('Unranked')
 
     expect(modeEmbed?.title).toBe('Duel - 10 ranked')

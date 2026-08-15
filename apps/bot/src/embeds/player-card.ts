@@ -183,16 +183,16 @@ function buildPlayerCardDescription(playerId: string, requestedModeLabel: string
 
   if (rankProfile?.overallRoleId) parts.push(`<@&${rankProfile.overallRoleId}>`)
   else if (rankProfile?.overallLabel) parts.push(rankProfile.overallLabel)
+  if (rankProfile?.overallLabel && rankProfile.overallRating != null) parts.push(`${rankProfile.overallLabel} · ${rankProfile.overallRating} RP`)
 
   if (requestedModeLabel) parts.push(requestedModeLabel)
   return parts.join(' - ')
 }
 
 function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined, fallbackRating: number): string {
-  if (!mode) return String(fallbackRating)
-  const label = formatRankedRoleMention(mode)
+  if (!mode) return `${fallbackRating} RP`
   const rating = mode.rating ?? fallbackRating
-  return label ? `${label} (${rating})` : String(rating)
+  return mode.tierLabel ? `${mode.tierLabel} · ${rating} RP` : `${rating} RP`
 }
 
 export function formatModeStats(
@@ -228,12 +228,6 @@ function formatModeRank(mode: PlayerRankProfile['modes'][LeaderboardMode] | unde
 
 function formatPercent(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 100) : 0
-}
-
-function formatRankedRoleMention(mode: PlayerRankProfile['modes'][LeaderboardMode]): string | null {
-  if (mode.tierRoleId) return `<@&${mode.tierRoleId}>`
-  const label = mode.tierLabel?.trim()
-  return label || null
 }
 
 export function getRatingModes(modeFilter: StatsModeFilter, visibleModes: readonly LeaderboardMode[]): readonly LeaderboardMode[] {

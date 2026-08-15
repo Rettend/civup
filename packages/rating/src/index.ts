@@ -13,8 +13,11 @@ export const DEFAULT_SIGMA = 25 / 3 // ~8.333
 /** Default share of uncertainty restored between seasons */
 export const DEFAULT_SEASON_RESET_FACTOR = 0.5
 
-/** Starting public Elo. */
+/** Hidden compatibility display anchor. */
 export const DISPLAY_RATING_BASE = 1000
+
+/** Starting public Rank Points, intentionally below the hidden compatibility anchor. */
+export const PUBLIC_RATING_START = 900
 
 /** Scale multiplier for the hidden-MMR-derived compatibility score. */
 export const DISPLAY_RATING_SCALE = 36
@@ -24,6 +27,35 @@ export const Z_MULTIPLIER = 0
 
 /** Public rating transition model persisted with mode rating events. */
 export const PUBLIC_RATING_VERSION = 1
+
+/** Public RP retained below a broad-role boundary before delayed role demotion begins. */
+export const PUBLIC_RANK_ROLE_KEEP_BUFFER = 25
+
+/** Fixed public rank subdivisions. Discord continues to manage only the broad tier. */
+export const PUBLIC_RANK_BANDS = [
+  { tier: 'tier5', division: null, minimumRating: 0 },
+  { tier: 'tier4', division: 3, minimumRating: 650 },
+  { tier: 'tier4', division: 2, minimumRating: 725 },
+  { tier: 'tier4', division: 1, minimumRating: 800 },
+  { tier: 'tier3', division: 3, minimumRating: 875 },
+  { tier: 'tier3', division: 2, minimumRating: 950 },
+  { tier: 'tier3', division: 1, minimumRating: 1025 },
+  { tier: 'tier2', division: 3, minimumRating: 1100 },
+  { tier: 'tier2', division: 2, minimumRating: 1175 },
+  { tier: 'tier2', division: 1, minimumRating: 1250 },
+  { tier: 'tier1', division: null, minimumRating: 1325 },
+] as const
+
+export type PublicRankTier = typeof PUBLIC_RANK_BANDS[number]['tier']
+export type PublicRankDivision = typeof PUBLIC_RANK_BANDS[number]['division']
+
+export interface PublicRank {
+  tier: PublicRankTier
+  division: PublicRankDivision
+  minimumRating: number
+  maximumRating: number | null
+  rating: number
+}
 
 /** Conservative uncertainty penalty used for official ranked role placement. */
 export const RANKED_ROLE_Z_MULTIPLIER = 0.75
@@ -156,7 +188,7 @@ export function hiddenRatingScore(mu: number, _sigma?: number): number {
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
 }
 
-/** @deprecated Use hiddenRatingScore for hidden-MMR logic or resolvePublicRating for visible mode Elo. */
+/** @deprecated Use hiddenRatingScore for hidden-MMR logic or resolvePublicRating for visible ratings. */
 export const displayRating = hiddenRatingScore
 
 export interface PublicRatingUpdateInput {
@@ -180,9 +212,36 @@ export function resolvePublicRating(publicRating: number | null | undefined, hid
   return Number.isFinite(fallback) ? Math.max(0, fallback) : DISPLAY_RATING_BASE
 }
 
+/** Resolve fixed public rank metadata from full-precision RP. */
+export function publicRank(publicRating: number): PublicRank {
+  const rating = Number.isFinite(publicRating) ? Math.max(0, publicRating) : PUBLIC_RATING_START
+  for (let index = PUBLIC_RANK_BANDS.length - 1; index >= 0; index--) {
+    const band = PUBLIC_RANK_BANDS[index]!
+    if (rating < band.minimumRating) continue
+    return {
+      ...band,
+      maximumRating: PUBLIC_RANK_BANDS[index + 1]?.minimumRating ?? null,
+      rating,
+    }
+  }
+
+  const fallback = PUBLIC_RANK_BANDS[0]!
+  return { ...fallback, maximumRating: PUBLIC_RANK_BANDS[1]?.minimumRating ?? null, rating }
+}
+
+/** Lowest RP that earns a broad public tier. */
+export function publicRankTierMinimum(tier: PublicRankTier): number {
+  return PUBLIC_RANK_BANDS.find(band => band.tier === tier)?.minimumRating ?? 0
+}
+
+/** Player-facing public rank label using the configured broad role name. */
+export function formatPublicRankLabel(tierLabel: string, rank: Pick<PublicRank, 'division'>): string {
+  return rank.division == null ? tierLabel : `${tierLabel} ${['', 'I', 'II', 'III'][rank.division]}`
+}
+
 /** Calculate one full-precision v1 public rating transition without mutating hidden MMR. */
 export function calculatePublicRatingUpdate(input: PublicRatingUpdateInput): PublicRatingUpdate {
-  const before = Number.isFinite(input.priorPublicRating) ? Math.max(0, input.priorPublicRating) : DISPLAY_RATING_BASE
+  const before = Number.isFinite(input.priorPublicRating) ? Math.max(0, input.priorPublicRating) : PUBLIC_RATING_START
   const weight = normalizeRatingSourceWeight(input.sourceWeight)
   if (!Number.isFinite(input.hiddenMuBefore) || !Number.isFinite(input.hiddenMuAfterRaw) || weight === 0) {
     return { version: PUBLIC_RATING_VERSION, before, after: before, delta: 0 }
@@ -200,13 +259,22 @@ export function calculatePublicRatingUpdate(input: PublicRatingUpdateInput): Pub
   const core = 25 * Math.tanh(Math.abs(hiddenDelta) / 25)
   const catchup = Math.min(10, 0.05 * gapTowardHidden, 0.05 * hiddenDelta * hiddenDelta)
   const deltaBeforeFloor = weight * direction * Math.min(35, core + catchup)
-  const after = Math.max(0, before + deltaBeforeFloor)
+  const rawAfter = Math.max(0, before + deltaBeforeFloor)
+  const after = applyPublicRankBoundaryProtection(before, rawAfter)
   return {
     version: PUBLIC_RATING_VERSION,
     before,
     after,
     delta: after - before,
   }
+}
+
+/** Keep the first loss crossing a visible rank boundary at that boundary. */
+function applyPublicRankBoundaryProtection(before: number, after: number): number {
+  if (after >= before) return after
+  const boundary = publicRank(before).minimumRating
+  if (boundary <= 0 || before <= boundary || after >= boundary) return after
+  return boundary
 }
 
 /** Clamp live or stored source evidence to the rating transition weight. */
@@ -578,7 +646,7 @@ export type ActivityAdjustedLeaderboardEntry<T extends ActivityLeaderboardPlayer
 /**
  * Build a sorted leaderboard from player rating rows.
  * Filters out players with fewer than the minimum games.
- * Sorted by display rating descending.
+ * Sorted by public rating descending.
  */
 export function buildLeaderboard(
   players: Array<{

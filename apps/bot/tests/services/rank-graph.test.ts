@@ -37,13 +37,13 @@ describe('rank graph image', () => {
         1050,
       ])
       expect(data.bands.map(band => band.tier)).toContain('tier1')
-      expect(data.bands.find(band => band.tier === 'tier1')?.cutoffScore).toBe(1490)
+      expect(data.bands.find(band => band.tier === 'tier1')?.cutoffScore).toBe(1325)
 
       const svg = await renderRankGraphSvg(data)
       expect(svg).toContain('Rank History')
       expect(svg).toContain('FFA')
       expect(svg).toContain('Graph Hero')
-      expect(svg).toContain('ELO')
+      expect(svg).toContain('RP')
       expect(svg).not.toContain('FFA History')
       expect(svg).not.toContain('LAST 3 GAMES')
       expect(svg).not.toContain('Red Death')

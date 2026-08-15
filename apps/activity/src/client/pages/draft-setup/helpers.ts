@@ -2,7 +2,7 @@ import type { CompetitiveTier, DraftState, GameMode, LeaderDataVersion } from '@
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
-import { calculatePublicRatingUpdate, calculateRatings, createRating, DISPLAY_RATING_BASE, predictWinProbabilities } from '@civup/rating'
+import { calculatePublicRatingUpdate, calculateRatings, createRating, predictWinProbabilities, PUBLIC_RATING_START } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
 export const MAX_LEADER_POOL_INPUT = MAX_LEADER_POOL_SIZE
@@ -128,7 +128,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
       mu: fallback.mu,
       sigma: fallback.sigma,
       gamesPlayed: 0,
-      publicRating: DISPLAY_RATING_BASE,
+      publicRating: PUBLIC_RATING_START,
     }
 
     const teamPlayers = playersByTeam.get(team) ?? []
@@ -137,7 +137,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
       mu: balanceRating.mu,
       sigma: balanceRating.sigma,
       gamesPlayed: balanceRating.gamesPlayed,
-      publicRating: balanceRating.publicRating ?? DISPLAY_RATING_BASE,
+      publicRating: balanceRating.publicRating ?? PUBLIC_RATING_START,
     })
     playersByTeam.set(team, teamPlayers)
   }

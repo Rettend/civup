@@ -223,6 +223,7 @@ describe('ranked role sync service', () => {
       mode: 'global',
       mu: 34,
       sigma: 6,
+      publicRating: 850,
       gamesPlayed: 9,
       lastPlayedAt: NOW,
       winsVsTier2Plus: 2,
@@ -254,6 +255,7 @@ describe('ranked role sync service', () => {
       mode: 'global',
       mu: 34,
       sigma: 6,
+      publicRating: 850,
       gamesPlayed: 9,
       lastPlayedAt: NOW,
       winsVsTier2Plus: 1,
@@ -560,100 +562,6 @@ describe('ranked role sync service', () => {
     sqlite.close()
   })
 
-  test('grace roles are at most one tier stronger than the best qualified mode', async () => {
-    const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
-    const directLegionId = playerIdFor('grace-distance', 3)
-    const graceLegionId = playerIdFor('grace-distance', 10)
-
-    for (let index = 1; index <= 20; index++) {
-      const playerId = playerIdFor('grace-distance', index)
-      await seedPlayerIdentity(db, playerId)
-      await seedRating(db, {
-        playerId,
-        mode: 'global',
-        mu: 60 - index,
-        sigma: 6,
-        gamesPlayed: 20,
-        lastPlayedAt: NOW,
-      })
-      await seedRating(db, {
-        playerId,
-        mode: 'duel',
-        mu: index === 3 ? 49.5 : 60 - index,
-        sigma: 6,
-        gamesPlayed: 20,
-        lastPlayedAt: NOW,
-      })
-    }
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-      byPlayerId: {
-        [directLegionId]: { tier: TIER_1, sourceMode: null },
-        [graceLegionId]: { tier: TIER_2, sourceMode: null },
-      },
-    }))
-
-    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW, includePlayerIdentities: false })
-    const previewById = new Map(preview.playerPreviews.map(player => [player.playerId, player]))
-
-    expect(previewById.get(graceLegionId)?.ladderTiers.duel).toBe(TIER_4)
-    expect(previewById.get(graceLegionId)?.liveAssignment.tier).toBe(TIER_2)
-    expect(previewById.get(graceLegionId)?.assignment.tier).toBe(TIER_3)
-    expect(previewById.get(directLegionId)?.ladderTiers.duel).toBe(TIER_4)
-    expect(previewById.get(directLegionId)?.liveAssignment.tier).toBe(TIER_1)
-    expect(previewById.get(directLegionId)?.assignment.tier).toBe(TIER_2)
-
-    sqlite.close()
-  })
-
-  test('grace cap gives overflow players one weaker grace role using the full ranked population', async () => {
-    const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
-    const graceIds = [9, 10, 11, 12, 19, 20].map(index => playerIdFor('grace-cap', index))
-
-    for (let index = 1; index <= 20; index++) {
-      const playerId = playerIdFor('grace-cap', index)
-      await seedPlayerIdentity(db, playerId)
-      await seedRating(db, {
-        playerId,
-        mode: 'global',
-        mu: 60 - index,
-        sigma: 6,
-        gamesPlayed: 12,
-        effectiveGames: 12,
-        lastPlayedAt: NOW,
-        winsVsTier2Plus: index >= 9 && index <= 12 ? 2 : 0,
-        effectiveWinsVsTier2Plus: index >= 9 && index <= 12 ? 0.5 : 0,
-      })
-    }
-    await seedRating(db, { playerId: graceIds[4]!, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 20, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: graceIds[5]!, mode: 'duel', mu: 39, sigma: 6, gamesPlayed: 20, lastPlayedAt: NOW })
-
-    const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW, includePlayerIdentities: false })
-    const previewById = new Map(preview.playerPreviews.map(player => [player.playerId, player]))
-
-    for (const playerId of graceIds.slice(0, 4)) {
-      expect(previewById.get(playerId)?.assignment.tier).toBe(TIER_3)
-    }
-    for (const playerId of graceIds.slice(4)) {
-      expect(previewById.get(playerId)?.assignment.tier).toBe(TIER_4)
-    }
-
-    const focusedPreview = await previewRankedRoles({
-      db,
-      kv,
-      guildId: 'guild-1',
-      now: NOW,
-      playerIds: [graceIds[5]!],
-      includePlayerIdentities: false,
-    })
-
-    expect(focusedPreview.playerPreviews).toHaveLength(1)
-    expect(focusedPreview.playerPreviews[0]?.assignment.tier).toBe(TIER_4)
-
-    sqlite.close()
-  })
-
   test('daily sync keeps demotion candidates until the delay is reached', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -694,7 +602,7 @@ describe('ranked role sync service', () => {
     })
     const demoted = finalResult.playerPreviews.find(player => player.playerId === demotionTargetId)
 
-    expect(demoted?.assignment.tier).toBe(TIER_4)
+    expect(demoted?.assignment.tier).toBe(TIER_5)
     expect(demoted?.pendingDemotion).toBeNull()
 
     const storedCandidates = await getRankedRoleDemotionCandidates(kv, 'guild-1')
@@ -750,7 +658,7 @@ describe('ranked role sync service', () => {
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
     expect(assignments.byPlayerId[topPlayerId]?.tier).toBe(TIER_3)
-    expect(assignments.byPlayerId[bottomPlayerId]?.tier).toBe(TIER_4)
+    expect(assignments.byPlayerId[bottomPlayerId]?.tier).toBe(TIER_3)
 
     sqlite.close()
   })
@@ -1117,12 +1025,12 @@ describe('ranked role sync service', () => {
 
     const initialAssignments = await getCurrentRankAssignments(kv, 'guild-1')
     const affectedPlayerIds = Object.entries(initialAssignments.byPlayerId)
-      .filter(([_playerId, assignment]) => assignment.tier === TIER_4)
+      .filter(([_playerId, assignment]) => assignment.tier === TIER_3)
       .map(([playerId]) => playerId)
       .sort((a, b) => a.localeCompare(b))
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier4: '99999999999999999',
+      tier3: '99999999999999999',
     })
 
     deleteCalls.length = 0
@@ -1140,7 +1048,7 @@ describe('ranked role sync service', () => {
     expect(result.appliedDiscordChanges).toBe(affectedPlayerIds.length)
     expect(deleteCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
     expect(putCalls.map(call => call.userId).sort((a, b) => a.localeCompare(b))).toEqual(affectedPlayerIds)
-    expect(new Set(deleteCalls.map(call => call.roleId))).toEqual(new Set(['22222222222222222']))
+    expect(new Set(deleteCalls.map(call => call.roleId))).toEqual(new Set(['33333333333333333']))
     expect(new Set(putCalls.map(call => call.roleId))).toEqual(new Set(['99999999999999999']))
 
     sqlite.close()
@@ -1172,13 +1080,13 @@ describe('ranked role sync service', () => {
 
     const assignments = await getCurrentRankAssignments(kv, 'guild-1')
     const tier4PlayerIds = Object.entries(assignments.byPlayerId)
-      .filter(([_playerId, assignment]) => assignment.tier === TIER_4)
+      .filter(([_playerId, assignment]) => assignment.tier === TIER_3)
       .map(([playerId]) => playerId)
       .sort((a, b) => a.localeCompare(b))
     expect(tier4PlayerIds.length).toBeGreaterThan(12)
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
-      tier4: '99999999999999999',
+      tier3: '99999999999999999',
     })
 
     getCalls.length = 0
@@ -1195,7 +1103,7 @@ describe('ranked role sync service', () => {
 
     for (const playerId of tier4PlayerIds) {
       const roles = memberRoles.get(playerId) ?? new Set<string>()
-      expect(roles.has('22222222222222222')).toBe(false)
+      expect(roles.has('33333333333333333')).toBe(false)
       expect(roles.has('99999999999999999')).toBe(true)
     }
 

@@ -184,7 +184,7 @@ function renderTableHeader(rowCount: number): string {
     const positions = getColumnTextPositions(x)
     return `
       <text x="${positions.nameX}" y="${TABLE_HEADER_Y}" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">PLAYER</text>
-      <text x="${positions.ratingX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">ELO</text>
+      <text x="${positions.ratingX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">RP</text>
       <text x="${positions.gamesX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">GAMES</text>
       <text x="${positions.winRateX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">WIN%</text>
     `

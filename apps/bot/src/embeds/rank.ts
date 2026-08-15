@@ -65,8 +65,9 @@ export async function rankEmbed(
 }
 
 function buildRankDescription(playerId: string, rankProfile: PlayerRankProfile): string {
-  if (rankProfile.overallRoleId) return `<@${playerId}> - <@&${rankProfile.overallRoleId}>`
-  if (rankProfile.overallLabel) return `<@${playerId}> - ${rankProfile.overallLabel}`
+  const rating = rankProfile.overallRating == null ? '' : ` · ${rankProfile.overallRating} RP`
+  if (rankProfile.overallRoleId && rankProfile.overallLabel) return `<@${playerId}> - <@&${rankProfile.overallRoleId}> - ${rankProfile.overallLabel}${rating}`
+  if (rankProfile.overallLabel) return `<@${playerId}> - ${rankProfile.overallLabel}${rating}`
   return `<@${playerId}>`
 }
 
@@ -78,7 +79,7 @@ function formatModeSummary(mode: PlayerRankModeSummary | SeasonRankHistoryModeSu
     : 0
 
   return [
-    `Rating: ${formatModeRole(mode)} (${mode.rating})`,
+    `Rating: ${formatModeRole(mode)} · ${mode.rating} RP`,
     `Games: ${mode.gamesPlayed}`,
     `Wins: ${mode.wins} (${winRate}%)`,
   ].join('\n')

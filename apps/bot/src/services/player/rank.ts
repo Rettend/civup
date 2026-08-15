@@ -1,10 +1,11 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
+import type { PublicRank, PublicRankDivision } from '@civup/rating'
 import type { CurrentRankAssignment, RankedRolePlayerPreview } from '../ranked/role-sync.ts'
 import type { StatsContext } from '../stats/context.ts'
 import { scopedPlayerRatings as playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { getLeaderboardMinGames, resolvePublicRating } from '@civup/rating'
+import { formatPublicRankLabel, getLeaderboardMinGames, publicRank, resolvePublicRating, roleRating } from '@civup/rating'
 import { and, eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
 import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleCalculationConfig, getRankedRoleConfig } from '../ranked/roles.ts'
@@ -31,6 +32,7 @@ export interface PlayerRankModeSummary {
   tier: CompetitiveTier | null
   tierLabel: string | null
   tierRoleId: string | null
+  division: PublicRankDivision
   rating: number | null
   gamesPlayed: number
   wins: number
@@ -42,6 +44,8 @@ export interface PlayerRankProfile {
   overallTier: CompetitiveTier | null
   overallRoleId: string | null
   overallLabel: string | null
+  overallRating: number | null
+  overallDivision: PublicRankDivision
   modes: Record<LeaderboardMode, PlayerRankModeSummary>
 }
 
@@ -98,33 +102,60 @@ function buildPlayerRankProfile(
     const mode = parseLeaderboardMode(row.mode)
     return mode ? [[mode, row] as const] : []
   }))
+  const globalRating = ratingRows.find(row => row.mode === 'global') ?? null
 
   const modes = Object.fromEntries(LEADERBOARD_MODES.map((mode) => {
     const ratingRow = ratingByMode.get(mode)
-    const tier = previewPlayer?.ladderTiers[mode] ?? null
+    const eligible = (ratingRow?.gamesPlayed ?? 0) >= getLeaderboardMinGames(mode)
+    const resolvedRating = ratingRow ? resolvePublicRating(ratingRow.publicRating, ratingRow.mu) : null
+    const rank = eligible && resolvedRating != null ? publicRank(resolvedRating) : null
+    const tier = rank?.tier ?? null
+    const tierLabel = tier ? getConfiguredRankedRoleLabel(config, tier) : null
 
     return [mode, {
       mode,
       tier,
-      tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
+      tierLabel: rank && tierLabel ? formatPublicRankLabel(tierLabel, rank) : 'Unranked',
       tierRoleId: tier && !suppressRoleMentions ? getConfiguredRankedRoleId(config, tier) : null,
-      rating: ratingRow ? Math.round(resolvePublicRating(ratingRow.publicRating, ratingRow.mu)) : null,
+      division: rank?.division ?? null,
+      rating: resolvedRating == null ? null : Math.round(resolvedRating),
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
       rank: previewPlayer?.ladderRanks[mode] ?? null,
-      eligible: (ratingRow?.gamesPlayed ?? 0) >= getLeaderboardMinGames(mode),
+      eligible,
     } satisfies PlayerRankModeSummary]
   })) as Record<LeaderboardMode, PlayerRankModeSummary>
 
   const fallbackTier = getLowestRankedRoleTier(config)
   const overall = normalizeOverallAssignment(previewPlayer?.managed ? previewPlayer.assignment : null, previewPlayer?.managed ? fallbackTier : null)
+  const overallRating = globalRating ? globalRating.publicRating ?? roleRating(globalRating.mu, globalRating.sigma) : null
+  const overallRank = overall?.tier && overallRating != null
+    ? publicRankForAssignedTier(overallRating, overall.tier)
+    : null
+  const overallTierLabel = overall?.tier ? getConfiguredRankedRoleLabel(config, overall.tier) : null
 
   return {
     overallTier: overall?.tier ?? null,
     overallRoleId: overall?.tier && !suppressRoleMentions ? getConfiguredRankedRoleId(config, overall.tier) : null,
-    overallLabel: overall?.tier ? getConfiguredRankedRoleLabel(config, overall.tier) : 'Unranked',
+    overallLabel: overallRank && overallTierLabel ? formatPublicRankLabel(overallTierLabel, overallRank) : 'Unranked',
+    overallRating: overallRating == null ? null : Math.round(overallRating),
+    overallDivision: overallRank?.division ?? null,
     modes,
   }
+}
+
+function publicRankForAssignedTier(rating: number, assignedTier: CompetitiveTier): Pick<PublicRank, 'division'> {
+  const natural = publicRank(rating)
+  if (natural.tier === assignedTier) return natural
+  const assignedNumber = tierNumber(assignedTier)
+  const naturalNumber = tierNumber(natural.tier)
+  if (assignedNumber == null || naturalNumber == null || assignedNumber === 1 || assignedNumber === 5) return { division: null }
+  return { division: assignedNumber < naturalNumber ? 3 : 1 }
+}
+
+function tierNumber(tier: CompetitiveTier): number | null {
+  const value = Number(/^tier(\d+)$/i.exec(tier)?.[1])
+  return Number.isFinite(value) ? Math.round(value) : null
 }
 
 function buildPlayerRankedRoleRepair(

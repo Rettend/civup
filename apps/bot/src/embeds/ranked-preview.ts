@@ -1,5 +1,6 @@
 import type { RankedPreviewBandSummary, RankedPreviewModeSummary, RankedPreviewSummary } from '../services/ranked/role-sync.ts'
 import { formatLeaderboardModeLabel } from '@civup/game'
+import { publicRankTierMinimum } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { formatRankedRoleSlotLabel } from '../services/ranked/roles.ts'
 
@@ -85,6 +86,9 @@ function formatRoleReference(roleId: string | null, tier: RankedPreviewBandSumma
 }
 
 function formatBandEarnValue(band: RankedPreviewBandSummary): string {
+  if (band.minimumRating != null) {
+    return band.isFallback ? `<${publicRankTierMinimum('tier4')} RP` : `${Math.round(band.minimumRating)}+ RP`
+  }
   if (band.isFallback) {
     return `The rest (Top ${formatPercent(band.cumulativeEarnPercent)}%)`
   }
@@ -92,6 +96,7 @@ function formatBandEarnValue(band: RankedPreviewBandSummary): string {
 }
 
 function formatBandKeepValue(band: RankedPreviewBandSummary): string {
+  if (band.keepMinimumRating != null) return band.isFallback ? '-' : `${Math.round(band.keepMinimumRating)}+ RP`
   if (band.isFallback || band.keepPercent == null || band.cumulativeKeepPercent == null) return '-'
   return `${formatPercent(band.keepPercent)}% (Top ${formatPercent(band.cumulativeKeepPercent)}%)`
 }

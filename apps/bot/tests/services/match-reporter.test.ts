@@ -184,6 +184,8 @@ describe('match reporter identity', () => {
       if ('error' in result) return
       expect(result.participants.find(player => player.playerId === 'p1')?.ratingBeforeMu).toBe(40)
       expect(result.participants.find(player => player.playerId === 'p2')?.ratingBeforeMu).toBe(30)
+      expect(result.participants.find(player => player.playerId === 'p1')?.publicRatingBefore).toBe(1540)
+      expect(result.participants.find(player => player.playerId === 'p2')?.publicRatingBefore).toBe(1180)
       expect(await db.select().from(playerRatings)).toHaveLength(4)
     }
     finally {
@@ -215,10 +217,10 @@ describe('match reporter identity', () => {
         { matchId: 'activity-reset', playerId: 'p2', team: 1 },
       ])
       await db.insert(playerRatings).values([
-        { statsKey: STATS_KEY, playerId: 'p1', mode: 'duel', mu: 40, sigma: 5, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
-        { statsKey: STATS_KEY, playerId: 'p1', mode: 'global', mu: 40, sigma: 5, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
-        { statsKey: STATS_KEY, playerId: 'p2', mode: 'duel', mu: 30, sigma: 5, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
-        { statsKey: STATS_KEY, playerId: 'p2', mode: 'global', mu: 30, sigma: 5, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
+        { statsKey: STATS_KEY, playerId: 'p1', mode: 'duel', mu: 40, sigma: 5, publicRating: 1540, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
+        { statsKey: STATS_KEY, playerId: 'p1', mode: 'global', mu: 40, sigma: 5, publicRating: 1540, gamesPlayed: 10, wins: 7, lastPlayedAt: now - (120 * 86_400_000) },
+        { statsKey: STATS_KEY, playerId: 'p2', mode: 'duel', mu: 30, sigma: 5, publicRating: 1180, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
+        { statsKey: STATS_KEY, playerId: 'p2', mode: 'global', mu: 30, sigma: 5, publicRating: 1180, gamesPlayed: 10, wins: 5, lastPlayedAt: now },
       ])
       await kv.put(leaderboardModeSnapshotKey(statsContext, 'duel'), JSON.stringify({
         version: 4,
