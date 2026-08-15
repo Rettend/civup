@@ -11,7 +11,7 @@ import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, Sessio
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
 import { allFactionIds, buildTeamFormationSnapshot, canStartWithPlayerCount, civLobbySettingsProfilesEqual, createTeamFormationState, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeMapVoteSelection, remapDraftSteps, resolveCivLobbySettings, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
-import { DISPLAY_RATING_BASE } from '@civup/rating'
+import { PUBLIC_RATING_START } from '@civup/rating'
 import { CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration, verifySessionAccessToken } from '@civup/utils'
 import { eq, sql } from 'drizzle-orm'
 import { lobbyCancelledEmbed, lobbyComponents, lobbyDraftCompleteEmbed, lobbyResultEmbed } from '../embeds/match.ts'
@@ -1551,7 +1551,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async loadTeamFormationStats(record: DraftSessionRecord, seats: readonly DraftSeat[]): Promise<Record<number, TeamFormationPlayerStats>> {
     const fallback = Object.fromEntries(seats.map((_, seatIndex) => [seatIndex, {
-      publicRating: DISPLAY_RATING_BASE,
+      publicRating: PUBLIC_RATING_START,
       rank: null,
       gamesPlayed: 0,
       wins: 0,

@@ -739,7 +739,7 @@ describe('DraftSetupPage UI', () => {
   })
 
   test('formats missing player popover stats as default baseline values', () => {
-    expect(formatRating(null)).toBe('1000')
+    expect(formatRating(null)).toBe('900')
     expect(formatRating(null, true)).toBe('Unranked')
     expect(formatRecord(null)).toBe('0-0')
     expect(formatWinRate(null)).toBe('0%')

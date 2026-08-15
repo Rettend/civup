@@ -1,5 +1,5 @@
 import type { JSX } from 'solid-js'
-import { DISPLAY_RATING_BASE } from '@civup/rating'
+import { PUBLIC_RATING_START } from '@civup/rating'
 import { Show } from 'solid-js'
 
 export interface PublicPlayerStats {
@@ -61,7 +61,7 @@ export function PlayerStatsPopover(props: {
       </div>
 
       <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
-        <Stat value={ratingValue()} label="Elo" />
+        <Stat value={ratingValue()} label="RP" />
         <Stat value={rankValue()} label="Rank" />
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">
@@ -86,7 +86,7 @@ function Stat(props: { value: string, label: string }) {
 
 export function formatRating(rating: PublicPlayerStats | null | undefined, unranked = false): string {
   if (unranked) return 'Unranked'
-  return String(Math.round(rating?.publicRating ?? DISPLAY_RATING_BASE))
+  return String(Math.round(rating?.publicRating ?? PUBLIC_RATING_START))
 }
 
 export function formatRecord(rating: PublicPlayerStats | null | undefined): string {
