@@ -1,8 +1,8 @@
 import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, Show } from 'solid-js'
-import { discordSdk } from '~/client/discord'
 import { copyTextToClipboard } from '~/client/lib/clipboard'
 import { cn } from '~/client/lib/css'
+import { openExternalLink } from '~/client/platform/external-links'
 import { isMobileLayout } from '~/client/stores'
 
 const COPY_ICON_TIMEOUT_MS = 1200
@@ -79,13 +79,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     const link = props.steamLobbyLink
     if (!link) return
 
-    try {
-      const response = await discordSdk.commands.openExternalLink({ url: link })
-      if (response?.opened === true) return
-    }
-    catch {}
-
-    await copyLink()
+    if (!await openExternalLink(link)) await copyLink()
   }
 
   // ── Dropdown logic ────────────────────

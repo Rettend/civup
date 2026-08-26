@@ -86,6 +86,10 @@ export function DraftPage(props: DraftPageProps) {
         </DraftStatusShell>
       </Match>
 
+      <Match when={props.reported && !hasDraftState()}>
+        <ReportedMatchScreen onSwitchTarget={props.onSwitchTarget} />
+      </Match>
+
       <Match when={shouldRenderDraftView()}>
         <>
           <Show
@@ -155,6 +159,26 @@ export function DraftPage(props: DraftPageProps) {
         </DraftStatusShell>
       </Match>
     </Switch>
+  )
+}
+
+function ReportedMatchScreen(props: { onSwitchTarget?: () => void }) {
+  return (
+    <DraftStatusShell>
+      <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">
+        <div class="text-2xl text-accent font-bold">Result reported</div>
+        <div class="text-sm text-fg-muted">This match has already been reported.</div>
+        <Show when={props.onSwitchTarget}>
+          <button
+            type="button"
+            class="text-sm text-black font-semibold px-4 py-1.5 rounded bg-accent cursor-pointer transition-colors hover:bg-accent/85"
+            onClick={() => props.onSwitchTarget?.()}
+          >
+            Open Overview
+          </button>
+        </Show>
+      </div>
+    </DraftStatusShell>
   )
 }
 

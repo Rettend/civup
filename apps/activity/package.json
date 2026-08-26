@@ -8,18 +8,31 @@
     "dev": "bun run preview",
     "dev:new": "bun run build && bun run preview",
     "dev:live": "vite --host 0.0.0.0 --port 5173",
-    "build": "vite build",
-    "build:prod": "bun --env-file=.prod.vars vite build",
-    "preview": "wrangler dev --config wrangler.json --cwd dist/civup_activity --port 5173 --show-interactive-dev-session=false --log-level log",
+    "build": "vite build --mode development",
+    "build:prod": "vite build",
+    "build:ppl": "CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.ppl.json vite build",
+    "preview": "wrangler dev --config wrangler.json --port 5173 --show-interactive-dev-session=false --log-level log",
     "test": "bun test --preload ./tests/setup-dom.ts tests",
     "test:coverage": "bun test --preload ./tests/setup-dom.ts tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "check": "tsgo --noEmit",
     "items:normalize-icons": "bun ./scripts/normalize-bbg-item-icons.ts",
     "portraits:webp": "bun ./scripts/convert-leaders-full-to-webp.ts --delete",
     "portraits:normalize-icons": "bun ./scripts/normalize-leader-grid-icons.ts",
+<<<<<<< New base: fix: mod resolve
+    "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
+    "deploy:prod": "bun run deploy",
+    "deploy:ppl": "bun run build:ppl && wrangler deploy --config wrangler.ppl.json",
+    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --config wrangler.json"
+||||||| Common ancestor
     "deploy": "bun run deploy:prod",
     "deploy:prod": "bun run build:prod && wrangler deploy",
     "secret:bulk:prod": "wrangler secret bulk .prod.secrets"
+=======
+    "deploy": "bun run build:prod && wrangler deploy --config wrangler.json",
+    "deploy:prod": "bun run deploy",
+    "deploy:ppl": "bun run build:ppl && wrangler deploy --config wrangler.ppl.json",
+    "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --config wrangler.json"
+>>>>>>> Current commit: chore: cleanup and simplify setup
   },
   "dependencies": {
     "@civup/game": "workspace:*",
@@ -31,6 +44,18 @@
     "@solid-primitives/scheduled": "^1.5.3",
     "@solid-primitives/storage": "^4.3.4",
     "@solidjs/router": "^0.16.1",
+<<<<<<< New base: fix: /stats perf
+<<<<<<< New base: chore: update leader desc
+    "@zip.js/zip.js": "^2.8.11",
+||||||| Common ancestor
+=======
+    "fflate": "^0.8.2",
+>>>>>>> Current commit: feat: catalog
+||||||| Common ancestor
+    "fflate": "^0.8.2",
+=======
+    "@zip.js/zip.js": "^2.8.11",
+>>>>>>> Current commit: feat: parse in worker
     "partysocket": "^1.1.3",
     "solid-js": "^1.9.7",
     "unocss-merge": "^0.8.2"

@@ -550,6 +550,108 @@ describe('match moderation recalculation', () => {
     }
   })
 
+  test('resolve excludes 1v1 CivBlitz matches from duel replay history', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.insert(matches).values([
+        { id: 'civ-blitz-before', gameMode: '1v1', status: 'completed', createdAt: 500, completedAt: 600, seasonId: null, draftData: JSON.stringify({ civBlitz: true }) },
+        { id: 'civ-blitz-after', gameMode: '1v1', status: 'completed', createdAt: 2500, completedAt: 2600, seasonId: null, draftData: JSON.stringify({ civBlitz: true }) },
+      ])
+      await db.insert(matchParticipants).values([
+        { matchId: 'civ-blitz-before', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'civ-blitz-before', playerId: 'p2', team: 1, civId: 'greece', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'civ-blitz-after', playerId: 'p1', team: 0, civId: 'rome', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'civ-blitz-after', playerId: 'p2', team: 1, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm1',
+        placements: 'B',
+        resolvedAt: 10_000,
+      }, directTerminalOptions)
+
+      expect('error' in result).toBe(false)
+      if ('error' in result) return
+      expect(result.recalculatedMatchIds).toEqual(['m1', 'm2', 'm3'])
+
+      const civBlitzParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'civ-blitz-after'))
+      expect(civBlitzParticipants.every(participant => participant.ratingAfterMu == null)).toBe(true)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
+  test('resolve does not recalculate again when replay validation fails', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+
+    try {
+      await seedThreeCompletedDuels(db)
+      await db.insert(matches).values({
+        id: 'invalid-history',
+        gameMode: '1v1',
+        status: 'completed',
+        createdAt: 2500,
+        completedAt: 2600,
+        seasonId: null,
+        draftData: null,
+      })
+      await db.insert(matchParticipants).values([
+        { matchId: 'invalid-history', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        { matchId: 'invalid-history', playerId: 'p2', team: 1, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+      ])
+      await db.insert(playerRatingEvents).values([
+        ratingEvent('m1', 'p1', 'duel', 1),
+        ratingEvent('m1', 'p2', 'duel', 0),
+      ])
+      const originalEvents = await db
+        .select()
+        .from(playerRatingEvents)
+        .where(and(
+          eq(playerRatingEvents.matchId, 'm1'),
+          eq(playerRatingEvents.mode, 'duel'),
+        ))
+      const originalRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+
+      const result = await resolveMatchByModerator(db, kv, {
+        matchId: 'm1',
+        placements: 'B',
+        resolvedAt: 10_000,
+      }, directTerminalOptions)
+
+      expect(result).toEqual({ error: 'Completed match **invalid-history** has missing placements.' })
+
+      const restoredParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'm1'))
+      expect(restoredParticipants.find(participant => participant.playerId === 'p1')?.placement).toBe(1)
+      expect(restoredParticipants.find(participant => participant.playerId === 'p2')?.placement).toBe(2)
+
+      const preservedEvents = await db
+        .select()
+        .from(playerRatingEvents)
+        .where(and(
+          eq(playerRatingEvents.matchId, 'm1'),
+          eq(playerRatingEvents.mode, 'duel'),
+        ))
+      expect(preservedEvents).toEqual(originalEvents)
+
+      const preservedRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
+      expect(preservedRatings).toEqual(originalRatings)
+    }
+    finally {
+      sqlite.close()
+    }
+  })
+
   test('resolve on a newly completed mid-history 1v1 match replays from that match onward', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

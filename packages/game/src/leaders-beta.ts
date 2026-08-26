@@ -213,13 +213,17 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Austria%20Maria%20Theresa.webp',
     civilizationAbility: {
       name: 'Diplomatic Marriage',
-      description: 'Receive an unique Diplomat Great Person when you build your government plaza buildings. A Diplomat can absorbs a city-state you\'re suzerain of.',
+      description: 'Receive an unique Diplomat Great Person when you build your government plaza buildings. A Diplomat can absorbs a city-state you\'re suzerain of and generates +1 :favor: Diplomatic Favor per turn if adjacent to another player Palace.',
     },
     ability: {
       name: 'Theresian Reforms',
-      description: 'Established :governor: Governors provide +1 :influenceperturn: Influence point per turn and +20% :production: Production towards districts and civilian units in their city. Specialty districts provide +1 :housing: Housing when a District of that type already exists in the :capital: Capital.',
+      description: 'Established :governor: Governors provides : - +1 :influenceperturn: Influence point per turn - +15% :production: Production towards districts - +15% :production: Production towards units Specialty districts provide +1 :housing: Housing when a District of that type already exists in the :capital: Capital.',
     },
     uniqueUnits: [
+      {
+        name: 'Great Diplomat',
+        description: 'An Austrian unique Great Person granted when you build your government plaza buildings. A Diplomat can absorbs a city-state you\'re suzerain of and generates +1 :favor: Diplomatic Favor per turn if adjacent to another player Palace.',
+      },
       {
         name: 'Grenzer',
         description: 'Austrian unique industrial era unit replace Ranger. Higher :ranged: Ranged Strength. +5 :strength: Strength within 3 tiles of the borders of friendly territory. Exerts Zone-of-Control.',
@@ -1136,22 +1140,22 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Goths%20Theodoric.webp',
     civilizationAbility: {
       name: 'Gothic Migration',
-      description: 'When settling or conquering a city for the first time receive +1 :citizen: Population in every Gothic city within 6 tiles with at least one free :housing: Housing.',
+      description: 'At Early Empire, when settling or conquering a city for the first time receive +1 :citizen: Population in every Gothic city within 6 tiles with at least 2 free :housing: Housing.',
     },
     ability: {
       name: 'Gothorum Romanorumque',
-      description: ':movement: PM +1 for non cavalry land military units in a 6 tiles radius from a Hlaiw.',
+      description: '+1 :movement: Movement for non cavalry land military units in a 6 tiles radius from a Hlaiw.',
     },
     uniqueUnits: [
       {
         name: 'Gadrauht',
-        description: 'Replaces the Pikeman. Higher Strength (+5 :strength: ) and cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built if the city has no Temple. Gain a :promotion: promotion.',
+        description: 'Replaces the Pikeman. Higher Strength (+2 :strength: ) and cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built if the city has no Temple. Gain a :promotion: promotion.',
         replaces: 'Pikeman',
         iconUrl: '/assets/bbg/items/Gadrauht.webp',
       },
       {
         name: 'Militōnd',
-        description: 'Replaces the Swordsman. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
+        description: 'Replaces the Swordsman. Base +2 :strength: Combat Strength. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
         replaces: 'Swordsman',
         iconUrl: '/assets/bbg/items/Milit%C5%8Dnd.webp',
       },
@@ -2316,7 +2320,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Poland%20Jadwiga.webp',
     civilizationAbility: {
       name: 'Golden Liberty',
-      description: 'One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
+      description: 'At Military Tradition, One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
     },
     ability: {
       name: 'Lithuanian Union',
@@ -2347,11 +2351,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Poland%20Stanislaw%20II.webp',
     civilizationAbility: {
       name: 'Golden Liberty',
-      description: 'One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
+      description: 'At Military Tradition, One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
     },
     ability: {
       name: 'Commission for National Education',
-      description: 'Ressources and improved tiles gains bonus yields next to Encampment and its buildings (do not stacks) : - District : +1 :food: Food - Barracks and Stable : +1 :culture: Culture - Armory : +1 :science: Science - Military Academy : +1 :production: Production. Gain the Uhlan unique unit when they research the Metal Casting technology.',
+      description: 'Resources and improved tiles gains bonus yields next to Encampment and its buildings (do not stacks) : - District : +1 :food: Food - Barracks and Stable : +1 :culture: Culture - Armory : +1 :science: Science - Military Academy : +1 :production: Production. Gain the Uhlan unique unit when they research the Metal Casting technology.',
     },
     uniqueUnits: [
       {
@@ -2707,16 +2711,16 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Ta%C3%ADno%20Anacaona.webp',
     civilizationAbility: {
       name: 'Guatiao',
-      description: 'Great Person Polices provide +3 :food: Food per turn in Cities with the district corresponding to that Great Person Type. Diplomatic Policies provide +1 :amenities: Amenity in city with a Batéy.',
+      description: 'Great Person Policies grant +2 :food: Food per turn in cities that contain the district associated with that Great Person type, and +1 :food: Food in their corresponding buildings. Diplomatic Policies provide +1 :amenities: Amenity in city with a Batéy.',
     },
     ability: {
       name: 'Golden Flower',
-      description: 'Each Dedication grants an additional Policy slot of a different type at Political Philosophy. +5% :gold: gold in happy cities, +10% in ecstatic cities and +15% in euphoric cities.',
+      description: 'At Political Philosophy, each chosen Era Dedication grants a different type of Policy slot: - Military policy: - Drums of War - To Arms! - Automaton Warfare - Economic policy: - Free Inquiry - Reform the Coinage - Sky and Stars - Diplomatic policy: - Pen, Brush, and Voice - Hic Sunt Dracones - Bodyguard of Lies - Wildcard policy: - Monumentality - Heartbeat of Steam - Wish You Were Here :gold: Gold +5% in Happy cities (increases to +10% in Ecstatic cities and +15% in Euphoric cities).',
     },
     uniqueUnits: [
       {
         name: 'Macana',
-        description: 'A recon unit unique to Taíno. Replaces the warrior and retains its earned Recon :promotion: Promotions on upgrade. Upon eliminating an enemy unit, earns :faith: Faith equal to half the :strength: Combat Strength of the defeated unit. Movement and Sight Range +1.',
+        description: 'A recon unit unique to Taíno. Replaces the warrior and retains its earned Recon :promotion: Promotions on upgrade. :strength: Base Combat Strength -5. :strength: Combat Strength +5 against stronger units. Upon eliminating an enemy unit, earns :faith: Faith equal to half the :strength: Combat Strength of the defeated unit. :movement: Movement and Sight Range +1.',
         replaces: 'warrior',
         iconUrl: '/assets/bbg/items/Macana.webp',
       },
@@ -2724,7 +2728,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Batéy',
-        description: 'An Entertainment Complex replacement unique to Taíno. Buildings within this district provide +1 :amenities: Amenity. Allows the city to start the Areyto Ceremony city project, which provides :faith: while doing, and :greatperson: Great Person points for Great :greatwriter: Writers, :greatartist: Artists and :greatmusician: Musicians upon completion. Production :production: +2 for each Commercial hub or Harbor adjacent.',
+        description: 'A unique district for the Taíno, replacing the Entertainment Complex. In addition to the usual bonuses of the Entertainment Complex, it provides +2 :production: Production and +3 :gold: Gold for each adjacent Commercial Hub, and +4 :production: Production and +6 :gold: Gold for each adjacent Harbor. The Arena in this district provides 2 slots for :greatworkwriting: Great Works of Writing. Allows the city to launch a unique project that converts 30% of its :production: Production into :faith: Faith each turn, and grants :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points upon completion. 20% more :greatwriter: Great Writer Points than a Theatre Square project.',
         replaces: 'Entertainment Complex',
         iconUrl: '/assets/bbg/items/Bat%C3%A9y.webp',
       },
@@ -2732,7 +2736,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Conuco',
-        description: 'Unlocks the Builder ability to construct a Conuco, unique to Taino. Doubles the base terrain yield of the plot. Yields an additional +1 :culture: Culture, with further yields unlocking with progression. Requires an adjacent Luxury or Bonus resource and may not be built on hills, desert or snow.',
+        description: 'A unique improvement for the Taíno. Provides +1 :culture: Culture. +1 :culture: Culture at Medieval Faires. +1 :culture: Culture at Natural History. If adjacent to a Bonus or Luxury resource: - Plains: +1 :food: Food and +1 :production: Production. - Grassland: +2 :food: Food. - Tundra: +1 :food: Food. - +2 :gold: per adjacent Bonus and Luxe resource at the civic Mercantism. Must be built on Plains, Grassland, or Tundra tiles adjacent to a Bonus or Luxury resource. Cannot be constructed adjacent to another Conuco.',
         iconUrl: '/assets/bbg/items/Conuco.webp',
       },
     ],

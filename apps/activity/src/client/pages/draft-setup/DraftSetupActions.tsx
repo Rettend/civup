@@ -112,17 +112,6 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           <span class="i-ph:shuffle-simple-bold text-lg" />
         </button>
       </Show>
-      <Show when={actions().showShuffleTeamsLobbyAction()}>
-        <button
-          class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0"
-          title={actions().shuffleTeamsButtonLabel()}
-          aria-label={actions().shuffleTeamsButtonLabel()}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
-          onClick={() => void actions().shuffleTeamsLobby()}
-        >
-          <span class="i-ph:arrows-clockwise-bold text-lg" />
-        </button>
-      </Show>
       <Show when={actions().showBalanceLobbyAction()}>
         <button
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0"

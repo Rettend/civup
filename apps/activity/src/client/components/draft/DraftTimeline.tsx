@@ -2,10 +2,10 @@ import type { DraftState, DraftStep } from '@civup/game'
 import { formatDraftStepLabel } from '@civup/game'
 import { createEffect, For, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
-import { draftStore, isMapVotePhase, mapVotePhase } from '~/client/stores'
+import { draftStore, isHiddenDraftMode, isMapVotePhase, mapVotePhase } from '~/client/stores'
 import { HorizontalScroller } from '../ui'
 
-type TimelineEntry = { kind: 'map' } | { kind: 'draft', stepIndex: number, step: DraftStep }
+type TimelineEntry = { kind: 'map' } | { kind: 'hidden' } | { kind: 'draft', stepIndex: number, step: DraftStep }
 
 /** Horizontal step sequence indicator: BAN > PICK T1 > PICK T2 > ... */
 export function DraftTimeline() {
@@ -13,6 +13,10 @@ export function DraftTimeline() {
   const steps = () => state()?.steps ?? []
   const hasMapStep = () => mapVotePhase() !== 'idle'
   const timelineSteps = (): TimelineEntry[] => {
+    if (isHiddenDraftMode()) return hasMapStep()
+      ? [{ kind: 'map' as const }, { kind: 'hidden' as const }]
+      : [{ kind: 'hidden' as const }]
+
     const draftSteps = steps()
       .map((step, stepIndex) => ({ kind: 'draft' as const, stepIndex, step }))
       .filter(entry => !entry.step.reveal)
@@ -33,10 +37,12 @@ export function DraftTimeline() {
   }
   const isCurrentEntry = (entry: TimelineEntry) => {
     if (entry.kind === 'map') return isMapVotePhase()
+    if (entry.kind === 'hidden') return false
     return !isMapVotePhase() && entry.stepIndex === visibleCurrentStepIndex()
   }
   const isPastEntry = (entry: TimelineEntry) => {
     if (entry.kind === 'map') return hasMapStep() && !isMapVotePhase()
+    if (entry.kind === 'hidden') return false
     return entry.stepIndex < visibleCurrentStepIndex()
   }
   let currentStepRef: HTMLSpanElement | undefined
@@ -55,7 +61,11 @@ export function DraftTimeline() {
             const isCurrent = () => isCurrentEntry(entry)
             const isPast = () => isPastEntry(entry)
             const isBan = () => entry.kind === 'draft' && entry.step.action === 'ban'
-            const labels = () => entry.kind === 'map' ? ['MAP'] : getDraftStepTimelineLabels(entry.step, state()?.seats ?? [])
+            const labels = () => entry.kind === 'map'
+              ? ['MAP']
+              : entry.kind === 'hidden'
+                ? ['HIDDEN']
+                : getDraftStepTimelineLabels(entry.step, state()?.seats ?? [])
 
             return (
               <>

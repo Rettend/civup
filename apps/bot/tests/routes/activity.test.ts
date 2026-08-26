@@ -528,7 +528,7 @@ describe('activity target selection', () => {
       queueEntries: [hostQueueEntry],
     })
     await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
-      version: 2,
+      version: 3,
       updatedAt: Date.now(),
       rows: [
         { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
@@ -1255,14 +1255,111 @@ describe('activity target selection', () => {
   })
 })
 
+describe('browser context routes', () => {
+  test('materializes a direct open session without launch or follow-target state', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '2v2',
+      guildId: '1234044388733095946',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
+    })
+    await addToQueue(kv, '2v2', { playerId: 'host-1', displayName: 'Host', avatarUrl: null, joinedAt: 1 })
+
+    const response = await app.request(`/api/activity/session/${lobby.id}`, {
+      headers: buildAuthHeaders('spectator-1'),
+    }, buildEnv(kv))
+
+    expect(response.status).toBe(200)
+    const context = await response.json<any>()
+    expect(context).toEqual(expect.objectContaining({
+      status: 'available',
+      sessionId: lobby.id,
+      matchId: null,
+      phase: 'open',
+      selection: expect.objectContaining({ kind: 'lobby' }),
+    }))
+  })
+
+  test('filters channel and direct contexts to the configured guild', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+    const allowed = await createLobby(kv, {
+      mode: '1v1', guildId: '1234044388733095946', hostId: 'allowed-host', channelId: 'channel-shared', messageId: 'allowed-message',
+    })
+    const denied = await createLobby(kv, {
+      mode: '1v1', guildId: '999999999999999999', hostId: 'denied-host', channelId: 'channel-shared', messageId: 'denied-message',
+    })
+
+    const channelResponse = await app.request('/api/activity/channel/channel-shared', { headers: buildAuthHeaders('spectator') }, buildEnv(kv))
+    expect(channelResponse.status).toBe(200)
+    const channel = await channelResponse.json<any>()
+    expect(channel.snapshot.options.map((option: any) => option.lobbyId)).toEqual([allowed.id])
+
+    const deniedResponse = await app.request(`/api/activity/session/${denied.id}`, { headers: buildAuthHeaders('spectator') }, buildEnv(kv))
+    expect(deniedResponse.status).toBe(403)
+  })
+
+  test('keeps canonical sessionId separate from matchId in context and access tokens', async () => {
+    const { kv } = createTrackedKv()
+    const app = new Hono()
+    registerActivityRoutes(app as any)
+    const lobby = await createLobby(kv, {
+      mode: '1v1', guildId: '1234044388733095946', hostId: 'host-1', channelId: 'channel-1', messageId: 'message-1',
+    })
+    const db = createDbFromRuntime(kv)
+    await db.update(sessionDirectory).set({ phase: 'active', matchId: 'different-match-id', version: 2 }).where(eq(sessionDirectory.sessionId, lobby.id))
+    const env = { ...buildEnv(kv), SessionDO: undefined }
+
+    const response = await app.request(`/api/activity/session/${lobby.id}`, { headers: buildAuthHeaders('spectator') }, env)
+    expect(response.status).toBe(200)
+    const context = await response.json<any>()
+    expect(context.sessionId).toBe(lobby.id)
+    expect(context.matchId).toBe('different-match-id')
+    expect(context.selection.matchId).toBe('different-match-id')
+    await expect(verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
+      sessionId: lobby.id,
+      userId: 'spectator',
+    })).resolves.not.toBeNull()
+    await expect(verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
+      sessionId: 'different-match-id',
+      userId: 'spectator',
+    })).resolves.toBeNull()
+  })
+})
+
 function buildEnv(kv: KVNamespace) {
-  return buildTestLobbyEnv(kv, {
-    Activity: getTestActivityNamespace(kv),
-    DISCORD_APPLICATION_ID: 'app',
-    DISCORD_PUBLIC_KEY: 'key',
-    DISCORD_TOKEN: 'token',
-    CIVUP_SECRET: 'secret',
-  }) as any
+  const browserKv = new Proxy(kv, {
+    get(target, property) {
+      if (property === 'get') {
+        return async (key: string, type?: string) => {
+          if (key === 'system:browser-access') {
+            const state = JSON.stringify({ enabled: true, preferenceRoleId: '123456789012345678' })
+            return type === 'json' ? JSON.parse(state) : state
+          }
+          return (target.get as any).call(target, key, type)
+        }
+      }
+      const value = (target as any)[property]
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  }) as KVNamespace
+  return {
+    ...buildTestLobbyEnv(kv, {
+      Activity: getTestActivityNamespace(kv),
+      DISCORD_APPLICATION_ID: 'app',
+      DISCORD_PUBLIC_KEY: 'key',
+      DISCORD_TOKEN: 'token',
+      CIVUP_SECRET: 'secret',
+      ACTIVITY_PUBLIC_ORIGIN: 'https://activity.example.com',
+      ALLOWED_DISCORD_GUILD_ID: '1234044388733095946',
+    }),
+    KV: browserKv,
+  } as any
 }
 
 function activityRuntimeOptions(kv: KVNamespace) {

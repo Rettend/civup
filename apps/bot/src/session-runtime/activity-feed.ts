@@ -12,6 +12,7 @@ interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
   KV?: KVNamespace
   CIVUP_SECRET?: string
+  ALLOWED_DISCORD_GUILD_ID?: string
 }
 
 export type ActivityFeedMessage
@@ -143,6 +144,7 @@ export class Activity extends Server<ActivityFeedEnv> {
   }
 
   private async broadcastSessionUpdate(record: SessionRecord): Promise<void> {
+    if (!isAllowedActivityGuild(record.guildId, this.env.ALLOWED_DISCORD_GUILD_ID)) return
     const connections = Array.from(this.getConnections())
     if (connections.length === 0) return
 
@@ -179,7 +181,9 @@ export class Activity extends Server<ActivityFeedEnv> {
 
   private async loadOverviewSnapshot(channelId: string): Promise<ActivityOverviewSnapshot | null> {
     if (!this.env.DB) return null
-    return buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId)
+    return buildActivityOverviewSnapshotFromDirectory(createDb(this.env.DB), channelId, {
+      guildId: this.env.ALLOWED_DISCORD_GUILD_ID?.trim() || null,
+    })
   }
 
   private send(connection: Connection, message: ActivityFeedMessage): void {
@@ -192,6 +196,11 @@ export class Activity extends Server<ActivityFeedEnv> {
       sendConnectionMessage(connection, encoded)
     }
   }
+}
+
+function isAllowedActivityGuild(sessionGuildId: string | null, configuredGuildId: string | undefined): boolean {
+  const allowedGuildId = configuredGuildId?.trim() ?? ''
+  return allowedGuildId.length === 0 || sessionGuildId === allowedGuildId
 }
 
 function sendConnectionMessage(connection: Connection, message: string): boolean {

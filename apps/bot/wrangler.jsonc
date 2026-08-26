@@ -15,8 +15,32 @@
   ],
 
   "vars": {
+<<<<<<< New base: feat: save file analyzer
+    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
+    "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+<<<<<<< New base: fix: mod resolve
+    "DISCORD_APPLICATION_ID": "1469447716751933533",
+    "DISCORD_PUBLIC_KEY": "9848e4e0f1a377fe65e7fc4699e499c3c1f4c1f0a3ca3b7ea78b2bc34ea0ee9b",
+||||||| Common ancestor
     "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+=======
+    "ACTIVITY_PUBLIC_ORIGIN": "https://civup-activity.rettend.workers.dev",
+    "ALLOWED_DISCORD_GUILD_ID": "1372172102362337362",
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+>>>>>>> Current commit: feat: external browser draft WIP
+    "ENABLE_DEBUG_LOBBY_FILL": "1",
+    "R2_ACCOUNT_ID": "bee9950f4935b08fbc80f8e9ea881286",
+    "AUTOSAVE_UPLOAD_BUCKET": "civup-autosave-uploads"
+||||||| Common ancestor
+    "BOT_HOST": "https://civup-bot.rettend.workers.dev",
+    "ENABLE_DEBUG_LOBBY_FILL": "1",
+    "R2_ACCOUNT_ID": "bee9950f4935b08fbc80f8e9ea881286",
+    "AUTOSAVE_UPLOAD_BUCKET": "civup-autosave-uploads"
+=======
+    "DISCORD_APPLICATION_ID": "1469447716751933533",
+    "DISCORD_PUBLIC_KEY": "9848e4e0f1a377fe65e7fc4699e499c3c1f4c1f0a3ca3b7ea78b2bc34ea0ee9b",
     "ENABLE_DEBUG_LOBBY_FILL": "1"
+>>>>>>> Current commit: chore: cleanup and simplify setup
   },
 
   "durable_objects": {
@@ -28,6 +52,10 @@
       {
         "name": "SessionDO",
         "class_name": "SessionDO"
+      },
+      {
+        "name": "MaintenanceDO",
+        "class_name": "MaintenanceDO"
       }
     ]
   },
@@ -40,6 +68,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["Activity"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["MaintenanceDO"]
     }
   ],
 
@@ -59,11 +91,18 @@
     }
   ],
 
+  "r2_buckets": [
+    {
+      "binding": "AUTOSAVE_UPLOADS",
+      "bucket_name": "civup-autosave-uploads"
+    }
+  ],
+
   "triggers": {
     "crons": [
       "0 * * * *", // every hour
       "*/15 * * * *", // every 15 minutes
-      "0 0 * * *" // every day at 0:00 UTC
+      "0 0,2,4,6,8,10,12,14,16,18,20 * * *" // daily ranked role sync and retries
     ]
   },
 

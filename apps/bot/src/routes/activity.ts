@@ -12,8 +12,9 @@ import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { getBrowserAccessState, normalizePublicOrigin } from '../services/activity/browser-access.ts'
 import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection } from '../services/activity/launch-target.ts'
-import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
+import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionByStableId, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
@@ -103,6 +104,184 @@ interface ActivityRuntimeOptions {
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
+<<<<<<< New base: feat: save file analyzer
+  app.get('/api/activity/session/:sessionId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const sessionId = c.req.param('sessionId')
+    const db = createDb(c.env.DB)
+    const directory = await getActivitySessionByStableId(db, sessionId)
+    if (!directory) return c.json({ error: 'Session not found' }, 404)
+
+    const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, directory).catch(() => null)
+    const session = record ? buildDirectoryEntryFromRecord(record) : directory
+    if (session.guildId !== c.env.ALLOWED_DISCORD_GUILD_ID?.trim()) {
+      return c.json({ error: 'Session is not in the configured Discord server' }, 403)
+    }
+
+    if (session.phase === 'cancelled') {
+      return c.json({
+        status: 'ended',
+        sessionId: session.sessionId,
+        matchId: session.matchId,
+        phase: 'cancelled',
+      })
+    }
+
+    const kv = getKvStore(c.env)
+    const launchState = await loadActivityLaunchState(kv, [session])
+    const option = record
+      ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
+      : buildActivityOverviewOptions(session)[0]
+    if (!option) return c.json({ error: 'Session is unavailable' }, 404)
+    const target: ChannelActivityTarget = {
+      session,
+      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
+      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
+      option: {
+        ...option,
+        isMember: option.memberPlayerIds.includes(auth.identity.userId),
+        isHost: option.hostId === auth.identity.userId,
+      },
+    }
+    const selection = await serializeActivityLaunchSelection(
+      c.env.DISCORD_TOKEN,
+      c.env.CIVUP_SECRET,
+      kv,
+      auth.identity.userId,
+      { targets: [target] },
+      { target, pendingJoin: false },
+      c.env.DB,
+      c.env.SessionDO,
+    )
+
+    return c.json({
+      status: 'available',
+      sessionId: session.sessionId,
+      matchId: session.matchId,
+      phase: session.phase,
+      selection,
+    })
+  })
+
+  app.get('/api/activity/channel/:channelId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const channelId = c.req.param('channelId')
+    const context = await loadActivityLaunchContext(
+      getKvStore(c.env),
+      channelId,
+      auth.identity.userId,
+      c.env.DB,
+      c.env.SessionDO,
+      c.env.ALLOWED_DISCORD_GUILD_ID,
+    )
+    return c.json({
+      status: 'available',
+      channelId,
+      snapshot: {
+        selection: null,
+        options: context.targets.map(target => target.option),
+      },
+    })
+  })
+
+||||||| Common ancestor
+=======
+  app.get('/api/activity/session/:sessionId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const sessionId = c.req.param('sessionId')
+    const db = createDb(c.env.DB)
+    const directory = await getActivitySessionByStableId(db, sessionId)
+    if (!directory) return c.json({ error: 'Session not found' }, 404)
+
+    const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, directory).catch(() => null)
+    const session = record ? buildDirectoryEntryFromRecord(record) : directory
+    if (session.guildId !== c.env.ALLOWED_DISCORD_GUILD_ID?.trim()) {
+      return c.json({ error: 'Session is not in the configured Discord server' }, 403)
+    }
+
+    if (session.phase === 'cancelled') {
+      return c.json({
+        status: 'ended',
+        sessionId: session.sessionId,
+        matchId: session.matchId,
+        phase: 'cancelled',
+      })
+    }
+
+    const kv = getKvStore(c.env)
+    const launchState = await loadActivityLaunchState(kv, [session])
+    const option = record
+      ? buildActivityOverviewOptionsFromSessionRecord(record)[0]
+      : buildActivityOverviewOptions(session)[0]
+    if (!option) return c.json({ error: 'Session is unavailable' }, 404)
+    const target: ChannelActivityTarget = {
+      session,
+      balanceSnapshot: resolveSessionBalanceSnapshot(launchState.balanceSnapshots, session),
+      rankAssignments: resolveSessionRankAssignments(launchState.rankAssignmentsByGuildId, session),
+      option: {
+        ...option,
+        isMember: option.memberPlayerIds.includes(auth.identity.userId),
+        isHost: option.hostId === auth.identity.userId,
+      },
+    }
+    const selection = await serializeActivityLaunchSelection(
+      c.env.DISCORD_TOKEN,
+      c.env.CIVUP_SECRET,
+      kv,
+      auth.identity.userId,
+      { targets: [target] },
+      { target, pendingJoin: false },
+      c.env.DB,
+      c.env.SessionDO,
+    )
+
+    return c.json({
+      status: 'available',
+      sessionId: session.sessionId,
+      matchId: session.matchId,
+      phase: session.phase,
+      selection,
+    })
+  })
+
+  app.get('/api/activity/channel/:channelId', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    const configError = await getBrowserContextConfigurationError(c.env)
+    if (configError) return c.json({ error: configError }, 503)
+
+    const channelId = c.req.param('channelId')
+    const context = await loadActivityLaunchContext(
+      getKvStore(c.env),
+      channelId,
+      auth.identity.userId,
+      c.env.DB,
+      c.env.SessionDO,
+      c.env.ALLOWED_DISCORD_GUILD_ID,
+    )
+    return c.json({
+      status: 'available',
+      channelId,
+      snapshot: {
+        selection: null,
+        options: context.targets.map(target => target.option),
+      },
+    })
+  })
+
+>>>>>>> Current commit: feat: external browser draft WIP
   app.get('/api/match/:channelId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -412,7 +591,7 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.option.id, selection.target.option.channelId),
+    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.session.sessionId, selection.target.option.channelId),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
@@ -639,10 +818,11 @@ async function loadActivityLaunchContext(
   userId: string,
   db: D1Database | null | undefined,
   sessionNamespace: DurableObjectNamespace | null | undefined,
+  guildId?: string | null,
 ): Promise<ActivityLaunchContext> {
   if (!db) return { targets: [] }
 
-  const channelSessions = await getActivitySessionsByChannel(createDb(db), channelId)
+  const channelSessions = await getActivitySessionsByChannel(createDb(db), channelId, { guildId })
   const launchState = await loadActivityLaunchState(kv, channelSessions)
   const targets: ChannelActivityTarget[] = []
 
@@ -670,6 +850,34 @@ async function loadActivityLaunchContext(
 
   return {
     targets: targets.sort(compareActivityTargets),
+  }
+}
+
+async function getBrowserContextConfigurationError(env: Env['Bindings']): Promise<string | null> {
+  const state = await getBrowserAccessState(env.KV)
+  if (!state.enabled) return 'Browser access is disabled'
+  if (!normalizePublicOrigin(env.ACTIVITY_PUBLIC_ORIGIN) || !env.ALLOWED_DISCORD_GUILD_ID?.trim()) return 'Browser access is not configured'
+  return null
+}
+
+function buildDirectoryEntryFromRecord(record: SessionRecord): ActivitySessionDirectoryEntry {
+  return {
+    sessionId: record.id,
+    phase: record.phase,
+    mode: record.mode,
+    guildId: record.guildId,
+    channelId: record.projectionState.channelId,
+    hostId: record.hostId,
+    messageId: record.projectionState.messageId,
+    matchId: record.matchId,
+    steamLobbyLink: record.projectionState.steamLobbyLink,
+    version: record.version,
+    roster: record.roster,
+    config: record.config,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    lastActivityAt: record.lastActivityAt,
+    closedAt: record.closedAt,
   }
 }
 

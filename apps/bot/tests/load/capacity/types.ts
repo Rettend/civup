@@ -42,12 +42,31 @@ export interface ScenarioReport {
 }
 
 export interface CapacitySnapshot {
+<<<<<<< New base: fix: deploy config
+  version: 9
+||||||| Common ancestor
   version: 7
+=======
+  version: 8
+>>>>>>> Current commit: feat: maintenance do
   globals: {
     stabilitySamples: number
     leaderboardCronRunsPerDay: number
     inactiveLobbyCleanupCronRunsPerDay: number
     rankedRoleCronRunsPerDay: number
+<<<<<<< New base: fix: deploy config
+    rankedRoleRetryCronRunsPerDay: number
+    maintenanceDoRequestsPerDay: number
+    estimatedLeaderboardMaintenanceDoGbSecondsPerRun: number
+    estimatedMaintenanceSyncDoGbSecondsPerRun: number
+    estimatedMaintenanceRetryDoGbSecondsPerRun: number
+||||||| Common ancestor
+=======
+    rankedRoleRetryCronRunsPerDay: number
+    maintenanceDoRequestsPerDay: number
+    estimatedMaintenanceSyncDoGbSecondsPerRun: number
+    estimatedMaintenanceRetryDoGbSecondsPerRun: number
+>>>>>>> Current commit: feat: maintenance do
     architectureModel: string
     currentArchitectureModel: string
     targetArchitectureModel: string

@@ -402,6 +402,9 @@ function queueActivityReportProjectionTasks(
         await releaseReportClaim()
         await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
       }
+      else {
+        await releaseReportClaim()
+      }
 
       if (input.isTournamentMatch) {
         await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN).catch((error) => {

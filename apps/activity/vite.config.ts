@@ -31,6 +31,14 @@ function loadDevVars(): Record<string, string> {
   }
 }
 
+function loadProductionDiscordClientId(): string {
+  const configPath = process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH ?? 'wrangler.json'
+  const config = JSON.parse(readFileSync(resolve(import.meta.dirname, configPath), 'utf-8')) as {
+    vars?: { DISCORD_CLIENT_ID?: unknown }
+  }
+  return typeof config.vars?.DISCORD_CLIENT_ID === 'string' ? config.vars.DISCORD_CLIENT_ID.trim() : ''
+}
+
 function devUnoCssLink(): Plugin {
   let generator: UnoGenerator | null = null
 
@@ -95,15 +103,6 @@ function collectUnoSourceFiles(path: string, files: string[]) {
   }
 }
 
-const devVars = loadDevVars()
-
-function firstNonEmpty(...values: Array<string | undefined>): string {
-  for (const value of values) {
-    if (value != null && value !== '') return value
-  }
-  return ''
-}
-
 function buildAssetRevisionMap(): Record<string, string> {
   const assetRoot = resolve(import.meta.dirname, 'public/assets')
   const revisions: Record<string, string> = {}
@@ -131,42 +130,50 @@ function buildAssetRevisionMap(): Record<string, string> {
   return revisions
 }
 
-const viteDiscordClientId = firstNonEmpty(process.env.VITE_DISCORD_CLIENT_ID, process.env.DISCORD_CLIENT_ID, devVars.DISCORD_CLIENT_ID)
-const viteActivityHost = firstNonEmpty(process.env.VITE_ACTIVITY_HOST, devVars.VITE_ACTIVITY_HOST)
 const assetRevisionMap = buildAssetRevisionMap()
 
-export default defineConfig({
-  resolve: {
-    alias: [
-      { find: /^solid-js$/, replacement: 'solid-js/dist/solid.js' },
-      { find: /^solid-js\/web$/, replacement: 'solid-js/web/dist/web.js' },
-      { find: /^solid-js\/store$/, replacement: 'solid-js/store/dist/store.js' },
-      { find: '~', replacement: resolve(import.meta.dirname, 'src') },
-    ],
-  },
-  server: {
-    allowedHosts: [
-      'activity-dev.rettend.me',
-    ],
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Surrogate-Control': 'no-store',
+export default defineConfig(({ command, mode }) => {
+  const discordClientId = mode === 'development'
+    ? (process.env.DISCORD_CLIENT_ID ?? loadDevVars().DISCORD_CLIENT_ID ?? '').trim()
+    : loadProductionDiscordClientId()
+  if (!discordClientId) throw new Error('DISCORD_CLIENT_ID is required to build the Activity')
+
+  return {
+    envDir: false,
+    build: {
+      outDir: 'dist/client',
     },
-  },
-  optimizeDeps: {
-    exclude: ['solid-js', 'solid-js/web', 'solid-js/store', '@solidjs/router'],
-  },
-  define: {
-    '__ASSET_REVISION_MAP__': JSON.stringify(assetRevisionMap),
-    'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(viteDiscordClientId),
-    'import.meta.env.VITE_ACTIVITY_HOST': JSON.stringify(viteActivityHost),
-  },
-  plugins: [
-    UnoCSS(),
-    devUnoCssLink(),
-    solid({ dev: false, hot: false }),
-    cloudflare(),
-  ],
+    resolve: {
+      alias: [
+        { find: /^solid-js$/, replacement: 'solid-js/dist/solid.js' },
+        { find: /^solid-js\/web$/, replacement: 'solid-js/web/dist/web.js' },
+        { find: /^solid-js\/store$/, replacement: 'solid-js/store/dist/store.js' },
+        { find: '~', replacement: resolve(import.meta.dirname, 'src') },
+      ],
+    },
+    server: {
+      allowedHosts: [
+        'activity-dev.rettend.me',
+      ],
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store',
+      },
+    },
+    optimizeDeps: {
+      exclude: ['solid-js', 'solid-js/web', 'solid-js/store', '@solidjs/router'],
+    },
+    define: {
+      '__ASSET_REVISION_MAP__': JSON.stringify(assetRevisionMap),
+      'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(discordClientId),
+    },
+    plugins: [
+      UnoCSS(),
+      devUnoCssLink(),
+      solid({ dev: false, hot: false }),
+      ...(command === 'serve' ? [cloudflare()] : []),
+    ],
+  }
 })

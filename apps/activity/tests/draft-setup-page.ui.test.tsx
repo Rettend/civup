@@ -145,7 +145,7 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === 'ffa' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === false)).toBe(true))
   })
 
-  test('labels normal 1v1 shuffle as first-pick randomization and hides it for tournament lobbies', async () => {
+  test('does not show a manual first-pick control in 1v1 lobbies', () => {
     render(() => (
       <DraftSetupPage lobby={createLobbySnapshot({
         mode: '1v1',
@@ -154,29 +154,6 @@ describe('DraftSetupPage UI', () => {
           { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
           { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
         ],
-      })}
-      />
-    ))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Randomize First Pick' }))
-    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('1v1', 'lobby-1', 'host-1', 'shuffle-teams'))
-
-    cleanup()
-    render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '1v1',
-        targetSize: 2,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        ],
-        tournament: {
-          id: 'tournament-1',
-          name: 'Test Cup',
-          rematchPolicy: 'warn',
-          rematchWarning: null,
-          configLocked: true,
-        },
       })}
       />
     ))
@@ -184,7 +161,6 @@ describe('DraftSetupPage UI', () => {
     expect(screen.queryByRole('button', { name: 'Randomize First Pick' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Shuffle teams' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Start Draft' })).toBeTruthy()
-    cleanup()
   })
 
   test('uses a constrained desktop shell so the action row stays in view', () => {
@@ -375,6 +351,42 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Red Death' }))
 
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
+  })
+
+  test('hides invalid ban and pick config while hidden draft is on', () => {
+    const hiddenLobby = createLobbySnapshot({
+      draftConfig: {
+        ...createLobbySnapshot().draftConfig,
+        hiddenDraft: true,
+      },
+    })
+
+    render(() => <DraftSetupPage lobby={hiddenLobby} />)
+
+    expect(screen.getByRole('switch', { name: 'Hidden draft' })).toBeTruthy()
+    expect(screen.getByText('Map Vote')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Ban Blind' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ban Draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick Blind' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pick Draft' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Leaders' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Ban Timer (minutes)' })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: 'Pick Timer (minutes)' })).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Random draft' })).toBeNull()
+
+    cleanup()
+    uiMockState.userId = 'player-2'
+    uiMockState.displayName = 'Player 2'
+
+    render(() => <DraftSetupPage lobby={hiddenLobby} />)
+
+    const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
+    expect(configCard.textContent).toContain('Hidden draft')
+    expect(configCard.textContent).toContain('Map Vote')
+    expect(configCard.textContent).not.toContain('Ban Timer')
+    expect(configCard.textContent).not.toContain('Pick Timer')
+    expect(configCard.textContent).not.toContain('Random draft')
+    expect(configCard.textContent).not.toContain('Leaders')
   })
 
   test('renders CivBlitz setup options without the BBG Beta row', async () => {
@@ -713,8 +725,7 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Shuffle players' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'randomize'))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Shuffle teams' }))
-    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'shuffle-teams'))
+    expect(screen.queryByRole('button', { name: 'Shuffle teams' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Auto-balance teams' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'balance'))

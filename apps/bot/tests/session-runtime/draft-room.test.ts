@@ -112,6 +112,46 @@ describe('draft runtime alarm recovery', () => {
     })
   })
 
+  test('censors pending blind bans to opponents but not teammates', () => {
+    const pendingA = { seatIndex: 0, civId: 'civ-a1', stepIndex: 0 }
+    const pendingB = { seatIndex: 1, civId: 'civ-b1', stepIndex: 0 }
+    const state: DraftState = {
+      matchId: 'blind-ban-censor-test',
+      formatId: 'default-2v2',
+      currentStepIndex: 0,
+      steps: [{ action: 'ban', seats: [0, 1], count: 1, timer: 60 }],
+      seats: [
+        { playerId: 'a1', displayName: 'A1', team: 0 },
+        { playerId: 'b1', displayName: 'B1', team: 1 },
+        { playerId: 'a2', displayName: 'A2', team: 0 },
+        { playerId: 'b2', displayName: 'B2', team: 1 },
+      ],
+      submissions: {
+        0: ['civ-a1'],
+        1: ['civ-b1'],
+      },
+      bans: [],
+      picks: [],
+      availableCivIds: ['civ-a1', 'civ-b1'],
+      status: 'active',
+      cancelReason: null,
+      pendingBlindBans: [pendingA, pendingB],
+    }
+
+    expect(censorDraftStateForSeat(state, 2).submissions).toEqual({
+      0: ['civ-a1'],
+      1: ['__blind__'],
+    })
+    expect(censorDraftStateForSeat(state, -1).submissions).toEqual({
+      0: ['__blind__'],
+      1: ['__blind__'],
+    })
+    expect(censorDraftStateForSeat(state, 0).pendingBlindBans).toEqual([pendingA])
+    expect(censorDraftStateForSeat(state, 2).pendingBlindBans).toEqual([pendingA])
+    expect(censorDraftStateForSeat(state, 1).pendingBlindBans).toEqual([pendingB])
+    expect(censorDraftStateForSeat(state, -1).pendingBlindBans).toEqual([])
+  })
+
   test('censors CivBlitz submissions to opponents but not teammates', () => {
     const registry = getCivBlitzRegistry()
     const kitA1 = { unit: registry.componentPools.unit[0] ?? 'unit-a1' }

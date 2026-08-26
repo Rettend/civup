@@ -155,6 +155,7 @@ export function getBrokenMatchRefreshKey(input: {
   appStatus: 'loading' | 'error' | 'overview' | 'lobby-waiting' | 'authenticated'
   currentMatchId: string | null
   connectionStatus: string
+  connectionCloseReason?: string | null
   draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined
 }): string | null {
   if (input.appStatus !== 'authenticated' || !input.currentMatchId) return null
@@ -169,6 +170,10 @@ export function getBrokenMatchRefreshKey(input: {
 
   if (input.connectionStatus === 'error' && (!input.draftState || input.draftState.matchId !== input.currentMatchId)) {
     return `${input.currentMatchId}:connection-error`
+  }
+
+  if (input.connectionStatus === 'disconnected' && input.connectionCloseReason === 'Session closed') {
+    return `${input.currentMatchId}:session-closed`
   }
 
   return null
