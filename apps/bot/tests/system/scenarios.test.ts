@@ -2,7 +2,7 @@ import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
 import type { TestSessionNamespace } from '../helpers/session-runtime.ts'
 import { matches } from '@civup/db'
 import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
-import { verifySessionAccessToken } from '@civup/utils'
+import { ACTIVITY_FEED_ROOM, verifySessionAccessToken } from '@civup/utils'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { setSystemChannel } from '../../src/services/system/channels.ts'
@@ -834,7 +834,7 @@ describe('system scenarios', () => {
     })
   })
 
-  test('overview feed removes a reported match card without reconnecting', async () => {
+  test('report publishes the reported session update to the overview room', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -846,9 +846,7 @@ describe('system scenarios', () => {
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    const overview = await world.activity.connectOverview({ userId: 'spectator' })
-    expect(overview.room).toBe('overview')
-    expect(activityOverviewOptionIds(overview.messages)).toContain(started.matchId)
+    const updatesBeforeReport = world.activity.publishedSessionUpdates().length
 
     expect((await world.match.report(started.matchId, {
       reporterId: 'p1',
@@ -856,9 +854,19 @@ describe('system scenarios', () => {
     })).ok).toBe(true)
     await world.flushBackgroundTasks()
 
-    expect(activityOverviewMessageCount(overview.messages)).toBeGreaterThanOrEqual(2)
-    expect(activityOverviewOptionIds(overview.messages)).not.toContain(started.matchId)
-    overview.close()
+    expect(world.activity.publishedSessionUpdates().slice(updatesBeforeReport)).toContainEqual({
+      room: ACTIVITY_FEED_ROOM,
+      method: 'POST',
+      pathname: `/parties/activity/${ACTIVITY_FEED_ROOM}`,
+      record: expect.objectContaining({
+        id: lobby.id,
+        matchId: started.matchId,
+        phase: 'reported',
+        guildId: lobby.guildId,
+        channelId: lobby.channelId,
+        closedAt: expect.any(Number),
+      }),
+    })
   })
 
   test('activity launch recovers a canonical lobby when its own channel index is missing and poisoned elsewhere', async () => {
@@ -2818,7 +2826,6 @@ describe('system scenarios', () => {
     expect((await expandWorld.lobby.getById(expandLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
     await expectQueuePlayers(expandWorld, '3v3', [])
     await expectQueuePlayers(expandWorld, '4v4', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
-
   })
 
   test('mode changes preserve Red Death settings and normalize unsupported toggles on the destination mode', async () => {
@@ -3428,24 +3435,6 @@ function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId
 
 function buildOrderedMentions(participants: Array<{ playerId: string }>) {
   return participants.map(participant => `<@${participant.playerId}>`).join('\n')
-}
-
-function activityOverviewMessageCount(messages: unknown[]): number {
-  return messages.filter(message => isActivityOverviewMessage(message)).length
-}
-
-function activityOverviewOptionIds(messages: unknown[]): string[] {
-  const message = messages.findLast(candidate => isActivityOverviewMessage(candidate))
-  if (!isActivityOverviewMessage(message) || !message.snapshot || !Array.isArray(message.snapshot.options)) return []
-  return message.snapshot.options.flatMap((option) => {
-    if (!option || typeof option !== 'object') return []
-    const id = (option as { id?: unknown }).id
-    return typeof id === 'string' ? [id] : []
-  })
-}
-
-function isActivityOverviewMessage(value: unknown): value is { type: 'overview', snapshot: null | { options?: unknown[] } } {
-  return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'overview'
 }
 
 function expectOrderedPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {

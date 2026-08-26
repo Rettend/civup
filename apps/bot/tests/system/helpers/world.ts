@@ -3,12 +3,11 @@ import type { CompetitiveTier, DraftState, GameMode, QueueEntry } from '@civup/g
 import type { DraftRuntimeConfig } from '@civup/session'
 import type { Env } from '../../../src/env.ts'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
-import type { ActivityOverviewSnapshot } from '../../../src/services/activity/session-state.ts'
 import type { DraftLifecycleCancelledPayload, DraftLifecycleCompletePayload, DraftLifecyclePayload } from '../../../src/session-runtime/draft-lifecycle-events.ts'
 import type { SessionRecord } from '../../../src/session-runtime/session-record.ts'
-import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
+import { matchBans, matches, matchParticipants } from '@civup/db'
 import { createDraft, draftFormatMap, getCurrentStep, getPendingSeats, isDraftError, processDraftInput } from '@civup/game'
-import { ACTIVITY_FEED_ROOM, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import { CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { eq } from 'drizzle-orm'
 import { buildDraftRuntimeConfig, getLobbyForUser, getMatchForUser } from '../../../src/services/activity/index.ts'
 import { channelIndexKey, hostKey } from '../../../src/services/lobby/keys.ts'
@@ -17,7 +16,6 @@ import { handleDraftLifecyclePayload } from '../../../src/services/match/draft-l
 import { listMatchMessageIds } from '../../../src/services/match/message.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer, getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../../src/services/session/index.ts'
 import { setSystemChannel } from '../../../src/services/system/channels.ts'
-import { buildActivityOverviewSnapshotFromDirectory, mergeActivityOverviewSnapshotForSessionUpdate } from '../../../src/services/activity/session-state.ts'
 import { buildBotTestEnv, createBotTestApp, createExecutionContextHarness } from '../../helpers/app-harness.ts'
 import { createSqliteD1Database } from '../../helpers/d1.ts'
 import { installFetchHandler } from '../../helpers/fetch-router.ts'
@@ -97,10 +95,11 @@ interface RouteResult<T = unknown> {
   body: T
 }
 
-interface ActivityFeedConnection {
+interface ActivitySessionUpdatePublication {
   room: string
-  messages: unknown[]
-  close: () => void
+  method: string
+  pathname: string
+  record: SessionRecord
 }
 
 export interface SystemWorld {
@@ -145,7 +144,7 @@ export interface SystemWorld {
     currentMatch: (input: { userId: string }) => Promise<RouteResult>
     targetLobby: (input: { channelId: string, userId: string, lobbyId: string }) => Promise<RouteResult>
     targetMatch: (input: { channelId: string, userId: string, matchId: string }) => Promise<RouteResult>
-    connectOverview: (input: { userId: string }) => Promise<ActivityFeedConnection>
+    publishedSessionUpdates: () => ActivitySessionUpdatePublication[]
   }
   discord: {
     requests: () => DiscordRequestRecord[]
@@ -208,12 +207,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
   let nextDiscordMessageId = 1
 
   const d1 = createSqliteD1Database(sqlite)
-  const activityNamespace = createTestActivityNamespace({
-    DB: d1,
-    KV: kv,
-    CIVUP_SECRET,
-    ALLOWED_DISCORD_GUILD_ID: PRIMARY_GUILD_ID,
-  })
+  const activityNamespace = createTestActivityNamespace()
   const sessionNamespace = createTestSessionNamespace({
     DB: d1,
     KV: kv,
@@ -640,8 +634,8 @@ export async function createSystemWorld(): Promise<SystemWorld> {
         }
         return result
       },
-      connectOverview(input) {
-        return activityNamespace.__connectOverview(input.userId)
+      publishedSessionUpdates() {
+        return activityNamespace.__publishedSessionUpdates()
       },
     },
     discord: {
@@ -742,22 +736,21 @@ export async function createSystemWorld(): Promise<SystemWorld> {
 }
 
 interface TestActivityNamespace extends DurableObjectNamespace {
-  __connectOverview: (userId: string) => Promise<ActivityFeedConnection>
+  __publishedSessionUpdates: () => ActivitySessionUpdatePublication[]
 }
 
 interface TestActivityRoom {
   storage: Map<string, unknown>
-  overview: ActivityOverviewSnapshot | null
-  connections: Set<unknown[]>
 }
 
-function createTestActivityNamespace(env: Partial<Cloudflare.Env>): TestActivityNamespace {
+function createTestActivityNamespace(): TestActivityNamespace {
   const rooms = new Map<string, TestActivityRoom>()
+  const publishedSessionUpdates: ActivitySessionUpdatePublication[] = []
 
   const getRoom = (roomId: string): TestActivityRoom => {
     let room = rooms.get(roomId)
     if (!room) {
-      room = { storage: new Map(), overview: null, connections: new Set() }
+      room = { storage: new Map() }
       rooms.set(roomId, room)
     }
     return room
@@ -795,36 +788,18 @@ function createTestActivityNamespace(env: Partial<Cloudflare.Env>): TestActivity
 
           const body = await request.json<{ record?: SessionRecord }>()
           if (!body.record) return Response.json({ error: 'record is required' }, { status: 400 })
-          if (room.connections.size === 0) return Response.json({ ok: true })
-
-          room.overview = mergeActivityOverviewSnapshotForSessionUpdate(room.overview, body.record)
-          for (const messages of room.connections) {
-            messages.push({ type: 'overview', snapshot: room.overview })
-            messages.push({ type: 'lobby', lobbyId: body.record.id, snapshot: null })
-          }
+          publishedSessionUpdates.push({
+            room: roomId,
+            method: request.method,
+            pathname,
+            record: body.record,
+          })
           return Response.json({ ok: true })
         },
       } as DurableObjectStub
     },
-    async __connectOverview(userId: string) {
-      void userId
-      if (!env.DB) throw new Error('Activity feed test requires D1')
-      const room = getRoom(ACTIVITY_FEED_ROOM)
-      const messages: unknown[] = []
-      room.overview = await buildActivityOverviewSnapshotFromDirectory(createDb(env.DB), ACTIVITY_FEED_ROOM, {
-        guildIds: [PRIMARY_GUILD_ID],
-        sharedFeed: true,
-      })
-      room.connections.add(messages)
-      messages.push({ type: 'overview', snapshot: room.overview })
-
-      return {
-        room: ACTIVITY_FEED_ROOM,
-        messages,
-        close() {
-          room.connections.delete(messages)
-        },
-      }
+    __publishedSessionUpdates() {
+      return [...publishedSessionUpdates]
     },
   } as unknown as TestActivityNamespace
 }
