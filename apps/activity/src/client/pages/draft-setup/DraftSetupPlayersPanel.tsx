@@ -2,6 +2,7 @@ import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
+import { formatPublicRankLabel, LEADERBOARD_MIN_GAMES, publicRank, resolvePublicRating } from '@civup/rating'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { cn } from '~/client/lib/css'
@@ -354,7 +355,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
               stats={row().balanceRating}
               statsLabel={state().statsLabel()}
               unranked={state().unranked()}
-              role={resolvePlayerRole(row(), state().rankedRoles())}
+              role={resolvePlayerModeRole(row(), state().rankedRoles())}
               style={playerPopoverStyle()}
               setRef={(element) => { playerPopoverRef = element }}
             />
@@ -679,12 +680,15 @@ function PlayerChip(props: {
   )
 }
 
-function resolvePlayerRole(row: PlayerRow, rankedRoles: RankedRoleOptionSnapshot[]): { label: string, style: Record<string, string> } | null {
-  if (!row.rankedRole) return null
-  const rankedRole = row.rankedRole
-  const option = rankedRoles.find(candidate => candidate.tier === rankedRole.tier) ?? null
+export function resolvePlayerModeRole(row: PlayerRow, rankedRoles: RankedRoleOptionSnapshot[]): { label: string, style: Record<string, string> } | null {
+  const rating = row.balanceRating
+  if (!rating) return null
+  if (rating.gamesPlayed < LEADERBOARD_MIN_GAMES) return { label: 'Unranked', style: buildRolePillStyle(null) }
+
+  const rank = publicRank(resolvePublicRating(rating.publicRating, rating.mu))
+  const option = rankedRoles.find(candidate => candidate.tier === rank.tier) ?? null
   return {
-    label: option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier),
+    label: formatPublicRankLabel(option?.label ?? formatLeaderPoolRankLabel(rank.tier), rank),
     style: buildRolePillStyle(option?.color ?? null),
   }
 }

@@ -6,7 +6,7 @@ import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } f
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
-const { formatRating, formatRecord, formatWinRate } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
+const { formatRating, formatRecord, formatWinRate, resolvePlayerModeRole } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
 const onLobbyStarted = mock(() => {})
 
@@ -249,6 +249,29 @@ describe('DraftSetupPage UI', () => {
     />)
     expect(screen.getByRole('img', { name: 'Server Alpha' })).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Server Beta' })).toBeTruthy()
+  })
+
+  test('resolves the mode rank without falling back to the gated overall role', () => {
+    const row = {
+      key: 'host',
+      slot: 0,
+      name: 'Host Player',
+      playerId: 'host-1',
+      avatarUrl: null,
+      team: null,
+      isHost: true,
+      empty: false,
+      pendingSelf: false,
+      balanceRating: { mu: 25, sigma: 5, publicRating: 950, gamesPlayed: 20, wins: 12, rank: 8 },
+      rankedRole: { tier: 'tier1' as const, sourceMode: null },
+    }
+    const options = [
+      { tier: 'tier1' as const, rank: 1, roleId: 'elite', label: 'Elite', color: '#facc15' },
+      { tier: 'tier3' as const, rank: 3, roleId: 'gladiator', label: 'Gladiator', color: '#67e8f9' },
+    ]
+
+    expect(resolvePlayerModeRole(row, options)?.label).toBe('Gladiator II')
+    expect(resolvePlayerModeRole({ ...row, balanceRating: null }, options)).toBeNull()
   })
 
   test('keeps team locks tied to the stored join server after launching elsewhere', () => {

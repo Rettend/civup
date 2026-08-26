@@ -11,7 +11,7 @@ export const EXPECTED_GUILD_COMMANDS = [
   { type: 1, name: 'match' },
   { type: 1, name: 'mod' },
   { type: 1, name: 'ping' },
-  { type: 2, name: 'Preview Elo' },
+  { type: 2, name: 'Preview Rating' },
   { type: 1, name: 'rank' },
   { type: 1, name: 'settings' },
   { type: 1, name: 'stats' },
