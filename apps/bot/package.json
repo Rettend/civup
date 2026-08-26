@@ -12,6 +12,7 @@
     "test:e2e": "bun test ./tests/system/**/*.test.ts",
     "test:capacity": "CIVUP_CAPACITY_REPORT=1 bun test ./tests/load/capacity.bench.ts",
     "test:stats": "CIVUP_STATS_REPORT=1 bun test ./tests/load/stats.bench.ts",
+    "test:stats:update": "CIVUP_STATS_REPORT=1 CIVUP_UPDATE_STATS_SNAPSHOT=1 bun test ./tests/load/stats.bench.ts",
     "register": "bun run register:dev",
     "register:dev": "bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun --env-file=.prod.secrets src/register.ts",

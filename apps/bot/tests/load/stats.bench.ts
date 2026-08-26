@@ -1,21 +1,24 @@
 /* eslint-disable no-console */
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
-import { matches, matchParticipants, playerRatings, players, seasons } from '@civup/db'
+import { matches, matchParticipants, scopedPlayerRatings as playerRatings, players, seasons } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 
 const SHOULD_PRINT_REPORT = Bun.env.CIVUP_STATS_REPORT === '1'
+const SHOULD_UPDATE_SNAPSHOT = Bun.env.CIVUP_UPDATE_STATS_SNAPSHOT === '1'
 const STATS_SNAPSHOT_FILE = new URL('./stats.snapshot.json', import.meta.url)
 const STATS_SNAPSHOT_PATH = 'tests/load/stats.snapshot.json'
 const NOW = 1_700_000_000_000
-const GUILD_ID = 'guild-1'
+const GUILD_ID = '111111111111111111'
+const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
 const ACTIVE_SEASON_ID = 'season-1'
 const HERO_ID = '100010000000000099'
 const STATS_WARMUP_SAMPLES = 1
@@ -71,7 +74,6 @@ interface StatsCallMetrics {
 interface StatsOutputSummary {
   fieldCount: number
   jsonBytes: number
-  topLeadersLines: number
   commonTeammatesLines: number
   commonOpponentsLines: number
   recentMatchesLines: number
@@ -119,17 +121,12 @@ interface StatsSnapshotPhase {
 }
 
 describe('stats benchmarks', () => {
-  test('prints current stats performance baselines', { timeout: 30_000 }, async () => {
+  test('enforces current stats performance baselines', { timeout: 30_000 }, async () => {
     const reports: StatsScenarioReport[] = []
 
     for (const scenario of STATS_SCENARIOS) {
       reports.push(await measureStableScenario(scenario))
     }
-
-    const snapshotStatus = await writeStatsSnapshot(reports)
-
-    if (SHOULD_PRINT_REPORT) printReports(reports)
-    if (SHOULD_PRINT_REPORT) console.log(`\n[stats] snapshot ${snapshotStatus}: ${STATS_SNAPSHOT_PATH}`)
 
     expect(reports).toHaveLength(STATS_SCENARIOS.length)
     for (const report of reports) {
@@ -138,10 +135,45 @@ describe('stats benchmarks', () => {
       expect(report.cold.sqlRowsRead.total).toBeGreaterThan(0)
       expect(report.warm.sqlRowsRead.total).toBeGreaterThan(0)
       expect(report.output.fieldCount).toBeGreaterThan(0)
-      expect(report.output.topLeadersLines).toBe(0)
       expect(report.output.commonOpponentsLines).toBeGreaterThan(0)
       expect(report.output.recentMatchesLines).toBeGreaterThan(0)
     }
+
+    const snapshotStatus = SHOULD_UPDATE_SNAPSHOT
+      ? await updateStatsSnapshot(reports)
+      : await verifyStatsSnapshot(reports)
+
+    if (SHOULD_PRINT_REPORT) printReports(reports)
+    if (SHOULD_PRINT_REPORT) console.log(`\n[stats] snapshot ${snapshotStatus}: ${STATS_SNAPSHOT_PATH}`)
+  })
+
+  test('rejects resource and query-plan regressions', () => {
+    expect(() => assertSqlRowsWithinCeiling('duel-150', 'warm', {
+      rankProfile: 6,
+      embed: 358,
+      total: 364,
+    }, {
+      rankProfile: 5,
+      embed: 358,
+      total: 363,
+    })).toThrow('[stats] duel-150 warm rankProfile rows read regressed: 6 > 5')
+
+    expect(() => assertKvOpsWithinCeiling('duel-150', 'warm', {
+      gets: 2,
+      puts: 1,
+      deletes: 0,
+      lists: 0,
+    }, {
+      gets: 1,
+      puts: 1,
+      deletes: 0,
+      lists: 0,
+    })).toThrow('[stats] duel-150 warm KV gets regressed: 2 > 1')
+
+    expect(() => assertEfficientQueryPlans([
+      'SCAN matches',
+      'SEARCH match_participants USING AUTOMATIC COVERING INDEX (player_id=?)',
+    ])).toThrow('[stats] inefficient query plan: SCAN matches; SEARCH match_participants USING AUTOMATIC COVERING INDEX (player_id=?)')
   })
 })
 
@@ -183,7 +215,7 @@ async function measureScenarioSample(scenario: StatsBenchmarkScenario): Promise<
   output: StatsOutputSummary
 }> {
   const { db, sqlite } = await createTestDatabase()
-  const sqlTracker = trackSqlite(sqlite)
+  const sqlTracker = trackSqlite(sqlite, { trackQueryPlans: true })
   const { kv, operations, resetOperations } = createTrackedKv({ trackReads: true })
 
   try {
@@ -224,10 +256,10 @@ async function measureStatsCall(input: {
   resetOperations: () => void
 }): Promise<{ metrics: StatsCallMetrics, output: StatsOutputSummary }> {
   const rankProfile = await measureBlock(input, async () => {
-    return await getPlayerStatsRankProfile(input.db, input.kv, GUILD_ID, HERO_ID)
+    return await getPlayerStatsRankProfile(input.db, input.kv, STATS_CONTEXT, HERO_ID)
   })
   const embed = await measureBlock(input, async () => {
-    const built = await playerCardEmbed(input.db, HERO_ID, 'all', {
+    const built = await playerCardEmbed(input.db, STATS_CONTEXT, HERO_ID, 'all', {
       rankProfile: rankProfile.result.rankProfile,
       ratingRows: rankProfile.result.ratingRows,
     })
@@ -269,6 +301,7 @@ async function measureBlock<T>(
   const startedAt = performance.now()
   const result = await action()
   const elapsedMs = performance.now() - startedAt
+  assertEfficientQueryPlans(input.sqlTracker.flushQueryPlans())
 
   return {
     result,
@@ -276,6 +309,14 @@ async function measureBlock<T>(
     sqlRowsRead: input.sqlTracker.counts.rowsRead,
     kvOps: countKvOperations(input.operations),
   }
+}
+
+function assertEfficientQueryPlans(queryPlanDetails: readonly string[]): void {
+  const inefficientPlans = queryPlanDetails.filter(detail => (
+    /^SCAN (?!CONSTANT ROW|seasons(?:\s|$)|\()/.test(detail)
+    || /\bUSING AUTOMATIC\b.*\bINDEX\b/.test(detail)
+  ))
+  if (inefficientPlans.length > 0) throw new Error(`[stats] inefficient query plan: ${inefficientPlans.join('; ')}`)
 }
 
 async function seedStatsBenchmarkScenario(
@@ -302,9 +343,10 @@ async function seedStatsBenchmarkScenario(
   })
 
   const allPlayerRows = new Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>()
-  const allRatingRows = new Map<string, { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number }>()
+  const allRatingRows = new Map<string, { statsKey: string, playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, effectiveGames: number, lastPlayedAt: number }>()
   const matchRows: Array<{
     id: string
+    guildId: string
     gameMode: GameMode
     status: 'completed'
     isOld: boolean
@@ -372,6 +414,7 @@ async function seedStatsBenchmarkScenario(
 
     matchRows.push({
       id: matchId,
+      guildId: GUILD_ID,
       gameMode: scenario.gameMode,
       status: 'completed',
       isOld: false,
@@ -409,6 +452,7 @@ function appendBackgroundCompletedMatches(input: {
   allPlayerRows: Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>
   matchRows: Array<{
     id: string
+    guildId: string
     gameMode: GameMode
     status: 'completed'
     isOld: boolean
@@ -440,6 +484,7 @@ function appendBackgroundCompletedMatches(input: {
     const completedAt = NOW - ((input.scenario.matchCount + matchIndex + 1) * 60_000)
     input.matchRows.push({
       id: matchId,
+      guildId: GUILD_ID,
       gameMode: input.scenario.gameMode,
       status: 'completed',
       isOld: false,
@@ -642,7 +687,6 @@ function summarizeOutput(embed: {
   return {
     fieldCount: fields.length,
     jsonBytes: JSON.stringify(embed).length,
-    topLeadersLines: countFieldLines(fields, 'Top Played Leaders'),
     commonTeammatesLines: countFieldLines(fields, 'Common Teammates'),
     commonOpponentsLines: countFieldLines(fields, 'Common Opponents'),
     recentMatchesLines: countFieldLines(fields, 'Recent Matches'),
@@ -664,7 +708,7 @@ function countKvOperations(operations: ReturnType<typeof createTrackedKv>['opera
   }
 }
 
-async function writeStatsSnapshot(reports: StatsScenarioReport[]): Promise<'updated' | 'unchanged'> {
+async function updateStatsSnapshot(reports: StatsScenarioReport[]): Promise<'updated' | 'unchanged'> {
   const snapshot = buildStatsSnapshot(reports)
   const nextText = `${JSON.stringify(snapshot, null, 2)}\n`
   const currentText = await readSnapshotText(readFileText)
@@ -675,9 +719,63 @@ async function writeStatsSnapshot(reports: StatsScenarioReport[]): Promise<'upda
   return 'updated'
 }
 
+async function verifyStatsSnapshot(reports: StatsScenarioReport[]): Promise<'verified'> {
+  const expected = await readStatsSnapshot()
+  const actual = buildStatsSnapshot(reports)
+
+  expect(actual.version).toBe(expected.version)
+  expect(actual.globals).toEqual(expected.globals)
+  expect(actual.scenarios.map(scenario => scenario.id)).toEqual(expected.scenarios.map(scenario => scenario.id))
+
+  for (const actualScenario of actual.scenarios) {
+    const expectedScenario = expected.scenarios.find(scenario => scenario.id === actualScenario.id)
+    if (!expectedScenario) throw new Error(`[stats] missing snapshot baseline for ${actualScenario.id}`)
+
+    const { cold: actualCold, warm: actualWarm, ...actualMetadata } = actualScenario
+    const { cold: expectedCold, warm: expectedWarm, ...expectedMetadata } = expectedScenario
+    expect(actualMetadata).toEqual(expectedMetadata)
+    assertSqlRowsWithinCeiling(actualScenario.id, 'cold', actualCold.sqlRowsRead, expectedCold.sqlRowsRead)
+    assertSqlRowsWithinCeiling(actualScenario.id, 'warm', actualWarm.sqlRowsRead, expectedWarm.sqlRowsRead)
+    assertKvOpsWithinCeiling(actualScenario.id, 'cold', actualCold.kvOps, expectedCold.kvOps)
+    assertKvOpsWithinCeiling(actualScenario.id, 'warm', actualWarm.kvOps, expectedWarm.kvOps)
+  }
+
+  return 'verified'
+}
+
+function assertSqlRowsWithinCeiling(
+  scenarioId: string,
+  phase: 'cold' | 'warm',
+  actual: StatsCallMetrics['sqlRowsRead'],
+  ceiling: StatsCallMetrics['sqlRowsRead'],
+): void {
+  for (const metric of ['rankProfile', 'embed', 'total'] as const) {
+    if (actual[metric] <= ceiling[metric]) continue
+    throw new Error(`[stats] ${scenarioId} ${phase} ${metric} rows read regressed: ${actual[metric]} > ${ceiling[metric]}`)
+  }
+}
+
+function assertKvOpsWithinCeiling(
+  scenarioId: string,
+  phase: 'cold' | 'warm',
+  actual: StatsCallMetrics['kvOps'],
+  ceiling: StatsCallMetrics['kvOps'],
+): void {
+  for (const metric of ['gets', 'puts', 'deletes', 'lists'] as const) {
+    if (actual[metric] <= ceiling[metric]) continue
+    throw new Error(`[stats] ${scenarioId} ${phase} KV ${metric} regressed: ${actual[metric]} > ${ceiling[metric]}`)
+  }
+}
+
+async function readStatsSnapshot(): Promise<StatsSnapshot> {
+  const text = await readSnapshotText(readFileText)
+  if (text == null) throw new Error(`[stats] missing baseline snapshot: ${STATS_SNAPSHOT_PATH}`)
+  return JSON.parse(text) as StatsSnapshot
+}
+
 function buildStatsSnapshot(reports: StatsScenarioReport[]): StatsSnapshot {
   return {
-    version: 1,
+    version: 2,
     globals: {
       warmupSamples: STATS_WARMUP_SAMPLES,
       stabilitySamples: STATS_STABILITY_SAMPLES,
@@ -720,7 +818,6 @@ function roundOutputSummary(summary: StatsOutputSummary): StatsOutputSummary {
   return {
     fieldCount: roundSnapshotNumber(summary.fieldCount),
     jsonBytes: roundSnapshotNumber(summary.jsonBytes),
-    topLeadersLines: roundSnapshotNumber(summary.topLeadersLines),
     commonTeammatesLines: roundSnapshotNumber(summary.commonTeammatesLines),
     commonOpponentsLines: roundSnapshotNumber(summary.commonOpponentsLines),
     recentMatchesLines: roundSnapshotNumber(summary.recentMatchesLines),
@@ -795,10 +892,14 @@ function addPlayerRow(
 }
 
 function addRatingRow(
-  rows: Map<string, { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number }>,
+  rows: Map<string, { statsKey: string, playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, effectiveGames: number, lastPlayedAt: number }>,
   row: { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number },
 ): void {
-  rows.set(`${row.playerId}:${row.mode}`, row)
+  rows.set(`${row.playerId}:${row.mode}`, {
+    statsKey: STATS_CONTEXT.statsKey,
+    effectiveGames: row.gamesPlayed,
+    ...row,
+  })
 }
 
 async function insertBatches<T extends object>(

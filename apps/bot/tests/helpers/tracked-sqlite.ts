@@ -19,8 +19,13 @@ interface TrackedStatement {
   run?: (...args: any[]) => StatementRunResult
 }
 
-export function trackSqlite(sqlite: Database): {
+interface QueryPlanRow {
+  detail: string
+}
+
+export function trackSqlite(sqlite: Database, options: { trackQueryPlans?: boolean } = {}): {
   counts: SqlOperationCounts
+  flushQueryPlans: () => string[]
   reset: () => void
   restore: () => void
   runWithoutTracking: <T>(callback: () => Promise<T> | T) => Promise<T>
@@ -30,17 +35,32 @@ export function trackSqlite(sqlite: Database): {
     rowsWritten: 0,
   }
   let trackingEnabled = true
+  const pendingQueryPlans = new Map<string, unknown[]>()
+  const plannedSql = new Set<string>()
 
   const originalPrepare = sqlite.prepare.bind(sqlite)
 
   sqlite.prepare = ((sql: string, ...rest: unknown[]) => {
     const statement = originalPrepare(sql, ...rest) as TrackedStatement
     const kind = classifyStatement(sql)
-    return wrapStatement(statement, kind, counts, () => trackingEnabled)
+    return wrapStatement(statement, kind, counts, () => trackingEnabled, (args) => {
+      if (!options.trackQueryPlans || plannedSql.has(sql) || pendingQueryPlans.has(sql)) return
+      pendingQueryPlans.set(sql, args)
+    })
   }) as typeof sqlite.prepare
 
   return {
     counts,
+    flushQueryPlans() {
+      const details: string[] = []
+      for (const [sql, args] of pendingQueryPlans) {
+        const rows = originalPrepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args) as QueryPlanRow[]
+        details.push(...rows.map(row => row.detail))
+        plannedSql.add(sql)
+      }
+      pendingQueryPlans.clear()
+      return details
+    },
     reset() {
       counts.rowsRead = 0
       counts.rowsWritten = 0
@@ -80,10 +100,12 @@ function wrapStatement(
   kind: StatementKind,
   counts: SqlOperationCounts,
   isTrackingEnabled: () => boolean,
+  recordQueryPlan: (args: unknown[]) => void,
 ): TrackedStatement {
   if (statement.all) {
     const original = statement.all.bind(statement)
     statement.all = (...args: any[]) => {
+      if (isTrackingEnabled() && kind === 'read') recordQueryPlan(args)
       const rows = original(...args)
       if (isTrackingEnabled() && kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
       return rows
@@ -93,6 +115,7 @@ function wrapStatement(
   if (statement.get) {
     const original = statement.get.bind(statement)
     statement.get = (...args: any[]) => {
+      if (isTrackingEnabled() && kind === 'read') recordQueryPlan(args)
       const row = original(...args)
       if (isTrackingEnabled() && kind === 'read' && row != null) counts.rowsRead += 1
       return row
@@ -102,6 +125,7 @@ function wrapStatement(
   if (statement.values) {
     const original = statement.values.bind(statement)
     statement.values = (...args: any[]) => {
+      if (isTrackingEnabled() && kind === 'read') recordQueryPlan(args)
       const rows = original(...args)
       if (isTrackingEnabled() && kind === 'read' && Array.isArray(rows)) counts.rowsRead += rows.length
       return rows
@@ -111,6 +135,7 @@ function wrapStatement(
   if (statement.iterate) {
     const original = statement.iterate.bind(statement)
     statement.iterate = (...args: any[]) => {
+      if (isTrackingEnabled() && kind === 'read') recordQueryPlan(args)
       const iterable = original(...args)
       if (kind !== 'read') return iterable
 
