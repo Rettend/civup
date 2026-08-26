@@ -205,7 +205,7 @@ function fail(name: string, reason: string): HealthCheckResult {
 
 function describeError(error: unknown): string {
   if (error instanceof Error && error.name === 'AbortError') return 'timed out'
-  if (error instanceof Error && error.message.trim()) return error.message
+  if (error instanceof Error && /^Discord HTTP \d{3}$/.test(error.message)) return error.message
   return 'check failed'
 }
 

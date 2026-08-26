@@ -8,13 +8,13 @@ const GUILD_ID = '222222222222222222'
 const PUBLIC_KEY = 'a'.repeat(64)
 const ENDPOINT = 'https://bot.example.com/'
 const ACTIVITY_ORIGIN = 'https://activity.example.com'
+const FAILURE_SECRET = 'sentinel-health-check-secret'
 
 describe('/admin health checks', () => {
   test('reports successful required and optional checks', async () => {
     const results = await runHealthChecks(createEnv(), { fetch: createFetch(), interactionEndpointUrl: ENDPOINT })
     expect(results.every(result => result.status === 'OK')).toBe(true)
     expect(formatHealthReport(results)).toContain('OK Discord application')
-    expect(formatHealthReport(results)).not.toContain('token')
   })
 
   test('warns when optional R2 uploads are disabled', async () => {
@@ -33,6 +33,39 @@ describe('/admin health checks', () => {
     expect(results.find(result => result.name === 'Activity')).toEqual({
       name: 'Activity', status: 'FAIL', reason: 'HTTP 503',
     })
+  })
+
+  test('reports Discord HTTP status without exposing arbitrary errors', async () => {
+    const results = await runHealthChecks(createEnv(), {
+      fetch: createFetch({ discordApplicationStatus: 401 }), interactionEndpointUrl: ENDPOINT,
+    })
+
+    expect(results.find(result => result.name === 'Discord application')).toEqual({
+      name: 'Discord application', status: 'FAIL', reason: 'Discord HTTP 401',
+    })
+  })
+
+  test('renders unexpected failures concisely without leaking error details', async () => {
+    const failingDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => {
+            throw new Error(`database failure\n${FAILURE_SECRET}`)
+          },
+        }),
+      }),
+    } as unknown as D1Database
+    const results = await runHealthChecks(createEnv({ DB: failingDb }), {
+      fetch: createFetch(), interactionEndpointUrl: ENDPOINT,
+    })
+    const report = formatHealthReport(results)
+
+    expect(results.find(result => result.name === 'D1')).toEqual({
+      name: 'D1', status: 'FAIL', reason: 'check failed',
+    })
+    expect(report.split('\n').find(line => line.startsWith('FAIL D1'))).toBe('FAIL D1 — check failed')
+    expect(report).not.toContain(FAILURE_SECRET)
+    expect(report).not.toContain('database failure')
   })
 
   test('fails config health when the primary guild setting is missing', async () => {
@@ -126,12 +159,13 @@ function createEnv(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
   }
 }
 
-function createFetch(options: { applicationId?: string, activityStatus?: number, roles?: unknown[] } = {}): typeof fetch {
+function createFetch(options: { applicationId?: string, activityStatus?: number, discordApplicationStatus?: number, roles?: unknown[] } = {}): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     const url = new URL(request.url)
     if (url.origin === ACTIVITY_ORIGIN) return new Response(null, { status: options.activityStatus ?? 200 })
     if (url.pathname.endsWith('/oauth2/applications/@me')) {
+      if (options.discordApplicationStatus) return new Response(null, { status: options.discordApplicationStatus })
       return Response.json({
         id: options.applicationId ?? APPLICATION_ID,
         verify_key: PUBLIC_KEY,
