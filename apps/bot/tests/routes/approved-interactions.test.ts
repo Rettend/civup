@@ -1,7 +1,9 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { describe, expect, test } from 'bun:test'
+import { Button } from 'discord-hono'
 import { command_ping } from '../../src/commands/ping.ts'
 import { createDiscordApp } from '../../src/discord-app.ts'
+import { factory } from '../../src/setup.ts'
 
 const PRIMARY_GUILD_ID = '111111111111111111'
 const DISALLOWED_GUILD_ID = '999999999999999999'
@@ -44,6 +46,22 @@ describe('approved Discord interaction guilds', () => {
 
     expect(response.status).not.toBe(200)
     expect(await response.text()).not.toContain('approved Discord server')
+  })
+
+  test('dispatches component payloads using the DiscordHono custom ID separator', async () => {
+    const keys = createDiscordSigningKeys()
+    const component = factory.component(
+      new Button('test-component', 'Test', 'Primary'),
+      async () => Response.json({ type: 4, data: { content: 'handled' } }),
+    )
+    const response = await createDiscordApp([component]).fetch(signedInteractionRequest(keys.privateKey, {
+      type: 3,
+      guild_id: PRIMARY_GUILD_ID,
+      data: { custom_id: 'test-component;payload', component_type: 2 },
+    }), interactionEnv(keys.publicKeyHex))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ type: 4, data: { content: 'handled' } })
   })
 })
 

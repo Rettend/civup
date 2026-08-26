@@ -1,4 +1,5 @@
 import type { Env } from './env.ts'
+import { CUSTOM_ID_SEPARATOR } from 'discord-hono'
 import { rejectDisallowedDiscordGuildInteraction } from './services/discord/interaction-guild.ts'
 import { factory } from './setup.ts'
 
@@ -31,11 +32,11 @@ export function createDiscordApp(handlers: HandlerDefinition[], options?: Discor
     }
     if ('component' in definition) {
       const component = definition.component.toJSON()
-      if ('custom_id' in component) app.component(component.custom_id.split(':')[0] ?? '', guardInteractionHandler(definition.handler))
+      if ('custom_id' in component) app.component(component.custom_id.split(CUSTOM_ID_SEPARATOR)[0] ?? '', guardInteractionHandler(definition.handler))
       continue
     }
     if ('modal' in definition) {
-      app.modal(definition.modal.toJSON().custom_id.split(':')[0] ?? '', guardInteractionHandler(definition.handler))
+      app.modal(definition.modal.toJSON().custom_id.split(CUSTOM_ID_SEPARATOR)[0] ?? '', guardInteractionHandler(definition.handler))
       continue
     }
     app.cron(definition.cron, definition.handler)
