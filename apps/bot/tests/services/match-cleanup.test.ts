@@ -79,7 +79,7 @@ describe('match cleanup reconciliation', () => {
     }
   })
 
-  test('skips abandoned matches that still have rating events', async () => {
+  test('retains recently cancelled matches so moderators can resolve them later', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
@@ -104,29 +104,7 @@ describe('match cleanup reconciliation', () => {
         { matchId, playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 24, ratingAfterSigma: 8 },
       ])
       await db.insert(matchBans).values({ matchId, civId: 'rome', bannedBy: 'host', phase: 0 })
-      await db.insert(playerRatingEvents).values({
-        matchId,
-        playerId: 'host',
-        mode: 'duel',
-        gameMode: '1v1',
-        ratingBeforeMu: 25,
-        ratingBeforeSigma: 8.333,
-        ratingAfterMu: 26,
-        ratingAfterSigma: 8,
-        gamesDelta: 1,
-        winsDelta: 1,
-        importedGamesDelta: 0,
-        effectiveGamesDelta: 1,
-        winsVsTier1Delta: 0,
-        winsVsTier2PlusDelta: 0,
-        effectiveWinsVsTier1Delta: 0,
-        effectiveWinsVsTier2PlusDelta: 0,
-        matchCreatedAt: 1,
-        matchCompletedAt: 2,
-        updatedAt: 2,
-      })
-
-      const result = await pruneAbandonedMatches(db, kv, { staleCancelledMs: 0, allowDirectTerminalWriteForTests: true })
+      const result = await pruneAbandonedMatches(db, kv, { now: 2 * 24 * 60 * 60 * 1000, allowDirectTerminalWriteForTests: true })
 
       expect(result.removedMatchIds).toEqual([])
       expect(await db.select().from(matches).where(eq(matches.id, matchId))).toHaveLength(1)

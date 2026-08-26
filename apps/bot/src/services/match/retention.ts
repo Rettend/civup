@@ -1,6 +1,6 @@
 export const STALE_DRAFTING_MATCH_TIMEOUT_MS = 12 * 60 * 60 * 1000 // 12 hours
 export const STALE_ACTIVE_MATCH_TIMEOUT_MS = 36 * 60 * 60 * 1000 // 36 hours
-export const STALE_CANCELLED_MATCH_TIMEOUT_MS = 6 * 60 * 60 * 1000 // 6 hours
+export const STALE_CANCELLED_MATCH_TIMEOUT_MS = 180 * 24 * 60 * 60 * 1000 // 180 days
 
 const LOBBY_RETENTION_GRACE_MS = 12 * 60 * 60 * 1000 // 12 hours
 
