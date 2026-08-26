@@ -45,7 +45,8 @@ cloudflared.dev.yml
 .DS_Store
 
 # Other
-docs
+docs/*
+!docs/TEAM-TOURNAMENT-PLAN.md
 
 # preset build artifacts
 mods/dist/
