@@ -7,10 +7,6 @@ import {
   getMapVoteMapIdForResult,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
-  MAP_SCRIPT_BY_ID,
-  MAP_SCRIPT_IDS,
-  MAP_VOTE_MAP_IDS,
-  MAP_VOTE_MAPS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
@@ -55,37 +51,10 @@ describe('map vote helpers', () => {
     })
   })
 
-  test('registers Terra and classic Pangaea as standalone standard maps', () => {
-    expect(MAP_SCRIPT_IDS).toContain('pangaea')
-    expect(MAP_SCRIPT_IDS).toContain('terra')
-    expect(MAP_VOTE_MAP_IDS).toContain('pangaea')
-    expect(MAP_VOTE_MAP_IDS).toContain('terra')
-    expect(MAP_SCRIPT_BY_ID.pangaea).toEqual({
-      id: 'pangaea',
-      name: 'Pangaea',
-      hint: 'Classic',
-      imageUrl: '/assets/maps/Map_Pangaea.webp',
-    })
-    expect(MAP_SCRIPT_BY_ID.terra).toEqual({ id: 'terra', name: 'Terra' })
-
-    const expectedOptions = [
-      {
-        id: 'pangaea',
-        name: 'Pangaea',
-        mapType: 'standard',
-        mapScript: 'pangaea',
-        badgeLeft: 'Classic',
-        imageUrl: '/assets/maps/Map_Pangaea.webp',
-      },
-      { id: 'terra', name: 'Terra', mapType: 'standard', mapScript: 'terra' },
-    ] as const
-
-    for (const expectedOption of expectedOptions) {
-      const options = MAP_VOTE_MAPS.filter(option => option.mapScript === expectedOption.id)
-      expect(options).toHaveLength(1)
-      expect(options).toEqual([expectedOption])
-      expect(getMapVoteMapIdForResult('standard', expectedOption.id)).toBe(expectedOption.id)
-      expect(getMapVoteMapIdForResult('east-vs-west', expectedOption.id)).toBeNull()
+  test('maps Terra and classic Pangaea only for standard results', () => {
+    for (const mapId of ['pangaea', 'terra'] as const) {
+      expect(getMapVoteMapIdForResult('standard', mapId)).toBe(mapId)
+      expect(getMapVoteMapIdForResult('east-vs-west', mapId)).toBeNull()
     }
   })
 

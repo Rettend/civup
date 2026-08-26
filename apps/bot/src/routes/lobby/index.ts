@@ -2209,7 +2209,7 @@ function openLobbyMessageRenderStateChanged(
     || (before.draftConfig.closed === true) !== (after.draftConfig.closed === true)
 }
 
-export function isDebugLobbyFillEnabled(
+function isDebugLobbyFillEnabled(
   enabled: string | undefined,
 ): boolean {
   return isTruthyEnvFlag(enabled)

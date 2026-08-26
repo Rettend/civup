@@ -1,6 +1,6 @@
 import { players, scopedPlayerRatings as playerRatings } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles as previewRankedRolesSource, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles as syncRankedRolesSource } from '../../src/services/ranked/role-sync.ts'
+import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles as previewRankedRolesSource, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles as syncRankedRolesSource } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createStatsContext } from '../../src/services/stats/context.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -1200,8 +1200,9 @@ describe('ranked role sync service', () => {
     const guildIds = await listRankedRoleConfigGuildIds(kv)
     expect(guildIds).toEqual(['guild-a', 'guild-b'])
 
-    const dirty = await markRankedRolesDirty(kv, GUILD_ID, 'match-report:abc')
-    expect(dirty.reason).toBe('match-report:abc')
+    await markRankedRolesDirty(kv, GUILD_ID, 'match-report:abc')
+    expect(await getRankedRolesDirtyState(kv, GUILD_ID)).toEqual(expect.objectContaining({ reason: 'match-report:abc' }))
+    expect(await getRankedRolesDirtyState(kv, 'guild-a')).toBeNull()
   })
 })
 

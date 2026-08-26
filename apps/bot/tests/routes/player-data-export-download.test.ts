@@ -35,21 +35,31 @@ describe('player data export download', () => {
 
   test('stores only the latest workbook per administrator and streams it externally', async () => {
     const harness = await createHarness()
-    const first = await harness.request('POST', '32', 'first-workbook')
+    const first = await harness.request('POST', '32', 'first-workbook', 'admin-one', 'admin-one-old.xlsx')
     expect(first.status).toBe(200)
-    expect(await first.json()).toEqual({ ok: true, filename: 'export-2026-07-15.xlsx', size: 14 })
+    expect(await first.json()).toEqual({ ok: true, filename: 'admin-one-old.xlsx', size: 14 })
 
-    const second = await harness.request('POST', '32', 'second-workbook')
+    const second = await harness.request('POST', '32', 'second-workbook', 'admin-one', 'admin-one-latest.xlsx')
     expect(second.status).toBe(200)
-    expect(harness.bucket.putCount).toBe(2)
-    expect(harness.bucket.keys()).toEqual(['player-data-exports/admin-user/latest.xlsx'])
+    const otherAdmin = await harness.request('POST', '32', 'other-workbook', 'admin-two', 'admin-two-latest.xlsx')
+    expect(otherAdmin.status).toBe(200)
+    expect(harness.bucket.putCount).toBe(3)
+    expect(new Set(harness.bucket.keys())).toEqual(new Set([
+      'player-data-exports/admin-one/latest.xlsx',
+      'player-data-exports/admin-two/latest.xlsx',
+    ]))
 
-    const download = await harness.request('GET', '32')
-    expect(download.status).toBe(200)
-    expect(download.headers.get('Content-Type')).toBe(CONTENT_TYPE)
-    expect(download.headers.get('Content-Disposition')).toContain('export-2026-07-15.xlsx')
-    expect(download.headers.get('Cache-Control')).toBe('private, no-store')
-    expect(await download.text()).toBe('second-workbook')
+    const firstAdminDownload = await harness.request('GET', '32', undefined, 'admin-one')
+    expect(firstAdminDownload.status).toBe(200)
+    expect(firstAdminDownload.headers.get('Content-Type')).toBe(CONTENT_TYPE)
+    expect(firstAdminDownload.headers.get('Content-Disposition')).toContain('admin-one-latest.xlsx')
+    expect(firstAdminDownload.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(await firstAdminDownload.text()).toBe('second-workbook')
+
+    const secondAdminDownload = await harness.request('GET', '32', undefined, 'admin-two')
+    expect(secondAdminDownload.status).toBe(200)
+    expect(secondAdminDownload.headers.get('Content-Disposition')).toContain('admin-two-latest.xlsx')
+    expect(await secondAdminDownload.text()).toBe('other-workbook')
   })
 
   test('reports unavailable storage without accepting the workbook', async () => {
@@ -79,14 +89,14 @@ async function createHarness(withBucket = true) {
 
   return {
     bucket,
-    request(method: 'GET' | 'POST', permissions?: string, body?: string) {
+    request(method: 'GET' | 'POST', permissions?: string, body?: string, userId = 'admin-user', filename = 'export-2026-07-15.xlsx') {
       const url = method === 'POST'
-        ? 'https://bot.test/api/uploads/player-data-export?filename=export-2026-07-15.xlsx'
+        ? `https://bot.test/api/uploads/player-data-export?filename=${encodeURIComponent(filename)}`
         : 'https://bot.test/api/uploads/player-data-export/download'
       const headers = new Headers()
       if (permissions !== undefined) {
         headers.set(CIVUP_INTERNAL_SECRET_HEADER, SECRET)
-        headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, 'admin-user')
+        headers.set(CIVUP_ACTIVITY_USER_ID_HEADER, userId)
         headers.set(CIVUP_ACTIVITY_GUILD_ID_HEADER, GUILD_ID)
         headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, permissions)
       }

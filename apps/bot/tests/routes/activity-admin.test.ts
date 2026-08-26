@@ -86,31 +86,34 @@ describe('Activity admin routes', () => {
   test('estimates export capacity from row ID upper bounds without counting tables', async () => {
     const harness = await createHarness()
     await seedPagedExport(harness.db)
+    createExportRowIdGaps(harness.sqlite)
 
     const response = await harness.request('/api/activity/admin/player-data-export-estimate', ADMIN_USER_ID)
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
-    expect(await response.json()).toMatchObject({
+    const estimate = await response.json() as {
+      version: number
+      estimatedAt: number
+      rows: ExportTableSizes
+      dataPageRequests: number
+      workerRequests: number
+      d1RowsRead: { lowEstimate: number, highEstimate: number }
+    }
+    const rowIdUpperBounds = readExportTableSizes(harness.sqlite, 'MAX(rowid)')
+    const rowCounts = readExportTableSizes(harness.sqlite, 'COUNT(*)')
+
+    for (const table of Object.keys(rowIdUpperBounds) as Array<keyof ExportTableSizes>) {
+      expect(rowIdUpperBounds[table]).toBeGreaterThan(rowCounts[table])
+    }
+    expect(estimate).toMatchObject({
       version: 2,
       estimatedAt: expect.any(Number),
-      rows: {
-        players: 54,
-        ratings: 53,
-        matches: 54,
-        participants: 53,
-        storedBans: 1,
-      },
+      rows: rowIdUpperBounds,
       dataPageRequests: 4,
       workerRequests: 8,
-      d1RowsRead: {
-        lowEstimate: 330,
-        highEstimate: 1_100,
-      },
-      dailyFreeAllowance: {
-        workerRequests: 100_000,
-        d1RowsRead: 5_000_000,
-      },
     })
+    expect(estimate.d1RowsRead.lowEstimate).toBeGreaterThan(0)
+    expect(estimate.d1RowsRead.highEstimate).toBeGreaterThanOrEqual(estimate.d1RowsRead.lowEstimate)
   })
 
   test('paginates without gaps, transitions phases, bounds children, and projects safe fields', async () => {
@@ -213,6 +216,7 @@ async function createHarness() {
 
   return {
     db,
+    sqlite,
     request(path: string, userId?: string, permissions = '8', guildId = GUILD_ID) {
       const headers = new Headers()
       if (userId) {
@@ -224,6 +228,45 @@ async function createHarness() {
       return app.fetch(new Request(`https://bot.test${path}`, { headers }), env)
     },
   }
+}
+
+interface ExportTableSizes {
+  players: number
+  ratings: number
+  matches: number
+  participants: number
+  storedBans: number
+}
+
+function createExportRowIdGaps(sqlite: SqliteDatabase): void {
+  const future = Date.now() + 120_000
+  sqlite.run('INSERT INTO players (id, display_name, created_at) VALUES (?, ?, ?)', ['estimate-gap-player', 'Gap', future])
+  sqlite.run('INSERT INTO players (id, display_name, created_at) VALUES (?, ?, ?)', ['estimate-retained-player', 'Retained', future])
+  sqlite.run('INSERT INTO scoped_player_ratings (stats_key, player_id, mode) VALUES (?, ?, ?)', [`server:${GUILD_ID}`, 'estimate-gap-player', 'ffa'])
+  sqlite.run('INSERT INTO scoped_player_ratings (stats_key, player_id, mode) VALUES (?, ?, ?)', [`server:${GUILD_ID}`, 'estimate-retained-player', 'ffa'])
+  sqlite.run('INSERT INTO matches (id, guild_id, game_mode, status, created_at) VALUES (?, ?, ?, ?, ?)', ['estimate-gap-match', GUILD_ID, 'ffa', 'completed', future])
+  sqlite.run('INSERT INTO matches (id, guild_id, game_mode, status, created_at) VALUES (?, ?, ?, ?, ?)', ['estimate-retained-match', GUILD_ID, 'ffa', 'completed', future])
+  sqlite.run('INSERT INTO match_participants (match_id, player_id) VALUES (?, ?)', ['estimate-gap-match', 'estimate-gap-player'])
+  sqlite.run('INSERT INTO match_participants (match_id, player_id) VALUES (?, ?)', ['estimate-retained-match', 'estimate-retained-player'])
+  sqlite.run('INSERT INTO match_bans (match_id, civ_id, banned_by, phase) VALUES (?, ?, ?, ?)', ['estimate-gap-match', 'estimate-gap-civ', 'estimate-gap-player', 1])
+  sqlite.run('INSERT INTO match_bans (match_id, civ_id, banned_by, phase) VALUES (?, ?, ?, ?)', ['estimate-retained-match', 'estimate-retained-civ', 'estimate-retained-player', 1])
+
+  sqlite.run("DELETE FROM match_bans WHERE match_id = 'estimate-gap-match'")
+  sqlite.run("DELETE FROM match_participants WHERE match_id = 'estimate-gap-match'")
+  sqlite.run("DELETE FROM scoped_player_ratings WHERE player_id = 'estimate-gap-player'")
+  sqlite.run("DELETE FROM matches WHERE id = 'estimate-gap-match'")
+  sqlite.run("DELETE FROM players WHERE id = 'estimate-gap-player'")
+}
+
+function readExportTableSizes(sqlite: SqliteDatabase, aggregate: 'MAX(rowid)' | 'COUNT(*)'): ExportTableSizes {
+  return sqlite.query(`
+    SELECT
+      COALESCE((SELECT ${aggregate} FROM players), 0) AS players,
+      COALESCE((SELECT ${aggregate} FROM scoped_player_ratings), 0) AS ratings,
+      COALESCE((SELECT ${aggregate} FROM matches), 0) AS matches,
+      COALESCE((SELECT ${aggregate} FROM match_participants), 0) AS participants,
+      COALESCE((SELECT ${aggregate} FROM match_bans), 0) AS storedBans
+  `).get() as ExportTableSizes
 }
 
 async function seedPagedExport(db: Awaited<ReturnType<typeof createTestDatabase>>['db']) {

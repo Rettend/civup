@@ -563,10 +563,16 @@ describe('DraftSetupPage UI', () => {
       ],
     }} />)
 
-    expect(screen.getByText('Captains')).toBeTruthy()
-    expect(screen.getByText('Unassigned players')).toBeTruthy()
+    const captains = screen.getByText('Captains').parentElement!
+    const unassigned = screen.getByText('Unassigned players').parentElement!
     expect(screen.getByText('Team A captain')).toBeTruthy()
     expect(screen.getByText('Team B captain')).toBeTruthy()
+    expect(captains.textContent).toContain('Host Player')
+    expect(captains.textContent).toContain('Player 2')
+    expect(captains.textContent).not.toContain('Player 3')
+    expect(unassigned.textContent).toContain('Player 3')
+    expect(unassigned.textContent).toContain('Player 4')
+    expect(unassigned.textContent).not.toContain('Host Player')
   })
 
   test('hides invalid ban and pick config while hidden draft is on', () => {

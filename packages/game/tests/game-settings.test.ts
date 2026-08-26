@@ -72,7 +72,11 @@ describe('game settings profiles', () => {
       },
       autoBannedLeaderIds: [],
     })
-    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE)).toBe(true)
+    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE.base)).toBe(true)
+    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE.base.mphTimer)).toBe(true)
+    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE.base.competitiveBans)).toBe(true)
+    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE.base.autoBannedLeaderIds)).toBe(true)
+    expect(Object.isFrozen(OFFICIAL_PPL_CIV_LOBBY_SETTINGS_PROFILE.modeOverrides)).toBe(true)
   })
 
   test('falls back legacy applied settings to a detached Official copy', () => {

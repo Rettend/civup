@@ -109,7 +109,13 @@ describe('lobby arrange helpers', () => {
 
     expect('error' in result).toBe(false)
     if ('error' in result) return
-    expect(result.slots).toEqual(['p1', 'p2', 'p3', 'p4'])
+    const teamA = result.slots.slice(0, 2)
+    const teamB = result.slots.slice(2, 4)
+    expect(new Set(result.slots)).toEqual(new Set(['p1', 'p2', 'p3', 'p4']))
+    expect(
+      (teamA.includes('p1') && teamA.includes('p2'))
+      || (teamB.includes('p1') && teamB.includes('p2')),
+    ).toBe(true)
   })
 
   test('randomize shuffles FFA seats including gaps', () => {
