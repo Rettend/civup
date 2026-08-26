@@ -1,12 +1,12 @@
 import type { RandomSource } from './random.ts'
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from './types.ts'
+import { DEFAULT_BANS_PER_TEAM, normalizeBansPerTeam } from './constants.ts'
 import { getLeaderIds } from './leader-registry.ts'
-import { defaultPlayerCount } from './mode.ts'
+import { defaultPlayerCount, teamCount } from './mode.ts'
 import { competitiveTierNumber } from './types.ts'
 
 const VERSUS_DEFAULT_LEADER_POOL_BASE = 24
 const VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER = 4
-const VERSUS_MINIMUM_LEADER_POOL_BASE = 6
 
 const FFA_DEFAULT_PLAYER_FLOOR = 6
 const FFA_DEFAULT_POOL_MULTIPLIER = 6
@@ -42,11 +42,11 @@ export function getDefaultLeaderPoolSize(
 }
 
 /** Smallest playable leader pool for a finished draft lobby. */
-export function getMinimumLeaderPoolSize(mode: GameMode, playerCount: number): number {
+export function getMinimumLeaderPoolSize(mode: GameMode, playerCount: number, bansPerTeam: number = DEFAULT_BANS_PER_TEAM): number {
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
 
   if (mode === 'ffa') return normalizedPlayerCount * FFA_MINIMUM_POOL_MULTIPLIER
-  return VERSUS_MINIMUM_LEADER_POOL_BASE + normalizedPlayerCount
+  return normalizedPlayerCount + teamCount(mode, normalizedPlayerCount) * normalizeBansPerTeam(bansPerTeam)
 }
 
 /** Resolve a lobby override against the mode default. */

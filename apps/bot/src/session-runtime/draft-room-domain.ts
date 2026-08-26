@@ -23,6 +23,7 @@ import {
   isRedDeathFormatId,
   MAP_VOTE_REVEAL_DURATION_MS,
   MAP_VOTE_VOTING_DURATION_MS,
+  normalizeBansPerTeam,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
   createTeamFormationState,
@@ -177,6 +178,7 @@ export function createRoomRecord(
   const format = draftFormatMap.get(config.formatId)
   const normalizedConfig = {
     ...config,
+    bansPerTeam: normalizeBansPerTeam(config.bansPerTeam),
     teamFormationEnabled: config.teamFormationEnabled === true
       && !!format
       && isCaptainPickSupported(format.gameMode, state.seats.length),

@@ -154,17 +154,33 @@ describe('draft formats', () => {
     expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1, 3], [2]])
   })
 
-  test('1v1 visible bans alternate one at a time before picks', () => {
+  test('1v1 visible bans use the same mirrored batches as team drafts', () => {
     const steps = getDraftFormat('1v1', { blindBans: false, seatCount: 2 }).getSteps(2)
-    expect(steps.slice(0, 6)).toEqual([
-      { action: 'ban', seats: [0], count: 1, timer: 45 },
-      { action: 'ban', seats: [1], count: 1, timer: 45 },
-      { action: 'ban', seats: [0], count: 1, timer: 45 },
-      { action: 'ban', seats: [1], count: 1, timer: 45 },
-      { action: 'ban', seats: [0], count: 1, timer: 45 },
-      { action: 'ban', seats: [1], count: 1, timer: 45 },
-    ])
-    expect(steps.slice(6).map(step => step.seats)).toEqual([[0], [1]])
+    expect(steps.slice(0, 4)).toEqual(visibleTeamBanSteps)
+    expect(steps.slice(4).map(step => step.seats)).toEqual([[0], [1]])
+  })
+
+  test('visible bans stay within four mirrored phases for one to five bans per team', () => {
+    const format = getDraftFormat('3v3', { blindBans: false, seatCount: 6 })
+    const expectedCounts = [
+      [1, 1],
+      [1, 1, 1, 1],
+      [1, 2, 2, 1],
+      [2, 2, 2, 2],
+      [2, 3, 3, 2],
+    ]
+
+    for (const bansPerTeam of [1, 2, 3, 4, 5]) {
+      const banSteps = format.getSteps(6, { bansPerTeam }).filter(step => step.action === 'ban')
+      expect(banSteps.map(step => step.count)).toEqual(expectedCounts[bansPerTeam - 1])
+      expect(banSteps.filter(step => step.seats !== 'all' && step.seats[0] === 0).reduce((total, step) => total + step.count, 0)).toBe(bansPerTeam)
+      expect(banSteps.filter(step => step.seats !== 'all' && step.seats[0] === 1).reduce((total, step) => total + step.count, 0)).toBe(bansPerTeam)
+    }
+  })
+
+  test('blind team bans use the configured count in one simultaneous phase', () => {
+    expect(default3v3.getSteps(6, { bansPerTeam: 5 })[0]).toEqual({ action: 'ban', seats: [0, 1], count: 5, timer: 120 })
+    expect(default2v2.getSteps(8, { bansPerTeam: 4 })[0]).toEqual({ action: 'ban', seats: [0, 1, 2, 3], count: 4, timer: 120 })
   })
 
   test('3v3 visible bans follow the 122112 captain sequence before picks', () => {
@@ -247,9 +263,7 @@ describe('draft formats', () => {
 describe('formatDraftStepLabel', () => {
   test('labels visible duel bans by team side', () => {
     const steps = getDraftFormat('1v1', { blindBans: false, seatCount: 2 }).getSteps(2)
-    expect(steps.slice(0, 6).map(step => formatDraftStepLabel(step, duelSeats))).toEqual([
-      'BAN T1',
-      'BAN T2',
+    expect(steps.slice(0, 4).map(step => formatDraftStepLabel(step, duelSeats))).toEqual([
       'BAN T1',
       'BAN T2',
       'BAN T1',

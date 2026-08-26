@@ -146,6 +146,25 @@ describe('PlayerSlot UI', () => {
     expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('flex-row')
   })
 
+  test('lays out more than three blind-ban previews in two columns', () => {
+    uiMockState.draftState = createActiveDraftState({
+      formatId: '2v2',
+      steps: [{ action: 'ban', seats: [0, 1], count: 5, timer: 120 }],
+    })
+    uiMockState.draftPreviewBans[0] = [
+      TEST_LEADER_IDS.abrahamLincoln,
+      TEST_LEADER_IDS.johnCurtin,
+      TEST_LEADER_IDS.montezuma,
+      TEST_LEADER_IDS.hammurabi,
+      TEST_LEADER_IDS.saladinVizier,
+    ]
+
+    render(() => <PlayerSlot seatIndex={0} />)
+
+    expect(screen.getAllByTestId('slot-ban-preview')).toHaveLength(5)
+    expect(screen.getByTestId('slot-ban-preview-stack').className).toContain('grid-cols-2')
+  })
+
   test('keeps ban preview images mounted when another seat submits bans', () => {
     uiMockState.draftState = createActiveDraftState({
       formatId: '2v2',

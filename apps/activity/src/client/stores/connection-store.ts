@@ -83,6 +83,7 @@ export interface LobbySnapshot {
     mapVoteEnabled: boolean
     teamFormationEnabled: boolean
     blindBans: boolean
+    bansPerTeam: number
     blindPicks: boolean
     simultaneousPick: boolean
     permanentAlly: boolean
@@ -761,6 +762,7 @@ export async function updateLobbyConfig(
     mapVoteEnabled?: boolean
     teamFormationEnabled?: boolean
     blindBans?: boolean
+    bansPerTeam?: number
     blindPicks?: boolean
     simultaneousPick?: boolean
     permanentAlly?: boolean
@@ -791,6 +793,7 @@ export async function updateLobbyConfig(
       mapVoteEnabled: draftConfig.mapVoteEnabled,
       teamFormationEnabled: draftConfig.teamFormationEnabled,
       blindBans: draftConfig.blindBans,
+      bansPerTeam: draftConfig.bansPerTeam,
       blindPicks: draftConfig.blindPicks,
       simultaneousPick: draftConfig.simultaneousPick,
       permanentAlly: draftConfig.permanentAlly,

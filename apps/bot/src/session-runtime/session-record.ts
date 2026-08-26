@@ -1,7 +1,7 @@
 import type { AppliedCivLobbySettings, CompetitiveTier, GameMode, QueueEntry, SourceGuildIdentity } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import { normalizeAppliedCivLobbySettings } from '@civup/game'
+import { normalizeAppliedCivLobbySettings, normalizeBansPerTeam } from '@civup/game'
 
 export type SessionId = string
 export type SessionPhase = 'open' | 'draft' | 'swap' | 'active' | 'reported' | 'cancelled'
@@ -346,6 +346,7 @@ export function buildLobbyDraftConfigFromSessionConfig(config: SessionConfig): L
     mapVoteEnabled: config.mapVoteEnabled,
     teamFormationEnabled: config.teamFormationEnabled === true,
     blindBans: config.blindBans,
+    bansPerTeam: normalizeBansPerTeam(config.bansPerTeam),
     simultaneousPick: config.simultaneousPick,
     permanentAlly: config.redDeath || config.civBlitz ? false : config.permanentAlly !== false,
     redDeath: config.redDeath,
@@ -374,6 +375,7 @@ export function parseStoredSessionDirectoryConfig(raw: string, mode: GameMode): 
         mapVoteEnabled: parsed.mapVoteEnabled === true,
         teamFormationEnabled: parsed.teamFormationEnabled === true,
         blindBans: parsed.blindBans !== false,
+        bansPerTeam: normalizeBansPerTeam(parsed.bansPerTeam),
         blindPicks: parsed.blindPicks === true,
         simultaneousPick: parsed.simultaneousPick === true,
         permanentAlly: mode === 'ffa' && parsed.redDeath !== true && parsed.civBlitz !== true ? parsed.permanentAlly !== false : false,

@@ -22,6 +22,7 @@ export interface DraftRuntimeConfig {
   formatId: string
   seats: DraftSeat[]
   civPool: string[]
+  bansPerTeam?: number
   dealOptionsSize?: number
   civBlitz?: boolean
   civBlitzOptionCount?: number

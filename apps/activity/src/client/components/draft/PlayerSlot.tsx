@@ -258,13 +258,14 @@ export function PlayerSlot(props: PlayerSlotProps) {
     if ((s.submissions[props.seatIndex]?.length ?? 0) >= step.count) return []
 
     const leaders: Leader[] = []
-    for (const civId of (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, 3)) {
+    for (const civId of (draftStore.previews.bans[props.seatIndex] ?? []).slice(0, step.count)) {
       try { leaders.push(getLeader(civId, draftStore.leaderDataVersion)) }
       catch { }
     }
     return leaders
   })
   const hasBanPreview = (): boolean => banPreviewLeaders().length > 0
+  const hasTwoColumnBanPreview = (): boolean => banPreviewLeaders().length > 3
   const [banPreviewHorizontal, setBanPreviewHorizontal] = createSignal(isMobileLayout())
   const activeStepDurationSeconds = () => {
     const s = state()
@@ -656,8 +657,10 @@ export function PlayerSlot(props: PlayerSlotProps) {
         <div
           data-testid="slot-ban-preview-stack"
           class={cn(
-            'pointer-events-none absolute inset-0 flex opacity-50 saturate-85',
-            banPreviewHorizontal() ? 'flex-row' : 'flex-col',
+            'pointer-events-none absolute inset-0 opacity-50 saturate-85',
+            hasTwoColumnBanPreview()
+              ? 'grid grid-cols-2 auto-rows-fr'
+              : cn('flex', banPreviewHorizontal() ? 'flex-row' : 'flex-col'),
           )}
         >
           <For each={banPreviewLeaders()}>
@@ -668,7 +671,8 @@ export function PlayerSlot(props: PlayerSlotProps) {
                 alt={`Ban preview: ${entry.name}`}
                 title={`${entry.name} - ${entry.civilization}`}
                 class={cn(
-                  'h-full min-h-0 min-w-0 flex-1 object-cover',
+                  'h-full min-h-0 min-w-0 object-cover',
+                  hasTwoColumnBanPreview() ? 'w-full' : 'flex-1',
                   props.compact ? 'object-[center_20%]' : 'object-[center_15%]',
                 )}
                 animate

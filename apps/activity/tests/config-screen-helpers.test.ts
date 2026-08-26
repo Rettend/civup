@@ -161,6 +161,7 @@ function createLobbySnapshot(
       leaderDataVersion: 'live',
       mapVoteEnabled: true,
       blindBans: true,
+      bansPerTeam: 3,
       blindPicks: false,
       simultaneousPick: false,
       redDeath: false,

@@ -3,6 +3,7 @@ import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/a
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../src/services/lobby/keys.ts'
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
+import { normalizeDraftConfig } from '../../src/services/lobby/normalize.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
 import { createStatsContext } from '../../src/services/stats/context.ts'
@@ -12,6 +13,12 @@ import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const GUILD_ID = '111111111111111111'
 const STATS_CONTEXT = createStatsContext(GUILD_ID, GUILD_ID)
+
+test('defaults and normalizes bans per team', () => {
+  expect(normalizeDraftConfig(undefined).bansPerTeam).toBe(3)
+  expect(normalizeDraftConfig({ bansPerTeam: 5 }).bansPerTeam).toBe(5)
+  expect(normalizeDraftConfig({ bansPerTeam: 9 }).bansPerTeam).toBe(3)
+})
 
 test('keeps supported map vote config for ffa lobbies', async () => {
   const { kv } = createTrackedKv()

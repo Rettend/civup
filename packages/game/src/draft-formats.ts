@@ -1,24 +1,40 @@
-import type { DraftFormat, DraftSeat, DraftStep, GameMode } from './types.ts'
+import type { DraftFormat, DraftFormatOptions, DraftSeat, DraftStep, GameMode } from './types.ts'
+import { normalizeBansPerTeam } from './constants.ts'
 import { CIV_BLITZ_CATEGORIES } from './types.ts'
 
 const FULL_ROSTER_3V3_PICK_ORDER = [0, 1, 3, 2, 4, 5] as const
 const FULL_ROSTER_4V4_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7] as const
 const FULL_ROSTER_5V5_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 8, 9] as const
 const FULL_ROSTER_6V6_PICK_ORDER = [0, 1, 3, 2, 5, 4, 6, 7, 9, 8, 10, 11] as const
-const TEAM_BAN_STEP: DraftStep = { action: 'ban', seats: [0, 1], count: 3, timer: 120 }
 const FFA_BAN_STEP: DraftStep = { action: 'ban', seats: 'all', count: 2, timer: 120 }
 const PICK_STEP_TIMER = 60
 const SEQUENTIAL_BAN_STEP_TIMER = 45
-const VISIBLE_TEAM_BAN_STEPS: DraftStep[] = [
-  { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-  { action: 'ban', seats: [1], count: 2, timer: SEQUENTIAL_BAN_STEP_TIMER },
-  { action: 'ban', seats: [0], count: 2, timer: SEQUENTIAL_BAN_STEP_TIMER },
-  { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-]
 
 type VisibleBanGameMode = Extract<GameMode, '1v1' | '2v2' | '3v3' | '4v4' | '5v5' | '6v6'>
 type BlindPickGameMode = GameMode
 type TeamGameMode = Exclude<VisibleBanGameMode, '1v1'>
+
+function createBlindBanStep(seats: number[] | 'all', bansPerTeam: number): DraftStep {
+  return { action: 'ban', seats, count: bansPerTeam, timer: 120 }
+}
+
+function createVisibleTeamBanSteps(bansPerTeam: number): DraftStep[] {
+  if (bansPerTeam === 1) {
+    return [
+      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
+      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
+    ]
+  }
+
+  const smallerBatch = Math.floor(bansPerTeam / 2)
+  const largerBatch = Math.ceil(bansPerTeam / 2)
+  return [
+    { action: 'ban', seats: [0], count: smallerBatch, timer: SEQUENTIAL_BAN_STEP_TIMER },
+    { action: 'ban', seats: [1], count: largerBatch, timer: SEQUENTIAL_BAN_STEP_TIMER },
+    { action: 'ban', seats: [0], count: largerBatch, timer: SEQUENTIAL_BAN_STEP_TIMER },
+    { action: 'ban', seats: [1], count: smallerBatch, timer: SEQUENTIAL_BAN_STEP_TIMER },
+  ]
+}
 
 function createSinglePickStep(seat: number): DraftStep {
   return { action: 'pick', seats: [seat], count: 1, timer: PICK_STEP_TIMER }
@@ -89,13 +105,8 @@ function configUsesDoubleTimer(gameMode: TeamGameMode): boolean {
   return gameMode === '2v2'
 }
 
-function createCaptainBanStep(captainCount: number): DraftStep {
-  return {
-    action: 'ban',
-    seats: Array.from({ length: captainCount }, (_, seatIndex) => seatIndex),
-    count: 3,
-    timer: 120,
-  }
+function createCaptainBanStep(captainCount: number, bansPerTeam: number): DraftStep {
+  return createBlindBanStep(Array.from({ length: captainCount }, (_, seatIndex) => seatIndex), bansPerTeam)
 }
 
 function supportsVisibleCaptainBans(gameMode: string, seatCount?: number): gameMode is VisibleBanGameMode {
@@ -121,7 +132,7 @@ function createTeamFormat(config: {
   name: string
   gameMode: TeamGameMode
   getPickOrder: (seatCount: number) => readonly number[]
-  getBanStep?: (seatCount: number) => DraftStep
+  getBanStep?: (seatCount: number, bansPerTeam: number) => DraftStep
   blindBans?: boolean
   blindPicks?: boolean
 }): DraftFormat {
@@ -131,12 +142,13 @@ function createTeamFormat(config: {
     gameMode: config.gameMode,
     redDeath: false,
     blindBans: config.blindBans ?? true,
-    getSteps(seatCount: number): DraftStep[] {
+    getSteps(seatCount: number, options?: DraftFormatOptions): DraftStep[] {
       const pickOrder = config.getPickOrder(seatCount)
+      const bansPerTeam = normalizeBansPerTeam(options?.bansPerTeam)
       return [
         ...(config.blindBans === false
-          ? VISIBLE_TEAM_BAN_STEPS
-          : [(config.getBanStep ?? (() => TEAM_BAN_STEP))(seatCount)]),
+          ? createVisibleTeamBanSteps(bansPerTeam)
+          : [(config.getBanStep ?? ((_seatCount, count) => createBlindBanStep([0, 1], count)))(seatCount, bansPerTeam)]),
         ...(config.blindPicks
           ? [createBlindPickStep(pickOrder)]
           : createTeamPickSteps(config.gameMode, seatCount, pickOrder)),
@@ -194,8 +206,8 @@ export const default2v2 = createTeamFormat({
   getPickOrder(seatCount) {
     return createTwoVTwoPickOrder(seatCount)
   },
-  getBanStep(seatCount) {
-    return seatCount <= 4 ? TEAM_BAN_STEP : createCaptainBanStep(getTwoVTwoTeamCount(seatCount))
+  getBanStep(seatCount, bansPerTeam) {
+    return seatCount <= 4 ? createBlindBanStep([0, 1], bansPerTeam) : createCaptainBanStep(getTwoVTwoTeamCount(seatCount), bansPerTeam)
   },
 })
 
@@ -315,14 +327,9 @@ const visibleBan1v1: DraftFormat = {
   gameMode: '1v1',
   redDeath: false,
   blindBans: false,
-  getSteps(_seatCount: number): DraftStep[] {
+  getSteps(_seatCount: number, options?: DraftFormatOptions): DraftStep[] {
     return [
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
+      ...createVisibleTeamBanSteps(normalizeBansPerTeam(options?.bansPerTeam)),
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 1, timer: 60 },
     ]
@@ -335,14 +342,9 @@ const visibleBan1v1BlindPick: DraftFormat = {
   gameMode: '1v1',
   redDeath: false,
   blindBans: false,
-  getSteps(_seatCount: number): DraftStep[] {
+  getSteps(_seatCount: number, options?: DraftFormatOptions): DraftStep[] {
     return [
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [0], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
-      { action: 'ban', seats: [1], count: 1, timer: SEQUENTIAL_BAN_STEP_TIMER },
+      ...createVisibleTeamBanSteps(normalizeBansPerTeam(options?.bansPerTeam)),
       createBlindPickStep([0, 1]),
     ]
   },
@@ -386,9 +388,9 @@ export const default1v1: DraftFormat = {
   gameMode: '1v1',
   redDeath: false,
   blindBans: true,
-  getSteps(_seatCount: number): DraftStep[] {
+  getSteps(_seatCount: number, options?: DraftFormatOptions): DraftStep[] {
     return [
-      { action: 'ban', seats: 'all', count: 3, timer: 120 },
+      createBlindBanStep('all', normalizeBansPerTeam(options?.bansPerTeam)),
       { action: 'pick', seats: [0], count: 1, timer: 60 },
       { action: 'pick', seats: [1], count: 1, timer: 60 },
     ]
@@ -401,9 +403,9 @@ export const default1v1BlindPick: DraftFormat = {
   gameMode: '1v1',
   redDeath: false,
   blindBans: true,
-  getSteps(_seatCount: number): DraftStep[] {
+  getSteps(_seatCount: number, options?: DraftFormatOptions): DraftStep[] {
     return [
-      { action: 'ban', seats: 'all', count: 3, timer: 120 },
+      createBlindBanStep('all', normalizeBansPerTeam(options?.bansPerTeam)),
       createBlindPickStep([0, 1]),
     ]
   },
@@ -417,8 +419,8 @@ export const default2v2BlindPick = createTeamFormat({
   getPickOrder(seatCount) {
     return createTwoVTwoPickOrder(seatCount)
   },
-  getBanStep(seatCount) {
-    return seatCount <= 4 ? TEAM_BAN_STEP : createCaptainBanStep(getTwoVTwoTeamCount(seatCount))
+  getBanStep(seatCount, bansPerTeam) {
+    return seatCount <= 4 ? createBlindBanStep([0, 1], bansPerTeam) : createCaptainBanStep(getTwoVTwoTeamCount(seatCount), bansPerTeam)
   },
 })
 

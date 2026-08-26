@@ -2,7 +2,7 @@ import type { Accessor, JSX } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
+import { hasBetaLeaderData, inferGameMode, MAX_BANS_PER_TEAM, MIN_BANS_PER_TEAM, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
@@ -26,6 +26,14 @@ interface ConfigRowDefinition {
   renderReadonly?: (state: DraftSetupConfigState) => JSX.Element
 }
 
+const BANS_PER_TEAM_OPTIONS = Array.from(
+  { length: MAX_BANS_PER_TEAM - MIN_BANS_PER_TEAM + 1 },
+  (_, index) => {
+    const value = MIN_BANS_PER_TEAM + index
+    return { value: String(value), label: String(value) }
+  },
+)
+
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
     key: 'banMode',
@@ -40,6 +48,22 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     ),
     renderReadonly: state => (
       <ReadonlyTimerRow label="Ban" value={state.derived.formattedBlindBans().toUpperCase()} valueClass="text-accent" />
+    ),
+  },
+  {
+    key: 'bansPerTeam',
+    when: state => state.isLobbyMode() && state.lobbyMode() !== 'ffa' && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && !state.derived.isRedDeath(),
+    renderEditable: state => (
+      <Dropdown
+        label="Bans / Team"
+        value={String(state.derived.optimisticDraftConfig().bansPerTeam)}
+        disabled={state.lobbyActionPending() || state.pending.bansPerTeam()}
+        options={BANS_PER_TEAM_OPTIONS}
+        onChange={value => void state.actions.changeBansPerTeam(Number(value))}
+      />
+    ),
+    renderReadonly: state => (
+      <ReadonlyTimerRow label="Bans / Team" value={String(state.derived.draftConfig().bansPerTeam)} />
     ),
   },
   {

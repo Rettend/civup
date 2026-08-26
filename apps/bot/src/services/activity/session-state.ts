@@ -633,6 +633,7 @@ async function buildLobbySnapshotFromSessionParts(
       mapVoteEnabled: session.config.mapVoteEnabled,
       teamFormationEnabled: session.config.teamFormationEnabled === true,
       blindBans: session.config.blindBans,
+      bansPerTeam: session.config.bansPerTeam,
       blindPicks: session.config.blindPicks,
       simultaneousPick: session.config.simultaneousPick,
       permanentAlly: session.config.permanentAlly,

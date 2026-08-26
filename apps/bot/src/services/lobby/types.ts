@@ -16,6 +16,7 @@ export interface LobbyDraftConfig {
   mapVoteEnabled: boolean
   teamFormationEnabled: boolean
   blindBans: boolean
+  bansPerTeam: number
   simultaneousPick: boolean
   permanentAlly: boolean
   redDeath: boolean

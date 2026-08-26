@@ -221,10 +221,12 @@ describe('draft runtime config', () => {
     const result = buildDraftRuntimeConfig('2v2', baseFfaEntries, {
       matchId: 'session-team-order',
       hostId: 'p1',
+      bansPerTeam: 5,
     })
 
     expect(result.seats.map(seat => seat.playerId)).toEqual(['p1', 'p3', 'p2', 'p4'])
     expect(result.seats.map(seat => seat.team)).toEqual([0, 1, 0, 1])
+    expect(result.config.bansPerTeam).toBe(5)
     expect(result.config.randomDraft).toBe(false)
   })
 

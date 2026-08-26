@@ -1,6 +1,6 @@
 import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, isCaptainPickSupported, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, DEFAULT_BANS_PER_TEAM, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, isCaptainPickSupported, normalizeAppliedCivLobbySettings, normalizeAvailableLeaderDataVersion, normalizeBansPerTeam, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { nanoid } from 'nanoid'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
@@ -13,6 +13,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   mapVoteEnabled: false,
   teamFormationEnabled: false,
   blindBans: true,
+  bansPerTeam: DEFAULT_BANS_PER_TEAM,
   simultaneousPick: false,
   permanentAlly: true,
   redDeath: false,
@@ -97,6 +98,7 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     mapVoteEnabled: normalizeMapVoteFlag(config?.mapVoteEnabled),
     teamFormationEnabled: config?.teamFormationEnabled === true,
     blindBans: normalizeBlindBans(config?.blindBans),
+    bansPerTeam: normalizeBansPerTeam(config?.bansPerTeam),
     simultaneousPick: normalizeSimultaneousPick(config?.simultaneousPick),
     permanentAlly: normalizePermanentAlly(config?.permanentAlly),
     redDeath: civBlitz ? false : normalizeRedDeath(config?.redDeath),
@@ -199,6 +201,7 @@ export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boole
     && a.mapVoteEnabled === b.mapVoteEnabled
     && a.teamFormationEnabled === b.teamFormationEnabled
     && a.blindBans === b.blindBans
+    && a.bansPerTeam === b.bansPerTeam
     && a.simultaneousPick === b.simultaneousPick
     && a.permanentAlly === b.permanentAlly
     && a.redDeath === b.redDeath

@@ -343,8 +343,8 @@ export function leaderPoolSizePlaceholder(mode: GameMode, playerCount: number, t
   return String(getDefaultLeaderPoolSize(mode, resolveLeaderPoolDefaultPlayerCount(mode, playerCount, targetSize)))
 }
 
-export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number): number {
-  return getMinimumLeaderPoolSize(mode, playerCount)
+export function getLeaderPoolSizeMinimum(mode: GameMode, playerCount: number, bansPerTeam?: number): number {
+  return getMinimumLeaderPoolSize(mode, playerCount, bansPerTeam)
 }
 
 export function getLeaderPoolSizeMaximum(version: LeaderDataVersion): number {

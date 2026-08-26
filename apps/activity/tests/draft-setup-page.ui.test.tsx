@@ -47,6 +47,7 @@ function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patc
       leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : lobby.draftConfig.leaderDataVersion,
       mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
       blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : lobby.draftConfig.blindBans,
+      bansPerTeam: typeof patch.bansPerTeam === 'number' ? patch.bansPerTeam : lobby.draftConfig.bansPerTeam,
       blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : lobby.draftConfig.blindPicks,
       simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
       permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
@@ -515,6 +516,7 @@ describe('DraftSetupPage UI', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Captain Pick' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Random draft' }))
     fireEvent.click(screen.getByRole('switch', { name: 'Duplicate leaders' }))
+    await selectDropdownOption('Bans / Team', '4')
 
     const leadersInput = screen.getByRole('spinbutton', { name: 'Leaders' })
     fireEvent.input(leadersInput, { target: { value: '12' } })
@@ -528,10 +530,11 @@ describe('DraftSetupPage UI', () => {
     fireEvent.input(pickInput, { target: { value: '3' } })
     fireEvent.blur(pickInput)
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBeGreaterThanOrEqual(7))
+    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBeGreaterThanOrEqual(8))
 
     const patches = storeSpies.updateLobbyConfig.mock.calls.map(call => call[3] as Record<string, unknown>)
     expect(patches.some(patch => patch.blindBans === false)).toBe(true)
+    expect(patches.some(patch => patch.bansPerTeam === 4)).toBe(true)
     expect(patches.some(patch => patch.teamFormationEnabled === true)).toBe(true)
     expect(patches.some(patch => patch.randomDraft === true)).toBe(true)
     expect(patches.some(patch => patch.duplicateFactions === true)).toBe(true)
@@ -973,6 +976,7 @@ describe('DraftSetupPage UI', () => {
     expectTextInOrder(configCard, [
       'Lobby Open',
       'Ban',
+      'Bans / Team',
       'Pick',
       'Map Vote',
       'Min rank',

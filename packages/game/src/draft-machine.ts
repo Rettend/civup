@@ -55,10 +55,11 @@ export function createDraft(
     dealOptionsSize?: number
     duplicateFactions?: boolean
     civBlitz?: CivBlitzCreateOptions
+    bansPerTeam?: number
   } = {},
 ): DraftState {
   const seatCount = seats.length
-  const steps = format.getSteps(seatCount)
+  const steps = format.getSteps(seatCount, { bansPerTeam: options.bansPerTeam })
 
   return {
     matchId,

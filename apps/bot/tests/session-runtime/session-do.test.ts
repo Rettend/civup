@@ -482,6 +482,16 @@ describe('SessionDO open session commands', () => {
       CIVUP_SECRET: 'secret',
     } as any)
     const matchId = 'legacy-active-match'
+    const legacySteps = [
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+      { action: 'ban', seats: [0], count: 1, timer: 45 },
+      { action: 'ban', seats: [1], count: 1, timer: 45 },
+      { action: 'pick', seats: [0], count: 1, timer: 60 },
+      { action: 'pick', seats: [1], count: 1, timer: 60 },
+    ]
 
     try {
       await db.insert(players).values([
@@ -494,7 +504,10 @@ describe('SessionDO open session commands', () => {
         status: 'active',
         isOld: false,
         seasonId: null,
-        draftData: JSON.stringify({ completedAt: 1_700_000_050_000 }),
+        draftData: JSON.stringify({
+          completedAt: 1_700_000_050_000,
+          state: { formatId: 'default-1v1-visible-bans', steps: legacySteps },
+        }),
         createdAt: 1_700_000_000_000,
         completedAt: null,
       })
@@ -502,7 +515,11 @@ describe('SessionDO open session commands', () => {
         { matchId, playerId: 'p1', team: 0, civId: 'greece-gorgo', placement: null },
         { matchId, playerId: 'p2', team: 1, civId: 'babylon-hammurabi', placement: null },
       ])
-      storage.set('session-record', buildActiveSessionRecord({ id: matchId, matchId }))
+      storage.set('session-record', buildActiveSessionRecord({
+        id: matchId,
+        matchId,
+        config: { ...DEFAULT_DRAFT_CONFIG, blindBans: false, minRole: null, maxRole: null },
+      }))
 
       const token = await createSessionAccessToken('secret', {
         userId: 'p1',
@@ -528,14 +545,16 @@ describe('SessionDO open session commands', () => {
         seatIndex: 0,
         state: {
           matchId,
+          formatId: 'default-1v1-visible-bans',
           status: 'complete',
+          steps: legacySteps,
           seats: [
             { playerId: 'p1', displayName: 'Player One', team: 0 },
             { playerId: 'p2', displayName: 'Player Two', team: 1 },
           ],
           picks: [
-            { seatIndex: 0, civId: 'greece-gorgo' },
-            { seatIndex: 1, civId: 'babylon-hammurabi' },
+            { seatIndex: 0, civId: 'greece-gorgo', stepIndex: 6 },
+            { seatIndex: 1, civId: 'babylon-hammurabi', stepIndex: 7 },
           ],
         },
       })

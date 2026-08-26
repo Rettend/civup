@@ -32,6 +32,7 @@ import {
   isRedDeathFormatId,
   MAP_VOTE_MAP_IDS,
   MAX_TIMER_SECONDS,
+  normalizeBansPerTeam,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   processDraftInput,
@@ -195,7 +196,9 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     const civBlitzRegistry = config.civBlitz === true || isCivBlitzFormatId(config.formatId)
       ? getCivBlitzRegistry(config.leaderDataVersion ?? 'live', { excludeBbgExpanded: config.civBlitzExcludeBbgExpanded !== false })
       : null
+    const bansPerTeam = normalizeBansPerTeam(config.bansPerTeam)
     const baseState = createDraft(config.matchId, format, config.seats, config.civPool, {
+      bansPerTeam,
       dealOptionsSize: config.dealOptionsSize,
       duplicateFactions: config.duplicateFactions,
       civBlitz: civBlitzRegistry
@@ -208,9 +211,10 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         : undefined,
     })
     const mapVoteEnabled = normalizeMapVoteEnabled(format.gameMode, config.mapVoteEnabled === true, { redDeath: format.redDeath })
-    const state = withWaitingTimerConfig(format, baseState, config.timerConfig)
+    const state = withWaitingTimerConfig(format, baseState, config.timerConfig, bansPerTeam)
     const nextConfig: DraftRuntimeConfig = {
       ...config,
+      bansPerTeam,
       randomDraft: config.hiddenDraft === true ? false : config.randomDraft,
       mapVoteEnabled,
     }
@@ -765,7 +769,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
         }
 
         const timerConfig = { banTimerSeconds, pickTimerSeconds }
-        const nextState = withWaitingTimerConfig(format, state, timerConfig)
+        const nextState = withWaitingTimerConfig(format, state, timerConfig, config.bansPerTeam)
         const nextConfig = {
           ...config,
           timerConfig,
@@ -1820,11 +1824,12 @@ function json(data: unknown, status = 200): Response {
 }
 
 function withWaitingTimerConfig(
-  format: { getSteps: (seatCount: number) => DraftState['steps'] },
+  format: { getSteps: (seatCount: number, options?: { bansPerTeam?: number }) => DraftState['steps'] },
   state: DraftState,
   timerConfig: DraftRuntimeConfig['timerConfig'] | undefined,
+  bansPerTeam: DraftRuntimeConfig['bansPerTeam'],
 ): DraftState {
-  const baseSteps = format.getSteps(state.seats.length)
+  const baseSteps = format.getSteps(state.seats.length, { bansPerTeam })
   const configuredSteps = applyTimerConfigToSteps(baseSteps, timerConfig)
   return {
     ...state,

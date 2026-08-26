@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import type { AppliedCivLobbySettings, CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry, TeamFormationPlayerStats } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getEligibleLeaderIds, isCaptainPickSupported, isTeamMode, normalizeAppliedCivLobbySettings, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveCivLobbySettings, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
+import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getEligibleLeaderIds, isCaptainPickSupported, isTeamMode, normalizeAppliedCivLobbySettings, normalizeBansPerTeam, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveCivLobbySettings, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 import { buildLobbyPartyPlayerIds } from '../lobby/team-guilds.ts'
@@ -20,6 +20,7 @@ export interface CreateDraftRuntimeOptions {
   hostId: string
   leaderDataVersion?: LeaderDataVersion
   blindBans?: boolean
+  bansPerTeam?: number
   blindPicks?: boolean
   simultaneousPick?: boolean
   permanentAlly?: boolean
@@ -70,6 +71,7 @@ export function buildDraftRuntimeConfig(
     ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
     : (!civBlitz && options.duplicateFactions === true)
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
+  const bansPerTeam = normalizeBansPerTeam(options.bansPerTeam)
   const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, civBlitz, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
   const leaderDataVersion = options.leaderDataVersion ?? 'live'
   const civBlitzExcludeBbgExpanded = options.civBlitzExcludeBbgExpanded !== false
@@ -103,6 +105,7 @@ export function buildDraftRuntimeConfig(
     formatId: format.id,
     seats: runtimeSeats,
     civPool,
+    bansPerTeam,
     dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
     civBlitz,
     civBlitzOptionCount,

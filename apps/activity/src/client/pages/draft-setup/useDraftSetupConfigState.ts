@@ -2,7 +2,7 @@ import type { Accessor, Setter } from 'solid-js'
 import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './helpers'
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isCaptainPickSupported, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
+import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, DEFAULT_BANS_PER_TEAM, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isCaptainPickSupported, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
@@ -43,6 +43,7 @@ function sameLobbyDraftConfig(a: LobbyEditableDraftConfig, b: LobbyEditableDraft
     && a.mapVoteEnabled === b.mapVoteEnabled
     && a.teamFormationEnabled === b.teamFormationEnabled
     && a.blindBans === b.blindBans
+    && a.bansPerTeam === b.bansPerTeam
     && a.blindPicks === b.blindPicks
     && a.simultaneousPick === b.simultaneousPick
     && a.permanentAlly === b.permanentAlly
@@ -82,6 +83,7 @@ export function useDraftSetupConfigState(input: {
   const [mapVoteEnabledPending, setMapVoteEnabledPending] = createSignal(false)
   const [teamFormationEnabledPending, setTeamFormationEnabledPending] = createSignal(false)
   const [blindBansPending, setBlindBansPending] = createSignal(false)
+  const [bansPerTeamPending, setBansPerTeamPending] = createSignal(false)
   const [blindPicksPending, setBlindPicksPending] = createSignal(false)
   const [simultaneousPickPending, setSimultaneousPickPending] = createSignal(false)
   const [permanentAllyPending, setPermanentAllyPending] = createSignal(false)
@@ -198,6 +200,7 @@ export function useDraftSetupConfigState(input: {
       mapVoteEnabled: false,
       teamFormationEnabled: false,
       blindBans: true,
+      bansPerTeam: DEFAULT_BANS_PER_TEAM,
       blindPicks: false,
       simultaneousPick: state()?.formatId === 'default-ffa-simultaneous',
       permanentAlly: true,
@@ -227,7 +230,7 @@ export function useDraftSetupConfigState(input: {
 
   const leaderPoolPlayerCount = () => input.currentLobby()?.entries.filter(entry => entry != null).length ?? state()?.seats.length ?? 0
   const leaderPoolValidationCount = () => input.currentLobby()?.targetSize ?? state()?.seats.length ?? leaderPoolPlayerCount()
-  const leaderPoolMinimumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MIN_OPTION_COUNT : getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount())
+  const leaderPoolMinimumValue = () => isCivBlitzLobbyMode() ? CIV_BLITZ_MIN_OPTION_COUNT : getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount(), optimisticDraftConfig().bansPerTeam)
   const effectiveCivBlitzExcludeBbgExpanded = () => civBlitzExcludeBbgExpandedOverride() ?? optimisticDraftConfig().civBlitzExcludeBbgExpanded
   const leaderPoolMaximumValue = () => isCivBlitzLobbyMode()
     ? getCivBlitzOptionCountMaximum(optimisticDraftConfig().leaderDataVersion, { excludeBbgExpanded: effectiveCivBlitzExcludeBbgExpanded() })
@@ -387,6 +390,7 @@ export function useDraftSetupConfigState(input: {
               mapVoteEnabled: nextConfig.mapVoteEnabled,
               teamFormationEnabled: nextConfig.teamFormationEnabled,
               blindBans: nextConfig.blindBans,
+              bansPerTeam: nextConfig.bansPerTeam,
               blindPicks: nextConfig.blindPicks,
               simultaneousPick: nextConfig.simultaneousPick,
               permanentAlly: nextConfig.permanentAlly,
@@ -463,6 +467,7 @@ export function useDraftSetupConfigState(input: {
         mapVoteEnabled: current.mapVoteEnabled,
         teamFormationEnabled: current.teamFormationEnabled,
         blindBans: current.blindBans,
+        bansPerTeam: current.bansPerTeam,
         blindPicks: current.blindPicks,
         simultaneousPick: current.simultaneousPick,
         permanentAlly: current.permanentAlly,
@@ -524,6 +529,16 @@ export function useDraftSetupConfigState(input: {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || blindBansPending() || !supportsBlindBansToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().blindBans, setBlindBansPending, current => ({ ...current, blindBans: checked }))
   }
+  const handleBansPerTeamChange = async (value: number) => {
+    if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || bansPerTeamPending() || input.lobbyMode() === 'ffa') return
+    await commitToggleConfigChange(value, optimisticDraftConfig().bansPerTeam, setBansPerTeamPending, current => ({
+      ...current,
+      bansPerTeam: value,
+      leaderPoolSize: current.leaderPoolSize == null
+        ? null
+        : Math.max(current.leaderPoolSize, getLeaderPoolSizeMinimum(input.lobbyMode(), leaderPoolValidationCount(), value)),
+    }))
+  }
   const handleBlindPicksChange = async (checked: boolean) => {
     if (!input.isLobbyMode() || isTournamentLobby() || !input.amHost() || input.lobbyActionPending() || blindPicksPending() || !supportsBlindPicksToggle()) return
     await commitToggleConfigChange(checked, optimisticDraftConfig().blindPicks, setBlindPicksPending, current => ({ ...current, blindPicks: checked, simultaneousPick: checked ? false : current.simultaneousPick }))
@@ -551,6 +566,7 @@ export function useDraftSetupConfigState(input: {
         mapVoteEnabled: checked ? false : current.mapVoteEnabled,
         teamFormationEnabled: current.teamFormationEnabled,
         blindBans: checked ? true : current.blindBans,
+        bansPerTeam: current.bansPerTeam,
         blindPicks: current.blindPicks,
         simultaneousPick: checked ? false : current.simultaneousPick,
         permanentAlly: checked ? false : current.permanentAlly,
@@ -777,6 +793,7 @@ export function useDraftSetupConfigState(input: {
     mapVoteEnabled: mapVoteEnabledPending,
     teamFormationEnabled: teamFormationEnabledPending,
     blindBans: blindBansPending,
+    bansPerTeam: bansPerTeamPending,
     blindPicks: blindPicksPending,
     simultaneousPick: simultaneousPickPending,
     permanentAlly: permanentAllyPending,
@@ -855,6 +872,7 @@ export function useDraftSetupConfigState(input: {
     changeMapVoteEnabled: handleMapVoteEnabledChange,
     changeTeamFormationEnabled: handleTeamFormationEnabledChange,
     changeBlindBans: handleBlindBansChange,
+    changeBansPerTeam: handleBansPerTeamChange,
     changeBlindPicks: handleBlindPicksChange,
     changeSimultaneousPick: handleSimultaneousPickChange,
     changePermanentAlly: handlePermanentAllyChange,
@@ -889,6 +907,7 @@ export function buildEditableLobbyDraftConfig(lobby: LobbySnapshot): LobbyEditab
     mapVoteEnabled: lobby.draftConfig.mapVoteEnabled,
     teamFormationEnabled: lobby.draftConfig.teamFormationEnabled,
     blindBans: lobby.draftConfig.blindBans,
+    bansPerTeam: lobby.draftConfig.bansPerTeam,
     blindPicks: lobby.draftConfig.blindPicks,
     simultaneousPick: lobby.draftConfig.simultaneousPick,
     permanentAlly: inferGameMode(lobby.mode) === 'ffa' && !lobby.draftConfig.redDeath ? lobby.draftConfig.permanentAlly !== false : false,

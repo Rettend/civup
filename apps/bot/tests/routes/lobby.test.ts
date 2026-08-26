@@ -1266,6 +1266,7 @@ describe('lobby routes', () => {
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
       blindBans: true,
+      bansPerTeam: 3,
       blindPicks: false,
       simultaneousPick: false,
       permanentAlly: false,
@@ -2329,6 +2330,7 @@ describe('lobby routes', () => {
     })) as typeof fetch
 
     expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(true)
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.bansPerTeam).toBe(3)
 
     const response = await app.request('/api/lobby/3v3/config', {
       method: 'POST',
@@ -2337,14 +2339,24 @@ describe('lobby routes', () => {
         userId: 'host',
         lobbyId: lobby.id,
         blindBans: false,
+        bansPerTeam: 5,
       }),
     }, buildEnv(kv))
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
-      draftConfig: { blindBans: false },
+      draftConfig: { blindBans: false, bansPerTeam: 5 },
     })
     expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(false)
+    expect((await getLobbyById(kv, lobby.id))?.draftConfig.bansPerTeam).toBe(5)
+
+    const invalidResponse = await app.request('/api/lobby/3v3/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, bansPerTeam: 6 }),
+    }, buildEnv(kv))
+    expect(invalidResponse.status).toBe(400)
+    await expect(invalidResponse.json()).resolves.toEqual({ error: 'bansPerTeam must be an integer between 1 and 5' })
   })
 
   test('lobby config preserves blind bans false for 1v1', async () => {

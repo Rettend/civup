@@ -44,6 +44,13 @@ describe('leader pool helpers', () => {
     expect(getMinimumLeaderPoolSize('ffa', 7)).toBe(21)
   })
 
+  test('includes each team configured bans in versus minimums', () => {
+    expect(getMinimumLeaderPoolSize('1v1', 2, 5)).toBe(12)
+    expect(getMinimumLeaderPoolSize('3v3', 6, 1)).toBe(8)
+    expect(getMinimumLeaderPoolSize('2v2', 8, 4)).toBe(24)
+    expect(getMinimumLeaderPoolSize('ffa', 7, 5)).toBe(21)
+  })
+
   test('resolves explicit overrides over defaults', () => {
     expect(resolveLeaderPoolSize('2v2', 4, null)).toBe(40)
     expect(resolveLeaderPoolSize('2v2', 4, 28)).toBe(28)

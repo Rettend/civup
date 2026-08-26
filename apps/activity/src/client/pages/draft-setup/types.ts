@@ -19,6 +19,7 @@ export interface LobbyEditableDraftConfig {
   mapVoteEnabled: boolean
   teamFormationEnabled: boolean
   blindBans: boolean
+  bansPerTeam: number
   blindPicks: boolean
   simultaneousPick: boolean
   permanentAlly: boolean

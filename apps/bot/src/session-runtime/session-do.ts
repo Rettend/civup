@@ -10,7 +10,7 @@ import type { StoredMapVoteState } from './map-vote-room-state.ts'
 import type { ActiveSessionRecord, DraftSessionRecord, OpenSessionRecord, SessionConfig, SessionDraftStartSyncState, SessionLifecycleSyncState, SessionProjectionState, SessionProjectionSyncPayload, SessionProjectionSyncState, SessionRecord, SessionRoster, SessionTerminalSyncCommand, SessionTerminalSyncState } from './session-record.ts'
 import type { Connection, ConnectionContext, WSMessage } from './socket-server.ts'
 import { createDb, matchBans, matches, matchParticipants } from '@civup/db'
-import { allFactionIds, buildTeamFormationSnapshot, canStartWithPlayerCount, civLobbySettingsProfilesEqual, createTeamFormationState, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeMapVoteSelection, remapDraftSteps, resolveCivLobbySettings, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
+import { allFactionIds, buildTeamFormationSnapshot, canStartWithPlayerCount, civLobbySettingsProfilesEqual, createTeamFormationState, EMPTY_MAP_VOTE_SNAPSHOT, EMPTY_TEAM_FORMATION_STATE, formatModeLabel, GAME_MODES, getCurrentStep, getDraftFormat, getEligibleLeaderIds, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isTeamMode, MAP_VOTE_REVEAL_DURATION_MS, MAP_VOTE_VOTING_DURATION_MS, normalizeAppliedCivLobbySettings, normalizeBansPerTeam, normalizeMapVoteSelection, remapDraftSteps, resolveCivLobbySettings, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
 import { PUBLIC_RATING_START } from '@civup/rating'
 import { CIVUP_ACTIVITY_GUILD_ID_HEADER, CIVUP_ACTIVITY_USER_ID_HEADER, createSessionAccessToken, isAuthorizedInternalRequest, resolveApprovedDiscordGuildConfiguration, verifySessionAccessToken } from '@civup/utils'
 import { eq, sql } from 'drizzle-orm'
@@ -1216,6 +1216,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       hostId: record.hostId,
       leaderDataVersion: record.config.leaderDataVersion,
       blindBans: record.config.blindBans,
+      bansPerTeam: record.config.bansPerTeam,
       blindPicks: record.config.blindPicks,
       simultaneousPick: record.config.simultaneousPick,
       permanentAlly: record.config.permanentAlly,
@@ -1453,6 +1454,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         hostId: record.hostId,
         leaderDataVersion: record.config.leaderDataVersion,
         blindBans: record.config.blindBans,
+        bansPerTeam: record.config.bansPerTeam,
         blindPicks: record.config.blindPicks,
         simultaneousPick: record.config.simultaneousPick,
         permanentAlly: record.config.permanentAlly,
@@ -3080,7 +3082,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       blindPicks: record.config.blindPicks,
       seatCount: seats.length,
     })
-    const steps = format.getSteps(seats.length)
+    const storedState = runtimeData.state
+    const steps = Array.isArray(storedState?.steps) && storedState.steps.length > 0
+      ? storedState.steps
+      : format.getSteps(seats.length, { bansPerTeam: record.config.bansPerTeam })
     const seatIndexByPlayerId = new Map(seats.map((seat, index) => [seat.playerId, index]))
     const picks: DraftSelection[] = seats.flatMap((seat, index) => {
       const civId = participantByPlayerId.get(seat.playerId)?.civId
@@ -3099,7 +3104,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return {
       state: {
         matchId: record.matchId,
-        formatId: format.id,
+        formatId: typeof storedState?.formatId === 'string' ? storedState.formatId : format.id,
         seats,
         steps,
         currentStepIndex: Math.max(steps.length - 1, 0),
@@ -3120,10 +3125,11 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
   private async loadCompletedActiveRuntimeData(matchId: string): Promise<{
     completedAt: number | null
+    state: DraftState | null
     participants: Array<{ playerId: string, team: number | null, civId: string | null }>
     bans: Array<{ civId: string, bannedBy: string, phase: number }>
   }> {
-    if (!this.env.DB) return { completedAt: null, participants: [], bans: [] }
+    if (!this.env.DB) return { completedAt: null, state: null, participants: [], bans: [] }
 
     try {
       const db = createDb(this.env.DB)
@@ -3135,13 +3141,14 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       const match = matchRows[0]
       return {
         completedAt: match?.completedAt ?? parseDraftCompletedAt(match?.draftData) ?? null,
+        state: getDraftStateFromDraftData(match?.draftData ?? null),
         participants,
         bans,
       }
     }
     catch (error) {
       console.warn('[session-do] failed to load completed active runtime data', { matchId }, error)
-      return { completedAt: null, participants: [], bans: [] }
+      return { completedAt: null, state: null, participants: [], bans: [] }
     }
   }
 
@@ -3562,6 +3569,7 @@ function buildRepeatDraftAvailabilityCacheKey(record: OpenSessionRecord, current
     seats: currentSeats.map(seat => [seat.playerId, seat.team ?? null]),
     config: {
       blindBans: record.config.blindBans,
+      bansPerTeam: record.config.bansPerTeam,
       blindPicks: record.config.blindPicks,
       civBlitz: record.config.civBlitz,
       civBlitzExcludeBbgExpanded: record.config.civBlitzExcludeBbgExpanded,
@@ -3599,6 +3607,7 @@ function isRepeatDraftDataCompatible(
 function isRepeatRuntimeConfigCompatible(record: OpenSessionRecord, state: DraftState, sourceConfig: RoomRecord['config']): boolean {
   return isRepeatDraftFormatCompatible(record, state)
     && (sourceConfig.leaderDataVersion ?? 'live') === record.config.leaderDataVersion
+    && normalizeBansPerTeam(sourceConfig.bansPerTeam) === record.config.bansPerTeam
     && (sourceConfig.hiddenDraft === true) === record.config.hiddenDraft
     && (sourceConfig.civBlitz === true) === record.config.civBlitz
     && (!record.config.civBlitz || (sourceConfig.civBlitzOptionCount ?? undefined) === record.config.civBlitzOptionCount)
@@ -3622,7 +3631,16 @@ function isRepeatDraftFormatCompatible(record: OpenSessionRecord, state: DraftSt
     blindPicks: record.config.blindPicks,
     seatCount: state.seats.length,
   })
-  return state.formatId === format.id
+  if (state.formatId !== format.id) return false
+
+  const expectedBanCounts = format.getSteps(state.seats.length, { bansPerTeam: record.config.bansPerTeam })
+    .filter(step => step.action === 'ban')
+    .map(step => step.count)
+  const sourceBanCounts = state.steps
+    .filter(step => step.action === 'ban')
+    .map(step => step.count)
+  return expectedBanCounts.length === sourceBanCounts.length
+    && expectedBanCounts.every((count, index) => count === sourceBanCounts[index])
 }
 
 function isPermanentAllyFfaConfig(record: OpenSessionRecord): boolean {
@@ -3988,7 +4006,7 @@ function getLeaderPoolSizeError(record: Pick<SessionRecord, 'mode' | 'config' | 
 
   if (leaderPoolSize > maximumSize) return `Only ${maximumSize} eligible leaders remain after automatic exclusions; reduce the leader pool or exclusions.`
 
-  const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
+  const minimumSize = getMinimumLeaderPoolSize(mode, playerCount, config.bansPerTeam)
   if (leaderPoolSize >= minimumSize) return null
 
   if (mode === 'ffa') return `Leaders must be at least ${minimumSize} for a ${playerCount}-player FFA.`

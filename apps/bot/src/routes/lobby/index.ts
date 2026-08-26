@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono'
 import type { Env } from '../../env.ts'
 import type { DeferredOpenLobbyTransferSource, LobbyDraftConfig, LobbyState } from '../../services/lobby/index.ts'
 import { createDb, scopedPlayerRatings as playerRatings } from '@civup/db'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES, CivLobbySettingsValidationError, cloneOfficialAppliedSettings, createAppliedCivLobbySettings, defaultPlayerCount, formatModeLabel, GAME_MODES, getCivBlitzOptionCountMaximum, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_LEADER_POOL_SIZE, normalizeAppliedCivLobbySettings, normalizeCivLobbySettingsProfile, normalizeCompetitiveTierBounds, parseGameMode, resolveCivLobbySettings, toBalanceLeaderboardMode } from '@civup/game'
+import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, CIV_LOBBY_SETTINGS_PROFILE_MAX_BYTES, CivLobbySettingsValidationError, cloneOfficialAppliedSettings, createAppliedCivLobbySettings, DEFAULT_BANS_PER_TEAM, defaultPlayerCount, formatModeLabel, GAME_MODES, getCivBlitzOptionCountMaximum, getLeaderIds, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, isLeaderDataVersion, isUnrankedMode, MAX_BANS_PER_TEAM, MAX_LEADER_POOL_SIZE, MIN_BANS_PER_TEAM, normalizeAppliedCivLobbySettings, normalizeCivLobbySettingsProfile, normalizeCompetitiveTierBounds, parseGameMode, resolveCivLobbySettings, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken, getApprovedDiscordGuildIds, isApprovedDiscordGuildId } from '@civup/utils'
 import { and, eq, inArray } from 'drizzle-orm'
 import { lobbyComponents, lobbyDraftingEmbed } from '../../embeds/match.ts'
@@ -271,7 +271,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, teamFormationEnabled: teamFormationEnabledRaw, blindBans: blindBansRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, civBlitz: civBlitzRaw, civBlitzOptionCount: civBlitzOptionCountRaw, civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId, gameSettings: gameSettingsRaw } = body as {
+    const { userId, banTimerSeconds, pickTimerSeconds, leaderPoolSize: leaderPoolSizeRaw, leaderDataVersion: leaderDataVersionRaw, mapVoteEnabled: mapVoteEnabledRaw, teamFormationEnabled: teamFormationEnabledRaw, blindBans: blindBansRaw, bansPerTeam: bansPerTeamRaw, blindPicks: blindPicksRaw, simultaneousPick: simultaneousPickRaw, permanentAlly: permanentAllyRaw, redDeath: redDeathRaw, dealOptionsSize: dealOptionsSizeRaw, civBlitz: civBlitzRaw, civBlitzOptionCount: civBlitzOptionCountRaw, civBlitzExcludeBbgExpanded: civBlitzExcludeBbgExpandedRaw, randomDraft: randomDraftRaw, hiddenDraft: hiddenDraftRaw, duplicateFactions: duplicateFactionsRaw, closed: closedRaw, minRole: minRoleRaw, maxRole: maxRoleRaw, steamLobbyLink: steamLobbyLinkRaw, targetSize: targetSizeRaw, lobbyId, gameSettings: gameSettingsRaw } = body as {
       userId?: string
       banTimerSeconds?: unknown
       pickTimerSeconds?: unknown
@@ -280,6 +280,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       mapVoteEnabled?: unknown
       teamFormationEnabled?: unknown
       blindBans?: unknown
+      bansPerTeam?: unknown
       blindPicks?: unknown
       simultaneousPick?: unknown
       permanentAlly?: unknown
@@ -355,6 +356,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const hasMapVoteEnabled = Object.prototype.hasOwnProperty.call(body, 'mapVoteEnabled')
     const hasTeamFormationEnabled = Object.prototype.hasOwnProperty.call(body, 'teamFormationEnabled')
     const hasBlindBans = Object.prototype.hasOwnProperty.call(body, 'blindBans')
+    const hasBansPerTeam = Object.prototype.hasOwnProperty.call(body, 'bansPerTeam')
     const hasBlindPicks = Object.prototype.hasOwnProperty.call(body, 'blindPicks')
     const hasSimultaneousPick = Object.prototype.hasOwnProperty.call(body, 'simultaneousPick')
     const hasPermanentAlly = Object.prototype.hasOwnProperty.call(body, 'permanentAlly')
@@ -388,6 +390,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       : undefined
     const parsedBlindBans = hasBlindBans
       ? parseLobbyBlindBans(blindBansRaw)
+      : undefined
+    const parsedBansPerTeam = hasBansPerTeam
+      ? parseLobbyBansPerTeam(bansPerTeamRaw)
       : undefined
     const parsedBlindPicks = hasBlindPicks
       ? parseLobbyBlindPicks(blindPicksRaw)
@@ -433,6 +438,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     if (hasBlindBans && parsedBlindBans === undefined) {
       return c.json({ error: 'blindBans must be true or false' }, 400)
+    }
+    if (hasBansPerTeam && parsedBansPerTeam === undefined) {
+      return c.json({ error: `bansPerTeam must be an integer between ${MIN_BANS_PER_TEAM} and ${MAX_BANS_PER_TEAM}` }, 400)
     }
     if (hasBlindPicks && parsedBlindPicks === undefined) {
       return c.json({ error: 'blindPicks must be true or false' }, 400)
@@ -544,6 +552,9 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     const normalizedBlindBans = hasBlindBans
       ? parsedBlindBans ?? true
       : lobby.draftConfig.blindBans
+    const normalizedBansPerTeam = hasBansPerTeam
+      ? parsedBansPerTeam ?? DEFAULT_BANS_PER_TEAM
+      : lobby.draftConfig.bansPerTeam
     const normalizedBlindPicks = hasBlindPicks
       ? parsedBlindPicks ?? false
       : lobby.draftConfig.blindPicks
@@ -619,7 +630,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
     const minRoleChanged = normalizedMinRole !== lobby.minRole
     const maxRoleChanged = normalizedMaxRole !== lobby.maxRole
-    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasTeamFormationEnabled || hasBlindBans || hasBlindPicks || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasCivBlitz || hasCivBlitzOptionCount || hasCivBlitzExcludeBbgExpanded || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
+    const hasDraftConfigUpdate = hasBanTimerSeconds || hasPickTimerSeconds || hasLeaderPoolSize || hasLeaderDataVersion || hasMapVoteEnabled || hasTeamFormationEnabled || hasBlindBans || hasBansPerTeam || hasBlindPicks || hasSimultaneousPick || hasPermanentAlly || hasRedDeath || hasDealOptionsSize || hasCivBlitz || hasCivBlitzOptionCount || hasCivBlitzExcludeBbgExpanded || hasRandomDraft || hasHiddenDraft || hasDuplicateFactions || hasClosed || hasTargetSize || hasMinRole || hasMaxRole
     const isSteamLobbyLinkOnlyUpdate = hasSteamLobbyLink && !hasDraftConfigUpdate
     const currentUserIsHost = lobby.hostId === auth.identity.userId
     const currentUserIsSlotted = lobby.slots.includes(auth.identity.userId)
@@ -673,6 +684,8 @@ export function registerLobbyRoutes(app: Hono<Env>) {
         teamFormationEnabled: parsedTeamFormationEnabled ?? false,
         hasBlindBans,
         blindBans: parsedBlindBans ?? true,
+        hasBansPerTeam,
+        bansPerTeam: parsedBansPerTeam ?? DEFAULT_BANS_PER_TEAM,
         hasBlindPicks,
         blindPicks: parsedBlindPicks ?? false,
         hasSimultaneousPick,
@@ -745,6 +758,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       normalizedLeaderPoolSize,
       normalizedLeaderDataVersion,
       slots.length,
+      normalizedBansPerTeam,
     )
     if (leaderPoolError) return c.json({ error: leaderPoolError }, 400)
 
@@ -768,6 +782,7 @@ export function registerLobbyRoutes(app: Hono<Env>) {
       mapVoteEnabled: normalizedMapVoteEnabled,
       teamFormationEnabled: normalizedTeamFormationEnabled,
       blindBans: normalizedBlindBans,
+      bansPerTeam: normalizedBansPerTeam,
       blindPicks: normalizedBlindPicks,
       simultaneousPick: normalizedSimultaneousPick,
       permanentAlly: normalizedPermanentAlly,
@@ -1957,6 +1972,7 @@ function lockTournamentDraftConfig(config: LobbyDraftConfig, locked: boolean): L
     mapVoteEnabled: false,
     teamFormationEnabled: false,
     blindBans: true,
+    bansPerTeam: DEFAULT_BANS_PER_TEAM,
     blindPicks: false,
     simultaneousPick: false,
     permanentAlly: false,
@@ -1984,6 +2000,8 @@ function getTournamentLockedConfigError(
     teamFormationEnabled: boolean
     hasBlindBans: boolean
     blindBans: boolean
+    hasBansPerTeam: boolean
+    bansPerTeam: number
     hasBlindPicks: boolean
     blindPicks: boolean
     hasSimultaneousPick: boolean
@@ -2017,6 +2035,7 @@ function getTournamentLockedConfigError(
   if (isLockedValueChange(request.hasMapVoteEnabled, request.mapVoteEnabled, lobby.draftConfig.mapVoteEnabled, false)) return 'Tournament lobbies do not use map vote.'
   if (isLockedValueChange(request.hasTeamFormationEnabled, request.teamFormationEnabled, lobby.draftConfig.teamFormationEnabled, false)) return 'Tournament lobbies do not use Captain Pick.'
   if (isLockedValueChange(request.hasBlindBans, request.blindBans, lobby.draftConfig.blindBans, true)) return 'Tournament blind-ban settings are locked.'
+  if (isLockedValueChange(request.hasBansPerTeam, request.bansPerTeam, lobby.draftConfig.bansPerTeam, DEFAULT_BANS_PER_TEAM)) return 'Tournament ban-count settings are locked.'
   if (isLockedValueChange(request.hasBlindPicks, request.blindPicks, lobby.draftConfig.blindPicks, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasSimultaneousPick, request.simultaneousPick, lobby.draftConfig.simultaneousPick, false)) return 'Tournament pick settings are locked.'
   if (isLockedValueChange(request.hasPermanentAlly, request.permanentAlly, lobby.draftConfig.permanentAlly, false)) return 'Tournament ally settings are locked.'
@@ -2043,6 +2062,7 @@ function getLeaderPoolSizeError(
   leaderPoolSize: number | null,
   leaderDataVersion: 'live' | 'beta',
   playerCount: number,
+  bansPerTeam: number,
 ): string | null {
   if (redDeath) return null
   if (leaderPoolSize == null) return null
@@ -2050,7 +2070,7 @@ function getLeaderPoolSizeError(
   const maximumSize = getMaxLeaderPoolSize(leaderDataVersion)
   if (leaderPoolSize > maximumSize) return `Leaders must be at most ${maximumSize} for this BBG version.`
 
-  const minimumSize = getMinimumLeaderPoolSize(mode, playerCount)
+  const minimumSize = getMinimumLeaderPoolSize(mode, playerCount, bansPerTeam)
   if (leaderPoolSize >= minimumSize) return null
 
   if (mode === 'ffa') {
@@ -2087,6 +2107,12 @@ function parseLobbyPermanentAlly(value: unknown): boolean | undefined {
 
 function parseLobbyBlindBans(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
+}
+
+function parseLobbyBansPerTeam(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= MIN_BANS_PER_TEAM && value <= MAX_BANS_PER_TEAM
+    ? value
+    : undefined
 }
 
 function parseLobbyBlindPicks(value: unknown): boolean | undefined {

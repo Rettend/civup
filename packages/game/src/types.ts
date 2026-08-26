@@ -253,7 +253,11 @@ export interface DraftFormat {
   /** Whether simultaneous bans are hidden until all submitted */
   blindBans: boolean
   /** Generate concrete steps for a given number of seats */
-  getSteps: (seatCount: number) => DraftStep[]
+  getSteps: (seatCount: number, options?: DraftFormatOptions) => DraftStep[]
+}
+
+export interface DraftFormatOptions {
+  bansPerTeam?: number
 }
 
 export interface DraftTimerConfig {
