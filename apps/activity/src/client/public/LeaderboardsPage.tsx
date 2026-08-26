@@ -39,31 +39,16 @@ const CIV_METRIC_LABELS: Record<PublicCivLeaderboardMetric, string> = {
   banned: 'Banned',
 }
 
-type PublicLeaderboardFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-
-interface LeaderboardsPageProps {
-  fetchImpl?: PublicLeaderboardFetch
-  initialPayload?: PublicLeaderboardResponse
-  initialLoadState?: LoadState
-  initialTab?: LeaderboardTab
-  initialPlayerMode?: PublicPlayerLeaderboardMode
-  initialCivScope?: PublicCivLeaderboardScope
-  initialCivMetric?: PublicCivLeaderboardMetric
-  skipInitialRequest?: boolean
-  onInteraction?: (kind: 'tab' | 'player-mode' | 'civ-scope' | 'civ-metric' | 'server', value: string) => void
-}
-
-export default function LeaderboardsPage(props: LeaderboardsPageProps = {}) {
+export default function LeaderboardsPage() {
   const memoizedPayloads = new Map<string, PublicLeaderboardResponse>()
-  if (props.initialPayload) memoizedPayloads.set(props.initialPayload.server.id, props.initialPayload)
-  const [loadState, setLoadState] = createSignal<LoadState>(props.initialLoadState ?? (props.initialPayload ? 'ready' : 'loading'))
-  const [payload, setPayload] = createSignal<PublicLeaderboardResponse | null>(props.initialPayload ?? null)
-  const [catalogPayload, setCatalogPayload] = createSignal<PublicLeaderboardResponse | null>(props.initialPayload ?? null)
-  const [selectedServerId, setSelectedServerId] = createSignal<string | null>(props.initialPayload?.server.id ?? null)
-  const [tab, setTab] = createSignal<LeaderboardTab>(props.initialTab ?? 'players')
-  const [playerMode, setPlayerMode] = createSignal<PublicPlayerLeaderboardMode>(props.initialPlayerMode ?? 'duel')
-  const [civScope, setCivScope] = createSignal<PublicCivLeaderboardScope>(props.initialCivScope ?? 'all')
-  const [civMetric, setCivMetric] = createSignal<PublicCivLeaderboardMetric>(props.initialCivMetric ?? 'picked')
+  const [loadState, setLoadState] = createSignal<LoadState>('loading')
+  const [payload, setPayload] = createSignal<PublicLeaderboardResponse | null>(null)
+  const [catalogPayload, setCatalogPayload] = createSignal<PublicLeaderboardResponse | null>(null)
+  const [selectedServerId, setSelectedServerId] = createSignal<string | null>(null)
+  const [tab, setTab] = createSignal<LeaderboardTab>('players')
+  const [playerMode, setPlayerMode] = createSignal<PublicPlayerLeaderboardMode>('duel')
+  const [civScope, setCivScope] = createSignal<PublicCivLeaderboardScope>('all')
+  const [civMetric, setCivMetric] = createSignal<PublicCivLeaderboardMetric>('picked')
   let requestVersion = 0
 
   const loadServer = async (serverId: string | null, force = false) => {
@@ -82,7 +67,7 @@ export default function LeaderboardsPage(props: LeaderboardsPageProps = {}) {
     try {
       const url = new URL('/api/public/leaderboards', window.location.origin)
       if (serverId) url.searchParams.set('server', serverId)
-      const response = await (props.fetchImpl ?? globalThis.fetch)(url)
+      const response = await globalThis.fetch(url)
       if (!response.ok) throw new Error('Leaderboard request failed')
       const result: unknown = await response.json()
       if (!isPublicLeaderboardResponse(result)) throw new Error('Leaderboard response was invalid')
@@ -111,26 +96,21 @@ export default function LeaderboardsPage(props: LeaderboardsPageProps = {}) {
       : current.sourceSnapshots.civilizations[civScope()]
   })
 
-  if (!props.skipInitialRequest && !props.initialPayload) void loadServer(null)
+  void loadServer(null)
 
   const selectTab = (next: LeaderboardTab) => {
-    props.onInteraction?.('tab', next)
     setTab(next)
   }
   const selectPlayerMode = (next: PublicPlayerLeaderboardMode) => {
-    props.onInteraction?.('player-mode', next)
     setPlayerMode(next)
   }
   const selectCivScope = (next: PublicCivLeaderboardScope) => {
-    props.onInteraction?.('civ-scope', next)
     setCivScope(next)
   }
   const selectCivMetric = (next: PublicCivLeaderboardMetric) => {
-    props.onInteraction?.('civ-metric', next)
     setCivMetric(next)
   }
   const selectServer = (serverId: string) => {
-    props.onInteraction?.('server', serverId)
     void loadServer(serverId)
   }
 
