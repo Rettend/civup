@@ -9,14 +9,8 @@ describe('browser route policy', () => {
     expect(parseBrowserLaunchRoute('/web/uploads')).toBeNull()
   })
 
-  test('keeps one canonical session path across every lifecycle phase', () => {
-    const sessionId = 'canonical/session'
-    for (const phase of ['open', 'draft', 'swap', 'active', 'reported', 'cancelled']) {
-      expect({ phase, path: browserSessionPath(sessionId) }.path).toBe('/web/session/canonical%2Fsession')
-    }
-  })
-
   test('builds a credential-free channel overview path', () => {
+    expect(browserSessionPath('canonical/session')).toBe('/web/session/canonical%2Fsession')
     expect(browserChannelPath('channel/id')).toBe('/web/channel/channel%2Fid')
     const overviewPath = browserChannelPath('channel/id', 'session/id')
     expect(parseBrowserReturnPath(new URL(overviewPath, 'https://activity.example.com').search, 'session')).toBe('/web/session/session%2Fid')

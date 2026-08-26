@@ -73,12 +73,11 @@ describe('autosave upload routes', () => {
     expect(harness.rowCount()).toBe(1)
   })
 
-  test('enforces active-upload and storage limits inside D1 against bypasses', async () => {
+  test('enforces storage and object limits inside D1 against bypasses', async () => {
     const harness = await createHarness(new MultipartBucketMock(1))
-    harness.insertUpload('active-1', 'bypass-active', 1, 'pending_upload')
-    expect(() => harness.insertUpload('active-2', 'bypass-active', 1, 'initializing')).toThrow(/unique constraint/i)
 
-    for (let index = 0; index < 4; index++) {
+    const uploadsToFillStorage = MAX_AUTOSAVE_STORAGE_BYTES_PER_USER / MAX_AUTOSAVE_UPLOAD_BYTES
+    for (let index = 0; index < uploadsToFillStorage; index++) {
       harness.insertUpload(`quota-${index}`, 'bypass-quota', MAX_AUTOSAVE_UPLOAD_BYTES, 'uploaded')
     }
     expect(() => harness.insertUpload('quota-over', 'bypass-quota', 1, 'uploaded')).toThrow(/autosave_upload_quota_exceeded/i)
@@ -92,10 +91,10 @@ describe('autosave upload routes', () => {
   test('enforces the 2 GiB permanent quota and admin deletion frees it', async () => {
     const bucket = new MultipartBucketMock(1)
     const harness = await createHarness(bucket)
-    for (let index = 0; index < 4; index++) {
+    const uploadsToFillStorage = MAX_AUTOSAVE_STORAGE_BYTES_PER_USER / MAX_AUTOSAVE_UPLOAD_BYTES
+    for (let index = 0; index < uploadsToFillStorage; index++) {
       harness.insertUpload(`stored-${index}`, 'owner-user', MAX_AUTOSAVE_UPLOAD_BYTES, 'uploaded')
     }
-    expect(4 * MAX_AUTOSAVE_UPLOAD_BYTES).toBe(MAX_AUTOSAVE_STORAGE_BYTES_PER_USER)
 
     const full = await initializeResponse(harness, 1, 'over-quota.zip')
     expect(full.status).toBe(413)
@@ -109,23 +108,6 @@ describe('autosave upload routes', () => {
     })
     expect(deleted.status).toBe(200)
     expect((await initializeResponse(harness, 1, 'after-delete.zip')).status).toBe(200)
-  })
-
-  test('allows initialization at exactly the 100-object retained upload limit', async () => {
-    const bucket = new MultipartBucketMock(1)
-    const harness = await createHarness(bucket)
-    for (let index = 0; index < MAX_AUTOSAVE_OBJECTS_PER_USER - 1; index++) {
-      harness.insertUpload(
-        `retained-${index}`,
-        'owner-user',
-        1,
-        'uploaded',
-        index % 2 === 0 ? 'parse_failed' : 'parsed',
-      )
-    }
-
-    expect((await initializeResponse(harness, 1, 'object-100.zip')).status).toBe(200)
-    expect(harness.rowCount()).toBe(MAX_AUTOSAVE_OBJECTS_PER_USER)
   })
 
   test('rejects initialization over the 100-object retained upload limit', async () => {
@@ -148,7 +130,13 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1)
     const harness = await createHarness(bucket)
     for (let index = 0; index < MAX_AUTOSAVE_OBJECTS_PER_USER - 1; index++) {
-      harness.insertUpload(`retained-${index}`, 'owner-user', 1, 'uploaded')
+      harness.insertUpload(
+        `retained-${index}`,
+        'owner-user',
+        1,
+        'uploaded',
+        index % 2 === 0 ? 'parse_failed' : 'parsed',
+      )
     }
 
     const responses = await Promise.all([

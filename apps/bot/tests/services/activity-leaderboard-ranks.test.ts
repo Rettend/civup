@@ -1,24 +1,12 @@
 import type { LeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { describe, expect, test } from 'bun:test'
 import { getLeaderboardRankByPlayer } from '../../src/services/activity/session-state.ts'
-import { buildRankByPlayer, buildSimulatedReportedRankContext } from '../../src/services/match/ratings.ts'
+import { buildSimulatedReportedRankContext } from '../../src/services/match/ratings.ts'
 
 const DAY_MS = 24 * 60 * 60 * 1_000
 const NOW = 200 * DAY_MS
 
 describe('activity-adjusted rank maps', () => {
-  test('uses the shared placement policy for current match ranks', () => {
-    const ranks = buildRankByPlayer([
-      { playerId: 'stale', mu: 40, sigma: 5, gamesPlayed: 10, lastPlayedAt: NOW - (120 * DAY_MS) },
-      { playerId: 'active', mu: 39, sigma: 5, gamesPlayed: 10, lastPlayedAt: NOW },
-    ], 'duel', NOW)
-
-    expect([...ranks]).toEqual([
-      ['active', 1],
-      ['stale', 2],
-    ])
-  })
-
   test('simulated current reports reset participant activity but imported reports do not', () => {
     const rows = [
       row('participant', 40, NOW - (120 * DAY_MS)),

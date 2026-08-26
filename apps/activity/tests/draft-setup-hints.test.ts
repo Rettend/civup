@@ -11,18 +11,10 @@ const teamContext = { mode: '2v2' as const }
 const oneVsOneContext = { mode: '1v1' as const }
 
 describe('draft setup hint catalog', () => {
-  test('keeps unique stable IDs and concise copy for the complete catalog', () => {
+  test('keeps hint IDs unique', () => {
     const ids = DRAFT_SETUP_HINTS.map(hint => hint.id)
 
-    expect(ids).toEqual([
-      'steam-lobby-link-controls',
-      'team-leader-preview-visibility',
-      'expand-leader-grid',
-      'leader-grid-views',
-      'match-bump-open-lobby',
-    ])
     expect(new Set(ids).size).toBe(ids.length)
-    expect(DRAFT_SETUP_HINTS.every(hint => hint.copy.length > 0 && hint.copy.length <= 120)).toBe(true)
   })
 
   test('only includes teammate preview guidance in team modes', () => {

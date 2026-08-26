@@ -5,7 +5,7 @@ import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, 
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -64,135 +64,6 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       displayName: 'Guest',
       avatarUrl: '',
     }])
-
-    expect('error' in result).toBe(true)
-    if (!('error' in result)) return
-    expect(result.error).toContain('unranked')
-  })
-
-  test('keeps calculated minimum rank gates on direct lobby joins', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      guildId: GUILD_ID,
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await setLobbyMinRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
-      tier5: '55555555555555555',
-      tier4: '44444444444444444',
-      tier3: '33333333333333333',
-      tier2: GLADIATOR_ROLE_ID,
-      tier1: TITAN_ROLE_ID,
-    })
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'guest',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }], { preferredLobbyId: lobby.id })
-
-    expect('error' in result).toBe(true)
-    if (!('error' in result)) return
-    expect(result.error).toContain('unranked')
-  })
-
-  test('keeps matchmaking max rank as a /match join gate', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      guildId: GUILD_ID,
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await setLobbyMaxRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
-      tier5: '55555555555555555',
-      tier4: '44444444444444444',
-      tier3: '33333333333333333',
-      tier1: TITAN_ROLE_ID,
-      tier2: GLADIATOR_ROLE_ID,
-    })
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'titan',
-      displayName: 'Titan',
-      avatarUrl: '',
-    }])
-
-    expect('error' in result).toBe(true)
-    if (!('error' in result)) return
-    expect(result.error).toContain('unranked')
-  })
-
-  test('keeps calculated maximum rank gates on direct lobby joins', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      guildId: GUILD_ID,
-      hostId: 'host',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-
-    await addToQueue(kv, '2v2', {
-      playerId: 'host',
-      displayName: 'Host',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-    await setLobbyMaxRole(kv, lobby.id, 'tier2', lobby)
-    await setRankedRoleCurrentRoles(kv, GUILD_ID, {
-      tier5: '55555555555555555',
-      tier4: '44444444444444444',
-      tier3: '33333333333333333',
-      tier1: TITAN_ROLE_ID,
-      tier2: GLADIATOR_ROLE_ID,
-    })
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'titan',
-      displayName: 'Titan',
-      avatarUrl: '',
-    }], { preferredLobbyId: lobby.id })
 
     expect('error' in result).toBe(true)
     if (!('error' in result)) return

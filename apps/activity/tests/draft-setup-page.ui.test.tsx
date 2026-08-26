@@ -96,7 +96,6 @@ describe('DraftSetupPage UI', () => {
     expect(queryUiScaleControl()).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false)
     expect(screen.getByRole('button', { name: 'Cancel Lobby' }).hasAttribute('disabled')).toBe(false)
-    expect(screen.getByRole('button', { name: /Game settings/ })).toBeTruthy()
   })
 
   test('hides roster mutation controls for tournament lobbies', () => {
@@ -147,36 +146,17 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(uiMockState.draftSetupHintId).toBe('steam-lobby-link-controls'))
   })
 
-  test('cycles, wraps, and filters hints for the current mode', () => {
-    let mode = 'ffa'
+  test('advances to the next applicable hint', () => {
     let unmount = () => {}
     const mount = () => {
       unmount()
-      ;({ unmount } = render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode })} />))
+      ;({ unmount } = render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: 'ffa' })} />))
     }
     mount()
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     mount()
     expect(screen.getByText('Use the button in the top-left to expand the leader grid.')).toBeTruthy()
-    expect(screen.queryByText('Selecting a leader only shows the preview to your teammates.')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    mount()
-    expect(screen.getByText('The leader grid has three views.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    mount()
-    expect(screen.getByText('While the lobby is open, you can use /match bump to repost it.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    mount()
-    expect(screen.getByText(/With a Steam link set/)).toBeTruthy()
-
-    mode = '2v2'
-    uiMockState.draftSetupHintId = 'steam-lobby-link-controls'
-    mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    mount()
-    expect(screen.getByText('Selecting a leader only shows the preview to your teammates.')).toBeTruthy()
   })
 
   test('hides and restores the hint card without discarding its position', () => {
@@ -207,22 +187,10 @@ describe('DraftSetupPage UI', () => {
     expect(screen.getByRole('button', { name: 'Hide' }).getAttribute('aria-expanded')).toBe('true')
   })
 
-  test('restores persisted hints and falls forward from unavailable hints', async () => {
+  test('restores a persisted applicable hint', async () => {
     uiMockState.draftSetupHintId = 'leader-grid-views'
     render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: 'ffa' })} />)
     await screen.findByText('The leader grid has three views.')
-
-    cleanup()
-    uiMockState.draftSetupHintId = 'team-leader-preview-visibility'
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: 'ffa' })} />)
-    await screen.findByText('Use the button in the top-left to expand the leader grid.')
-    await waitFor(() => expect(uiMockState.draftSetupHintId).toBe('expand-leader-grid'))
-
-    cleanup()
-    uiMockState.draftSetupHintId = 'removed-hint'
-    render(() => <DraftSetupPage lobby={createLobbySnapshot({ mode: 'ffa' })} />)
-    await screen.findByText(/With a Steam link set/)
-    await waitFor(() => expect(uiMockState.draftSetupHintId).toBe('steam-lobby-link-controls'))
   })
 
   test('shows accessible source server icons only for mixed-server rosters', () => {

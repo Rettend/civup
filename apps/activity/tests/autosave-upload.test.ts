@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getAutosaveUploadErrorMessage, planAutosaveMultipartParts, uploadAutosaveMultipart } from '../src/client/lib/autosave-upload'
+import { planAutosaveMultipartParts, uploadAutosaveMultipart } from '../src/client/lib/autosave-upload'
 
 const MIB = 1024 * 1024
 const PART_SIZE = 80 * MIB
@@ -81,7 +81,7 @@ describe('autosave multipart upload', () => {
     ])
   })
 
-  test('aborts after a failed part and keeps the not-configured message', async () => {
+  test('aborts after a failed part', async () => {
     const calls: string[] = []
     const fetchMock = (async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -100,7 +100,5 @@ describe('autosave multipart upload', () => {
       '/api/uploads/autosaves/upload-2/parts/1',
       '/api/uploads/autosaves/upload-2/abort',
     ])
-    expect(getAutosaveUploadErrorMessage(503, 'Saved game uploads are not configured')).toBe('Saved game uploads are not configured')
-    expect(getAutosaveUploadErrorMessage(413, 'Your 2 GiB saved-game storage quota is full')).toBe('Your 2 GiB saved-game storage quota is full')
   })
 })

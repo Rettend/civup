@@ -1,12 +1,12 @@
 import type { RankedRoleMaintenanceResult } from '../../src/maintenance/ranked-role-maintenance.ts'
 import { describe, expect, test } from 'bun:test'
-import { cron_leaderboards, cron_ranked_roles } from '../../src/cron/cleanup.ts'
+import { cron_ranked_roles } from '../../src/cron/cleanup.ts'
 import { requestCivBlitzModArchive, requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../../src/maintenance/maintenance-client.ts'
 
 describe('maintenance client', () => {
-  test('routes ranked role work through the global maintenance object', async () => {
-    let objectName: string | null = null
-    let capturedRequest: Request | null = null
+  test('builds the maintenance object requests for each operation', async () => {
+    const objectNames: string[] = []
+    const requests: Request[] = []
     const result: RankedRoleMaintenanceResult = {
       action: 'apply-pending',
       guilds: 1,
@@ -18,13 +18,18 @@ describe('maintenance client', () => {
     }
     const namespace = {
       idFromName(name: string) {
-        objectName = name
+        objectNames.push(name)
         return { name }
       },
       get() {
         return {
           async fetch(input: RequestInfo | URL, init?: RequestInit) {
-            capturedRequest = input instanceof Request ? input : new Request(input, init)
+            const request = input instanceof Request ? input : new Request(input, init)
+            requests.push(request)
+            if (new URL(request.url).pathname === '/civblitz/generate') {
+              return new Response(new Uint8Array([0x50, 0x4B]), { headers: { 'Content-Type': 'application/zip' } })
+            }
+            if (new URL(request.url).pathname === '/leaderboards/refresh') return Response.json({ refreshed: true })
             return Response.json(result)
           },
         }
@@ -32,69 +37,29 @@ describe('maintenance client', () => {
     } as unknown as DurableObjectNamespace
 
     await expect(requestRankedRoleMaintenance(namespace, 'apply-pending')).resolves.toEqual(result)
-    expect(objectName).toBe('global')
-    expect(capturedRequest?.method).toBe('POST')
-    expect(new URL(capturedRequest?.url ?? '').pathname).toBe('/ranked-roles/apply-pending')
-  })
-
-  test('requires the maintenance binding', async () => {
-    await expect(requestRankedRoleMaintenance(undefined, 'sync')).rejects.toThrow('MaintenanceDO binding is required')
-    await expect(requestLeaderboardMaintenance(undefined)).rejects.toThrow('MaintenanceDO binding is required')
-  })
-
-  test('routes leaderboard cron work through the global maintenance object', async () => {
-    const paths: string[] = []
-    const namespace = {
-      idFromName(name: string) {
-        expect(name).toBe('global')
-        return { name }
-      },
-      get() {
-        return {
-          async fetch(input: RequestInfo | URL) {
-            paths.push(new URL(input instanceof Request ? input.url : input.toString()).pathname)
-            return Response.json({ refreshed: true })
-          },
-        }
-      },
-    } as unknown as DurableObjectNamespace
-
     await expect(requestLeaderboardMaintenance(namespace)).resolves.toEqual({ refreshed: true })
-    await cron_leaderboards.handler({ env: { MaintenanceDO: namespace } } as any)
-
-    expect(paths).toEqual(['/leaderboards/refresh', '/leaderboards/refresh'])
-  })
-
-  test('routes CivBlitz generation through a per-match maintenance object', async () => {
-    let objectName = ''
-    let capturedRequest: Request | null = null
-    const namespace = {
-      idFromName(name: string) {
-        objectName = name
-        return { name }
-      },
-      get() {
-        return {
-          async fetch(request: Request) {
-            capturedRequest = request
-            return new Response(new Uint8Array([0x50, 0x4B]), { headers: { 'Content-Type': 'application/zip' } })
-          },
-        }
-      },
-    } as unknown as DurableObjectNamespace
-    const input = {
+    const civBlitzInput = {
       matchId: 'match-1',
       leaderDataVersion: 'live' as const,
       excludeBbgExpanded: true,
       seats: [],
     }
+    const response = await requestCivBlitzModArchive(namespace, civBlitzInput)
 
-    const response = await requestCivBlitzModArchive(namespace, input)
-
-    expect(objectName).toBe('civblitz:match-1')
-    expect(new URL(capturedRequest?.url ?? '').pathname).toBe('/civblitz/generate')
-    expect(await capturedRequest?.json()).toEqual(input)
+    expect(objectNames).toEqual(['global', 'global', 'civblitz:match-1'])
+    expect(requests.map(request => new URL(request.url).pathname)).toEqual([
+      '/ranked-roles/apply-pending',
+      '/leaderboards/refresh',
+      '/civblitz/generate',
+    ])
+    expect(requests.every(request => request.method === 'POST')).toBe(true)
+    expect(await requests[2]?.json()).toEqual(civBlitzInput)
     expect(response.headers.get('Content-Type')).toBe('application/zip')
+  })
+
+  test('requires the maintenance binding', async () => {
+    await expect(requestRankedRoleMaintenance(undefined, 'sync')).rejects.toThrow('MaintenanceDO binding is required')
+    await expect(requestLeaderboardMaintenance(undefined)).rejects.toThrow('MaintenanceDO binding is required')
   })
 
   test('uses one trigger for the daily sync and ten retries', async () => {

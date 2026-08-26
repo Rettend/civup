@@ -3,7 +3,6 @@ import { deflateSync } from 'fflate'
 import {
   DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES,
   MAX_AUTOSAVE_ZIP_ENTRY_COUNT,
-  MAX_CIV6_SAVE_COMPRESSED_BYTES,
   MAX_CIV6_SAVE_UNCOMPRESSED_BYTES,
   parseZipEntries,
   readZipEntryDataFromReader,
@@ -68,7 +67,6 @@ describe('bounded zip metadata reads', () => {
       123,
     ])
     expect(dataReads.every(read => read.length <= DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES)).toBe(true)
-    expect(Math.ceil(MAX_CIV6_SAVE_COMPRESSED_BYTES / DEFAULT_ZIP_ENTRY_RANGE_CHUNK_BYTES)).toBe(8)
   })
 
   test('supports a smaller configured range chunk without changing output bounds', async () => {

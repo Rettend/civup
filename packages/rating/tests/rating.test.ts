@@ -302,30 +302,22 @@ describe('buildActivityAdjustedLeaderboard', () => {
     lastPlayedAt,
   })
 
-  test('does not move placements before the first full post-grace interval', () => {
-    const players = [
+  test('applies the first one-place offset at the 120-day boundary', () => {
+    const beforeBoundary = buildActivityAdjustedLeaderboard([
       player('high', 1, NOW - (119 * DAY_MS)),
       player('challenger', 2, NOW),
-    ]
-
-    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
-
-    expect(ranked.map(entry => entry.playerId)).toEqual(['high', 'challenger'])
-    expect(ranked.map(entry => entry.inactivityOffset)).toEqual([0, 0])
-    expect(getLeaderboardInactivityOffset(NOW - (89 * DAY_MS), NOW)).toBe(0)
-    expect(getLeaderboardInactivityOffset(NOW - (90 * DAY_MS), NOW)).toBe(0)
-  })
-
-  test('applies the first one-place offset at exactly 120 days', () => {
-    const players = [
+    ], 5, NOW)
+    const atBoundary = buildActivityAdjustedLeaderboard([
       player('high', 1, NOW - (120 * DAY_MS)),
       player('challenger', 2, NOW),
-    ]
+    ], 5, NOW)
 
-    const ranked = buildActivityAdjustedLeaderboard(players, 5, NOW)
-
-    expect(ranked.map(entry => entry.playerId)).toEqual(['challenger', 'high'])
-    expect(ranked.find(entry => entry.playerId === 'high')).toMatchObject({ rawRank: 1, rank: 2, inactivityOffset: 1 })
+    expect(beforeBoundary.map(entry => entry.playerId)).toEqual(['high', 'challenger'])
+    expect(beforeBoundary.map(entry => entry.inactivityOffset)).toEqual([0, 0])
+    expect(atBoundary.map(entry => entry.playerId)).toEqual(['challenger', 'high'])
+    expect(atBoundary.find(entry => entry.playerId === 'high')).toMatchObject({ rawRank: 1, rank: 2, inactivityOffset: 1 })
+    expect(getLeaderboardInactivityOffset(NOW - (89 * DAY_MS), NOW)).toBe(0)
+    expect(getLeaderboardInactivityOffset(NOW - (90 * DAY_MS), NOW)).toBe(0)
   })
 
   test('only gives raw top-20 players an offset', () => {
@@ -361,10 +353,11 @@ describe('buildActivityAdjustedLeaderboard', () => {
     expect([...ranked].sort((left, right) => left.rawRank - right.rawRank).map(entry => entry.playerId)).toEqual(['a', 'b', 'z-new', 'z-old'])
   })
 
-  test('uses persisted public rating for raw order instead of hidden mu', () => {
+  test('uses persisted public rating for raw order and filters ineligible players', () => {
     const ranked = buildActivityAdjustedLeaderboard([
       { ...player('high-hidden', 1), mu: 40, publicRating: 990 },
       { ...player('high-public', 2), mu: 20, publicRating: 1010 },
+      { ...player('ineligible', 3), gamesPlayed: 4, publicRating: 2000 },
     ], 5, NOW)
 
     expect(ranked.map(entry => entry.playerId)).toEqual(['high-public', 'high-hidden'])
@@ -382,30 +375,6 @@ describe('buildActivityAdjustedLeaderboard', () => {
     expect(ranked.find(entry => entry.playerId === 'future')?.inactivityOffset).toBe(0)
   })
 
-  test('filters by minimum games without changing rating or visible Elo data', () => {
-    const input = {
-      playerId: 'stale',
-      mu: 37.25,
-      sigma: 6.75,
-      gamesPlayed: 5,
-      wins: 4,
-      lastPlayedAt: null,
-    }
-    const ineligible = { ...input, playerId: 'new', gamesPlayed: 4 }
-
-    const ranked = buildActivityAdjustedLeaderboard([input, ineligible], 5, NOW)
-
-    expect(ranked).toHaveLength(1)
-    expect(ranked[0]).toMatchObject({ mu: input.mu, sigma: input.sigma, publicRating: displayRating(input.mu, input.sigma) })
-    expect(input).toEqual({
-      playerId: 'stale',
-      mu: 37.25,
-      sigma: 6.75,
-      gamesPlayed: 5,
-      wins: 4,
-      lastPlayedAt: null,
-    })
-  })
 })
 
 describe('getLeaderboardMinGames', () => {

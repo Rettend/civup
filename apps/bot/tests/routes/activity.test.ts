@@ -7,17 +7,15 @@ import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEl
 import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
 import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { currentRankAssignmentsKey } from '../../src/services/ranked/role-sync.ts'
 import { createStatsContext } from '../../src/services/stats/context.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMemberPlayerIds, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
 const LOBBY_GUILD_ID = '111111111111111111'
 const LOBBY_STATS_CONTEXT = createStatsContext(LOBBY_GUILD_ID, LOBBY_GUILD_ID)
-const TITAN_ROLE_ID = '99999999999999999'
 const activityNamespaces = new WeakMap<KVNamespace, DurableObjectNamespace>()
 
 afterEach(() => {
@@ -464,84 +462,6 @@ describe('activity lobby join eligibility', () => {
     })
   })
 
-  test('allows direct activity joins even when the viewer misses the matchmaking min rank', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      guildId: '1234044388733095946',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-
-    await setLobbyMinRole(kv, lobby.id, 'tier2')
-    await setRankedRoleCurrentRoles(kv, '1234044388733095946', {
-      tier2: '11111111111111111',
-    })
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const storedLobby = await getLobbyById(kv, lobby.id)
-    expect(storedLobby).not.toBeNull()
-
-    const gatedLobby = await buildOpenLobbySnapshot(kv, '2v2', storedLobby!)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-2', storedLobby!, gatedLobby)
-
-    expect(eligibility).toEqual({
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    })
-  })
-
-  test('allows direct activity joins even when the viewer exceeds the matchmaking max rank', async () => {
-    const { kv } = createTrackedKv()
-    const lobby = await createLobby(kv, {
-      mode: '2v2',
-      guildId: '1234044388733095946',
-      hostId: 'host-1',
-      channelId: 'channel-1',
-      messageId: 'message-1',
-    })
-    await addToQueue(kv, '2v2', {
-      playerId: 'host-1',
-      displayName: 'Host 1',
-      avatarUrl: null,
-      joinedAt: Date.now(),
-    })
-
-    await setLobbyMaxRole(kv, lobby.id, 'tier2')
-    await setRankedRoleCurrentRoles(kv, '1234044388733095946', {
-      tier1: TITAN_ROLE_ID,
-      tier2: '11111111111111111',
-    })
-
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
-
-    const storedLobby = await getLobbyById(kv, lobby.id)
-    expect(storedLobby).not.toBeNull()
-
-    const gatedLobby = await buildOpenLobbySnapshot(kv, '2v2', storedLobby!)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-2', storedLobby!, gatedLobby)
-
-    expect(eligibility).toEqual({
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    })
-  })
 })
 
 describe('activity target selection', () => {

@@ -11,8 +11,6 @@ import {
   deserializePersistedUiState,
   detailLeaderId,
   decreaseUiScale,
-  draftSetupHintId,
-  draftSetupHintsCollapsed,
   favoriteLeaderIds,
   ffaPlacementOrder,
   gridExpanded,
@@ -188,12 +186,14 @@ describe('ui-store helpers', () => {
     expect(gridViewMode()).toBe('list')
   })
 
-  test('persists draft setup hint position and collapsed state', () => {
+  test('writes draft setup hint preferences to storage', () => {
     setDraftSetupHintId('leader-grid-views')
     setDraftSetupHintsCollapsed(true)
 
-    expect(draftSetupHintId()).toBe('leader-grid-views')
-    expect(draftSetupHintsCollapsed()).toBe(true)
+    expect(JSON.parse(window.localStorage.getItem('civup:activity:ui') ?? '{}')).toMatchObject({
+      draftSetupHintId: 'leader-grid-views',
+      draftSetupHintsCollapsed: true,
+    })
   })
 
   test('normalizes missing hint preferences and malformed persisted JSON', () => {

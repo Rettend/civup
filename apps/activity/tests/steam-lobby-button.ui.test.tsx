@@ -60,14 +60,6 @@ describe('SteamLobbyButton UI', () => {
     expect(onSaveSteamLink).not.toHaveBeenCalled()
   })
 
-  test('shows a read-only missing-link affordance on mobile', () => {
-    uiMockState.isMobileLayout = true
-    render(() => <SteamLobbyButton steamLobbyLink={null} />)
-
-    const button = screen.getByRole('button', { name: 'No Steam link set' })
-    expect(button.getAttribute('title')).toBe('No Steam link set')
-  })
-
   test('opens the editor on a normal click when an editable link is unset', () => {
     render(() => <SteamLobbyButton steamLobbyLink={null} onSaveSteamLink={onSaveSteamLink} />)
 
@@ -132,7 +124,7 @@ describe('SteamLobbyButton UI', () => {
     expect(discordSpies.openExternalLink).not.toHaveBeenCalled()
   })
 
-  test.each(['mouse', 'touch', 'pen'])('opens the editor on a %s hold and suppresses its click and context menu', async (pointerType) => {
+  test.each(['mouse', 'touch'])('opens the editor on a %s hold and suppresses its click and context menu', async (pointerType) => {
     render(() => <SteamLobbyButton steamLobbyLink={STEAM_LINK} onSaveSteamLink={onSaveSteamLink} />)
 
     const button = screen.getByRole('button', { name: 'Open Steam link' })

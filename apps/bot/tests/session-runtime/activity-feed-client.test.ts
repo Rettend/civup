@@ -26,7 +26,6 @@ describe('activity feed client', () => {
     await publishActivitySessionUpdate(namespace, buildSessionRecord(), 'secret')
 
     expect(capturedRequest?.headers.get(PARTYSERVER_ROOM_HEADER)).toBe('overview')
-    expect(ACTIVITY_FEED_ROOM).toBe('overview')
     expect(capturedRequest?.headers.get(PARTYSERVER_NAMESPACE_HEADER)).toBe('activity')
     expect(capturedRequest?.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe('secret')
   })

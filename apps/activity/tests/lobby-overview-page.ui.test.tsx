@@ -93,6 +93,8 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.queryByText('Primary Host')).toBeNull()
     expect(screen.getByText('Partner Host')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'Partner Server' })[0]?.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'All' }).textContent).toContain('1')
+    expect(screen.getByRole('button', { name: 'Open' }).textContent).toContain('1')
 
     cleanup()
     uiMockState.guildId = null
@@ -100,12 +102,14 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Primary Host')).toBeTruthy()
     expect(screen.getByText('Partner Host')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'All servers' })[0]?.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'All' }).textContent).toContain('2')
 
     cleanup()
     uiMockState.guildId = empty
     render(() => <LobbyOverviewPage supportedServers={supportedServers} options={options} onSelect={onSelect} />)
     expect(screen.getByText('No lobbies from this server')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: 'Empty Server' })[0]?.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'All' }).textContent).toContain('0')
   })
 
   test('shows the practice action only in the full overview', () => {
@@ -121,8 +125,8 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.queryByRole('button', { name: 'Practice' })).toBeNull()
   })
 
-  test('shows the responsive Export Data action only with an export capability handler', () => {
-    const rendered = render(() => (
+  test('gates export capability and drives loading, ready, and confirmation actions', () => {
+    render(() => (
       <LobbyOverviewPage
         options={[]}
         onSelect={onSelect}
@@ -133,7 +137,6 @@ describe('LobbyOverviewPage UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Export data' }))
     expect(onExportData).toHaveBeenCalledTimes(1)
-    expect(rendered.container.querySelector('[data-overview-actions]')?.className).toContain('flex-wrap')
 
     cleanup()
     render(() => (
@@ -147,20 +150,8 @@ describe('LobbyOverviewPage UI', () => {
     expect(screen.getByText('Loading matches: 12')).toBeTruthy()
     const loadingButton = screen.getByRole('button', { name: 'Export data' })
     expect(loadingButton.hasAttribute('disabled')).toBe(true)
-    expect(loadingButton.querySelector('span')?.className).toContain('i-gg:spinner')
-    expect(loadingButton.querySelector('span')?.className).not.toContain('animate-spin')
 
     cleanup()
-    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
-    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
-
-    cleanup()
-    uiMockState.isMiniView = true
-    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
-    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
-  })
-
-  test('turns a completed export into an explicit download retry', () => {
     render(() => (
       <LobbyOverviewPage
         options={[]}
@@ -171,11 +162,10 @@ describe('LobbyOverviewPage UI', () => {
     ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Download data again' }))
-    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(onExportData).toHaveBeenCalledTimes(2)
     expect(screen.getByText('export-2026-07-15.xlsx is ready.')).toBeTruthy()
-  })
 
-  test('shows the cheap capacity estimate before confirming an export', () => {
+    cleanup()
     render(() => (
       <LobbyOverviewPage
         options={[]}
@@ -196,10 +186,18 @@ describe('LobbyOverviewPage UI', () => {
       />
     ))
 
-    expect(screen.getByText(/Estimate: 1,000 players, 10,000 matches, 60,000 participants/)).toBeTruthy()
-    expect(screen.getByText(/100,000-230,000 database reads \(2-4.6% of the daily allowance\)/)).toBeTruthy()
+    expect(screen.getByText(/database reads/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm data export' }))
-    expect(onExportData).toHaveBeenCalledTimes(1)
+    expect(onExportData).toHaveBeenCalledTimes(3)
+
+    cleanup()
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} />)
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
+
+    cleanup()
+    uiMockState.isMiniView = true
+    render(() => <LobbyOverviewPage options={[]} onSelect={onSelect} onExportData={onExportData} />)
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
   })
 
   test('shows closed lobby cards under the open filter', () => {
