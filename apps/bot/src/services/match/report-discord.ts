@@ -11,6 +11,7 @@ import { renderTournamentResultPng } from '../tournament/image.ts'
 import { buildTournamentResultImageData, isMatchTournamentLinked } from '../tournament/index.ts'
 import { getCivBlitzFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { listMatchMessageIds, storeMatchMessageMapping } from './message.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 
 type ArchivePolicy = 'always' | 'if-missing'
 type ReportArchiveChannelType = Extract<SystemChannelType, 'archive' | 'tournament-archive'>
@@ -73,6 +74,7 @@ export async function syncReportedMatchDiscordMessages({
   const gameContext = getStoredGameModeContext(reportedMode, matchDraftData)
   const unranked = civBlitz || (gameContext ? gameContext.leaderboardMode == null : false)
   const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+  if (!tournamentLinked && !unranked) participants = await hydrateModeRatingSnapshotsFromEvents(db, participants.map(row => ({ ...row, gameMode: reportedMode, draftData: matchDraftData })))
   let tournamentResultPng: Uint8Array | null = null
   let tournamentImageFailed = false
   if (tournamentLinked) {

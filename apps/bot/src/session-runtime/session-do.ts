@@ -24,6 +24,7 @@ import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -1550,11 +1551,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const reportedRedDeath = context?.redDeath ?? record.config.redDeath
     const reportedCivBlitz = context?.civBlitz ?? record.config.civBlitz
     const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
-    const participants = await db
+    let participants = await db
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
     const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+    if (!tournamentLinked && context?.leaderboardMode) participants = await hydrateModeRatingSnapshotsFromEvents(db, participants.map(row => ({ ...row, gameMode: match.gameMode, draftData: match.draftData })))
     const tournamentResultPng = tournamentLinked
       ? await this.renderReportedTournamentResultImage(db, matchId, participants)
       : null
@@ -2131,7 +2133,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({
         claimed: false,
         processing: true,
-        claim: { matchId: activeClaim.matchId, claimId: activeClaim.claimId },
+        claim: { matchId: activeClaim.matchId, claimId: activeClaim.claimId, acceptedAt: activeClaim.createdAt },
       })
     }
 
@@ -2167,7 +2169,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       expiresAt: now + REPORT_CLAIM_TTL_MS,
     }
     await this.ctx.storage.put(REPORT_CLAIM_STORAGE_KEY, claim)
-    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId }, finalized: finalized.finalized === true })
+    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId, acceptedAt: claim.createdAt }, finalized: finalized.finalized === true })
   }
 
   private async finalizeSwapWindowForReportClaim(record: SessionRecord): Promise<{ ok: true, record: SessionRecord, finalized?: boolean } | { ok: false, response: Response }> {

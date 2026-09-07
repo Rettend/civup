@@ -56,6 +56,7 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
   return ratings.map((row) => {
     if (selected.ratingSeason?.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Public rating data is incomplete; no hidden-rating substitute is shown.')
     const count = countByKey.get(`${row.playerId}:${row.mode}`)
-    return { ...row, gamesPlayed: Number(count?.gamesPlayed ?? 0), wins: Number(count?.wins ?? 0) }
+    const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
+    return { ...row, lifetimeGamesPlayed, gamesPlayed: Number(count?.gamesPlayed ?? 0), wins: Number(count?.wins ?? 0) }
   })
 }

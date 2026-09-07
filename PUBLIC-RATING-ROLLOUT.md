@@ -9,26 +9,45 @@ The main workspace uses `rp-season-release` on the isolated `e233762f` baseline.
 Implemented locally:
 
 - The 750 RP scale, rounded display arithmetic, fixed bands, versioned calibration, deterministic opening compression, Elite ordering, and one-rank seed protection.
-- A candidate uncertainty-aware movement formula and pure public replay using saved seeds, recorded order, and calibration/formula versions. This is not yet the database correction path.
-- Schema for immutable opening seeds and calibrations, separate season rating state, report ordering, public events, and a disabled public-read flag. Existing events keep null public values.
+- A candidate uncertainty-aware movement formula and database-backed replay using saved seeds, recorded order, and calibration/formula versions. Corrections select the report window from the changed match onward and only its participating rating chains; unaffected opening-roster entries are not loaded. Indexed earlier events connect those chains back to their frozen seeds.
+- Schema for immutable opening seeds, calibrations, and per-season formula configuration; separate season rating state; report ordering; public events; and disabled public-read and isolated-rating flags. Existing events keep null public values.
 - An offline opening planner that carries qualification evidence, freezes both S9 ratings, and keeps late S8 state updates separate in calculation. It has no production apply mode.
 - Shared closed-season checks for participant reporting and moderator resolution, cancellation, substitutions, and leader correction. Closed completed-report retries return existing results without repairing history.
 - `/stats`, `/rank`, and `/leaders` season selection, including team and leader statistics. Graphs separate legacy history from RP and show a saved opening point before the first game. Historical leader comparisons read closing hidden snapshots instead of today's ratings.
 - Evidence-preserving legacy season resets and closing snapshots. These helpers are not the immediate-S9 overlap transition.
 - Cancellation prepares mode and global replay before lifecycle changes and submits their rating writes together. Incomplete-report repair and report rollback also combine both rating scopes. Oversized prepared online replays refuse before rating writes. Session lifecycle and statistics remain outside that rating batch.
+- Opt-in season-isolated reporting writes both rating scopes, participant rating snapshots, seeds for new players, and accepted report order in one guarded D1 batch. Late legacy S8 reports write only S8 rating state. Saved reports can finish lifecycle projections without being rated twice. Moderator result correction, reported-player substitution, and cancellation use seed-aware replay.
+- RP result formatting, fixed broad ranks with global evidence gates, RP leaderboard ordering, and Activity player-card values. Hidden ratings still drive balancing and win probabilities; the Activity suppresses legacy predicted rating deltas during the RP era rather than presenting them as RP.
+- Historical Discord-role ordering with post-write verification. Isolated seasons cannot receive final historical roles before their reporting deadline and database finalization.
 
-The unfinished overlap paths deliberately refuse RP reports/corrections and legacy replay across an RP opening. Unassigned matches cannot bypass the season check after an RP season exists. Do not remove these stops merely to get reports flowing; finish and test the season-isolated implementation first.
+The opt-in runtime remains off by default. Legacy replay cannot cross an RP opening. Manual reports and active-session substitutions refuse unsupported season-aware paths before writing data. Unassigned matches cannot bypass the season check after an RP season exists. Do not activate the flags until the remaining cutover and runtime work below is complete.
 
 ## Remaining implementation
 
-1. Integrate season state with real report claims and D1 writes. Persist the accepted time and stable order, reject stale rating summaries atomically, support retries across the deadline, and keep late S8 writes away from every S9 summary, seed, cache, and live-role update. Validate all manual/import and API entry points as well as Discord commands.
-2. Implement database-backed current-season correction from frozen hidden/public seeds. A no-op replay must reproduce normal reporting, including out-of-start-order results, retries, deletion, and participant changes. Preserve recorded quality evidence and formula/calibration versions. Do not substitute the legacy all-history replay.
-3. Complete public presentation and rank integration: match/recent-result RP, all Activity/API consumers, RP leaderboard ordering, overall evidence/quality gates, mode eligibility, historical earned-peak labels, and inactivity ordering. The current command work alone is not full public-read readiness.
+1. Finish real overlap operation: durable acceptance when a SessionDO claim expires before the D1 batch commits, the mutation pause/drain, late S8 peak handling, and remaining manual/import and active-roster entry points. The saved-report retry path is implemented, but this is not a complete overlap rollout.
+2. Review operational coverage of bounded online replay: 40 reports from the correction onward, 100 affected season states/seeds, 150 rewritten events, 5,000 indexed prefix events, and 400 SQL statements. These are window/affected-chain limits, not total-season roster limits. Older or oversized corrections require local maintenance rather than splitting an atomic repair into partial writes.
+3. Complete public presentation and rank integration: audit remaining API consumers and caches, historical earned-peak labels, inactivity ordering, and optional RP outcome previews. Cutover/read activation must refresh cached snapshots so old-era metadata cannot be presented as the current era.
 4. Implement the guarded cutover and finalization workflow: mutation pause/drain, a reviewed frozen source, atomic source validation, opening summaries and role assignments, S8 peak capture, late S8 peak updates, final historical-role assignment, and Discord role ordering below live roles. The legacy admin start/end commands must not perform this transition.
 5. Complete cached-PPL trajectory/cadence simulations and long equal-skill boundary runs. Review convergence, volume bias, distributions, opening-role transitions, and Elite recovery before approving the formula or calibration.
-6. Build and validate the owner-run preview/apply/verification tooling and revised metered estimates. There is currently no approved S8 assignment SQL, seed apply SQL, or production reset command in this update.
+6. Finish the owner-run cutover/finalization tooling and revised metered estimates. The S8 history-initialization script below is implemented; there is still no approved S9 seed apply SQL or production reset command.
 
-The saved successful repair source had no season records. Confirm the real S8 start date and imported-match policy; do not assign every unassigned game to S8. The S8 cutoff/S9 opening timestamp and its 48-hour reporting deadline also still require approval.
+The owner confirmed that every existing game, including imports, belongs to S8 from the first recorded game. S8 initialization must not reset or replay those ratings. The S8 cutoff/S9 opening timestamp and its 48-hour reporting deadline still require approval. Use a local maintenance script rather than adding new season commands.
+
+### S8 historical initialization
+
+`apps/bot/scripts/season-history.ts` captures only match identities, dates, and season assignments, then prepares an atomic S8 initialization. It works with the existing season columns before or after the public-rating migration. It refuses existing seasons, assigned history, stale captured match identities, oversized batches, and an exceeded write ceiling. It changes no ratings, events, lifecycle state, or Discord roles.
+
+Owner-run commands, **not executed as part of implementation**:
+
+```sh
+bun --env-file=.ppl.env apps/bot/scripts/season-history.ts capture --output tmp/s8-source.json
+bun apps/bot/scripts/season-history.ts preview --input tmp/s8-source.json --output tmp/s8-plan.json
+# Review the plan and its conservative write estimate before confirming its digest.
+bun --env-file=.ppl.env apps/bot/scripts/season-history.ts apply --input tmp/s8-source.json --output tmp/s8-apply.json --execute --confirm REVIEWED_DIGEST
+bun --env-file=.ppl.env apps/bot/scripts/season-history.ts verify --input tmp/s8-source.json --output tmp/s8-verification.json
+```
+
+Each network request saves its response and actual D1 metering. Missing metering is unknown, not zero. If an apply times out, run verification and inspect its saved result rather than blindly rerunning it. Do not remove S8 after new matches begin using it. This tool initializes S8 only; it does not perform the S8/S9 cutover.
 
 ## Offline review
 
@@ -46,9 +65,12 @@ The synthetic September 7 run is saved at `tmp/rp-synthetic-review-20260907.json
 Local validation on September 7:
 
 - `bun run check`: all workspace package checks passed.
-- Service, embed, and rating tests: 406 passed, zero failed, 112,471 assertions across 47 files.
-- Capacity regression: passed, 9,065 assertions. Relative to the isolated baseline, the snapshot adds one modeled D1 row read to the measured report paths and does not add modeled writes. This is not a production usage estimate.
+- Service, embed, and rating tests: 421 passed, zero failed, 112,570 assertions across 50 files.
+- Session runtime, routes, and commands: 244 passed; selected Activity helper/store tests: 21 passed. The S8 initialization SQL also passed a small local apply/stale-source rollback check, with no remote calls.
+- Capacity regression passed. Relative to the previous foundation commit, the snapshot adds two modeled D1 row reads in measured report paths and no modeled writes. The measured paths do not establish the cost of enabled RP reporting or cutover; production estimates remain separate.
 - `git diff --check`: passed.
+
+After the owner confirmed the complete S8 assignment policy, validation was limited to the S8 script's local atomic/stale-source smoke check, focused type checking, and the existing season-report regression file while changing replay selection. No further broad simulation or test expansion was run for that decision.
 
 These checks validate the implemented subset, not the unfinished rollout. The offline tools do not have a remote or execute mode. Production reads/writes, migrations, deployment, reset, and public-read activation remain separate actions requiring the appropriate approval.
 

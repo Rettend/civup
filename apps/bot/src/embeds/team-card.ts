@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode } from '@civup/game'
-import type { PlayerRating } from '@civup/rating'
+import type { PlayerRating, PublicRatingSnapshot } from '@civup/rating'
 import { matches, matchParticipants, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
 import { createRating, displayRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
@@ -14,7 +14,7 @@ import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
 import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -348,8 +348,10 @@ function formatRecentRatingChange(match: {
   ratingAfterSigma: number | null
   gameMode: string
   draftData: string | null
-}): string {
+} & PublicRatingSnapshot): string {
   if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
+  const publicChange = formatPublicRatingSnapshotChange(match)
+  if (publicChange != null) return publicChange
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null

@@ -89,7 +89,7 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
 
   const now = input.now ?? Date.now()
   const latestSeason = await getLatestSeason(db)
-  if (latestSeason?.ratingSystem === 'rp') throw new Error('RP seasons require the reviewed season transition workflow; the legacy reset cannot change frozen ratings.')
+  if (latestSeason?.ratingSystem === 'rp' || latestSeason?.isolatedRatingsEnabled) throw new Error('RP seasons require the reviewed season transition workflow; the legacy reset cannot change frozen ratings.')
   const nextSeasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
   const seasonNumber = input.seasonNumber ?? nextSeasonNumber
   if (!Number.isSafeInteger(seasonNumber) || seasonNumber < 1) throw new Error('Season number must be a positive integer.')
@@ -128,7 +128,7 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
 export async function endSeason(db: Database, input: { now?: number } = {}) {
   const existing = await getActiveSeason(db)
   if (!existing) throw new Error('There is no active season to end.')
-  if (existing.ratingSystem === 'rp') throw new Error('RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.')
+  if (existing.ratingSystem === 'rp' || existing.isolatedRatingsEnabled) throw new Error('RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.')
 
   const endsAt = input.now ?? Date.now()
   if (!Number.isSafeInteger(endsAt) || endsAt < existing.startsAt) throw new Error('Season close must not precede its opening.')
@@ -139,6 +139,7 @@ export async function endSeason(db: Database, input: { now?: number } = {}) {
     mu: playerRatings.mu,
     sigma: playerRatings.sigma,
     publicRating: sql<number | null>`null`.as('public_rating'),
+    managedTier: sql<string | null>`null`.as('managed_tier'),
     seasonGames: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.gamesDelta} else 0 end), 0)`.as('season_games'),
     seasonWins: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.winsDelta} else 0 end), 0)`.as('season_wins'),
     evidence: sql<Record<string, number>>`json_object(

@@ -2,6 +2,13 @@ export const PUBLIC_RATING_START = 750
 export const PUBLIC_RATING_FORMULA_VERSION = 'rp-v1-candidate'
 export const PUBLIC_RATING_SEED_VERSION = 's9-compression-v1'
 
+export interface PublicRatingSnapshot {
+  ratingSystem?: 'legacy' | 'rp'
+  publicRatingBefore?: number | null
+  publicRatingAfter?: number | null
+  publicRatingReady?: boolean
+}
+
 export type PublicTier = 'tier1' | 'tier2' | 'tier3' | 'tier4' | 'tier5'
 
 export const PUBLIC_RATING_BANDS = [

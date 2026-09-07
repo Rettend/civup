@@ -387,7 +387,7 @@ function formatTeamBalanceTitle(summary: LobbyBalanceTeamSummary, team: number):
   if (!summary.projectedWinDelta) return chanceText
 
   const delta = formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
-  return `${chanceText} ${delta} is your Elo change if ${teamLabel} wins.`
+  return `${chanceText} ${delta} is your rating change if ${teamLabel} wins.`
 }
 
 function getArrangeOverlayIconClass(strategy: LobbyArrangeStrategy | null) {
@@ -657,7 +657,7 @@ function PlayerStatsPopover(props: {
       <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{ratingValue()}</div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Elo</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">{props.row.balanceRating?.ratingSystem === 'rp' ? 'RP' : 'Rating'}</div>
         </div>
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{rankValue()}</div>
@@ -679,6 +679,7 @@ function PlayerStatsPopover(props: {
 
 export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
   if (unranked) return 'Unranked'
+  if (rating?.ratingSystem === 'rp') return rating.publicRating == null ? 'Pending' : String(Math.round(rating.publicRating))
   if (!rating) return String(DISPLAY_RATING_BASE)
   return String(Math.round(displayRating(rating.mu, rating.sigma)))
 }

@@ -162,7 +162,7 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
         playerCount: players.length,
         probability,
         uncertainty: estimateProbabilityUncertainty(teams, index, probability),
-        projectedWinDelta: estimateProjectedWinDelta(teams, index, currentUserId),
+        projectedWinDelta: lobby.entries.some(entry => entry?.balanceRating?.ratingSystem === 'rp') ? null : estimateProjectedWinDelta(teams, index, currentUserId),
       }
     }),
   }

@@ -54,6 +54,16 @@ export interface DiscordGuildRoleResponse {
   managed?: boolean
   mentionable?: boolean
   permissions?: string
+  position?: number
+}
+
+export async function updateGuildRolePositions(token: string, guildId: string, positions: Array<{ id: string, position: number }>): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord('update guild role positions', `https://discord.com/api/v10/guilds/${guildId}/roles`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(positions),
+  })
+  return response.json<DiscordGuildRoleResponse[]>()
 }
 
 export interface DiscordGuildMemberResponse {

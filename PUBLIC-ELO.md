@@ -17,6 +17,8 @@ The isolated implementation is **not ready for deployment or season cutover**. S
 
 See [S8 close and S9 reset](docs/SEASON-RESET.md) for the reporting window, closed-season lock, qualification carryover, season numbering, historical command views, and cost decisions. The selected schedule opens S9 immediately while unfinished S8 matches have 48 hours to report into separate S8 state. Both hidden and public S9 starting ratings remain frozen.
 
+All existing history, including imported games, belongs to S8 from the earliest recorded game. Initialize that assignment without resetting ratings. The transition can use a local PPL maintenance script; new season commands are not required. Divisions remain display labels, not additional Discord roles.
+
 ## Release scope
 
 The update includes public RP, season handling, and the rating-correction safeguards needed for them. It excludes the undeployed multi-server feature, the public PPL website, and unrelated draft/tournament changes. Build on the existing single-server rating tables; do not require `0023_multi_server_expand.sql` or scoped multi-server tables.

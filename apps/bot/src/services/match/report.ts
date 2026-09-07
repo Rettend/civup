@@ -4,7 +4,7 @@ import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, ReportResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players, seasons } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -21,12 +21,14 @@ import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAlly
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, prepareRatedMatchReplay } from './ratings.ts'
 import { getSeasonMutationError } from '../season/policy.ts'
+import { prepareSeasonReport, runAtomicSeasonBatch } from '../season/report.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
   allowDirectTerminalWriteForTests?: boolean
   rankedRoleGuildId?: string | null
   minimalResult?: boolean
+  acceptedAt?: number
 }
 
 interface RatedReportMatchContext {
@@ -40,7 +42,7 @@ interface RatedReportMatchContext {
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
-interface StoredRatingSummaryRow {
+export interface StoredRatingSummaryRow {
   playerId: string
   mode: RatingScope
   mu: number
@@ -76,6 +78,7 @@ interface RatingScopeUpdateInput {
   evidenceByPlayerId: Map<string, MatchEvidenceDelta>
   now: number
   writeParticipantSnapshots: boolean
+  collect?: (update: { summary: StoredRatingSummaryRow, event: typeof playerRatingEvents.$inferInsert, rawAfterMu: number }) => void
 }
 
 const GLOBAL_RATING_SCOPE = 'global'
@@ -115,6 +118,10 @@ export async function reportMatch(
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
+  }
+
+  if (!tournamentLinked && match.status === 'completed' && await usesIsolatedSeasonRatings(db, match.seasonId)) {
+    return finalizeIsolatedSeasonReport(db, match, participantRows, input.reporterId, options)
   }
 
   const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'first-report' : 'correction')
@@ -352,7 +359,7 @@ export async function reportMatch(
       return { error: 'Could not resolve placements for all participants.' }
     }
 
-    const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, options, tournamentLinked)
+    const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, { ...options, acceptedAt: reportClaim.claim?.acceptedAt ?? Date.now() }, tournamentLinked)
     if ('error' in finalized) {
       return finalized
     }
@@ -507,6 +514,12 @@ async function finalizeReportedMatch(
     return finalizeReportedUnrankedMatch(db, match, participantRows, originalParticipantRows, reporterId, options)
   }
 
+  if (await usesIsolatedSeasonRatings(db, match.seasonId)) {
+    const [stored] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
+    if (!stored) return { error: 'Match disappeared before report preparation.' }
+    return finalizeIsolatedSeasonReport(db, stored, participantRows, reporterId, options, await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId))
+  }
+
   const cachedLeaderboardSnapshot = options.minimalResult ? null : await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
   const beforeRankByPlayer = buildCachedRankByPlayer(cachedLeaderboardSnapshot, leaderboardMode)
   const existingRatingsByScope = await listPlayerRatingsForPlayers(
@@ -578,7 +591,7 @@ async function finalizeReportedMatch(
   return { match: updatedMatch!, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, participantsWithLeaderboardRanks) }
 }
 
-async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
+export async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
   db: Database,
   match: { gameMode: string, draftData: string | null },
   participants: readonly T[],
@@ -594,6 +607,7 @@ async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
     ratingBeforeSigma: row.ratingBeforeSigma,
     ratingAfterMu: row.ratingAfterMu,
     ratingAfterSigma: row.ratingAfterSigma,
+    ...(row.ratingSystem === 'rp' ? { ratingSystem: row.ratingSystem, publicRatingBefore: row.publicRatingBefore, publicRatingAfter: row.publicRatingAfter, publicRatingReady: row.publicRatingReady } : {}),
   }))
 }
 
@@ -729,7 +743,7 @@ async function applyIncrementalRatedReport(
   return null
 }
 
-function buildRatingScopeUpdateQueries(
+export function buildRatingScopeUpdateQueries(
   db: Database,
   input: RatingScopeUpdateInput,
 ): DbBatchItem[] | string {
@@ -821,7 +835,7 @@ function buildRatingScopeUpdateQueries(
     const ratingAfterMu = ratingAfter.mu
     const ratingAfterSigma = ratingAfter.sigma
 
-    if (input.writeParticipantSnapshots) {
+    if (input.writeParticipantSnapshots && !input.collect) {
       queries.push(db
         .update(matchParticipants)
         .set({
@@ -856,7 +870,7 @@ function buildRatingScopeUpdateQueries(
       winsVsTier2Plus: (existing?.winsVsTier2Plus ?? 0) + qualityWins.winsVsTier2Plus,
       effectiveWinsVsTier1: (existing?.effectiveWinsVsTier1 ?? 0) + qualityWins.effectiveWinsVsTier1,
       effectiveWinsVsTier2Plus: (existing?.effectiveWinsVsTier2Plus ?? 0) + qualityWins.effectiveWinsVsTier2Plus,
-      lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.now,
+      lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.collect ? Math.max(existing?.lastPlayedAt ?? 0, input.now) : input.now,
       updatedAt: input.now,
     }
     const eventRow = {
@@ -881,6 +895,10 @@ function buildRatingScopeUpdateQueries(
       updatedAt: input.now,
     }
 
+    if (input.collect) {
+      input.collect({ summary: row, event: eventRow, rawAfterMu: update.after.mu })
+      continue
+    }
     queries.push(db.insert(playerRatings).values(row).onConflictDoUpdate({
       target: [playerRatings.playerId, playerRatings.mode],
       set: row,
@@ -929,12 +947,17 @@ async function hasPreparedRatedReportEvents(
 async function buildPreparedRatedReportResultIfRatingEventsExist(
   db: Database,
   kv: KVNamespace,
-  match: MatchRow,
+  match: typeof matches.$inferSelect,
   participantRows: ParticipantRow[],
   reporterId: string,
   options: ReportMatchOptions,
   leaderboardMode: LeaderboardMode,
 ): Promise<ReportResult | null> {
+  if (await usesIsolatedSeasonRatings(db, match.seasonId)) {
+    const [event] = await db.select({ matchId: playerRatingEvents.matchId }).from(playerRatingEvents).where(eq(playerRatingEvents.matchId, match.id)).limit(1)
+    if (!event) return null
+    return finalizeIsolatedSeasonReport(db, match, participantRows, reporterId, options)
+  }
   const preparedState = await getPreparedRatedReportState(db, match.id, participantRows, leaderboardMode)
   if (preparedState !== 'complete') {
     const rollbackError = await rollbackReportedRatedMatch(db, kv, {
@@ -993,6 +1016,34 @@ async function getPreparedRatedReportState(
   return complete ? 'complete' : 'partial'
 }
 
+export async function usesIsolatedSeasonRatings(db: Database, seasonId: string | null): Promise<boolean> {
+  if (!seasonId) return false
+  const [season] = await db.select({ enabled: seasons.isolatedRatingsEnabled }).from(seasons).where(eq(seasons.id, seasonId)).limit(1)
+  return season?.enabled === true
+}
+
+export async function finalizeIsolatedSeasonReport(db: Database, match: typeof matches.$inferSelect, participants: ParticipantRow[], reporterId: string | null, options: ReportMatchOptions, opponentTiers: ReadonlyMap<string, string> = new Map()): Promise<ReportResult> {
+  let prepared
+  try {
+    prepared = await prepareSeasonReport(db, { match, participants, acceptedAt: options.acceptedAt ?? Date.now(), now: Date.now(), opponentTierByPlayerId: opponentTiers })
+    await runAtomicSeasonBatch(db, prepared.queries)
+  }
+  catch (error) {
+    console.error(`Season report preparation/apply failed for ${match.id}:`, error)
+    return { error: 'The season report could not be confirmed. Retry to check the saved result safely, or ask the owner to review it.' }
+  }
+  if (prepared.idempotent && prepared.late && match.status === 'completed') return {
+    match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participants), idempotent: true, historicalSeason: true,
+  }
+  const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, prepared.acceptedAt, reporterId, true)
+  if (cleanupError) return { error: `${cleanupError} Ratings are saved; retry this report to finish it without rating the game twice.` }
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
+  await reconcileCivLeaderboardMatchContribution(db, match.id)
+  await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch!, updatedParticipants)
+  return { match: updatedMatch!, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, updatedParticipants), idempotent: prepared.idempotent, historicalSeason: prepared.late }
+}
+
 function scaleRatingAfterForSource(update: ReturnType<typeof calculateRatings>[number], sourceWeight: number): { mu: number, sigma: number } {
   if (sourceWeight >= 1) return update.after
   return {
@@ -1001,7 +1052,7 @@ function scaleRatingAfterForSource(update: ReturnType<typeof calculateRatings>[n
   }
 }
 
-function buildMatchEvidenceByPlayerId(
+export function buildMatchEvidenceByPlayerId(
   participantRows: ParticipantRow[],
   isOld: boolean,
   opponentTierByPlayerId: ReadonlyMap<string, string>,

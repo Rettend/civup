@@ -73,13 +73,13 @@ A read-only production check of all 252 corrected guards used 552,277 reads and 
 
 Season numbers are stored, not permanently hardcoded to 1. The season-start command already accepts a starting number.
 
-Inspect existing season dates and match assignments before choosing a repair:
+The owner confirmed that all existing history belongs to S8, including imported games, from the first recorded game. Use a local maintenance script; new season commands are not required.
 
-The saved source for the successful September 7 repair contains **zero season records**. Its 10,884 covered matches have no season assignments: 1,046 imported matches dated March 13–April 12 and 9,838 non-imported matches dated March 21–September 7. This is a saved, pre-repair source covering that maintenance operation, not a complete current season export. There is no Season 1 in that source to rename. The actual PPL S8 start date and the treatment of imported games still need confirmation before assigning history.
+The saved source for the successful September 7 repair contains **zero season records**. Its 10,884 covered matches have no season assignments: 1,046 imported matches dated March 13–April 12 and 9,838 non-imported matches dated March 21–September 7. This is a saved, pre-repair source covering that maintenance operation, not a complete current season export. There is no Season 1 in that source to rename.
 
-- If the existing Season 1 really represents PPL S8, change its number to 8 and name to `Season 8`. Keep the internal ID and existing references.
-- If S8 has no record, create one with the correct historical dates and assign only matches belonging to that period. Do not assume every unassigned or imported match belongs to S8.
-- If several internal seasons exist, map their dates to the actual PPL seasons first.
+- Create `Season 8` starting at the earliest existing game's timestamp and assign every existing match to it, without resetting or replaying hidden ratings.
+- Refuse initialization if a fresh source has existing seasons or assigned matches; inspect that changed source rather than overwriting it.
+- The local initialization workflow is documented in [the rollout guide](../PUBLIC-RATING-ROLLOUT.md#s8-historical-initialization). S9 still requires the separate immediate-opening transition and 48-hour S8 reporting window.
 
 Do not start a new season today merely to rename existing history. Starting a season does not attach earlier games to it.
 

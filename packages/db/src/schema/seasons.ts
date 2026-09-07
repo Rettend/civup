@@ -19,6 +19,7 @@ export const seasons = sqliteTable('seasons', {
   resetFactor: real('reset_factor').notNull().default(0.5),
   preserveEvidence: integer('preserve_evidence', { mode: 'boolean' }).notNull().default(false),
   publicReadsEnabled: integer('public_reads_enabled', { mode: 'boolean' }).notNull().default(false),
+  isolatedRatingsEnabled: integer('isolated_ratings_enabled', { mode: 'boolean' }).notNull().default(false),
 })
 
 export const seasonPeakRanks = sqliteTable('season_peak_ranks', {

@@ -17,6 +17,7 @@ import {
   normalizeRankedRoleTierId,
 } from '../ranked/roles.ts'
 import { formatSeasonShortName } from './index.ts'
+import { ensureHistoricalRoleOrder } from './role-order.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
   bySeasonId?: Record<string, {
@@ -120,7 +121,16 @@ export async function finalizeSeasonSnapshotRoles(
   token: string,
   season: { id: string, seasonNumber: number, name: string },
 ): Promise<void> {
+  const [storedSeason] = await db.select().from(seasons).where(eq(seasons.id, season.id)).limit(1)
+  if (!storedSeason) throw new Error('The season no longer exists.')
+  if (storedSeason.isolatedRatingsEnabled && (storedSeason.active || storedSeason.finalizedAt == null || storedSeason.reportingDeadline == null || Date.now() < storedSeason.reportingDeadline)) throw new Error('Finish the reporting window and finalize the saved season before assigning historical roles.')
   const roleIdsByTier = await ensureSeasonSnapshotRoles(kv, guildId, token, season)
+  if (storedSeason.isolatedRatingsEnabled) {
+    const [mappings, config] = await Promise.all([getSeasonSnapshotRoleMappings(kv, guildId), getRankedRoleConfig(kv, guildId)])
+    const historicalIds = Object.values(mappings.bySeasonId).flatMap(entry => Object.values(entry.roles).filter((id): id is string => id != null))
+    const liveIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
+    await ensureHistoricalRoleOrder(token, guildId, historicalIds, liveIds)
+  }
   const rows = await db
     .select({ playerId: seasonPeakRanks.playerId, tier: seasonPeakRanks.tier })
     .from(seasonPeakRanks)

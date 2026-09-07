@@ -50,7 +50,7 @@ export const command_leaders = factory.command<Var>(
         }
       })())
 
-      const rankProfile = guildId && !historical && selected.ratingSeason?.ratingSystem !== 'rp'
+      const rankProfile = guildId && !historical && (selected.ratingSeason?.ratingSystem !== 'rp' || selected.ratingSeason.publicReadsEnabled)
         ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
       const visibleModes = mode === 'all'

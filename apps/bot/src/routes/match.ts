@@ -184,6 +184,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       reportClaim: result.reportClaim,
       reportedContext,
       isTournamentMatch,
+      historicalSeason: result.historicalSeason,
       participants: result.participants,
       matchDraftData: result.match.draftData,
       lobby,
@@ -357,6 +358,7 @@ function queueActivityReportProjectionTasks(
     reportClaim?: Parameters<typeof releaseReportedMatchProcessingClaim>[1]
     reportedContext: NonNullable<ReturnType<typeof getStoredGameModeContext>>
     isTournamentMatch: boolean
+    historicalSeason?: boolean
     participants: Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants']
     matchDraftData: string | null
     lobby: Parameters<typeof syncReportedMatchDiscordMessages>[0]['lobby']
@@ -375,7 +377,7 @@ function queueActivityReportProjectionTasks(
     try {
       let discordSyncErrors: string[] = []
       try {
-        const participants = await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
+        const participants = input.historicalSeason ? input.participants : await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
         const discordSync = await syncReportedMatchDiscordMessages({
           db: input.db,
           kv: input.kv,
@@ -413,6 +415,7 @@ function queueActivityReportProjectionTasks(
         return
       }
 
+      if (input.historicalSeason) return
       if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
         await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
           civ: true,

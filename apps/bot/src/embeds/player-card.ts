@@ -1,9 +1,10 @@
 import type { Database } from '@civup/db'
+import type { PublicRatingSnapshot } from '@civup/rating'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
 import { matches, matchParticipants, playerRatingEvents, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
-import { displayRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, publicRatingRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -12,7 +13,7 @@ import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-e
 import type { SeasonSelection } from '../services/season/selection.ts'
 import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
 
@@ -198,8 +199,9 @@ export function formatModeStats(
 ): string {
   if (stats.publicEra && ratingRow.publicRating == null) throw new Error('Public rating data is incomplete.')
   const rating = stats.publicEra ? visiblePublicRating(ratingRow.publicRating!) : Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
+  const publicRank = (modeSummary?.eligible ?? (ratingRow.lifetimeGamesPlayed ?? ratingRow.gamesPlayed) >= getLeaderboardMinGames(mode)) ? publicRatingRank(rating).label : 'Unranked'
   const lines = [
-    `${stats.currentRatingLabel ? 'Current rating' : 'Rating'}: ${stats.publicEra ? `${publicRatingRank(rating).label} · ${rating} RP` : formatModeRating(modeSummary, rating)}`,
+    `${stats.currentRatingLabel ? 'Current rating' : 'Rating'}: ${stats.publicEra ? `${publicRank} · ${rating} RP` : formatModeRating(modeSummary, rating)}`,
   ]
 
   const rank = stats.publicEra ? null : formatModeRank(modeSummary)
@@ -588,9 +590,11 @@ function formatRecentRatingChange(match: {
   gameMode: string
   draftData: string | null
   isTournament?: boolean
-}): string {
+} & PublicRatingSnapshot): string {
   if (match.isTournament) return `${formatTournamentResultEmoji(match.placement)} \`Tournament\``
   if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
+  const publicChange = formatPublicRatingSnapshotChange(match)
+  if (publicChange != null) return publicChange
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null

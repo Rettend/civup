@@ -1,5 +1,5 @@
 import type { Database } from '@civup/db'
-import { seasons } from '@civup/db'
+import { seasonMatchReports, seasons } from '@civup/db'
 import { eq } from 'drizzle-orm'
 
 export const SEASON_REPORTING_WINDOW_MS = 48 * 60 * 60 * 1000
@@ -15,6 +15,7 @@ export interface SeasonMutationState {
 }
 
 export interface SeasonMatchIdentity {
+  id?: string
   seasonId: string | null
   createdAt: number
   status: string
@@ -45,6 +46,7 @@ export async function getSeasonMutationError(
   action: 'first-report' | 'correction',
   now = Date.now(),
   acceptedAt?: number | null,
+  seededCorrection = false,
 ): Promise<string | null> {
   if (!match.seasonId) {
     const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
@@ -52,8 +54,12 @@ export async function getSeasonMutationError(
   }
   const [season] = await db.select().from(seasons).where(eq(seasons.id, match.seasonId)).limit(1)
   if (!season) return 'The match references a missing season. Its historical assignment needs owner review.'
+  if (season.isolatedRatingsEnabled && action === 'first-report') {
+    const [report] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id ?? '')).limit(1)
+    if (report?.seasonId === season.id) return null
+  }
   const error = seasonMutationError(season, match, action, now, acceptedAt)
   if (error) return error
-  if (season.ratingSystem === 'rp' || !season.active) return 'Season-isolated reporting and corrections are not enabled yet. No ratings were changed.'
+  if ((season.ratingSystem === 'rp' || !season.active) && !(season.isolatedRatingsEnabled && (action === 'first-report' || seededCorrection))) return 'Season-isolated reporting and corrections are not enabled yet. No ratings were changed.'
   return null
 }

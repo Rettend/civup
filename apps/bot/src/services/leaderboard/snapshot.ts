@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import { playerRatings } from '@civup/db'
+import { playerRatings, seasons } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { inArray } from 'drizzle-orm'
+import { desc, eq, inArray } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
 
@@ -14,18 +14,23 @@ export interface LeaderboardSnapshotRow {
   gamesPlayed: number
   wins: number
   lastPlayedAt: number | null
+  publicRating?: number
 }
 
 export interface LeaderboardModeSnapshot {
   mode: LeaderboardMode
   updatedAt: number
   rows: LeaderboardSnapshotRow[]
+  ratingSystem?: 'rp'
+  publicReadsEnabled?: boolean
 }
 
 interface StoredLeaderboardModeSnapshot {
   version?: unknown
   updatedAt?: unknown
   rows?: unknown
+  ratingSystem?: unknown
+  publicReadsEnabled?: unknown
 }
 
 const LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX = 'leaderboard:snapshot:'
@@ -58,7 +63,11 @@ export async function ensureLeaderboardModeSnapshots(
   if (missingModes.length === 0) return snapshots
 
   let rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
-  const recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
+  let recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
+  if (recalcModes.length) {
+    const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
+    if (publicSeason) recalcModes = []
+  }
 
   for (const mode of recalcModes) {
     const recalculated = await recalculateLeaderboardMode(db, mode)
@@ -70,7 +79,8 @@ export async function ensureLeaderboardModeSnapshots(
     rowsByMode = new Map([...rowsByMode, ...recalculatedRowsByMode])
   }
 
-  const rebuilt = missingModes.map(mode => buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()))
+  const era = await loadSnapshotEra(db)
+  const rebuilt = missingModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()), ...era }))
 
   await setLeaderboardModeSnapshots(kv, rebuilt)
   for (const snapshot of rebuilt) {
@@ -146,7 +156,7 @@ export async function buildLeaderboardModeSnapshotFromD1(
   updatedAt = Date.now(),
 ): Promise<LeaderboardModeSnapshot> {
   const rows = await listLeaderboardModeRowsFromD1(db, mode)
-  return buildLeaderboardModeSnapshot(mode, rows, updatedAt)
+  return { ...buildLeaderboardModeSnapshot(mode, rows, updatedAt), ...await loadSnapshotEra(db) }
 }
 
 export async function buildLeaderboardModeSnapshotsFromD1(
@@ -156,7 +166,13 @@ export async function buildLeaderboardModeSnapshotsFromD1(
 ): Promise<Map<LeaderboardMode, LeaderboardModeSnapshot>> {
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, requestedModes)
-  return new Map(requestedModes.map(mode => [mode, buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt)]))
+  const era = await loadSnapshotEra(db)
+  return new Map(requestedModes.map(mode => [mode, { ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt), ...era }]))
+}
+
+async function loadSnapshotEra(db: Database): Promise<Pick<LeaderboardModeSnapshot, 'ratingSystem' | 'publicReadsEnabled'>> {
+  const [season] = await db.select({ ratingSystem: seasons.ratingSystem, enabled: seasons.publicReadsEnabled }).from(seasons).orderBy(desc(seasons.active), desc(seasons.startsAt)).limit(1)
+  return season?.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: season.enabled } : {}
 }
 
 export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: LeaderboardMode): Promise<void> {
@@ -183,6 +199,7 @@ function buildLeaderboardModeSnapshot(
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt,
+      ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
     })),
   }
 }
@@ -198,6 +215,7 @@ async function setLeaderboardModeSnapshots(
     value: JSON.stringify({
       version: LEADERBOARD_MODE_SNAPSHOT_VERSION,
       updatedAt: snapshot.updatedAt,
+      ...(snapshot.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: snapshot.publicReadsEnabled === true } : {}),
       rows: snapshot.rows.map(row => ({
         playerId: row.playerId,
         mu: row.mu,
@@ -205,6 +223,7 @@ async function setLeaderboardModeSnapshots(
         gamesPlayed: row.gamesPlayed,
         wins: row.wins,
         lastPlayedAt: row.lastPlayedAt,
+        ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
       })),
     } satisfies StoredLeaderboardModeSnapshot),
   })))
@@ -233,6 +252,7 @@ async function listLeaderboardModeRowsFromD1ByModes(
       gamesPlayed: playerRatings.gamesPlayed,
       wins: playerRatings.wins,
       lastPlayedAt: playerRatings.lastPlayedAt,
+      publicRating: playerRatings.publicRating,
     })
     .from(playerRatings)
     .where(inArray(playerRatings.mode, requestedModes))
@@ -249,6 +269,7 @@ async function listLeaderboardModeRowsFromD1ByModes(
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt ?? null,
+      ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
     })
     rowsByMode.set(row.mode, modeRows)
   }
@@ -275,6 +296,7 @@ export function normalizeLeaderboardModeSnapshot(
     updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
       ? Math.round(raw.updatedAt)
       : 0,
+    ...(raw.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: raw.publicReadsEnabled === true } as const : {}),
     rows,
   }
 }
@@ -301,6 +323,7 @@ function normalizeLeaderboardSnapshotRow(
     gamesPlayed,
     wins,
     lastPlayedAt: normalizeNullableTimestamp(raw.lastPlayedAt),
+    ...(typeof raw.publicRating === 'number' && Number.isFinite(raw.publicRating) && raw.publicRating >= 0 ? { publicRating: raw.publicRating } : {}),
   }
 }
 

@@ -8,6 +8,8 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { inArray } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
+import { getDisplaySeason } from '../season/index.ts'
+import { SeasonSelectionError } from '../season/selection.ts'
 
 const IMAGE_WIDTH = 1200
 const ROW_LIMIT = 20
@@ -66,11 +68,13 @@ export interface PlayerLeaderboardImageData {
   mode: LeaderboardMode
   titlePrefix?: string
   rows: PlayerLeaderboardImageRow[]
+  ratingSystem?: 'legacy' | 'rp'
 }
 
 export interface PlayerLeaderboardImageDataOptions {
   titlePrefix?: string
   rowLimit?: number
+  ratingSystem?: 'legacy' | 'rp'
 }
 
 export interface PlayerLeaderboardImageDataInput {
@@ -100,18 +104,27 @@ export async function buildPlayerLeaderboardImageDataBatch(
   db: Database,
   inputs: readonly PlayerLeaderboardImageDataInput[],
 ): Promise<PlayerLeaderboardImageData[]> {
+  const season = await getDisplaySeason(db)
+  if (season?.ratingSystem === 'rp' && !season.publicReadsEnabled && inputs.some(input => input.options?.ratingSystem !== 'legacy')) throw new SeasonSelectionError('Ratings for this season are not ready to display yet.')
   const prepared = inputs.map((input) => {
     const limit = Math.max(0, Math.round(input.options?.rowLimit ?? ROW_LIMIT))
+    const publicEra = (input.options?.ratingSystem ?? season?.ratingSystem) === 'rp'
+    if (publicEra && input.rows.some(row => row.publicRating == null)) throw new SeasonSelectionError('Public leaderboard ratings are incomplete.')
     return {
       input,
-      entries: buildLeaderboard([...input.rows], getLeaderboardMinGames(input.mode)).slice(0, limit),
+      publicEra,
+      entries: publicEra ? input.rows.filter(row => row.gamesPlayed >= getLeaderboardMinGames(input.mode))
+        .map(row => ({ ...row, displayRating: row.publicRating!, winRate: row.gamesPlayed > 0 ? row.wins / row.gamesPlayed : 0 }))
+        .sort((a, b) => b.displayRating - a.displayRating || a.playerId.localeCompare(b.playerId)).slice(0, limit)
+        : buildLeaderboard([...input.rows], getLeaderboardMinGames(input.mode)).slice(0, limit),
     }
   })
   const profiles = await getLeaderboardPlayerProfiles(db, prepared.flatMap(item => item.entries.map(entry => entry.playerId)))
 
-  return prepared.map(({ input, entries }) => ({
+  return prepared.map(({ input, entries, publicEra }) => ({
     mode: input.mode,
     titlePrefix: input.options?.titlePrefix,
+    ratingSystem: publicEra ? 'rp' : 'legacy',
     rows: entries.map((entry, index) => {
       const profile = profiles.get(entry.playerId)
       return {
@@ -154,7 +167,7 @@ export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageDat
   <rect width="${IMAGE_WIDTH}" height="${height}" fill="url(#playerLeaderboardBg)" />
   <rect x="0" y="0" width="${IMAGE_WIDTH}" height="${HEADER_HEIGHT}" fill="url(#playerLeaderboardAccent)" />
   <text x="${SIDE_PAD}" y="76" fill="${COLORS.fg}" font-size="50" font-weight="900" letter-spacing="0.8">${escapeXml(title)}</text>
-  ${renderTableHeader(data.rows.length)}
+  ${renderTableHeader(data.rows.length, data.ratingSystem)}
   ${data.rows.length > 0 ? renderRows(data.rows, avatarData, accent) : renderEmptyState()}
 </svg>`
 }
@@ -170,14 +183,14 @@ async function getLeaderboardPlayerProfiles(db: Database, playerIds: readonly st
   return new Map(rows.map(row => [row.id, { displayName: row.displayName, avatarUrl: row.avatarUrl }]))
 }
 
-function renderTableHeader(rowCount: number): string {
+function renderTableHeader(rowCount: number, ratingSystem?: 'legacy' | 'rp'): string {
   const columns = rowCount > Math.ceil(rowCount / 2) ? [0, 1] : [0]
   return columns.map((column) => {
     const x = SIDE_PAD + (column * (COLUMN_WIDTH + COLUMN_GAP))
     const positions = getColumnTextPositions(x)
     return `
       <text x="${positions.nameX}" y="${TABLE_HEADER_Y}" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">PLAYER</text>
-      <text x="${positions.ratingX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">ELO</text>
+      <text x="${positions.ratingX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">${ratingSystem === 'rp' ? 'RP' : 'RATING'}</text>
       <text x="${positions.gamesX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">GAMES</text>
       <text x="${positions.winRateX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">WIN%</text>
     `

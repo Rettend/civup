@@ -28,6 +28,7 @@ export const publicRatingSeeds = sqliteTable('public_rating_seeds', {
   sourceSigma: real('source_sigma').notNull(),
   sourceHiddenScore: real('source_hidden_score').notNull(),
   effectiveAt: integer('effective_at').notNull(),
+  lastPlayedAt: integer('last_played_at'),
   sourceSeasonId: text('source_season_id').references(() => seasons.id),
   formulaVersion: text('formula_version').notNull(),
   calibrationVersion: text('calibration_version').notNull().references(() => publicRatingCalibrations.version),
@@ -44,6 +45,7 @@ export const seasonRatingStates = sqliteTable('season_rating_states', {
   mu: real('mu').notNull(),
   sigma: real('sigma').notNull(),
   publicRating: real('public_rating'),
+  managedTier: text('managed_tier'),
   seasonGames: integer('season_games').notNull().default(0),
   seasonWins: integer('season_wins').notNull().default(0),
   evidence: text('evidence', { mode: 'json' }).$type<Record<string, number>>().notNull(),
@@ -60,7 +62,16 @@ export const seasonMatchReports = sqliteTable('season_match_reports', {
   matchId: text('match_id').notNull().references(() => matches.id),
   seasonId: text('season_id').notNull().references(() => seasons.id),
   acceptedAt: integer('accepted_at').notNull(),
+  opponentTiers: text('opponent_tiers', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+  cancelledAt: integer('cancelled_at'),
 }, table => [
   uniqueIndex('season_match_reports_match_idx').on(table.matchId),
   index('season_match_reports_season_idx').on(table.seasonId, table.sequence),
 ])
+
+export const seasonRatingConfigurations = sqliteTable('season_rating_configurations', {
+  seasonId: text('season_id').notNull().references(() => seasons.id),
+  mode: text('mode').notNull(),
+  formulaVersion: text('formula_version').notNull(),
+  calibrationVersion: text('calibration_version').notNull().references(() => publicRatingCalibrations.version),
+}, table => [primaryKey({ columns: [table.seasonId, table.mode] })])

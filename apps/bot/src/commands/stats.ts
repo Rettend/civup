@@ -102,7 +102,7 @@ export const command_stats = factory.autocomplete<Var>(
         return { embeds: [embed] }
       }
 
-      const rankProfile = guildId && !historical && selected.ratingSeason?.ratingSystem !== 'rp'
+      const rankProfile = guildId && !historical && (selected.ratingSeason?.ratingSystem !== 'rp' || selected.ratingSeason.publicReadsEnabled)
         ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
 

@@ -151,6 +151,7 @@ export interface SessionReportedDiscordSyncCommand {
 export interface SessionReportClaim {
   matchId: string
   claimId: string
+  acceptedAt?: number
 }
 
 export type SessionReportClaimResult

@@ -3,10 +3,11 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { CurrentRankAssignment, RankedRolePlayerPreview } from '../ranked/role-sync.ts'
 import { playerRatings } from '@civup/db'
 import { LEADERBOARD_MODES, parseLeaderboardMode } from '@civup/game'
-import { displayRating, getLeaderboardMinGames } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, visiblePublicRating } from '@civup/rating'
 import { eq } from 'drizzle-orm'
 import { previewRankedRoles } from '../ranked/role-sync.ts'
 import { getConfiguredRankedRoleId, getConfiguredRankedRoleLabel, getLowestRankedRoleTier, getRankedRoleConfig } from '../ranked/roles.ts'
+import { getDisplaySeason } from '../season/index.ts'
 
 export interface PlayerRatingSummary {
   playerId: string
@@ -23,6 +24,7 @@ export interface PlayerRatingSummary {
   effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
   publicRating?: number | null
+  lifetimeGamesPlayed?: number
 }
 
 export interface PlayerRankModeSummary {
@@ -56,14 +58,15 @@ export async function getPlayerStatsRankProfile(
   playerId: string,
   now = Date.now(),
 ): Promise<{ rankProfile: PlayerRankProfile, ratingRows: PlayerRatingSummary[], rankedRoleRepair: PlayerRankedRoleRepair | null }> {
-  const [preview, ratingRows] = await Promise.all([
+  const [preview, ratingRows, season] = await Promise.all([
     previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
+    getDisplaySeason(db),
   ])
 
   const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
   return {
-    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config),
+    rankProfile: buildPlayerRankProfile(previewPlayer, ratingRows, preview.config, season?.ratingSystem === 'rp' && season.publicReadsEnabled),
     ratingRows,
     rankedRoleRepair: buildPlayerRankedRoleRepair(previewPlayer, preview.config),
   }
@@ -76,19 +79,21 @@ export async function getPlayerRankProfile(
   playerId: string,
   now = Date.now(),
 ): Promise<PlayerRankProfile> {
-  const [preview, ratingRows] = await Promise.all([
+  const [preview, ratingRows, season] = await Promise.all([
     previewRankedRoles({ db, kv, guildId, now, playerIds: [playerId], includePlayerIdentities: false, fullRosterGraceCaps: false }),
     db.select().from(playerRatings).where(eq(playerRatings.playerId, playerId)),
+    getDisplaySeason(db),
   ])
 
   const previewPlayer = preview.playerPreviews.find(player => player.playerId === playerId) ?? null
-  return buildPlayerRankProfile(previewPlayer, ratingRows, preview.config)
+  return buildPlayerRankProfile(previewPlayer, ratingRows, preview.config, season?.ratingSystem === 'rp' && season.publicReadsEnabled)
 }
 
 function buildPlayerRankProfile(
   previewPlayer: RankedRolePlayerPreview | null,
   ratingRows: PlayerRatingSummary[],
   config: Awaited<ReturnType<typeof getRankedRoleConfig>>,
+  publicEra = false,
 ): PlayerRankProfile {
   const ratingByMode = new Map(ratingRows.flatMap((row) => {
     const mode = parseLeaderboardMode(row.mode)
@@ -98,13 +103,14 @@ function buildPlayerRankProfile(
   const modes = Object.fromEntries(LEADERBOARD_MODES.map((mode) => {
     const ratingRow = ratingByMode.get(mode)
     const tier = previewPlayer?.ladderTiers[mode] ?? null
+    if (publicEra && ratingRow && ratingRow.publicRating == null) throw new Error('Public rating data is incomplete.')
 
     return [mode, {
       mode,
       tier,
       tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) : 'Unranked',
       tierRoleId: tier ? getConfiguredRankedRoleId(config, tier) : null,
-      rating: ratingRow ? Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
+      rating: ratingRow ? publicEra ? visiblePublicRating(ratingRow.publicRating!) : Math.round(displayRating(ratingRow.mu, ratingRow.sigma)) : null,
       gamesPlayed: ratingRow?.gamesPlayed ?? 0,
       wins: ratingRow?.wins ?? 0,
       rank: previewPlayer?.ladderRanks[mode] ?? null,
