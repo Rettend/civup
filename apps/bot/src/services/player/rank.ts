@@ -22,6 +22,7 @@ export interface PlayerRatingSummary {
   effectiveWinsVsTier1: number
   effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
+  publicRating?: number | null
 }
 
 export interface PlayerRankModeSummary {

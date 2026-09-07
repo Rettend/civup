@@ -19,7 +19,8 @@ import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraft
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
 import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
-import { buildRankByPlayer, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { buildRankByPlayer, prepareRatedMatchReplay } from './ratings.ts'
+import { getSeasonMutationError } from '../season/policy.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -114,6 +115,12 @@ export async function reportMatch(
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
+  }
+
+  const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'first-report' : 'correction')
+  if (seasonError) {
+    if (match.status === 'completed') return { match, participants: participantRows, idempotent: true, tournamentLinked }
+    return { error: seasonError }
   }
 
   if (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null) {
@@ -1104,17 +1111,13 @@ async function repairCompletedReportedMatch(
 
   console.error(`Repairing incomplete reported match ${match.id}.`)
 
-  const recalculated = await recalculateLeaderboardMode(db, gameContext.leaderboardMode, {
-    fromMatchId: match.id,
-    includeFromMatch: true,
-  })
-  if ('error' in recalculated) return recalculated
-  const recalculatedGlobal = await recalculateGlobalRatings(db, {
+  const replay = await prepareRatedMatchReplay(db, gameContext.leaderboardMode, {
     fromMatchId: match.id,
     includeFromMatch: true,
     opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
   })
-  if ('error' in recalculatedGlobal) return recalculatedGlobal
+  if ('error' in replay) return replay
+  await runDbBatch(db, replay.queries)
 
   await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
 
@@ -1220,9 +1223,10 @@ async function rollbackReportedRatedMatch(
   },
 ): Promise<string | null> {
   try {
+    const restoreQueries: DbBatchItem[] = []
     if (options.participantRows) {
       for (const participant of options.participantRows) {
-        await db
+        restoreQueries.push(db
           .update(matchParticipants)
           .set({
             civId: participant.civId,
@@ -1235,11 +1239,11 @@ async function rollbackReportedRatedMatch(
           .where(and(
             eq(matchParticipants.matchId, options.match.id),
             eq(matchParticipants.playerId, participant.playerId),
-          ))
+          )))
       }
     }
     else {
-      await db
+      restoreQueries.push(db
         .update(matchParticipants)
         .set({
           placement: null,
@@ -1248,29 +1252,25 @@ async function rollbackReportedRatedMatch(
           ratingAfterMu: null,
           ratingAfterSigma: null,
         })
-        .where(eq(matchParticipants.matchId, options.match.id))
+        .where(eq(matchParticipants.matchId, options.match.id)))
     }
 
-    await db
+    restoreQueries.push(db
       .update(matches)
       .set({
         status: 'active',
         completedAt: null,
         draftData: options.match.draftData,
       })
-      .where(eq(matches.id, options.match.id))
+      .where(eq(matches.id, options.match.id)))
 
-    const recalculated = await recalculateLeaderboardMode(db, options.leaderboardMode, {
-      fromMatchId: options.match.id,
-      includeFromMatch: false,
-    })
-    if ('error' in recalculated) return recalculated.error
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
+    const replay = await prepareRatedMatchReplay(db, options.leaderboardMode, {
       fromMatchId: options.match.id,
       includeFromMatch: false,
       opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
     })
-    if ('error' in recalculatedGlobal) return recalculatedGlobal.error
+    if ('error' in replay) return replay.error
+    await runDbBatch(db, [...restoreQueries, ...replay.queries])
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null

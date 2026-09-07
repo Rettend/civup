@@ -1,15 +1,17 @@
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players, tournamentMatches } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
-import { displayRating } from '@civup/rating'
+import { displayRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
-import { getDisplaySeason } from '../services/season/index.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
+import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
 import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
@@ -75,32 +77,32 @@ export async function playerCardEmbed(
     rankProfile?: PlayerRankProfile | null
     ratingRows?: readonly PlayerRatingSummary[]
     visibleModes?: readonly LeaderboardMode[]
+    season?: SeasonSelection
   } = {},
 ): Promise<Embed> {
-  const [player, displaySeason, ratings] = await Promise.all([
+  const selected = await resolveSeasonSelection(db, options.season ?? 'current')
+  const displaySeason = selected.season
+  const historical = displaySeason != null && !displaySeason.active
+  const [player, ratings] = await Promise.all([
     db
       .select()
       .from(players)
       .where(eq(players.id, playerId))
       .limit(1)
       .then(rows => rows[0] ?? null),
-    getDisplaySeason(db),
-    options.ratingRows
+    !displaySeason && !selected.allTime && options.ratingRows
       ? Promise.resolve(options.ratingRows)
-      : db
-          .select()
-          .from(playerRatings)
-          .where(eq(playerRatings.playerId, playerId)),
+      : loadSelectedSeasonRatings(db, selected, [playerId]),
   ])
 
   const displayName = player?.displayName ?? `<@${playerId}>`
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
-  const rankProfile = options.rankProfile ?? null
+  const rankProfile = historical ? null : options.rankProfile ?? null
   const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
 
   const embed = new Embed()
-    .title('Stats')
+    .title(`Stats${displaySeason || selected.allTime ? ` · ${selected.label}` : ''}`)
     .description(buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile))
     .color(0xC8AA6E)
 
@@ -115,11 +117,11 @@ export async function playerCardEmbed(
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(r => r.mode === mode)
-    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
+    if (!ratingRow || (ratingRow.gamesPlayed === 0 && ratingRow.effectiveGames === 0 && ratingRow.publicRating == null)) continue
 
     fields.push({
       name: formatLeaderboardModeLabel(mode, mode),
-      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins }),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins, publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null), currentRatingLabel: selected.allTime }),
       inline: true,
     })
   }
@@ -192,14 +194,15 @@ export function formatModeStats(
   modeSummary: PlayerRankProfile['modes'][LeaderboardMode] | undefined,
   ratingRow: PlayerRatingSummary,
   mode: LeaderboardMode,
-  stats: { ffaRatingWins: number },
+  stats: { ffaRatingWins: number, publicEra?: boolean, currentRatingLabel?: boolean },
 ): string {
-  const rating = Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
+  if (stats.publicEra && ratingRow.publicRating == null) throw new Error('Public rating data is incomplete.')
+  const rating = stats.publicEra ? visiblePublicRating(ratingRow.publicRating!) : Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
   const lines = [
-    `Rating: ${formatModeRating(modeSummary, rating)}`,
+    `${stats.currentRatingLabel ? 'Current rating' : 'Rating'}: ${stats.publicEra ? `${publicRatingRank(rating).label} · ${rating} RP` : formatModeRating(modeSummary, rating)}`,
   ]
 
-  const rank = formatModeRank(modeSummary)
+  const rank = stats.publicEra ? null : formatModeRank(modeSummary)
   if (rank) lines.push(`Rank: ${rank}`)
 
   lines.push(`Games: ${ratingRow.gamesPlayed}`)

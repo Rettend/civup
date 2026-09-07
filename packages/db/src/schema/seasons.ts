@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { players } from './players.ts'
 
 export const seasons = sqliteTable('seasons', {
@@ -13,6 +13,12 @@ export const seasons = sqliteTable('seasons', {
   softReset: integer('soft_reset', { mode: 'boolean' }).notNull().default(true),
   /** Whether this is the active season */
   active: integer('active', { mode: 'boolean' }).notNull().default(false),
+  reportingDeadline: integer('reporting_deadline'),
+  finalizedAt: integer('finalized_at'),
+  ratingSystem: text('rating_system', { enum: ['legacy', 'rp'] }).notNull().default('legacy'),
+  resetFactor: real('reset_factor').notNull().default(0.5),
+  preserveEvidence: integer('preserve_evidence', { mode: 'boolean' }).notNull().default(false),
+  publicReadsEnabled: integer('public_reads_enabled', { mode: 'boolean' }).notNull().default(false),
 })
 
 export const seasonPeakRanks = sqliteTable('season_peak_ranks', {

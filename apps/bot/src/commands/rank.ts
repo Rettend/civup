@@ -9,12 +9,15 @@ import { buildRankGraphImageData, parseRankGraphScope, renderRankGraphPng } from
 import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection } from '../services/season/selection.ts'
 import { factory } from '../setup.ts'
 
 interface Var {
   player?: string
   mode?: string
   games?: string
+  season?: string
 }
 
 interface RankCommandImage {
@@ -46,6 +49,7 @@ export const command_rank = factory.command<Var>(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('mode', 'Rating track').choices(...RANK_GRAPH_MODE_CHOICES),
     new Option('games', 'X-axis window').choices(...RANK_GRAPH_GAME_CHOICES),
+    new Option('season', 'Current or a season number'),
   ),
   async (c) => {
     const guildId = c.interaction.guild_id
@@ -54,7 +58,10 @@ export const command_rank = factory.command<Var>(
       ?? c.interaction.user?.id
     const scope = parseRankGraphScope(c.var.mode) ?? 'overall'
     const gameLimit = parseRankGraphGameLimit(c.var.games)
-    const isDefaultSelfLookup = !c.var.player && !c.var.mode && !c.var.games
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode && !c.var.games && !c.var.season
+    let season: SeasonSelection
+    try { season = parseSeasonSelection(c.var.season, false) }
+    catch (error) { return c.res(error instanceof Error ? error.message : 'Choose a season.') }
 
     if (!guildId) return c.res('This command can only be used in a server.')
     if (!targetId) return c.res('Could not identify the player.')
@@ -84,6 +91,7 @@ export const command_rank = factory.command<Var>(
       const result = await buildRankCommandImage(db, kv, guildId, targetId, {
         scope,
         gameLimit: gameLimit ?? DEFAULT_RANK_GRAPH_GAMES,
+        season,
       })
       if ('content' in result) {
         await c.followup({ content: result.content, allowed_mentions: { parse: [] } })
@@ -129,9 +137,12 @@ export async function buildRankCommandImage(
   options: {
     scope: RankGraphScope
     gameLimit: number
+    season?: SeasonSelection
   },
 ): Promise<RankCommandResult> {
-  const data = await buildRankGraphImageData(db, kv, guildId, playerId, options)
+  let data
+  try { data = await buildRankGraphImageData(db, kv, guildId, playerId, options) }
+  catch (error) { return { content: error instanceof Error ? error.message : 'Could not load rating history.' } }
   if (data.player.points.length === 0) {
     return { content: 'No ranked games found for this view.' }
   }

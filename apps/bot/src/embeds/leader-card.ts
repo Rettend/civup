@@ -6,6 +6,8 @@ import { Embed } from 'discord-hono'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { leaderEmojiImageUrl, leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { listTopPlayerCivRankings } from '../services/leaderboard/player-civ-stats.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
 
 export type LeaderStatsModeFilter = 'all' | GameMode
 
@@ -59,12 +61,14 @@ interface MatchCountSummary {
   modes: Map<string, number>
 }
 
-export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all'): Promise<Embed> {
+export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all', seasonSelection: SeasonSelection = 'current'): Promise<Embed> {
   const leader = resolveLeader(leaderId)
+  const selected = await resolveSeasonSelection(db, seasonSelection)
+  const seasonId = selected.season?.id ?? null
   const [targetRows, matchCounts, bestPlayers] = await Promise.all([
-    loadTargetLeaderRows(db, leaderId, modeFilter),
-    loadCompletedMatchCounts(db, modeFilter),
-    listTopPlayerCivRankings(db, { mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
+    loadTargetLeaderRows(db, leaderId, modeFilter, seasonId),
+    loadCompletedMatchCounts(db, modeFilter, seasonId),
+    listTopPlayerCivRankings(db, { seasonId, mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
   ])
   const participantRows = await loadParticipantRows(db, targetRows.map(row => row.matchId))
   const stats = buildLeaderStats(targetRows, participantRows, matchCounts)
@@ -95,7 +99,7 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
   const thumbnailUrl = leaderEmojiImageUrl(leaderId)
   const leaderName = thumbnailUrl ? leader.name : emoji ? `${emoji} ${leader.name}` : leader.name
   const embed = new Embed()
-    .title('Leader Stats')
+    .title(`Leader Stats${selected.season || selected.allTime ? ` · ${selected.label}` : ''}`)
     .description([leaderName, leader.civilization, modeLabel].filter(Boolean).join(' - '))
     .color(0xC8AA6E)
     .fields(...fields)
@@ -104,7 +108,7 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
   return embed
 }
 
-async function loadTargetLeaderRows(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter): Promise<TargetLeaderRow[]> {
+async function loadTargetLeaderRows(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter, seasonId: string | null): Promise<TargetLeaderRow[]> {
   const conditions = [
     eq(matchParticipants.civId, leaderId),
     eq(matches.status, 'completed'),
@@ -112,6 +116,7 @@ async function loadTargetLeaderRows(db: Database, leaderId: string, modeFilter: 
     excludeTournamentMatchesCondition(),
   ]
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
+  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
 
   return db
     .select({
@@ -144,13 +149,14 @@ async function loadParticipantRows(db: Database, matchIds: readonly string[]): P
   return rows
 }
 
-async function loadCompletedMatchCounts(db: Database, modeFilter: LeaderStatsModeFilter): Promise<MatchCountSummary> {
+async function loadCompletedMatchCounts(db: Database, modeFilter: LeaderStatsModeFilter, seasonId: string | null): Promise<MatchCountSummary> {
   const conditions = [
     eq(matches.status, 'completed'),
     eligibleStoredMatchCondition(),
     excludeTournamentMatchesCondition(),
   ]
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
+  if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
 
   const rows = await db
     .select({ gameMode: matches.gameMode, count: sql<number>`count(*)` })

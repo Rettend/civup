@@ -2,6 +2,8 @@ import type { Rating as OSRating } from 'openskill'
 import { predictWin, rate, rating } from 'openskill'
 import { bradleyTerryFull } from 'openskill/models'
 
+export * from './public-rating.ts'
+
 // ── Constants ───────────────────────────────────────────────
 
 /** Default mu for new players (how good the system thinks you are) */

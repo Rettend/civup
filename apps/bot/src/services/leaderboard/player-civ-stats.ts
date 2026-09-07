@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
-import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, tournamentMatches } from '@civup/db'
+import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, seasonRatingStates, seasons, tournamentMatches } from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
@@ -112,24 +112,28 @@ export async function loadPlayerCivRankingSummaries(
   if (uniqueCivIds.length === 0) return new Map()
 
   const conditions = buildPlayerCivStatConditions(filter, inArray(playerCivStats.civId, uniqueCivIds))
+  const frozen = await useClosingSeasonRatings(db, filter.seasonId)
+  const ratingTable = frozen ? seasonRatingStates : playerRatings
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
       civId: playerCivStats.civId,
       picks: sql<number>`sum(${playerCivStats.picks})`,
       wins: sql<number>`sum(${playerCivStats.wins})`,
-      globalMu: sql<number | null>`max(${playerRatings.mu})`,
-      globalSigma: sql<number | null>`max(${playerRatings.sigma})`,
+      globalMu: sql<number | null>`max(${ratingTable.mu})`,
+      globalSigma: sql<number | null>`max(${ratingTable.sigma})`,
     })
     .from(playerCivStats)
-    .leftJoin(playerRatings, and(
-      eq(playerRatings.playerId, playerCivStats.playerId),
-      eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
+    .leftJoin(ratingTable, and(
+      eq(ratingTable.playerId, playerCivStats.playerId),
+      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
     ))
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId, playerCivStats.civId)
 
   const byCivId = new Map<string, PlayerCivRankEntry[]>()
+  if (frozen && rows.some(row => row.globalMu == null || row.globalSigma == null)) return new Map()
   for (const row of rows) {
     const entries = byCivId.get(row.civId) ?? []
     entries.push({
@@ -157,24 +161,28 @@ export async function listTopPlayerCivRankings(
   if (civId.length === 0 || limit <= 0) return []
 
   const conditions = buildPlayerCivStatConditions(filter, eq(playerCivStats.civId, civId))
+  const frozen = await useClosingSeasonRatings(db, filter.seasonId)
+  const ratingTable = frozen ? seasonRatingStates : playerRatings
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
       displayName: players.displayName,
       picks: sql<number>`sum(${playerCivStats.picks})`,
       wins: sql<number>`sum(${playerCivStats.wins})`,
-      globalMu: sql<number | null>`max(${playerRatings.mu})`,
-      globalSigma: sql<number | null>`max(${playerRatings.sigma})`,
+      globalMu: sql<number | null>`max(${ratingTable.mu})`,
+      globalSigma: sql<number | null>`max(${ratingTable.sigma})`,
     })
     .from(playerCivStats)
     .leftJoin(players, eq(players.id, playerCivStats.playerId))
-    .leftJoin(playerRatings, and(
-      eq(playerRatings.playerId, playerCivStats.playerId),
-      eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
+    .leftJoin(ratingTable, and(
+      eq(ratingTable.playerId, playerCivStats.playerId),
+      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
     ))
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId)
 
+  if (frozen && rows.some(row => row.globalMu == null || row.globalSigma == null)) return []
   const entries = rows.map(row => ({
     playerId: row.playerId,
     displayName: row.displayName,
@@ -197,6 +205,12 @@ export async function listTopPlayerCivRankings(
       adjustedWinRatePct: round(rankAdjustedWinRate(entry, serverWinRate) * 100, 1),
       adjustedWinRateRank: index + 1,
     }))
+}
+
+async function useClosingSeasonRatings(db: Database, seasonId?: string | null): Promise<boolean> {
+  if (!seasonId) return false
+  const [season] = await db.select({ active: seasons.active }).from(seasons).where(eq(seasons.id, seasonId)).limit(1)
+  return season != null && !season.active
 }
 
 export async function reconcilePlayerCivStatMatchContribution(

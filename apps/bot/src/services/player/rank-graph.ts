@@ -1,14 +1,16 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from '../ranked/roles.ts'
-import { playerRatingEvents, playerRatings, players as playerRows } from '@civup/db'
+import { matches, playerRatingEvents, playerRatings, players as playerRows, publicRatingSeeds } from '@civup/db'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, PUBLIC_RATING_BANDS, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating, visiblePublicRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
 import { getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
+import type { SeasonSelection } from '../season/selection.ts'
+import { resolveSeasonSelection } from '../season/selection.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
 export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
@@ -39,6 +41,8 @@ export interface RankGraphImageData {
   gameLimit: number
   player: RankGraphPlayer
   bands: RankGraphBand[]
+  seasonLabel?: string
+  ratingSystem?: 'legacy' | 'rp'
 }
 
 interface RankGraphBandSegment {
@@ -58,6 +62,12 @@ interface RankGraphEventRow {
   ratingAfterMu: number
   ratingAfterSigma: number
   matchCreatedAt: number
+  publicRatingBefore: number | null
+  publicRatingAfter: number | null
+  publicSequence: number | null
+  publicFormulaVersion: string | null
+  publicCalibrationVersion: string | null
+  seasonId: string | null
 }
 
 interface RankGraphScoreRow {
@@ -123,21 +133,42 @@ export async function buildRankGraphImageData(
   options: {
     scope?: RankGraphScope
     gameLimit: number
+    season?: SeasonSelection
   },
 ): Promise<RankGraphImageData> {
   const scope = options.scope ?? 'overall'
   const gameLimit = normalizeGameLimit(options.gameLimit)
+  if (options.season === 'all') throw new Error('Choose one season for rating history.')
+  const selected = await resolveSeasonSelection(db, options.season ?? 'current')
+  const season = selected.season
+  const publicEra = season?.ratingSystem === 'rp'
+  if (publicEra && !season.publicReadsEnabled) throw new Error('Ratings for this season are not ready to display yet.')
   const [profile, eventRows, bands] = await Promise.all([
     loadPlayerProfile(db, playerId),
-    loadRankGraphEvents(db, playerId, scope, gameLimit),
-    loadRankGraphBands(db, kv, guildId, scope),
+    loadRankGraphEvents(db, playerId, scope, gameLimit, season?.id, publicEra),
+    publicEra ? Promise.resolve(buildPublicRankGraphBands()) : season && !season.active ? Promise.resolve([]) : loadRankGraphBands(db, kv, guildId, scope),
   ])
-  const points = buildRankGraphPoints(eventRows, scope)
+  let points = buildRankGraphPoints(eventRows, scope)
+  if (publicEra) {
+    const [seed] = await db.select({ rating: publicRatingSeeds.rating }).from(publicRatingSeeds).where(and(
+      eq(publicRatingSeeds.seasonId, season.id), eq(publicRatingSeeds.playerId, playerId), eq(publicRatingSeeds.mode, toRatingEventScope(scope)),
+    )).limit(1)
+    if (eventRows.some((event, index) => event.publicRatingBefore == null || event.publicRatingAfter == null
+      || event.seasonId !== season.id || !event.publicFormulaVersion || !event.publicCalibrationVersion
+      || !Number.isSafeInteger(event.publicSequence) || event.publicSequence! <= 0
+      || (index > 0 && (event.publicSequence! <= eventRows[index - 1]!.publicSequence! || event.publicRatingBefore !== eventRows[index - 1]!.publicRatingAfter)))) throw new Error('Rating history is incomplete; no hidden-rating substitute is shown.')
+    if (eventRows.length && !seed) throw new Error('The opening rating is missing for this season.')
+    points = eventRows.length
+      ? [{ x: 0, rating: visiblePublicRating(eventRows[0]!.publicRatingBefore!) }, ...eventRows.map((event, index) => ({ x: index + 1, rating: visiblePublicRating(event.publicRatingAfter!) }))]
+      : seed ? [{ x: 0, rating: visiblePublicRating(seed.rating) }] : []
+  }
 
   return {
     scope,
     gameLimit,
     bands,
+    seasonLabel: season?.name,
+    ratingSystem: publicEra ? 'rp' : 'legacy',
     player: {
       playerId,
       displayName: profile?.displayName?.trim() || shortPlayerLabel(playerId),
@@ -155,11 +186,11 @@ export async function renderRankGraphPng(data: RankGraphImageData): Promise<Uint
 
 export async function renderRankGraphSvg(data: RankGraphImageData): Promise<string> {
   const scale = buildRatingScale(data)
-  const bandSegments = buildRankBandSegments(data.bands, scale)
+  const bandSegments = buildRankBandSegments(data.bands.length ? data.bands : [{ tier: 'legacy', label: '', color: COLORS.accent, cutoffScore: null }], scale)
   const xMax = Math.max(1, data.player.games)
   const xTicks = buildGameTicks(xMax)
   const title = 'Rank History'
-  const subtitle = formatRankGraphSubtitle(data.scope)
+  const subtitle = [formatRankGraphSubtitle(data.scope), data.seasonLabel, data.ratingSystem === 'rp' ? 'RP' : null].filter(Boolean).join(' · ')
   const subtitleX = SIDE_PAD + measurePlainTextWidth(title, 52, 900) + 24
   const hasGraph = data.player.points.length > 0
   const player = data.player
@@ -176,7 +207,7 @@ export async function renderRankGraphSvg(data: RankGraphImageData): Promise<stri
   <rect width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" fill="${COLORS.panel}" />
   <text x="${SIDE_PAD}" y="68" fill="${COLORS.fg}" font-size="52" font-weight="900" letter-spacing="1">${escapeXml(title)}</text>
   <text x="${subtitleX}" y="66" fill="${COLORS.muted}" font-size="19" font-weight="900" letter-spacing="1.6">${escapeXml(subtitle)}</text>
-  ${renderPlayerIdentity(player, avatarDataUri)}
+  ${renderPlayerIdentity(player, avatarDataUri, data.ratingSystem === 'rp' ? 'RP' : 'ELO')}
   <rect x="${CHART_X}" y="${CHART_Y}" width="${CHART_W}" height="${CHART_H}" rx="22" fill="rgba(0,0,0,0.24)" />
   <g clip-path="url(#rankGraphClip)">
     ${renderRankBands(bandSegments)}
@@ -196,6 +227,8 @@ async function loadRankGraphEvents(
   playerId: string,
   scope: RankGraphScope,
   gameLimit: number,
+  seasonId?: string,
+  publicEra = false,
 ): Promise<RankGraphEventRow[]> {
   const ratingScope = toRatingEventScope(scope)
   const rows = await db
@@ -206,16 +239,34 @@ async function loadRankGraphEvents(
       ratingAfterMu: playerRatingEvents.ratingAfterMu,
       ratingAfterSigma: playerRatingEvents.ratingAfterSigma,
       matchCreatedAt: playerRatingEvents.matchCreatedAt,
+      publicRatingBefore: playerRatingEvents.publicRatingBefore,
+      publicRatingAfter: playerRatingEvents.publicRatingAfter,
+      publicSequence: playerRatingEvents.publicSequence,
+      publicFormulaVersion: playerRatingEvents.publicFormulaVersion,
+      publicCalibrationVersion: playerRatingEvents.publicCalibrationVersion,
+      seasonId: playerRatingEvents.seasonId,
     })
     .from(playerRatingEvents)
+    .innerJoin(matches, eq(matches.id, playerRatingEvents.matchId))
     .where(and(
       eq(playerRatingEvents.playerId, playerId),
       eq(playerRatingEvents.mode, ratingScope),
+      eq(matches.status, 'completed'),
+      seasonId ? eq(matches.seasonId, seasonId) : undefined,
     ))
-    .orderBy(desc(playerRatingEvents.matchCreatedAt), desc(playerRatingEvents.matchId))
+    .orderBy(desc(publicEra ? playerRatingEvents.publicSequence : playerRatingEvents.matchCreatedAt), desc(playerRatingEvents.matchId))
     .limit(gameLimit)
 
   return rows.reverse()
+}
+
+function buildPublicRankGraphBands(): RankGraphBand[] {
+  return PUBLIC_RATING_BANDS.toReversed().map(band => ({
+    tier: band.tier,
+    label: band.label,
+    color: BAND_FALLBACK_COLORS[Number(band.tier.slice(4)) - 1]!,
+    cutoffScore: band.minimum || null,
+  }))
 }
 
 async function loadPlayerProfile(db: Database, playerId: string): Promise<{ displayName: string, avatarUrl: string | null } | null> {
@@ -428,13 +479,13 @@ function renderRankBands(segments: readonly RankGraphBandSegment[]): string {
   `).join('')
 }
 
-function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | undefined): string {
+function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | undefined, unit: 'ELO' | 'RP'): string {
   const avatarSize = 46
   const avatarX = IMAGE_WIDTH - SIDE_PAD - avatarSize
   const avatarY = 24
   const nameX = avatarX - 14
   const name = truncateToWidth(stripUnsupportedEmoji(player.displayName), 360, 22, 900)
-  const ratingLabel = player.currentRating != null ? `${player.currentRating} ELO` : 'UNRATED'
+  const ratingLabel = player.currentRating != null ? `${player.currentRating} ${unit}` : 'UNRATED'
   const center = avatarSize / 2
   const initials = getInitials(stripUnsupportedEmoji(player.displayName))
   return `
@@ -482,6 +533,7 @@ function renderSeriesLine(pointsInput: readonly RankGraphPoint[], scale: RatingS
     <g clip-path="url(#${rankBandClipId(segment)})">
       <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-opacity="0.16" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
       <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+      ${pointsInput.length === 1 ? `<circle cx="${xToChart(pointsInput[0]!.x, xMax)}" cy="${ratingToY(pointsInput[0]!.rating, scale)}" r="7" fill="${segment.color}" />` : ''}
     </g>
   `).join('')
 }

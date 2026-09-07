@@ -15,7 +15,8 @@ import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournament
 import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
-import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { prepareRatedMatchReplay, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { getSeasonMutationError } from '../season/policy.ts'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 
@@ -48,6 +49,8 @@ export async function resolveMatchByModerator(
   if (match.status === 'drafting') {
     return { error: `Match **${input.matchId}** is still drafting and cannot be resolved yet.` }
   }
+  const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'first-report' : 'correction')
+  if (seasonError) return { error: seasonError }
 
   const participants = await db
     .select()
@@ -226,6 +229,8 @@ export async function correctMatchLeadersByModerator(
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
   if (match.status !== 'completed') return { error: `Match **${input.matchId}** must be reported before leaders can be corrected.` }
+  const seasonError = await getSeasonMutationError(db, match, 'correction')
+  if (seasonError) return { error: seasonError }
 
   const hasLeader = typeof input.leaderId === 'string' && input.leaderId.trim().length > 0
   const hasSwapWith = typeof input.swapWithPlayerId === 'string' && input.swapWithPlayerId.trim().length > 0
@@ -342,6 +347,8 @@ export async function substituteMatchPlayerByModerator(
   if (match.status !== 'active' && match.status !== 'completed') {
     return { error: `Match **${input.matchId}** must be draft-complete or reported before players can be substituted.` }
   }
+  const seasonError = await getSeasonMutationError(db, match, 'correction')
+  if (seasonError) return { error: seasonError }
 
   const participants = await db
     .select()
@@ -1037,6 +1044,9 @@ export async function cancelMatchByModerator(
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
 
+  const seasonError = await getSeasonMutationError(db, match, 'correction')
+  if (seasonError) return { error: seasonError }
+
   const participants = await db
     .select()
     .from(matchParticipants)
@@ -1056,10 +1066,17 @@ export async function cancelMatchByModerator(
     completedLeaderboardMode = gameContext.leaderboardMode
   }
 
+  const replay = completedLeaderboardMode == null ? null : await prepareRatedMatchReplay(db, completedLeaderboardMode, {
+    fromMatchId: input.matchId,
+    includeFromMatch: false,
+    opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+  })
+  if (replay && 'error' in replay) return replay
+
   const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
   if (lifecycleError) return { error: lifecycleError }
 
-  await db
+  const clearParticipants = db
     .update(matchParticipants)
     .set({
       placement: null,
@@ -1071,24 +1088,14 @@ export async function cancelMatchByModerator(
     .where(eq(matchParticipants.matchId, input.matchId))
 
   let recalculatedMatchIds: string[] = []
+  await runDbBatch(db, [clearParticipants, ...(replay?.queries ?? [])])
   if (previousStatus === 'completed' || hasStaleRatingEvents) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
     await removePlayerCivStatMatchContribution(db, input.matchId)
   }
-  if (completedLeaderboardMode != null) {
-    const recalculated = await recalculateLeaderboardMode(db, completedLeaderboardMode, {
-      fromMatchId: input.matchId,
-      includeFromMatch: false,
-    })
-    if ('error' in recalculated) return recalculated
-    const recalculatedGlobal = await recalculateGlobalRatings(db, {
-      fromMatchId: input.matchId,
-      includeFromMatch: false,
-      opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
-    })
-    if ('error' in recalculatedGlobal) return recalculatedGlobal
+  if (completedLeaderboardMode != null && replay) {
     await rebuildLeaderboardModeSnapshot(db, kv, completedLeaderboardMode)
-    recalculatedMatchIds = recalculated.matchIds
+    recalculatedMatchIds = replay.matchIds
   }
   if (tournamentLinked) await syncTournamentMatchAfterCancel(db, input.matchId)
 

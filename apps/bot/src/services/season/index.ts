@@ -1,11 +1,13 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
+import { matches, playerRatingEvents, playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
 import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
 import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
+import { runDbBatch } from '../db/batch.ts'
+import type { DbBatchItem } from '../db/batch.ts'
 
 export interface SeasonPeakCandidate {
   playerId: string
@@ -87,6 +89,7 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
 
   const now = input.now ?? Date.now()
   const latestSeason = await getLatestSeason(db)
+  if (latestSeason?.ratingSystem === 'rp') throw new Error('RP seasons require the reviewed season transition workflow; the legacy reset cannot change frozen ratings.')
   const nextSeasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
   const seasonNumber = input.seasonNumber ?? nextSeasonNumber
   if (!Number.isSafeInteger(seasonNumber) || seasonNumber < 1) throw new Error('Season number must be a positive integer.')
@@ -103,22 +106,16 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
     endsAt: null,
     softReset,
     active: true,
+    preserveEvidence: true,
   } as const
 
-  await db.insert(seasons).values(season)
+  const queries: DbBatchItem[] = [db.insert(seasons).values(season)]
   if (softReset) {
-    await db.update(playerRatings).set({
+    queries.push(db.update(playerRatings).set({
       sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
-      gamesPlayed: 0,
-      wins: 0,
-      importedGames: 0,
-      effectiveGames: 0,
-      winsVsTier1: 0,
-      winsVsTier2Plus: 0,
-      effectiveWinsVsTier1: 0,
-      effectiveWinsVsTier2Plus: 0,
-    })
+    }))
   }
+  await runDbBatch(db, queries)
   if (input.kv) {
     await clearAllLeaderboardModeSnapshots(input.kv)
   }
@@ -131,17 +128,40 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
 export async function endSeason(db: Database, input: { now?: number } = {}) {
   const existing = await getActiveSeason(db)
   if (!existing) throw new Error('There is no active season to end.')
+  if (existing.ratingSystem === 'rp') throw new Error('RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.')
 
   const endsAt = input.now ?? Date.now()
-  await db
-    .update(seasons)
-    .set({ active: false, endsAt })
-    .where(eq(seasons.id, existing.id))
+  if (!Number.isSafeInteger(endsAt) || endsAt < existing.startsAt) throw new Error('Season close must not precede its opening.')
+  const closingSnapshot = db.insert(seasonRatingStates).select(db.select({
+    seasonId: sql<string>`${existing.id}`.as('season_id'),
+    playerId: playerRatings.playerId,
+    mode: playerRatings.mode,
+    mu: playerRatings.mu,
+    sigma: playerRatings.sigma,
+    publicRating: sql<number | null>`null`.as('public_rating'),
+    seasonGames: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.gamesDelta} else 0 end), 0)`.as('season_games'),
+    seasonWins: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.winsDelta} else 0 end), 0)`.as('season_wins'),
+    evidence: sql<Record<string, number>>`json_object(
+      'gamesPlayed', ${playerRatings.gamesPlayed}, 'wins', ${playerRatings.wins},
+      'importedGames', ${playerRatings.importedGames}, 'effectiveGames', ${playerRatings.effectiveGames},
+      'winsVsTier1', ${playerRatings.winsVsTier1}, 'winsVsTier2Plus', ${playerRatings.winsVsTier2Plus},
+      'effectiveWinsVsTier1', ${playerRatings.effectiveWinsVsTier1}, 'effectiveWinsVsTier2Plus', ${playerRatings.effectiveWinsVsTier2Plus})`.as('evidence'),
+    lastPlayedAt: playerRatings.lastPlayedAt,
+    revision: sql<number>`0`.as('revision'),
+    updatedAt: sql<number>`${endsAt}`.as('updated_at'),
+  }).from(playerRatings)
+    .leftJoin(playerRatingEvents, and(eq(playerRatingEvents.playerId, playerRatings.playerId), eq(playerRatingEvents.mode, playerRatings.mode)))
+    .leftJoin(matches, eq(matches.id, playerRatingEvents.matchId))
+    .groupBy(playerRatings.playerId, playerRatings.mode))
+  await runDbBatch(db, [closingSnapshot, db.update(seasons)
+    .set({ active: false, endsAt, finalizedAt: endsAt })
+    .where(eq(seasons.id, existing.id))])
 
   return {
     ...existing,
     active: false,
     endsAt,
+    finalizedAt: endsAt,
   }
 }
 

@@ -21,6 +21,9 @@ interface StoredSeasonRow {
   id: string
   startsAt: number
   softReset: boolean
+  preserveEvidence: boolean
+  resetFactor: number
+  ratingSystem: 'legacy' | 'rp'
 }
 
 interface StoredMatchRow {
@@ -98,6 +101,7 @@ interface RecalculateLeaderboardModeOptions {
   includeFromMatch?: boolean
   includeActiveBoundary?: boolean
   extraAffectedPlayerIds?: readonly string[]
+  writeQueries?: DbBatchItem[]
 }
 
 interface RecalculateGlobalRatingsOptions extends RecalculateLeaderboardModeOptions {
@@ -108,6 +112,8 @@ const MISSING_RATING_SNAPSHOTS_MESSAGE = 'has missing rating snapshots'
 const GLOBAL_RATING_SCOPE = 'global'
 const D1_SAFE_IN_LIST_CHUNK_SIZE = 80
 const REPLAY_WRITE_BATCH_SIZE = 100
+const MAX_INLINE_REPLAY_QUERIES = 400
+const OVERSIZED_REPLAY_ERROR = 'This correction affects too much rating history for an online update. Use the reviewed local maintenance tool.'
 
 type RatingScope = LeaderboardMode | typeof GLOBAL_RATING_SCOPE
 
@@ -134,9 +140,14 @@ export async function recalculateLeaderboardMode(
       id: seasons.id,
       startsAt: seasons.startsAt,
       softReset: seasons.softReset,
+      preserveEvidence: seasons.preserveEvidence,
+      resetFactor: seasons.resetFactor,
+      ratingSystem: seasons.ratingSystem,
     })
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
+
+  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Legacy replay cannot cross a frozen RP opening. Seed-aware online corrections are not enabled yet.' }
 
   if (options.fromMatchId) {
     return recalculateLeaderboardModeFromBoundary(
@@ -149,9 +160,11 @@ export async function recalculateLeaderboardMode(
       options.includeActiveBoundary ?? false,
       [],
       options.extraAffectedPlayerIds ?? [],
+      options.writeQueries,
     )
   }
 
+  if (options.writeQueries) return { error: 'Deferred rating replay requires a match boundary.' }
   return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows)
 }
 
@@ -164,9 +177,14 @@ export async function recalculateGlobalRatings(
       id: seasons.id,
       startsAt: seasons.startsAt,
       softReset: seasons.softReset,
+      preserveEvidence: seasons.preserveEvidence,
+      resetFactor: seasons.resetFactor,
+      ratingSystem: seasons.ratingSystem,
     })
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
+
+  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Legacy replay cannot cross a frozen RP opening. Seed-aware online corrections are not enabled yet.' }
 
   if (options.fromMatchId) {
     return recalculateGlobalRatingsFromBoundary(
@@ -178,10 +196,26 @@ export async function recalculateGlobalRatings(
       options.opponentTierByPlayerId ?? new Map(),
       [],
       options.extraAffectedPlayerIds ?? [],
+      options.writeQueries,
     )
   }
 
+  if (options.writeQueries) return { error: 'Deferred rating replay requires a match boundary.' }
   return recalculateGlobalRatingsFromScratch(db, seasonRows, options.opponentTierByPlayerId ?? new Map())
+}
+
+export async function prepareRatedMatchReplay(
+  db: Database,
+  leaderboardMode: LeaderboardMode,
+  options: Omit<RecalculateGlobalRatingsOptions, 'writeQueries'> & { fromMatchId: string },
+): Promise<{ matchIds: string[], queries: DbBatchItem[] } | { error: string }> {
+  const queries: DbBatchItem[] = []
+  const mode = await recalculateLeaderboardMode(db, leaderboardMode, { ...options, writeQueries: queries })
+  if ('error' in mode) return mode
+  const global = await recalculateGlobalRatings(db, { ...options, writeQueries: queries })
+  if ('error' in global) return global
+  if (queries.length > MAX_INLINE_REPLAY_QUERIES) return { error: OVERSIZED_REPLAY_ERROR }
+  return { matchIds: mode.matchIds, queries }
 }
 
 async function recalculateGlobalRatingsFromScratch(
@@ -262,6 +296,7 @@ async function recalculateGlobalRatingsFromBoundary(
   opponentTierByPlayerId: ReadonlyMap<string, string>,
   extraReplayMatches: StoredMatchRow[] = [],
   extraAffectedPlayerIds: readonly string[] = [],
+  deferredWrites?: DbBatchItem[],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const [boundaryMatch] = await db
     .select({
@@ -324,6 +359,8 @@ async function recalculateGlobalRatingsFromBoundary(
 
   const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
+  if (deferredWrites && deferredWrites.length + replayParticipantRows.length > MAX_INLINE_REPLAY_QUERIES) return { error: OVERSIZED_REPLAY_ERROR }
+
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
@@ -353,6 +390,7 @@ async function recalculateGlobalRatingsFromBoundary(
       opponentTierByPlayerId,
       includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
       extraAffectedPlayerIds,
+      deferredWrites,
     )
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
@@ -372,9 +410,10 @@ async function recalculateGlobalRatingsFromBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch)
-  await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds)
+  await deleteRatingEventsFromBoundary(db, GLOBAL_RATING_SCOPE, boundaryMatch, affectedPlayerIds, includeFromMatch, deferredWrites)
+  if (deferredWrites) deferredWrites.push(...replayWriteQueries)
+  else await flushReplayWriteQueries(db, replayWriteQueries)
+  await replacePlayerRatings(db, GLOBAL_RATING_SCOPE, ratingStateByPlayer, affectedPlayerIds, deferredWrites)
 
   return { matchIds: replayMatches.map(match => match.id) }
 }
@@ -438,6 +477,7 @@ async function recalculateLeaderboardModeFromBoundary(
   includeActiveBoundary: boolean,
   extraReplayMatches: StoredMatchRow[] = [],
   extraAffectedPlayerIds: readonly string[] = [],
+  deferredWrites?: DbBatchItem[],
 ): Promise<{ matchIds: string[] } | { error: string }> {
   const [boundaryMatch] = await db
     .select({
@@ -503,6 +543,8 @@ async function recalculateLeaderboardModeFromBoundary(
   const replayMatches = replayMatchCandidates.filter(match => matchBelongsToLeaderboard(match, leaderboardMode))
   const replayParticipantRows = await listReplayParticipantRows(db, replayMatches.map(match => match.id))
 
+  if (deferredWrites && deferredWrites.length + replayParticipantRows.length * 2 > MAX_INLINE_REPLAY_QUERIES) return { error: OVERSIZED_REPLAY_ERROR }
+
   const affectedPlayerIds = [...new Set([
     ...boundaryParticipants.map(participant => participant.playerId),
     ...replayParticipantRows.map(participant => participant.playerId),
@@ -533,6 +575,7 @@ async function recalculateLeaderboardModeFromBoundary(
       false,
       includeActiveBoundary ? [boundaryMatch, ...extraReplayMatches] : extraReplayMatches,
       extraAffectedPlayerIds,
+      deferredWrites,
     )
   }
   if (typeof hydrateResult === 'string') return { error: hydrateResult }
@@ -550,9 +593,10 @@ async function recalculateLeaderboardModeFromBoundary(
   }
 
   applySeasonResetsUntil(ratingStateByPlayer, seasonRows, seasonProgress, Number.POSITIVE_INFINITY)
-  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch)
-  await flushReplayWriteQueries(db, replayWriteQueries)
-  await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds)
+  await deleteRatingEventsFromBoundary(db, leaderboardMode, boundaryMatch, affectedPlayerIds, includeFromMatch, deferredWrites)
+  if (deferredWrites) deferredWrites.push(...replayWriteQueries)
+  else await flushReplayWriteQueries(db, replayWriteQueries)
+  await replacePlayerRatings(db, leaderboardMode, ratingStateByPlayer, affectedPlayerIds, deferredWrites)
 
   return { matchIds: replayMatches.map(match => match.id) }
 }
@@ -708,19 +752,22 @@ function applySeasonResetsUntil(
   while (seasonProgress.value < seasonRows.length && seasonRows[seasonProgress.value]!.startsAt <= timestamp) {
     if (seasonRows[seasonProgress.value]!.softReset) {
       for (const [playerId, state] of ratingStateByPlayer.entries()) {
-        const reset = seasonReset(state.mu, state.sigma)
+        const season = seasonRows[seasonProgress.value]!
+        const reset = seasonReset(state.mu, state.sigma, season.resetFactor)
         ratingStateByPlayer.set(playerId, {
           ...state,
           mu: reset.mu,
           sigma: reset.sigma,
-          gamesPlayed: 0,
-          wins: 0,
-          importedGames: 0,
-          effectiveGames: 0,
-          winsVsTier1: 0,
-          winsVsTier2Plus: 0,
-          effectiveWinsVsTier1: 0,
-          effectiveWinsVsTier2Plus: 0,
+          ...(season.preserveEvidence ? {} : {
+            gamesPlayed: 0,
+            wins: 0,
+            importedGames: 0,
+            effectiveGames: 0,
+            winsVsTier1: 0,
+            winsVsTier2Plus: 0,
+            effectiveWinsVsTier1: 0,
+            effectiveWinsVsTier2Plus: 0,
+          }),
         })
       }
     }
@@ -1093,6 +1140,7 @@ async function replacePlayerRatings(
   leaderboardMode: RatingScope,
   ratingStateByPlayer: Map<string, RatingState>,
   playerIds?: string[],
+  deferredWrites?: DbBatchItem[],
 ): Promise<void> {
   const ratingQueries: DbBatchItem[] = []
 
@@ -1135,7 +1183,8 @@ async function replacePlayerRatings(
     )
   }
 
-  await runDbBatch(db, ratingQueries)
+  if (deferredWrites) deferredWrites.push(...ratingQueries)
+  else await runDbBatch(db, ratingQueries)
 }
 
 async function deleteRatingEventsFromBoundary(
@@ -1144,6 +1193,7 @@ async function deleteRatingEventsFromBoundary(
   boundaryMatch: Pick<StoredMatchRow, 'id' | 'createdAt'>,
   playerIds: string[],
   includeBoundary: boolean,
+  deferredWrites?: DbBatchItem[],
 ): Promise<void> {
   if (playerIds.length === 0) return
   const boundaryCondition = buildEventBoundaryCondition(boundaryMatch, includeBoundary, 'after')
@@ -1161,7 +1211,8 @@ async function deleteRatingEventsFromBoundary(
         replayRangeCondition,
       )))
   }
-  await runDbBatch(db, eventDeleteQueries)
+  if (deferredWrites) deferredWrites.push(...eventDeleteQueries)
+  else await runDbBatch(db, eventDeleteQueries)
 }
 
 function createDefaultRatingState(playerId: string): RatingState {

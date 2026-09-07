@@ -298,7 +298,16 @@ Once a player has enough evidence, the bot assigns a ranked role.
 - `/leaderboard`: sends leaderboard embeds
 - `/stats`: shows player stats, ratings, top leaders, and recent games
 - `/rank`: shows player rank history, including past seasons
+- `/leaders`: shows a player's leader results and performance rankings
 - `/tiers`: shows current role cutoffs and player distribution
+
+#### Season selection in the next update
+
+The season/RP update is still local and is not ready for production. See [rollout status](PUBLIC-RATING-ROLLOUT.md).
+
+`/stats`, `/leaders`, and `/rank` accept `season:current` or a season number such as `season:8`. Current is the default; if no season is active, it selects the latest season. The same filter applies to team statistics and `/stats leader:...`.
+
+Use `season:all` for all-time statistics in `/stats` or `/leaders`. Any rating beside those counts is labelled current. `/rank` shows one season at a time, with the existing 20/50/100/200-game choices; it does not join incompatible rating scales. A public season's graph can show its opening rating before the first game. Ratings stay unavailable while that season's public data is not ready.
 
 ### Rating modes
 

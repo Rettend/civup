@@ -1,6 +1,7 @@
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { matches } from './matches.ts'
 import { players } from './players.ts'
+import { seasons } from './seasons.ts'
 
 /**
  * Per-mode ratings for each player.
@@ -34,6 +35,7 @@ export const playerRatings = sqliteTable('player_ratings', {
   lastPlayedAt: integer('last_played_at', { mode: 'number' }),
   /** Unix timestamp ms of last summary update */
   updatedAt: integer('updated_at', { mode: 'number' }),
+  publicRating: real('public_rating'),
 }, table => [
   primaryKey({ columns: [table.playerId, table.mode] }),
   index('player_ratings_mode_idx').on(table.mode),
@@ -62,8 +64,15 @@ export const playerRatingEvents = sqliteTable('player_rating_events', {
   matchCreatedAt: integer('match_created_at').notNull(),
   matchCompletedAt: integer('match_completed_at', { mode: 'number' }),
   updatedAt: integer('updated_at', { mode: 'number' }),
+  seasonId: text('season_id').references(() => seasons.id),
+  publicSequence: integer('public_sequence'),
+  publicRatingBefore: real('public_rating_before'),
+  publicRatingAfter: real('public_rating_after'),
+  publicFormulaVersion: text('public_formula_version'),
+  publicCalibrationVersion: text('public_calibration_version'),
 }, table => [
   primaryKey({ columns: [table.matchId, table.playerId, table.mode] }),
   index('player_rating_events_player_scope_idx').on(table.playerId, table.mode, table.matchCreatedAt),
   index('player_rating_events_match_idx').on(table.matchId),
+  index('player_rating_events_season_chain_idx').on(table.seasonId, table.playerId, table.mode, table.publicSequence),
 ])

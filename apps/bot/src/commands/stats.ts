@@ -12,11 +12,14 @@ import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection, resolveSeasonSelection } from '../services/season/selection.ts'
 
 interface Var {
   player?: string
   leader?: string
   mode?: string
+  season?: string
   teammate1?: string
   teammate2?: string
   teammate3?: string
@@ -32,6 +35,7 @@ export const command_stats = factory.autocomplete<Var>(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('leader', 'Leader to look up').autocomplete(),
     new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
+    new Option('season', 'Current, all, or a season number'),
     new Option('teammate1', 'First teammate for lineup stats', 'User'),
     new Option('teammate2', 'Second teammate for lineup stats', 'User'),
     new Option('teammate3', 'Third teammate for lineup stats', 'User'),
@@ -56,7 +60,10 @@ export const command_stats = factory.autocomplete<Var>(
     const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
       .filter((value): value is string => typeof value === 'string' && value.length > 0)
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
-    const isDefaultSelfLookup = !c.var.player && !c.var.leader && !c.var.mode && teammateIds.length === 0
+    const isDefaultSelfLookup = !c.var.player && !c.var.leader && !c.var.mode && !c.var.season && teammateIds.length === 0
+    let season: SeasonSelection
+    try { season = parseSeasonSelection(c.var.season) }
+    catch (error) { return c.res(error instanceof Error ? error.message : 'Choose a season.') }
 
     if (c.var.leader && !leaderId) return c.res('Choose a leader from the autocomplete suggestions.')
     if (leaderId && (c.var.player || teammateIds.length > 0)) return c.res('Use either leader stats or player/team stats.')
@@ -64,7 +71,7 @@ export const command_stats = factory.autocomplete<Var>(
     if (leaderId) {
       return resDeferGeneralCommandResponse(c, async (c) => {
         const db = createDb(c.env.DB)
-        const embed = await leaderStatsEmbed(db, leaderId, mode)
+        const embed = await leaderStatsEmbed(db, leaderId, mode, season)
         return { embeds: [embed] }
       })
     }
@@ -78,6 +85,8 @@ export const command_stats = factory.autocomplete<Var>(
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
+      const selected = await resolveSeasonSelection(db, season)
+      const historical = selected.season != null && !selected.season.active
       const identities = new Map(playerIds.flatMap((playerId) => {
         const identity = getIdentityByUserId(c, playerId)
         return identity ? [[identity.userId, identity] as const] : []
@@ -89,11 +98,11 @@ export const command_stats = factory.autocomplete<Var>(
       })))
 
       if (teammateIds.length > 0) {
-        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode)
+        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode, season)
         return { embeds: [embed] }
       }
 
-      const rankProfile = guildId
+      const rankProfile = guildId && !historical && selected.ratingSeason?.ratingSystem !== 'rp'
         ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
 
@@ -128,6 +137,7 @@ export const command_stats = factory.autocomplete<Var>(
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,
+        season,
       })
       return { embeds: [embed] }
     }, {
