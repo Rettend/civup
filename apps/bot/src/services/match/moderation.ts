@@ -5,7 +5,7 @@ import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, Cor
 import { matchBans, matches, matchParticipants, playerRatingEvents, players, seasonMatchReports, seasons } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
-import { claimSessionReport, getSessionRecord, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { claimSessionReport, getSessionRecord, releaseSessionReportClaim, runSessionTerminalLifecycleCommand, substituteActiveSessionPlayer } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
@@ -98,6 +98,8 @@ async function resolveMatchByModeratorImpl(
       const claim = options.sessionNamespace ? await claimSessionReport(options.sessionNamespace, match.id, { matchId: match.id }) : null
       if (claim && !claim.claimed) return { error: 'The match already has a report in progress or has been reported.' }
       try {
+        const [current] = await db.select({ draftData: matches.draftData }).from(matches).where(eq(matches.id, match.id))
+        if (!current || current.draftData !== match.draftData) return { error: 'The match roster changed. Review the players and resolve again.' }
         const [savedReport] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id)).limit(1)
         if (savedReport) {
           const reported = await finalizeIsolatedSeasonReport(db, match, participants, null, options)
@@ -405,6 +407,10 @@ async function substituteMatchPlayerByModeratorImpl(
   if (!match) return { error: `Match **${input.matchId}** not found.` }
   if (match.status !== 'active' && match.status !== 'completed') {
     return { error: `Match **${input.matchId}** must be draft-complete or reported before players can be substituted.` }
+  }
+  if (match.status === 'active' && !options.allowDirectTerminalWriteForTests) {
+    if (!options.sessionNamespace) return { error: 'Session runtime is required to substitute an active player.' }
+    return substituteActiveSessionPlayer(options.sessionNamespace, input.matchId, { ...input, playerId, subPlayer })
   }
   const seasonError = await getSeasonMutationError(db, match, 'correction', Date.now(), null, true)
   if (seasonError) return { error: seasonError }
@@ -769,7 +775,7 @@ interface SubstitutePlayerIdentity {
   avatarUrl?: string | null
 }
 
-function buildDraftPlayerSubstitution(
+export function buildDraftPlayerSubstitution(
   draftData: string | null,
   input: {
     matchId: string
@@ -848,7 +854,7 @@ function buildDraftPlayerSubstitution(
   }
 }
 
-function buildSubstitutedParticipantRows(
+export function buildSubstitutedParticipantRows(
   matchId: string,
   participants: ParticipantRow[],
   substitution: DraftPlayerSubstitutionUpdate,
@@ -892,7 +898,7 @@ function buildSubstitutedParticipantRows(
   return { rows }
 }
 
-function buildPlayerSubstitutionSummaries(
+export function buildPlayerSubstitutionSummaries(
   substitution: DraftPlayerSubstitutionUpdate,
   rows: ParticipantRow[],
 ): MatchPlayerSubstitution[] {
@@ -912,7 +918,7 @@ function buildPlayerSubstitutionSummaries(
   })
 }
 
-function buildMatchBanRowsFromDraftState(state: DraftState): MatchBanRow[] {
+export function buildMatchBanRowsFromDraftState(state: DraftState): MatchBanRow[] {
   return state.bans
     .map((ban) => {
       const seat = state.seats[ban.seatIndex]

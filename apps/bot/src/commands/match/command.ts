@@ -761,10 +761,6 @@ export const command_match = factory.command<MatchVar>(
             return
           }
 
-          if (result.buffered) {
-            await sendTransientEphemeralResponse(c, 'Result saved. Ratings will update shortly.', 'info')
-            return
-          }
           if (result.reportProcessing) {
             const message = result.reportFinalizing
               ? `Match **${result.match.id}** is finalizing leader swaps. Try reporting again in a moment.`

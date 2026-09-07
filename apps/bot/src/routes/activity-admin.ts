@@ -1,9 +1,8 @@
 import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
-import { bufferedReportDirectory, createDb, matches, matchParticipants, playerRatings, players, ratingMaintenance, ratingMutationLeases } from '@civup/db'
+import { createDb, matches, matchParticipants, playerRatings, players, ratingMaintenance, ratingMutationLeases } from '@civup/db'
 import { and, asc, gt, inArray, lte, sql } from 'drizzle-orm'
 import { changeRatingMaintenanceState } from '../services/season/maintenance.ts'
-import { processBufferedMatchReport } from '../services/match/report.ts'
 import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 
 const EXPORT_VERSION = 1
@@ -52,7 +51,6 @@ export function registerActivityAdminRoutes(app: Hono<Env>) {
     const [state] = await db.select().from(ratingMaintenance)
     const [counts] = await db.select({
       running: sql<number>`(SELECT count(*) FROM ${ratingMutationLeases})`,
-      buffered: sql<number>`(SELECT count(*) FROM ${bufferedReportDirectory})`,
     }).from(ratingMaintenance)
     return c.json({ state, counts })
   })
@@ -62,25 +60,12 @@ export function registerActivityAdminRoutes(app: Hono<Env>) {
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
     const body = await c.req.json<{ state?: string, expectedGeneration?: number }>().catch(() => null)
-    if (!body || !['open', 'buffering', 'draining'].includes(body.state ?? '') || !Number.isSafeInteger(body.expectedGeneration)) return c.json({ error: 'Provide a maintenance state and its current generation.' }, 400)
+    if (!body || !['open', 'paused'].includes(body.state ?? '') || !Number.isSafeInteger(body.expectedGeneration)) return c.json({ error: 'Provide a maintenance state and its current generation.' }, 400)
     try {
-      await changeRatingMaintenanceState(createDb(c.env.DB), body.expectedGeneration!, body.state as 'open' | 'buffering' | 'draining')
+      await changeRatingMaintenanceState(createDb(c.env.DB), body.expectedGeneration!, body.state as 'open' | 'paused')
       return c.json({ ok: true })
     }
     catch (error) { return c.json({ error: error instanceof Error ? error.message : 'Maintenance transition failed.' }, 409) }
-  })
-
-  app.post('/api/activity/admin/rating-maintenance/drain', async (c) => {
-    const auth = requireAuthenticatedActivity(c)
-    if (!auth.ok) return auth.response
-    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
-    const db = createDb(c.env.DB)
-    const [next] = await db.select().from(bufferedReportDirectory).orderBy(asc(bufferedReportDirectory.acceptedAt), asc(bufferedReportDirectory.matchId)).limit(1)
-    if (!next) return c.json({ ok: true, empty: true })
-    if (!c.env.SessionDO) return c.json({ error: 'Session runtime is unavailable.' }, 503)
-    const result = await processBufferedMatchReport(db, c.env.KV, c.env.SessionDO, next.matchId, next.reportId, c.env.ALLOWED_DISCORD_GUILD_ID)
-    if ('error' in result) return c.json({ error: result.error, matchId: next.matchId }, 409)
-    return c.json({ ok: true, matchId: next.matchId, processing: result.reportProcessing === true })
   })
 
   app.get('/api/activity/admin/capabilities', (c) => {

@@ -20,26 +20,24 @@ Implemented locally:
 - RP result formatting, fixed broad ranks with global evidence gates, RP leaderboard ordering, and Activity player-card values. Hidden ratings still drive balancing and win probabilities; the Activity suppresses legacy predicted rating deltas during the RP era rather than presenting them as RP.
 - Historical Discord-role ordering with post-write verification. Isolated seasons cannot receive final historical roles before their reporting deadline and database finalization.
 
-The opt-in runtime remains off by default. Legacy replay cannot cross an RP opening. Manual reports and active-session substitutions refuse unsupported season-aware paths before writing data. Unassigned matches cannot bypass the season check after an RP season exists. Do not activate the flags until the remaining cutover and runtime work below is complete.
+The opt-in runtime remains off by default. Legacy replay cannot cross an RP opening. Manual reports/imports remain deliberately unsupported after RP activation. Active substitutions use a serialized SessionDO command that updates the canonical roster, completed draft, and participant projections without changing ratings. An interrupted substitution must finish before reporting or cancellation; retry the same substitution. Unassigned matches cannot bypass season checks after an RP season exists.
 
-### Maintenance buffering
+### Brief reporting pause
 
-Migration `0024_rating_maintenance.sql` adds a default-open maintenance gate, admitted-writer records, and a discovery directory for buffered reports. SessionDO owns each saved result; the directory is only its discovery projection. Normal deployment neither enables buffering nor activates RP. Apply compatible migrations before deploying code that reads the new schema.
+Migration `0024_rating_maintenance.sql` adds a default-open maintenance gate and admitted-writer records. Apply compatible migrations before deploying code that reads the new schema. Deployment does not pause reporting or activate RP.
 
-Validated participant reports are saved durably during buffering and acknowledged without completing the match. Duplicates retain the first saved result. Discovery projection failures retry through the session alarm, and publishing leases prevent reopening before the saved work is discoverable. Moderator corrections, legacy replay, manual reporting, season resets, and ranked-role writes use the same admission gate. Already-admitted nested operations can finish after buffering begins. Drafts remain open and their season assignment uses the SessionDO draft-start timestamp, including delayed projection retries.
+During the operator-controlled pause, new reports are refused with “Season setup is in progress. Please try again shortly.” They are not accepted or saved; players retry afterward. Drafts still start and complete. Moderator rating changes, legacy replay, manual reporting, resets, and ranked-role writes share the gate. Already-admitted writes can finish. Draft season assignment uses the SessionDO draft-start timestamp, including delayed projection retries.
 
-Authenticated admin endpoints under `/api/activity/admin/rating-maintenance` expose status and generation-checked state changes. `/drain` processes one saved report per request through the ordinary report path, preserves its acceptance time, and completes its directory projection afterward. Reopening refuses outstanding writers or buffered reports. An interrupted writer is not assumed finished just because its lease is old; unexpected failures can require owner reconciliation.
+Authenticated admin endpoints under `/api/activity/admin/rating-maintenance` expose status and generation-checked `paused`/`open` changes. Wait for admitted writers to finish before capturing the cutover source. Reopening refuses outstanding writers. Unexpected outcomes require targeted operator inspection; never assume an old writer record means the write finished. There is no buffered-report queue, drain endpoint, or automatic maintenance recovery.
 
-The ignored local operator wrapper is `ppl/rating-maintenance.ts`, with `status`, `buffer`, `drain`, and `resume` commands. It requires the operator's Discord ID, a new audit output filename, and `--execute` for changes. It uses the existing internal Activity authentication secret, saves responses without secrets, and does not apply migrations or activate RP. It has not been run against production. Full cutover orchestration and recovery are still unfinished; do not enable maintenance as a substitute for completing them.
+The ignored local wrapper is `ppl/rating-maintenance.ts`, with `status`, `pause`, and `resume` commands. It requires the operator's Discord ID, a new audit filename, and `--execute` for changes. It uses existing internal Activity authentication, records responses without secrets, and does not apply migrations or activate RP. It has not been run against production.
 
 ## Remaining implementation
 
-1. Finish real overlap operation: integrate the maintenance gate with the cutover source/apply/recovery workflow, late S8 peak handling, and remaining manual/import and active-roster entry points. Buffered results now preserve acceptance beyond the ordinary claim TTL, but this is not yet a complete overlap rollout.
+1. Finish the supervised local cutover and finalization scripts: pause reporting, wait for admitted writers, validate the frozen source, apply opening summaries/seeds/roles, verify, and reopen. Include S8 peak capture, eligible late S8 peak updates, and deadline finalization. Uncertain outcomes stop for inspection rather than automatic recovery. The historical initialization script is not a complete cutover tool.
 2. Review operational coverage of bounded online replay: 40 reports from the correction onward, 100 affected season states/seeds, 150 rewritten events, 5,000 indexed prefix events, and 400 SQL statements. These are window/affected-chain limits, not total-season roster limits. Older or oversized corrections require local maintenance rather than splitting an atomic repair into partial writes.
-3. Complete public presentation and rank integration: audit remaining API consumers and caches, historical earned-peak labels, inactivity ordering, and optional RP outcome previews. Cutover/read activation must refresh cached snapshots so old-era metadata cannot be presented as the current era.
-4. Implement the guarded cutover and finalization workflow: buffer reports without pausing drafts, drain admitted writers, use a reviewed frozen source and atomic source validation, install opening summaries and role assignments, capture S8 peaks, update late S8 peaks, and finalize historical roles. Historical-role ordering is implemented separately. The legacy admin start/end commands must not perform this transition.
-5. Complete cached-PPL trajectory/cadence simulations and long equal-skill boundary runs. Review convergence, volume bias, distributions, opening-role transitions, and Elite recovery before approving the formula or calibration.
-6. Finish the owner-run cutover/finalization tooling and revised metered estimates. The S8 history-initialization script below is implemented; there is still no approved S9 seed apply SQL or production reset command.
+3. Check essential public reads, historical peaks, inactivity ordering, and cache activation so old-era data cannot appear as current RP. Extra RP predictions are out of release scope. Verify additive migration/deployment compatibility and focused transition safety.
+4. Review the candidate formula and opening plan with the owner before activation, including convergence, volume effects, and Elite recovery. Synthetic invariants do not establish that the ladder is better. Extensive simulation infrastructure is not a release prerequisite.
 
 The owner confirmed that every existing game, including imports, belongs to S8 from the first recorded game. S8 initialization must not reset or replay those ratings. The S8 cutoff/S9 opening timestamp and its 48-hour reporting deadline still require approval. Use a local maintenance script rather than adding new season commands.
 
@@ -72,7 +70,7 @@ Opening input uses `SeasonOpeningInput` from `apps/bot/src/services/season/openi
 
 The synthetic September 7 run is saved at `tmp/rp-synthetic-review-20260907.json`: 104,000 transitions across 60 format/source/ability cohorts. It passed finite-value and direction checks. Fixed synthetic opponents do not validate the required PPL convergence or cadence matrix. Strong live-duel cohorts still averaged roughly 1,080–1,100 RP at 30 effective games in that fixture; this is not approval of the candidate formula.
 
-Local validation on September 7:
+Earlier integration validation on September 7 (before the reporting-pause simplification):
 
 - `bun run check`: all workspace package checks passed.
 - Service, embed, and rating tests: 421 passed, zero failed, 112,570 assertions across 50 files.
@@ -83,5 +81,7 @@ Local validation on September 7:
 After the owner confirmed the complete S8 assignment policy, validation was limited to the S8 script's local atomic/stale-source smoke check, focused type checking, and the existing season-report regression file while changing replay selection. No further broad simulation or test expansion was run for that decision.
 
 These checks validate the implemented subset, not the unfinished rollout. The offline tools do not have a remote or execute mode. Production reads/writes, migrations, deployment, reset, and public-read activation remain separate actions requiring the appropriate approval.
+
+The reporting-pause and active-substitution update passed workspace type checks, a subsequent focused bot check, and 42 focused session/season/maintenance tests. The capacity regression passed and its snapshot was refreshed. The substitution check covers the canonical roster, draft and participant projections, idempotent retry, and exclusion of the removed reporter. No new broad simulation work was added.
 
 Completed historical repairs are not part of this rollout. **Never rerun a completed cancellation or its saved apply SQL.** Deployment-specific records belong in ignored local maintenance documentation.

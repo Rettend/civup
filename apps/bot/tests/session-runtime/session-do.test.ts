@@ -1,6 +1,5 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { bufferedReportDirectory, matchBans, matches, matchParticipants, players, ratingMutationLeases, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
-import { acquireRatingMutation, changeRatingMaintenanceState } from '../../src/services/season/maintenance.ts'
+import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -20,31 +19,38 @@ afterEach(() => {
 })
 
 describe('SessionDO open session commands', () => {
-  test('buffered results survive a new session instance, retain the first result, and do not finalize the match', async () => {
+  test('active substitutions update the canonical roster and draft, retry safely, and exclude the removed reporter', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const { state, storage } = createFakeDurableObjectStateWithStorage()
-    const matchId = 'session-test'
-    storage.set('session-record', buildActiveSessionRecord({ id: matchId, matchId }))
-    const env = { DB: createSqliteD1Database(sqlite), KV: createTestKv() } as any
-    let room = new SessionDO(state, env)
-    const command = (path: string, body: unknown) => room.fetch(sessionRequest(path, { method: 'POST', body: JSON.stringify(body) }))
+    const env: Partial<Cloudflare.Env> = { DB: createSqliteD1Database(sqlite), KV: createTestKv() }
+    const namespace = createTestSessionNamespace(env)
+    env.SessionDO = namespace
+    const lobby = buildLobby({ id: 'active-sub', mode: '2v2', memberPlayerIds: ['p1', 'p2', 'p3', 'p4'], slots: ['p1', 'p2', 'p3', 'p4'] })
+    const room = namespace.__getRoom(lobby.id)
+    const command = (path: string, input: unknown) => room.fetch(sessionRequest(path, { method: 'POST', body: JSON.stringify(input) }))
     try {
-      await changeRatingMaintenanceState(db, 0, 'buffering')
-      const lease = await acquireRatingMutation(db, matchId)
-      const claim = await (await command('/commands/report-claim', { type: 'claim', matchId, reporterId: 'p1' })).json() as any
-      const response = await command('/commands/buffered-report', { type: 'save', input: { matchId, reporterId: 'p1', placements: 'A' },
-        claimId: claim.claim.claimId, seasonId: null, matchCreatedAt: 1, publicationLeaseId: lease.id })
-      expect(response.status).toBe(200)
-      const saved = (await response.json() as any).report
-      expect(await db.select().from(bufferedReportDirectory)).toHaveLength(1)
-      expect(await db.select().from(ratingMutationLeases)).toHaveLength(0)
-      expect((storage.get('session-record') as any).phase).toBe('active')
-      room = new SessionDO(state, env)
-      const retryLease = await acquireRatingMutation(db, matchId)
-      const retry = await command('/commands/buffered-report', { type: 'save', input: { matchId, reporterId: 'p1', placements: 'B' }, publicationLeaseId: retryLease.id })
-      expect((await retry.json() as any).report).toMatchObject({ id: saved.id, acceptedAt: saved.acceptedAt, input: { placements: 'A' } })
-      expect((await command('/commands/buffered-report', { type: 'complete', reportId: saved.id })).status).toBe(409)
-      expect(await db.select().from(bufferedReportDirectory)).toHaveLength(1)
+      await createSessionFromLobby(room, lobby, ['p1', 'p2', 'p3', 'p4'].map(playerId => ({ playerId, displayName: playerId, avatarUrl: null, joinedAt: 10 })))
+      const started = await startDraft(room, { hostId: 'p1', now: 20 })
+      const initial = await (room as any).getRoomRecord()
+      const payload = buildCompletePayload(lobby.id, started.seats)
+      payload.state.formatId = initial.config.formatId
+      await command('/commands/draft-lifecycle-sync', payload)
+      await (room as any).setRoomRecord(createRoomRecord(initial.config, payload.state, initial.mapVote, { completedAt: payload.completedAt, lifecycleEventSequence: payload.eventSequence, swapWindowOpen: true }))
+      const claimed = await (await command('/commands/report-claim', { type: 'claim', matchId: lobby.id, reporterId: 'p1' })).json() as any
+      const input = { matchId: lobby.id, playerId: 'p1', subPlayer: { playerId: 'p5', displayName: 'Substitute' }, correctedAt: Date.now() }
+      expect((await command('/commands/substitute-player', input)).status).toBe(409)
+      await command('/commands/report-claim', { type: 'release', ...claimed.claim })
+      const previousSlots = (await getSessionRecordBody(room)).roster.slots as string[]
+      const response = await command('/commands/substitute-player', input)
+      const result = await response.json() as any
+      expect(result.error).toBeUndefined()
+      expect(result.participants.map((row: any) => row.playerId)).toContain('p5')
+      expect((await getSessionRecordBody(room)).roster.slots).toEqual(previousSlots.map(id => id === 'p1' ? 'p5' : id))
+      expect((await (room as any).getRoomRecord()).state.seats.map((seat: DraftSeat) => seat.playerId)).toContain('p5')
+      expect((await (await command('/commands/substitute-player', input)).json() as any).participants).toEqual(result.participants)
+      expect((await command('/commands/report-claim', { type: 'claim', matchId: lobby.id, reporterId: 'p1' })).status).toBe(403)
+      expect((await command('/commands/report-claim', { type: 'claim', matchId: lobby.id, reporterId: 'p5' })).status).toBe(200)
+      const [match] = await db.select().from(matches).where(eq(matches.id, lobby.id))
+      expect(match?.status).toBe('active')
     }
     finally { sqlite.close() }
   })

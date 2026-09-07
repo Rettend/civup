@@ -1,9 +1,11 @@
 import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
-import type { ParticipantRow, ReportInput } from '../services/match/types.ts'
-import type { BufferedSessionReport } from './buffered-report.ts'
-import { BUFFERED_REPORT_KEY, projectBufferedSessionReport, saveBufferedSessionReport } from './buffered-report.ts'
+import type { ParticipantRow } from '../services/match/types.ts'
+import type { SubstituteMatchPlayerInput } from '../services/match/types.ts'
+import type { ActiveSubstitution } from './active-substitution.ts'
+import { ACTIVE_SUBSTITUTION_KEY, prepareActiveSubstitution, projectActiveSubstitution } from './active-substitution.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftRuntimeEnv } from './draft-room.ts'
 import type { RepeatDraftRoomSnapshot, RoomRecord } from './draft-room-domain.ts'
@@ -393,8 +395,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (request.method === 'POST' && url.pathname === '/commands/report-claim') {
       return await this.runSerializedCommand(() => this.handleReportClaimCommand(request))
     }
-    if (request.method === 'POST' && url.pathname === '/commands/buffered-report') {
-      return await this.runSerializedCommand(() => this.handleBufferedReportCommand(request))
+    if (request.method === 'POST' && url.pathname === '/commands/substitute-player') {
+      return await this.runSerializedCommand(() => this.handleActiveSubstitution(request))
     }
 
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
@@ -419,10 +421,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingTerminalSync()
       await this.retryPendingProjectionSync()
       await this.retryPendingReportedDiscordSync()
-      const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
-      if (buffered && !buffered.projected && this.env.DB) {
-        await projectBufferedSessionReport(this.ctx.storage, createDb(this.env.DB), buffered).catch(error => console.error('Buffered report discovery sync failed:', error))
-      }
       const record = await this.getRecord()
       if (!record || !isTerminalSessionPhase(record.phase)) await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
@@ -2053,6 +2051,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async handleSessionLifecycleCommand(request: Request): Promise<Response> {
+    const substitution = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+    if (substitution && !substitution.completed) return json({ error: 'A player substitution needs to finish. Retry the substitution before changing this match.' }, 409)
     let body: SessionLifecycleCommandRequest
     try {
       body = await request.json<SessionLifecycleCommandRequest>()
@@ -2073,8 +2073,6 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const at = normalizePositiveInteger(body.at, Date.now())
     const terminalCommand = buildTerminalSyncCommand(body, existing, at)
-    const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
-    if (terminalCommand.type === 'cancel-session' && buffered && buffered.completedAt == null) return json({ error: 'A saved result is waiting for rating maintenance. Finish that report before cancelling the match.' }, 409)
     const persistedMatchStatus = await this.readPersistedMatchStatus(terminalCommand.matchId)
     if (persistedMatchStatus === null) return json({ error: `Match **${terminalCommand.matchId}** not found.` }, 409)
     let record: SessionRecord
@@ -2111,39 +2109,44 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return json({ ok: true, record: finished.record })
   }
 
-  private async handleBufferedReportCommand(request: Request): Promise<Response> {
-    const body = await request.json<{ type: 'get' | 'save' | 'complete', input?: ReportInput, claimId?: string, reportId?: string, seasonId?: string | null, matchCreatedAt?: number, publicationLeaseId?: string }>()
-    const existing = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
-    if (body.type === 'get') return json({ report: existing ?? null })
+  private async handleActiveSubstitution(request: Request): Promise<Response> {
+    const input = await request.json<SubstituteMatchPlayerInput>().catch(() => null)
+    if (!input || typeof input.matchId !== 'string' || typeof input.playerId !== 'string' || !input.playerId.trim()
+      || typeof input.subPlayer?.playerId !== 'string' || !input.subPlayer.playerId.trim() || typeof input.subPlayer.displayName !== 'string'
+      || input.playerId === input.subPlayer.playerId || !Number.isSafeInteger(input.correctedAt)) return json({ error: 'Invalid player substitution.' }, 400)
+    if (!this.env.DB) return json({ error: 'Database unavailable.' }, 503)
     const record = await this.getRecord()
-    if (!record || !this.env.DB) return json({ error: 'Session or database unavailable' }, 409)
+    if (!record || record.matchId !== input.matchId || record.phase !== 'active') return json({ error: 'The session must be active and unreported.' }, 409)
+    if (await this.getActiveReportClaimMarker(input.matchId)) return json({ error: 'A result is being reported. Try again after reporting finishes.' }, 409)
+    if (record.lifecycleSync || record.terminalSync || record.projectionSync || record.draftStartSync) return json({ error: 'The session is still syncing. Try again shortly.' }, 409)
     const db = createDb(this.env.DB)
-    if (body.type === 'complete') {
-      if (!existing || existing.id !== body.reportId || record.phase !== 'reported') return json({ error: 'The saved report is not finalized' }, 409)
-      const completed = { ...existing, completedAt: existing.completedAt ?? Date.now(), projected: false }
-      await this.ctx.storage.put(BUFFERED_REPORT_KEY, completed)
-      try { await projectBufferedSessionReport(this.ctx.storage, db, completed) }
-      finally { await this.rescheduleSessionAlarm(record) }
-      return json({ report: completed })
-    }
-    if (body.type !== 'save' || !body.input || body.input.matchId !== (record.matchId ?? record.id) || typeof body.publicationLeaseId !== 'string' || body.publicationLeaseId.length > 64) return json({ error: 'Invalid buffered report identity' }, 400)
-    if (existing) {
-      try { await saveBufferedSessionReport(this.ctx.storage, db, existing, body.publicationLeaseId) }
-      finally { await this.rescheduleSessionAlarm(record) }
-      return json({ report: existing })
-    }
-    const claim = await this.getActiveReportClaimMarker(body.input.matchId)
-    if (record.phase !== 'active' || !claim || claim.claimId !== body.claimId || claim.reporterId !== body.input.reporterId) return json({ error: 'An active participant report claim is required' }, 409)
-    if (typeof body.input.placements !== 'string' || body.input.placements.length > 8000 || !Number.isSafeInteger(body.matchCreatedAt)
-      || body.matchCreatedAt! > claim.createdAt || (body.seasonId != null && typeof body.seasonId !== 'string')) return json({ error: 'Invalid buffered report payload' }, 400)
-    try {
-      const saved = await saveBufferedSessionReport(this.ctx.storage, db, { input: body.input, seasonId: body.seasonId ?? null, matchCreatedAt: body.matchCreatedAt!, acceptedAt: claim.createdAt }, body.publicationLeaseId)
-      return json({ report: saved })
-    }
-    finally { await this.rescheduleSessionAlarm(record) }
+    const result = await runUnbufferedRatingMutation(db, input.matchId, async () => {
+      let pending = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+      const same = pending && pending.input.playerId === input.playerId && pending.input.subPlayer.playerId === input.subPlayer.playerId && (!pending.completed || pending.input.correctedAt === input.correctedAt)
+      if (pending && !pending.completed && !same) return { error: 'A previous substitution needs to finish. Retry that substitution first.' }
+      if (same && pending?.completed) return pending.result
+      if (!pending || pending.completed) {
+        const room = await this.getRoomRecord()
+        if (!room || room.swapWindowOpen) return { error: 'The completed draft is not ready for substitution.' }
+        const prepared = await prepareActiveSubstitution(db, record, room, input)
+        if ('error' in prepared) return prepared
+        pending = prepared
+        await this.ctx.storage.put(ACTIVE_SUBSTITUTION_KEY, pending)
+      }
+      await projectActiveSubstitution(db, pending)
+      await this.setRoomRecord(pending.room)
+      const failure = await this.commitRecord(pending.record)
+      if (failure) throw new Error(await readErrorResponse(failure))
+      this.broadcastRoomRecord(pending.room, [])
+      await this.ctx.storage.put(ACTIVE_SUBSTITUTION_KEY, { ...pending, completed: true })
+      return pending.result
+    })
+    return json(result)
   }
 
   private async handleReportClaimCommand(request: Request): Promise<Response> {
+    const substitution = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+    if (substitution && !substitution.completed) return json({ error: 'A player substitution needs to finish. Retry the substitution before reporting.' }, 409)
     let body: ReportClaimCommandRequest | null = null
     try {
       body = await request.json<ReportClaimCommandRequest>()
@@ -2202,6 +2205,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (reportableRecord.phase !== 'active') {
       return json({ error: `Session is not reportable (phase: ${reportableRecord.phase})` }, 409)
     }
+    if (typeof body.reporterId === 'string' && body.reporterId.trim()
+      && !reportableRecord.roster.participants.some(member => member.playerId === body.reporterId!.trim())) return json({ error: 'You are no longer a participant in this match.' }, 403)
 
     const claim: ReportClaimMarker = {
       matchId,
@@ -2531,9 +2536,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const draftRuntimeAlarmAt = record && !isTerminalSessionPhase(record.phase)
       ? await this.getDraftRuntimeAlarmAt()
       : null
-    const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
-    const bufferProjectionRetryAt = buffered && !buffered.projected ? Date.now() + 5000 : null
-    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt, bufferProjectionRetryAt].filter((value): value is number => typeof value === 'number')
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>

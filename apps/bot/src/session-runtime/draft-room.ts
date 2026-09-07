@@ -349,7 +349,7 @@ export class SessionDraftRuntime<Env extends DraftRuntimeEnv = DraftRuntimeEnv> 
     }
   }
 
-  private broadcastRoomRecord(room: RoomRecord, events: DraftEvent[]) {
+  protected broadcastRoomRecord(room: RoomRecord, events: DraftEvent[]) {
     const swapState = room.state.status === 'complete' && room.swapWindowOpen
       ? this.getNormalizedSwapState(room)
       : null

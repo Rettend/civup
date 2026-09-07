@@ -13,7 +13,7 @@ import { clearSelections } from './ui-store'
 // ── Types ──────────────────────────────────────────────────
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
-export type ReportMatchResult = { ok: true, buffered?: boolean } | { ok: false, error: string, reason?: 'processing' | 'finalizing' }
+export type ReportMatchResult = { ok: true } | { ok: false, error: string, reason?: 'processing' | 'finalizing' }
 
 export interface MatchStateSnapshot {
   match: {
@@ -989,8 +989,7 @@ export async function reportMatchResult(
   leaderAssignments?: Record<string, string>,
 ): Promise<ReportMatchResult> {
   try {
-    const data = await activityApiPost<{ ok?: boolean, buffered?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
-    if (data.buffered) return { ok: true, buffered: true }
+    const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
     if (data.reportProcessing) {
       const reason = data.reportFinalizing ? 'finalizing' : 'processing'
       return {

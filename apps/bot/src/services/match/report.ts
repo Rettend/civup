@@ -8,7 +8,7 @@ import { matchBans, matches, matchParticipants, playerRatingEvents, playerRating
 import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { and, eq, inArray } from 'drizzle-orm'
-import { bufferedSessionReportCommand, claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
@@ -22,9 +22,7 @@ import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
 import { buildRankByPlayer, prepareRatedMatchReplay } from './ratings.ts'
 import { getSeasonMutationError } from '../season/policy.ts'
 import { prepareSeasonReport, runAtomicSeasonBatch } from '../season/report.ts'
-import { acquireRatingMutation, releaseRatingMutation, withinRatingMutation } from '../season/maintenance.ts'
-import { markLeaderboardsDirty } from '../leaderboard/message.ts'
-import { markRankedRolesDirty } from '../ranked/role-sync.ts'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -102,48 +100,7 @@ export async function reportMatch(
   input: ReportInput,
   options: ReportMatchOptions = {},
 ): Promise<ReportResult> {
-  const lease = await acquireRatingMutation(db, input.matchId)
-  let finished = false
-  try {
-    const result = lease.kind === 'rating'
-      ? await withinRatingMutation(lease.id, () => reportMatchWithAdmission(db, kv, input, options))
-      : await reportMatchWithAdmission(db, kv, input, options, true, lease.id)
-    finished = true
-    return result
-  }
-  finally {
-    if (finished) await releaseRatingMutation(db, lease.id)
-  }
-}
-
-export async function processBufferedMatchReport(db: Database, kv: KVNamespace, namespace: DurableObjectNamespace, matchId: string, reportId: string, rankedRoleGuildId?: string): Promise<ReportResult> {
-  const report = await bufferedSessionReportCommand(namespace, matchId, { type: 'get' })
-  if (!report || report.id !== reportId) return { error: 'The buffered report directory does not match the saved session result.' }
-  const lease = await acquireRatingMutation(db, matchId, true)
-  let finished = false
-  try {
-    if (lease.kind !== 'rating') { finished = true; return { error: 'Report draining has not been enabled.' } }
-    const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
-    if (!match || match.createdAt !== report.matchCreatedAt || (report.seasonId != null && match.seasonId !== report.seasonId)) {
-      finished = true
-      return { error: 'The buffered match identity changed. Owner review is required.' }
-    }
-    const result = await withinRatingMutation(lease.id, () => reportMatchWithAdmission(db, kv, report.input, { sessionNamespace: namespace, acceptedAt: report.acceptedAt, rankedRoleGuildId }))
-    if (!('error' in result) && !result.reportProcessing && !result.buffered) {
-      try {
-        const context = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-        if (!result.historicalSeason && !result.tournamentLinked && context?.leaderboardMode) {
-          await markLeaderboardsDirty(db, `buffered-report:${matchId}`, { civ: true, modes: [context.leaderboardMode] })
-          await markRankedRolesDirty(kv, `buffered-report:${matchId}`)
-        }
-        await bufferedSessionReportCommand(namespace, matchId, { type: 'complete', reportId })
-      }
-      finally { if (result.reportClaim) await releaseReportedMatchProcessingClaim(namespace, result.reportClaim) }
-    }
-    finished = true
-    return result
-  }
-  finally { if (finished) await releaseRatingMutation(db, lease.id) }
+  return runUnbufferedRatingMutation(db, input.matchId, () => reportMatchWithAdmission(db, kv, input, options))
 }
 
 async function reportMatchWithAdmission(
@@ -151,8 +108,6 @@ async function reportMatchWithAdmission(
   kv: KVNamespace,
   input: ReportInput,
   options: ReportMatchOptions = {},
-  bufferReports = false,
-  publicationLeaseId?: string,
 ): Promise<ReportResult> {
   let [match] = await db
     .select()
@@ -174,7 +129,6 @@ async function reportMatchWithAdmission(
   if (!isParticipant) {
     return { error: 'Only match participants can report results.' }
   }
-  if (bufferReports && match.status === 'completed') return { match, participants: participantRows, idempotent: true, tournamentLinked }
 
   if (!tournamentLinked && match.status === 'completed' && await usesIsolatedSeasonRatings(db, match.seasonId)) {
     return finalizeIsolatedSeasonReport(db, match, participantRows, input.reporterId, options)
@@ -269,9 +223,13 @@ async function reportMatchWithAdmission(
 
   let reportCompleted = false
   try {
+    if (options.sessionNamespace) {
+      const [current] = await db.select({ draftData: matches.draftData }).from(matches).where(eq(matches.id, match.id))
+      if (!current || current.draftData !== match.draftData) return { error: 'The match roster changed while reporting. Please review the players and report again.' }
+    }
     const hasPreparedRatedReport = !tournamentLinked && gameContext.leaderboardMode != null
       && (hasPreparedRatedReportParticipantMarkers(participantRows) || await hasPreparedRatedReportEvents(db, match.id, participantRows, gameContext.leaderboardMode))
-    if (!bufferReports && hasPreparedRatedReport && gameContext.leaderboardMode != null) {
+    if (hasPreparedRatedReport && gameContext.leaderboardMode != null) {
       const preparedReport = await buildPreparedRatedReportResultIfRatingEventsExist(
         db,
         kv,
@@ -400,13 +358,6 @@ async function reportMatchWithAdmission(
       }
     }
 
-    if (bufferReports) {
-      if (!options.sessionNamespace || !reportClaim.claim) return { error: 'Rating maintenance is in progress. This report needs a session-owned acceptance record.' }
-      const saved = await bufferedSessionReportCommand(options.sessionNamespace, match.id, { type: 'save', input,
-        claimId: reportClaim.claim.claimId, seasonId: match.seasonId, matchCreatedAt: match.createdAt, publicationLeaseId })
-      if (!saved) throw new Error('Session did not confirm the saved report.')
-      return { match, participants: participantRows, buffered: true, acceptedAt: saved.acceptedAt, tournamentLinked }
-    }
     await runDbBatch(db, placementUpdates)
 
     if (hiddenLeaderAssignments) {
