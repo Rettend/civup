@@ -4,10 +4,15 @@ import { ratingMaintenance, ratingMutationLeases } from '@civup/db'
 import { eq, sql } from 'drizzle-orm'
 
 export const RATING_MAINTENANCE_MESSAGE = 'Season setup is in progress. Please try again shortly.'
-const admittedWriter = new AsyncLocalStorage<string>()
+const admittedWriter = new AsyncLocalStorage<{ id: string, outcome: { uncertain: boolean } }>()
 
-export function withinRatingMutation<T>(id: string, task: () => Promise<T>): Promise<T> {
-  return admittedWriter.run(id, task)
+export function withinRatingMutation<T>(id: string, task: () => Promise<T>, outcome = { uncertain: false }): Promise<T> {
+  return admittedWriter.run({ id, outcome }, task)
+}
+
+export function markRatingMutationUncertain(): void {
+  const writer = admittedWriter.getStore()
+  if (writer) writer.outcome.uncertain = true
 }
 
 export async function runUnbufferedRatingMutation<T>(db: Database, matchId: string, task: () => Promise<T>): Promise<T | { error: string }> {
@@ -15,12 +20,13 @@ export async function runUnbufferedRatingMutation<T>(db: Database, matchId: stri
   const lease = await acquireRatingMutation(db, matchId)
   if (!lease) return { error: RATING_MAINTENANCE_MESSAGE }
   let finished = false
+  const outcome = { uncertain: false }
   try {
-    const result = await withinRatingMutation(lease.id, task)
+    const result = await withinRatingMutation(lease.id, task, outcome)
     finished = true
     return result
   }
-  finally { if (finished) await releaseRatingMutation(db, lease.id) }
+  finally { if (finished && !outcome.uncertain) await releaseRatingMutation(db, lease.id) }
 }
 
 export async function acquireRatingMutation(db: Database, matchId: string): Promise<{ id: string } | null> {
@@ -42,6 +48,6 @@ export async function changeRatingMaintenanceState(db: Database, expectedGenerat
   if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) throw new Error('Invalid maintenance generation.')
   const [updated] = await db.update(ratingMaintenance).set({ state, generation: expectedGeneration + 1, updatedAt: Date.now() })
     .where(sql`${ratingMaintenance.id} = 1 AND ${ratingMaintenance.generation} = ${expectedGeneration}
-      AND (${state} = 'paused' OR NOT EXISTS(SELECT 1 FROM ${ratingMutationLeases}))`).returning({ id: ratingMaintenance.id })
+      AND (${state} = 'paused' OR (NOT EXISTS(SELECT 1 FROM ${ratingMutationLeases}) AND NOT EXISTS(SELECT 1 FROM seasons WHERE active = 1 AND rating_system = 'rp' AND public_reads_enabled = 0)))`).returning({ id: ratingMaintenance.id })
   if (!updated) throw new Error('Maintenance state changed or accepted work remains. Do not clear leases merely because they are old.')
 }

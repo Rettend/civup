@@ -1110,7 +1110,7 @@ function buildSeasonModePeakCandidates(
   })
 }
 
-function buildLadderSnapshots(
+export function buildLadderSnapshots(
   rows: RatingSnapshotRow[],
   mode: LeaderboardMode,
   config: RankedRoleConfig,
@@ -1137,7 +1137,7 @@ function buildLadderSnapshots(
   }
 }
 
-function buildGlobalLadderSnapshots(
+export function buildGlobalLadderSnapshots(
   rows: GlobalRatingSnapshotRow[],
   config: RankedRoleConfig,
   publicEra = false,

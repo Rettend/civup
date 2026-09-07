@@ -120,6 +120,7 @@ export async function finalizeSeasonSnapshotRoles(
   guildId: string,
   token: string,
   season: { id: string, seasonNumber: number, name: string },
+  playerIds?: string[],
 ): Promise<void> {
   const [storedSeason] = await db.select().from(seasons).where(eq(seasons.id, season.id)).limit(1)
   if (!storedSeason) throw new Error('The season no longer exists.')
@@ -134,7 +135,7 @@ export async function finalizeSeasonSnapshotRoles(
   const rows = await db
     .select({ playerId: seasonPeakRanks.playerId, tier: seasonPeakRanks.tier })
     .from(seasonPeakRanks)
-    .where(eq(seasonPeakRanks.seasonId, season.id))
+    .where(and(eq(seasonPeakRanks.seasonId, season.id), playerIds ? inArray(seasonPeakRanks.playerId, playerIds) : undefined))
 
   const seasonRoleIds = Object.values(roleIdsByTier)
   for (const row of rows) {

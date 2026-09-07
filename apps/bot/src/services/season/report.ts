@@ -9,6 +9,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
 import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../match/report.ts'
 import { seasonMutationError } from './policy.ts'
+import { markRatingMutationUncertain } from './maintenance.ts'
 
 export interface PreparedSeasonReport {
   queries: DbBatchItem[]
@@ -34,7 +35,8 @@ export async function runAtomicSeasonBatch(db: Database, queries: DbBatchItem[])
     const bytes = encoder.encode(compiled.sql).length + encoder.encode(JSON.stringify(compiled.params)).length
     if (compiled.params.length > 100 || bytes > 100_000) throw new Error('Season update exceeds the per-statement database limit.')
   }
-  await db.batch(queries as [DbBatchItem, ...DbBatchItem[]])
+  try { await db.batch(queries as [DbBatchItem, ...DbBatchItem[]]) }
+  catch (error) { markRatingMutationUncertain(); throw error }
 }
 
 export async function prepareSeasonReport(db: Database, input: {

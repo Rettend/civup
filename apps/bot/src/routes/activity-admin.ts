@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
+import { registerSeasonMaintenanceRoutes } from './season-maintenance.ts'
 import { createDb, matches, matchParticipants, playerRatings, players, ratingMaintenance, ratingMutationLeases } from '@civup/db'
 import { and, asc, gt, inArray, lte, sql } from 'drizzle-orm'
 import { changeRatingMaintenanceState } from '../services/season/maintenance.ts'
@@ -42,6 +43,7 @@ interface ExportRowUpperBounds {
 }
 
 export function registerActivityAdminRoutes(app: Hono<Env>) {
+  registerSeasonMaintenanceRoutes(app)
   app.get('/api/activity/admin/rating-maintenance', async (c) => {
     c.header('Cache-Control', 'no-store')
     const auth = requireAuthenticatedActivity(c)

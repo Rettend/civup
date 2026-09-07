@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { acquireRatingMutation, changeRatingMaintenanceState, releaseRatingMutation, runUnbufferedRatingMutation, withinRatingMutation } from '../../src/services/season/maintenance.ts'
+import { acquireRatingMutation, changeRatingMaintenanceState, markRatingMutationUncertain, releaseRatingMutation, runUnbufferedRatingMutation, withinRatingMutation } from '../../src/services/season/maintenance.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
 test('the reporting pause refuses new writes and waits for admitted writes before reopening', async () => {
@@ -15,6 +15,12 @@ test('the reporting pause refuses new writes and waits for admitted writes befor
     await releaseRatingMutation(db, writer!.id)
     await changeRatingMaintenanceState(db, 1, 'open')
     await expect(changeRatingMaintenanceState(db, 1, 'paused')).rejects.toThrow()
+    await runUnbufferedRatingMutation(db, 'unconfirmed-report', async () => {
+      markRatingMutationUncertain()
+      return { error: 'The report service caught an uncertain database response.' }
+    })
+    await changeRatingMaintenanceState(db, 2, 'paused')
+    await expect(changeRatingMaintenanceState(db, 3, 'open')).rejects.toThrow()
   }
   finally { sqlite.close() }
 })
