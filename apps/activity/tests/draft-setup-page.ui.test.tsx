@@ -679,6 +679,10 @@ describe('DraftSetupPage UI', () => {
     expect(formatRating(null, true)).toBe('Unranked')
     expect(formatRecord(null)).toBe('0-0')
     expect(formatWinRate(null)).toBe('0%')
+    const rp = { mu: 30, sigma: 3, gamesPlayed: 100, wins: 70, ratingSystem: 'rp' as const, publicRating: 1300, seasonGames: 4, seasonWins: 1 }
+    expect(formatRecord(rp)).toBe('1-3')
+    expect(formatWinRate(rp)).toBe('25%')
+    expect(formatRecord({ ...rp, seasonGames: 0, seasonWins: 0 })).toBe('0-0')
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {

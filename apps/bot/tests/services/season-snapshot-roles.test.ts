@@ -104,7 +104,7 @@ describe('season snapshot roles', () => {
     ])
     const memberRoles = new Map<string, string[]>([
       [veteranId, ['74444444444444444']],
-      [heroId, []],
+      [heroId, ['unrelated-role']],
     ])
     let createIndex = 0
     const patchCalls: Array<{ userId: string, roles: string[] }> = []
@@ -129,6 +129,14 @@ describe('season snapshot roles', () => {
       if (method === 'GET' && url.includes('/members/')) {
         const userId = url.split('/').pop() ?? ''
         return new Response(JSON.stringify({ roles: memberRoles.get(userId) ?? [] }), { status: 200 })
+      }
+
+      const memberRole = url.match(/\/members\/([^/]+)\/roles\/([^/]+)$/)
+      if (memberRole && (method === 'PUT' || method === 'DELETE')) {
+        const [, userId, roleId] = memberRole as [string, string, string]
+        const roles = memberRoles.get(userId) ?? []
+        memberRoles.set(userId, method === 'PUT' ? [...new Set([...roles, roleId])] : roles.filter(id => id !== roleId))
+        return new Response(null, { status: 204 })
       }
 
       if (method === 'PATCH' && url.includes('/members/')) {
@@ -168,7 +176,8 @@ describe('season snapshot roles', () => {
     expect(mappings.bySeasonId['season-5']?.roles.tier4).toMatch(/^8/)
     expect(mappings.bySeasonId['season-1']).toBeUndefined()
 
-    expect(patchCalls.find(call => call.userId === heroId)?.roles).toContain(createdRoles.tier4)
+    expect(memberRoles.get(heroId)).toContain(createdRoles.tier4)
+    expect(memberRoles.get(heroId)).toContain('unrelated-role')
     expect(patchCalls.find(call => call.userId === veteranId)?.roles).not.toContain('74444444444444444')
     expect(deletedRoleIds).toContain('74444444444444444')
 

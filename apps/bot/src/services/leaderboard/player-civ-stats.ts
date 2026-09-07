@@ -1,9 +1,10 @@
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
-import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, tournamentMatches } from '@civup/db'
+import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, seasonRatingStates, seasons, tournamentMatches } from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import { runDbBatch, type DbBatchItem } from '../db/batch.ts'
 
 export const PLAYER_CIV_MIN_RANK_GAMES = 5
 export const PLAYER_CIV_SERVER_AVG_MIN_GAMES = 10
@@ -112,24 +113,28 @@ export async function loadPlayerCivRankingSummaries(
   if (uniqueCivIds.length === 0) return new Map()
 
   const conditions = buildPlayerCivStatConditions(filter, inArray(playerCivStats.civId, uniqueCivIds))
+  const frozen = await useClosingSeasonRatings(db, filter.seasonId)
+  const ratingTable = frozen ? seasonRatingStates : playerRatings
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
       civId: playerCivStats.civId,
       picks: sql<number>`sum(${playerCivStats.picks})`,
       wins: sql<number>`sum(${playerCivStats.wins})`,
-      globalMu: sql<number | null>`max(${playerRatings.mu})`,
-      globalSigma: sql<number | null>`max(${playerRatings.sigma})`,
+      globalMu: sql<number | null>`max(${ratingTable.mu})`,
+      globalSigma: sql<number | null>`max(${ratingTable.sigma})`,
     })
     .from(playerCivStats)
-    .leftJoin(playerRatings, and(
-      eq(playerRatings.playerId, playerCivStats.playerId),
-      eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
+    .leftJoin(ratingTable, and(
+      eq(ratingTable.playerId, playerCivStats.playerId),
+      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
     ))
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId, playerCivStats.civId)
 
   const byCivId = new Map<string, PlayerCivRankEntry[]>()
+  if (frozen && rows.some(row => row.globalMu == null || row.globalSigma == null)) return new Map()
   for (const row of rows) {
     const entries = byCivId.get(row.civId) ?? []
     entries.push({
@@ -157,24 +162,28 @@ export async function listTopPlayerCivRankings(
   if (civId.length === 0 || limit <= 0) return []
 
   const conditions = buildPlayerCivStatConditions(filter, eq(playerCivStats.civId, civId))
+  const frozen = await useClosingSeasonRatings(db, filter.seasonId)
+  const ratingTable = frozen ? seasonRatingStates : playerRatings
   const rows = await db
     .select({
       playerId: playerCivStats.playerId,
       displayName: players.displayName,
       picks: sql<number>`sum(${playerCivStats.picks})`,
       wins: sql<number>`sum(${playerCivStats.wins})`,
-      globalMu: sql<number | null>`max(${playerRatings.mu})`,
-      globalSigma: sql<number | null>`max(${playerRatings.sigma})`,
+      globalMu: sql<number | null>`max(${ratingTable.mu})`,
+      globalSigma: sql<number | null>`max(${ratingTable.sigma})`,
     })
     .from(playerCivStats)
     .leftJoin(players, eq(players.id, playerCivStats.playerId))
-    .leftJoin(playerRatings, and(
-      eq(playerRatings.playerId, playerCivStats.playerId),
-      eq(playerRatings.mode, GLOBAL_RATING_SCOPE),
+    .leftJoin(ratingTable, and(
+      eq(ratingTable.playerId, playerCivStats.playerId),
+      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
     ))
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId)
 
+  if (frozen && rows.some(row => row.globalMu == null || row.globalSigma == null)) return []
   const entries = rows.map(row => ({
     playerId: row.playerId,
     displayName: row.displayName,
@@ -197,6 +206,12 @@ export async function listTopPlayerCivRankings(
       adjustedWinRatePct: round(rankAdjustedWinRate(entry, serverWinRate) * 100, 1),
       adjustedWinRateRank: index + 1,
     }))
+}
+
+async function useClosingSeasonRatings(db: Database, seasonId?: string | null): Promise<boolean> {
+  if (!seasonId) return false
+  const [season] = await db.select({ active: seasons.active }).from(seasons).where(eq(seasons.id, seasonId)).limit(1)
+  return season != null && !season.active
 }
 
 export async function reconcilePlayerCivStatMatchContribution(
@@ -345,50 +360,54 @@ async function replacePlayerCivStatMatchContribution(
   previousMode: 'load' | 'empty' = 'load',
 ): Promise<void> {
   const previous = previousMode === 'empty'
-    ? { entries: [] }
+    ? { entries: [], serialized: null }
     : await getPlayerCivStatMatchContribution(db, matchId)
+  const serialized = next.entries.length > 0 ? serializeContributionEntries(next.entries) : null
+  if (serialized === previous.serialized) return
+  const source = previous.serialized == null
+    ? sql`not exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId})`
+    : sql`exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId} and ${matchPlayerCivStatContributions.contributionsJson} = ${previous.serialized})`
+  const queries: DbBatchItem[] = [db.select({ valid: sql`case when ${source} then 1 else json_extract('Stale player statistics contribution', '$') end` }).from(sql`(select 1) as contribution_guard`)]
 
-  if (next.entries.length > 0) {
-    const contributionsJson = serializeContributionEntries(next.entries)
-    await db
+  if (serialized != null) {
+    queries.push(db
       .insert(matchPlayerCivStatContributions)
-      .values({ matchId, contributionsJson, updatedAt })
+      .values({ matchId, contributionsJson: serialized, updatedAt })
       .onConflictDoUpdate({
         target: matchPlayerCivStatContributions.matchId,
-        set: { contributionsJson, updatedAt },
-      })
-    await applyPlayerCivStatAggregateDelta(db, previous, next, updatedAt)
-    return
+        set: { contributionsJson: serialized, updatedAt },
+      }))
   }
-
-  await db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.matchId, matchId))
-  await applyPlayerCivStatAggregateDelta(db, previous, next, updatedAt)
+  else queries.push(db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.matchId, matchId)))
+  queries.push(...buildPlayerCivStatAggregateDelta(db, previous, next, updatedAt))
+  await runDbBatch(db, queries)
 }
 
 async function getPlayerCivStatMatchContribution(
   db: Database,
   matchId: string,
-): Promise<MatchPlayerCivStatContribution> {
+): Promise<MatchPlayerCivStatContribution & { serialized: string | null }> {
   const [row] = await db
     .select({ contributionsJson: matchPlayerCivStatContributions.contributionsJson })
     .from(matchPlayerCivStatContributions)
     .where(eq(matchPlayerCivStatContributions.matchId, matchId))
     .limit(1)
 
-  return row ? { entries: parseContributionEntries(row.contributionsJson) } : { entries: [] }
+  return row ? { entries: parseContributionEntries(row.contributionsJson), serialized: row.contributionsJson } : { entries: [], serialized: null }
 }
 
-async function applyPlayerCivStatAggregateDelta(
+function buildPlayerCivStatAggregateDelta(
   db: Database,
   previous: MatchPlayerCivStatContribution,
   next: MatchPlayerCivStatContribution,
   updatedAt: number,
-): Promise<void> {
+): DbBatchItem[] {
   const deltas = diffContributionEntries(previous.entries, next.entries)
-  if (deltas.length === 0) return
+  if (deltas.length === 0) return []
+  const queries: DbBatchItem[] = []
 
-  for (const chunk of chunkArray(deltas, INSERT_CHUNK_SIZE)) {
-    await db
+  for (const chunk of chunkArray(deltas, Math.floor(100 / 7))) {
+    queries.push(db
       .insert(playerCivStats)
       .values(chunk.map(delta => ({
         seasonId: delta.seasonId,
@@ -406,20 +425,21 @@ async function applyPlayerCivStatAggregateDelta(
           wins: sql<number>`max(0, ${playerCivStats.wins} + excluded.wins)`,
           updatedAt,
         },
-      })
+      }))
   }
 
   const affectedSeasonIds = [...new Set(deltas.map(delta => delta.seasonId))]
   const affectedModes = [...new Set(deltas.map(delta => delta.gameMode))]
   const affectedCivIds = [...new Set(deltas.map(delta => delta.civId))]
-  await db
+  queries.push(db
     .delete(playerCivStats)
     .where(and(
       inArray(playerCivStats.seasonId, affectedSeasonIds),
       inArray(playerCivStats.gameMode, affectedModes),
       inArray(playerCivStats.civId, affectedCivIds),
       sql`${playerCivStats.picks} <= 0 and ${playerCivStats.wins} <= 0`,
-    ))
+    )))
+  return queries
 }
 
 function buildMatchPlayerCivStatContribution(

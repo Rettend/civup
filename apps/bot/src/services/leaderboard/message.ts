@@ -4,14 +4,15 @@ import type { CivLeaderboardModeScope } from './civ-snapshot.ts'
 import type { LeaderboardDirtyState, LeaderboardMessageState, SystemChannelType } from '../system/channels.ts'
 import { leaderboardDirtyStates, leaderboardMessageStates } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { civLeaderboardEmbedGroups } from '../../embeds/civ-leaderboard.ts'
 import { createChannelMessage, createChannelMessageWithFile, deleteChannelMessage, editChannelMessage, editChannelMessageWithFile, isDiscordApiError, isDiscordApiErrorCode, unarchiveThread } from '../discord/index.ts'
 import { loadAvatarDataUris } from '../image/avatar.ts'
+import { getDisplaySeason } from '../season/index.ts'
 import {
   getSystemChannel,
 } from '../system/channels.ts'
-import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshots, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshots } from './civ-snapshot.ts'
+import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardDisplayConfig, getStoredCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshots, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshots } from './civ-snapshot.ts'
 import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from './image.ts'
 import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
@@ -169,6 +170,10 @@ export async function refreshDirtyLeaderboards(
   } = {},
 ): Promise<boolean> {
   const now = options.now ?? Date.now()
+  await db.run(sql`insert into leaderboard_dirty_states(scope, dirty_at, reason)
+    select 'player:' || mode, ${now}, 'inactivity-decay' from leaderboard_decay_schedules
+    where next_decay_at <= ${now} and mode in ('duel', 'duo', 'squad', 'ffa')
+    on conflict(scope) do nothing`)
   const dirtyStates = await listLeaderboardDirtyStates(db)
   const dueDirtyStates = dirtyStates.filter(state => options.minDirtyAgeMs == null || now - state.dirtyAt >= options.minDirtyAgeMs)
   if (dueDirtyStates.length === 0) return false
@@ -254,7 +259,7 @@ export async function refreshDirtyLeaderboards(
     })
   }
 
-  await clearLeaderboardDirtyStates(db, [...scopesToClear])
+  await clearLeaderboardDirtyStates(db, dirtyStates.filter(state => scopesToClear.has(state.scope)))
   return Boolean(leaderboardStates.length > 0 || civLeaderboardStates.length > 0 || civLeaderboardsProcessed || playerLeaderboardsProcessed)
 }
 
@@ -277,7 +282,7 @@ export async function upsertLeaderboardMessagesForChannel(
     }))
   }
 
-  await deleteLeaderboardMessage(db, token, channelId, LEGACY_PLAYER_LEADERBOARD_SCOPE)
+  if (!images.some(image => image.scope.includes(':season:'))) await deleteLeaderboardMessage(db, token, channelId, LEGACY_PLAYER_LEADERBOARD_SCOPE)
   return states
 }
 
@@ -292,13 +297,19 @@ export async function upsertCivLeaderboardMessageForChannel(
   } = {},
 ): Promise<LeaderboardMessageState | null> {
   const modeScope = options.modeScope ?? 'all'
-  const embedGroups = await buildCivLeaderboardEmbedGroups(kv, modeScope)
-  if (!embedGroups) return null
+  let snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
+  const config = await getStoredCivLeaderboardDisplayConfig(kv)
+  if (config.betaReplacement === 'one-for-one' && snapshot?.periodId !== `${config.label}:${config.liveFrom}`) {
+    snapshot = (await rebuildCivLeaderboardSnapshots(db, kv, [modeScope])).get(modeScope) ?? null
+  }
+  if (!snapshot?.historyInitialized) return null
+  const embedGroups = civLeaderboardEmbedGroups(snapshot)
+  const suffix = snapshot.periodId ? `:release:${snapshot.periodId}` : ''
 
   const states: LeaderboardMessageState[] = []
 
   for (const [index, embeds] of embedGroups.entries()) {
-    const scope = civLeaderboardMessageScope(modeScope, index)
+    const scope = civLeaderboardMessageScope(modeScope, index) + suffix
 
     const state = await upsertScopedLeaderboardMessage(db, token, channelId, scope, embeds, {
       forceCreate: options.forceCreate,
@@ -306,8 +317,8 @@ export async function upsertCivLeaderboardMessageForChannel(
     states.push(state)
   }
 
-  await deleteUnusedCivLeaderboardMessages(db, token, channelId, modeScope, embedGroups.length)
-  return states[0] ?? await upsertScopedLeaderboardMessage(db, token, channelId, civLeaderboardMessageScope(modeScope), [], {
+  await deleteUnusedCivLeaderboardMessages(db, token, channelId, modeScope, embedGroups.length, suffix)
+  return states[0] ?? await upsertScopedLeaderboardMessage(db, token, channelId, civLeaderboardMessageScope(modeScope) + suffix, [], {
     forceCreate: options.forceCreate,
   })
 }
@@ -322,6 +333,8 @@ async function buildPlayerLeaderboardImages(
   } = {},
 ) {
   const modes = getPlayerLeaderboardMessageModes(options.modes)
+  const season = await getDisplaySeason(db)
+  const publicSeason = season?.ratingSystem === 'rp' && season.publicReadsEnabled ? season : null
   const snapshots = options.useCachedSnapshots
     ? await getStoredLeaderboardModeSnapshots(kv, modes)
     : await ensureLeaderboardModeSnapshots(db, kv, modes)
@@ -331,28 +344,19 @@ async function buildPlayerLeaderboardImages(
     return [{
       mode,
       rows: snapshot?.rows ?? [],
-      options: { titlePrefix: options.titlePrefix },
+      options: { titlePrefix: options.titlePrefix ?? publicSeason?.name },
     }]
   }))
   const avatarData = await loadAvatarDataUris(imageData.flatMap(data => data.rows))
   const images: Array<{ scope: string, filename: string, data: Uint8Array }> = []
   for (const data of imageData) {
     images.push({
-      scope: playerLeaderboardMessageScope(data.mode),
+      scope: playerLeaderboardMessageScope(data.mode) + (publicSeason ? `:season:${publicSeason.id}` : ''),
       filename: `leaderboard-${data.mode}.png`,
       data: await renderPlayerLeaderboardPng(data, { avatarData }),
     })
   }
   return images
-}
-
-async function buildCivLeaderboardEmbedGroups(
-  kv: KVNamespace,
-  modeScope: CivLeaderboardModeScope,
-) {
-  const snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
-  if (!snapshot?.historyInitialized) return null
-  return civLeaderboardEmbedGroups(snapshot)
 }
 
 async function upsertScopedLeaderboardMessage(
@@ -458,8 +462,9 @@ async function deleteUnusedCivLeaderboardMessages(
   channelId: string,
   modeScope: CivLeaderboardModeScope,
   activeCount: number,
+  suffix = '',
 ): Promise<void> {
-  for (const scope of civLeaderboardMessageScopes(modeScope).slice(activeCount)) {
+  for (const scope of civLeaderboardMessageScopes(modeScope).slice(activeCount).map(scope => scope + suffix)) {
     const existing = await getLeaderboardMessageState(db, scope)
     if (existing?.channelId === channelId) {
       try {
@@ -690,7 +695,7 @@ async function listLeaderboardDirtyStates(db: Database, scopes?: readonly string
   }))
 }
 
-async function clearLeaderboardDirtyStates(db: Database, scopes: readonly string[]): Promise<void> {
-  if (scopes.length === 0) return
-  await db.delete(leaderboardDirtyStates).where(inArray(leaderboardDirtyStates.scope, [...new Set(scopes)]))
+async function clearLeaderboardDirtyStates(db: Database, states: readonly ScopedLeaderboardDirtyState[]): Promise<void> {
+  if (states.length === 0) return
+  await db.delete(leaderboardDirtyStates).where(or(...states.map(state => and(eq(leaderboardDirtyStates.scope, state.scope), eq(leaderboardDirtyStates.dirtyAt, state.dirtyAt)))))
 }

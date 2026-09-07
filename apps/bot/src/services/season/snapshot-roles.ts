@@ -3,7 +3,7 @@ import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { parseLeaderboardMode } from '@civup/game'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles } from '../discord/index.ts'
+import { addGuildMemberRole, createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles, removeGuildMemberRole } from '../discord/index.ts'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
 import {
   createRankedRoleTierId,
@@ -17,6 +17,7 @@ import {
   normalizeRankedRoleTierId,
 } from '../ranked/roles.ts'
 import { formatSeasonShortName } from './index.ts'
+import { ensureHistoricalRoleOrder } from './role-order.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
   bySeasonId?: Record<string, {
@@ -119,12 +120,22 @@ export async function finalizeSeasonSnapshotRoles(
   guildId: string,
   token: string,
   season: { id: string, seasonNumber: number, name: string },
+  playerIds?: string[],
 ): Promise<void> {
+  const [storedSeason] = await db.select().from(seasons).where(eq(seasons.id, season.id)).limit(1)
+  if (!storedSeason) throw new Error('The season no longer exists.')
+  if (storedSeason.isolatedRatingsEnabled && (storedSeason.active || storedSeason.finalizedAt == null || storedSeason.reportingDeadline == null || Date.now() < storedSeason.reportingDeadline)) throw new Error('Finish the reporting window and finalize the saved season before assigning historical roles.')
   const roleIdsByTier = await ensureSeasonSnapshotRoles(kv, guildId, token, season)
+  if (storedSeason.isolatedRatingsEnabled) {
+    const [mappings, config] = await Promise.all([getSeasonSnapshotRoleMappings(kv, guildId), getRankedRoleConfig(kv, guildId)])
+    const historicalIds = Object.values(mappings.bySeasonId).flatMap(entry => Object.values(entry.roles).filter((id): id is string => id != null))
+    const liveIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
+    await ensureHistoricalRoleOrder(token, guildId, historicalIds, liveIds)
+  }
   const rows = await db
     .select({ playerId: seasonPeakRanks.playerId, tier: seasonPeakRanks.tier })
     .from(seasonPeakRanks)
-    .where(eq(seasonPeakRanks.seasonId, season.id))
+    .where(and(eq(seasonPeakRanks.seasonId, season.id), playerIds ? inArray(seasonPeakRanks.playerId, playerIds) : undefined))
 
   const seasonRoleIds = Object.values(roleIdsByTier)
   for (const row of rows) {
@@ -135,11 +146,10 @@ export async function finalizeSeasonSnapshotRoles(
 
     try {
       const roleIds = await fetchGuildMemberRoleIds(token, guildId, row.playerId)
-      const nextRoleIds = roleIds.filter(roleId => !seasonRoleIds.includes(roleId))
-      nextRoleIds.push(desiredRoleId)
-      nextRoleIds.sort((a, b) => a.localeCompare(b))
-      if (sameStringArray([...roleIds].sort((a, b) => a.localeCompare(b)), nextRoleIds)) continue
-      await editGuildMemberRoles(token, guildId, row.playerId, nextRoleIds)
+      if (!roleIds.includes(desiredRoleId)) await addGuildMemberRole(token, guildId, row.playerId, desiredRoleId)
+      for (const roleId of roleIds) {
+        if (roleId !== desiredRoleId && seasonRoleIds.includes(roleId)) await removeGuildMemberRole(token, guildId, row.playerId, roleId)
+      }
     }
     catch (error) {
       if (error instanceof DiscordApiError && error.status === 404) continue

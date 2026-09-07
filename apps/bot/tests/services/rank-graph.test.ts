@@ -1,5 +1,5 @@
 import { matches, playerRatingEvents, playerRatings, players } from '@civup/db'
-import { displayRating } from '@civup/rating'
+import { displayRating, PUBLIC_RATING_BANDS } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { buildRankCommandImage } from '../../src/commands/rank.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
@@ -10,6 +10,16 @@ const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
 
 describe('rank graph image', () => {
+  test('RP graphs focus on played ratings and show nearby divisions instead of the whole ladder', async () => {
+    const svg = await renderRankGraphSvg({ scope: 'overall', gameLimit: 2, ratingSystem: 'rp',
+      player: { playerId: HERO_ID, displayName: 'Hero', avatarUrl: null, currentRating: 780, games: 2, points: [{ x: 0, rating: 705 }, { x: 1, rating: 685 }, { x: 2, rating: 780 }] },
+      bands: PUBLIC_RATING_BANDS.toReversed().map(band => ({ tier: band.tier, label: band.label, cutoffScore: band.minimum || null, color: '#ffffff' })),
+    })
+    expect(svg).toContain('SQUIRE II')
+    expect(svg).toContain('SQUIRE III')
+    expect(svg).not.toContain('ELITE')
+    expect(svg).not.toContain('LEGION')
+  })
   test('builds recent rating points and rank bands', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

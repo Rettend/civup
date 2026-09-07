@@ -58,6 +58,22 @@ describe('Blind Bans control visibility', () => {
 })
 
 describe('lobby balance summary', () => {
+  test('RP changes neither hidden win probabilities nor uncertainty, and hidden rating deltas are not presented as RP', () => {
+    const lobby = createLobbySnapshot([
+      { playerId: 'a1', displayName: 'A1', balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },
+      { playerId: 'b1', displayName: 'B1', balanceRating: { mu: 22, sigma: 2, gamesPlayed: 20 } },
+      { playerId: 'a2', displayName: 'A2', balanceRating: { mu: 34, sigma: 2, gamesPlayed: 20 } },
+      { playerId: 'b2', displayName: 'B2', balanceRating: { mu: 21, sigma: 2, gamesPlayed: 20 } },
+    ])
+    const before = buildLobbyBalanceSummary(lobby, 'a1')!
+    const publicLobby = { ...lobby, entries: lobby.entries.map((entry, index) => entry ? { ...entry, balanceRating: {
+      ...entry.balanceRating!, ratingSystem: 'rp' as const, publicRating: index % 2 === 0 ? 750 : 1600,
+    } } : null) }
+    const after = buildLobbyBalanceSummary(publicLobby, 'a1')!
+    expect(before.teams[0]!.projectedWinDelta).not.toBeNull()
+    expect(after.teams.map(team => team.projectedWinDelta)).toEqual([null, null])
+    expect(after.teams.map(team => [team.probability, team.uncertainty])).toEqual(before.teams.map(team => [team.probability, team.uncertainty]))
+  })
   test('calculates expected team winrates and uncertainty from balance ratings', () => {
     const summary = buildLobbyBalanceSummary(createLobbySnapshot([
       { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },

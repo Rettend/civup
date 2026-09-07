@@ -21,7 +21,17 @@ export function createSqliteD1Database(input: SqliteLike): D1Database {
       return createPreparedStatement(sqlite, query)
     },
     async batch(statements: D1PreparedStatement[]) {
-      return Promise.all(statements.map(statement => statement.run()))
+      sqlite.exec('BEGIN')
+      try {
+        const results = []
+        for (const statement of statements) results.push(await statement.all())
+        sqlite.exec('COMMIT')
+        return results
+      }
+      catch (error) {
+        sqlite.exec('ROLLBACK')
+        throw error
+      }
     },
     async exec(query: string) {
       sqlite.exec(query)

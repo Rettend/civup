@@ -1,13 +1,13 @@
 import type { LeaderDataVersion } from './types.ts'
 
 /** Installed live BBG version label used by the UI. */
-export const liveLeaderDataVersionLabel = '7.4.6'
+export const liveLeaderDataVersionLabel = '7.5.0'
 
 /** Installed beta BBG version label, or null when no beta is active. */
-export const betaLeaderDataVersionLabel = '7.5.6'
+export const betaLeaderDataVersionLabel = null
 
 /** Whether a distinct beta BBG leader data set is currently available. */
-export const hasBetaLeaderData = true
+export const hasBetaLeaderData = false
 
 /** Collapse beta requests to live when no active beta is installed. */
 export function normalizeAvailableLeaderDataVersion(version: LeaderDataVersion = 'live'): LeaderDataVersion {

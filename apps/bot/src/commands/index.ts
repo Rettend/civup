@@ -1,5 +1,6 @@
 export { command_admin, component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response, modal_admin_tournament_create, modal_admin_tournament_edit } from './admin/index.ts'
 export { command_civleaderboard } from './civ-leaderboard.ts'
+export { command_decay } from './decay.ts'
 export { command_help } from './help.ts'
 export { command_history } from './history.ts'
 export { command_invite_player } from './invite-player.ts'

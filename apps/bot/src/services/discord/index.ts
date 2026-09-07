@@ -54,6 +54,16 @@ export interface DiscordGuildRoleResponse {
   managed?: boolean
   mentionable?: boolean
   permissions?: string
+  position?: number
+}
+
+export async function updateGuildRolePositions(token: string, guildId: string, positions: Array<{ id: string, position: number }>): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord('update guild role positions', `https://discord.com/api/v10/guilds/${guildId}/roles`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(positions),
+  })
+  return response.json<DiscordGuildRoleResponse[]>()
 }
 
 export interface DiscordGuildMemberResponse {
@@ -443,6 +453,15 @@ export async function fetchGuildRoles(
   return payload.filter((role): role is DiscordGuildRoleResponse => {
     return role != null && typeof role === 'object' && typeof (role as { id?: unknown }).id === 'string'
   })
+}
+
+export async function fetchGuildMemberPage(token: string, guildId: string, after?: string): Promise<Array<{ user: { id: string }, roles: string[] }>> {
+  const response = await requestDiscord('fetch guild members', `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000${after ? `&after=${encodeURIComponent(after)}` : ''}`, {
+    method: 'GET', headers: { Authorization: `Bot ${token}` },
+  })
+  const rows = await response.json<unknown>()
+  if (!Array.isArray(rows) || rows.some(row => !row?.user?.id || !Array.isArray(row.roles))) throw new Error('Guild member response is incomplete.')
+  return rows
 }
 
 export async function deleteGuildRole(

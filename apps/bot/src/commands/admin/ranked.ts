@@ -44,7 +44,7 @@ export function handleRankedRolesSet(c: AdminCommandContext) {
   const resolvedRoleDisplayById = buildResolvedRoleDisplayById(c.interaction.data)
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-    const hasConfigChanges = roleInputs.some(roleId => roleId !== undefined)
+    const hasConfigChanges = roleInputs.some(roleId => roleId !== undefined) || c.var.unranked !== undefined
     let roleDisplayById: Map<string, { name: string, color: string | null }> | undefined = resolvedRoleDisplayById.size > 0
       ? resolvedRoleDisplayById
       : undefined
@@ -62,6 +62,7 @@ export function handleRankedRolesSet(c: AdminCommandContext) {
     const config = hasConfigChanges
       ? await updateRankedRoleConfig(c.env.KV, guildId, {
           tierRoleIdsByRank: roleInputs,
+          unrankedRoleId: c.var.unranked,
         }, roleDisplayById)
       : currentConfig
 
@@ -167,6 +168,7 @@ function buildUnsetRoleUpdates(length: number, slot: number): Array<string | nul
 
 function formatRankedRoleConfig(config: Awaited<ReturnType<typeof getRankedRoleConfig>>): string {
   const lines: string[] = []
+  if (config.unrankedRoleId) lines.push(`Unranked: <@&${config.unrankedRoleId}>`)
   for (let index = 0; index < config.tiers.length; index++) {
     const tier = createRankedRoleTierId(index + 1)
     const roleId = getConfiguredRankedRoleId(config, tier)

@@ -2,14 +2,16 @@ import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
 import type { PlayerCivRankingSummary, PlayerCivStatSummary } from '../services/leaderboard/player-civ-stats.ts'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import { matches, matchParticipants, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { and, eq } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { listPlayerCivStats, loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
-import { getDisplaySeason } from '../services/season/index.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
+import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
 import { countFfaRatingWins, formatModeStats, getRatingModes } from './player-card.ts'
 
 export type LeadersModeFilter = 'all' | GameMode
@@ -34,26 +36,26 @@ export async function playerLeadersEmbed(
     rankProfile?: PlayerRankProfile | null
     ratingRows?: readonly PlayerRatingSummary[]
     visibleModes?: readonly LeaderboardMode[]
+    season?: SeasonSelection
   } = {},
 ): Promise<Embed> {
-  const [player, displaySeason, ratings] = await Promise.all([
+  const selected = await resolveSeasonSelection(db, options.season ?? 'current')
+  const displaySeason = selected.season
+  const historical = displaySeason != null && !displaySeason.active
+  const [player, ratings] = await Promise.all([
     db
       .select()
       .from(players)
       .where(eq(players.id, playerId))
       .limit(1)
       .then(rows => rows[0] ?? null),
-    getDisplaySeason(db),
-    options.ratingRows
+    !displaySeason && !selected.allTime && options.ratingRows
       ? Promise.resolve(options.ratingRows)
-      : db
-          .select()
-          .from(playerRatings)
-          .where(eq(playerRatings.playerId, playerId)),
+      : loadSelectedSeasonRatings(db, selected, [playerId]),
   ])
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
-  const rankProfile = options.rankProfile ?? null
+  const rankProfile = historical ? null : options.rankProfile ?? null
   const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
   const playerCivFilter = {
     seasonId: displaySeason?.id ?? null,
@@ -73,11 +75,11 @@ export async function playerLeadersEmbed(
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(row => row.mode === mode)
-    if (!ratingRow || ratingRow.gamesPlayed === 0) continue
+    if (!ratingRow || (ratingRow.gamesPlayed === 0 && ratingRow.effectiveGames === 0 && ratingRow.publicRating == null)) continue
 
     fields.push({
       name: formatLeaderboardModeLabel(mode, mode),
-      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins }),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins, publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null), currentRatingLabel: selected.allTime }),
       inline: true,
     })
   }
@@ -110,7 +112,7 @@ export async function playerLeadersEmbed(
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   return new Embed()
-    .title('Leaders')
+    .title(`Leaders${displaySeason || selected.allTime ? ` · ${selected.label}` : ''}`)
     .description(buildLeadersDescription(playerId, requestedModeLabel, rankProfile))
     .color(0xC8AA6E)
     .footer({ text: displayName, icon_url: player?.avatarUrl ?? undefined })

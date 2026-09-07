@@ -1,18 +1,122 @@
 import type { Database } from '@civup/db'
-import { leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, playerRatings, players, seasons } from '@civup/db'
+import { leaderboardDecaySchedules, leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, playerRatings, players, publicRatingDecayPolicies, seasons, seasonRatingStates, seasonPeakRanks } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { backfillCivLeaderboardStatsFromHistory, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
-import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
+import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertCivLeaderboardMessageForChannel, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+import { buildPlayerLeaderboardImageDataBatch } from '../../src/services/leaderboard/image.ts'
+import { attachLobbyBalanceRatingsToSnapshot, type LobbySnapshot } from '../../src/services/activity/session-state.ts'
 
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch
 
 describe('leaderboard message service', () => {
+  test('an expired decay clock refreshes without a report and preserves reports arriving during publication', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      await kv.put('system:channel:leaderboard', 'channel')
+      await db.insert(leaderboardDecaySchedules).values({ mode: 'duel', updatedAt: NOW - 100, nextDecayAt: NOW - 1 })
+      globalThis.fetch = (async (_input, init) => {
+        expect(init?.method).toBe('POST')
+        await markLeaderboardsDirty(db, 'new-report', { modes: ['duel'], now: NOW + 1 })
+        return Response.json({ id: 'new-message' })
+      }) as typeof fetch
+      expect(await refreshDirtyLeaderboards(db, kv, 'token', { now: NOW, playerModeLimit: 1 })).toBe(true)
+      expect(await db.select().from(leaderboardDirtyStates)).toEqual([{ scope: 'player:duel', dirtyAt: NOW + 1, reason: 'new-report' }])
+    }
+    finally { sqlite.close() }
+  })
+  test('idle decay scheduling uses D1 without KV reads and refreshes its deadline from projected RP', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    const day = 86_400_000
+    try {
+      await db.update(publicRatingDecayPolicies).set({ enabledAt: NOW })
+      await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
+      await db.insert(players).values({ id: 'p', displayName: 'Player', createdAt: NOW })
+      await db.insert(playerRatings).values({ playerId: 'p', mode: 'duel', mu: 40, sigma: 3, publicRating: 1600 })
+      await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW)
+      expect((await db.select().from(leaderboardDecaySchedules))[0]?.nextDecayAt).toBe(NOW + 60 * day)
+      const noKv = new Proxy(kv, { get() { throw new Error('Idle decay must not access KV') } })
+      expect(await refreshDirtyLeaderboards(db, noKv, 'token', { now: NOW + 59 * day })).toBe(false)
+      const refreshed = await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW + 61 * day)
+      expect(refreshed.rows[0]?.publicRating).toBe(1598)
+      expect((await db.select().from(leaderboardDecaySchedules))[0]?.nextDecayAt).toBe(NOW + 62 * day)
+    }
+    finally { sqlite.close() }
+  })
+  test('Activity cache keeps lifetime balance evidence separate from season results and preserves history without mode games', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      await db.insert(seasons).values([
+        { id: 's8', name: 'Season 8', seasonNumber: 8, startsAt: NOW - 1000, active: false },
+        { id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true },
+      ])
+      await db.insert(players).values(['experienced', 'new-to-duel'].map(id => ({ id, displayName: id, createdAt: NOW })))
+      await db.insert(seasonPeakRanks).values({ seasonId: 's8', playerId: 'new-to-duel', tier: 'tier2', achievedAt: NOW - 1 })
+      await db.insert(playerRatings).values({ playerId: 'experienced', mode: 'duel', mu: 30, sigma: 3, gamesPlayed: 40, wins: 30, publicRating: 1300 })
+      await db.insert(seasonRatingStates).values({ seasonId: 's9', playerId: 'experienced', mode: 'duel', mu: 30, sigma: 3, publicRating: 1300, seasonGames: 2, seasonWins: 1, evidence: {}, updatedAt: NOW })
+      await rebuildLeaderboardModeSnapshot(db, kv, 'duel', NOW)
+      const stored = await getStoredLeaderboardModeSnapshot(kv, 'duel')
+      expect(stored?.rows[0]).toMatchObject({ gamesPlayed: 40, wins: 30, seasonGames: 2, seasonWins: 1 })
+      const lobby = { draftConfig: {}, entries: [{ playerId: 'experienced' }, { playerId: 'new-to-duel' }] } as LobbySnapshot
+      const attached = await attachLobbyBalanceRatingsToSnapshot(kv, '1v1', lobby, stored)
+      expect(attached.entries[0]?.balanceRating).toMatchObject({ gamesPlayed: 40, wins: 30, seasonGames: 2, seasonWins: 1, seasonNumber: 9 })
+      expect(attached.entries[1]?.balanceRating).toMatchObject({ gamesPlayed: 0, publicRating: 750, pastRanks: [{ seasonNumber: 8, tier: 'tier2' }] })
+    }
+    finally { sqlite.close() }
+  })
+  test('RP boards retain opening standings but display only selected-season game totals', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await db.insert(seasons).values({ id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
+      await db.insert(players).values({ id: 'player', displayName: 'Player', createdAt: NOW })
+      await db.insert(seasonRatingStates).values({ seasonId: 's9', playerId: 'player', mode: 'duo', mu: 25, sigma: 3, publicRating: 1200, seasonGames: 0, seasonWins: 0, evidence: {}, updatedAt: NOW })
+      const input = [{ mode: 'duo' as const, rows: [{ playerId: 'player', mode: 'duo' as const, mu: 25, sigma: 3, publicRating: 1200, gamesPlayed: 100, wins: 60, lastPlayedAt: NOW }] }]
+      const [opening] = await buildPlayerLeaderboardImageDataBatch(db, input)
+      expect(opening!.rows[0]).toMatchObject({ displayRating: 1200, gamesPlayed: 0, wins: 0, winRate: 0 })
+      await db.update(seasonRatingStates).set({ seasonGames: 2, seasonWins: 1 })
+      const [played] = await buildPlayerLeaderboardImageDataBatch(db, input)
+      expect(played!.rows[0]).toMatchObject({ gamesPlayed: 2, wins: 1, winRate: 0.5 })
+      const [legacy] = await buildPlayerLeaderboardImageDataBatch(db, input.map(item => ({ ...item, options: { ratingSystem: 'legacy' as const } })))
+      expect(legacy!.rows[0]).toMatchObject({ gamesPlayed: 100, wins: 60, winRate: 0.6 })
+    }
+    finally { sqlite.close() }
+  })
+
   afterEach(() => {
     globalThis.fetch = originalFetch
+  })
+
+  test('new season and BBG boards retain old messages and update only their new period on retry', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      await db.insert(seasons).values({ id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
+      await db.insert(leaderboardMessageStates).values(['player:duel', 'civ:duel', 'civ:duel:2'].map(scope => ({ scope, channelId: 'channel', messageId: `old-${scope}`, updatedAt: NOW })))
+      await kv.put('leaderboard:civ:snapshot:duel', JSON.stringify({ updatedAt: NOW, historyInitialized: true, label: 'BBG 7.5.0', periodId: 'release-1', modeScope: 'duel', completedMatchCount: 1, rows: [] }))
+      let created = 0
+      let edited = 0
+      globalThis.fetch = (async (input, init) => {
+        expect(String(input)).not.toContain('old-')
+        expect(init?.method).not.toBe('DELETE')
+        if (init?.method === 'POST') return new Response(JSON.stringify({ id: `new-${++created}` }), { status: 200 })
+        if (init?.method === 'PATCH') { edited++; return new Response('{}', { status: 200 }) }
+        throw new Error(`Unexpected request: ${input}`)
+      }) as typeof fetch
+      for (let i = 0; i < 2; i++) {
+        await upsertLeaderboardMessagesForChannel(db, kv, 'token', 'channel', { modes: ['duel'] })
+        await upsertCivLeaderboardMessageForChannel(db, kv, 'token', 'channel', { modeScope: 'duel' })
+      }
+      expect(created).toBeGreaterThanOrEqual(2)
+      expect(edited).toBe(created)
+      expect((await db.select().from(leaderboardMessageStates)).filter(row => row.messageId.startsWith('old-'))).toHaveLength(3)
+    }
+    finally { sqlite.close() }
   })
 
   test('advances an existing dirty scope when later matches are reported', async () => {
@@ -106,7 +210,7 @@ describe('leaderboard message service', () => {
     try {
       await seedDuelRating(db, '100010000000000002', 10)
       await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify({
-        version: 2,
+        version: 3,
         updatedAt: NOW - 1,
         rows: [{
           playerId: '100010000000000002',

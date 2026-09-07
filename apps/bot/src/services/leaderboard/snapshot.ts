@@ -1,10 +1,12 @@
 import type { Database } from '@civup/db'
-import type { LeaderboardMode } from '@civup/game'
-import { playerRatings } from '@civup/db'
+import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
+import { leaderboardDecaySchedules, playerRatings, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { recalculateLeaderboardMode } from '../match/ratings.ts'
+import { projectPublicRatingDecay } from '../season/decay.ts'
+import type { PublicRatingDecayState } from '@civup/rating'
 
 export interface LeaderboardSnapshotRow {
   playerId: string
@@ -14,22 +16,37 @@ export interface LeaderboardSnapshotRow {
   gamesPlayed: number
   wins: number
   lastPlayedAt: number | null
+  publicRating?: number
+  seasonGames?: number
+  seasonWins?: number
+  pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier }>
+  publicDecay?: PublicRatingDecayState | null
 }
 
 export interface LeaderboardModeSnapshot {
   mode: LeaderboardMode
   updatedAt: number
   rows: LeaderboardSnapshotRow[]
+  ratingSystem?: 'rp'
+  publicReadsEnabled?: boolean
+  seasonNumber?: number
+  nextDecayAt?: number
+  pastRanksByPlayerId?: Record<string, NonNullable<LeaderboardSnapshotRow['pastRanks']>>
 }
 
 interface StoredLeaderboardModeSnapshot {
   version?: unknown
   updatedAt?: unknown
   rows?: unknown
+  ratingSystem?: unknown
+  publicReadsEnabled?: unknown
+  seasonNumber?: unknown
+  nextDecayAt?: unknown
+  pastRanksByPlayerId?: unknown
 }
 
 const LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX = 'leaderboard:snapshot:'
-const LEADERBOARD_MODE_SNAPSHOT_VERSION = 3
+const LEADERBOARD_MODE_SNAPSHOT_VERSION = 4
 
 export function leaderboardModeSnapshotKey(mode: LeaderboardMode): string {
   return `${LEADERBOARD_MODE_SNAPSHOT_KEY_PREFIX}${mode}`
@@ -58,7 +75,11 @@ export async function ensureLeaderboardModeSnapshots(
   if (missingModes.length === 0) return snapshots
 
   let rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
-  const recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
+  let recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
+  if (recalcModes.length) {
+    const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
+    if (publicSeason) recalcModes = []
+  }
 
   for (const mode of recalcModes) {
     const recalculated = await recalculateLeaderboardMode(db, mode)
@@ -70,8 +91,10 @@ export async function ensureLeaderboardModeSnapshots(
     rowsByMode = new Map([...rowsByMode, ...recalculatedRowsByMode])
   }
 
-  const rebuilt = missingModes.map(mode => buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()))
+  const era = await loadSnapshotEra(db)
+  const rebuilt = missingModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()), ...era }))
 
+  await saveDecaySchedules(db, rebuilt)
   await setLeaderboardModeSnapshots(kv, rebuilt)
   for (const snapshot of rebuilt) {
     snapshots.set(snapshot.mode, snapshot)
@@ -145,8 +168,10 @@ export async function buildLeaderboardModeSnapshotFromD1(
   mode: LeaderboardMode,
   updatedAt = Date.now(),
 ): Promise<LeaderboardModeSnapshot> {
-  const rows = await listLeaderboardModeRowsFromD1(db, mode)
-  return buildLeaderboardModeSnapshot(mode, rows, updatedAt)
+  const rows = await listLeaderboardModeRowsFromD1(db, mode, updatedAt)
+  const snapshot = { ...buildLeaderboardModeSnapshot(mode, rows, updatedAt), ...await loadSnapshotEra(db) }
+  await saveDecaySchedules(db, [snapshot])
+  return snapshot
 }
 
 export async function buildLeaderboardModeSnapshotsFromD1(
@@ -155,8 +180,39 @@ export async function buildLeaderboardModeSnapshotsFromD1(
   updatedAt = Date.now(),
 ): Promise<Map<LeaderboardMode, LeaderboardModeSnapshot>> {
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
-  const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, requestedModes)
-  return new Map(requestedModes.map(mode => [mode, buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt)]))
+  const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, requestedModes, updatedAt)
+  const era = await loadSnapshotEra(db)
+  const snapshots = requestedModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt), ...era }))
+  await saveDecaySchedules(db, snapshots)
+  return new Map(snapshots.map(snapshot => [snapshot.mode, snapshot]))
+}
+
+async function saveDecaySchedules(db: Database, snapshots: readonly LeaderboardModeSnapshot[]) {
+  if (!snapshots.length) return
+  await db.insert(leaderboardDecaySchedules).values(snapshots.map(snapshot => ({
+    mode: snapshot.mode,
+    nextDecayAt: sql<number | null>`case when exists(select 1 from seasons where active = 1 and rating_system = 'rp') then ${snapshot.nextDecayAt ?? null} else null end`,
+    updatedAt: snapshot.updatedAt,
+  }))).onConflictDoUpdate({
+    target: leaderboardDecaySchedules.mode,
+    set: { nextDecayAt: sql`excluded.next_decay_at`, updatedAt: sql`excluded.updated_at` },
+    setWhere: sql`excluded.updated_at >= ${leaderboardDecaySchedules.updatedAt}`,
+  })
+}
+
+async function loadSnapshotEra(db: Database): Promise<Pick<LeaderboardModeSnapshot, 'ratingSystem' | 'publicReadsEnabled' | 'seasonNumber' | 'pastRanksByPlayerId'>> {
+  const [season] = await db.select({ seasonNumber: seasons.seasonNumber, ratingSystem: seasons.ratingSystem, enabled: seasons.publicReadsEnabled }).from(seasons).orderBy(desc(seasons.active), desc(seasons.startsAt)).limit(1)
+  if (!season) return {}
+  const closed = await db.select({ id: seasons.id, seasonNumber: seasons.seasonNumber }).from(seasons).where(eq(seasons.active, false)).orderBy(desc(seasons.seasonNumber)).limit(8)
+  const historical = closed.length ? await db.select({ playerId: seasonPeakRanks.playerId, seasonId: seasonPeakRanks.seasonId, tier: seasonPeakRanks.tier }).from(seasonPeakRanks).where(inArray(seasonPeakRanks.seasonId, closed.map(season => season.id))) : []
+  const pastRanksByPlayerId: NonNullable<LeaderboardModeSnapshot['pastRanksByPlayerId']> = {}
+  for (const row of historical) {
+    const ranks = pastRanksByPlayerId[row.playerId] ?? []
+    ranks.push({ seasonNumber: closed.find(season => season.id === row.seasonId)!.seasonNumber, tier: row.tier as CompetitiveTier })
+    pastRanksByPlayerId[row.playerId] = ranks
+  }
+  for (const ranks of Object.values(pastRanksByPlayerId)) ranks.sort((a, b) => b.seasonNumber - a.seasonNumber)
+  return { seasonNumber: season.seasonNumber, pastRanksByPlayerId, ...(season.ratingSystem === 'rp' ? { ratingSystem: 'rp' as const, publicReadsEnabled: season.enabled } : {}) }
 }
 
 export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: LeaderboardMode): Promise<void> {
@@ -175,6 +231,7 @@ function buildLeaderboardModeSnapshot(
   return {
     mode,
     updatedAt,
+    nextDecayAt: rows.some(row => row.publicDecay?.active) ? Math.min(...rows.flatMap(row => row.publicDecay?.active ? [row.publicDecay.bankUntil > updatedAt ? row.publicDecay.bankUntil : updatedAt + 86_400_000] : [])) : undefined,
     rows: rows.map(row => ({
       playerId: row.playerId,
       mode,
@@ -183,6 +240,10 @@ function buildLeaderboardModeSnapshot(
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt,
+      ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
+      seasonGames: row.seasonGames,
+      seasonWins: row.seasonWins,
+      pastRanks: row.pastRanks,
     })),
   }
 }
@@ -198,6 +259,10 @@ async function setLeaderboardModeSnapshots(
     value: JSON.stringify({
       version: LEADERBOARD_MODE_SNAPSHOT_VERSION,
       updatedAt: snapshot.updatedAt,
+      seasonNumber: snapshot.seasonNumber,
+      nextDecayAt: snapshot.nextDecayAt,
+      pastRanksByPlayerId: snapshot.pastRanksByPlayerId,
+      ...(snapshot.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: snapshot.publicReadsEnabled === true } : {}),
       rows: snapshot.rows.map(row => ({
         playerId: row.playerId,
         mu: row.mu,
@@ -205,6 +270,10 @@ async function setLeaderboardModeSnapshots(
         gamesPlayed: row.gamesPlayed,
         wins: row.wins,
         lastPlayedAt: row.lastPlayedAt,
+        ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
+        seasonGames: row.seasonGames,
+        seasonWins: row.seasonWins,
+        pastRanks: row.pastRanks,
       })),
     } satisfies StoredLeaderboardModeSnapshot),
   })))
@@ -213,13 +282,15 @@ async function setLeaderboardModeSnapshots(
 async function listLeaderboardModeRowsFromD1(
   db: Database,
   mode: LeaderboardMode,
+  now = Date.now(),
 ): Promise<LeaderboardSnapshotRow[]> {
-  return (await listLeaderboardModeRowsFromD1ByModes(db, [mode])).get(mode) ?? []
+  return (await listLeaderboardModeRowsFromD1ByModes(db, [mode], now)).get(mode) ?? []
 }
 
 async function listLeaderboardModeRowsFromD1ByModes(
   db: Database,
   modes: readonly LeaderboardMode[],
+  now = Date.now(),
 ): Promise<Map<LeaderboardMode, LeaderboardSnapshotRow[]>> {
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   if (requestedModes.length === 0) return new Map()
@@ -233,12 +304,18 @@ async function listLeaderboardModeRowsFromD1ByModes(
       gamesPlayed: playerRatings.gamesPlayed,
       wins: playerRatings.wins,
       lastPlayedAt: playerRatings.lastPlayedAt,
+      publicRating: playerRatings.publicRating,
+      publicDecay: playerRatings.publicDecay,
+      seasonGames: seasonRatingStates.seasonGames,
+      seasonWins: seasonRatingStates.seasonWins,
     })
     .from(playerRatings)
+    .leftJoin(seasonRatingStates, and(eq(seasonRatingStates.playerId, playerRatings.playerId), eq(seasonRatingStates.mode, playerRatings.mode), sql`${seasonRatingStates.seasonId} = (select id from seasons order by active desc, starts_at desc limit 1)`))
     .where(inArray(playerRatings.mode, requestedModes))
 
+
   const rowsByMode = new Map<LeaderboardMode, LeaderboardSnapshotRow[]>(requestedModes.map(mode => [mode, []]))
-  for (const row of rows) {
+  for (const row of await projectPublicRatingDecay(db, rows, now)) {
     if (!isLeaderboardMode(row.mode)) continue
     const modeRows = rowsByMode.get(row.mode) ?? []
     modeRows.push({
@@ -249,6 +326,10 @@ async function listLeaderboardModeRowsFromD1ByModes(
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
       lastPlayedAt: row.lastPlayedAt ?? null,
+      ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
+      seasonGames: row.seasonGames ?? 0,
+      seasonWins: row.seasonWins ?? 0,
+      publicDecay: row.publicDecay,
     })
     rowsByMode.set(row.mode, modeRows)
   }
@@ -275,6 +356,10 @@ export function normalizeLeaderboardModeSnapshot(
     updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
       ? Math.round(raw.updatedAt)
       : 0,
+    ...(raw.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: raw.publicReadsEnabled === true } as const : {}),
+    ...(typeof raw.seasonNumber === 'number' ? { seasonNumber: raw.seasonNumber } : {}),
+    ...(typeof raw.nextDecayAt === 'number' && Number.isFinite(raw.nextDecayAt) ? { nextDecayAt: raw.nextDecayAt } : {}),
+    pastRanksByPlayerId: raw.pastRanksByPlayerId != null && typeof raw.pastRanksByPlayerId === 'object' ? Object.fromEntries(Object.entries(raw.pastRanksByPlayerId).map(([id, ranks]) => [id, normalizePastRanks(ranks)])) : {},
     rows,
   }
 }
@@ -301,7 +386,15 @@ function normalizeLeaderboardSnapshotRow(
     gamesPlayed,
     wins,
     lastPlayedAt: normalizeNullableTimestamp(raw.lastPlayedAt),
+    ...(typeof raw.publicRating === 'number' && Number.isFinite(raw.publicRating) && raw.publicRating >= 0 ? { publicRating: raw.publicRating } : {}),
+    seasonGames: normalizeNonNegativeInteger(raw.seasonGames) ?? undefined,
+    seasonWins: normalizeNonNegativeInteger(raw.seasonWins) ?? undefined,
+    pastRanks: normalizePastRanks(raw.pastRanks),
   }
+}
+
+function normalizePastRanks(value: unknown): NonNullable<LeaderboardSnapshotRow['pastRanks']> {
+  return Array.isArray(value) ? value.filter((rank): rank is { seasonNumber: number, tier: CompetitiveTier } => rank != null && typeof rank === 'object' && Number.isSafeInteger(rank.seasonNumber) && rank.seasonNumber > 0 && /^tier[1-9]\d*$/.test(rank.tier)) : []
 }
 
 function normalizeFiniteNumber(value: unknown): number | null {

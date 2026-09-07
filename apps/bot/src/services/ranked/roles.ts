@@ -9,10 +9,12 @@ export interface RankedRoleTierConfig {
 }
 
 export interface RankedRoleConfig {
+  unrankedRoleId?: string | null
   tiers: RankedRoleTierConfig[]
 }
 
 interface StoredRankedRoleConfig {
+  unrankedRoleId?: unknown
   tiers?: Array<{
     roleId?: unknown
     label?: unknown
@@ -104,6 +106,7 @@ export async function getRankedRoleDisplayConfig(kv: KVNamespace, guildId: strin
       const display = slot.roleId ? displayState.displayByRoleId.get(slot.roleId) : null
       return display ? { ...slot, label: display.name, color: display.color } : slot
     }),
+    ...(config.unrankedRoleId ? { unrankedRoleId: config.unrankedRoleId } : {}),
   }
 }
 
@@ -124,11 +127,17 @@ export async function updateRankedRoleConfig(
   input: {
     tierCount?: number
     tierRoleIdsByRank?: Array<string | null | undefined>
+    unrankedRoleId?: string | null
   },
   roleDisplayById?: Map<string, RankedRoleDisplaySource>,
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
   const next = resizeRankedRoleConfig(current, resolveNextTierCount(current, input))
+  if (input.unrankedRoleId !== undefined) {
+    const roleId = normalizeRoleId(input.unrankedRoleId)
+    if (input.unrankedRoleId !== null && !roleId) throw new Error('Provide a valid Unranked role.')
+    next.unrankedRoleId = roleId
+  }
 
   for (let index = 0; index < next.tiers.length; index++) {
     const update = input.tierRoleIdsByRank?.[index]
@@ -442,12 +451,13 @@ function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: nu
     const existing = config.tiers[index]
     return existing ? { ...existing } : createEmptyRankedRoleTierConfig()
   })
-  return { tiers }
+  return { ...config, tiers }
 }
 
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
   if (!Array.isArray(raw?.tiers) || raw.tiers.length === 0) return createDefaultRankedRoleConfig()
   return compactRankedRoleConfig({
+    ...(normalizeRoleId(raw.unrankedRoleId) ? { unrankedRoleId: normalizeRoleId(raw.unrankedRoleId) } : {}),
     tiers: raw.tiers.map(tier => ({
       roleId: normalizeRoleId(tier?.roleId),
       label: normalizeOptionalLabel(tier?.label),
@@ -482,6 +492,7 @@ function createDefaultRankedRoleConfig(): RankedRoleConfig {
 }
 
 function compactRankedRoleConfig(config: RankedRoleConfig): RankedRoleConfig {
+  if (config.unrankedRoleId && config.tiers.some(tier => tier.roleId === config.unrankedRoleId)) throw new Error('Unranked must be separate from ranked roles.')
   const highestConfiguredRank = config.tiers.reduce((best, tier, index) => tier.roleId ? index + 1 : best, 0)
   const tierCount = highestConfiguredRank > 0 ? highestConfiguredRank : DEFAULT_RANKED_ROLE_TIER_COUNT
   return resizeRankedRoleConfig(config, tierCount)

@@ -1,3 +1,13 @@
+import type { PublicRatingSnapshot } from '@civup/rating'
+import { publicRatingPresentation } from '@civup/rating'
+
+export function formatPublicRatingSnapshotChange(snapshot: PublicRatingSnapshot): string | null {
+  if (snapshot.ratingSystem !== 'rp') return null
+  if (!snapshot.publicRatingReady || snapshot.publicRatingBefore == null || snapshot.publicRatingAfter == null) return '`Rating pending`'
+  const rating = publicRatingPresentation(snapshot.publicRatingBefore, snapshot.publicRatingAfter)
+  return formatDisplayRatingChange(rating.before, rating.after)
+}
+
 export function formatDisplayRatingChange(before: number, after: number): string {
   const rawDelta = after - before
   const roundedDelta = Math.round(rawDelta)

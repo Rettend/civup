@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { markRatingMutationUncertain } from '../season/maintenance.ts'
 
 export type DbBatchItem = Parameters<Database['batch']>[0][number]
 
@@ -11,7 +12,8 @@ export async function runDbBatch(db: Database, queries: DbBatchItem[]): Promise<
 
   const batchRunner = db as OptionalBatchRunner
   if (typeof batchRunner.batch === 'function') {
-    await batchRunner.batch(queries as [DbBatchItem, ...DbBatchItem[]])
+    try { await batchRunner.batch(queries as [DbBatchItem, ...DbBatchItem[]]) }
+    catch (error) { markRatingMutationUncertain(); throw error }
     return
   }
 

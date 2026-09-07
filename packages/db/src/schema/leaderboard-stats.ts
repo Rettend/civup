@@ -43,6 +43,7 @@ export const matchCivStatContributions = sqliteTable('match_civ_stat_contributio
   updatedAt: integer('updated_at', { mode: 'number' }).notNull(),
 }, table => [
   index('match_civ_stat_contributions_visible_idx').on(table.visible, table.source, table.completedAt, table.modeScope),
+  index('match_civ_stat_contributions_source_time_idx').on(table.source, table.completedAt, table.matchId),
 ])
 
 export const playerCivStats = sqliteTable('player_civ_stats', {

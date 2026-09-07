@@ -3,6 +3,7 @@ import type { DiscordMessagePayload } from '../discord/index.ts'
 import { createChannelMessage, createInteractionFollowupMessage } from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { sendTransientEphemeralResponse } from './ephemeral.ts'
+import { SeasonSelectionError } from '../season/selection.ts'
 
 type GeneralCommandResponse = string | DiscordMessagePayload | DiscordMessagePayload[] | null
 
@@ -87,7 +88,7 @@ export async function resDeferGeneralCommandResponse(
     catch (error) {
       console.error('Failed to build deferred command response:', error)
       try {
-        await sendTransientEphemeralResponse(deferred, 'Failed to build this command response.', 'error')
+        await sendTransientEphemeralResponse(deferred, error instanceof SeasonSelectionError ? error.message : 'Failed to build this command response.', 'error')
       }
       catch (followupError) {
         console.error('Failed to send deferred command error response:', followupError)

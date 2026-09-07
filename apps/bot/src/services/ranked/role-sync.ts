@@ -1,13 +1,15 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
 import { playerRatings, players } from '@civup/db'
 import { competitiveTierRank, LEADERBOARD_MODES } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
+import { displayRating, getLeaderboardMinGames, PUBLIC_RANK_REQUIREMENTS, publicRatingRank, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating } from '@civup/rating'
 import { eq, inArray } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../discord/index.ts'
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
+import { projectPublicRatingDecay } from '../season/decay.ts'
 import {
   createRankedRoleTierId,
   fetchGuildMemberRoleIds,
@@ -25,6 +27,7 @@ import {
 } from './roles.ts'
 
 export interface CurrentRankAssignment {
+  unranked?: boolean
   tier: CompetitiveTier
   sourceMode: LeaderboardMode | null
   appliedRoleId?: string | null
@@ -116,6 +119,7 @@ export interface RankedPreviewModeSummary {
 }
 
 export interface RankedPreviewSummary {
+  ratingSystem?: 'legacy' | 'rp'
   guildId: string
   evaluatedAt: number
   config: RankedRoleConfig
@@ -154,6 +158,7 @@ interface RatingSnapshotRow {
   sigma: number
   gamesPlayed: number
   lastPlayedAt: number | null
+  publicRating?: number
 }
 
 interface GlobalRatingSnapshotRow {
@@ -169,6 +174,7 @@ interface GlobalRatingSnapshotRow {
   effectiveWinsVsTier1: number
   effectiveWinsVsTier2Plus: number
   lastPlayedAt: number | null
+  publicRating?: number
 }
 
 interface PlayerIdentity {
@@ -211,6 +217,7 @@ interface PendingRankedRoleApplication {
 }
 
 interface RankedRolePreviewState {
+  publicEra: boolean
   preview: RankedRolePreview
   ratings: RatingSnapshotRow[]
   globalRatings: GlobalRatingSnapshotRow[]
@@ -244,10 +251,10 @@ const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
 const DEMOTION_DELAY_SYNCS = 7
 const GLOBAL_RATING_SCOPE = 'global'
 const MODE_LADDER_MIN_GAMES = 10
-const TIER_1_EVIDENCE_GATE = { effectiveGames: 18 }
-const TIER_2_EVIDENCE_GATE = { effectiveGames: 16 }
+const TIER_1_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.elite }
+const TIER_2_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.legion }
 const TIER_3_EVIDENCE_GATE = { effectiveGames: 8 }
-const TIER_1_QUALITY_GATE = { winsVsTier1: 1, winsVsTier2Plus: 4 }
+const TIER_1_QUALITY_GATE = { winsVsTier1: PUBLIC_RANK_REQUIREMENTS.eliteWins, winsVsTier2Plus: PUBLIC_RANK_REQUIREMENTS.legionOrEliteWins }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
 const TIER_2_MODE_QUALITY_FLOOR = { modeTier: 3, minModeGames: 18, minRoleScore: 900, winsVsTier1: 2 }
 const TIER_4_PARTICIPATION_FLOOR = { effectiveGames: 30, wins: 5 }
@@ -408,6 +415,7 @@ export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {
   return {
     guildId: options.guildId,
     evaluatedAt: state.preview.evaluatedAt,
+    ratingSystem: state.publicEra ? 'rp' : 'legacy',
     config: state.config,
     bands: buildRankedPreviewBands(state.config),
     modes: modes.map(mode => buildRankedPreviewModeSummary(mode, state.config, state.laddersByMode.get(mode))),
@@ -434,6 +442,12 @@ export async function projectRankedTierForScore(options: RankedRoleSyncOptions &
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
+  const result = await runUnbufferedRatingMutation(options.db, `roles:${options.guildId}`, () => syncRankedRolesImpl(options))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function syncRankedRolesImpl(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
   const state = await buildRankedRolePreviewState({
     ...options,
     includePlayerIdentities: false,
@@ -441,6 +455,7 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
   const preview = state.preview
 
   const activeSeason = await getActiveSeason(options.db)
+  if (activeSeason?.isolatedRatingsEnabled && !activeSeason.publicReadsEnabled) return { ...preview, attemptedDiscordChanges: 0, appliedDiscordChanges: 0, pendingDiscordChanges: 0 }
   if (activeSeason) {
     await syncSeasonPeakRanks(options.db, {
       seasonId: activeSeason.id,
@@ -565,10 +580,11 @@ export async function repairCurrentRankedRoleMembership(options: {
   const assignment = assignments.byPlayerId[options.playerId]
   if (!assignment) return false
 
-  const desiredRoleId = getConfiguredRankedRoleId(config, assignment.tier)
+  const desiredRoleId = assignment.unranked ? config.unrankedRoleId : getConfiguredRankedRoleId(config, assignment.tier)
   if (!desiredRoleId) return false
 
   const managedRoleIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
+  if (config.unrankedRoleId) managedRoleIds.push(config.unrankedRoleId)
   if (assignment.appliedRoleId) managedRoleIds.push(assignment.appliedRoleId)
 
   return repairRankedRoleMembership({
@@ -817,7 +833,7 @@ async function buildRankedRolePreviewState({
   fullRosterGraceCaps = true,
 }: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
   const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
-  const [leaderboardSnapshots, previousAssignments, config, globalRatingRows] = await Promise.all([
+  const [leaderboardSnapshots, previousAssignments, config, globalRatingRows, activeSeason] = await Promise.all([
     getLeaderboardModeSnapshotsForPreview(db, kv),
     getCurrentRankAssignments(kv, guildId),
     getRankedRoleConfig(kv, guildId),
@@ -835,10 +851,15 @@ async function buildRankedRolePreviewState({
         effectiveWinsVsTier1: playerRatings.effectiveWinsVsTier1,
         effectiveWinsVsTier2Plus: playerRatings.effectiveWinsVsTier2Plus,
         lastPlayedAt: playerRatings.lastPlayedAt,
+        publicRating: playerRatings.publicRating,
+        publicDecay: playerRatings.publicDecay,
       })
       .from(playerRatings)
       .where(eq(playerRatings.mode, GLOBAL_RATING_SCOPE)),
+    getActiveSeason(db),
   ])
+  const publicEra = activeSeason?.ratingSystem === 'rp' && activeSeason.publicReadsEnabled
+  if (publicEra && getRankedRoleTierCount(config) !== 5) throw new Error('Public ranks require five configured broad roles.')
   const previousCandidates = shouldLoadRankedRoleDemotionCandidates(previousAssignments, fullRosterGraceCaps ? null : requestedPlayerIds)
     ? await getRankedRoleDemotionCandidates(kv, guildId)
     : { byPlayerId: {} }
@@ -852,9 +873,10 @@ async function buildRankedRolePreviewState({
       sigma: row.sigma,
       gamesPlayed: row.gamesPlayed,
       lastPlayedAt: row.lastPlayedAt ?? null,
+      publicRating: row.publicRating,
     }))
     .filter(row => LEADERBOARD_MODES.includes(row.mode) && isDiscordSnowflake(row.playerId))
-  const globalRatings: GlobalRatingSnapshotRow[] = globalRatingRows
+  const globalRatings: GlobalRatingSnapshotRow[] = (await projectPublicRatingDecay(db, globalRatingRows, now, activeSeason))
     .map(row => ({
       playerId: row.playerId,
       mu: row.mu,
@@ -868,13 +890,14 @@ async function buildRankedRolePreviewState({
       effectiveWinsVsTier1: row.effectiveWinsVsTier1,
       effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus,
       lastPlayedAt: row.lastPlayedAt ?? null,
+      publicRating: row.publicRating ?? undefined,
     }))
     .filter(row => isDiscordSnowflake(row.playerId))
 
   const globalRatingByPlayerId = new Map(globalRatings.map(row => [row.playerId, row]))
   const fallbackTier = getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
-  const globalLadders = buildGlobalLadderSnapshots(globalRatings, config)
-  const rawGlobalEarnAssignments = buildRawGlobalEarnAssignments(globalRatings, config)
+  const globalLadders = buildGlobalLadderSnapshots(globalRatings, config, publicEra)
+  const rawGlobalEarnAssignments = buildRawGlobalEarnAssignments(globalRatings, config, publicEra)
 
   const laddersByMode = new Map<LeaderboardMode, LadderSnapshots>()
   for (const mode of LEADERBOARD_MODES) {
@@ -883,6 +906,7 @@ async function buildRankedRolePreviewState({
       mode,
       config,
       rankedMinGames,
+      publicEra,
     ))
   }
   const modeRatingsByPlayerId = buildModeRatingsByPlayerId(ratings)
@@ -921,7 +945,7 @@ async function buildRankedRolePreviewState({
         : null
     })()
     const globalRating = globalRatingByPlayerId.get(playerId) ?? null
-    const qualified = globalRating ? isGlobalRatingQualified(globalRating) : false
+    const qualified = globalRating ? isGlobalRatingQualified(globalRating, publicEra) : false
     const earnAssignment = qualified ? toCurrentAssignment(globalLadders.earn.get(playerId) ?? null) : null
     const keepAssignment = qualified ? toCurrentAssignment(globalLadders.keep.get(playerId) ?? null) : null
     const ladderTiers = buildLadderTierMap(playerId, laddersByMode)
@@ -949,7 +973,7 @@ async function buildRankedRolePreviewState({
         })
       : liveAssignment
     const evidenceCappedAssignment = qualified && globalRating
-      ? capAssignmentResultByEvidence(qualityAdjustedAssignment, globalRating, config)
+      ? capAssignmentResultByEvidence(qualityAdjustedAssignment, globalRating, config, publicEra)
       : liveAssignment
     const tier1ProtectedAssignment = qualified && globalRating
       ? applyThinTier1Protection(evidenceCappedAssignment, previousAssignment, globalRating)
@@ -963,7 +987,7 @@ async function buildRankedRolePreviewState({
       displayName: playerIdentityById.get(playerId)?.displayName ?? `<@${playerId}>`,
       qualified,
       managed: qualified,
-      globalScore: globalRating ? roleRating(globalRating.mu, globalRating.sigma) : null,
+      globalScore: globalRating ? publicEra ? requirePublicRating(globalRating.publicRating) : roleRating(globalRating.mu, globalRating.sigma) : null,
       liveAssignment: liveAssignment.assignment,
       assignment: finalAssignment.assignment,
       previousAssignment,
@@ -987,7 +1011,7 @@ async function buildRankedRolePreviewState({
   const distribution = createTierCounter(config)
   let unrankedCount = 0
   for (const player of outputPlayerPreviews) {
-    if (!player.qualified && player.previousAssignment == null) unrankedCount += 1
+    if (!player.qualified && (publicEra || player.previousAssignment == null)) unrankedCount += 1
     if (player.qualified) distribution[player.assignment.tier] = (distribution[player.assignment.tier] ?? 0) + 1
   }
 
@@ -1003,6 +1027,7 @@ async function buildRankedRolePreviewState({
       unrankedCount,
       distribution,
     },
+    publicEra,
     ratings,
     globalRatings,
     config,
@@ -1093,17 +1118,18 @@ function buildSeasonModePeakCandidates(
   })
 }
 
-function buildLadderSnapshots(
+export function buildLadderSnapshots(
   rows: RatingSnapshotRow[],
   mode: LeaderboardMode,
   config: RankedRoleConfig,
   rankedMinGames: number,
+  publicEra = false,
 ): LadderSnapshots {
   const ranked = rows
     .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
     .map(row => ({
       playerId: row.playerId,
-      score: displayRating(row.mu, row.sigma),
+      score: publicEra ? requirePublicRating(row.publicRating) : displayRating(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt,
     }))
     .sort(compareLadderEntry)
@@ -1112,24 +1138,25 @@ function buildLadderSnapshots(
     .map(row => row.playerId))
 
   return {
-    earn: buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
-    keep: buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
+    earn: publicEra ? buildFixedPublicAssignments(ranked, mode) : buildEarnAssignments(ranked, mode, config, qualifiedPlayerIds),
+    keep: publicEra ? buildFixedPublicAssignments(ranked, mode) : buildKeepAssignments(ranked, mode, config, qualifiedPlayerIds),
     ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
 }
 
-function buildGlobalLadderSnapshots(
+export function buildGlobalLadderSnapshots(
   rows: GlobalRatingSnapshotRow[],
   config: RankedRoleConfig,
+  publicEra = false,
 ): LadderSnapshots {
   const rowByPlayerId = new Map(rows.map(row => [row.playerId, row]))
-  const ranked = buildGlobalLadderEntries(rows)
+  const ranked = buildGlobalLadderEntries(rows, publicEra)
   const qualifiedPlayerIds = new Set(ranked.map(row => row.playerId))
 
   return {
-    earn: applyGlobalEvidenceGates(buildEarnAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
-    keep: applyGlobalEvidenceGates(buildKeepAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config),
+    earn: applyGlobalEvidenceGates(publicEra ? buildFixedPublicAssignments(ranked, null) : buildEarnAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config, publicEra),
+    keep: applyGlobalEvidenceGates(publicEra ? buildFixedPublicAssignments(ranked, null) : buildKeepAssignments(ranked, null, config, qualifiedPlayerIds), rowByPlayerId, config, publicEra),
     ranks: new Map(ranked.map((entry, index) => [entry.playerId, index + 1])),
     scores: new Map(ranked.map(entry => [entry.playerId, entry.score])),
   }
@@ -1138,20 +1165,42 @@ function buildGlobalLadderSnapshots(
 function buildRawGlobalEarnAssignments(
   rows: GlobalRatingSnapshotRow[],
   config: RankedRoleConfig,
+  publicEra = false,
 ): Map<string, LadderAssignment> {
-  const ranked = buildGlobalLadderEntries(rows)
+  const ranked = buildGlobalLadderEntries(rows, publicEra)
+  if (publicEra) return buildFixedPublicAssignments(ranked, null)
   return buildEarnAssignments(ranked, null, config, new Set(ranked.map(row => row.playerId)))
 }
 
-function buildGlobalLadderEntries(rows: GlobalRatingSnapshotRow[]): LadderEntry[] {
+function buildGlobalLadderEntries(rows: GlobalRatingSnapshotRow[], publicEra = false): LadderEntry[] {
   return rows
-    .filter(isGlobalRatingQualified)
+    .filter(row => isGlobalRatingQualified(row, publicEra))
     .map(row => ({
       playerId: row.playerId,
-      score: roleRating(row.mu, row.sigma),
+      score: publicEra ? requirePublicRating(row.publicRating) : roleRating(row.mu, row.sigma),
       lastPlayedAt: row.lastPlayedAt,
     }))
     .sort(compareLadderEntry)
+}
+
+function requirePublicRating(value: number | undefined): number {
+  if (value == null || !Number.isFinite(value) || value < 0) throw new Error('Public rating data is incomplete; role sync cannot substitute hidden ratings.')
+  return value
+}
+
+function buildFixedPublicAssignments(ranked: LadderEntry[], mode: LeaderboardMode | null): Map<string, LadderAssignment> {
+  const sizes = new Map<string, number>()
+  const counts = new Map<string, number>()
+  for (const row of ranked) {
+    const tier = publicRatingRank(row.score).tier
+    sizes.set(tier, (sizes.get(tier) ?? 0) + 1)
+  }
+  return new Map(ranked.map((row, index) => {
+    const tier = publicRatingRank(row.score).tier
+    const tierRank = (counts.get(tier) ?? 0) + 1
+    counts.set(tier, tierRank)
+    return [row.playerId, { ...row, tier, mode, overallRank: index + 1, tierRank, tierSize: sizes.get(tier)! }]
+  }))
 }
 
 function applyGraceCaps(
@@ -1212,37 +1261,39 @@ function compareGraceCapCandidate(
     || left.playerId.localeCompare(right.playerId)
 }
 
-function isGlobalRatingQualified(row: GlobalRatingSnapshotRow): boolean {
-  return row.effectiveGames >= RANKED_ROLE_MIN_EFFECTIVE_GAMES
+function isGlobalRatingQualified(row: GlobalRatingSnapshotRow, publicEra = false): boolean {
+  return row.effectiveGames >= (publicEra ? PUBLIC_RANK_REQUIREMENTS.qualification : RANKED_ROLE_MIN_EFFECTIVE_GAMES)
 }
 
 function applyGlobalEvidenceGates(
   assignments: Map<string, LadderAssignment>,
   rowByPlayerId: Map<string, GlobalRatingSnapshotRow>,
   config: RankedRoleConfig,
+  publicEra = false,
 ): Map<string, LadderAssignment> {
   for (const [playerId, assignment] of assignments) {
     const row = rowByPlayerId.get(playerId)
     if (!row) continue
     assignments.set(playerId, {
       ...assignment,
-      tier: capTierByEvidence(assignment.tier, row, config),
+      tier: capTierByEvidence(assignment.tier, row, config, publicEra),
     })
   }
   return assignments
 }
 
-function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, config: RankedRoleConfig): CompetitiveTier {
+function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, config: RankedRoleConfig, publicEra = false): CompetitiveTier {
   const tierNumber = rankedRoleTierNumber(tier)
   if (tierNumber == null) return tier
 
   if (tierNumber <= 1 && (!meetsEvidenceGate(row, TIER_1_EVIDENCE_GATE) || !meetsTier1QualityGate(row))) {
-    return capTierByEvidence(createRankedRoleTierId(2), row, config)
+    return capTierByEvidence(createRankedRoleTierId(2), row, config, publicEra)
   }
   if (tierNumber <= 2 && !meetsEvidenceGate(row, TIER_2_EVIDENCE_GATE)) {
-    return capTierByEvidence(createRankedRoleTierId(3), row, config)
+    return capTierByEvidence(createRankedRoleTierId(3), row, config, publicEra)
   }
-  if (tierNumber <= 3 && !meetsEvidenceGate(row, TIER_3_EVIDENCE_GATE)) {
+  if (tierNumber <= 3 && !meetsEvidenceGate(row, publicEra ? { effectiveGames: PUBLIC_RANK_REQUIREMENTS.gladiator } : TIER_3_EVIDENCE_GATE)) {
+    if (publicEra && isGlobalRatingQualified(row, true)) return createRankedRoleTierId(4)
     return getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   }
 
@@ -1264,8 +1315,9 @@ function capAssignmentResultByEvidence(
   result: { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null },
   row: GlobalRatingSnapshotRow,
   config: RankedRoleConfig,
+  publicEra = false,
 ): { assignment: CurrentRankAssignment, pendingDemotion: RankedRoleDemotionCandidate | null } {
-  const cappedTier = capTierByEvidence(result.assignment.tier, row, config)
+  const cappedTier = capTierByEvidence(result.assignment.tier, row, config, publicEra)
   if (cappedTier === result.assignment.tier) return result
   return {
     assignment: { tier: cappedTier, sourceMode: null },
@@ -1740,7 +1792,7 @@ function buildPendingRankedRoleApplications(
   const pending: PendingRankedRoleApplication[] = []
   for (const [playerId, assignment] of Object.entries(assignments.byPlayerId)) {
     if (!isDiscordSnowflake(playerId)) continue
-    const desiredRoleId = getConfiguredRankedRoleId(config, assignment.tier)
+    const desiredRoleId = assignment.unranked ? config.unrankedRoleId : getConfiguredRankedRoleId(config, assignment.tier)
     if (!desiredRoleId || assignment.appliedRoleId === desiredRoleId) continue
     pending.push({ playerId, assignment, desiredRoleId })
   }
@@ -1841,6 +1893,7 @@ function buildManagedRankedRoleIds(
   previousAppliedConfig: Map<CompetitiveTier, string | null> | null,
 ): Set<string> {
   const roleIds = new Set<string>()
+  if (currentConfig.unrankedRoleId) roleIds.add(currentConfig.unrankedRoleId)
 
   for (let index = 0; index < getRankedRoleTierCount(currentConfig); index++) {
     const roleId = getConfiguredRankedRoleId(currentConfig, createRankedRoleTierId(index + 1))
@@ -2070,6 +2123,7 @@ function normalizeCurrentRankAssignment(value: unknown): CurrentRankAssignment |
   return {
     tier,
     sourceMode,
+    ...((value as { unranked?: unknown }).unranked === true ? { unranked: true } : {}),
     ...(appliedRoleId ? { appliedRoleId } : {}),
   }
 }

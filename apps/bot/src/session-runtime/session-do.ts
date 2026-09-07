@@ -2,6 +2,10 @@ import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftS
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { ParticipantRow } from '../services/match/types.ts'
+import type { SubstituteMatchPlayerInput } from '../services/match/types.ts'
+import type { ActiveSubstitution } from './active-substitution.ts'
+import { ACTIVE_SUBSTITUTION_KEY, prepareActiveSubstitution, projectActiveSubstitution } from './active-substitution.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftRuntimeEnv } from './draft-room.ts'
 import type { RepeatDraftRoomSnapshot, RoomRecord } from './draft-room-domain.ts'
@@ -24,6 +28,7 @@ import { resolveLobbyRankTier } from '../services/lobby/rank.ts'
 import { buildOpenLobbyRenderPayload } from '../services/lobby/render.ts'
 import { mapLobbySlotsToEntries } from '../services/lobby/slots.ts'
 import { getDoublePickMetricsFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getMapVoteResultFromDraftData, getReporterIdentityFromDraftData, getStoredGameModeContext } from '../services/match/draft-data.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { activateDraftMatch, cancelDraftMatch, createDraftMatch } from '../services/match/index.ts'
 import { clearMatchMessageMapping, listMatchMessageIds, storeMatchMessageMapping } from '../services/match/message.ts'
 import { isSessionAdmissionError, projectSessionRecord } from '../services/session/directory.ts'
@@ -389,6 +394,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     if (request.method === 'POST' && url.pathname === '/commands/report-claim') {
       return await this.runSerializedCommand(() => this.handleReportClaimCommand(request))
+    }
+    if (request.method === 'POST' && url.pathname === '/commands/substitute-player') {
+      return await this.runSerializedCommand(() => this.handleActiveSubstitution(request))
     }
 
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
@@ -807,7 +815,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
 
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats, startedAt: now })
       await this.setRoomRecord(room)
     }
     catch (error) {
@@ -856,7 +864,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     let activated!: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never }
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats, startedAt: now })
       const activation = await activateDraftMatch(db, {
         state,
         completedAt: now,
@@ -1354,13 +1362,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
-      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats })
+      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats, startedAt: record.frozenAt })
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
     if (existingRoom && existingRoom.state.status !== 'cancelled') {
-      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats })
+      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats, startedAt: record.frozenAt })
     }
     return room
   }
@@ -1550,11 +1558,12 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const reportedRedDeath = context?.redDeath ?? record.config.redDeath
     const reportedCivBlitz = context?.civBlitz ?? record.config.civBlitz
     const leaderDataVersion = getLeaderDataVersionFromDraftData(match.draftData, record.config.leaderDataVersion)
-    const participants = await db
+    let participants = await db
       .select()
       .from(matchParticipants)
       .where(eq(matchParticipants.matchId, matchId)) as ParticipantRow[]
     const tournamentLinked = await isMatchTournamentLinked(db, matchId)
+    if (!tournamentLinked && context?.leaderboardMode) participants = await hydrateModeRatingSnapshotsFromEvents(db, participants.map(row => ({ ...row, gameMode: match.gameMode, draftData: match.draftData })))
     const tournamentResultPng = tournamentLinked
       ? await this.renderReportedTournamentResultImage(db, matchId, participants)
       : null
@@ -2042,6 +2051,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
   }
 
   private async handleSessionLifecycleCommand(request: Request): Promise<Response> {
+    const substitution = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+    if (substitution && !substitution.completed) return json({ error: 'A player substitution needs to finish. Retry the substitution before changing this match.' }, 409)
     let body: SessionLifecycleCommandRequest
     try {
       body = await request.json<SessionLifecycleCommandRequest>()
@@ -2098,7 +2109,44 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     return json({ ok: true, record: finished.record })
   }
 
+  private async handleActiveSubstitution(request: Request): Promise<Response> {
+    const input = await request.json<SubstituteMatchPlayerInput>().catch(() => null)
+    if (!input || typeof input.matchId !== 'string' || typeof input.playerId !== 'string' || !input.playerId.trim()
+      || typeof input.subPlayer?.playerId !== 'string' || !input.subPlayer.playerId.trim() || typeof input.subPlayer.displayName !== 'string'
+      || input.playerId === input.subPlayer.playerId || !Number.isSafeInteger(input.correctedAt)) return json({ error: 'Invalid player substitution.' }, 400)
+    if (!this.env.DB) return json({ error: 'Database unavailable.' }, 503)
+    const record = await this.getRecord()
+    if (!record || record.matchId !== input.matchId || record.phase !== 'active') return json({ error: 'The session must be active and unreported.' }, 409)
+    if (await this.getActiveReportClaimMarker(input.matchId)) return json({ error: 'A result is being reported. Try again after reporting finishes.' }, 409)
+    if (record.lifecycleSync || record.terminalSync || record.projectionSync || record.draftStartSync) return json({ error: 'The session is still syncing. Try again shortly.' }, 409)
+    const db = createDb(this.env.DB)
+    const result = await runUnbufferedRatingMutation(db, input.matchId, async () => {
+      let pending = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+      const same = pending && pending.input.playerId === input.playerId && pending.input.subPlayer.playerId === input.subPlayer.playerId && (!pending.completed || pending.input.correctedAt === input.correctedAt)
+      if (pending && !pending.completed && !same) return { error: 'A previous substitution needs to finish. Retry that substitution first.' }
+      if (same && pending?.completed) return pending.result
+      if (!pending || pending.completed) {
+        const room = await this.getRoomRecord()
+        if (!room || room.swapWindowOpen) return { error: 'The completed draft is not ready for substitution.' }
+        const prepared = await prepareActiveSubstitution(db, record, room, input)
+        if ('error' in prepared) return prepared
+        pending = prepared
+        await this.ctx.storage.put(ACTIVE_SUBSTITUTION_KEY, pending)
+      }
+      await projectActiveSubstitution(db, pending)
+      await this.setRoomRecord(pending.room)
+      const failure = await this.commitRecord(pending.record)
+      if (failure) throw new Error(await readErrorResponse(failure))
+      this.broadcastRoomRecord(pending.room, [])
+      await this.ctx.storage.put(ACTIVE_SUBSTITUTION_KEY, { ...pending, completed: true })
+      return pending.result
+    })
+    return json(result)
+  }
+
   private async handleReportClaimCommand(request: Request): Promise<Response> {
+    const substitution = await this.ctx.storage.get<ActiveSubstitution>(ACTIVE_SUBSTITUTION_KEY)
+    if (substitution && !substitution.completed) return json({ error: 'A player substitution needs to finish. Retry the substitution before reporting.' }, 409)
     let body: ReportClaimCommandRequest | null = null
     try {
       body = await request.json<ReportClaimCommandRequest>()
@@ -2131,7 +2179,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       return json({
         claimed: false,
         processing: true,
-        claim: { matchId: activeClaim.matchId, claimId: activeClaim.claimId },
+        claim: { matchId: activeClaim.matchId, claimId: activeClaim.claimId, acceptedAt: activeClaim.createdAt },
       })
     }
 
@@ -2157,6 +2205,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (reportableRecord.phase !== 'active') {
       return json({ error: `Session is not reportable (phase: ${reportableRecord.phase})` }, 409)
     }
+    if (typeof body.reporterId === 'string' && body.reporterId.trim()
+      && !reportableRecord.roster.participants.some(member => member.playerId === body.reporterId!.trim())) return json({ error: 'You are no longer a participant in this match.' }, 403)
 
     const claim: ReportClaimMarker = {
       matchId,
@@ -2167,7 +2217,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       expiresAt: now + REPORT_CLAIM_TTL_MS,
     }
     await this.ctx.storage.put(REPORT_CLAIM_STORAGE_KEY, claim)
-    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId }, finalized: finalized.finalized === true })
+    return json({ claimed: true, claim: { matchId: claim.matchId, claimId: claim.claimId, acceptedAt: claim.createdAt }, finalized: finalized.finalized === true })
   }
 
   private async finalizeSwapWindowForReportClaim(record: SessionRecord): Promise<{ ok: true, record: SessionRecord, finalized?: boolean } | { ok: false, response: Response }> {
