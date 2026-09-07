@@ -23,6 +23,7 @@ export interface AdminVar {
   role8?: string
   role9?: string
   role10?: string
+  unranked?: string
 }
 
 export interface ResolvedRoleData {

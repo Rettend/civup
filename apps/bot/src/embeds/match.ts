@@ -1,11 +1,12 @@
 import type { DraftCancelReason, DraftSeat, GameMode, LeaderDataVersion, QueueEntry, ResolvedMapVoteResult } from '@civup/game'
+import type { PublicRatingSnapshot } from '@civup/rating'
 import { formatMapVoteResultLabel, formatModeLabel, getLeader, hasBetaLeaderData, isTeamMode, teamSize as modeTeamSize, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { displayRating } from '@civup/rating'
 import { Button, Components, Embed } from 'discord-hono'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
 
-interface LobbyParticipant {
+interface LobbyParticipant extends PublicRatingSnapshot {
   playerId: string
   team: number | null
   civId: string | null
@@ -421,6 +422,8 @@ function formatReportedPlayerDetails(participant: LobbyParticipant, leaderDataVe
 
 function formatReportedRating(participant: LobbyParticipant, unranked = false): string {
   if (unranked) return formatUnrankedResultMarker(participant.placement)
+  const publicChange = formatPublicRatingSnapshotChange(participant)
+  if (publicChange != null) return publicChange
 
   if (
     participant.ratingBeforeMu == null
@@ -438,6 +441,7 @@ function formatReportedRating(participant: LobbyParticipant, unranked = false): 
 }
 
 function formatLeaderboardUpdate(participants: LobbyParticipant[]): string | null {
+  if (participants.some(participant => participant.ratingSystem === 'rp')) return null
   const eligibleCount = participants.find(participant => (participant.leaderboardEligibleCount ?? 0) > 0)?.leaderboardEligibleCount ?? 0
   const trackedMaxRank = eligibleCount > 0
     ? Math.max(LEADERBOARD_UPDATE_MIN_POSITIONS, Math.round(eligibleCount * LEADERBOARD_UPDATE_TRACKED_PERCENT))

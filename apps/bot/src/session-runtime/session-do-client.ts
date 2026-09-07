@@ -151,6 +151,7 @@ export interface SessionReportedDiscordSyncCommand {
 export interface SessionReportClaim {
   matchId: string
   claimId: string
+  acceptedAt?: number
 }
 
 export type SessionReportClaimResult
@@ -415,6 +416,18 @@ export async function queueSessionReportedDiscordSync(
   if (!response.ok) {
     await throwSessionCommandError(response, `queue reported Discord sync for ${sessionId}`)
   }
+}
+
+export async function substituteActiveSessionPlayer(
+  namespace: DurableObjectNamespace,
+  sessionId: string,
+  input: import('../services/match/types.ts').SubstituteMatchPlayerInput,
+): Promise<import('../services/match/types.ts').SubstituteMatchPlayerResult> {
+  const response = await namespace.get(namespace.idFromName(sessionId)).fetch(buildSessionRequest(sessionId, '/commands/substitute-player', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  }))
+  if (!response.ok) await throwSessionCommandError(response, 'substitute the active player')
+  return response.json<import('../services/match/types.ts').SubstituteMatchPlayerResult>()
 }
 
 export async function claimSessionReport(

@@ -25,6 +25,7 @@ export const matches = sqliteTable('matches', {
 }, table => [
   index('matches_status_created_at_idx').on(table.status, table.createdAt),
   index('matches_status_completed_at_idx').on(table.status, table.completedAt),
+  index('matches_season_created_idx').on(table.seasonId, table.createdAt, table.id),
 ])
 
 /**

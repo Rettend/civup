@@ -373,7 +373,7 @@ describe('lobby service D1-backed projection behavior', () => {
     })
 
     await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
-      version: 3,
+      version: 4,
       updatedAt: Date.now(),
       rows: [
         { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
@@ -389,7 +389,7 @@ describe('lobby service D1-backed projection behavior', () => {
 
     const snapshot = await syncLobbyDerivedState(kv, lobby, { queueEntries: getSeededRosterEntries(kv, '2v2') })
 
-    expect(snapshot?.entries?.[0]).toEqual({
+    expect(snapshot?.entries?.[0]).toMatchObject({
       playerId: 'host-1',
       displayName: 'Host',
       avatarUrl: null,

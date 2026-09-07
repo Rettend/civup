@@ -19,7 +19,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Emancipation Proclamation',
-      description: '+100% :production: Production to Industrial Zone and Aqueduct districts. Industrial Zones give +2 :amenities: Amenities and +3 Loyalty per turn. Plantations give -2 Loyalty per turn. Receive a free Melee unit after completing an Industrial Zone and their buildings. The free unit does not require strategic resources when created or to maintain.',
+      description: '+100% :production: Production to Industrial Zone and Aqueduct districts. Industrial Zones give +2 :amenities: Amenities and +3 Loyalty per turn. Buildings in Industrial Zones gives +2 :culture: Culture. Plantations give -2 Loyalty per turn. Receive a free Melee unit after completing an Industrial Zone and their buildings. The free unit does not require strategic resources when created or to maintain.',
     },
     uniqueUnits: [
       {
@@ -204,6 +204,42 @@ export const leaders: Leader[] = [
         iconUrl: '/assets/bbg/items/Outback%20Station.webp',
       },
     ],
+    tags: [],
+  },
+  {
+    id: 'austria-maria-theresa',
+    name: 'Maria Theresa',
+    civilization: 'Austria',
+    portraitUrl: '/assets/bbg/leaders/Austria%20Maria%20Theresa.webp',
+    civilizationAbility: {
+      name: 'Diplomatic Marriage',
+      description: 'Receive an unique Diplomat Great Person when you build your government plaza buildings. A Diplomat can absorbs a city-state you\'re suzerain of and generates +1 :favor: Diplomatic Favor per turn if adjacent to another player Palace.',
+    },
+    ability: {
+      name: 'Theresian Reforms',
+      description: 'Established :governor: Governors provides : - +1 :influenceperturn: Influence point per turn - +15% :production: Production towards districts - +15% :production: Production towards units Specialty districts provide +1 :housing: Housing when a District of that type already exists in the :capital: Capital.',
+    },
+    uniqueUnits: [
+      {
+        name: 'Great Diplomat',
+        description: 'An Austrian unique Great Person granted when you build your government plaza buildings. A Diplomat can absorbs a city-state you\'re suzerain of and generates +1 :favor: Diplomatic Favor per turn if adjacent to another player Palace.',
+      },
+      {
+        name: 'Grenzer',
+        description: 'Austrian unique industrial era unit replace Ranger. Higher :ranged: Ranged Strength. +5 :strength: Strength within 3 tiles of the borders of friendly territory. Exerts Zone-of-Control.',
+        replaces: 'Ranger',
+        iconUrl: '/assets/bbg/items/Grenzer.webp',
+      },
+    ],
+    uniqueBuildings: [
+      {
+        name: 'Coffee House',
+        description: 'Austrian unique entertainment building, replacing the Zoo. Cheaper to build (290 vs. 360) and available earlier at The Enlightenment. Districts in this city yield +1 :science: Science and +1 :culture: Culture. +2 :amenities: Amenity to each city within 6 tiles of this Entertainment Complex. Has 3 slots for Great Works of any type. Theming Bonus: Doubles output when displaying Great Works of any type from different :greatperson: Great People.',
+        replaces: 'Zoo',
+        iconUrl: '/assets/bbg/items/Coffee%20House.webp',
+      },
+    ],
+    uniqueImprovements: [],
     tags: [],
   },
   {
@@ -540,7 +576,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Lijia',
-      description: 'Cities with 10 or more :citizen: Population receive +0.7 :science: Science, +0.5 :culture: Culture, and +1 :gold: Gold per turn for each :citizen: Population in the city. All cities receive unique city projects where that converts 70% of their :production: Production into :food: Food or :faith: Faith, or 150% if it is :gold: Gold. When each city reaches 13 :citizen: population for the first time receive a random :techboosted: Eureka; at 18 :citizen: Population receive a random :civicboosted: Inspiration.',
+      description: 'Cities with 10 or more :citizen: Population receive +0.7 :science: Science, +0.5 :culture: Culture, and +0.5 :gold: Gold per turn for each :citizen: Population in the city. All cities receive unique city projects where that converts 70% of their :production: Production into :food: Food or :faith: Faith, or 150% if it is :gold: Gold. When each city reaches 13 :citizen: population for the first time receive a random :techboosted: Eureka; at 18 :citizen: Population receive a random :civicboosted: Inspiration.',
     },
     uniqueUnits: [
       {
@@ -615,7 +651,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -645,7 +681,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -675,7 +711,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Sphinx',
-        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
+        description: 'Egyptian unique builder improvement unlocked with Craftsmanship. Cannot be built next to another Sphinx. Cannot be built on Snow tiles. +1 :culture: Culture and +2 :faith: Faith. +1 :food: Food on Plains tiles. +1 :production: Production on Grassland tiles. +1 :culture: Culture if built on Floodplains. +1 :culture: Culture with Diplomatic Service. +1 :faith: Faith and +1 :culture: Culture if built next to a wonder. +1 :food: Food and +1 :production: Production if built on Desert (not Floodplains) or Desert Hills. +2 Appeal to adjacent tiles. Provides :tourism: Tourism after researching Flight.',
         iconUrl: '/assets/bbg/items/Sphinx.webp',
       },
     ],
@@ -688,7 +724,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/England%20Eleanor%20of%20Aquitaine%20(England).webp',
     civilizationAbility: {
       name: 'Workshop of the World',
-      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. Buildings that provide additional yields when :power: Powered receive +3 of that yield. - Bias: T1 Coast, T5 Iron and Coal.',
     },
     ability: {
       name: 'Court of Love',
@@ -720,7 +756,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/England%20Elizabeth%20I.webp',
     civilizationAbility: {
       name: 'Workshop of the World',
-      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. Buildings that provide additional yields when :power: Powered receive +3 of that yield. - Bias: T1 Coast, T5 Iron and Coal.',
     },
     ability: {
       name: 'Drake\'s Legacy',
@@ -729,7 +765,7 @@ export const leaders: Leader[] = [
     uniqueUnits: [
       {
         name: 'Sea Dog',
-        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
+        description: 'English unique Renaissance era naval unit when Elizabeth is their leader that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
         replaces: 'Privateer',
         iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
       },
@@ -752,7 +788,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Empire).webp',
     civilizationAbility: {
       name: 'Workshop of the World',
-      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. Buildings that provide additional yields when :power: Powered receive +3 of that yield. - Bias: T1 Coast, T5 Iron and Coal.',
     },
     ability: {
       name: 'Pax Britannica',
@@ -764,12 +800,6 @@ export const leaders: Leader[] = [
         description: 'English unique Industrial era unit when Victoria is their leader that replaces the Line Infantry. +5 :strength: Combat Strength when fighting on a continent other than that of your capital\'s. No disembark cost.',
         replaces: 'Line Infantry',
         iconUrl: '/assets/bbg/items/Redcoat.webp',
-      },
-      {
-        name: 'Sea Dog',
-        description: 'English unique Renaissance era naval unit that replaces the Privateer. Has a chance to capture defeated enemy ships. Can only be seen by other Naval Raiders unless adjacent to it. Reveals Naval Raiders within sight range.',
-        replaces: 'Privateer',
-        iconUrl: '/assets/bbg/items/Sea%20Dog.webp',
       },
     ],
     uniqueBuildings: [
@@ -790,11 +820,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/England%20Victoria%20(Age%20of%20Steam).webp',
     civilizationAbility: {
       name: 'Workshop of the World',
-      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. - Bias: T1 Coast, T5 Iron and Coal.',
+      description: ':resourceiron: Iron and :resourcecoal: Coal Mines accumulate 2 more resources per turn. Harbor buildings increase Strategic Resource Stockpiles by +10 (on Standard speed). +100% :production: Production towards Military Engineers. Military Engineers receive +2 :charges: charges. Buildings that provide additional yields when :power: Powered receive +3 of that yield. - Bias: T1 Coast, T5 Iron and Coal.',
     },
     ability: {
       name: 'Age of Steam',
-      description: '+5% :production: Production in Cities for each Factory and Power Plant in that city. Buildings that provide additional yields when :power: Powered receive +4 of that yield. Industrial Zones receive standard adjacency from Royal Navy Dockyards. +20% :production: Production towards Industrial Zone buildings. Lighthouse grants +1 :greatengineer: Great Engineer point per turn.',
+      description: '+5% :production: Production in Cities for each Factory and Power Plant in that city.Industrial Zones receive standard adjacency from Royal Navy Dockyards. +20% :production: Production towards Industrial Zone buildings. +1 :production: Production to all improved Strategic Resources. Lighthouse grants +1 :greatengineer: Great Engineer point per turn.',
     },
     uniqueUnits: [
       {
@@ -1025,7 +1055,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Tsikhe',
-        description: 'A building unique to Georgia which replaces and is stronger than Ancient Walls. +4 :faith: Faith and +1 :culture: Culture. +1 :tourism: Tourism with Conservation. +3 :faith: Faith and +100% :tourism: Tourism when in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age.',
+        description: 'A building unique to Georgia which replaces and is stronger than Ancient Walls. +4 :faith: Faith and +1 :culture: Culture. +1 :tourism: Tourism with Conservation. +1 :greatprophet: Great Prophet points. +3 :faith: Faith and +100% :tourism: Tourism when in a :glorygoldenage: Golden or :glorysupergoldenage: Heroic Age.',
         replaces: 'and is stronger than Ancient Walls',
         iconUrl: '/assets/bbg/items/Tsikhe.webp',
       },
@@ -1044,7 +1074,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Holy Roman Emperor',
-      description: 'One extra Military policy slot in any :government: government. +7 :strength: Combat Strength versus City-states. Hansa receives major adjacency bonus from Encampments. Gain the Tiger I unique unit when Combustion is researched.',
+      description: 'One extra Military policy slot in any :government: government. +7 :strength: Combat Strength versus City-states and Unique Units. Hansa receives major adjacency bonus from Encampments. Gain the Tiger I unique unit when Combustion is researched.',
     },
     uniqueUnits: [
       {
@@ -1092,6 +1122,44 @@ export const leaders: Leader[] = [
         description: 'A district unique to Germany for industrial activity. Replaces the Industrial Zone district and cheaper to build. + 2 :production: Production bonus for each adjacent Aqueduct, Canal, and Dam district. +1 :production: Production bonus for each adjacent resource. +1 :production: Production bonus for every two adjacent district tiles.',
         replaces: 'Industrial Zone district',
         iconUrl: '/assets/bbg/items/Hansa.webp',
+      },
+    ],
+    uniqueImprovements: [],
+    tags: [],
+  },
+  {
+    id: 'goths-theodoric',
+    name: 'Theodoric',
+    civilization: 'Goths',
+    portraitUrl: '/assets/bbg/leaders/Goths%20Theodoric.webp',
+    civilizationAbility: {
+      name: 'Gothic Migration',
+      description: 'At Early Empire, when settling or conquering a city for the first time receive +1 :citizen: Population in every Gothic city within 6 tiles with at least 2 free :housing: Housing.',
+    },
+    ability: {
+      name: 'Gothorum Romanorumque',
+      description: '+1 :movement: Movement for non cavalry land military units in a 6 tiles radius from a Hlaiw.',
+    },
+    uniqueUnits: [
+      {
+        name: 'Gadrauht',
+        description: 'Replaces the Pikeman. Higher Strength (+2 :strength: ) and cheaper to produce. Combat victories grant :culture: Culture equal to 50% of defeated unit\'s base combat strength. Can only be trained in cities with a :citizen: Population of 2 of more. -1 :citizen: Population in the city when built if the city has no Temple. Gain a :promotion: promotion.',
+        replaces: 'Pikeman',
+        iconUrl: '/assets/bbg/items/Gadrauht.webp',
+      },
+      {
+        name: 'Militōnd',
+        description: 'Replaces the Swordsman. Base +2 :strength: Combat Strength. Free :promotion: Promotion when trained, purchased, or upgraded from earlier unit. +5 :strength: Strength against districts and units on districts.',
+        replaces: 'Swordsman',
+        iconUrl: '/assets/bbg/items/Milit%C5%8Dnd.webp',
+      },
+    ],
+    uniqueBuildings: [
+      {
+        name: 'Hlaiw',
+        description: 'Replaces the Shrine. +1 :faith: Faith and +1 :culture: Culture. Additional +0.25 :faith: Faith and +0.25 :culture: Culture per :citizen: Citizen in this city.',
+        replaces: 'Shrine',
+        iconUrl: '/assets/bbg/items/Hlaiw.webp',
       },
     ],
     uniqueImprovements: [],
@@ -1260,7 +1328,7 @@ export const leaders: Leader[] = [
     uniqueImprovements: [
       {
         name: 'Terrace Farm',
-        description: 'Incan unique builder improvement available at the start of the game. Can be placed on Grassland Hills, Plains Hills, Desert Hills, or Volcanic Soil. +1 :food: Food +1 :housing: Housing. +1 :food: Food for each adjacent Mountain. +1 :food: Food for every 2 adjacent Terrace Farms, increasing to +1 Food for every Terrace Farm with Replaceable Parts. +1 :production: Production if adjacent to Fresh Water and not an Aqueduct. +2 :production: Production for each adjacent Aqueduct.',
+        description: 'Incan unique builder improvement available at the start of the game. Can be placed on Grassland Hills, Plains Hills, Desert Hills, or Volcanic Soil. +1 :food: Food +1 :housing: Housing. +1 :food: Food for each adjacent Mountain. +1 :food: Food for every 2 adjacent Terrace Farms, increasing to +1 Food for every Terrace Farm with Replaceable Parts. +1 :production: Production if adjacent to Fresh Water and not an Aqueduct. +2 :production: Production for each adjacent Aqueduct. +1 :production: Production if the city has a Water Mill.',
         iconUrl: '/assets/bbg/items/Terrace%20Farm.webp',
       },
       {
@@ -1287,7 +1355,7 @@ export const leaders: Leader[] = [
     uniqueUnits: [
       {
         name: 'Varu',
-        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.',
+        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -3 :strength: Combat Strength.',
         iconUrl: '/assets/bbg/items/Varu.webp',
       },
     ],
@@ -1317,7 +1385,7 @@ export const leaders: Leader[] = [
     uniqueUnits: [
       {
         name: 'Varu',
-        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -5 :strength: Combat Strength.',
+        description: 'Indian unique Classical era heavy cavalry unit. Has Sight of 3. Adjacent enemy units receive -3 :strength: Combat Strength.',
         iconUrl: '/assets/bbg/items/Varu.webp',
       },
     ],
@@ -1531,7 +1599,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Hangul',
-      description: 'When you complete your first Technology from a new Era, receive double your :science: Science per turn as :culture: Culture. Seowons receive -1 :science: Science for each adjacent District. Seowons and Theater Squares receive major adjacency from each other. Cities with a Seowon and a Theater Square receive +1 :culture: Culture and +2 :tourism: Tourism per district. +30% :production: Production toward builders in cities without :governor: Governors after Feudalism.',
+      description: 'When you complete your first Technology from a new Era, receive double your :science: Science per turn as :culture: Culture. Seowons receive -1 :science: Science for each adjacent District. Seowons and Theater Squares receive major adjacency from each other. Cities with a Seowon and a Theater Square receive +1 :culture: Culture and +2 :tourism: Tourism per district. +30% :production: Production toward builders after Feudalism.',
     },
     uniqueUnits: [
       {
@@ -1659,11 +1727,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Mali%20Mansa%20Musa.webp',
     civilizationAbility: {
       name: 'Songs of the Jeli',
-      description: '-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
+      description: '+2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
     },
     ability: {
       name: 'Sahel Merchants',
-      description: '+1 :traderoute: Trade Route capacity after Banking. Holy Sites grant major adjacency to Sugubas instead of standard adjacency. +15% :production: Production toward Holy Sites and their buildings.',
+      description: '+1 :traderoute: Trade Route capacity after Banking. Holy Sites grant major adjacency to Sugubas. +10% :production: Production toward Holy Sites and their buildings.',
     },
     uniqueUnits: [
       {
@@ -1676,7 +1744,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Suguba',
-        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
+        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 10% cheaper to purchase with :gold: Gold and :faith: Faith in this City. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
         replaces: 'Commercial Hub',
         iconUrl: '/assets/bbg/items/Suguba.webp',
       },
@@ -1691,11 +1759,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Mali%20Sundiata%20Keita.webp',
     civilizationAbility: {
       name: 'Songs of the Jeli',
-      description: '-5% :production: Production. +2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
+      description: '+2 :food: Food on all featureless Desert tiles other than City Centers. After Foreign Trade, your capital and any cities settled on Desert tiles gain +2 :faith: Faith. Farms can be constructed in Desert. After Civil Engineering is unlocked, Farms can be built on Desert Hills. Mines on desert tiles grant +2 :gold: Gold. Can purchase Suguba buildings with :faith: Faith. - Bias: T1 Desert, T5 Minable Resources.',
     },
     ability: {
       name: 'Sogolon',
-      description: 'Patronage of :greatperson: Great People costs 30% less :gold: Gold. Theater Squares grant standard adjacency to Sugubas. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold.',
+      description: 'Patronage of :greatperson: Great People costs 30% less :gold: Gold. Theater Squares grant major adjacency to Sugubas. Cities with a Theater Square and Suguba receive +1 :greatwriter: Great Writer point. Markets gain 2 slots for :greatworkwriting: Great Works of Writing in cities founded by Sundiata. :greatworkwriting: Great Works of Writing grant +2 :culture: Culture and +4 :gold: Gold.',
     },
     uniqueUnits: [
       {
@@ -1708,7 +1776,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Suguba',
-        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 20% cheaper to purchase with :gold: Gold and :faith: Faith in this City. Standard adjacency from Holy Sites. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
+        description: 'A district unique to Mali that replaces the Commercial Hub. Units, Buildings, and Districts are 10% cheaper to purchase with :gold: Gold and :faith: Faith in this City. +1 :gold: Gold bonus from a tile containing a City Center, River Edge, or an Oasis. +1 :gold: Gold bonus for every two adjacent district tiles.',
         replaces: 'Commercial Hub',
         iconUrl: '/assets/bbg/items/Suguba.webp',
       },
@@ -1723,7 +1791,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/M%C4%81ori%20Kupe.webp',
     civilizationAbility: {
       name: 'Mana',
-      description: 'Embarked units gain +2 :movement: Movement with Ship Building. Fishing Boats Culture Bomb adjacent tiles and provide +1 :food: Food with Celestial Navigation. Resources cannot be harvested. :greatwriter: Great Writers cannot be earned. Unimproved Woods and Rainforest tiles gain: +1 :production: Production with Early Empire. +1 :production: Production with Mercantilism. +2 :production: Production with Conservation. - Bias: T1 Coast.',
+      description: 'Embarked units gain +2 :movement: Movement with Ship Building. Fishing Boats provide +1 :food: Food with Celestial Navigation. Resources cannot be harvested. :greatwriter: Great Writers cannot be earned. Unimproved Woods and Rainforest tiles gain: +1 :production: Production with Early Empire. +1 :production: Production with Mercantilism. +2 :production: Production with Conservation. - Bias: T1 Coast.',
     },
     ability: {
       name: 'Kupe\'s Voyage',
@@ -1732,7 +1800,7 @@ export const leaders: Leader[] = [
     uniqueUnits: [
       {
         name: 'Toa',
-        description: 'Māori unique Classical era melee unit. Adjacent enemy units receive -5 :strength: Combat Strength. Has 1 :charges: charge to build Pā improvement.',
+        description: 'Māori unique Classical era melee unit. Adjacent enemy units receive -3 :strength: Combat Strength. Has 1 :charges: charge to build Pā improvement.',
         iconUrl: '/assets/bbg/items/Toa.webp',
       },
     ],
@@ -1945,7 +2013,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Varangian).webp',
     civilizationAbility: {
       name: 'Knarr',
-      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods.',
+      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods, -T4 Rainforest.',
     },
     ability: {
       name: 'Varangian Guard',
@@ -1976,11 +2044,11 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Norway%20Harald%20Hardrada%20(Konge).webp',
     civilizationAbility: {
       name: 'Knarr',
-      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods.',
+      description: 'Naval melee units heal in neutral territory if they are on coast. Units ignore additional :movement: Movement costs from embarking and disembarking. +50% :production: Production toward Holy Site districts. Coast and Lake tiles provide a standard adjacency bonus to Holy Site districts. Harbors receive a major adjacency bonus from Holy Sites. - Bias: T1 Coast, T5 Woods, -T4 Rainforest.',
     },
     ability: {
       name: 'Thunderbolt of the North',
-      description: '+3 :strength: Combat Strength and +25% :production: Production to Naval Melee Units. Naval Melee units can perform coastal raids. Receive additional yields from pillaging or performing coastal raids: :science: Science from Mines, :culture: Culture from Quarries, Pastures, Plantations, and Camps. Units gain the ability to enter Ocean tiles after researching the Shipbuilding technology.',
+      description: '+3 :strength: Combat Strength and +25% :production: Production to Naval Melee Units. Naval Melee units can perform coastal raids. Receive additional yields from pillaging or performing coastal raids: :science: Science from Mines, :culture: Culture from Quarries, Pastures, Plantations, and Camps. Units excepts quadrirems gain the ability to enter Ocean tiles after researching the Shipbuilding technology. Longship and Berserker units only use 1 :movement: Movement to enter Ocean tiles.',
     },
     uniqueUnits: [
       {
@@ -2067,8 +2135,8 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Grand Bazaar',
-        description: 'A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
-        replaces: 'Bank',
+        description: 'A building unique to the Ottomans that replaces the Bank available at Guilds. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
+        replaces: 'Bank available at Guilds',
         iconUrl: '/assets/bbg/items/Grand%20Bazaar.webp',
       },
     ],
@@ -2099,8 +2167,8 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Grand Bazaar',
-        description: 'A building unique to the Ottomans that replaces the Bank. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
-        replaces: 'Bank',
+        description: 'A building unique to the Ottomans that replaces the Bank available at Guilds. Accumulate 1 extra Strategic resource for every different type of Strategic resource this city has improved. Receive +1 :amenities: Amenity for every Luxury resource this city has improved. Grants a :governor: Governor Title when constructed for the first time. +1 :traderoute: Trade route capacity. +6 :gold: Gold. +2 :gold: Gold for each :traderoute: trade route from this city. +1 :gold: Gold for each :traderoute: trade routes to this city. +2 :greatmerchant: Great Merchant points per turn.',
+        replaces: 'Bank available at Guilds',
         iconUrl: '/assets/bbg/items/Grand%20Bazaar.webp',
       },
     ],
@@ -2246,7 +2314,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Poland%20Jadwiga.webp',
     civilizationAbility: {
       name: 'Golden Liberty',
-      description: 'One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
+      description: 'At Early Empire, One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
     },
     ability: {
       name: 'Lithuanian Union',
@@ -2258,6 +2326,43 @@ export const leaders: Leader[] = [
         description: 'Polish unique Renaissance era unit that replaces the Cuirassier. Pushes defending enemy units back from their hex in any battle where they score more damage. Defenders that cannot retreat suffer additional damage.',
         replaces: 'Cuirassier',
         iconUrl: '/assets/bbg/items/Winged%20Hussar.webp',
+      },
+    ],
+    uniqueBuildings: [
+      {
+        name: 'Sukiennice',
+        description: 'A building unique to Poland. International :traderoute: Trade Routes from this city gain +2 :production: Production; domestic :traderoute: Trade Routes gain +4 :gold: Gold. +1 :traderoute: Trade Route capacity, if this city does not yet have a Lighthouse building.',
+        iconUrl: '/assets/bbg/items/Sukiennice.webp',
+      },
+    ],
+    uniqueImprovements: [],
+    tags: [],
+  },
+  {
+    id: 'poland-stanislaw-ii',
+    name: 'Stanislaw II',
+    civilization: 'Poland',
+    portraitUrl: '/assets/bbg/leaders/Poland%20Stanislaw%20II.webp',
+    civilizationAbility: {
+      name: 'Golden Liberty',
+      description: 'At Early Empire, One Military policy slot in the current :government: government is converted to a Wildcard policy slot. Culture Bomb adjacent tiles when completing an Encampment or Fort inside friendly territory. - Bias: None.',
+    },
+    ability: {
+      name: 'Commission for National Education',
+      description: 'Strategic Resources and improved tiles gains bonus yields next to Encampment and its buildings (do not stacks) : - District : +1 :food: Food - Barracks and Stable : +1 :culture: Culture - Armory : +1 :science: Science - Military Academy : +1 :production: Production. Gain the Uhlan unique unit when they research the Metal Casting technology.',
+    },
+    uniqueUnits: [
+      {
+        name: 'Winged Hussar',
+        description: 'Polish unique Renaissance era unit that replaces the Cuirassier. Pushes defending enemy units back from their hex in any battle where they score more damage. Defenders that cannot retreat suffer additional damage.',
+        replaces: 'Cuirassier',
+        iconUrl: '/assets/bbg/items/Winged%20Hussar.webp',
+      },
+      {
+        name: 'Uhlan',
+        description: 'Polish unique Renaissance era unit that replaces the Cavalry when Stanislaw II is their leader. Receives a combat bonus when flanking.',
+        replaces: 'Cavalry',
+        iconUrl: '/assets/bbg/items/Uhlan.webp',
       },
     ],
     uniqueBuildings: [
@@ -2331,7 +2436,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Bath',
-        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.',
+        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every adjacent districts. Must be built adjacent to the City Center.',
         replaces: 'Aqueduct district',
         iconUrl: '/assets/bbg/items/Bath.webp',
       },
@@ -2363,7 +2468,7 @@ export const leaders: Leader[] = [
     uniqueBuildings: [
       {
         name: 'Bath',
-        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every 2 adjacent districts. Must be built adjacent to the City Center.',
+        description: 'A district unique to Rome for city growth. Replaces the Aqueduct district and cheaper to build. It provides this city with a source of fresh water from an adjacent River, Lake, Oasis, or Mountain. Cities that do not yet have existing fresh water receive up to 6 :housing: Housing. Cities that already have existing fresh water will instead get +2 :housing: Housing. Must be built adjacent to the City Center. In either case, the Bath provides an additional bonus of +2 :housing: Housing. +1 :culture: Culture from every adjacent districts. Must be built adjacent to the City Center.',
         replaces: 'Aqueduct district',
         iconUrl: '/assets/bbg/items/Bath.webp',
       },
@@ -2378,7 +2483,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Russia%20Peter.webp',
     civilizationAbility: {
       name: 'Mother Russia',
-      description: 'Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Shrine receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra.',
+      description: 'Extra territory upon founding cities. +1 :production: Production from Tundra tiles. Cities in Tundra with a Temple receive +1 :food: Food. Units do not receive damage from Blizzards. Civilizations that are at war with Russia receive +100% unit damage from Blizzards in Russian territory. - Bias: T1 Tundra.',
     },
     ability: {
       name: 'The Grand Embassy',
@@ -2563,7 +2668,7 @@ export const leaders: Leader[] = [
     portraitUrl: '/assets/bbg/leaders/Sweden%20Kristina.webp',
     civilizationAbility: {
       name: 'Nobel Prize',
-      description: 'Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Libraries, Workshops, Universities, Factories and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Factories. +1 :greatscientist: Great Scientist point from Universities. +2 :greatwriter: Great Writer points from tier 1 Gov\'t Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov\'t Plaza building. +2 :greatmusician: Great Musician points from tier 3 Gov\'t Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special "King of the North"',
+      description: 'Sweden gains 20 :favor: Diplomatic Favor (on Standard speed) when earning a :greatperson: Great Person. Having Sweden in the game adds three unique World Congress competitions starting in the Renaissance Era. +50% :production: Production towards Campus, Industrial Zone and Government Plaza buildings. +1 :greatengineer: Great Engineer point from Industrial Zone buildings. +1 :greatscientist: Great Scientist point from Campus buildings. +2 :greatwriter: Great Writer points from tier 1 Gov\'t Plaza building. +2 :greatartist: Great Artist points from tier 2 Gov\'t Plaza building. +2 :greatmusician: Great Musician points from tier 3 Gov\'t Plaza building. +2 :greatscientist: Great Scientist points and +2 :greatengineer: Great Engineer points per tier of Government Plaza building. - Bias: Special "King of the North"',
     },
     ability: {
       name: 'Minerva of the North',
@@ -2594,6 +2699,44 @@ export const leaders: Leader[] = [
     tags: [],
   },
   {
+    id: 'taino-anacaona',
+    name: 'Anacaona',
+    civilization: 'Taíno',
+    portraitUrl: '/assets/bbg/leaders/Ta%C3%ADno%20Anacaona.webp',
+    civilizationAbility: {
+      name: 'Guatiao',
+      description: 'Great Person Policies grant +2 :food: Food per turn in cities that contain the district associated with that Great Person type, and +1 :food: Food in their corresponding buildings. Diplomatic Policies provide +1 :amenities: Amenity in city with a Batéy.',
+    },
+    ability: {
+      name: 'Golden Flower',
+      description: 'At Political Philosophy, each chosen Era Dedication grants a different type of Policy slot: - Military policy: - Drums of War - To Arms! - Automaton Warfare - Economic policy: - Free Inquiry - Reform the Coinage - Sky and Stars - Diplomatic policy: - Pen, Brush, and Voice - Hic Sunt Dracones - Bodyguard of Lies - Wildcard policy: - Monumentality - Heartbeat of Steam - Wish You Were Here :gold: Gold +5% in Happy cities (increases to +10% in Ecstatic cities and +15% in Euphoric cities).',
+    },
+    uniqueUnits: [
+      {
+        name: 'Macana',
+        description: 'A recon unit unique to Taíno. Replaces the warrior and retains its earned Recon :promotion: Promotions on upgrade. :strength: Base Combat Strength -5. :strength: Combat Strength +5 against stronger units. Upon eliminating an enemy unit, earns :faith: Faith equal to half the :strength: Combat Strength of the defeated unit. :movement: Movement and Sight Range +1.',
+        replaces: 'warrior',
+        iconUrl: '/assets/bbg/items/Macana.webp',
+      },
+    ],
+    uniqueBuildings: [
+      {
+        name: 'Batéy',
+        description: 'A unique district for the Taíno, replacing the Entertainment Complex. In addition to the usual bonuses of the Entertainment Complex, it provides +2 :production: Production and +3 :gold: Gold for each adjacent Commercial Hub, and +4 :production: Production and +6 :gold: Gold for each adjacent Harbor. The Arena in this district provides 2 slots for :greatworkwriting: Great Works of Writing. Allows the city to launch a unique project that converts 30% of its :production: Production into :faith: Faith each turn, and grants :greatwriter: Great Writer, :greatartist: Great Artist, and :greatmusician: Great Musician points upon completion. 20% more :greatwriter: Great Writer Points than a Theatre Square project.',
+        replaces: 'Entertainment Complex',
+        iconUrl: '/assets/bbg/items/Bat%C3%A9y.webp',
+      },
+    ],
+    uniqueImprovements: [
+      {
+        name: 'Conuco',
+        description: 'A unique improvement for the Taíno. Provides +1 :culture: Culture. +1 :culture: Culture at Medieval Faires. +1 :culture: Culture at Natural History. If adjacent to a Bonus or Luxury resource: - Plains: +1 :food: Food and +1 :production: Production. - Grassland: +2 :food: Food. - Tundra: +1 :food: Food. - +2 :gold: per adjacent Bonus and Luxe resource at the civic Mercantism. Must be built on Plains, Grassland, or Tundra tiles adjacent to a Bonus or Luxury resource. Cannot be constructed adjacent to another Conuco.',
+        iconUrl: '/assets/bbg/items/Conuco.webp',
+      },
+    ],
+    tags: [],
+  },
+  {
     id: 'teotihuacan-spearthrower-owl',
     name: 'Spearthrower Owl',
     civilization: 'Teotihuacán',
@@ -2604,7 +2747,7 @@ export const leaders: Leader[] = [
     },
     ability: {
       name: 'Lord of the West',
-      description: '+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and the Chancery. Unlock the unique :governor: Governor, Fire is Born.',
+      description: '+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and its buildings. +100% :production: Production for buildings in the Pochteca Enclave. Unlock the unique :governor: Governor, Fire is Born.',
     },
     uniqueUnits: [
       {

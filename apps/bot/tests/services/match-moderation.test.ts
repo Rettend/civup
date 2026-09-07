@@ -52,30 +52,26 @@ describe('match moderation recalculation', () => {
     }
   })
 
-  test('creates a manual match with beta-only leaders as beta leader data', async () => {
+  test('creates a manual match with a former beta leader using live leader data', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
     try {
-      const liveLeaderIds = new Set(getLeaders('live').map(leader => leader.id))
-      const betaOnlyLeaderId = getLeaders('beta').find(leader => !liveLeaderIds.has(leader.id))?.id
-      expect(typeof betaOnlyLeaderId).toBe('string')
-      if (!betaOnlyLeaderId) return
-
+      const leaderId = 'taino-anacaona'
       const liveLeaderIdsForMatch = getLeaders('live').slice(0, 3).map(leader => leader.id)
       const result = await createManualReportedMatch(db, kv, {
         matchId: 'manual-beta-leader',
         mode: '2v2',
         reporterId: 'mod',
         reportedAt: 10_000,
-        players: buildManualPlayers([betaOnlyLeaderId, ...liveLeaderIdsForMatch]),
+        players: buildManualPlayers([leaderId, ...liveLeaderIdsForMatch]),
       })
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      expect(JSON.parse(result.match.draftData ?? '{}').leaderDataVersion).toBe('beta')
-      expect(result.participants.map(participant => participant.civId)).toContain(betaOnlyLeaderId)
+      expect(JSON.parse(result.match.draftData ?? '{}').leaderDataVersion).toBe('live')
+      expect(result.participants.map(participant => participant.civId)).toContain(leaderId)
     }
     finally {
       sqlite.close()
@@ -341,7 +337,7 @@ describe('match moderation recalculation', () => {
         playerId: 'p1',
         subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
         correctedAt: 3_000,
-      })
+      }, directTerminalOptions)
 
       expect('error' in result).toBe(false)
       if ('error' in result) return

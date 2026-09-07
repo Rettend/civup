@@ -1,10 +1,9 @@
 import type { Database } from '@civup/db'
 import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput, ParticipantRow } from './types.ts'
-import { matchBans, matches, matchParticipants, players } from '@civup/db'
+import { matchBans, matches, matchParticipants, players, seasons } from '@civup/db'
 import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
-import { and, eq } from 'drizzle-orm'
-import { getActiveSeason } from '../season/index.ts'
+import { and, eq, sql } from 'drizzle-orm'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 const D1_MAX_SQL_VARIABLES = 100
@@ -13,8 +12,12 @@ export async function createDraftMatch(
   db: Database,
   input: CreateDraftMatchInput,
 ): Promise<void> {
-  const now = Date.now()
-  const activeSeason = await getActiveSeason(db)
+  const now = input.startedAt ?? Date.now()
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error('Invalid draft start time.')
+  const seasonId = sql<string | null>`(SELECT ${seasons.id} FROM ${seasons}
+    WHERE ${seasons.startsAt} <= ${now} AND (${seasons.endsAt} IS NULL OR ${seasons.endsAt} > ${now})
+      AND (${seasons.active} = 1 OR ${seasons.endsAt} IS NOT NULL)
+    ORDER BY ${seasons.startsAt} DESC LIMIT 1)`
 
   const [existingMatch] = await db
     .select()
@@ -27,7 +30,7 @@ export async function createDraftMatch(
       id: input.matchId,
       gameMode: input.mode,
       status: 'drafting',
-      seasonId: activeSeason?.id ?? null,
+      seasonId,
       createdAt: now,
       completedAt: null,
     })
@@ -40,7 +43,7 @@ export async function createDraftMatch(
       .set({
         gameMode: input.mode,
         status: 'drafting',
-        seasonId: activeSeason?.id ?? null,
+        seasonId,
         draftData: null,
         createdAt: now,
         completedAt: null,
@@ -141,7 +144,7 @@ export async function activateDraftMatch(
     return { error: `Match **${matchId}** has no participants.` }
   }
 
-  const leaderDataVersion = normalizeAvailableLeaderDataVersion(input.leaderDataVersion)
+  const leaderDataVersion = input.leaderDataVersion ?? 'live'
   const civByPlayer = mapCivsFromDraftState(input.state, leaderDataVersion)
   const permanentAlly = isPermanentAllyFfaDraft(match.gameMode as GameMode, input.state, input.permanentAlly)
   const doublePickMetrics = normalizeDoublePickMetrics(input.doublePickMetrics)

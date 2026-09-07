@@ -1,4 +1,5 @@
 import type { Env } from '../env.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
@@ -65,12 +66,13 @@ export async function runRankedRoleMaintenance(
       continue
     }
 
-    const result = await applyPendingRankedRoleDiscordChanges({
+    const result = await runUnbufferedRatingMutation(createDb(env.DB), `role-apply:${guildId}`, () => applyPendingRankedRoleDiscordChanges({
       kv,
       guildId,
       token: env.DISCORD_TOKEN,
       maxPlayers: guildBudget,
-    })
+    }))
+    if ('error' in result) throw new Error(result.error)
     attemptedDiscordChanges += result.attemptedChanges
     appliedDiscordChanges += result.appliedChanges
     pendingDiscordChanges += result.pendingChanges

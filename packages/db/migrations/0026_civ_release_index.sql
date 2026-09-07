@@ -1,0 +1,1 @@
+CREATE INDEX match_civ_stat_contributions_source_time_idx ON match_civ_stat_contributions(source, completed_at, match_id);

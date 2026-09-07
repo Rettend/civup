@@ -48,7 +48,8 @@ cloudflared.dev.yml
 .DS_Store
 
 # Other
-/docs/
+/docs/*
+!/docs/SEASON-RESET.md
 
 # preset build artifacts
 mods/dist/

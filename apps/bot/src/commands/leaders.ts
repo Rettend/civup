@@ -8,16 +8,20 @@ import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection, resolveSeasonSelection } from '../services/season/selection.ts'
 
 interface Var {
   player?: string
   mode?: string
+  season?: string
 }
 
 export const command_leaders = factory.command<Var>(
   new Command('leaders', 'View player leader stats').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
+    new Option('season', 'Current, all, or a season number'),
   ),
   (c) => {
     const guildId = c.interaction.guild_id
@@ -25,13 +29,18 @@ export const command_leaders = factory.command<Var>(
       ?? c.interaction.member?.user?.id
       ?? c.interaction.user?.id
     const mode = (parseGameMode(c.var.mode) ?? 'all') as LeadersModeFilter
-    const isDefaultSelfLookup = !c.var.player && !c.var.mode
+    const isDefaultSelfLookup = !c.var.player && !c.var.mode && !c.var.season
+    let season: SeasonSelection
+    try { season = parseSeasonSelection(c.var.season) }
+    catch (error) { return c.res(error instanceof Error ? error.message : 'Choose a season.') }
 
     if (!targetId) return c.res('Could not identify the player.')
 
     return resDeferGeneralCommandResponse(c, async (c) => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
+      const selected = await resolveSeasonSelection(db, season)
+      const historical = selected.season != null && !selected.season.active
       c.executionCtx.waitUntil((async () => {
         try {
           await syncPlayerProfileFromDiscord(db, c.env.DISCORD_TOKEN, targetId)
@@ -41,7 +50,7 @@ export const command_leaders = factory.command<Var>(
         }
       })())
 
-      const rankProfile = guildId
+      const rankProfile = guildId && !historical && (selected.ratingSeason?.ratingSystem !== 'rp' || selected.ratingSeason.publicReadsEnabled)
         ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
         : null
       const visibleModes = mode === 'all'
@@ -55,6 +64,7 @@ export const command_leaders = factory.command<Var>(
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,
+        season,
       })
       return { embeds: [embed] }
     }, {

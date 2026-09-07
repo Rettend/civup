@@ -387,7 +387,7 @@ function formatTeamBalanceTitle(summary: LobbyBalanceTeamSummary, team: number):
   if (!summary.projectedWinDelta) return chanceText
 
   const delta = formatSignedDisplayDelta(summary.projectedWinDelta.displayDelta)
-  return `${chanceText} ${delta} is your Elo change if ${teamLabel} wins.`
+  return `${chanceText} ${delta} is your rating change if ${teamLabel} wins.`
 }
 
 function getArrangeOverlayIconClass(strategy: LobbyArrangeStrategy | null) {
@@ -625,7 +625,7 @@ function PlayerStatsPopover(props: {
       ref={props.setRef}
       role="dialog"
       aria-label={`${props.row.name} stats`}
-      class="pointer-events-none fixed z-50 w-fit min-w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
+      class="pointer-events-none fixed z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border border-white/12 bg-bg-subtle/98 p-3 shadow-2xl shadow-black/35 backdrop-blur-md"
       style={props.style}
     >
       <div class="flex items-start gap-3">
@@ -638,14 +638,17 @@ function PlayerStatsPopover(props: {
           <div class="flex items-start gap-2">
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-semibold text-fg">{props.row.name}</div>
-              <Show when={role().label !== 'Unassigned'}>
-                <span
-                  class="mt-1 text-[11px] leading-none font-semibold px-2 py-1 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center justify-center max-w-full"
-                  style={buildRolePillStyle(role().color)}
-                >
-                  {role().label}
-                </span>
-              </Show>
+              <div class="mt-1 flex flex-wrap content-start gap-1 max-h-[52px] overflow-hidden">
+                <Show when={props.row.balanceRating?.seasonNumber || role().label !== 'Unassigned'}>
+                  <span class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0" style={buildRolePillStyle(role().color)}>
+                    {props.row.balanceRating?.seasonNumber ? `S${props.row.balanceRating.seasonNumber} ` : ''}{role().label === 'Unassigned' ? 'Unranked' : role().label}
+                  </span>
+                </Show>
+                <For each={props.row.balanceRating?.pastRanks ?? []}>{(rank) => {
+                  const past = () => formatRankedRole({ tier: rank.tier, sourceMode: null }, props.rankedRoles)
+                  return <span class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0" style={buildRolePillStyle(past().color)}>S{rank.seasonNumber} {past().label}</span>
+                }}</For>
+              </div>
             </div>
             <div class="shrink-0 text-right text-[10px] text-fg-subtle font-semibold tracking-wide whitespace-nowrap" title={props.statsLabel}>
               {props.statsLabel}
@@ -657,7 +660,7 @@ function PlayerStatsPopover(props: {
       <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{ratingValue()}</div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">Elo</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">{props.row.balanceRating?.ratingSystem === 'rp' ? 'RP' : 'Rating'}</div>
         </div>
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{rankValue()}</div>
@@ -679,20 +682,22 @@ function PlayerStatsPopover(props: {
 
 export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
   if (unranked) return 'Unranked'
+  if (rating?.ratingSystem === 'rp') return rating.publicRating == null ? 'Pending' : String(Math.round(rating.publicRating))
   if (!rating) return String(DISPLAY_RATING_BASE)
   return String(Math.round(displayRating(rating.mu, rating.sigma)))
 }
 
 export function formatRecord(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
-  const wins = Math.max(0, Math.min(gamesPlayed, rating?.wins ?? 0))
+  const gamesPlayed = Math.max(0, rating?.ratingSystem === 'rp' ? rating.seasonGames ?? 0 : rating?.gamesPlayed ?? 0)
+  const wins = Math.max(0, Math.min(gamesPlayed, rating?.ratingSystem === 'rp' ? rating.seasonWins ?? 0 : rating?.wins ?? 0))
   return `${wins}-${gamesPlayed - wins}`
 }
 
 export function formatWinRate(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.gamesPlayed ?? 0)
+  const gamesPlayed = Math.max(0, rating?.ratingSystem === 'rp' ? rating.seasonGames ?? 0 : rating?.gamesPlayed ?? 0)
   if (gamesPlayed === 0) return '0%'
-  return `${Math.round(((rating?.wins ?? 0) / gamesPlayed) * 100)}%`
+  const wins = rating?.ratingSystem === 'rp' ? rating.seasonWins ?? 0 : rating?.wins ?? 0
+  return `${Math.round((wins / gamesPlayed) * 100)}%`
 }
 
 function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {

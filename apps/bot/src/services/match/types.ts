@@ -1,4 +1,5 @@
 import type { DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type { PublicRatingSnapshot } from '@civup/rating'
 
 export interface MatchRow {
   id: string
@@ -9,7 +10,7 @@ export interface MatchRow {
   draftData: string | null
 }
 
-export interface ParticipantRow {
+export interface ParticipantRow extends PublicRatingSnapshot {
   matchId: string
   playerId: string
   team: number | null
@@ -42,9 +43,10 @@ export interface ReportInput {
 export interface ReportProcessingClaim {
   matchId: string
   claimId: string
+  acceptedAt?: number
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean } | { error: string }
+export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean, historicalSeason?: boolean } | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
@@ -96,6 +98,7 @@ export interface ModeratedMatchResult {
   participants: ParticipantRow[]
   previousStatus: string
   recalculatedMatchIds: string[]
+  historicalSeason?: boolean
 }
 
 export interface MatchLeaderCorrectionResult extends ModeratedMatchResult {
@@ -130,6 +133,7 @@ export interface CreateManualReportedMatchInput {
 export type CreateManualReportedMatchResult = ModeratedMatchResult | { error: string }
 
 export interface CreateDraftMatchInput {
+  startedAt?: number
   matchId: string
   mode: GameMode
   seats: DraftSeat[]

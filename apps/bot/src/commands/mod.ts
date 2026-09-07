@@ -305,7 +305,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
 
             try {
-              if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
+              if (!result.historicalSeason && !isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
                 await markLeaderboardsDirty(db, `mod-resolve:${result.match.id}`, {
                   civ: true,
                   modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
@@ -317,7 +317,7 @@ export const command_mod = factory.autocomplete<ModVar>(
             }
 
             try {
-              if (!isTournamentMatch && isRankedMatch) {
+              if (!result.historicalSeason && !isTournamentMatch && isRankedMatch) {
                 await markRankedRolesDirty(kv, `mod-resolve:${result.match.id}`)
               }
             }
@@ -334,7 +334,7 @@ export const command_mod = factory.autocomplete<ModVar>(
 
             c.executionCtx.waitUntil((async () => {
               let rankedRoleLines: string[] = []
-              if (!isTournamentMatch && isRankedMatch && guildId) {
+              if (!result.historicalSeason && !isTournamentMatch && isRankedMatch && guildId) {
                 try {
                   const rankedPreview = await previewRankedRoles({
                     db,
