@@ -1,4 +1,5 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 import { createDb } from '@civup/db'
 import { GAME_MODE_CHOICES, getLeaders, LEADERBOARD_MODES, parseGameMode, searchLeaders, toLeaderboardMode } from '@civup/game'
 import { Autocomplete, Command, Option } from 'discord-hono'
@@ -115,13 +116,13 @@ export const command_stats = factory.autocomplete<Var>(
           ...rankProfile.rankedRoleRepair,
         })
       ) {
-        c.executionCtx.waitUntil(repairCurrentRankedRoleMembership({
+        c.executionCtx.waitUntil(runUnbufferedRatingMutation(db, `role-repair:${targetId}`, () => repairCurrentRankedRoleMembership({
           kv,
           token: c.env.DISCORD_TOKEN,
           guildId,
           playerId: targetId,
           currentRoleIds: invokingRoleIds,
-        }).catch((error) => {
+        })).catch((error) => {
           console.error(`Failed to repair ranked role from /stats for ${targetId}:`, error)
         }))
       }

@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from './maintenance.ts'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import { matches, playerRatingEvents, playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
 import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
@@ -83,7 +84,13 @@ export function formatSeasonShortName(seasonNumber: number): string {
   return `S${Math.max(1, Math.round(seasonNumber))}`
 }
 
-export async function startSeason(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean } = {}) {
+export async function startSeason(...args: Parameters<typeof startSeasonImpl>) {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:start', () => startSeasonImpl(...args))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function startSeasonImpl(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean } = {}) {
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
@@ -125,7 +132,13 @@ export async function startSeason(db: Database, input: { now?: number, kv?: KVNa
   }
 }
 
-export async function endSeason(db: Database, input: { now?: number } = {}) {
+export async function endSeason(...args: Parameters<typeof endSeasonImpl>) {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:end', () => endSeasonImpl(...args))
+  if (result && 'error' in result) throw new Error(result.error)
+  return result
+}
+
+async function endSeasonImpl(db: Database, input: { now?: number } = {}) {
   const existing = await getActiveSeason(db)
   if (!existing) throw new Error('There is no active season to end.')
   if (existing.ratingSystem === 'rp' || existing.isolatedRatingsEnabled) throw new Error('RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.')
@@ -166,7 +179,13 @@ export async function endSeason(db: Database, input: { now?: number } = {}) {
   }
 }
 
-export async function syncSeasonPeakRanks(
+export async function syncSeasonPeakRanks(...args: Parameters<typeof syncSeasonPeakRanksImpl>): Promise<SeasonPeakSyncResult> {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:overall-peaks', () => syncSeasonPeakRanksImpl(...args))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function syncSeasonPeakRanksImpl(
   db: Database,
   input: {
     seasonId: string
@@ -251,7 +270,13 @@ export async function syncSeasonPeakRanks(
   }
 }
 
-export async function syncSeasonPeakModeRanks(
+export async function syncSeasonPeakModeRanks(...args: Parameters<typeof syncSeasonPeakModeRanksImpl>): Promise<SeasonPeakSyncResult> {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:mode-peaks', () => syncSeasonPeakModeRanksImpl(...args))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function syncSeasonPeakModeRanksImpl(
   db: Database,
   input: {
     seasonId: string
@@ -337,7 +362,13 @@ export async function syncSeasonPeakModeRanks(
   }
 }
 
-export async function syncSeasonPeaksForPlayers(
+export async function syncSeasonPeaksForPlayers(...args: Parameters<typeof syncSeasonPeaksForPlayersImpl>) {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:player-peaks', () => syncSeasonPeaksForPlayersImpl(...args))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function syncSeasonPeaksForPlayersImpl(
   db: Database,
   input: {
     playerIds: string[]

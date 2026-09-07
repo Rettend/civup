@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
 import type { RankedRoleConfig } from './roles.ts'
 import { playerRatings, players } from '@civup/db'
@@ -436,6 +437,12 @@ export async function projectRankedTierForScore(options: RankedRoleSyncOptions &
 }
 
 export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
+  const result = await runUnbufferedRatingMutation(options.db, `roles:${options.guildId}`, () => syncRankedRolesImpl(options))
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
+
+async function syncRankedRolesImpl(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
   const state = await buildRankedRolePreviewState({
     ...options,
     includePlayerIdentities: false,

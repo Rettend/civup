@@ -46,7 +46,7 @@ export interface ReportProcessingClaim {
   acceptedAt?: number
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean, historicalSeason?: boolean } | { error: string }
+export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean, historicalSeason?: boolean, buffered?: boolean, acceptedAt?: number } | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
@@ -133,6 +133,7 @@ export interface CreateManualReportedMatchInput {
 export type CreateManualReportedMatchResult = ModeratedMatchResult | { error: string }
 
 export interface CreateDraftMatchInput {
+  startedAt?: number
   matchId: string
   mode: GameMode
   seats: DraftSeat[]

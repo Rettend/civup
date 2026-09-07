@@ -418,6 +418,18 @@ export async function queueSessionReportedDiscordSync(
   }
 }
 
+export async function bufferedSessionReportCommand(
+  namespace: DurableObjectNamespace,
+  sessionId: string,
+  command: { type: 'get' | 'save' | 'complete', input?: import('../services/match/types.ts').ReportInput, claimId?: string, reportId?: string, seasonId?: string | null, matchCreatedAt?: number, publicationLeaseId?: string },
+): Promise<import('./buffered-report.ts').BufferedSessionReport | null> {
+  const response = await namespace.get(namespace.idFromName(sessionId)).fetch(buildSessionRequest(sessionId, '/commands/buffered-report', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(command),
+  }))
+  if (!response.ok) await throwSessionCommandError(response, 'save or load the buffered report')
+  return (await response.json<{ report: import('./buffered-report.ts').BufferedSessionReport | null }>()).report
+}
+
 export async function claimSessionReport(
   namespace: DurableObjectNamespace | null | undefined,
   sessionId: string,

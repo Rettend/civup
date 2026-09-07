@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
 import { matches, matchParticipants, players, seasons } from '@civup/db'
@@ -21,7 +22,11 @@ interface CreateManualReportedMatchOptions {
   rankedRoleGuildId?: string | null
 }
 
-export async function createManualReportedMatch(
+export function createManualReportedMatch(...args: Parameters<typeof createManualReportedMatchImpl>): Promise<CreateManualReportedMatchResult> {
+  return runUnbufferedRatingMutation(args[0], args[2].matchId ?? 'manual-report', () => createManualReportedMatchImpl(...args))
+}
+
+async function createManualReportedMatchImpl(
   db: Database,
   kv: KVNamespace,
   input: CreateManualReportedMatchInput,

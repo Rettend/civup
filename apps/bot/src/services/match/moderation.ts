@@ -17,6 +17,7 @@ import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { prepareRatedMatchReplay, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 import { getSeasonMutationError } from '../season/policy.ts'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import { prepareSeasonReplay } from '../season/replay.ts'
 import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
 import { finalizeIsolatedSeasonReport, hydrateParticipantRowsForRatingEvents, usesIsolatedSeasonRatings } from './report.ts'
@@ -36,7 +37,24 @@ interface MatchBanRow {
   phase: number
 }
 
-export async function resolveMatchByModerator(
+async function withRatingMutation<T>(db: Database, matchId: string, task: () => Promise<T>): Promise<T | { error: string }> {
+  return runUnbufferedRatingMutation(db, matchId, task)
+}
+
+export function resolveMatchByModerator(...args: Parameters<typeof resolveMatchByModeratorImpl>): Promise<ResolveMatchResult> {
+  return withRatingMutation(args[0], args[2].matchId, () => resolveMatchByModeratorImpl(...args))
+}
+export function cancelMatchByModerator(...args: Parameters<typeof cancelMatchByModeratorImpl>): Promise<CancelMatchResult> {
+  return withRatingMutation(args[0], args[2].matchId, () => cancelMatchByModeratorImpl(...args))
+}
+export function correctMatchLeadersByModerator(...args: Parameters<typeof correctMatchLeadersByModeratorImpl>): Promise<CorrectMatchLeadersResult> {
+  return withRatingMutation(args[0], args[1].matchId, () => correctMatchLeadersByModeratorImpl(...args))
+}
+export function substituteMatchPlayerByModerator(...args: Parameters<typeof substituteMatchPlayerByModeratorImpl>): Promise<SubstituteMatchPlayerResult> {
+  return withRatingMutation(args[0], args[2].matchId, () => substituteMatchPlayerByModeratorImpl(...args))
+}
+
+async function resolveMatchByModeratorImpl(
   db: Database,
   kv: KVNamespace,
   input: ResolveMatchInput,
@@ -250,7 +268,7 @@ export async function resolveMatchByModerator(
   }
 }
 
-export async function correctMatchLeadersByModerator(
+async function correctMatchLeadersByModeratorImpl(
   db: Database,
   input: CorrectMatchLeadersInput,
 ): Promise<CorrectMatchLeadersResult> {
@@ -362,7 +380,7 @@ export async function correctMatchLeadersByModerator(
   }
 }
 
-export async function substituteMatchPlayerByModerator(
+async function substituteMatchPlayerByModeratorImpl(
   db: Database,
   kv: KVNamespace,
   input: SubstituteMatchPlayerInput,
@@ -1094,7 +1112,7 @@ async function validateReportableSession(
   }
 }
 
-export async function cancelMatchByModerator(
+async function cancelMatchByModeratorImpl(
   db: Database,
   kv: KVNamespace,
   input: CancelMatchInput,

@@ -1,5 +1,6 @@
 import type { DraftSeat, DraftState } from '@civup/game'
-import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { bufferedReportDirectory, matchBans, matches, matchParticipants, players, ratingMutationLeases, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
+import { acquireRatingMutation, changeRatingMaintenanceState } from '../../src/services/season/maintenance.ts'
 import { allLeaderIds, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -19,6 +20,34 @@ afterEach(() => {
 })
 
 describe('SessionDO open session commands', () => {
+  test('buffered results survive a new session instance, retain the first result, and do not finalize the match', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const { state, storage } = createFakeDurableObjectStateWithStorage()
+    const matchId = 'session-test'
+    storage.set('session-record', buildActiveSessionRecord({ id: matchId, matchId }))
+    const env = { DB: createSqliteD1Database(sqlite), KV: createTestKv() } as any
+    let room = new SessionDO(state, env)
+    const command = (path: string, body: unknown) => room.fetch(sessionRequest(path, { method: 'POST', body: JSON.stringify(body) }))
+    try {
+      await changeRatingMaintenanceState(db, 0, 'buffering')
+      const lease = await acquireRatingMutation(db, matchId)
+      const claim = await (await command('/commands/report-claim', { type: 'claim', matchId, reporterId: 'p1' })).json() as any
+      const response = await command('/commands/buffered-report', { type: 'save', input: { matchId, reporterId: 'p1', placements: 'A' },
+        claimId: claim.claim.claimId, seasonId: null, matchCreatedAt: 1, publicationLeaseId: lease.id })
+      expect(response.status).toBe(200)
+      const saved = (await response.json() as any).report
+      expect(await db.select().from(bufferedReportDirectory)).toHaveLength(1)
+      expect(await db.select().from(ratingMutationLeases)).toHaveLength(0)
+      expect((storage.get('session-record') as any).phase).toBe('active')
+      room = new SessionDO(state, env)
+      const retryLease = await acquireRatingMutation(db, matchId)
+      const retry = await command('/commands/buffered-report', { type: 'save', input: { matchId, reporterId: 'p1', placements: 'B' }, publicationLeaseId: retryLease.id })
+      expect((await retry.json() as any).report).toMatchObject({ id: saved.id, acceptedAt: saved.acceptedAt, input: { placements: 'A' } })
+      expect((await command('/commands/buffered-report', { type: 'complete', reportId: saved.id })).status).toBe(409)
+      expect(await db.select().from(bufferedReportDirectory)).toHaveLength(1)
+    }
+    finally { sqlite.close() }
+  })
   test('creates an open session record from lobby creation', async () => {
     const room = new SessionDO(createFakeDurableObjectState(), {} as any)
     const lobby = buildLobby({ memberPlayerIds: ['p1'], slots: ['p1', null] })

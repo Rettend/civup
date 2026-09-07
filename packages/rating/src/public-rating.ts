@@ -1,6 +1,6 @@
 export const PUBLIC_RATING_START = 750
 export const PUBLIC_RATING_FORMULA_VERSION = 'rp-v1-candidate'
-export const PUBLIC_RATING_SEED_VERSION = 's9-compression-v1'
+export const PUBLIC_RATING_SEED_VERSION = 'opening-compression-v1'
 
 export interface PublicRatingSnapshot {
   ratingSystem?: 'legacy' | 'rp'

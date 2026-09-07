@@ -1,7 +1,9 @@
 import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
-import type { ParticipantRow } from '../services/match/types.ts'
+import type { ParticipantRow, ReportInput } from '../services/match/types.ts'
+import type { BufferedSessionReport } from './buffered-report.ts'
+import { BUFFERED_REPORT_KEY, projectBufferedSessionReport, saveBufferedSessionReport } from './buffered-report.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
 import type { DraftRuntimeEnv } from './draft-room.ts'
 import type { RepeatDraftRoomSnapshot, RoomRecord } from './draft-room-domain.ts'
@@ -391,6 +393,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     if (request.method === 'POST' && url.pathname === '/commands/report-claim') {
       return await this.runSerializedCommand(() => this.handleReportClaimCommand(request))
     }
+    if (request.method === 'POST' && url.pathname === '/commands/buffered-report') {
+      return await this.runSerializedCommand(() => this.handleBufferedReportCommand(request))
+    }
 
     if (request.method === 'POST' && url.pathname === '/commands/session-projection') {
       return await this.runSerializedCommand(() => this.handleSessionProjectionCommand(request))
@@ -414,6 +419,10 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
       await this.retryPendingTerminalSync()
       await this.retryPendingProjectionSync()
       await this.retryPendingReportedDiscordSync()
+      const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
+      if (buffered && !buffered.projected && this.env.DB) {
+        await projectBufferedSessionReport(this.ctx.storage, createDb(this.env.DB), buffered).catch(error => console.error('Buffered report discovery sync failed:', error))
+      }
       const record = await this.getRecord()
       if (!record || !isTerminalSessionPhase(record.phase)) await this.handleDraftRuntimeAlarmIfDue()
       await this.rescheduleSessionAlarm(await this.getRecord())
@@ -808,7 +817,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     })
 
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats, startedAt: now })
       await this.setRoomRecord(room)
     }
     catch (error) {
@@ -857,7 +866,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     let activated!: Awaited<ReturnType<typeof activateDraftMatch>> & { error?: never }
     try {
-      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats })
+      await createDraftMatch(db, { matchId: record.id, mode: record.mode, seats: currentSeats, startedAt: now })
       const activation = await activateDraftMatch(db, {
         state,
         completedAt: now,
@@ -1355,13 +1364,13 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
         dealOptionsSize: record.config.dealOptionsSize,
         steamLobbyLink: record.projectionState.steamLobbyLink,
       })
-      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats })
+      await createDraftMatch(db, { matchId: runtime.config.matchId, mode: record.mode, seats: runtime.config.seats, startedAt: record.frozenAt })
       const initialized = await this.initializeDraftRuntime(runtime.config, { existing: existingRoom })
       room = { matchId: initialized.state.matchId, seats: initialized.config.seats }
     }
 
     if (existingRoom && existingRoom.state.status !== 'cancelled') {
-      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats })
+      await createDraftMatch(db, { matchId: room.matchId, mode: record.mode, seats: room.seats, startedAt: record.frozenAt })
     }
     return room
   }
@@ -2064,6 +2073,8 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     const at = normalizePositiveInteger(body.at, Date.now())
     const terminalCommand = buildTerminalSyncCommand(body, existing, at)
+    const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
+    if (terminalCommand.type === 'cancel-session' && buffered && buffered.completedAt == null) return json({ error: 'A saved result is waiting for rating maintenance. Finish that report before cancelling the match.' }, 409)
     const persistedMatchStatus = await this.readPersistedMatchStatus(terminalCommand.matchId)
     if (persistedMatchStatus === null) return json({ error: `Match **${terminalCommand.matchId}** not found.` }, 409)
     let record: SessionRecord
@@ -2098,6 +2109,38 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const finished = await this.finishTerminalSync(pending)
     if (!finished.ok) return json({ error: finished.error }, finished.status)
     return json({ ok: true, record: finished.record })
+  }
+
+  private async handleBufferedReportCommand(request: Request): Promise<Response> {
+    const body = await request.json<{ type: 'get' | 'save' | 'complete', input?: ReportInput, claimId?: string, reportId?: string, seasonId?: string | null, matchCreatedAt?: number, publicationLeaseId?: string }>()
+    const existing = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
+    if (body.type === 'get') return json({ report: existing ?? null })
+    const record = await this.getRecord()
+    if (!record || !this.env.DB) return json({ error: 'Session or database unavailable' }, 409)
+    const db = createDb(this.env.DB)
+    if (body.type === 'complete') {
+      if (!existing || existing.id !== body.reportId || record.phase !== 'reported') return json({ error: 'The saved report is not finalized' }, 409)
+      const completed = { ...existing, completedAt: existing.completedAt ?? Date.now(), projected: false }
+      await this.ctx.storage.put(BUFFERED_REPORT_KEY, completed)
+      try { await projectBufferedSessionReport(this.ctx.storage, db, completed) }
+      finally { await this.rescheduleSessionAlarm(record) }
+      return json({ report: completed })
+    }
+    if (body.type !== 'save' || !body.input || body.input.matchId !== (record.matchId ?? record.id) || typeof body.publicationLeaseId !== 'string' || body.publicationLeaseId.length > 64) return json({ error: 'Invalid buffered report identity' }, 400)
+    if (existing) {
+      try { await saveBufferedSessionReport(this.ctx.storage, db, existing, body.publicationLeaseId) }
+      finally { await this.rescheduleSessionAlarm(record) }
+      return json({ report: existing })
+    }
+    const claim = await this.getActiveReportClaimMarker(body.input.matchId)
+    if (record.phase !== 'active' || !claim || claim.claimId !== body.claimId || claim.reporterId !== body.input.reporterId) return json({ error: 'An active participant report claim is required' }, 409)
+    if (typeof body.input.placements !== 'string' || body.input.placements.length > 8000 || !Number.isSafeInteger(body.matchCreatedAt)
+      || body.matchCreatedAt! > claim.createdAt || (body.seasonId != null && typeof body.seasonId !== 'string')) return json({ error: 'Invalid buffered report payload' }, 400)
+    try {
+      const saved = await saveBufferedSessionReport(this.ctx.storage, db, { input: body.input, seasonId: body.seasonId ?? null, matchCreatedAt: body.matchCreatedAt!, acceptedAt: claim.createdAt }, body.publicationLeaseId)
+      return json({ report: saved })
+    }
+    finally { await this.rescheduleSessionAlarm(record) }
   }
 
   private async handleReportClaimCommand(request: Request): Promise<Response> {
@@ -2488,7 +2531,9 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
     const draftRuntimeAlarmAt = record && !isTerminalSessionPhase(record.phase)
       ? await this.getDraftRuntimeAlarmAt()
       : null
-    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt].filter((value): value is number => typeof value === 'number')
+    const buffered = await this.ctx.storage.get<BufferedSessionReport>(BUFFERED_REPORT_KEY)
+    const bufferProjectionRetryAt = buffered && !buffered.projected ? Date.now() + 5000 : null
+    const candidates = [draftStartRetryAt, lifecycleRetryAt, terminalRetryAt, projectionRetryAt, reportedDiscordRetryAt, draftRuntimeAlarmAt, bufferProjectionRetryAt].filter((value): value is number => typeof value === 'number')
     const storage = this.ctx.storage as DurableObjectStorage & {
       setAlarm?: (scheduledTime: number | Date) => Promise<void>
       deleteAlarm?: () => Promise<void>

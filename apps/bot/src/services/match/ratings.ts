@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { LeaderboardMode } from '@civup/game'
 import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { DbBatchItem } from '../db/batch.ts'
@@ -129,7 +130,11 @@ export function buildRankByPlayer(rows: LeaderboardSnapshotRow[], mode: Leaderbo
   return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
 
-export async function recalculateLeaderboardMode(
+export function recalculateLeaderboardMode(...args: Parameters<typeof recalculateLeaderboardModeImpl>): Promise<{ matchIds: string[] } | { error: string }> {
+  return runUnbufferedRatingMutation(args[0], args[2]?.fromMatchId ?? `replay:${args[1]}`, () => recalculateLeaderboardModeImpl(...args))
+}
+
+async function recalculateLeaderboardModeImpl(
   db: Database,
   leaderboardMode: LeaderboardMode,
   options: RecalculateLeaderboardModeOptions = {},
@@ -168,7 +173,11 @@ export async function recalculateLeaderboardMode(
   return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows)
 }
 
-export async function recalculateGlobalRatings(
+export function recalculateGlobalRatings(...args: Parameters<typeof recalculateGlobalRatingsImpl>): Promise<{ matchIds: string[] } | { error: string }> {
+  return runUnbufferedRatingMutation(args[0], args[1]?.fromMatchId ?? 'replay:global', () => recalculateGlobalRatingsImpl(...args))
+}
+
+async function recalculateGlobalRatingsImpl(
   db: Database,
   options: RecalculateGlobalRatingsOptions = {},
 ): Promise<{ matchIds: string[] } | { error: string }> {

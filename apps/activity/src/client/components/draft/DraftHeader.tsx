@@ -49,7 +49,7 @@ interface DraftHeaderProps {
   onReportFailed?: (matchId: string) => void
 }
 
-type ResultStatus = 'idle' | 'submitting:result' | 'processing:result' | 'submitting:scrub' | 'submitting:revert' | 'done'
+type ResultStatus = 'idle' | 'submitting:result' | 'processing:result' | 'buffered' | 'submitting:scrub' | 'submitting:revert' | 'done'
 type ResultNotice = { message: string, tone: 'info' | 'error' }
 
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
@@ -272,6 +272,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     const teamToken = teamIndexToken(team)
     const res = await reportMatchResult(matchId, uid, teamToken, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
+      if (res.buffered) { showBufferedResult(matchId); return }
       setResultStatus('done')
       setResultNotice(null)
       props.onReportComplete?.(matchId)
@@ -293,6 +294,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     const placements = order.map(teamIndexToken).join('\n')
     const res = await reportMatchResult(matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
+      if (res.buffered) { showBufferedResult(matchId); return }
       setResultStatus('done')
       setResultNotice(null)
       props.onReportComplete?.(matchId)
@@ -315,11 +317,18 @@ export function DraftHeader(props: DraftHeaderProps) {
     const placements = order.map(idx => `<@${s.seats[idx]!.playerId}>`).join('\n')
     const res = await reportMatchResult(matchId, uid, placements, hiddenDraftLeaderAssignmentPayload())
     if (res.ok) {
+      if (res.buffered) { showBufferedResult(matchId); return }
       setResultStatus('done')
       setResultNotice(null)
       props.onReportComplete?.(matchId)
     }
     else { handleReportFailure(matchId, res, clearFfaPlacements) }
+  }
+
+  const showBufferedResult = (matchId: string) => {
+    props.onReportFailed?.(matchId)
+    setResultStatus('buffered')
+    setResultNotice({ message: 'Result saved. Ratings will update shortly.', tone: 'info' })
   }
 
   const confirmResult = async () => {
@@ -520,7 +529,7 @@ export function DraftHeader(props: DraftHeaderProps) {
             disabled={!canSubmitResult() || !resultSelectionReady()}
             onClick={confirmResult}
           >
-            {visibleResultStatus() === 'submitting:result' ? 'Submitting' : visibleResultStatus() === 'processing:result' ? 'Finalizing' : 'Confirm Result'}
+            {visibleResultStatus() === 'buffered' ? 'Result saved' : visibleResultStatus() === 'submitting:result' ? 'Submitting' : visibleResultStatus() === 'processing:result' ? 'Finalizing' : 'Confirm Result'}
           </Button>
           <Show when={amHost()}>
             <Button

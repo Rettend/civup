@@ -158,6 +158,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: result.error }, 400)
     }
 
+    if (result.buffered) return c.json({ ok: true, buffered: true, acceptedAt: result.acceptedAt, message: 'Result saved. Ratings will update shortly.' })
     if (result.reportProcessing) {
       return c.json({ ok: true, reportProcessing: true, reportFinalizing: result.reportFinalizing === true, match: result.match, participants: result.participants })
     }
