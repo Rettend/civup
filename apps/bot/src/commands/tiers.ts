@@ -12,7 +12,7 @@ interface Var {
 }
 
 export const command_tiers = factory.command<Var>(
-  new Command('tiers', 'View ranked role thresholds and live cutoffs').options(
+  new Command('tiers', 'View ranks and rating requirements').options(
     new Option('mode', 'Filter by leaderboard track').choices(...LEADERBOARD_MODE_CHOICES),
   ),
   (c) => {

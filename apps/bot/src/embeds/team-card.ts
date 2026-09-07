@@ -1,9 +1,9 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode } from '@civup/game'
-import type { PlayerRating } from '@civup/rating'
-import { matches, matchParticipants, playerRatings, players } from '@civup/db'
+import type { PlayerRating, PublicRatingSnapshot } from '@civup/rating'
+import { matches, matchParticipants, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
-import { createRating, displayRating } from '@civup/rating'
+import { createRating, displayRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -11,8 +11,10 @@ import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
-import { getDisplaySeason } from '../services/season/index.ts'
-import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
+import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
+import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -62,25 +64,21 @@ export async function teamCardEmbed(
   guildId: string | null,
   playerIds: string[],
   modeFilter: GameMode | 'all' = 'all',
+  seasonSelection: SeasonSelection = 'current',
 ): Promise<Embed> {
   const uniquePlayerIds = [...new Set(playerIds)]
   const modeContext = resolveTeamModeContext(uniquePlayerIds.length, modeFilter)
-  const [playerRows, ratingRows, displaySeason] = await Promise.all([
+  const selected = await resolveSeasonSelection(db, seasonSelection)
+  const displaySeason = selected.season
+  const historical = displaySeason != null && !displaySeason.active
+  const [playerRows, allRatingRows] = await Promise.all([
     db
       .select({ id: players.id, displayName: players.displayName, avatarUrl: players.avatarUrl })
       .from(players)
       .where(inArray(players.id, uniquePlayerIds)),
-    modeContext.leaderboardMode
-      ? db
-          .select()
-          .from(playerRatings)
-          .where(and(
-            inArray(playerRatings.playerId, uniquePlayerIds),
-            eq(playerRatings.mode, modeContext.leaderboardMode),
-          ))
-      : Promise.resolve([]),
-    getDisplaySeason(db),
+    loadSelectedSeasonRatings(db, selected, uniquePlayerIds),
   ])
+  const ratingRows = allRatingRows.filter(row => row.mode === modeContext.leaderboardMode)
 
   const playerById = new Map(playerRows.map(player => [player.id, player]))
   const ratingByPlayerId = new Map(ratingRows.map(row => [row.playerId, row]))
@@ -90,8 +88,15 @@ export async function teamCardEmbed(
     return { playerId, mu: ratingRow.mu, sigma: ratingRow.sigma }
   })
 
-  const projectedRating = modeContext.leaderboardMode ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
-  const visual = guildId && projectedRating != null && modeContext.leaderboardMode
+  const publicEra = displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRows.some(row => row.publicRating != null))
+  const projectedRating = publicEra
+    ? ratingRows.length === uniquePlayerIds.length && ratingRows.every(row => row.publicRating != null)
+      ? visiblePublicRating(ratingRows.reduce((sum, row) => sum + row.publicRating!, 0) / ratingRows.length)
+      : null
+    : modeContext.leaderboardMode && (!historical || ratingRows.length === uniquePlayerIds.length) ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
+  const visual = publicEra && projectedRating != null
+    ? { tier: publicRatingRank(projectedRating).tier, roleId: null, label: publicRatingRank(projectedRating).label }
+    : !historical && guildId && projectedRating != null && modeContext.leaderboardMode
     ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
     : { tier: null, roleId: null, label: null }
 
@@ -137,7 +142,7 @@ export async function teamCardEmbed(
   const recentMatchesValue = buildRecentTeamMatchesValue(commonMatches.slice(0, RECENT_MATCH_GROUP_LIMIT))
 
   const embed = new Embed()
-    .title('Stats')
+    .title(`Stats${displaySeason || selected.allTime ? ` - ${selected.label}` : ''}`)
     .description(buildTeamDescription(uniquePlayerIds, modeContext.descriptionModeLabel, visual, modeContext.leaderboardMode != null))
     .color(0xC8AA6E)
 
@@ -154,7 +159,7 @@ export async function teamCardEmbed(
     fields.push({
       name: modeContext.fieldLabel,
       value: [
-        ...(projectedRating != null ? [`Rating: ${formatProjectedRating(visual, projectedRating)}`] : []),
+        ...(projectedRating != null ? [`${selected.allTime ? 'Current rating' : 'Rating'}: ${formatProjectedRating(visual, projectedRating)}${publicEra ? ' RP' : ''}`] : []),
         `Games: ${gamesPlayed}`,
         `Wins: ${wins} (${winRate}%)`,
       ].join('\n'),
@@ -343,8 +348,10 @@ function formatRecentRatingChange(match: {
   ratingAfterSigma: number | null
   gameMode: string
   draftData: string | null
-}): string {
+} & PublicRatingSnapshot): string {
   if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
+  const publicChange = formatPublicRatingSnapshotChange(match)
+  if (publicChange != null) return publicChange
   if (
     match.ratingBeforeMu == null
     || match.ratingBeforeSigma == null

@@ -6,12 +6,21 @@ import {
   formatMapVoteResultTitle,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
+  MAP_VOTE_MAP_BY_ID,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
 } from '../src/map-vote.ts'
 
 describe('map vote helpers', () => {
+  test('Rich Riverlands resolves as its own map and reuses Rich Highlands art', () => {
+    const selection = normalizeMapVoteSelection({ maps: ['rich-riverlands'] })
+    expect(selection).toEqual({ maps: ['rich-riverlands'] })
+    const result = resolveMapVoteWinner([selection], () => 0, 'riverlands')
+    expect(result.mapScript).toBe('rich-riverlands')
+    expect(formatMapVoteResultTitle(result.mapType, result.mapScript)).toContain('Rich Riverlands')
+    expect(MAP_VOTE_MAP_BY_ID['rich-riverlands'].imageUrl).toBe(MAP_VOTE_MAP_BY_ID['rich-highlands'].imageUrl)
+  })
   test('supports non-red-death duel, team, and FFA modes', () => {
     expect(isMapVoteSupportedForMode('2v2')).toBe(true)
     expect(isMapVoteSupportedForMode('6v6')).toBe(true)

@@ -1,7 +1,8 @@
 import type { Database } from '@civup/db'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
-import { matches, matchParticipants, players } from '@civup/db'
+import { matches, matchParticipants, players, seasons } from '@civup/db'
 import { getLeaders, maxPlayerCount, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
@@ -21,7 +22,11 @@ interface CreateManualReportedMatchOptions {
   rankedRoleGuildId?: string | null
 }
 
-export async function createManualReportedMatch(
+export function createManualReportedMatch(...args: Parameters<typeof createManualReportedMatchImpl>): Promise<CreateManualReportedMatchResult> {
+  return runUnbufferedRatingMutation(args[0], args[2].matchId ?? 'manual-report', () => createManualReportedMatchImpl(...args))
+}
+
+async function createManualReportedMatchImpl(
   db: Database,
   kv: KVNamespace,
   input: CreateManualReportedMatchInput,
@@ -29,6 +34,8 @@ export async function createManualReportedMatch(
 ): Promise<CreateManualReportedMatchResult> {
   const validationError = validateManualReportedMatchInput(input)
   if (validationError) return { error: validationError }
+  const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
+  if (publicSeason) return { error: 'Manual reports require the season-aware import workflow. No match or player data was changed.' }
 
   const matchId = input.matchId ?? await createUniqueManualMatchId(db)
   const [existingMatch] = await db.select({ id: matches.id }).from(matches).where(eq(matches.id, matchId)).limit(1)

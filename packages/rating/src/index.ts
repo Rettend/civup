@@ -2,6 +2,8 @@ import type { Rating as OSRating } from 'openskill'
 import { predictWin, rate, rating } from 'openskill'
 import { bradleyTerryFull } from 'openskill/models'
 
+export * from './public-rating.ts'
+
 // ── Constants ───────────────────────────────────────────────
 
 /** Default mu for new players (how good the system thinks you are) */
@@ -138,6 +140,8 @@ export function displayRating(mu: number, sigma: number): number {
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
 }
 
+export * from './decay.ts'
+
 /** Conservative Elo-like score used for global ranked role bands. */
 export function roleRating(mu: number, sigma: number): number {
   const conservativeSkill = mu - (RANKED_ROLE_Z_MULTIPLIER * sigma)
@@ -159,6 +163,7 @@ export interface RatingUpdate {
 }
 
 export interface RatingCalculationOptions {
+  policy?: 'rp-v3'
   /** Weight later applied to this match's rating update, e.g. imported games use 0.5. */
   sourceWeight?: number
 }
@@ -230,6 +235,19 @@ function applyProvisionalLossProtection(
   const winnerTeam = teams[0]
   const loserTeam = teams[1]
   if (!winnerTeam || !loserTeam) return updates
+  if (options?.policy === 'rp-v3') {
+    const uncertainty = winnerTeam.players.reduce((sum, player) => {
+      const games = knownGamesPlayed(player)
+      if (games == null) return sum
+      return sum + clamp((player.sigma - 3) / (DEFAULT_SIGMA - 3), 0, 1) * clamp(1 - games / 18, 0, 1)
+    }, 0) / winnerTeam.players.length
+    const maximumReduction = winnerTeam.players.length === 1 && loserTeam.players.length === 1 ? 0.5 : 0.25
+    return updates.map(update => {
+      const loser = loserTeam.players.find(player => player.playerId === update.playerId)
+      if (!loser || (knownGamesPlayed(loser) ?? 0) < 18 || loser.sigma > PROVISIONAL_ESTABLISHED_SIGMA || update.displayDelta >= 0) return update
+      return scaleRatingUpdate(update, 1 - maximumReduction * uncertainty)
+    })
+  }
   if (winnerTeam.players.length === 1 && loserTeam.players.length === 1) {
     return applyDuelProvisionalLossProtection(winnerTeam.players[0]!, loserTeam.players[0]!, updates)
   }
@@ -345,7 +363,7 @@ export function calculateTeamRatings(teams: TeamInput[], options?: RatingCalcula
 
   if (winnerProbability == null) return scaleRatingUpdates(updates, PLACEMENT_UPDATE_WEIGHT)
 
-  const scaledUpdates = scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
+  const scaledUpdates = options?.policy === 'rp-v3' ? updates : scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
   return applyProvisionalLossProtection(teams, scaledUpdates, options)
 }
 

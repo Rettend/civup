@@ -833,7 +833,7 @@ export const command_match = factory.command<MatchVar>(
             })
             queueReportedDiscordRepairIfNeeded(c, result.match.id, discordSync.errors)
             try {
-              if (!isTournamentMatch && !reportedContext.redDeath && !reportedContext.civBlitz) {
+              if (!result.historicalSeason && !isTournamentMatch && !reportedContext.redDeath && !reportedContext.civBlitz) {
                 await markLeaderboardsDirty(db, `match-report:${result.match.id}`, {
                   civ: true,
                   modes: reportedContext.leaderboardMode ? [reportedContext.leaderboardMode] : [],
@@ -844,7 +844,7 @@ export const command_match = factory.command<MatchVar>(
               console.error(`Failed to mark leaderboards dirty after match ${result.match.id}:`, error)
             }
 
-            if (!isTournamentMatch && isRankedResult) {
+            if (!result.historicalSeason && !isTournamentMatch && isRankedResult) {
               try {
                 await markRankedRolesDirty(kv, `match-report:${result.match.id}`)
               }

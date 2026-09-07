@@ -1,6 +1,6 @@
 import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
-import { formatModeLabel, normalizeAvailableLeaderDataVersion, parseGameMode, toLeaderboardMode } from '@civup/game'
+import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
   manualReport?: unknown
@@ -186,7 +186,7 @@ function normalizeMetricCount(value: unknown): number {
 }
 
 function normalizeStoredLeaderDataVersion(value: unknown, fallback: LeaderDataVersion = 'live'): LeaderDataVersion {
-  if (value === 'beta') return normalizeAvailableLeaderDataVersion('beta')
+  if (value === 'beta') return 'beta'
   if (value === 'live') return 'live'
-  return normalizeAvailableLeaderDataVersion(fallback)
+  return fallback
 }

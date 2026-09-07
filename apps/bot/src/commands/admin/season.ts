@@ -4,7 +4,7 @@ import { Button, Components } from 'discord-hono'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { archiveSeasonLeaderboards, refreshConfiguredLeaderboards } from '../../services/leaderboard/message.ts'
 import { hasAdminPermission } from '../../services/permissions/index.ts'
-import { resetCurrentRankedRoleState, syncRankedRoles } from '../../services/ranked/role-sync.ts'
+import { syncRankedRoles } from '../../services/ranked/role-sync.ts'
 import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../../services/season/confirmation.ts'
 import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
@@ -164,7 +164,6 @@ export const component_admin_season_confirm = factory.component(
             seasonNumber: pending.seasonNumber ?? undefined,
             softReset: pending.softReset ?? true,
           })
-          if (season.didSoftReset) await resetCurrentRankedRoleState({ kv, guildId, token: c.env.DISCORD_TOKEN })
           await refreshConfiguredLeaderboards(db, kv, c.env.DISCORD_TOKEN)
           await ensureSeasonSnapshotRoles(kv, guildId, c.env.DISCORD_TOKEN, season)
           await updateSeasonActionPrompt(

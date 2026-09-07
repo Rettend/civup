@@ -1,7 +1,9 @@
 import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
-import { createDb, matches, matchParticipants, playerRatings, players } from '@civup/db'
-import { and, asc, gt, inArray, lte } from 'drizzle-orm'
+import { registerSeasonMaintenanceRoutes } from './season-maintenance.ts'
+import { createDb, matches, matchParticipants, playerRatings, players, ratingMaintenance, ratingMutationLeases } from '@civup/db'
+import { and, asc, gt, inArray, lte, sql } from 'drizzle-orm'
+import { changeRatingMaintenanceState } from '../services/season/maintenance.ts'
 import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 
 const EXPORT_VERSION = 1
@@ -41,6 +43,33 @@ interface ExportRowUpperBounds {
 }
 
 export function registerActivityAdminRoutes(app: Hono<Env>) {
+  registerSeasonMaintenanceRoutes(app)
+  app.get('/api/activity/admin/rating-maintenance', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
+    const db = createDb(c.env.DB)
+    const [state] = await db.select().from(ratingMaintenance)
+    const [counts] = await db.select({
+      running: sql<number>`(SELECT count(*) FROM ${ratingMutationLeases})`,
+    }).from(ratingMaintenance)
+    return c.json({ state, counts })
+  })
+
+  app.post('/api/activity/admin/rating-maintenance', async (c) => {
+    const auth = requireAuthenticatedActivity(c)
+    if (!auth.ok) return auth.response
+    if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
+    const body = await c.req.json<{ state?: string, expectedGeneration?: number }>().catch(() => null)
+    if (!body || !['open', 'paused'].includes(body.state ?? '') || !Number.isSafeInteger(body.expectedGeneration)) return c.json({ error: 'Provide a maintenance state and its current generation.' }, 400)
+    try {
+      await changeRatingMaintenanceState(createDb(c.env.DB), body.expectedGeneration!, body.state as 'open' | 'paused')
+      return c.json({ ok: true })
+    }
+    catch (error) { return c.json({ error: error instanceof Error ? error.message : 'Maintenance transition failed.' }, 409) }
+  })
+
   app.get('/api/activity/admin/capabilities', (c) => {
     c.header('Cache-Control', 'no-store')
     const auth = requireAuthenticatedActivity(c)

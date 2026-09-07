@@ -1,4 +1,4 @@
-import type { Hono } from 'hono'
+import type { Hono, MiddlewareHandler } from 'hono'
 import type { Env } from '../env.ts'
 import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/game'
 import type { CivBlitzModInput } from '@civup/civ6-mod'
@@ -21,6 +21,8 @@ import { queueSessionReportedDiscordSync } from '../session-runtime/session-do-c
 import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './auth.ts'
 
 export function registerMatchRoutes(app: Hono<Env>) {
+  app.use('/api/match/:matchId/report', keepMatchMutationAlive)
+  app.use('/api/match/:matchId/scrub', keepMatchMutationAlive)
   app.get('/api/match/state/:matchId', async (c) => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
@@ -184,6 +186,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       reportClaim: result.reportClaim,
       reportedContext,
       isTournamentMatch,
+      historicalSeason: result.historicalSeason,
       participants: result.participants,
       matchDraftData: result.match.draftData,
       lobby,
@@ -321,6 +324,14 @@ export function registerMatchRoutes(app: Hono<Env>) {
   })
 }
 
+/** Keep accepted work alive for the Worker's waitUntil window if the Activity disconnects. */
+const keepMatchMutationAlive: MiddlewareHandler<Env> = async (c, next) => {
+  const context = c.executionCtx
+  const task = next()
+  context.waitUntil(task)
+  await task
+}
+
 function isLiveLobbyProjection(lobby: { status: string } | null): boolean {
   return lobby != null && (lobby.status === 'open' || lobby.status === 'drafting' || lobby.status === 'active')
 }
@@ -357,6 +368,7 @@ function queueActivityReportProjectionTasks(
     reportClaim?: Parameters<typeof releaseReportedMatchProcessingClaim>[1]
     reportedContext: NonNullable<ReturnType<typeof getStoredGameModeContext>>
     isTournamentMatch: boolean
+    historicalSeason?: boolean
     participants: Parameters<typeof syncReportedMatchDiscordMessages>[0]['participants']
     matchDraftData: string | null
     lobby: Parameters<typeof syncReportedMatchDiscordMessages>[0]['lobby']
@@ -375,7 +387,7 @@ function queueActivityReportProjectionTasks(
     try {
       let discordSyncErrors: string[] = []
       try {
-        const participants = await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
+        const participants = input.historicalSeason ? input.participants : await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
         const discordSync = await syncReportedMatchDiscordMessages({
           db: input.db,
           kv: input.kv,
@@ -413,6 +425,7 @@ function queueActivityReportProjectionTasks(
         return
       }
 
+      if (input.historicalSeason) return
       if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
         await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
           civ: true,

@@ -19,6 +19,28 @@ const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
 
 describe('player rank views', () => {
+  test('RP stats hide untouched mode seeds but retain current and past-season participation', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await seedPlayerIdentity(db, HERO_ID)
+      await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
+      await db.insert(playerRatings).values([
+        { playerId: HERO_ID, mode: 'duel', gamesPlayed: 1, effectiveGames: 1, publicRating: 750 },
+        { playerId: HERO_ID, mode: 'duo', gamesPlayed: 2, effectiveGames: 0, publicRating: 750 },
+        { playerId: HERO_ID, mode: 'squad', gamesPlayed: 0, effectiveGames: 0, publicRating: 750 },
+        { playerId: HERO_ID, mode: 'ffa', gamesPlayed: 0, effectiveGames: 0, publicRating: 750 },
+      ])
+      await db.insert(matches).values({ id: 'played-s9', gameMode: '1v1', status: 'completed', seasonId: 's9', createdAt: NOW + 1, completedAt: NOW + 2 })
+      await db.insert(matchParticipants).values({ matchId: 'played-s9', playerId: HERO_ID, team: 0, placement: 1 })
+      const embed = (await playerCardEmbed(db, HERO_ID)).toJSON()
+      const names = embed.fields?.map(field => field.name) ?? []
+      expect(names).toContain('Duel')
+      expect(names).toContain('Duo')
+      expect(names).not.toContain('Squad')
+      expect(names).not.toContain('FFA')
+    }
+    finally { sqlite.close() }
+  })
   test('builds overall and per-mode ranked data for a player', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()

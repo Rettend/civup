@@ -49,6 +49,7 @@ export const command_admin = factory.command<AdminVar>(
           new Option('role8', 'Ranked role 8', 'Role'),
           new Option('role9', 'Ranked role 9', 'Role'),
           new Option('role10', 'Ranked role 10 (lowest if used)', 'Role'),
+          new Option('unranked', 'Starting role removed when a player qualifies', 'Role'),
         ),
         new SubCommand('unset', 'Unset one ranked role slot').options(
           new Option('slot', 'Ranked role slot to clear').choices(

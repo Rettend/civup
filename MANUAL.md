@@ -298,7 +298,27 @@ Once a player has enough evidence, the bot assigns a ranked role.
 - `/leaderboard`: sends leaderboard embeds
 - `/stats`: shows player stats, ratings, top leaders, and recent games
 - `/rank`: shows player rank history, including past seasons
-- `/tiers`: shows current role cutoffs and player distribution
+- `/leaders`: shows a player's leader results and performance rankings
+- `/tiers`: shows legacy role cutoffs before RP activation; afterward it shows rank mentions, divisions, and RP ranges
+- Release leaderboards keep old Discord messages and publish new updating boards. Player boards switch at season activation. BBG leader boards start with up to 1,000 recent beta games; each eligible live game replaces one carried beta game, oldest first across all modes. This carryover affects leader statistics only, not player ratings.
+
+#### Season selection
+
+`/stats`, `/leaders`, and `/rank` accept `season:current` or a season number such as `season:8`. Current is the default; if no season is active, it selects the latest season. The same filter applies to team statistics and `/stats leader:...`.
+
+Use `season:all` for all-time statistics in `/stats` or `/leaders`. Any rating beside those counts is labelled current. `/rank` shows one season at a time, with the existing 20/50/100/200-game choices; it does not join incompatible rating scales. A public season's graph can show its opening rating before the first game. Ratings stay unavailable while that season's public data is not ready.
+
+The Activity player hover shows current RP and current-season results. Its role badges show the current season first, followed by saved historical season ranks, using at most two rows. Lifetime experience still counts for balancing and qualification.
+
+#### RP inactivity
+
+Use `/decay [player]` to check activity banks for Overall, Duel, Duo, Squad, and FFA. The player defaults to you. A warning marks an empty bank; the daily loss appears only while RP is decaying.
+
+At **1,550 RP**, a rating scope starts with a **60-day activity reserve**. Each rated game adds **14 days**, up to 60. Modes have separate reserves; any rated mode also adds activity to the overall scope. Imports do not add activity, and cancelling a game removes its credit. Correcting an old result does not renew its date.
+
+When the reserve runs out, RP falls by **2 per day**, stopping at **1,500 RP**. Decay continues below the entry threshold until that floor; it never lowers hidden skill or creates an inactivity-only demotion into Legion. Actual match losses can still take RP below 1,500. Returning players use the normal RP catch-up calculation without increasing opponents' losses or reducing their gains.
+
+The inactivity clock starts no earlier than policy activation.
 
 ### Rating modes
 
@@ -358,7 +378,7 @@ Example with 5 configured roles:
 | `tier4` | next 50%     |
 | `tier5` | bottom 10%   |
 
-Players with less than **8 games** are `Unranked`, which means the bot won't touch their roles.
+Before RP activation, overall qualification requires **8 effective games**. With RP active, players remain `Unranked` below **4 effective games**, can qualify for Pleb/Squire at **4**, and unlock Gladiator eligibility at **6**. Legion stays at **16**, and Elite at **18** plus its quality-win requirements. RP bands and the existing rank protections still apply; enough games alone do not guarantee promotion. Imported games count half. Mode ranks qualify separately.
 
 ### How ratings work
 

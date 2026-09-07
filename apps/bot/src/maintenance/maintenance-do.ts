@@ -7,8 +7,6 @@ import { runRankedRoleMaintenance } from './ranked-role-maintenance.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { refreshDirtyLeaderboards } from '../services/leaderboard/message.ts'
 
-const LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS = 15 * 60 * 1000
-
 export class MaintenanceDO extends DurableObject<Env['Bindings']> {
   private maintenanceQueue = new MaintenanceQueue()
 
@@ -30,7 +28,6 @@ export class MaintenanceDO extends DurableObject<Env['Bindings']> {
     if (pathname === '/leaderboards/refresh') {
       return this.runMaintenance('leaderboard refresh', async () => ({
         refreshed: await refreshDirtyLeaderboards(createDb(this.env.DB), getKvStore(this.env), this.env.DISCORD_TOKEN, {
-          minDirtyAgeMs: LEADERBOARD_REFRESH_MIN_DIRTY_AGE_MS,
           playerModeLimit: 1,
         }),
       }))

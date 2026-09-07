@@ -7,7 +7,7 @@ import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
-import { displayRating, getLeaderboardMinGames } from '@civup/rating'
+import { createRating, displayRating, getLeaderboardMinGames, PUBLIC_RATING_START } from '@civup/rating'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -74,6 +74,12 @@ export interface LobbySnapshot {
       gamesPlayed: number
       wins?: number
       rank?: number | null
+      ratingSystem?: 'rp'
+      publicRating?: number | null
+      seasonGames?: number
+      seasonWins?: number
+      seasonNumber?: number
+      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier }>
     }
     rankedRole?: {
       tier: CompetitiveTier
@@ -371,7 +377,12 @@ export async function attachLobbyBalanceRatingsToSnapshot(
       sigma: row.sigma,
       gamesPlayed: row.gamesPlayed,
       wins: row.wins,
+      seasonGames: row.seasonGames,
+      seasonWins: row.seasonWins,
+      seasonNumber: leaderboardSnapshot.seasonNumber,
+      pastRanks: row.pastRanks,
       rank: rankByPlayerId.get(row.playerId) ?? null,
+      ...(leaderboardSnapshot.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicRating: leaderboardSnapshot.publicReadsEnabled ? row.publicRating ?? null : null } as const : {}),
     },
   ]))
 
@@ -379,13 +390,15 @@ export async function attachLobbyBalanceRatingsToSnapshot(
   const entries = snapshot.entries.map((entry) => {
     if (!entry) return null
 
-    const balanceRating = balanceRatingByPlayerId.get(entry.playerId)
+    const balanceRating = balanceRatingByPlayerId.get(entry.playerId) ?? (leaderboardSnapshot.ratingSystem === 'rp'
+      ? { ...createRating(entry.playerId), gamesPlayed: 0, wins: 0, rank: null, ratingSystem: 'rp' as const, publicRating: leaderboardSnapshot.publicReadsEnabled ? PUBLIC_RATING_START : null }
+      : undefined)
     if (!balanceRating) return entry
 
     hasAttachedRatings = true
     return {
       ...entry,
-      balanceRating,
+      balanceRating: { ...balanceRating, seasonNumber: leaderboardSnapshot.seasonNumber, pastRanks: leaderboardSnapshot.pastRanksByPlayerId?.[entry.playerId] ?? [] },
     }
   })
 
@@ -400,11 +413,12 @@ function getLeaderboardRankByPlayer(
   snapshot: LeaderboardModeSnapshot,
   mode: LeaderboardMode,
 ): Map<string, number> {
-  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}`
+  if (snapshot.ratingSystem === 'rp' && (!snapshot.publicReadsEnabled || snapshot.rows.some(row => row.publicRating == null))) return new Map()
+  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}:${snapshot.ratingSystem ?? 'legacy'}`
   const cached = leaderboardRankCache.get(cacheKey)
   if (cached) return cached
 
-  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode)
+  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode, snapshot.ratingSystem === 'rp')
   leaderboardRankCache.set(cacheKey, rankByPlayerId)
   while (leaderboardRankCache.size > LEADERBOARD_RANK_CACHE_MAX_ENTRIES) {
     const oldestKey = leaderboardRankCache.keys().next().value
@@ -417,12 +431,13 @@ function getLeaderboardRankByPlayer(
 function buildLeaderboardRankByPlayer(
   rows: LeaderboardModeSnapshot['rows'],
   mode: LeaderboardMode,
+  publicEra = false,
 ): Map<string, number> {
   const ranked = rows
     .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
     .map(row => ({
       playerId: row.playerId,
-      display: displayRating(row.mu, row.sigma),
+      display: publicEra ? row.publicRating! : displayRating(row.mu, row.sigma),
     }))
     .sort((left, right) => right.display - left.display)
 
@@ -494,7 +509,7 @@ async function buildLobbySnapshotFromSessionParts(
       playerId,
       displayName: member.displayName ?? playerId,
       avatarUrl: member.avatarUrl ?? null,
-      rankedRole: rankedRole
+      rankedRole: rankedRole && !rankedRole.unranked
         ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode }
         : null,
     }
