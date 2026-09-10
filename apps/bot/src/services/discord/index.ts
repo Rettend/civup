@@ -50,6 +50,7 @@ export interface DiscordGuildRolePayload {
 export interface DiscordGuildRoleResponse {
   id: string
   name?: string
+  color?: number
   hoist?: boolean
   managed?: boolean
   mentionable?: boolean
@@ -67,6 +68,7 @@ export async function updateGuildRolePositions(token: string, guildId: string, p
 }
 
 export interface DiscordGuildMemberResponse {
+  roles?: string[]
   nick?: string | null
   avatar?: string | null
   user?: {
@@ -407,6 +409,7 @@ export async function createGuildRole(
       },
       body: JSON.stringify(payload),
     },
+    false,
   )
 
   return response.json<DiscordGuildRoleResponse>()
@@ -455,13 +458,19 @@ export async function fetchGuildRoles(
   })
 }
 
-export async function fetchGuildMemberPage(token: string, guildId: string, after?: string): Promise<Array<{ user: { id: string }, roles: string[] }>> {
+export async function fetchGuildMemberPage(token: string, guildId: string, after?: string): Promise<Array<{ user: { id: string, bot?: boolean }, roles: string[] }>> {
   const response = await requestDiscord('fetch guild members', `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000${after ? `&after=${encodeURIComponent(after)}` : ''}`, {
     method: 'GET', headers: { Authorization: `Bot ${token}` },
   })
   const rows = await response.json<unknown>()
   if (!Array.isArray(rows) || rows.some(row => !row?.user?.id || !Array.isArray(row.roles))) throw new Error('Guild member response is incomplete.')
   return rows
+}
+
+export async function fetchGuildChannelRoleOverwriteIds(token: string, guildId: string): Promise<Set<string>> {
+  const response = await requestDiscord('fetch guild channel permissions', `https://discord.com/api/v10/guilds/${guildId}/channels`, { headers: { Authorization: `Bot ${token}` } })
+  const channels = await response.json<Array<{ permission_overwrites?: Array<{ id: string, type: number }> }>>()
+  return new Set(channels.flatMap(channel => (channel.permission_overwrites ?? []).filter(overwrite => overwrite.type === 0).map(overwrite => overwrite.id)))
 }
 
 export async function deleteGuildRole(
@@ -485,13 +494,14 @@ async function requestDiscord(
   action: string,
   url: string,
   init: RequestInit,
+  retryServerErrors = true,
 ): Promise<Response> {
   for (let attempt = 0; attempt <= MAX_DISCORD_RETRIES; attempt++) {
     const response = await fetch(url, init)
     if (response.ok) return response
 
     const detail = await response.text()
-    const isRetriable = response.status === 429 || response.status >= 500
+    const isRetriable = response.status === 429 || (retryServerErrors && response.status >= 500)
     if (!isRetriable || attempt === MAX_DISCORD_RETRIES) {
       throw new DiscordApiError(action, response.status, detail)
     }

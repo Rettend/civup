@@ -15,10 +15,11 @@ export function playerDecayEmbed(input: {
   policy: PublicRatingDecayPolicy | null
   season: { ratingSystem: string, startsAt: number, endsAt: number | null } | null
   now: number
+  modeOnly?: boolean
 }) {
   const at = Math.min(input.now, input.season?.endsAt ?? input.now)
   const publicEra = input.season?.ratingSystem === 'rp'
-  const fields = ([['global', 'Overall'], ['duel', 'Duel'], ['duo', 'Duo'], ['squad', 'Squad'], ['ffa', 'FFA']] as const).map(([mode, label]) => {
+  const fields = ([['global', 'Overall'], ['duel', 'Duel'], ['duo', 'Duo'], ['squad', 'Squad'], ['ffa', 'FFA']] as const).filter(([mode]) => !input.modeOnly || mode !== 'global').map(([mode, label]) => {
     const row = input.ratings.find(row => row.mode === mode)
     const rating = row?.publicRating ?? PUBLIC_RATING_START
     const decay = publicEra && input.policy

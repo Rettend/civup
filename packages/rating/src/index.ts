@@ -141,6 +141,7 @@ export function displayRating(mu: number, sigma: number): number {
 }
 
 export * from './decay.ts'
+export * from './overall-rank.ts'
 
 /** Conservative Elo-like score used for global ranked role bands. */
 export function roleRating(mu: number, sigma: number): number {

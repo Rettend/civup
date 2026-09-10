@@ -304,9 +304,13 @@ Once a player has enough evidence, the bot assigns a ranked role.
 
 #### Season selection
 
-`/stats`, `/leaders`, and `/rank` accept `season:current` or a season number such as `season:8`. Current is the default; if no season is active, it selects the latest season. The same filter applies to team statistics and `/stats leader:...`.
+`/stats`, `/leaders`, and `/rank` offer a season dropdown with Current and the available seasons, such as Season 9 and Season 8. Current is the default; if no season is active, it selects the latest season. You can also type a number to filter the suggestions. The same filter applies to team statistics and `/stats leader:...`.
 
 Use `season:all` for all-time statistics in `/stats` or `/leaders`. Any rating beside those counts is labelled current. `/rank` shows one season at a time, with the existing 20/50/100/200-game choices; it does not join incompatible rating scales. A public season's graph can show its opening rating before the first game. Ratings stay unavailable while that season's public data is not ready.
+
+Player mode statistics include `Rank: #123` when the player qualifies for that mode's leaderboard. Past-season positions come from that season's saved standings, not current ratings or the player's highest role. The historical role in the heading remains separate from the numerical positions.
+
+Past-season standings are saved and cached for all players. They can still change while late reports are allowed; finalization saves the final positions and peak roles. Clearing a cache does not erase this history.
 
 The Activity player hover shows current RP and current-season results. Its role badges show the current season first, followed by saved historical season ranks, using at most two rows. Lifetime experience still counts for balancing and qualification.
 

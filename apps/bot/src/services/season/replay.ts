@@ -11,10 +11,17 @@ import { getStoredGameModeContext } from '../match/draft-data.ts'
 import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../match/report.ts'
 import { seasonSourceGuard } from './report.ts'
 import { loadPublicRatingDecayPolicy, samePublicRatingDecay } from './decay.ts'
+import { prepareAtomicDivisionUpdates } from '../ranked/atomic-divisions.ts'
 
 const evidenceKeys = ['gamesPlayed', 'wins', 'importedGames', 'effectiveGames', 'winsVsTier1', 'winsVsTier2Plus', 'effectiveWinsVsTier1', 'effectiveWinsVsTier2Plus'] as const
 const eventFields = ['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'gamesDelta', 'winsDelta', 'importedGamesDelta', 'effectiveGamesDelta', 'winsVsTier1Delta', 'winsVsTier2PlusDelta', 'effectiveWinsVsTier1Delta', 'effectiveWinsVsTier2PlusDelta', 'publicRatingBefore', 'publicRatingAfter', 'publicSequence', 'publicFormulaVersion', 'publicCalibrationVersion', 'publicDecayBefore', 'publicDecayAfter', 'publicDecayDelta'] as const
 const storedEventValue = (value: unknown) => value != null && typeof value === 'object' ? JSON.stringify(value) : value ?? null
+const correctionTooLarge = 'Changing this match would affect too many later results for a mod command. Ask the server owner to review the correction.'
+const floatingReplayFields = new Set<string>(['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'publicRatingBefore', 'publicRatingAfter', 'publicDecayDelta'])
+function sameReplayNumber(left: number | null | undefined, right: number | null | undefined): boolean {
+  return left === right || typeof left === 'number' && typeof right === 'number' && Number.isFinite(left) && Number.isFinite(right)
+    && Math.abs(left - right) <= Number.EPSILON * 8 * Math.max(1, Math.abs(left), Math.abs(right))
+}
 
 export interface SeasonReplayChange {
   matchId: string
@@ -29,28 +36,49 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   const [boundary] = change ? await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, change.matchId)).limit(1) : []
   if (change && boundary?.seasonId !== seasonId) throw new Error('The correction has no recorded report order in this season.')
   const firstSequence = boundary?.sequence ?? 0
-  const reportScope = and(eq(seasonMatchReports.seasonId, seasonId), gte(seasonMatchReports.sequence, firstSequence))!
+  const reportScope = and(eq(seasonMatchReports.seasonId, seasonId), change ? sql`${seasonMatchReports.matchId} in (
+    with recursive affected(match_id, sequence) as (
+      select ${change.matchId}, ${firstSequence}
+      union
+      select r.match_id, r.sequence from season_match_reports r join match_participants p on p.match_id=r.match_id
+        where r.season_id=${seasonId} and r.sequence>${firstSequence} and r.cancelled_at is null
+          and p.player_id in (select value from json_each(${JSON.stringify(change.participants?.map(row => row.playerId) ?? [])}))
+      union
+      select r.match_id, r.sequence from affected a
+        join match_participants p on p.match_id=a.match_id
+        join match_participants q on q.player_id=p.player_id
+        join season_match_reports r on r.match_id=q.match_id
+        where r.season_id=${seasonId} and r.sequence>a.sequence and r.cancelled_at is null
+      limit 41
+    ) select match_id from affected
+  )` : gte(seasonMatchReports.sequence, firstSequence))!
   const reports = await db.select().from(seasonMatchReports).where(reportScope).orderBy(seasonMatchReports.sequence).limit(41)
-  if (reports.length > 40) throw new Error('Season correction exceeds the online replay limit. Use reviewed local maintenance.')
+  if (reports.length > 40) throw new Error(correctionTooLarge)
   if (change && !reports.some(row => row.matchId === change.matchId)) throw new Error('The correction has no recorded report order.')
   if (reports.length === 0) return { queries: [], matchIds: [] }
   const ids = reports.map(row => row.matchId)
   const [storedMatches, participants, events] = await Promise.all([
     db.select().from(matches).where(inArray(matches.id, ids)),
-    db.select().from(matchParticipants).where(inArray(matchParticipants.matchId, ids)),
+    db.select().from(matchParticipants).where(inArray(matchParticipants.matchId, ids)).limit(151),
     db.select().from(playerRatingEvents).where(inArray(playerRatingEvents.matchId, ids)).limit(151),
   ])
+  if (participants.length > 150 || events.length > 150) throw new Error(correctionTooLarge)
   if (events.some(event => event.seasonId !== seasonId)) throw new Error('A report contains an event assigned to another season.')
   const key = (row: { playerId: string, mode: string }) => `${row.playerId}:${row.mode}`
   const requiredChains = new Set<string>()
+  const chainStarts = new Map<string, number>()
   for (const match of storedMatches) {
     const mode = getStoredGameModeContext(match.gameMode, match.draftData)?.leaderboardMode
     if (!mode) throw new Error('The report has no ranked rating scope.')
     const rows = [...participants.filter(row => row.matchId === match.id), ...(change?.matchId === match.id ? change.participants ?? [] : [])]
-    for (const row of rows) for (const scope of [mode, 'global']) requiredChains.add(key({ playerId: row.playerId, mode: scope }))
+    for (const row of rows) for (const scope of [mode, 'global']) {
+      const chain = key({ playerId: row.playerId, mode: scope })
+      requiredChains.add(chain)
+      chainStarts.set(chain, Math.min(chainStarts.get(chain) ?? Infinity, reports.find(report => report.matchId === match.id)!.sequence))
+    }
   }
   const playerIds = [...new Set([...participants.map(row => row.playerId), ...(change?.participants?.map(row => row.playerId) ?? [])])]
-  if (playerIds.length > 90) throw new Error('Too many player states for online replay.')
+  if (playerIds.length > 90) throw new Error(correctionTooLarge)
   const [seedRows, stateRows, liveRows] = playerIds.length ? await Promise.all([
     db.select().from(publicRatingSeeds).where(and(eq(publicRatingSeeds.seasonId, seasonId), inArray(publicRatingSeeds.playerId, playerIds))),
     db.select().from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, seasonId), inArray(seasonRatingStates.playerId, playerIds))),
@@ -58,7 +86,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   ]) : [[], [], []]
   const seeds = seedRows.filter(row => requiredChains.has(key(row)))
   const states = stateRows.filter(row => requiredChains.has(key(row)))
-  if (seeds.length > 100 || states.length > 100 || events.length > 150 || participants.length > 150) throw new Error('Season correction exceeds the online replay limit. Use reviewed local maintenance.')
+  if (seeds.length > 100 || states.length > 100) throw new Error(correctionTooLarge)
   const versions = [...new Set([...seeds.map(seed => seed.calibrationVersion), ...events.flatMap(event => event.publicCalibrationVersion ? [event.publicCalibrationVersion] : [])])]
   if (versions.length > 90) throw new Error('Too many calibration versions for online replay.')
   const calibrations = versions.length ? await db.select().from(publicRatingCalibrations).where(inArray(publicRatingCalibrations.version, versions)) : []
@@ -67,7 +95,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   const eventKey = (row: { matchId: string, playerId: string, mode: string }) => `${row.matchId}:${key(row)}`
   const originalEvents = new Map(events.map(event => [eventKey(event), event]))
   const calibrationByVersion = new Map(calibrations.map(row => [row.version, row.calibration]))
-  const chainKeys = JSON.stringify(seeds.map(seed => [seed.playerId, seed.mode]))
+  const chainKeys = JSON.stringify(seeds.map(seed => [seed.playerId, seed.mode, chainStarts.get(key(seed))]))
   const prefixColumns = Object.fromEntries(Object.entries(getTableColumns(playerRatingEvents)).map(([field, column]) => [field, sql`${column}`.mapWith(column)])) as {
     [K in keyof typeof playerRatingEvents.$inferSelect]: SQL<typeof playerRatingEvents.$inferSelect[K]>
   }
@@ -76,9 +104,9 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     .from(sql`json_each(${chainKeys}) AS expected CROSS JOIN ${playerRatingEvents}`)
     .innerJoin(seasonMatchReports, eq(seasonMatchReports.matchId, playerRatingEvents.matchId))
     .where(sql`${playerRatingEvents.seasonId} = ${seasonId} AND ${playerRatingEvents.playerId} = json_extract(expected.value, '$[0]')
-      AND ${playerRatingEvents.mode} = json_extract(expected.value, '$[1]') AND ${playerRatingEvents.publicSequence} < ${firstSequence}`)
+      AND ${playerRatingEvents.mode} = json_extract(expected.value, '$[1]') AND ${playerRatingEvents.publicSequence} < json_extract(expected.value, '$[2]')`)
     .orderBy(playerRatingEvents.publicSequence).limit(5001) : []
-  if (prefix.length > 5000) throw new Error('The affected chains exceed the online history read limit. Use reviewed local maintenance.')
+  if (prefix.length > 5000) throw new Error('The affected players have too much earlier rating history for this mod command. Ask the server owner to review the correction.')
 
   function calculate(edit?: SeasonReplayChange) {
     const ratings = new Map<string, StoredRatingSummaryRow & { publicRating: number, publicBadge: number | null, publicDecay: PublicRatingDecayState | null, seasonGames: number, seasonWins: number }>()
@@ -94,7 +122,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
       const previous = ratings.get(key(event))
       const decay = previous && decayPolicy ? settlePublicRatingDecay(previous.publicRating, previous.publicDecay, event.acceptedAt, decayPolicy, season!.startsAt) : { rating: previous?.publicRating, state: null, delta: 0 }
       if (event.cancelledAt != null || event.reportSeasonId !== seasonId || event.reportSequence !== event.publicSequence) throw new Error('The saved prefix has an invalid report identity or cancellation state.')
-      if (!previous || event.publicRatingBefore !== decay.rating || event.publicDecayDelta !== decay.delta || !samePublicRatingDecay(event.publicDecayBefore, decay.state) || event.ratingBeforeMu !== previous.mu || event.ratingBeforeSigma !== previous.sigma
+      if (!previous || !sameReplayNumber(event.publicRatingBefore, decay.rating) || !sameReplayNumber(event.publicDecayDelta, decay.delta) || !samePublicRatingDecay(event.publicDecayBefore, decay.state) || event.ratingBeforeMu !== previous.mu || event.ratingBeforeSigma !== previous.sigma
         || event.publicRatingAfter == null || !event.publicFormulaVersion || !event.publicCalibrationVersion) throw new Error('The saved prefix does not connect to its frozen seed. No writes were prepared.')
       ratings.set(key(event), {
         ...previous, mu: event.ratingAfterMu, sigma: event.ratingAfterSigma, publicRating: event.publicRatingAfter,
@@ -159,11 +187,16 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   const control = calculate()
   if (control.rebuilt.length !== events.length || control.rebuilt.some(event => {
     const old = originalEvents.get(eventKey(event))
-    return !old || eventFields.some(field => storedEventValue(event[field]) !== storedEventValue(old[field]))
+    const changed = old ? eventFields.filter(field => floatingReplayFields.has(field)
+      ? !sameReplayNumber(event[field] as number | null, old[field] as number | null)
+      : storedEventValue(event[field]) !== storedEventValue(old[field])) : []
+    if (changed.length) console.error('[season-replay] recorded event mismatch', { matchId: event.matchId, playerId: event.playerId, mode: event.mode,
+      fields: changed.map(field => ({ field, saved: storedEventValue(old![field]), replayed: storedEventValue(event[field]) })) })
+    return !old || changed.length > 0
   })) throw new Error('No-op season replay did not reproduce the recorded events. No writes were prepared.')
   if (states.length !== control.ratings.size || states.some(state => {
     const rating = control.ratings.get(key(state))
-    return !rating || state.mu !== rating.mu || state.sigma !== rating.sigma || state.publicRating !== rating.publicRating
+    return !rating || !sameReplayNumber(state.mu, rating.mu) || !sameReplayNumber(state.sigma, rating.sigma) || !sameReplayNumber(state.publicRating, rating.publicRating)
       || state.publicBadge !== rating.publicBadge || !samePublicRatingDecay(state.publicDecay, rating.publicDecay) || state.seasonGames !== rating.seasonGames || state.seasonWins !== rating.seasonWins
       || state.lastPlayedAt !== rating.lastPlayedAt
       || evidenceKeys.some(field => (state.evidence[field] ?? 0) !== rating[field])
@@ -272,6 +305,12 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     queries.push(db.update(seasonMatchReports).set({ cancelledAt: now }).where(eq(seasonMatchReports.matchId, change.matchId)))
     queries.push(db.update(matchParticipants).set({ placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null }).where(eq(matchParticipants.matchId, change.matchId)))
   }
-  if (queries.length > 400) throw new Error('Season correction exceeds the online statement limit. Use reviewed local maintenance.')
+  const division = await prepareAtomicDivisionUpdates(db, { seasonId, now, ratings: [...output.ratings.values()], replacedMatchIds: ids,
+    events: output.rebuilt.map(event => ({ playerId: event.playerId, matchId: event.matchId, mode: event.mode,
+      at: reports.find(report => report.matchId === event.matchId)!.acceptedAt, effectiveGamesDelta: event.effectiveGamesDelta ?? 0,
+      effectiveWinsVsTier1Delta: event.effectiveWinsVsTier1Delta ?? 0, effectiveWinsVsTier2PlusDelta: event.effectiveWinsVsTier2PlusDelta ?? 0 })) })
+  queries.unshift(...division.guards)
+  queries.push(...division.updates)
+  if (queries.length > 400) throw new Error(correctionTooLarge)
   return { queries, matchIds: ids }
 }
