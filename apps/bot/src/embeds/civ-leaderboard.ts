@@ -7,6 +7,7 @@ export type CivLeaderboardBoard = 'picked' | 'winrate' | 'banned'
 export const CIV_LEADERBOARD_BOARDS: readonly CivLeaderboardBoard[] = ['picked', 'winrate', 'banned']
 export const CIV_LEADERBOARD_PAGE_SIZE = 20
 export const CIV_LEADERBOARD_TOP_LIMIT = 25
+const MIN_WIN_RATE_PICKS = 30
 export const CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT = 2100
 
 const DISCORD_EMBEDS_TOTAL_CHAR_LIMIT = 6000
@@ -193,13 +194,13 @@ export function civLeaderboardRowsForBoard(
 
   if (board === 'winrate') {
     return [...rows]
-      .filter(row => row.picks > 0 && row.winRatePct != null)
+      .filter(row => row.picks >= MIN_WIN_RATE_PICKS && row.winRatePct != null)
       .sort((left, right) => (right.winRatePct ?? 0) - (left.winRatePct ?? 0) || right.picks - left.picks || left.civId.localeCompare(right.civId))
   }
 
   return [...rows]
-    .filter(row => row.bans > 0)
-    .sort((left, right) => right.bans - left.bans || right.picks - left.picks || left.civId.localeCompare(right.civId))
+    .filter(row => row.bans > 0 && row.poolGames > 0)
+    .sort((left, right) => right.bans / right.poolGames - left.bans / left.poolGames || right.poolGames - left.poolGames || left.civId.localeCompare(right.civId))
 }
 
 function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number): string {

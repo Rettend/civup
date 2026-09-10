@@ -4,12 +4,41 @@ import { matchCivStatContributions, matches, matchParticipants, players, tournam
 import { allLeaderIds, getLeader, liveLeaderDataVersionLabel } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
-import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_PAGE_SIZE, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups } from '../../src/embeds/civ-leaderboard.ts'
+import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_PAGE_SIZE, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups, civLeaderboardRowsForBoard } from '../../src/embeds/civ-leaderboard.ts'
 import { backfillCivLeaderboardStatsFromHistory, buildCivLeaderboardSnapshotFromD1, civLeaderboardSnapshotKey, rebuildCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshots, reconcileCivLeaderboardMatchContribution, repairCivLeaderboardStatsFromContributions, setCivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { parsePaginationCustomId } from '../../src/services/response/pagination.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('civ leaderboard command payload', () => {
+  test('win-rate eligibility uses the selected sample and ban order uses frequency with exposure as the tie-breaker', () => {
+    const row = (civId: string, picks: number, bans: number, poolGames: number) => ({ civId, leaderName: civId, picks, bans, poolGames,
+      wins: picks, pickRatePct: picks / poolGames * 100, winRatePct: 100, banRatePct: bans / poolGames * 100 })
+    const rows = [row('small', 29, 8, 10), row('large', 30, 80, 100), row('frequent', 1, 9, 10), row('popular', 60, 100, 200)]
+    expect(civLeaderboardRowsForBoard('winrate', rows).map(row => row.civId)).toEqual(['popular', 'large'])
+    expect(civLeaderboardRowsForBoard('banned', rows).map(row => row.civId)).toEqual(['frequent', 'large', 'small', 'popular'])
+    expect(civLeaderboardRowsForBoard('picked', rows)).toHaveLength(4)
+  })
+
+  test('blind bans count once per match and historical migration preserves aggregate reversals', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await db.insert(matches).values({ id: 'blind', gameMode: '4v4', status: 'completed', createdAt: 1, completedAt: 2,
+        draftData: JSON.stringify({ state: { availableCivIds: ['rome-trajan'], bans: [{ civId: 'russia-peter', seatIndex: 0 }, { civId: 'russia-peter', seatIndex: 1 }] } }) })
+      const snapshot = await buildCivLeaderboardSnapshotFromD1(db)
+      expect(snapshot.rows.find(row => row.civId === 'russia-peter')).toMatchObject({ bans: 1, poolGames: 1, banRatePct: 100 })
+      await backfillCivLeaderboardStatsFromHistory(db)
+      // Recreate a pre-fix persisted contribution and aggregate, then apply the data correction.
+      sqlite.exec(`update match_civ_stat_contributions set contributions_json=json_set(contributions_json,'$.entries[0].bans',2) where match_id='blind';
+        update civ_stats set bans=2 where civ_id='russia-peter';`)
+      sqlite.exec(await Bun.file(new URL('../../../../packages/db/migrations/0031_distinct_civ_bans.sql', import.meta.url)).text())
+      expect(sqlite.query("select bans from civ_stats where civ_id='russia-peter'").get()).toEqual({ bans: 1 })
+      sqlite.exec("update matches set status='cancelled' where id='blind'")
+      await reconcileCivLeaderboardMatchContribution(db, 'blind')
+      expect(sqlite.query("select bans from civ_stats where civ_id='russia-peter'").get()).toBeNull()
+    }
+    finally { sqlite.close() }
+  })
+
   test('shows the selected civ leaderboard mode', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
@@ -62,7 +91,7 @@ describe('civ leaderboard command payload', () => {
       expect(embeds[0]?.description).toContain('🖱️ `50%  ` 🏆 `50%  ` 🚫 `16.7%`')
       expect(embeds[0]?.description).toContain('Trajan')
       expect(embeds[0]?.description).not.toContain('`Rome`')
-      expect(embeds[1]?.description).toContain('🏆 `75%  ` 🖱️ `50%  ` 🚫 `33.3%`')
+      expect(embeds[1]?.description).not.toContain('Peter')
       expect(embeds[2]?.description).toContain('🚫 `33.3%` 🖱️ `50%  ` 🏆 `75%  `')
       expect(embeds.map(embed => embed.description).join('\n')).not.toContain('Aliens')
       expect(embeds[0]?.footer?.text).toBe(`BBG ${liveLeaderDataVersionLabel} - 24 Games | Page 1/1 - 1-2 of 2`)
