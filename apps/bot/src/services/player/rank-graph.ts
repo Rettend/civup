@@ -12,6 +12,7 @@ import { getConfiguredDivisionLabel, getConfiguredRankedRoleLabel, getRankedRole
 import type { SeasonSelection } from '../season/selection.ts'
 import { resolveSeasonSelection } from '../season/selection.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
+import { loadSeasonStandings } from '../season/standings.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
 export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
@@ -299,20 +300,8 @@ async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string
 }
 
 async function loadHistoricalRankGraphScores(db: Database, kv: KVNamespace, seasonId: string, scope: RankGraphScope): Promise<RankGraphScoreRow[]> {
-  const key = `rank-graph:legacy-scores:v1:${seasonId}:${scope}`
-  const cached = await kv.get<RankGraphScoreRow[]>(key, 'json')
-  if (cached) return cached
-  const rows = await db.select({ playerId: seasonRatingStates.playerId, mu: seasonRatingStates.mu, sigma: seasonRatingStates.sigma,
-    evidence: seasonRatingStates.evidence, lastPlayedAt: seasonRatingStates.lastPlayedAt,
-  }).from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, seasonId), eq(seasonRatingStates.mode, toRatingEventScope(scope))))
-  const scores = rows.filter(row => scope === 'overall'
-    ? (row.evidence.effectiveGames ?? 0) >= RANKED_ROLE_MIN_EFFECTIVE_GAMES
-    : (row.evidence.gamesPlayed ?? 0) >= getLeaderboardMinGames(scope))
-    .map(row => ({ playerId: row.playerId, score: scope === 'overall' ? roleRating(row.mu, row.sigma) : displayRating(row.mu, row.sigma),
-      lastPlayedAt: row.lastPlayedAt, qualified: scope === 'overall' || (row.evidence.gamesPlayed ?? 0) >= MODE_RANK_GRAPH_BAND_MIN_GAMES,
-    })).sort(compareRankGraphScoreRows)
-  await kv.put(key, JSON.stringify(scores), { expirationTtl: 900 })
-  return scores
+  const saved = await loadSeasonStandings(db, kv, seasonId)
+  return saved?.graphScores.filter(row => row.mode === toRatingEventScope(scope)).map(row => ({ ...row, qualified: row.qualified === 1 })) ?? []
 }
 
 async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {

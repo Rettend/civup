@@ -1,11 +1,13 @@
 import type { Database } from '@civup/db'
-import { matches, matchParticipants, matchPlayerCivStatContributions, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingDecayPolicies, publicRatingSeeds, seasonMatchReports, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
+import { matches, matchParticipants, matchPlayerCivStatContributions, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingDecayPolicies, publicRatingSeeds, seasonMatchReports, seasonRatingCheckpoints, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
 import { calibratePublicRatings, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { prepareSeasonReport, runAtomicSeasonBatch } from '../../src/services/season/report.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
 import { prepareSeasonReplay } from '../../src/services/season/replay.ts'
+import { initializeQualityCheckpointPage } from '../../src/services/ranked/quality-checkpoint.ts'
+import { initializeSeasonCheckpointPage } from '../../src/services/season/checkpoints.ts'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../../src/services/match/moderation.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 import { divisionRankPolicies, divisionRankStates, divisionQualityCredits } from '@civup/db'
@@ -38,6 +40,44 @@ async function setup() {
 }
 
 describe('atomic season reporting', () => {
+  test('historical checkpoint pages resume, verify complete summaries, and reject partial or racing sources', async () => {
+    const { db, sqlite, addMatch } = await setup()
+    try {
+      for (let i = 0; i < 41; i++) {
+        const input = await addMatch(`checkpoint-${i}`, 1100 + i)
+        await runAtomicSeasonBatch(db, (await prepareSeasonReport(db, { ...input, acceptedAt: 1200 + i, now: 1200 + i, opponentTierByPlayerId: new Map() })).queries)
+        await db.update(matches).set({ status: 'completed', completedAt: 1200 + i }).where(eq(matches.id, input.match.id))
+      }
+      const saved = await db.select().from(seasonRatingCheckpoints)
+      const before = await db.select().from(seasonRatingStates)
+      await db.delete(seasonRatingCheckpoints)
+      await expect(prepareSeasonReplay(db, 's9', { matchId: 'checkpoint-40', cancel: true }, 1400)).rejects.toThrow('checkpoints are not ready')
+      await expect(initializeSeasonCheckpointPage(db, 's9', 'p', 'global', 1)).rejects.toThrow()
+      expect(await db.select().from(seasonRatingCheckpoints)).toHaveLength(0)
+      sqlite.exec("update rating_maintenance set state='paused', generation=1")
+      expect(await initializeSeasonCheckpointPage(db, 's9', 'p', 'global', 1)).toBe(false)
+      expect(await db.select().from(seasonRatingCheckpoints)).toHaveLength(40)
+      await expect(prepareSeasonReplay(db, 's9', { matchId: 'checkpoint-40', cancel: true }, 1400)).rejects.toThrow('checkpoints are not ready')
+      sqlite.exec("update season_rating_states set season_games=season_games+1 where player_id='p' and mode='global'")
+      await expect(initializeSeasonCheckpointPage(db, 's9', 'p', 'global', 1)).rejects.toThrow('saved season summary')
+      expect(await db.select().from(seasonRatingCheckpoints)).toHaveLength(40)
+      sqlite.exec("update season_rating_states set season_games=season_games-1 where player_id='p' and mode='global'")
+      expect(await initializeSeasonCheckpointPage(db, 's9', 'p', 'global', 1)).toBe(true)
+      for (const [playerId, mode] of [['p', 'duel'], ['q', 'global'], ['q', 'duel']] as const) {
+        while (!await initializeSeasonCheckpointPage(db, 's9', playerId, mode, 1)) {}
+      }
+      const rebuilt = await db.select().from(seasonRatingCheckpoints)
+      const normalize = (rows: typeof rebuilt) => rows.map(row => ({ ...row, fromHistory: false, summary: JSON.parse(row.summary) }))
+        .sort((a, b) => a.sequence - b.sequence || a.playerId.localeCompare(b.playerId) || a.mode.localeCompare(b.mode))
+      expect(normalize(rebuilt)).toEqual(normalize(saved))
+      expect(await db.select().from(seasonRatingStates)).toEqual(before)
+      const prepared = await prepareSeasonReplay(db, 's9', { matchId: 'checkpoint-40', cancel: true }, 1400)
+      sqlite.exec("update season_rating_checkpoints set summary=json_set(summary,'$.seasonWins',0) where player_id='p' and mode='global' and match_id='checkpoint-39'")
+      await expect(runAtomicSeasonBatch(db, prepared.queries)).rejects.toThrow()
+      expect(await db.select().from(seasonRatingStates)).toEqual(before)
+    }
+    finally { sqlite.close() }
+  })
   test('replay accepts machine-rounding differences but rejects materially changed rating events', async () => {
     const { db, sqlite, addMatch } = await setup()
     try {
@@ -93,6 +133,7 @@ describe('atomic season reporting', () => {
         configJson: JSON.stringify({ preparation: { unrankedRoleId: 'unranked', roleIdsByMinimum: Object.fromEntries(PUBLIC_RATING_BANDS.map(b => [b.minimum, `role-${b.minimum}`])) } }) })
       const match = await addMatch('fourth', 1400)
       const input = { ...match, acceptedAt: 1500, now: 1500, opponentTierByPlayerId: new Map() }
+      for (const player of ['p', 'q']) await initializeQualityCheckpointPage(db, 'guild', player, 1500)
       const prepared = await prepareSeasonReport(db, input)
       await db.insert(playerRatings).values({ playerId: 'p', mode: 'duo', effectiveGames: 0, publicRating: 750 })
       await expect(runAtomicSeasonBatch(db, prepared.queries)).rejects.toThrow()

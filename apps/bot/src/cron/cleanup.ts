@@ -6,6 +6,7 @@ import { requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../
 import { factory } from '../setup.ts'
 import { parseRecoveredAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import { recoverStaleAutosaveUploads } from '../services/uploads/multipart.ts'
+import { refreshHistoricalStandings } from '../services/season/standings.ts'
 
 export const cron_cleanup = factory.cron(
   '0 * * * *', // every hour
@@ -54,6 +55,8 @@ export const cron_cleanup = factory.cron(
 export const cron_leaderboards = factory.cron(
   '*/15 * * * *', // every 15 minutes
   async (c) => {
+    try { await refreshHistoricalStandings(createDb(c.env.DB)) }
+    catch (error) { console.error('[cron] Failed to refresh historical standings:', error) }
     try {
       const result = await requestLeaderboardMaintenance(c.env.MaintenanceDO)
       if (result.refreshed) {

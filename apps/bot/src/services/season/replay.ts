@@ -3,7 +3,7 @@ import type { ParticipantRow } from '../match/types.ts'
 import type { StoredRatingSummaryRow } from '../match/report.ts'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { SQL } from 'drizzle-orm'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingStates, seasons } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingStates, seasonRatingCheckpoints, seasons } from '@civup/db'
 import { parseLeaderboardMode } from '@civup/game'
 import { advancePublicRatingBadge, calculatePublicRatingTransition, createRating, PUBLIC_RATING_START, publicRatingTarget, recordPublicRatingDecayGame, settlePublicRatingDecay, type PublicRatingDecayState } from '@civup/rating'
 import { and, eq, getTableColumns, gte, inArray, sql } from 'drizzle-orm'
@@ -12,16 +12,14 @@ import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../
 import { seasonSourceGuard } from './report.ts'
 import { loadPublicRatingDecayPolicy, samePublicRatingDecay } from './decay.ts'
 import { prepareAtomicDivisionUpdates } from '../ranked/atomic-divisions.ts'
+import { writeRatingCheckpoints, type RatingCheckpoint } from './checkpoints.ts'
+import { sameReplayNumber } from './replay-number.ts'
 
 const evidenceKeys = ['gamesPlayed', 'wins', 'importedGames', 'effectiveGames', 'winsVsTier1', 'winsVsTier2Plus', 'effectiveWinsVsTier1', 'effectiveWinsVsTier2Plus'] as const
 const eventFields = ['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'gamesDelta', 'winsDelta', 'importedGamesDelta', 'effectiveGamesDelta', 'winsVsTier1Delta', 'winsVsTier2PlusDelta', 'effectiveWinsVsTier1Delta', 'effectiveWinsVsTier2PlusDelta', 'publicRatingBefore', 'publicRatingAfter', 'publicSequence', 'publicFormulaVersion', 'publicCalibrationVersion', 'publicDecayBefore', 'publicDecayAfter', 'publicDecayDelta'] as const
 const storedEventValue = (value: unknown) => value != null && typeof value === 'object' ? JSON.stringify(value) : value ?? null
-const correctionTooLarge = 'Changing this match would affect too many later results for a mod command. Ask the server owner to review the correction.'
+const correctionTooLarge = 'Changing this match would affect too many later results for a mod command.'
 const floatingReplayFields = new Set<string>(['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'publicRatingBefore', 'publicRatingAfter', 'publicDecayDelta'])
-function sameReplayNumber(left: number | null | undefined, right: number | null | undefined): boolean {
-  return left === right || typeof left === 'number' && typeof right === 'number' && Number.isFinite(left) && Number.isFinite(right)
-    && Math.abs(left - right) <= Number.EPSILON * 8 * Math.max(1, Math.abs(left), Math.abs(right))
-}
 
 export interface SeasonReplayChange {
   matchId: string
@@ -99,14 +97,20 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   const prefixColumns = Object.fromEntries(Object.entries(getTableColumns(playerRatingEvents)).map(([field, column]) => [field, sql`${column}`.mapWith(column)])) as {
     [K in keyof typeof playerRatingEvents.$inferSelect]: SQL<typeof playerRatingEvents.$inferSelect[K]>
   }
-  const prefix = firstSequence > 0 && seeds.length ? await db.select({ ...prefixColumns, acceptedAt: seasonMatchReports.acceptedAt,
+  const checkpointReady = sql<number>`(${seasonRatingCheckpoints.version}=1 and ${seasonRatingCheckpoints.matchId}=${playerRatingEvents.matchId} and (${seasonRatingCheckpoints.fromHistory}=0 or exists(select 1 from season_checkpoint_initializations i
+    where i.season_id=${seasonRatingCheckpoints.seasonId} and i.player_id=${seasonRatingCheckpoints.playerId} and i.mode=${seasonRatingCheckpoints.mode}
+      and i.complete=1 and i.sequence>=${seasonRatingCheckpoints.sequence})))`
+  const prefix = firstSequence > 0 && seeds.length ? await db.select({ ...prefixColumns, acceptedAt: seasonMatchReports.acceptedAt, checkpoint: seasonRatingCheckpoints.summary, checkpointReady,
     reportSequence: seasonMatchReports.sequence, reportSeasonId: seasonMatchReports.seasonId, cancelledAt: seasonMatchReports.cancelledAt })
     .from(sql`json_each(${chainKeys}) AS expected CROSS JOIN ${playerRatingEvents}`)
     .innerJoin(seasonMatchReports, eq(seasonMatchReports.matchId, playerRatingEvents.matchId))
+    .leftJoin(seasonRatingCheckpoints, and(eq(seasonRatingCheckpoints.seasonId, playerRatingEvents.seasonId), eq(seasonRatingCheckpoints.playerId, playerRatingEvents.playerId), eq(seasonRatingCheckpoints.mode, playerRatingEvents.mode), eq(seasonRatingCheckpoints.sequence, playerRatingEvents.publicSequence)))
     .where(sql`${playerRatingEvents.seasonId} = ${seasonId} AND ${playerRatingEvents.playerId} = json_extract(expected.value, '$[0]')
-      AND ${playerRatingEvents.mode} = json_extract(expected.value, '$[1]') AND ${playerRatingEvents.publicSequence} < json_extract(expected.value, '$[2]')`)
-    .orderBy(playerRatingEvents.publicSequence).limit(5001) : []
-  if (prefix.length > 5000) throw new Error('The affected players have too much earlier rating history for this mod command. Ask the server owner to review the correction.')
+      AND ${playerRatingEvents.mode} = json_extract(expected.value, '$[1]') AND ${playerRatingEvents.publicSequence} = (
+        SELECT max(e.public_sequence) FROM player_rating_events e WHERE e.season_id=${seasonId}
+          AND e.player_id=json_extract(expected.value, '$[0]') AND e.mode=json_extract(expected.value, '$[1]')
+          AND e.public_sequence < json_extract(expected.value, '$[2]'))`)
+    .orderBy(playerRatingEvents.publicSequence) : []
 
   function calculate(edit?: SeasonReplayChange) {
     const ratings = new Map<string, StoredRatingSummaryRow & { publicRating: number, publicBadge: number | null, publicDecay: PublicRatingDecayState | null, seasonGames: number, seasonWins: number }>()
@@ -119,26 +123,16 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
       })
     }
     for (const event of prefix) {
-      const previous = ratings.get(key(event))
-      const decay = previous && decayPolicy ? settlePublicRatingDecay(previous.publicRating, previous.publicDecay, event.acceptedAt, decayPolicy, season!.startsAt) : { rating: previous?.publicRating, state: null, delta: 0 }
       if (event.cancelledAt != null || event.reportSeasonId !== seasonId || event.reportSequence !== event.publicSequence) throw new Error('The saved prefix has an invalid report identity or cancellation state.')
-      if (!previous || !sameReplayNumber(event.publicRatingBefore, decay.rating) || !sameReplayNumber(event.publicDecayDelta, decay.delta) || !samePublicRatingDecay(event.publicDecayBefore, decay.state) || event.ratingBeforeMu !== previous.mu || event.ratingBeforeSigma !== previous.sigma
-        || event.publicRatingAfter == null || !event.publicFormulaVersion || !event.publicCalibrationVersion) throw new Error('The saved prefix does not connect to its frozen seed. No writes were prepared.')
-      ratings.set(key(event), {
-        ...previous, mu: event.ratingAfterMu, sigma: event.ratingAfterSigma, publicRating: event.publicRatingAfter,
-        publicBadge: advancePublicRatingBadge(decay.rating!, event.publicRatingAfter, previous.publicBadge),
-        publicDecay: decayPolicy ? recordPublicRatingDecayGame(event.publicRatingAfter, decay.state, event.acceptedAt, decayPolicy, event.importedGamesDelta === 0) : null,
-        gamesPlayed: previous.gamesPlayed + event.gamesDelta, wins: previous.wins + event.winsDelta,
-        importedGames: previous.importedGames + event.importedGamesDelta, effectiveGames: previous.effectiveGames + event.effectiveGamesDelta,
-        winsVsTier1: previous.winsVsTier1 + event.winsVsTier1Delta, winsVsTier2Plus: previous.winsVsTier2Plus + event.winsVsTier2PlusDelta,
-        effectiveWinsVsTier1: previous.effectiveWinsVsTier1 + event.effectiveWinsVsTier1Delta,
-        effectiveWinsVsTier2Plus: previous.effectiveWinsVsTier2Plus + event.effectiveWinsVsTier2PlusDelta,
-        seasonGames: previous.seasonGames + event.gamesDelta, seasonWins: previous.seasonWins + event.winsDelta,
-        lastPlayedAt: event.importedGamesDelta ? previous.lastPlayedAt : Math.max(previous.lastPlayedAt ?? 0, event.acceptedAt), updatedAt: event.acceptedAt,
-      })
-      if (!samePublicRatingDecay(ratings.get(key(event))!.publicDecay, event.publicDecayAfter)) throw new Error('The saved activity reserve does not connect to its prefix.')
+      if (!event.checkpoint || !event.checkpointReady) throw new Error('Rating history checkpoints are not ready for this correction.')
+      const saved = JSON.parse(event.checkpoint) as RatingCheckpoint
+      if (saved.playerId !== event.playerId || saved.mode !== event.mode || saved.mu !== event.ratingAfterMu || saved.sigma !== event.ratingAfterSigma
+        || saved.publicRating !== event.publicRatingAfter || !samePublicRatingDecay(saved.publicDecay, event.publicDecayAfter)
+        || evidenceKeys.some(field => !Number.isFinite(saved[field]) || saved[field] < 0)) throw new Error('The saved rating checkpoint does not match its event.')
+      ratings.set(key(event), saved)
     }
     const rebuilt: Array<typeof playerRatingEvents.$inferInsert> = []
+    const checkpoints: Array<{ matchId: string, summary: RatingCheckpoint }> = []
     for (const report of reports) {
       const match = storedMatches.find(row => row.id === report.matchId)!
       if (report.cancelledAt != null || match.status === 'cancelled' || (edit?.matchId === match.id && edit.cancel)) continue
@@ -172,6 +166,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
             })
             const publicDecay = decayPolicy ? recordPublicRatingDecayGame(transition.after, decay.state, report.acceptedAt, decayPolicy, !match.isOld) : null
             ratings.set(key(summary), { ...summary, publicRating: transition.after, publicBadge: advancePublicRatingBadge(decay.rating, transition.after, previous.publicBadge), publicDecay, seasonGames: previous.seasonGames + 1, seasonWins: previous.seasonWins + (event.winsDelta ?? 0) })
+            checkpoints.push({ matchId: match.id, summary: ratings.get(key(summary))! })
             rebuilt.push({ ...event, seasonId, publicSequence: report.sequence, publicRatingBefore: transition.before, publicRatingAfter: transition.after,
               publicFormulaVersion: formula, publicCalibrationVersion: version,
               publicDecayBefore: decay.state, publicDecayAfter: publicDecay, publicDecayDelta: decay.delta,
@@ -181,7 +176,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
         if (typeof result === 'string') throw new Error(result)
       }
     }
-    return { ratings, rebuilt }
+    return { ratings, rebuilt, checkpoints }
   }
 
   const control = calculate()
@@ -260,7 +255,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     and ${and(...evidenceKeys.map(field => sql`${playerRatings[field]} = ${live[field]}`))})`))
   for (let offset = 0; offset < prefix.length; offset += 50) {
     const expected = JSON.stringify(prefix.slice(offset, offset + 50).map(event => ({
-      matchId: event.matchId, playerId: event.playerId, mode: event.mode, acceptedAt: event.acceptedAt,
+      matchId: event.matchId, playerId: event.playerId, mode: event.mode, acceptedAt: event.acceptedAt, checkpoint: event.checkpoint,
       ...Object.fromEntries(eventFields.map(field => [field, storedEventValue(event[field])])),
     })))
     const changed = eventFields.map(field => sql`${playerRatingEvents[field]} IS NOT json_extract(expected.value, ${`$.${field}`})`)
@@ -268,10 +263,14 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
       LEFT JOIN ${playerRatingEvents} ON ${playerRatingEvents.matchId} = json_extract(expected.value, '$.matchId')
         AND ${playerRatingEvents.playerId} = json_extract(expected.value, '$.playerId') AND ${playerRatingEvents.mode} = json_extract(expected.value, '$.mode')
       LEFT JOIN ${seasonMatchReports} ON ${seasonMatchReports.matchId} = ${playerRatingEvents.matchId}
+      LEFT JOIN ${seasonRatingCheckpoints} ON ${seasonRatingCheckpoints.seasonId} = ${playerRatingEvents.seasonId}
+        AND ${seasonRatingCheckpoints.playerId} = ${playerRatingEvents.playerId} AND ${seasonRatingCheckpoints.mode} = ${playerRatingEvents.mode}
+        AND ${seasonRatingCheckpoints.sequence} = ${playerRatingEvents.publicSequence}
       WHERE ${playerRatingEvents.matchId} IS NULL OR ${playerRatingEvents.seasonId} IS NOT ${seasonId}
         OR ${seasonMatchReports.seasonId} IS NOT ${seasonId} OR ${seasonMatchReports.cancelledAt} IS NOT NULL
         OR ${seasonMatchReports.sequence} IS NOT ${playerRatingEvents.publicSequence}
-        OR ${seasonMatchReports.acceptedAt} IS NOT json_extract(expected.value, '$.acceptedAt') OR ${sql.join(changed, sql` OR `)})`))
+         OR ${seasonMatchReports.acceptedAt} IS NOT json_extract(expected.value, '$.acceptedAt')
+          OR NOT ${checkpointReady} OR ${seasonRatingCheckpoints.summary} IS NOT json_extract(expected.value, '$.checkpoint') OR ${sql.join(changed, sql` OR `)})`))
   }
   queries.push(seasonSourceGuard(db, sql`(select count(*) from ${playerRatingEvents} where ${inArray(playerRatingEvents.matchId, ids)}) = ${events.length}`))
   for (const event of events) queries.push(seasonSourceGuard(db, sql`exists(select 1 from ${playerRatingEvents} where ${playerRatingEvents.matchId} = ${event.matchId}
@@ -286,6 +285,8 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     for (const participant of change.participants) queries.push(db.insert(matchParticipants).values(participant))
   }
   queries.push(db.delete(playerRatingEvents).where(inArray(playerRatingEvents.matchId, ids)))
+  queries.push(db.delete(seasonRatingCheckpoints).where(and(eq(seasonRatingCheckpoints.seasonId, seasonId), inArray(seasonRatingCheckpoints.sequence, reports.map(report => report.sequence)))))
+  if (output.checkpoints.length) queries.push(writeRatingCheckpoints(db, seasonId, output.checkpoints))
   for (const event of output.rebuilt) {
     queries.push(db.insert(playerRatingEvents).values({ ...event, updatedAt: now }))
     if (event.mode !== 'global') queries.push(db.update(matchParticipants).set({ ratingBeforeMu: event.ratingBeforeMu, ratingBeforeSigma: event.ratingBeforeSigma,
