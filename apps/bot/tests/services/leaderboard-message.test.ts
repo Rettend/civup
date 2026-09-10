@@ -2,7 +2,7 @@ import type { Database } from '@civup/db'
 import { leaderboardDecaySchedules, leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, playerRatings, players, publicRatingDecayPolicies, seasons, seasonRatingStates, seasonPeakRanks } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { backfillCivLeaderboardStatsFromHistory, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { backfillCivLeaderboardStatsFromHistory, civLeaderboardSnapshotKey, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshot, reconcileCivLeaderboardMatchContribution } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboards, upsertCivLeaderboardMessageForChannel, upsertLeaderboardMessagesForChannel } from '../../src/services/leaderboard/message.ts'
 import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -65,8 +65,8 @@ describe('leaderboard message service', () => {
       expect(stored?.rows[0]).toMatchObject({ gamesPlayed: 40, wins: 30, seasonGames: 2, seasonWins: 1 })
       const lobby = { draftConfig: {}, entries: [{ playerId: 'experienced' }, { playerId: 'new-to-duel' }] } as LobbySnapshot
       const attached = await attachLobbyBalanceRatingsToSnapshot(kv, '1v1', lobby, stored)
-      expect(attached.entries[0]?.balanceRating).toMatchObject({ gamesPlayed: 40, wins: 30, seasonGames: 2, seasonWins: 1, seasonNumber: 9 })
-      expect(attached.entries[1]?.balanceRating).toMatchObject({ gamesPlayed: 0, publicRating: 750, pastRanks: [{ seasonNumber: 8, tier: 'tier2' }] })
+      expect(attached.entries[0]?.balanceRating).toMatchObject({ rank: 1, gamesPlayed: 40, wins: 30, seasonGames: 2, seasonWins: 1, seasonNumber: 9 })
+      expect(attached.entries[1]?.balanceRating).toMatchObject({ rank: null, gamesPlayed: 0, publicRating: 750, pastRanks: [{ seasonNumber: 8, tier: 'tier2' }] })
     }
     finally { sqlite.close() }
   })
@@ -98,7 +98,7 @@ describe('leaderboard message service', () => {
     try {
       await db.insert(seasons).values({ id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
       await db.insert(leaderboardMessageStates).values(['player:duel', 'civ:duel', 'civ:duel:2'].map(scope => ({ scope, channelId: 'channel', messageId: `old-${scope}`, updatedAt: NOW })))
-      await kv.put('leaderboard:civ:snapshot:duel', JSON.stringify({ updatedAt: NOW, historyInitialized: true, label: 'BBG 7.5.0', periodId: 'release-1', modeScope: 'duel', completedMatchCount: 1, rows: [] }))
+      await kv.put(civLeaderboardSnapshotKey('duel'), JSON.stringify({ updatedAt: NOW, historyInitialized: true, label: 'BBG 7.5.0', periodId: 'release-1', modeScope: 'duel', completedMatchCount: 1, rows: [] }))
       let created = 0
       let edited = 0
       globalThis.fetch = (async (input, init) => {
