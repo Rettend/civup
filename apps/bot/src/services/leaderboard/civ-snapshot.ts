@@ -148,7 +148,7 @@ interface CivPoolTotalRow {
   completedMatchCount: number
 }
 
-const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot'
+const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot:distinct-bans-v1'
 const CIV_LEADERBOARD_CONFIG_KEY = 'leaderboard:civ:config'
 const CIV_STAT_INITIALIZED_SCOPE = 'history-initialized'
 const INSERT_CHUNK_SIZE = 100
@@ -1002,7 +1002,7 @@ function buildMatchCivStatContribution(
     if (participant.placement === 1) aggregate.wins += 1
   }
 
-  for (const civId of extractDraftDataBanCivIds(match.draftData)) {
+  for (const civId of new Set(extractDraftDataBanCivIds(match.draftData))) {
     if (isRedDeathFaction(civId)) continue
     getCivAggregate(aggregateByCivId, civId).bans += 1
   }
@@ -1088,7 +1088,7 @@ function addContributionToAggregates(
     const aggregate = getCivAggregate(aggregateByCivId, entry.civId)
     aggregate.picks += entry.picks
     aggregate.wins += entry.wins
-    aggregate.bans += entry.bans
+    aggregate.bans += Math.min(1, entry.bans)
   }
 }
 
