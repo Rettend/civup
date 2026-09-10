@@ -13,6 +13,7 @@ import {
   getSystemChannel,
 } from '../system/channels.ts'
 import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardDisplayConfig, getStoredCivLeaderboardSnapshot, getStoredCivLeaderboardSnapshots, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshots } from './civ-snapshot.ts'
+import { advanceCivReleaseProjection } from './civ-release.ts'
 import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from './image.ts'
 import { ensureLeaderboardModeSnapshots, getStoredLeaderboardModeSnapshots, rebuildLeaderboardModeSnapshot } from './snapshot.ts'
 
@@ -215,6 +216,7 @@ export async function refreshDirtyLeaderboards(
   }
 
   if (dirtyCivModeScopes.length > 0) civSnapshotReady = await isCivLeaderboardStatsInitialized(db)
+  if (civSnapshotReady) civSnapshotReady = await advanceCivReleaseProjection(db, await getStoredCivLeaderboardDisplayConfig(kv))
 
   if (dirtyCivModeScopes.length > 0 && civSnapshotReady) {
     const snapshots = await getStoredCivLeaderboardSnapshots(kv, dirtyCivModeScopes)

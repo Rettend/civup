@@ -13,6 +13,7 @@ import { markRatingMutationUncertain } from './maintenance.ts'
 import { loadPublicRatingDecayPolicy, samePublicRatingDecay } from './decay.ts'
 import { prepareAtomicDivisionUpdates, type DivisionRatingInput, type DivisionEventInput } from '../ranked/atomic-divisions.ts'
 import { notifyDivisionDelivery } from '../ranked/division-delivery.ts'
+import { writeRatingCheckpoints, type RatingCheckpoint } from './checkpoints.ts'
 
 export interface PreparedSeasonReport {
   queries: DbBatchItem[]
@@ -128,6 +129,7 @@ export async function prepareSeasonReport(db: Database, input: {
   queries.push(db.insert(seasonMatchReports).values({ matchId: match.id, seasonId: season.id, acceptedAt, opponentTiers: Object.fromEntries([...opponentTiers].filter(([id]) => ids.includes(id))) }))
   const evidence = buildMatchEvidenceByPlayerId(participants, match.isOld, opponentTiers, context.permanentAlly)
   const divisionRatings: DivisionRatingInput[] = []
+  const checkpoints: Array<{ matchId: string, summary: RatingCheckpoint }> = []
   const divisionEvents: DivisionEventInput[] = []
 
   for (const scope of scopes) {
@@ -197,6 +199,7 @@ export async function prepareSeasonReport(db: Database, input: {
           lastPlayedAt: summary.lastPlayedAt, revision: (state?.revision ?? 0) + 1, updatedAt: now,
         }
         if (season.active && transition) {
+          checkpoints.push({ matchId: match.id, summary: { ...summary, publicRating: row.publicRating!, publicBadge: row.publicBadge, publicDecay: row.publicDecay, seasonGames: row.seasonGames, seasonWins: row.seasonWins } })
           divisionRatings.push({ ...summary, publicRating: row.publicRating, publicBadge: row.publicBadge, publicDecay: row.publicDecay })
           divisionEvents.push({ ...event, at: acceptedAt, effectiveGamesDelta: event.effectiveGamesDelta ?? 0, effectiveWinsVsTier1Delta: event.effectiveWinsVsTier1Delta ?? 0, effectiveWinsVsTier2PlusDelta: event.effectiveWinsVsTier2PlusDelta ?? 0 })
         }
@@ -217,6 +220,7 @@ export async function prepareSeasonReport(db: Database, input: {
     if (typeof computed === 'string') throw new Error(computed)
   }
   if (season.active && season.ratingSystem === 'rp') {
+    if (checkpoints.length) queries.push(writeRatingCheckpoints(db, season.id, checkpoints))
     const division = await prepareAtomicDivisionUpdates(db, { seasonId: season.id, now, ratings: divisionRatings, events: divisionEvents, replacedMatchIds: [match.id] })
     queries.unshift(...division.guards)
     queries.push(...division.updates)

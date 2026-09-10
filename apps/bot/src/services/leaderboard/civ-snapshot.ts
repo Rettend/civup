@@ -5,6 +5,7 @@ import { getLeader, getLeaderIds, liveLeaderDataVersionLabel, parseGameMode, red
 import { and, eq, inArray, not, or, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { runDbBatch, type DbBatchItem } from '../db/batch.ts'
+import { readCivReleaseSnapshots } from './civ-release.ts'
 
 export type CivLeaderboardSource = 'live' | 'beta'
 export type CivLeaderboardModeScope = 'all' | 'duel' | 'duo' | 'squad'
@@ -84,7 +85,7 @@ interface StoredCivLeaderboardDisplayConfig {
   pendingBetaFrom?: unknown
 }
 
-interface CivAggregate {
+export interface CivAggregate {
   civId: string
   leaderName: string
   picks: number
@@ -132,7 +133,7 @@ interface MatchCivStatContribution {
   entries: CivStatContributionEntry[]
 }
 
-interface ContributionRow {
+export interface ContributionRow {
   completedMatchCount: number
   contributionsJson: string
   source: string
@@ -522,24 +523,7 @@ async function buildCivLeaderboardSnapshotsFromStats(
 ): Promise<Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>> {
   const requestedModeScopes = [...new Set(modeScopes)]
   if (config.betaReplacement === 'one-for-one') {
-    if (!config.betaSeedMatchIds) throw new Error('The release beta sample has not been frozen.')
-    const rows = await db.select({
-      matchId: matchCivStatContributions.matchId,
-      completedMatchCount: matchCivStatContributions.completedMatchCount,
-      contributionsJson: matchCivStatContributions.contributionsJson,
-      source: matchCivStatContributions.source,
-      modeScope: matchCivStatContributions.modeScope,
-      completedAt: matchCivStatContributions.completedAt,
-      visible: matchCivStatContributions.visible,
-    }).from(matchCivStatContributions)
-      .innerJoin(matches, eq(matches.id, matchCivStatContributions.matchId))
-      .where(and(contributionVisibleCondition(config), eligibleCivContributionCondition(), eq(matches.status, 'completed'),
-        or(eq(matchCivStatContributions.source, 'beta'), sql`${matches.createdAt} >= ${config.liveFrom}`)))
-    const selected = selectReleaseContributions(rows)
-    return new Map(requestedModeScopes.map(scope => [scope, {
-      ...snapshotFromContributionRows(selected.filter(row => scope === 'all' || row.modeScope === scope), scope, config.label, updatedAt, historyInitialized),
-      periodId: `${config.label}:${config.liveFrom}`,
-    }]))
+    return readCivReleaseSnapshots(db, config, requestedModeScopes, updatedAt, historyInitialized)
   }
   const readModeScopes = expandCivStatReadModeScopes(requestedModeScopes)
   const [statRows, poolRows] = await Promise.all([
@@ -631,7 +615,7 @@ async function setStoredContributionVisibilityFromConfig(
     .where(and(eq(matchCivStatContributions.visible, false), visibleCondition))
 }
 
-function contributionVisibleCondition(config: CivLeaderboardDisplayConfig) {
+export function contributionVisibleCondition(config: CivLeaderboardDisplayConfig) {
   const liveCondition = and(
     eq(matchCivStatContributions.source, 'live'),
     sql`${matchCivStatContributions.completedAt} >= ${config.liveFrom}`,
@@ -920,12 +904,13 @@ async function markCivLeaderboardStatsInitialized(db: Database, updatedAt: numbe
     })
 }
 
-function snapshotFromContributionRows(
+export function snapshotFromContributionRows(
   rows: readonly ContributionRow[],
   modeScope: CivLeaderboardModeScope,
   label: string,
   updatedAt: number,
   historyInitialized: boolean,
+  includePoolOnly = false,
 ): CivLeaderboardSnapshot {
   const aggregateByCivId = new Map<string, CivAggregate>()
   let completedMatchCount = 0
@@ -955,14 +940,14 @@ function snapshotFromContributionRows(
     modeScope,
     completedMatchCount,
     rows: [...aggregateByCivId.values()]
-      .filter(row => row.picks > 0 || row.wins > 0 || row.bans > 0)
+      .filter(row => includePoolOnly || row.picks > 0 || row.wins > 0 || row.bans > 0)
       .filter(row => !isRedDeathFaction(row.civId))
       .map(toSnapshotRow)
       .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
   }
 }
 
-function snapshotFromAggregates(
+export function snapshotFromAggregates(
   aggregateByCivId: Map<string, CivAggregate>,
   modeScope: CivLeaderboardModeScope,
   label: string,
@@ -1066,7 +1051,7 @@ function excludeTournamentContributionCondition() {
   )`
 }
 
-function eligibleCivContributionCondition() {
+export function eligibleCivContributionCondition() {
   return and(
     sql`exists (
       select 1 from ${matches}
@@ -1243,7 +1228,7 @@ function isCurrentCivLeaderboardSnapshotRowShape(value: unknown): boolean {
   return 'poolGames' in raw && 'pickRatePct' in raw && 'winRatePct' in raw && 'banRatePct' in raw
 }
 
-function normalizeCivLeaderboardDisplayConfig(value: unknown): CivLeaderboardDisplayConfig {
+export function normalizeCivLeaderboardDisplayConfig(value: unknown): CivLeaderboardDisplayConfig {
   const fallback = defaultCivLeaderboardDisplayConfig()
   if (!value || typeof value !== 'object') return fallback
 

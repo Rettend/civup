@@ -108,6 +108,7 @@ describe('RP season isolation', () => {
       expect(current.player.points).toEqual([{ x: 0, rating: 1425 }])
       expect(current.seasonLabel).toBe('Season 9')
       expect(current.player.games).toBe(0)
+      await refreshHistoricalStandings(db)
       const old = await buildRankGraphImageData(db, kv, 'guild', 'p', { gameLimit: 20, season: 8 })
       expect(old.ratingSystem).toBe('legacy')
       expect(old.player.games).toBe(1)
@@ -271,3 +272,4 @@ describe('RP season isolation', () => {
     finally { sqlite.close() }
   })
 })
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'

@@ -74,7 +74,7 @@ export async function prepareAtomicDivisionUpdates(db: Database, input: {
       const revision = sources.find(row => row.playerId === id)?.revision ?? 0
       guards.push(seasonSourceGuard(db, sql`coalesce((select revision from division_rank_sources where player_id=${id}),0)=${revision}
         and (select result_json from division_rank_states where guild_id=${policy.guildId} and player_id=${id}) is ${state?.resultJson ?? null}`))
-      const checkpoint = previous && state?.sourceRevision === revision
+      const checkpoint = previous?.recent && state?.sourceRevision === revision
         ? { recent: ageQualityEvidence(previous.recent, input.now), queries: [], undatedMatchIds: [] }
         : await prepareQualityCheckpoint(db, policy.guildId, id, input.now, previous?.recent)
       if (checkpoint.undatedMatchIds.length) throw new Error('Overall quality evidence has an unverified report date.')
@@ -106,11 +106,17 @@ export async function prepareAtomicDivisionUpdates(db: Database, input: {
       const desiredRoleId = result.band ? stored.preparation.roleIdsByMinimum[result.band.minimum] : stored.preparation.unrankedRoleId
       if (!desiredRoleId) throw new Error('Overall division role mapping is incomplete.')
       updates.push(...checkpoint.queries,
-        db.delete(divisionQualityCredits).where(and(eq(divisionQualityCredits.guildId, policy.guildId), eq(divisionQualityCredits.playerId, id), inArray(divisionQualityCredits.matchId, input.replacedMatchIds))))
+        db.delete(divisionQualityCredits).where(and(eq(divisionQualityCredits.guildId, policy.guildId), eq(divisionQualityCredits.playerId, id), inArray(divisionQualityCredits.matchId, input.replacedMatchIds),
+          incoming.length ? sql`${divisionQualityCredits.matchId} not in (select value from json_each(${JSON.stringify(incoming.map(credit => credit.matchId))}))` : undefined)))
       if (incoming.length) updates.push(db.insert(divisionQualityCredits).select(db.select({ guildId: sql<string>`${policy.guildId}`.as('guild_id'), playerId: sql<string>`${id}`.as('player_id'),
         matchId: sql<string>`json_extract(value,'$.matchId')`.as('match_id'), at: sql<number>`json_extract(value,'$.at')`.as('at'),
         effectiveGames: sql<number>`json_extract(value,'$.effectiveGames')`.as('effective_games'), highRankWins: sql<number>`json_extract(value,'$.highRankWins')`.as('high_rank_wins'), eliteWins: sql<number>`json_extract(value,'$.eliteWins')`.as('elite_wins'),
-      }).from(sql`json_each(${JSON.stringify(incoming)})`)))
+      }).from(sql`json_each(${JSON.stringify(incoming)})`).where(sql`true`)).onConflictDoUpdate({
+        target: [divisionQualityCredits.guildId, divisionQualityCredits.playerId, divisionQualityCredits.matchId],
+        set: { at: sql`excluded.at`, effectiveGames: sql`excluded.effective_games`, highRankWins: sql`excluded.high_rank_wins`, eliteWins: sql`excluded.elite_wins` },
+        setWhere: sql`${divisionQualityCredits.at} is not excluded.at or ${divisionQualityCredits.effectiveGames} is not excluded.effective_games
+          or ${divisionQualityCredits.highRankWins} is not excluded.high_rank_wins or ${divisionQualityCredits.eliteWins} is not excluded.elite_wins`,
+      }))
       updates.push(db.delete(divisionQualityDirty).where(and(eq(divisionQualityDirty.guildId, policy.guildId), eq(divisionQualityDirty.playerId, id))),
         db.insert(divisionRankStates).values({ guildId: policy.guildId, playerId: id,
           sourceRevision: sql`coalesce((select revision from division_rank_sources where player_id=${id}),0)`,

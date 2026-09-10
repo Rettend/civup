@@ -62,6 +62,7 @@ describe('player rank views', () => {
         { seasonId: 's8', playerId: HERO_ID, mode: 'duo', tier: 'tier4', rating: 1250, achievedAt: NOW - 1 },
         { seasonId: 's8', playerId: HERO_ID, mode: 'squad', tier: null, rating: 1180, achievedAt: NOW - 1 },
       ])
+      await refreshHistoricalStandings(db)
       for (const embed of [playerCardEmbed, playerLeadersEmbed]) {
         const card = (await embed(db, HERO_ID, 'all', { season: 8, historicalRoleIds: { tier3: 's8-gladiator', tier4: 's8-squire' }, unrankedRoleId: 'regular-unranked' })).toJSON()
         expect(card.fields?.find(field => field.name === 'Duel')?.value.split('\n')[0]).toBe('<@&s8-gladiator> · 1180')
@@ -151,6 +152,7 @@ describe('player rank views', () => {
       await seedPlayerIdentity(db, HERO_ID)
       await db.insert(seasons).values({ id: 's8', seasonNumber: 8, name: 'Season 8', startsAt: 0, endsAt: NOW })
       await db.insert(seasonPeakRanks).values({ seasonId: 's8', playerId: HERO_ID, tier: 'tier1', achievedAt: NOW - 1 })
+      await refreshHistoricalStandings(db)
       const embed = (await playerCardEmbed(db, HERO_ID, 'all', { season: 8, historicalRoleIds: { tier1: 'saved-elite' } })).toJSON()
       expect(embed.description).toBe(`<@${HERO_ID}> - <@&saved-elite>`)
     }
@@ -1580,3 +1582,4 @@ function ratingEvent(input: {
 function displayRatingToMu(rating: number): number {
   return 25 + ((rating - 1000) / 36)
 }
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'
