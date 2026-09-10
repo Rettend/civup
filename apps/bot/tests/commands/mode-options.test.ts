@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { command_history } from '../../src/commands/history.ts'
 import { command_leaders } from '../../src/commands/leaders.ts'
-import { RANK_GRAPH_MODE_CHOICES } from '../../src/commands/rank.ts'
+import { command_rank, RANK_GRAPH_MODE_CHOICES } from '../../src/commands/rank.ts'
 import { command_stats } from '../../src/commands/stats.ts'
 import { command_tiers } from '../../src/commands/tiers.ts'
 import { factory } from '../../src/setup.ts'
 
 interface CommandOptionJson {
   name?: string
+  autocomplete?: boolean
   choices?: Array<{ name?: string, value?: string }>
   options?: CommandOptionJson[]
 }
@@ -18,6 +19,13 @@ interface CommandJson {
 }
 
 describe('command mode options', () => {
+  test('all season selectors expose autocomplete while stats keeps leader suggestions', () => {
+    const commands = registeredCommands()
+    for (const name of ['stats', 'leaders', 'rank']) {
+      expect(commands.find(command => command.name === name)?.options?.find(option => option.name === 'season')?.autocomplete).toBe(true)
+    }
+    expect(commands.find(command => command.name === 'stats')?.options?.find(option => option.name === 'leader')?.autocomplete).toBe(true)
+  })
   test('omits explicit all choices where omitted mode is the default', () => {
     const commands = registeredCommands()
 
@@ -33,7 +41,7 @@ describe('command mode options', () => {
 })
 
 function registeredCommands(): CommandJson[] {
-  return factory.getCommands([command_stats, command_history, command_leaders, command_tiers]) as CommandJson[]
+  return JSON.parse(JSON.stringify(factory.getCommands([command_stats, command_history, command_leaders, command_tiers, command_rank]))) as CommandJson[]
 }
 
 function choiceValues(commands: readonly CommandJson[], commandName: string, optionName: string): string[] {

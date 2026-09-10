@@ -2,7 +2,7 @@ import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
-import { DISPLAY_RATING_BASE, displayRating } from '@civup/rating'
+import { DISPLAY_RATING_BASE, displayRating, formatPublicRankRating } from '@civup/rating'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { cn } from '~/client/lib/css'
@@ -645,7 +645,7 @@ function PlayerStatsPopover(props: {
                   </span>
                 </Show>
                 <For each={props.row.balanceRating?.pastRanks ?? []}>{(rank) => {
-                  const past = () => formatRankedRole({ tier: rank.tier, sourceMode: null }, props.rankedRoles)
+                  const past = () => formatRankedRole({ tier: rank.tier, sourceMode: null, label: rank.label, division: rank.division }, props.rankedRoles)
                   return <span class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0" style={buildRolePillStyle(past().color)}>S{rank.seasonNumber} {past().label}</span>
                 }}</For>
               </div>
@@ -700,11 +700,12 @@ export function formatWinRate(rating: PlayerRow['balanceRating']): string {
   return `${Math.round((wins / gamesPlayed) * 100)}%`
 }
 
-function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {
+export function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {
   if (!rankedRole) return { label: 'Unassigned', color: null }
   const option = rankedRoles.find(candidate => candidate.tier === rankedRole.tier) ?? null
   return {
-    label: option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier),
+    label: (rankedRole.label ?? `${option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier)}${rankedRole.division === 3 ? ' III' : rankedRole.division === 2 ? ' II' : rankedRole.division === 1 ? ' I' : ''}`)
+      + (rankedRole.overallRating != null ? ` · ${formatPublicRankRating(rankedRole.overallRating, rankedRole.tier)} RP` : ''),
     color: option?.color ?? null,
   }
 }

@@ -14,6 +14,7 @@ import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchCont
 import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
+import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
 import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
 import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
 import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
@@ -532,7 +533,7 @@ async function finalizeReportedMatch(
   if (await usesIsolatedSeasonRatings(db, match.seasonId)) {
     const [stored] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
     if (!stored) return { error: 'Match disappeared before report preparation.' }
-    return finalizeIsolatedSeasonReport(db, stored, participantRows, reporterId, options, await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId))
+    return finalizeIsolatedSeasonReport(db, stored, participantRows, reporterId, options, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, participantRows.map(row => row.playerId)))
   }
 
   const cachedLeaderboardSnapshot = options.minimalResult ? null : await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)

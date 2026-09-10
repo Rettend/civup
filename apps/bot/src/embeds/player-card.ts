@@ -2,9 +2,9 @@ import type { Database } from '@civup/db'
 import type { PublicRatingSnapshot } from '@civup/rating'
 import type { GameMode, LeaderboardMode } from '@civup/game'
 import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import { matches, matchParticipants, playerRatingEvents, players, seasonPeakRanks, tournamentMatches } from '@civup/db'
+import { matches, matchParticipants, playerRatingEvents, players, tournamentMatches } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES, toLeaderboardMode } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, publicRatingBadgeRank, visiblePublicRating } from '@civup/rating'
+import { displayRating, formatPublicRankRating, getLeaderboardMinGames, publicRatingBadgeRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -13,6 +13,7 @@ import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-e
 import type { SeasonSelection } from '../services/season/selection.ts'
 import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
+import { historicalModeRankLabel, loadSeasonStandings } from '../services/season/standings.ts'
 import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type StatsModeFilter = 'all' | GameMode
@@ -80,6 +81,9 @@ export async function playerCardEmbed(
     visibleModes?: readonly LeaderboardMode[]
     season?: SeasonSelection
     historicalRoleIds?: Record<string, string | null>
+    historicalRoleLabels?: Record<string, string>
+    unrankedRoleId?: string | null
+    kv?: KVNamespace
   } = {},
 ): Promise<Embed> {
   const selected = await resolveSeasonSelection(db, options.season ?? 'current')
@@ -101,19 +105,21 @@ export async function playerCardEmbed(
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
   const rankProfile = historical ? null : options.rankProfile ?? null
+  const historicalStandings = historical ? await loadSeasonStandings(db, options.kv, displaySeason.id) : null
+  const historicalPositions = Object.fromEntries((historicalStandings?.modes ?? []).flatMap(row => row.playerId === playerId && row.position != null ? [[row.mode, row.position]] : []))
   let historicalRank: string | null = null
   if (historical) {
-    const [peak] = await db.select({ tier: seasonPeakRanks.tier }).from(seasonPeakRanks)
-      .where(and(eq(seasonPeakRanks.seasonId, displaySeason.id), eq(seasonPeakRanks.playerId, playerId))).limit(1)
-    const names: Record<string, string> = { tier1: 'Elite', tier2: 'Legion', tier3: 'Gladiator', tier4: 'Squire', tier5: 'Pleb' }
+    const peak = historicalStandings?.peaks.find(row => row.playerId === playerId)
     const roleId = peak ? options.historicalRoleIds?.[peak.tier] : null
-    historicalRank = roleId ? `<@&${roleId}>` : peak && names[peak.tier] ? `S${displaySeason.seasonNumber} ${names[peak.tier]}` : 'Unranked'
+    historicalRank = roleId ? `<@&${roleId}>` : peak ? options.historicalRoleLabels?.[peak.tier] ?? `S${displaySeason.seasonNumber} Role ${peak.tier.slice(4)}` : options.unrankedRoleId ? `<@&${options.unrankedRoleId}>` : 'Unranked'
   }
   const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
 
   const embed = new Embed()
     .title(`Stats${displaySeason || selected.allTime ? ` - ${selected.label}` : ''}`)
-    .description([buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile), historicalRank ? `Season peak: ${historicalRank}` : null].filter(Boolean).join('\n'))
+    .description(historical
+      ? [`<@${playerId}>`, historicalRank, requestedModeLabel].filter(Boolean).join(' - ')
+      : buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile))
     .color(0xC8AA6E)
 
   const fields: Array<{ name: string, value: string, inline?: boolean }> = []
@@ -133,7 +139,7 @@ export async function playerCardEmbed(
 
     fields.push({
       name: formatLeaderboardModeLabel(mode, mode),
-      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { ffaRatingWins, publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null), currentRatingLabel: selected.allTime, roleIdsByTier: rankProfile?.roleIdsByTier, unrankedRoleId: rankProfile?.unrankedRoleId }),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { labelsByTier: rankProfile?.labelsByTier, ffaRatingWins, position: historicalPositions[mode], historicalRankLabel: historical ? historicalModeRankLabel(historicalStandings?.modes.find(row => row.playerId === playerId && row.mode === mode), displaySeason.seasonNumber, options.historicalRoleIds, options.unrankedRoleId, options.historicalRoleLabels) : undefined, publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null), currentRatingLabel: selected.allTime, roleIdsByTier: rankProfile?.roleIdsByTier, unrankedRoleId: rankProfile?.unrankedRoleId }),
       inline: true,
     })
   }
@@ -185,28 +191,22 @@ export async function playerCardEmbed(
   return embed
 }
 
-function buildPlayerCardDescription(playerId: string, requestedModeLabel: string | null, rankProfile: PlayerRankProfile | null): string {
+export function buildPlayerCardDescription(playerId: string, requestedModeLabel: string | null, rankProfile: PlayerRankProfile | null): string {
   const parts = [`<@${playerId}>`]
 
   if (rankProfile?.overallRoleId) parts.push(`<@&${rankProfile.overallRoleId}>`)
   else if (rankProfile?.overallLabel) parts.push(rankProfile.overallLabel)
+  if (rankProfile?.overallRating != null && Number.isFinite(rankProfile.overallRating) && parts.length > 1) parts[1] += ` · ${formatPublicRankRating(rankProfile.overallRating, rankProfile.overallTier)} RP`
 
   if (requestedModeLabel) parts.push(requestedModeLabel)
   return parts.join(' - ')
-}
-
-function formatModeRating(mode: PlayerRankProfile['modes'][LeaderboardMode] | undefined, fallbackRating: number): string {
-  if (!mode) return String(fallbackRating)
-  const label = formatRankedRoleMention(mode)
-  const rating = mode.rating ?? fallbackRating
-  return label ? `${label} (${rating})` : String(rating)
 }
 
 export function formatModeStats(
   modeSummary: PlayerRankProfile['modes'][LeaderboardMode] | undefined,
   ratingRow: PlayerRatingSummary,
   mode: LeaderboardMode,
-  stats: { ffaRatingWins: number, publicEra?: boolean, currentRatingLabel?: boolean, roleIdsByTier?: Record<string, string | null>, unrankedRoleId?: string | null },
+  stats: { labelsByTier?: Record<string, string | null>, ffaRatingWins: number, position?: number, historicalRankLabel?: string | null, publicEra?: boolean, currentRatingLabel?: boolean, roleIdsByTier?: Record<string, string | null>, unrankedRoleId?: string | null },
 ): string {
   if (stats.publicEra && ratingRow.publicRating == null) throw new Error('Public rating data is incomplete.')
   const rating = stats.publicEra ? visiblePublicRating(ratingRow.publicRating!) : Math.round(displayRating(ratingRow.mu, ratingRow.sigma))
@@ -214,12 +214,16 @@ export function formatModeStats(
   const badge = publicRatingBadgeRank(rating, stats.publicEra ? ratingRow.publicBadge : null)
   const roleId = stats.roleIdsByTier?.[badge.tier] ?? (modeSummary?.tier === badge.tier ? modeSummary.tierRoleId : null)
   const division = badge.label.match(/ (III|II|I)$/)?.[0] ?? ''
-  const publicRank = eligible ? roleId ? `<@&${roleId}>${division}` : badge.label : stats.unrankedRoleId ? `<@&${stats.unrankedRoleId}>` : 'Unranked'
-  const lines = [
-    stats.publicEra ? `${stats.currentRatingLabel ? 'Current: ' : ''}${publicRank} · ${rating} RP` : `${stats.currentRatingLabel ? 'Current rating' : 'Rating'}: ${formatModeRating(modeSummary, rating)}`,
-  ]
+  const publicRank = eligible ? modeSummary?.divisionMinimum != null
+    ? modeSummary.tierRoleId ? `<@&${modeSummary.tierRoleId}>` : modeSummary.tierLabel ?? badge.label
+    : roleId ? `<@&${roleId}>${division}` : stats.labelsByTier?.[badge.tier] ? `${stats.labelsByTier[badge.tier]}${division}` : badge.label : stats.unrankedRoleId ? `<@&${stats.unrankedRoleId}>` : 'Unranked'
+  const label = stats.historicalRankLabel !== undefined ? stats.historicalRankLabel
+    : stats.publicEra ? publicRank : modeSummary ? formatRankedRoleMention(modeSummary) : eligible ? null : 'Unranked'
+  const displayedTier = eligible ? modeSummary?.divisionMinimum != null ? modeSummary.tier : badge.tier : null
+  const ratingText = stats.publicEra && stats.historicalRankLabel === undefined ? formatPublicRankRating(rating, displayedTier) : String(rating)
+  const lines = [`${stats.currentRatingLabel ? 'Current: ' : ''}${label ? `${label} · ` : ''}${ratingText}${stats.publicEra ? ' RP' : ''}`]
 
-  const rank = stats.publicEra ? null : formatModeRank(modeSummary)
+  const rank = stats.position != null ? `#${stats.position}` : formatModeRank(modeSummary)
   if (rank) lines.push(`Rank: ${rank}`)
 
   lines.push(`Games: ${ratingRow.gamesPlayed}`)

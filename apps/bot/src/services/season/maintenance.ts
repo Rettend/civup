@@ -55,6 +55,7 @@ export async function changeRatingMaintenanceState(db: Database, expectedGenerat
   if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) throw new Error('Invalid maintenance generation.')
   const [updated] = await db.update(ratingMaintenance).set({ state, generation: expectedGeneration + 1, updatedAt: Date.now() })
     .where(sql`${ratingMaintenance.id} = 1 AND ${ratingMaintenance.generation} = ${expectedGeneration}
-      AND (${state} = 'paused' OR (NOT EXISTS(SELECT 1 FROM ${ratingMutationLeases}) AND NOT EXISTS(SELECT 1 FROM seasons WHERE active = 1 AND rating_system = 'rp' AND public_reads_enabled = 0)))`).returning({ id: ratingMaintenance.id })
+      AND (${state} = 'paused' OR (NOT EXISTS(SELECT 1 FROM ${ratingMutationLeases}) AND NOT EXISTS(SELECT 1 FROM seasons WHERE active = 1 AND rating_system = 'rp' AND public_reads_enabled = 0)
+        AND NOT EXISTS(SELECT 1 FROM division_rank_policies WHERE phase = 'activating')))`).returning({ id: ratingMaintenance.id })
   if (!updated) throw new Error('Maintenance state changed or accepted work remains. Do not clear leases merely because they are old.')
 }

@@ -7,7 +7,8 @@ import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
 import type { TournamentLobbySnapshot } from '../tournament/index.ts'
 import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES, slotToTeamIndex, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
-import { createRating, displayRating, getLeaderboardMinGames, PUBLIC_RATING_START } from '@civup/rating'
+import { createRating, PUBLIC_RATING_BANDS, PUBLIC_RATING_START } from '@civup/rating'
+import { buildLeaderboardRankByPlayer } from '../leaderboard/rank.ts'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getServerDraftTimerDefaults } from '../config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
@@ -79,9 +80,12 @@ export interface LobbySnapshot {
       seasonGames?: number
       seasonWins?: number
       seasonNumber?: number
-      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier }>
+      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier, label?: string, division?: number }>
     }
     rankedRole?: {
+      label?: string
+      division?: number
+      overallRating?: number | null
       tier: CompetitiveTier
       sourceMode: LeaderboardMode | null
     } | null
@@ -414,11 +418,11 @@ function getLeaderboardRankByPlayer(
   mode: LeaderboardMode,
 ): Map<string, number> {
   if (snapshot.ratingSystem === 'rp' && (!snapshot.publicReadsEnabled || snapshot.rows.some(row => row.publicRating == null))) return new Map()
-  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}:${snapshot.ratingSystem ?? 'legacy'}`
+  const cacheKey = `${mode}:${snapshot.updatedAt}:${snapshot.rows.length}:${snapshot.ratingSystem ?? 'legacy'}:${snapshot.seasonNumber ?? ''}`
   const cached = leaderboardRankCache.get(cacheKey)
   if (cached) return cached
 
-  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot.rows, mode, snapshot.ratingSystem === 'rp')
+  const rankByPlayerId = buildLeaderboardRankByPlayer(snapshot)
   leaderboardRankCache.set(cacheKey, rankByPlayerId)
   while (leaderboardRankCache.size > LEADERBOARD_RANK_CACHE_MAX_ENTRIES) {
     const oldestKey = leaderboardRankCache.keys().next().value
@@ -426,22 +430,6 @@ function getLeaderboardRankByPlayer(
     leaderboardRankCache.delete(oldestKey)
   }
   return rankByPlayerId
-}
-
-function buildLeaderboardRankByPlayer(
-  rows: LeaderboardModeSnapshot['rows'],
-  mode: LeaderboardMode,
-  publicEra = false,
-): Map<string, number> {
-  const ranked = rows
-    .filter(row => row.gamesPlayed >= getLeaderboardMinGames(mode))
-    .map(row => ({
-      playerId: row.playerId,
-      display: publicEra ? row.publicRating! : displayRating(row.mu, row.sigma),
-    }))
-    .sort((left, right) => right.display - left.display)
-
-  return new Map(ranked.map((row, index) => [row.playerId, index + 1]))
 }
 
 export async function attachTournamentLobbySnapshot(db: Database, snapshot: LobbySnapshot): Promise<LobbySnapshot> {
@@ -496,7 +484,7 @@ async function buildLobbySnapshotFromSessionParts(
 ): Promise<LobbySnapshot> {
   const serverDefaults = await getServerDraftTimerDefaults(kv)
   const resolvedRankAssignments = rankAssignments === undefined && session.guildId && !session.config.redDeath && !session.config.civBlitz
-    ? await getCurrentRankAssignments(kv, session.guildId)
+    ? await getCurrentRankAssignments(kv, session.guildId, session.roster.participants.map(member => member.playerId))
     : rankAssignments ?? null
   const memberByPlayerId = new Map(session.roster.participants.map(member => [member.playerId, member]))
   const memberPlayerIds = session.roster.participants.map(member => member.playerId)
@@ -510,7 +498,8 @@ async function buildLobbySnapshotFromSessionParts(
       displayName: member.displayName ?? playerId,
       avatarUrl: member.avatarUrl ?? null,
       rankedRole: rankedRole && !rankedRole.unranked
-        ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode }
+        ? { tier: rankedRole.tier, sourceMode: rankedRole.sourceMode,
+            ...(rankedRole.policyVersion ? { division: PUBLIC_RATING_BANDS.find(band => band.minimum === rankedRole.divisionMinimum)?.division, overallRating: rankedRole.overallRating } : {}) }
         : null,
     }
   })

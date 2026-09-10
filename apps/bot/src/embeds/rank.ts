@@ -7,6 +7,7 @@ import { formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
 import { formatSeasonShortName } from '../services/season/index.ts'
+import { buildPlayerCardDescription } from './player-card.ts'
 
 export async function rankEmbed(
   db: Database,
@@ -65,9 +66,7 @@ export async function rankEmbed(
 }
 
 function buildRankDescription(playerId: string, rankProfile: PlayerRankProfile): string {
-  if (rankProfile.overallRoleId) return `<@${playerId}> - <@&${rankProfile.overallRoleId}>`
-  if (rankProfile.overallLabel) return `<@${playerId}> - ${rankProfile.overallLabel}`
-  return `<@${playerId}>`
+  return buildPlayerCardDescription(playerId, null, rankProfile)
 }
 
 function formatModeSummary(mode: PlayerRankModeSummary | SeasonRankHistoryModeSummary): string {

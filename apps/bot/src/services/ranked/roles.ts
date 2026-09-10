@@ -1,6 +1,8 @@
 import type { CompetitiveTier } from '@civup/game'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
 import { DiscordApiError } from '../discord/index.ts'
+import { PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
+import { isOverallRankPolicyVersion, type OverallRankPolicyVersion } from '@civup/rating'
 
 export interface RankedRoleTierConfig {
   roleId: string | null
@@ -9,11 +11,13 @@ export interface RankedRoleTierConfig {
 }
 
 export interface RankedRoleConfig {
+  divisionPolicy?: { version: OverallRankPolicyVersion, roleIdsByMinimum: Record<string, string> }
   unrankedRoleId?: string | null
   tiers: RankedRoleTierConfig[]
 }
 
 interface StoredRankedRoleConfig {
+  divisionPolicy?: RankedRoleConfig['divisionPolicy']
   unrankedRoleId?: unknown
   tiers?: Array<{
     roleId?: unknown
@@ -48,6 +52,12 @@ export interface RankedRoleVisual {
   roleId: string | null
   label: string
   color: string | null
+}
+
+export function getAssignedRankRoleId(config: RankedRoleConfig, assignment: { tier: CompetitiveTier, unranked?: boolean, divisionMinimum?: number | null }): string | null {
+  if (assignment.unranked) return config.unrankedRoleId ?? null
+  if (config.divisionPolicy) return assignment.divisionMinimum == null ? null : config.divisionPolicy.roleIdsByMinimum[assignment.divisionMinimum] ?? null
+  return getConfiguredRankedRoleId(config, assignment.tier)
 }
 
 export const RANKED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:config:'
@@ -102,6 +112,7 @@ export async function getRankedRoleDisplayConfig(kv: KVNamespace, guildId: strin
   if (!displayState) return config
 
   return {
+    ...config,
     tiers: config.tiers.map((slot) => {
       const display = slot.roleId ? displayState.displayByRoleId.get(slot.roleId) : null
       return display ? { ...slot, label: display.name, color: display.color } : slot
@@ -116,6 +127,7 @@ export async function setRankedRoleTierCount(
   tierCount: number,
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
+  if (current.divisionPolicy) throw new Error('Active division mappings require a reviewed policy transition.')
   const next = resizeRankedRoleConfig(current, tierCount)
   await kv.put(configKey(guildId), JSON.stringify(next))
   return next
@@ -133,6 +145,7 @@ export async function updateRankedRoleConfig(
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
   const next = resizeRankedRoleConfig(current, resolveNextTierCount(current, input))
+  if (current.divisionPolicy) throw new Error('Division role mappings are active. Change them through the reviewed division maintenance workflow.')
   if (input.unrankedRoleId !== undefined) {
     const roleId = normalizeRoleId(input.unrankedRoleId)
     if (input.unrankedRoleId !== null && !roleId) throw new Error('Provide a valid Unranked role.')
@@ -325,6 +338,12 @@ export function getConfiguredRankedRoleLabel(config: RankedRoleConfig, tier: Com
   return label && label.length > 0 ? label : formatRankedRoleSlotLabel(tier)
 }
 
+export function getConfiguredDivisionLabel(config: RankedRoleConfig, minimum: number): string {
+  const band = PUBLIC_RATING_BANDS.find(row => row.minimum === minimum)
+  if (!band) return 'Unranked'
+  return `${getConfiguredRankedRoleLabel(config, band.tier)}${rankDivisionSuffix(band.division)}`
+}
+
 export function rankedRoleNumber(tier: CompetitiveTier): number {
   const normalized = normalizeTierKey(tier)
   return competitiveTierNumber(normalized ?? '') ?? 0
@@ -457,6 +476,7 @@ function resizeRankedRoleConfig(config: RankedRoleConfig, requestedTierCount: nu
 function normalizeRankedRoleConfig(raw: StoredRankedRoleConfig | null | undefined): RankedRoleConfig {
   if (!Array.isArray(raw?.tiers) || raw.tiers.length === 0) return createDefaultRankedRoleConfig()
   return compactRankedRoleConfig({
+    ...(isOverallRankPolicyVersion(raw.divisionPolicy?.version) ? { divisionPolicy: raw.divisionPolicy } : {}),
     ...(normalizeRoleId(raw.unrankedRoleId) ? { unrankedRoleId: normalizeRoleId(raw.unrankedRoleId) } : {}),
     tiers: raw.tiers.map(tier => ({
       roleId: normalizeRoleId(tier?.roleId),

@@ -8,7 +8,7 @@ import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
-import { getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
+import { getConfiguredDivisionLabel, getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
 import type { SeasonSelection } from '../season/selection.ts'
 import { resolveSeasonSelection } from '../season/selection.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
@@ -148,7 +148,7 @@ export async function buildRankGraphImageData(
   const [profile, eventRows, bands] = await Promise.all([
     loadPlayerProfile(db, playerId),
     loadRankGraphEvents(db, playerId, scope, gameLimit, season?.id, publicEra),
-    publicEra ? getRankedRoleDisplayConfig(kv, guildId).then(buildPublicRankGraphBands) : season && !season.active ? Promise.resolve([]) : loadRankGraphBands(db, kv, guildId, scope),
+    publicEra ? getRankedRoleDisplayConfig(kv, guildId).then(buildPublicRankGraphBands) : loadRankGraphBands(db, kv, guildId, scope, season && !season.active ? season.id : undefined),
   ])
   let points = buildRankGraphPoints(eventRows, scope)
   if (publicEra) {
@@ -272,7 +272,7 @@ async function loadRankGraphEvents(
 function buildPublicRankGraphBands(config: Awaited<ReturnType<typeof getRankedRoleDisplayConfig>>): RankGraphBand[] {
   return PUBLIC_RATING_BANDS.toReversed().map(band => ({
     tier: band.tier,
-    label: band.label,
+    label: getConfiguredDivisionLabel(config, band.minimum),
     color: getTierColor(config, band.tier, Number(band.tier.slice(4)) - 1),
     cutoffScore: band.minimum || null,
   }))
@@ -287,12 +287,32 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<{ disp
   return row ?? null
 }
 
-async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope): Promise<RankGraphBand[]> {
+async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope, historicalSeasonId?: string): Promise<RankGraphBand[]> {
   const [config, scores] = await Promise.all([
     getRankedRoleDisplayConfig(kv, guildId),
-    scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
+    historicalSeasonId ? loadHistoricalRankGraphScores(db, kv, historicalSeasonId, scope) : scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
   ])
-  return buildRankGraphBands(config, scores)
+  if (historicalSeasonId && scores.length === 0) return []
+  const bands = buildRankGraphBands(config, scores)
+  return historicalSeasonId ? bands.filter((band, index) => band.cutoffScore != null || index === bands.length - 1)
+    .map(band => ({ ...band, label: band.label.replace(/ (III|II|I)$/, '') })) : bands
+}
+
+async function loadHistoricalRankGraphScores(db: Database, kv: KVNamespace, seasonId: string, scope: RankGraphScope): Promise<RankGraphScoreRow[]> {
+  const key = `rank-graph:legacy-scores:v1:${seasonId}:${scope}`
+  const cached = await kv.get<RankGraphScoreRow[]>(key, 'json')
+  if (cached) return cached
+  const rows = await db.select({ playerId: seasonRatingStates.playerId, mu: seasonRatingStates.mu, sigma: seasonRatingStates.sigma,
+    evidence: seasonRatingStates.evidence, lastPlayedAt: seasonRatingStates.lastPlayedAt,
+  }).from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, seasonId), eq(seasonRatingStates.mode, toRatingEventScope(scope))))
+  const scores = rows.filter(row => scope === 'overall'
+    ? (row.evidence.effectiveGames ?? 0) >= RANKED_ROLE_MIN_EFFECTIVE_GAMES
+    : (row.evidence.gamesPlayed ?? 0) >= getLeaderboardMinGames(scope))
+    .map(row => ({ playerId: row.playerId, score: scope === 'overall' ? roleRating(row.mu, row.sigma) : displayRating(row.mu, row.sigma),
+      lastPlayedAt: row.lastPlayedAt, qualified: scope === 'overall' || (row.evidence.gamesPlayed ?? 0) >= MODE_RANK_GRAPH_BAND_MIN_GAMES,
+    })).sort(compareRankGraphScoreRows)
+  await kv.put(key, JSON.stringify(scores), { expirationTtl: 900 })
+  return scores
 }
 
 async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {
@@ -561,6 +581,14 @@ function renderBandAxisLabels(segments: readonly RankGraphBandSegment[], scale: 
     if (y - previousY < 30) continue
     previousY = y
     labels.push(`<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${segment.color}" opacity="0.9" font-size="16" font-weight="900">${Math.round(segment.cutoffScore)}</text>`)
+  }
+  if (labels.length === 0) {
+    const step = Math.max(50, Math.ceil((scale.max - scale.min) / 5 / 50) * 50)
+    for (let rating = Math.ceil(scale.min / step) * step; rating < scale.max; rating += step) {
+      const y = ratingToY(rating, scale) + 5
+      if (y < CHART_Y + 10 || y > CHART_BOTTOM - 5) continue
+      labels.push(`<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${COLORS.muted}" font-size="16" font-weight="900">${rating}</text>`)
+    }
   }
   return labels.join('')
 }

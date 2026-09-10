@@ -1,15 +1,17 @@
 import type { LeadersModeFilter } from '../embeds/player-leaders.ts'
 import { createDb } from '@civup/db'
 import { GAME_MODE_CHOICES, LEADERBOARD_MODES, parseGameMode, toLeaderboardMode } from '@civup/game'
-import { Command, Option } from 'discord-hono'
+import { Autocomplete, Command, Option } from 'discord-hono'
 import { playerLeadersEmbed } from '../embeds/player-leaders.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { syncPlayerProfileFromDiscord } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { getRankedRoleConfig } from '../services/ranked/roles.ts'
+import { getSeasonSnapshotRoleMappings } from '../services/season/snapshot-roles.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
-import { parseSeasonSelection, resolveSeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection, resolveSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
 
 interface Var {
   player?: string
@@ -17,12 +19,16 @@ interface Var {
   season?: string
 }
 
-export const command_leaders = factory.command<Var>(
+export const command_leaders = factory.autocomplete<Var>(
   new Command('leaders', 'View player leader stats').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
-    new Option('season', 'Current, all, or a season number'),
+    new Option('season', 'Choose a season').autocomplete(),
   ),
+  async (c) => {
+    const input = typeof c.focused?.value === 'string' ? c.focused.value : ''
+    return c.resAutocomplete(new Autocomplete(input).choices(...await seasonAutocompleteChoices(createDb(c.env.DB), input)))
+  },
   (c) => {
     const guildId = c.interaction.guild_id
     const targetId = c.var.player
@@ -60,7 +66,12 @@ export const command_leaders = factory.command<Var>(
             return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
           })()
 
+      const historicalMapping = historical && guildId && selected.season ? (await getSeasonSnapshotRoleMappings(kv, guildId)).bySeasonId[selected.season.id] : undefined
       const embed = await playerLeadersEmbed(db, targetId, mode, {
+        unrankedRoleId: historical && guildId ? (await getRankedRoleConfig(kv, guildId)).unrankedRoleId : undefined,
+        kv,
+        historicalRoleIds: historicalMapping?.roles,
+        historicalRoleLabels: historicalMapping?.labels,
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,

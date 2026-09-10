@@ -14,10 +14,10 @@ const transition = {
 
 describe('public rating', () => {
   test('rounded boundaries agree with labels and visible change arithmetic', () => {
-    expect(publicRatingRank(599.49).label).toBe('Pleb')
-    expect(publicRatingRank(599.5).label).toBe('Squire III')
-    expect(publicRatingRank(1499.5).label).toBe('Elite')
-    expect(publicRatingRank(9000).label).toBe('Elite')
+    expect(publicRatingRank(599.49)).toMatchObject({ tier: 'tier5', division: 0, minimum: 0 })
+    expect(publicRatingRank(599.5)).toMatchObject({ tier: 'tier4', division: 3, minimum: 600 })
+    expect(publicRatingRank(1499.5)).toMatchObject({ tier: 'tier1', division: 0, minimum: 1500 })
+    expect(publicRatingRank(9000)).toMatchObject({ tier: 'tier1', division: 0, minimum: 1500 })
     expect(publicRatingPresentation(750.49, 750.51)).toMatchObject({ before: 750, after: 751, delta: 1 })
     expect(publicRatingPresentation(750.49, 750.48).text).toBe('750 RP')
     expect(() => publicRatingRank(Number.NaN)).toThrow()
@@ -77,11 +77,11 @@ describe('public rating', () => {
     expect(first.after).toBeLessThan(600)
     const badge = advancePublicRatingBadge(705, 685)
     expect(badge).toBe(700)
-    expect(publicRatingBadgeRank(685, badge).label).toBe('Squire II')
+    expect(publicRatingBadgeRank(685, badge)).toMatchObject({ tier: 'tier4', division: 2 })
     for (const after of [670, 695, 705]) {
       expect(advancePublicRatingBadge(685, after, badge)).toBeNull()
     }
-    expect(publicRatingBadgeRank(695).label).toBe('Squire III')
+    expect(publicRatingBadgeRank(695)).toMatchObject({ tier: 'tier4', division: 3 })
     expect(advancePublicRatingBadge(700, 699.5)).toBeNull()
     expect(advancePublicRatingBadge(700, 699.49)).toBe(700)
     const second = calculatePublicRatingTransition({ ...transition, priorRating: first.after, hiddenMuAfterRaw: 22 })

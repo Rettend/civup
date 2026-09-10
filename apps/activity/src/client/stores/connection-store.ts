@@ -65,9 +65,12 @@ export interface LobbySnapshot {
       seasonGames?: number
       seasonWins?: number
       seasonNumber?: number
-      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier }>
+      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier, label?: string, division?: number }>
     }
     rankedRole?: {
+      label?: string
+      division?: number
+      overallRating?: number | null
       tier: CompetitiveTier
       sourceMode: string | null
     } | null

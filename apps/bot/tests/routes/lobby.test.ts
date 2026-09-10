@@ -802,11 +802,11 @@ describe('lobby routes', () => {
     expect(configuredLobby.draftConfig.civBlitz).toBe(true)
   })
 
-  test('config route accepts the beta BBG Expanded CivBlitz option maximum', async () => {
+  test('config route normalizes retired beta requests to the live BBG Expanded CivBlitz option maximum', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
-    const expandedMax = getCivBlitzOptionCountMaximum('beta', { excludeBbgExpanded: false })
+    const expandedMax = getCivBlitzOptionCountMaximum('live', { excludeBbgExpanded: false })
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -830,7 +830,7 @@ describe('lobby routes', () => {
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
-    expect(configuredLobby.draftConfig.leaderDataVersion).toBe('beta')
+    expect(configuredLobby.draftConfig.leaderDataVersion).toBe('live')
     expect(configuredLobby.draftConfig.civBlitz).toBe(true)
     expect(configuredLobby.draftConfig.civBlitzExcludeBbgExpanded).toBe(false)
     expect(configuredLobby.draftConfig.civBlitzOptionCount).toBe(expandedMax)
@@ -1082,7 +1082,7 @@ describe('lobby routes', () => {
     expect(updatedLobby?.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
   })
 
-  test('config route clamps beta leader pool when switching back to live data', async () => {
+  test('config route rejects an oversized leader pool and accepts the current live maximum', async () => {
     const { kv } = createTrackedKv()
     const app = new Hono()
     registerLobbyRoutes(app as any)
@@ -1101,13 +1101,12 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const betaMax = getMaxLeaderPoolSize('beta')
     const liveMax = getMaxLeaderPoolSize('live')
-    expect(betaMax).toBeGreaterThan(liveMax)
+    const oversizedPool = liveMax + 10
 
     const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
       ...lobby.draftConfig,
-      leaderPoolSize: betaMax,
+      leaderPoolSize: oversizedPool,
       leaderDataVersion: 'beta',
     }, lobby)
     expect(configuredLobby).not.toBeNull()
@@ -1117,15 +1116,21 @@ describe('lobby routes', () => {
       headers: { 'Content-Type': 'application/json' },
     })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
+    const invalid = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({
         userId: 'host',
         lobbyId: lobby.id,
         leaderDataVersion: 'live',
-        leaderPoolSize: betaMax,
+        leaderPoolSize: oversizedPool,
       }),
+    }, buildEnv(kv))
+    expect(invalid.status).toBe(400)
+    const response = await app.request('/api/lobby/2v2/config', {
+      method: 'POST',
+      headers: buildAuthHeaders('host', 'Host'),
+      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'live', leaderPoolSize: liveMax }),
     }, buildEnv(kv))
 
     expect(response.status).toBe(200)

@@ -1,6 +1,7 @@
 export const EXPECTED_GUILD_COMMANDS = [
   { type: 1, name: 'admin' },
   { type: 1, name: 'civleaderboard' },
+  { type: 1, name: 'decay' },
   { type: 1, name: 'draft' },
   { type: 1, name: 'help' },
   { type: 1, name: 'history' },

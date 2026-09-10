@@ -43,7 +43,7 @@ describe('public rank integration', () => {
       const summary = await summarizeRankedPreview({ db, kv, guildId: 'guild', now: 2000 })
       const ladder = JSON.stringify(rankedPreviewEmbeds(summary))
       expect(summary.ratingSystem).toBe('rp')
-      expect(ladder).toContain('Squire III')
+      expect(ladder).toContain('Role 4 III')
       expect(ladder).toContain('700–799 RP')
       expect(ladder).toContain('1500+ RP')
       expect(ladder).not.toContain('Top ')

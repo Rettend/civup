@@ -2,6 +2,13 @@ export const PUBLIC_RATING_DECAY_VERSION = 'rp-decay-v1'
 export const PUBLIC_RATING_DECAY = { entry: 1550, floor: 1500, reserveDays: 60, daysPerGame: 14, ratingPerDay: 2 } as const
 const DAY = 86_400_000
 
+/** Exact next rounded display change for an already-settled rating; no polling is needed. */
+export function nextPublicRatingDisplayChangeAt(rating: number, state: PublicRatingDecayState | null | undefined, now: number): number | null {
+  if (!state?.active || rating <= PUBLIC_RATING_DECAY.floor || Math.round(rating) <= PUBLIC_RATING_DECAY.floor) return null
+  const remaining = rating - (Math.round(rating) - 0.5)
+  return Math.max(now, state.bankUntil) + Math.max(1, Math.ceil(remaining / PUBLIC_RATING_DECAY.ratingPerDay * DAY) + 1)
+}
+
 export interface PublicRatingDecayState {
   version: string
   bankUntil: number

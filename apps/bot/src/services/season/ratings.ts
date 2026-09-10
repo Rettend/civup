@@ -28,6 +28,21 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
     : await db.select().from(playerRatings).where(inArray(playerRatings.playerId, [...playerIds]))
   const ratings = await projectPublicRatingDecay(db, storedRatings, Date.now(), selected.ratingSeason)
   if (!season && !selected.allTime) return ratings
+  // Isolated reports and corrections already maintain these counters atomically.
+  // Reading a player's stats must not walk their match history again.
+  if (season?.isolatedRatingsEnabled) {
+    const counts = historical ? storedRatings.map(row => ({ playerId: row.playerId, mode: row.mode, seasonGames: row.gamesPlayed, seasonWins: row.wins }))
+      : await db.select({ playerId: seasonRatingStates.playerId, mode: seasonRatingStates.mode,
+        seasonGames: seasonRatingStates.seasonGames, seasonWins: seasonRatingStates.seasonWins,
+      }).from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))
+    const byKey = new Map(counts.map(row => [`${row.playerId}:${row.mode}`, row]))
+    return ratings.map(row => {
+      if (season.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Public rating data is incomplete; no hidden-rating substitute is shown.')
+      const count = byKey.get(`${row.playerId}:${row.mode}`)
+      const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
+      return { ...row, lifetimeGamesPlayed, gamesPlayed: count?.seasonGames ?? 0, wins: count?.seasonWins ?? 0 }
+    })
+  }
   const counts = await db.select({
     matchId: matches.id,
     playerId: matchParticipants.playerId,

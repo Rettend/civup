@@ -3,7 +3,7 @@ import type { SQL } from 'drizzle-orm'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { ParticipantRow } from '../match/types.ts'
 import type { StoredRatingSummaryRow } from '../match/report.ts'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
+import { divisionRankPolicies, divisionRankStates, matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
 import { advancePublicRatingBadge, calculatePublicRatingTransition, createRating, PUBLIC_RATING_START, publicRatingTarget, recordPublicRatingDecayGame, settlePublicRatingDecay } from '@civup/rating'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
@@ -11,6 +11,8 @@ import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../
 import { seasonMutationError } from './policy.ts'
 import { markRatingMutationUncertain } from './maintenance.ts'
 import { loadPublicRatingDecayPolicy, samePublicRatingDecay } from './decay.ts'
+import { prepareAtomicDivisionUpdates, type DivisionRatingInput, type DivisionEventInput } from '../ranked/atomic-divisions.ts'
+import { notifyDivisionDelivery } from '../ranked/division-delivery.ts'
 
 export interface PreparedSeasonReport {
   queries: DbBatchItem[]
@@ -38,6 +40,7 @@ export async function runAtomicSeasonBatch(db: Database, queries: DbBatchItem[])
   }
   try { await db.batch(queries as [DbBatchItem, ...DbBatchItem[]]) }
   catch (error) { markRatingMutationUncertain(); throw error }
+  notifyDivisionDelivery(queries)
 }
 
 export async function prepareSeasonReport(db: Database, input: {
@@ -104,9 +107,28 @@ export async function prepareSeasonReport(db: Database, input: {
     and ${matchParticipants.team} is ${participant.team} and ${matchParticipants.placement} = ${participant.placement}
     and ${matchParticipants.civId} is ${participant.civId})`))
 
-  const opponentTiers = season.active ? input.opponentTierByPlayerId : new Map(states.filter(state => state.mode === 'global' && state.managedTier != null).map(state => [state.playerId, state.managedTier!]))
+  let opponentTiers = season.active ? input.opponentTierByPlayerId : new Map(states.filter(state => state.mode === 'global' && state.managedTier != null).map(state => [state.playerId, state.managedTier!]))
+  if (season.active && season.ratingSystem === 'rp') {
+    const assigned = await db.select({ guildId: divisionRankPolicies.guildId, playerId: divisionRankStates.playerId, result: divisionRankStates.resultJson }).from(divisionRankPolicies)
+      .leftJoin(divisionRankStates, and(eq(divisionRankStates.guildId, divisionRankPolicies.guildId), inArray(divisionRankStates.playerId, ids)))
+      .where(and(eq(divisionRankPolicies.seasonId, season.id), eq(divisionRankPolicies.phase,'active')))
+    if (new Set(assigned.map(row=>row.guildId)).size > 1) throw new Error('A report needs an unambiguous guild rank policy.')
+    if (assigned.length) opponentTiers = new Map(assigned.flatMap(row => {
+      const result = row.result ? JSON.parse(row.result) : null
+      return row.playerId && result?.band?.tier ? [[row.playerId,result.band.tier] as const] : []
+    }))
+    if (assigned.length) {
+      const guildId = assigned[0]!.guildId
+      const expected = JSON.stringify(ids.map(playerId => ({ playerId, result: assigned.find(row => row.playerId === playerId)?.result ?? null })))
+      queries.push(seasonSourceGuard(db, sql`not exists(select 1 from json_each(${expected}) e
+        left join division_rank_states s on s.guild_id=${guildId} and s.player_id=json_extract(e.value,'$.playerId')
+        where s.result_json is not json_extract(e.value,'$.result'))`))
+    }
+  }
   queries.push(db.insert(seasonMatchReports).values({ matchId: match.id, seasonId: season.id, acceptedAt, opponentTiers: Object.fromEntries([...opponentTiers].filter(([id]) => ids.includes(id))) }))
   const evidence = buildMatchEvidenceByPlayerId(participants, match.isOld, opponentTiers, context.permanentAlly)
+  const divisionRatings: DivisionRatingInput[] = []
+  const divisionEvents: DivisionEventInput[] = []
 
   for (const scope of scopes) {
     const configuration = configurations.find(row => row.mode === scope)
@@ -174,6 +196,10 @@ export async function prepareSeasonReport(db: Database, input: {
           evidence: Object.fromEntries(evidenceKeys.map(key => [key, summary[key]])),
           lastPlayedAt: summary.lastPlayedAt, revision: (state?.revision ?? 0) + 1, updatedAt: now,
         }
+        if (season.active && transition) {
+          divisionRatings.push({ ...summary, publicRating: row.publicRating, publicBadge: row.publicBadge, publicDecay: row.publicDecay })
+          divisionEvents.push({ ...event, at: acceptedAt, effectiveGamesDelta: event.effectiveGamesDelta ?? 0, effectiveWinsVsTier1Delta: event.effectiveWinsVsTier1Delta ?? 0, effectiveWinsVsTier2PlusDelta: event.effectiveWinsVsTier2PlusDelta ?? 0 })
+        }
         queries.push(db.insert(seasonRatingStates).values(row).onConflictDoUpdate({ target: [seasonRatingStates.seasonId, seasonRatingStates.playerId, seasonRatingStates.mode], set: row }))
         if (season.active) queries.push(db.insert(playerRatings).values({ ...summary, publicRating: row.publicRating, publicBadge: row.publicBadge, publicDecay: row.publicDecay }).onConflictDoUpdate({ target: [playerRatings.playerId, playerRatings.mode], set: { ...summary, publicRating: row.publicRating, publicBadge: row.publicBadge, publicDecay: row.publicDecay } }))
         queries.push(db.insert(playerRatingEvents).values({ ...event, seasonId: season.id,
@@ -189,6 +215,11 @@ export async function prepareSeasonReport(db: Database, input: {
       },
     })
     if (typeof computed === 'string') throw new Error(computed)
+  }
+  if (season.active && season.ratingSystem === 'rp') {
+    const division = await prepareAtomicDivisionUpdates(db, { seasonId: season.id, now, ratings: divisionRatings, events: divisionEvents, replacedMatchIds: [match.id] })
+    queries.unshift(...division.guards)
+    queries.push(...division.updates)
   }
   if (queries.length > 400) throw new Error('Season report exceeds the online statement limit.')
   return { queries, acceptedAt, late: !season.active, idempotent: false }

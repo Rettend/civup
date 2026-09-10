@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { leaderboardDecaySchedules, playerRatings, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
+import { leaderboardDecaySchedules, playerRatings, seasonPeakDivisionRanks, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
+import { PUBLIC_RATING_BANDS } from '@civup/rating'
 import { LEADERBOARD_MODES } from '@civup/game'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
-import { recalculateLeaderboardMode } from '../match/ratings.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
 import type { PublicRatingDecayState } from '@civup/rating'
 
@@ -19,7 +19,7 @@ export interface LeaderboardSnapshotRow {
   publicRating?: number
   seasonGames?: number
   seasonWins?: number
-  pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier }>
+  pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier, label?: string, division?: number }>
   publicDecay?: PublicRatingDecayState | null
 }
 
@@ -74,22 +74,7 @@ export async function ensureLeaderboardModeSnapshots(
 
   if (missingModes.length === 0) return snapshots
 
-  let rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
-  let recalcModes = missingModes.filter(mode => rowsByMode.get(mode)?.length === 0 && (mode === 'duo' || mode === 'squad'))
-  if (recalcModes.length) {
-    const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
-    if (publicSeason) recalcModes = []
-  }
-
-  for (const mode of recalcModes) {
-    const recalculated = await recalculateLeaderboardMode(db, mode)
-    if ('error' in recalculated) throw new Error(recalculated.error)
-  }
-
-  if (recalcModes.length > 0) {
-    const recalculatedRowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, recalcModes)
-    rowsByMode = new Map([...rowsByMode, ...recalculatedRowsByMode])
-  }
+  const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
 
   const era = await loadSnapshotEra(db)
   const rebuilt = missingModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()), ...era }))
@@ -204,11 +189,14 @@ async function loadSnapshotEra(db: Database): Promise<Pick<LeaderboardModeSnapsh
   const [season] = await db.select({ seasonNumber: seasons.seasonNumber, ratingSystem: seasons.ratingSystem, enabled: seasons.publicReadsEnabled }).from(seasons).orderBy(desc(seasons.active), desc(seasons.startsAt)).limit(1)
   if (!season) return {}
   const closed = await db.select({ id: seasons.id, seasonNumber: seasons.seasonNumber }).from(seasons).where(eq(seasons.active, false)).orderBy(desc(seasons.seasonNumber)).limit(8)
-  const historical = closed.length ? await db.select({ playerId: seasonPeakRanks.playerId, seasonId: seasonPeakRanks.seasonId, tier: seasonPeakRanks.tier }).from(seasonPeakRanks).where(inArray(seasonPeakRanks.seasonId, closed.map(season => season.id))) : []
+  const historical = closed.length ? await db.select({ playerId: seasonPeakRanks.playerId, seasonId: seasonPeakRanks.seasonId, tier: seasonPeakRanks.tier, minimum: seasonPeakDivisionRanks.minimum }).from(seasonPeakRanks)
+    .leftJoin(seasonPeakDivisionRanks, and(eq(seasonPeakDivisionRanks.seasonId, seasonPeakRanks.seasonId), eq(seasonPeakDivisionRanks.playerId, seasonPeakRanks.playerId)))
+    .where(inArray(seasonPeakRanks.seasonId, closed.map(season => season.id))) : []
   const pastRanksByPlayerId: NonNullable<LeaderboardModeSnapshot['pastRanksByPlayerId']> = {}
   for (const row of historical) {
     const ranks = pastRanksByPlayerId[row.playerId] ?? []
-    ranks.push({ seasonNumber: closed.find(season => season.id === row.seasonId)!.seasonNumber, tier: row.tier as CompetitiveTier })
+    ranks.push({ seasonNumber: closed.find(season => season.id === row.seasonId)!.seasonNumber, tier: row.tier as CompetitiveTier,
+      ...(row.minimum != null ? { division: PUBLIC_RATING_BANDS.find(band => band.minimum === row.minimum)?.division } : {}) })
     pastRanksByPlayerId[row.playerId] = ranks
   }
   for (const ranks of Object.values(pastRanksByPlayerId)) ranks.sort((a, b) => b.seasonNumber - a.seasonNumber)

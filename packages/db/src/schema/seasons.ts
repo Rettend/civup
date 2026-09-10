@@ -15,11 +15,20 @@ export const seasons = sqliteTable('seasons', {
   active: integer('active', { mode: 'boolean' }).notNull().default(false),
   reportingDeadline: integer('reporting_deadline'),
   finalizedAt: integer('finalized_at'),
+  standingsRevision: integer('standings_revision').notNull().default(0),
   ratingSystem: text('rating_system', { enum: ['legacy', 'rp'] }).notNull().default('legacy'),
   resetFactor: real('reset_factor').notNull().default(0.5),
   preserveEvidence: integer('preserve_evidence', { mode: 'boolean' }).notNull().default(false),
   publicReadsEnabled: integer('public_reads_enabled', { mode: 'boolean' }).notNull().default(false),
   isolatedRatingsEnabled: integer('isolated_ratings_enabled', { mode: 'boolean' }).notNull().default(false),
+})
+
+export const seasonStandingSnapshots = sqliteTable('season_standing_snapshots', {
+  seasonId: text('season_id').primaryKey().notNull().references(() => seasons.id),
+  revision: integer('revision').notNull(),
+  version: integer('version').notNull(),
+  finalizedAt: integer('finalized_at'),
+  payload: text('payload').notNull(),
 })
 
 export const seasonPeakRanks = sqliteTable('season_peak_ranks', {

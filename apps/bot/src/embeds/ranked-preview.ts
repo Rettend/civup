@@ -1,8 +1,8 @@
 import type { RankedPreviewBandSummary, RankedPreviewModeSummary, RankedPreviewSummary } from '../services/ranked/role-sync.ts'
 import { formatLeaderboardModeLabel } from '@civup/game'
-import { PUBLIC_RATING_BANDS } from '@civup/rating'
+import { PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
 import { Embed } from 'discord-hono'
-import { formatRankedRoleSlotLabel } from '../services/ranked/roles.ts'
+import { formatRankedRoleSlotLabel, getConfiguredDivisionLabel, getConfiguredRankedRoleLabel } from '../services/ranked/roles.ts'
 
 const RANKED_PREVIEW_COLOR = 0xC8AA6E
 
@@ -34,23 +34,24 @@ export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
 }
 
 function publicRankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
-  const fields = ['tier5', 'tier4', 'tier3', 'tier2', 'tier1'].map((tier) => {
+  const fields = [...new Set(PUBLIC_RATING_BANDS.map(band => band.tier))].map((tier) => {
     const bands = PUBLIC_RATING_BANDS.filter(band => band.tier === tier)
     const roleId = summary.bands.find(band => band.tier === tier)?.roleId
     return {
-      name: tier === 'tier5' ? 'Pleb' : tier === 'tier1' ? 'Elite' : bands[0]!.label.split(' ')[0]!,
+      name: getConfiguredRankedRoleLabel(summary.config, bands[0]!.tier)!,
       value: bands.map((band) => {
         const next = PUBLIC_RATING_BANDS[PUBLIC_RATING_BANDS.indexOf(band) + 1]
         const range = next ? `${band.minimum}–${next.minimum - 1} RP` : `${band.minimum}+ RP`
-        const division = band.label.match(/ (III|II|I)$/)?.[0] ?? ''
-        const label = roleId ? `<@&${roleId}>${division}` : band.label
+        const division = rankDivisionSuffix(band.division)
+        const divisionRoleId = summary.config.divisionPolicy?.roleIdsByMinimum[band.minimum]
+        const label = divisionRoleId ? `<@&${divisionRoleId}>` : roleId ? `<@&${roleId}>${division}` : getConfiguredDivisionLabel(summary.config, band.minimum)
         const padding = division ? '\u2009\u200A'.repeat(3 - division.trim().length) : ''
-        return `${label}${padding} · ${range}`
+        return `${label}${padding} ${range}`
       }).join('\n'),
       inline: true,
     }
   })
-  return [new Embed().title('RP Rank Ladder').color(RANKED_PREVIEW_COLOR).fields(...fields)]
+  return [new Embed().title('Rank Ladder').color(RANKED_PREVIEW_COLOR).fields(...fields)]
 }
 
 function hasModeCutoffData(mode: RankedPreviewModeSummary): boolean {

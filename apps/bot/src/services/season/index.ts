@@ -9,6 +9,7 @@ import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { runDbBatch } from '../db/batch.ts'
 import type { DbBatchItem } from '../db/batch.ts'
+import { prepareSeasonStandingsWrite } from './standings.ts'
 
 export interface SeasonPeakCandidate {
   playerId: string
@@ -171,7 +172,7 @@ async function endSeasonImpl(db: Database, input: { now?: number } = {}) {
     .groupBy(playerRatings.playerId, playerRatings.mode))
   await runDbBatch(db, [closingSnapshot, db.update(seasons)
     .set({ active: false, endsAt, finalizedAt: endsAt })
-    .where(eq(seasons.id, existing.id))])
+    .where(eq(seasons.id, existing.id)), prepareSeasonStandingsWrite(db, existing.id)])
 
   return {
     ...existing,

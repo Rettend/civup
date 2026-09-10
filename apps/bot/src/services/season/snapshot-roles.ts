@@ -24,6 +24,7 @@ interface StoredSeasonSnapshotRoleMappings {
     seasonNumber?: unknown
     seasonName?: unknown
     roles?: Record<string, unknown>
+    labels?: Record<string, string>
   }>
 }
 
@@ -32,6 +33,7 @@ export interface SeasonSnapshotRoleMappings {
     seasonNumber: number
     seasonName: string
     roles: Record<string, string | null>
+    labels?: Record<string, string>
   }>
 }
 
@@ -77,6 +79,7 @@ export async function ensureSeasonSnapshotRoles(
   const guildRoleByName = new Map(guildRoles.map(role => [role.name, role]))
 
   const roles: Record<string, string | null> = {}
+  const labels: Record<string, string> = { ...existing?.labels }
 
   for (let index = 0; index < getRankedRoleTierCount(config); index++) {
     const tier = createRankedRoleTierId(index + 1)
@@ -85,6 +88,7 @@ export async function ensureSeasonSnapshotRoles(
     const sourceRole = sourceRoleId ? guildRoleById.get(sourceRoleId) : null
     const roleLabel = sourceRole?.name ?? getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)
     const roleName = formatSeasonSnapshotRoleName(season.seasonNumber, roleLabel)
+    labels[tier] = roleName
     const mappedRole = existingRoleId ? guildRoleById.get(existingRoleId) : null
     if (mappedRole && mappedRole.name === roleName) {
       roles[tier] = existingRoleId
@@ -108,6 +112,7 @@ export async function ensureSeasonSnapshotRoles(
     seasonNumber: season.seasonNumber,
     seasonName: season.name,
     roles,
+    labels,
   }
   await setSeasonSnapshotRoleMappings(kv, guildId, mappings)
 
@@ -336,6 +341,7 @@ function normalizeSeasonSnapshotRoleMappings(raw: StoredSeasonSnapshotRoleMappin
         : 0,
       seasonName: typeof value.seasonName === 'string' ? value.seasonName : seasonId,
       roles,
+      labels: Object.fromEntries(Object.entries(value.labels ?? {}).filter(([tier, label]) => normalizeRankedRoleTierId(tier) && typeof label === 'string' && label.trim())),
     }
   }
 

@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import type { RankGraphScope } from '../services/player/rank-graph.ts'
 import { createDb } from '@civup/db'
-import { Command, Option } from 'discord-hono'
+import { Autocomplete, Command, Option } from 'discord-hono'
 import { getIdentityByUserId } from './identity.ts'
 import { createChannelMessageWithFile, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
 import { getKvStore } from '../services/kv/batch.ts'
@@ -10,8 +10,11 @@ import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
-import { parseSeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
 import { factory } from '../setup.ts'
+import { getDivisionRankPolicy, previewSavedDivisionRanks } from '../services/ranked/division-rank-runtime.ts'
+import { getAssignedRankRoleId } from '../services/ranked/roles.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
 
 interface Var {
   player?: string
@@ -44,13 +47,17 @@ export const RANK_GRAPH_GAME_CHOICES = [
 
 const DEFAULT_RANK_GRAPH_GAMES = 20
 
-export const command_rank = factory.command<Var>(
+export const command_rank = factory.autocomplete<Var>(
   new Command('rank', 'View ranked rating history').options(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('mode', 'Rating track').choices(...RANK_GRAPH_MODE_CHOICES),
     new Option('games', 'X-axis window').choices(...RANK_GRAPH_GAME_CHOICES),
-    new Option('season', 'Current or a season number'),
+    new Option('season', 'Choose a season').autocomplete(),
   ),
+  async (c) => {
+    const input = typeof c.focused?.value === 'string' ? c.focused.value : ''
+    return c.resAutocomplete(new Autocomplete(input).choices(...await seasonAutocompleteChoices(createDb(c.env.DB), input, false)))
+  },
   async (c) => {
     const guildId = c.interaction.guild_id
     const targetId = c.var.player
@@ -140,6 +147,18 @@ export async function buildRankCommandImage(
     season?: SeasonSelection
   },
 ): Promise<RankCommandResult> {
+  if (options.scope === 'overall') {
+    const policy = await getDivisionRankPolicy(db, guildId)
+    if (policy?.phase === 'active') {
+      const { season } = await resolveSeasonSelection(db, options.season ?? 'current')
+      if (season?.id === policy.seasonId) {
+        const preview = await previewSavedDivisionRanks(db, kv, guildId, [playerId])
+        const assignment = preview.playerPreviews[0]?.assignment
+        const roleId = assignment ? getAssignedRankRoleId(preview.config, assignment) : preview.config.unrankedRoleId
+        return { content: `<@${playerId}> - ${roleId ? `<@&${roleId}>` : 'Unranked'}` }
+      }
+    }
+  }
   let data
   try { data = await buildRankGraphImageData(db, kv, guildId, playerId, options) }
   catch (error) { return { content: error instanceof Error ? error.message : 'Could not load rating history.' } }

@@ -1,6 +1,7 @@
-import { matches, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { matches, playerRatingEvents, playerRatings, players, seasonRatingStates, seasons } from '@civup/db'
 import { displayRating, PUBLIC_RATING_BANDS } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 import { buildRankCommandImage } from '../../src/commands/rank.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -10,15 +11,42 @@ const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
 
 describe('rank graph image', () => {
+  test('closed-season graph bands use saved legacy standings, not live RP, and retain numeric labels without bands', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      await seedConfiguredRoles(kv)
+      await seedModeRatings(db, 'ffa', 20)
+      await db.insert(seasons).values({ id: 's8', seasonNumber: 8, name: 'Season 8', startsAt: 0, endsAt: NOW + 1 })
+      const rows = await db.select().from(playerRatings)
+      await db.insert(seasonRatingStates).values(rows.map(row => ({ seasonId: 's8', playerId: row.playerId, mode: row.mode, mu: row.mu, sigma: row.sigma,
+        evidence: { gamesPlayed: row.gamesPlayed, effectiveGames: row.gamesPlayed }, updatedAt: NOW,
+      })))
+      await seedPlayer(db, HERO_ID, 'Graph Hero')
+      await seedRatingEvents(db, HERO_ID, 'ffa', 5)
+      await db.update(matches).set({ seasonId: 's8' })
+      const data = await buildRankGraphImageData(db, kv, 'guild-1', HERO_ID, { scope: 'ffa', gameLimit: 3, season: 8 })
+      expect(data.bands.some(band => band.cutoffScore != null)).toBe(true)
+      await db.update(playerRatings).set({ mu: 100, publicRating: 1700 }).where(eq(playerRatings.mode, 'ffa'))
+      const after = await buildRankGraphImageData(db, createTestKv(), 'guild-1', HERO_ID, { scope: 'ffa', gameLimit: 3, season: 8 })
+      expect(after.bands.map(band => band.cutoffScore)).toEqual(data.bands.map(band => band.cutoffScore))
+      const svg = await renderRankGraphSvg(data)
+      expect(svg).toMatch(/text-anchor="end"[^>]*>\d+<\/text>/)
+      expect(svg).toContain('>R1</text>')
+      const noBands = await renderRankGraphSvg({ ...data, bands: [] })
+      expect(noBands).toMatch(/text-anchor="end"[^>]*>\d+<\/text>/)
+    }
+    finally { sqlite.close() }
+  })
   test('RP graphs focus on played ratings and show nearby divisions instead of the whole ladder', async () => {
     const svg = await renderRankGraphSvg({ scope: 'overall', gameLimit: 2, ratingSystem: 'rp',
       player: { playerId: HERO_ID, displayName: 'Hero', avatarUrl: null, currentRating: 780, games: 2, points: [{ x: 0, rating: 705 }, { x: 1, rating: 685 }, { x: 2, rating: 780 }] },
       bands: PUBLIC_RATING_BANDS.toReversed().map(band => ({ tier: band.tier, label: band.label, cutoffScore: band.minimum || null, color: '#ffffff' })),
     })
-    expect(svg).toContain('SQUIRE II')
-    expect(svg).toContain('SQUIRE III')
-    expect(svg).not.toContain('ELITE')
-    expect(svg).not.toContain('LEGION')
+    expect(svg).toContain('ROLE 4 II')
+    expect(svg).toContain('ROLE 4 III')
+    expect(svg).not.toContain('ROLE 1')
+    expect(svg).not.toContain('ROLE 2')
   })
   test('builds recent rating points and rank bands', async () => {
     const { db, sqlite } = await createTestDatabase()

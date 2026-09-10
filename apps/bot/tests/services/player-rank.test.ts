@@ -1,13 +1,16 @@
 import type { GameMode } from '@civup/game'
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasons, tournamentMatches, tournaments } from '@civup/db'
+import { divisionRankPolicies, divisionRankStates, matches, matchParticipants, playerRatingEvents, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks, seasonRatingStates, seasons, tournamentMatches, tournaments } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
-import { playerCardEmbed } from '../../src/embeds/player-card.ts'
+import { formatModeStats, playerCardEmbed } from '../../src/embeds/player-card.ts'
+import type { PlayerRatingSummary, PlayerRankModeSummary } from '../../src/services/player/rank.ts'
 import { playerLeadersEmbed } from '../../src/embeds/player-leaders.ts'
 import { rankEmbed } from '../../src/embeds/rank.ts'
 import { backfillPlayerCivStatsFromHistory, listPlayerCivStats, loadPlayerCivRankingSummaries, reconcilePlayerCivStatMatchContribution, removePlayerCivStatMatchContribution } from '../../src/services/leaderboard/player-civ-stats.ts'
 import { getPlayerRankProfile, getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
+import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { currentRankAssignmentsKey } from '../../src/services/ranked/role-sync.ts'
 import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -19,6 +22,140 @@ const TIER_4 = 'tier4'
 const TIER_5 = 'tier5'
 
 describe('player rank views', () => {
+  test('top-tier mode rows show surplus RP using the qualified displayed rank', () => {
+    const rating: PlayerRatingSummary = { playerId: HERO_ID, mode: 'duel', mu: 40, sigma: 3, gamesPlayed: 30, wins: 20,
+      importedGames: 0, effectiveGames: 30, winsVsTier1: 5, winsVsTier2Plus: 15, effectiveWinsVsTier1: 5, effectiveWinsVsTier2Plus: 15,
+      lastPlayedAt: NOW, publicRating: 1600 }
+    const summary: PlayerRankModeSummary = { mode: 'duel', tier: 'tier1', tierLabel: 'Champion', tierRoleId: 'top-role', divisionMinimum: 1500,
+      rating: 1600, gamesPlayed: 30, wins: 20, rank: 3, eligible: true }
+    const stats = { publicEra: true, ffaRatingWins: 0 }
+    expect(formatModeStats(summary, rating, 'duel', stats).split('\n').slice(0, 2)).toEqual(['<@&top-role> · +100 RP', 'Rank: #3'])
+    expect(formatModeStats(summary, { ...rating, publicRating: 1500 }, 'duel', stats)).toStartWith('<@&top-role> · +0 RP')
+    expect(formatModeStats(summary, { ...rating, publicRating: 1599.5 }, 'duel', stats)).toStartWith('<@&top-role> · +100 RP')
+    expect(formatModeStats(summary, { ...rating, publicRating: 1490, publicBadge: 1500 }, 'duel', stats)).toStartWith('<@&top-role> · 1490 RP')
+    const gated = { ...summary, tier: 'tier2' as const, tierRoleId: 'second-role', divisionMinimum: 1400 }
+    expect(formatModeStats(gated, rating, 'duel', stats)).toStartWith('<@&second-role> · 1600 RP')
+    expect(formatModeStats({ ...summary, eligible: false, divisionMinimum: null }, rating, 'duel', stats)).toStartWith('Unranked · 1600 RP')
+    expect(formatModeStats(summary, rating, 'duel', { ...stats, historicalRankLabel: 'Saved historical rank' })).toStartWith('Saved historical rank · 1600 RP')
+    expect(rating.publicRating).toBe(1600)
+  })
+
+  test('historical stats recover mode positions from saved season standings, not live ratings or peak ranks', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await db.insert(seasons).values([
+        { id: 's8', seasonNumber: 8, name: 'Season 8', startsAt: 0, endsAt: NOW },
+        { id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true },
+      ])
+      await db.insert(players).values([HERO_ID, 'higher', 'ineligible'].map(id => ({ id, displayName: id, createdAt: 0 })))
+      await db.insert(seasonRatingStates).values([
+        { seasonId: 's8', playerId: HERO_ID, mode: 'duel', mu: 30, sigma: 3, seasonGames: 0, evidence: { gamesPlayed: 18, effectiveGames: 18 }, updatedAt: NOW },
+        { seasonId: 's8', playerId: 'higher', mode: 'duel', mu: 35, sigma: 8, seasonGames: 10, evidence: { gamesPlayed: 10 }, updatedAt: NOW },
+        { seasonId: 's8', playerId: 'ineligible', mode: 'duel', mu: 40, sigma: 3, seasonGames: 1, evidence: { gamesPlayed: 1 }, updatedAt: NOW },
+        { seasonId: 's8', playerId: HERO_ID, mode: 'duo', mu: 30, sigma: 3, seasonGames: 10, evidence: { gamesPlayed: 10, effectiveGames: 10 }, updatedAt: NOW },
+        { seasonId: 's8', playerId: HERO_ID, mode: 'squad', mu: 30, sigma: 3, seasonGames: 1, evidence: { gamesPlayed: 1, effectiveGames: 1 }, updatedAt: NOW },
+      ])
+      await db.insert(playerRatings).values({ playerId: HERO_ID, mode: 'duel', mu: 60, sigma: 3, gamesPlayed: 50, publicRating: 1800 })
+      await db.insert(seasonPeakRanks).values({ seasonId: 's8', playerId: HERO_ID, tier: 'tier2', achievedAt: NOW - 1 })
+      await db.insert(seasonPeakModeRanks).values([
+        { seasonId: 's8', playerId: HERO_ID, mode: 'duel', tier: 'tier3', rating: 1300, achievedAt: NOW - 1 },
+        { seasonId: 's8', playerId: HERO_ID, mode: 'duo', tier: 'tier4', rating: 1250, achievedAt: NOW - 1 },
+        { seasonId: 's8', playerId: HERO_ID, mode: 'squad', tier: null, rating: 1180, achievedAt: NOW - 1 },
+      ])
+      for (const embed of [playerCardEmbed, playerLeadersEmbed]) {
+        const card = (await embed(db, HERO_ID, 'all', { season: 8, historicalRoleIds: { tier3: 's8-gladiator', tier4: 's8-squire' }, unrankedRoleId: 'regular-unranked' })).toJSON()
+        expect(card.fields?.find(field => field.name === 'Duel')?.value.split('\n')[0]).toBe('<@&s8-gladiator> · 1180')
+        expect(card.fields?.find(field => field.name === 'Duo')?.value.split('\n')[0]).toBe('<@&s8-squire> · 1180')
+        expect(card.fields?.find(field => field.name === 'Squad')?.value.split('\n')[0]).toBe('<@&regular-unranked> · 1180')
+        expect(card.fields?.find(field => field.name === 'Duel')?.value).toContain('Rank: #2')
+        expect(card.fields?.find(field => field.name === 'Duo')?.value).toContain('Rank: #1')
+        expect(card.fields?.find(field => field.name === 'Squad')?.value).not.toContain('Rank:')
+        expect(JSON.stringify(card.fields)).not.toContain('1800')
+        expect(JSON.stringify(card.fields)).not.toContain('Rating:')
+        expect(JSON.stringify(card.fields)).not.toContain(' RP')
+        expect(JSON.stringify(card.fields)).not.toContain('Legion')
+      }
+      const card = (await playerCardEmbed(db, HERO_ID, 'all', { season: 8, historicalRoleLabels: { tier2: 'S8 Diamond', tier3: 'S8 Gold' } })).toJSON()
+      expect(card.description).toContain('S8 Diamond')
+      expect(card.fields?.find(field => field.name === 'Duel')?.value).toContain('S8 Gold · 1180')
+    }
+    finally { sqlite.close() }
+  })
+
+  test('RP stats show cached mode positions after division activation, independent of current-season game counts', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      await seedPlayerIdentity(db, HERO_ID)
+      await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: NOW, active: true, ratingSystem: 'rp', publicReadsEnabled: true })
+      await kv.put('ranked-roles:config:guild-1', JSON.stringify({
+        tiers: ['Champion', 'Diamond', 'Gold', 'Silver', 'Bronze'].map(label => ({ roleId: null, label })),
+        divisionPolicy: { version: 'best-mode-quality-v1', roleIdsByMinimum: { 1300: 'legion-ii' } },
+      }))
+      await db.insert(playerRatings).values([
+        { playerId: HERO_ID, mode: 'duel', gamesPlayed: 40, effectiveGames: 40, publicRating: 1342 },
+        { playerId: HERO_ID, mode: 'duo', gamesPlayed: 1, effectiveGames: 1, publicRating: 1500 },
+      ])
+      const snapshot = {
+        version: 4, updatedAt: NOW, ratingSystem: 'rp', publicReadsEnabled: true, seasonNumber: 9,
+        rows: [
+          { playerId: HERO_ID, mu: 50, sigma: 3, gamesPlayed: 40, wins: 20, publicRating: 1342, seasonGames: 0, seasonWins: 0, lastPlayedAt: NOW },
+          { playerId: '100010000000000088', mu: 20, sigma: 3, gamesPlayed: 40, wins: 20, publicRating: 1342, lastPlayedAt: NOW },
+          { playerId: 'newcomer', mu: 60, sigma: 3, gamesPlayed: 1, wins: 1, publicRating: 1600, lastPlayedAt: NOW },
+        ],
+      }
+      await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify(snapshot))
+      const oldResult = JSON.stringify({ band: { tier: 'tier2', minimum: 1300, label: 'Old deployment label' }, sourceMode: 'duel' })
+      await db.insert(divisionRankPolicies).values({ guildId: 'guild-1', seasonId: 's9', version: 'best-mode-quality-v1', phase: 'active', configJson: '{}', updatedAt: NOW })
+      await db.insert(divisionRankStates).values({ guildId: 'guild-1', playerId: HERO_ID, resultJson: oldResult, desiredRoleId: 'legion-ii', appliedRoleId: 'legion-ii', pending: false })
+      const get = kv.get.bind(kv)
+      kv.get = (async (...args: Parameters<typeof get>) => {
+        if (args[0] === currentRankAssignmentsKey('guild-1')) throw new Error('Single-player division views must not download the guild assignment map')
+        return get(...args)
+      }) as typeof kv.get
+      const result = await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID, NOW)
+      expect(result.rankedRoleRepair).toBeNull()
+      expect(result.rankProfile.overallLabel).toBe('Diamond II')
+      expect(result.rankProfile.overallRoleId).toBe('legion-ii')
+      expect((await db.select().from(divisionRankStates))[0]?.resultJson).toBe(oldResult)
+      expect(result.rankProfile.modes.duel).toMatchObject({ rank: 2, tierLabel: 'Diamond II', rating: 1342 })
+      expect(result.rankProfile.modes.duo.rank).toBeNull()
+      for (const embed of [playerCardEmbed, playerLeadersEmbed]) {
+        const card = (await embed(db, HERO_ID, 'all', result)).toJSON()
+        expect(card.fields?.find(field => field.name === 'Duel')?.value).toContain('Rank: #2')
+        expect(card.fields?.find(field => field.name === 'Duel')?.value).toContain('Games: 0')
+        expect(card.fields?.find(field => field.name === 'Duo')?.value).not.toContain('Rank:')
+      }
+      expect((await getPlayerRankProfile(db, kv, 'guild-1', HERO_ID, NOW)).modes.duel.rank).toBe(2)
+
+      // Never substitute legacy, previous-season, unpublished, or missing standings.
+      for (const invalid of [
+        { ...snapshot, ratingSystem: 'legacy' },
+        { ...snapshot, seasonNumber: 8 },
+        { ...snapshot, publicReadsEnabled: false },
+        { ...snapshot, rows: snapshot.rows.map(row => ({ ...row, publicRating: undefined })) },
+      ]) {
+        await kv.put(leaderboardModeSnapshotKey('duel'), JSON.stringify(invalid))
+        expect((await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID, NOW)).rankProfile.modes.duel.rank).toBeNull()
+      }
+      await kv.delete(leaderboardModeSnapshotKey('duel'))
+      expect((await getPlayerStatsRankProfile(db, kv, 'guild-1', HERO_ID, NOW)).rankProfile.modes.duel.rank).toBeNull()
+      expect(await kv.get(leaderboardModeSnapshotKey('duel'))).toBeNull()
+    }
+    finally { sqlite.close() }
+  })
+
+  test('historical stats put the saved season role beside the player, not the current role or a peak caption', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    try {
+      await seedPlayerIdentity(db, HERO_ID)
+      await db.insert(seasons).values({ id: 's8', seasonNumber: 8, name: 'Season 8', startsAt: 0, endsAt: NOW })
+      await db.insert(seasonPeakRanks).values({ seasonId: 's8', playerId: HERO_ID, tier: 'tier1', achievedAt: NOW - 1 })
+      const embed = (await playerCardEmbed(db, HERO_ID, 'all', { season: 8, historicalRoleIds: { tier1: 'saved-elite' } })).toJSON()
+      expect(embed.description).toBe(`<@${HERO_ID}> - <@&saved-elite>`)
+    }
+    finally { sqlite.close() }
+  })
   test('RP stats hide untouched mode seeds but retain current and past-season participation', async () => {
     const { db, sqlite } = await createTestDatabase()
     try {
@@ -188,8 +325,8 @@ describe('player rank views', () => {
     })).toJSON()
 
     expect(stats.description).toContain('<@100010000000000099> - <@&55555555555555555>')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&22222222222222222> (964)')
-    expect(JSON.stringify(stats.fields)).toContain('Rating: <@&55555555555555555> (1540)')
+    expect(JSON.stringify(stats.fields)).toContain('<@&22222222222222222> · 964')
+    expect(JSON.stringify(stats.fields)).toContain('<@&55555555555555555> · 1540')
     expect(JSON.stringify(stats.fields)).toContain('Rank: #1')
 
     expect(rank.description).toContain('<@100010000000000099> - <@&55555555555555555>')
@@ -285,7 +422,7 @@ describe('player rank views', () => {
     })).toJSON()
     const duelField = stats.fields?.find(field => field.name === 'Duel')
 
-    expect(duelField?.value).toContain('Rating: Unranked (1540)')
+    expect(duelField?.value).toContain('Unranked · 1540')
     expect(duelField?.value).not.toContain('Rank:')
 
     sqlite.close()
@@ -387,7 +524,7 @@ describe('player rank views', () => {
 
     expect(JSON.stringify(stats.fields)).toContain('No games played yet.')
     expect(JSON.stringify(stats.fields)).not.toContain('Duel')
-    expect(JSON.stringify(stats.fields)).not.toContain('Rating: Unranked (1540)')
+    expect(JSON.stringify(stats.fields)).not.toContain('Unranked · 1540')
     expect(JSON.stringify(stats.fields)).not.toContain('Recent Matches')
     expect(JSON.stringify(stats.fields)).not.toContain('Top Leaders')
 
@@ -898,7 +1035,7 @@ describe('player rank views', () => {
 
     expect(embed.fields?.some(field => field.name === 'Mode Summary')).toBe(false)
     expect(duelField?.inline).toBe(true)
-    expect(duelField?.value).toContain('Rating:')
+    expect(duelField?.value?.split('\n')[0]).toBe('1000')
     expect(duelField?.value).toContain('Games: 5')
     expect(duelField?.value).toContain('Wins: 3 (60%)')
     expect(fieldsJson).toContain('Not enough leader data')
