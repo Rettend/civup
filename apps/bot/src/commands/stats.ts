@@ -11,11 +11,12 @@ import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
+import { getRankedRoleConfig } from '../services/ranked/roles.ts'
 import { rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership } from '../services/ranked/role-sync.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
-import { parseSeasonSelection, resolveSeasonSelection } from '../services/season/selection.ts'
+import { parseSeasonSelection, resolveSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
 
 interface Var {
   player?: string
@@ -37,18 +38,20 @@ export const command_stats = factory.autocomplete<Var>(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('leader', 'Leader to look up').autocomplete(),
     new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
-    new Option('season', 'Current, all, or a season number'),
+    new Option('season', 'Choose a season').autocomplete(),
     new Option('teammate1', 'First teammate for lineup stats', 'User'),
     new Option('teammate2', 'Second teammate for lineup stats', 'User'),
     new Option('teammate3', 'Third teammate for lineup stats', 'User'),
     new Option('teammate4', 'Fourth teammate for lineup stats', 'User'),
     new Option('teammate5', 'Fifth teammate for lineup stats', 'User'),
   ),
-  c => c.resAutocomplete(
-    new Autocomplete(typeof c.focused?.value === 'string' ? c.focused.value : '').choices(
-      ...buildLeaderAutocompleteChoices(typeof c.focused?.value === 'string' ? c.focused.value : ''),
-    ),
-  ),
+  async (c) => {
+    const input = typeof c.focused?.value === 'string' ? c.focused.value : ''
+    const choices = c.focused?.name === 'season'
+      ? await seasonAutocompleteChoices(createDb(c.env.DB), input)
+      : buildLeaderAutocompleteChoices(input)
+    return c.resAutocomplete(new Autocomplete(input).choices(...choices))
+  },
   (c) => {
     const guildId = c.interaction.guild_id
     const leaderId = c.var.leader ? resolveLeaderInput(c.var.leader) : null
@@ -135,8 +138,12 @@ export const command_stats = factory.autocomplete<Var>(
             return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
           })()
 
+      const historicalMapping = historical && guildId && selected.season ? (await getSeasonSnapshotRoleMappings(kv, guildId)).bySeasonId[selected.season.id] : undefined
       const embed = await playerCardEmbed(db, targetId, mode, {
-        historicalRoleIds: historical && guildId && selected.season ? (await getSeasonSnapshotRoleMappings(kv, guildId)).bySeasonId[selected.season.id]?.roles : undefined,
+        unrankedRoleId: historical && guildId ? (await getRankedRoleConfig(kv, guildId)).unrankedRoleId : undefined,
+        kv,
+        historicalRoleIds: historicalMapping?.roles,
+        historicalRoleLabels: historicalMapping?.labels,
         rankProfile: rankProfile?.rankProfile ?? null,
         ratingRows: rankProfile?.ratingRows,
         visibleModes,

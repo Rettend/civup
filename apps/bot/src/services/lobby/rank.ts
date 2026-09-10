@@ -37,7 +37,7 @@ export async function resolveLobbyRankTier(
   assignments?: RankedRoleAssignments | null,
 ): Promise<CompetitiveTier> {
   const resolvedAssignments = assignments === undefined && guildId
-    ? await getCurrentRankAssignments(kv, guildId)
+    ? await getCurrentRankAssignments(kv, guildId, playerIds)
     : assignments ?? null
   const tiers = playerIds.map(playerId => resolvedAssignments?.byPlayerId[playerId]?.tier ?? null)
   if (tiers.every(tier => tier == null)) return DEFAULT_LEADER_POOL_RANK_TIER

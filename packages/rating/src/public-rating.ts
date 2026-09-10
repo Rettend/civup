@@ -3,11 +3,11 @@ export const PUBLIC_RATING_FORMULA_VERSION = 'rp-v3-candidate'
 export const PUBLIC_RATING_SEED_VERSION = 'opening-compression-v1'
 export const PUBLIC_RANK_REQUIREMENTS = {
   qualification: 4,
-  gladiator: 6,
-  legion: 16,
-  elite: 18,
-  eliteWins: 1,
-  legionOrEliteWins: 4,
+  tier3Games: 6,
+  tier2Games: 16,
+  tier1Games: 18,
+  tier1Wins: 1,
+  tier2PlusWins: 4,
 } as const
 
 export interface PublicRatingSnapshot {
@@ -19,19 +19,23 @@ export interface PublicRatingSnapshot {
 
 export type PublicTier = 'tier1' | 'tier2' | 'tier3' | 'tier4' | 'tier5'
 
-export const PUBLIC_RATING_BANDS = [
-  { minimum: 0, tier: 'tier5', label: 'Pleb' },
-  { minimum: 600, tier: 'tier4', label: 'Squire III' },
-  { minimum: 700, tier: 'tier4', label: 'Squire II' },
-  { minimum: 800, tier: 'tier4', label: 'Squire I' },
-  { minimum: 900, tier: 'tier3', label: 'Gladiator III' },
-  { minimum: 1000, tier: 'tier3', label: 'Gladiator II' },
-  { minimum: 1100, tier: 'tier3', label: 'Gladiator I' },
-  { minimum: 1200, tier: 'tier2', label: 'Legion III' },
-  { minimum: 1300, tier: 'tier2', label: 'Legion II' },
-  { minimum: 1400, tier: 'tier2', label: 'Legion I' },
-  { minimum: 1500, tier: 'tier1', label: 'Elite' },
-] as const
+export function rankDivisionLayout(tierCount: number): Array<{ tier: `tier${number}`, division: 0 | 1 | 2 | 3 }> {
+  if (!Number.isSafeInteger(tierCount) || tierCount < 2) throw new Error('A rank ladder needs at least two tiers.')
+  return Array.from({ length: tierCount }, (_, index) => tierCount - index).flatMap(rank =>
+    (rank === 1 || rank === tierCount ? [0] as const : [3, 2, 1] as const).map(division => ({ tier: `tier${rank}` as const, division })))
+}
+
+export function rankDivisionSuffix(division: number): string {
+  return division === 3 ? ' III' : division === 2 ? ' II' : division === 1 ? ' I' : ''
+}
+
+// This rating policy has five tiers; display names belong to guild configuration.
+export const PUBLIC_RATING_BANDS = rankDivisionLayout(5).map((band, index) => ({
+  ...band,
+  tier: band.tier as PublicTier,
+  minimum: index === 0 ? 0 : 500 + index * 100,
+  label: `Role ${band.tier.slice(4)}${rankDivisionSuffix(band.division)}`,
+}))
 
 export interface PublicRatingCalibration {
   version: string
@@ -60,6 +64,13 @@ export function visiblePublicRating(value: number): number {
 export function publicRatingRank(value: number): typeof PUBLIC_RATING_BANDS[number] {
   const visible = visiblePublicRating(value)
   return PUBLIC_RATING_BANDS.findLast(band => visible >= band.minimum)!
+}
+
+/** Rank-labelled views show surplus above the top band; stored RP stays absolute. */
+export function formatPublicRankRating(value: number, displayedTier: string | null): string {
+  const visible = visiblePublicRating(value)
+  const top = PUBLIC_RATING_BANDS.at(-1)!
+  return displayedTier === top.tier && visible >= top.minimum ? `+${visible - top.minimum}` : String(visible)
 }
 
 /** A non-null badge holds the previous division until this scope's next rated game. */

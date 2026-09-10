@@ -6,6 +6,7 @@ import { loadPublicRatingDecayPolicy } from '../services/season/decay.ts'
 import { getDisplaySeason } from '../services/season/index.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { factory } from '../setup.ts'
+import { getDivisionRankPolicy } from '../services/ranked/division-rank-runtime.ts'
 import { getIdentityByUserId } from './identity.ts'
 
 export const command_decay = factory.command<{ player?: string }>(
@@ -27,6 +28,7 @@ export const command_decay = factory.command<{ player?: string }>(
         ? await db.select({ mode: seasonRatingStates.mode, publicRating: seasonRatingStates.publicRating, publicDecay: seasonRatingStates.publicDecay })
             .from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), eq(seasonRatingStates.playerId, playerId)))
         : []
+      const divisionPolicy = c.interaction.guild_id ? await getDivisionRankPolicy(db, c.interaction.guild_id) : null
       return { embeds: [playerDecayEmbed({
         displayName: identity?.displayName ?? player?.displayName ?? playerId,
         avatarUrl: identity?.avatarUrl ?? player?.avatarUrl,
@@ -34,6 +36,7 @@ export const command_decay = factory.command<{ player?: string }>(
         policy,
         season: season?.publicReadsEnabled ? season : null,
         now: Date.now(),
+        modeOnly: divisionPolicy?.phase === 'active' && divisionPolicy.seasonId === season?.id,
       })] }
     }, { ephemeral: !c.var.player })
   },

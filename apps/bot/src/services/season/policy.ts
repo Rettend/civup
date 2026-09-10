@@ -39,7 +39,7 @@ export function seasonMutationError(
     const claimTime = action === 'first-report' ? acceptedAt ?? now : now
     if (Number.isSafeInteger(claimTime) && claimTime >= match.createdAt && claimTime <= now && claimTime < season.reportingDeadline) return null
   }
-  return `**${season.name}** is closed to result changes. Historical repairs require the owner's local maintenance tools.`
+  return 'This match belongs to an older season and cannot be changed with mod commands anymore.'
 }
 
 export async function getSeasonMutationError(

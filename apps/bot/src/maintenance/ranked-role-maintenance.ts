@@ -4,6 +4,7 @@ import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
 import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
 import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
+import { getDivisionRankPolicy, maintainDivisionRanks } from '../services/ranked/division-rank-runtime.ts'
 
 export type RankedRoleMaintenanceAction = 'sync' | 'apply-pending'
 
@@ -37,6 +38,15 @@ export async function runRankedRoleMaintenance(
 
   for (const [index, guildId] of orderedGuildIds.entries()) {
     const guildBudget = Math.ceil(remainingDiscordChanges / (orderedGuildIds.length - index))
+    const db = createDb(env.DB)
+    const divisionPolicy = await getDivisionRankPolicy(db, guildId)
+    if (divisionPolicy && divisionPolicy.phase !== 'prepared') {
+      const result = await maintainDivisionRanks(db, kv, env.DISCORD_TOKEN, divisionPolicy, now, guildBudget)
+      attemptedDiscordChanges += result.attempted
+      appliedDiscordChanges += result.applied
+      remainingDiscordChanges = Math.max(0, remainingDiscordChanges - result.attempted)
+      continue
+    }
     if (action === 'sync') {
       try {
         const refresh = await refreshRankedRoleDisplayMetadata(kv, guildId, env.DISCORD_TOKEN, { now })

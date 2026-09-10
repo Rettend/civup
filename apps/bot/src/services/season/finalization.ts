@@ -2,6 +2,7 @@ import type { RankedRoleConfig } from '../ranked/roles.ts'
 import type { CutoverSource, MaintenanceRow } from './cutover.ts'
 import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 import { buildGlobalLadderSnapshots, buildLadderSnapshots } from '../ranked/role-sync.ts'
+import { seasonStandingsWriteStatement } from './standings.ts'
 import { CUTOVER_EVIDENCE, CUTOVER_SCOPES, maintenanceGuard, maintenanceInsert, maintenanceQuote, maintenanceRowGuards, pausedMaintenanceGuard, validateMaintenanceStatements } from './cutover.ts'
 
 export function savedSeasonPeakRows(ratings: MaintenanceRow[], config: RankedRoleConfig, seasonId: string, at: number, playerIds?: Set<string>) {
@@ -73,18 +74,21 @@ export function prepareSeasonFinalization(input: {
       || Object.entries(CUTOVER_EVIDENCE).some(([key, column]) => row[column] !== evidence[key])) throw new Error('Late replay disagrees with saved season ratings or evidence.')
   }
   const qSeason = maintenanceQuote(seasonId)
+  const savedStandingsGuard = maintenanceGuard(`EXISTS(SELECT 1 FROM season_standing_snapshots saved JOIN seasons s ON s.id = saved.season_id WHERE saved.season_id = ${qSeason} AND saved.revision = s.standings_revision AND saved.finalized_at = ${now})`)
+  const { standings_revision: _revision, ...finalSeason } = season
   const statements = [pausedMaintenanceGuard(input.generation), ...maintenanceRowGuards('seasons', ['id'], [season]),
     maintenanceGuard(`(SELECT count(*) FROM season_rating_states WHERE season_id = ${qSeason}) = ${input.states.length} AND (SELECT count(*) FROM season_match_reports WHERE season_id = ${qSeason}) = ${input.reports.length}`),
     ...maintenanceRowGuards('season_rating_states', ['season_id', 'player_id', 'mode'], input.states),
     ...maintenanceRowGuards('season_match_reports', ['match_id'], input.reports),
     ...maintenanceRowGuards('player_rating_events', ['match_id', 'player_id', 'mode'], input.events),
-    ...writes, `UPDATE seasons SET finalized_at = ${now} WHERE id = ${qSeason}`,
+    ...writes, `UPDATE seasons SET finalized_at = ${now} WHERE id = ${qSeason}`, seasonStandingsWriteStatement(seasonId), savedStandingsGuard,
   ]
   validateMaintenanceStatements(statements)
   const verification = [
-    ...maintenanceRowGuards('seasons', ['id'], [{ ...season, finalized_at: now }]),
+    ...maintenanceRowGuards('seasons', ['id'], [{ ...finalSeason, finalized_at: now }]),
+    savedStandingsGuard,
     ...maintenanceRowGuards('season_rating_states', ['season_id', 'player_id', 'mode'], input.states),
   ]
   validateMaintenanceStatements(verification)
-  return { statements, verification, conservativeEstimatedWrites: (peaks.peaks.length + peaks.modes.length + input.events.length * 2 + 1) * 8, productionEstimateValidated: false }
+  return { statements, verification, conservativeEstimatedWrites: (peaks.peaks.length + peaks.modes.length + input.events.length * 2 + 2) * 16, productionEstimateValidated: false }
 }

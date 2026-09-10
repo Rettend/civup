@@ -47,6 +47,14 @@ test('the guarded cutover preserves lifetime evidence and history, freezes both 
       season: sqlite.prepare("SELECT * FROM seasons WHERE id = 'old'").get() as any, states: sqlite.prepare("SELECT * FROM season_rating_states WHERE season_id = 'old'").all() as any[],
       reports: sqlite.prepare('SELECT * FROM season_match_reports').all() as any[], events: sqlite.prepare('SELECT * FROM player_rating_events').all() as any[], now: plan.reportingDeadline })
     apply(finalization.statements)
+    apply(finalization.verification)
+    const saved = sqlite.prepare("SELECT revision, finalized_at, payload FROM season_standing_snapshots WHERE season_id = 'old'").get() as { revision: number, finalized_at: number, payload: string }
+    expect(saved.finalized_at).toBe(plan.reportingDeadline)
+    expect(saved.revision).toBe((sqlite.prepare("SELECT standings_revision AS revision FROM seasons WHERE id = 'old'").get() as { revision: number }).revision)
+    const standings = JSON.parse(saved.payload)
+    expect(standings.modes.filter((row: { mode: string }) => row.mode === 'duel')).toHaveLength(8)
+    expect(standings.modes.find((row: { playerId: string, mode: string }) => row.playerId === 'p7' && row.mode === 'duel').position).toBe(1)
+    expect(standings.peaks.length).toBeGreaterThan(0)
     expect(sqlite.prepare('SELECT * FROM player_ratings ORDER BY player_id, mode').all()).toEqual(before)
     expect(sqlite.prepare("SELECT count(*) AS n FROM public_rating_seeds WHERE season_id = 'next'").get()).toEqual({ n: 48 })
     expect(() => apply(plan.statements)).toThrow()

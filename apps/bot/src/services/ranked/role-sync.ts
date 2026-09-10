@@ -10,6 +10,8 @@ import { addGuildMemberRole, DiscordApiError, removeGuildMemberRole } from '../d
 import { getLeaderboardModeSnapshotsForPreview } from '../leaderboard/snapshot.ts'
 import { getActiveSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks } from '../season/index.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
+import { divisionRankStatus, getDivisionRankPolicy, previewSavedDivisionRanks } from './division-rank-runtime.ts'
+import { divisionPlayerProjectionKey } from './division-projection.ts'
 import {
   createRankedRoleTierId,
   fetchGuildMemberRoleIds,
@@ -19,6 +21,7 @@ import {
   getLowestRankedRoleTier,
   getMissingRankedRoleConfigTiers,
   getRankedRoleConfig,
+  getAssignedRankRoleId,
   getRankedRoleTierCount,
   hasConfiguredRankedRoleTier,
   normalizeRankedRoleTierId,
@@ -27,6 +30,9 @@ import {
 } from './roles.ts'
 
 export interface CurrentRankAssignment {
+  divisionMinimum?: number | null
+  policyVersion?: import('@civup/rating').OverallRankPolicyVersion
+  overallRating?: number | null
   unranked?: boolean
   tier: CompetitiveTier
   sourceMode: LeaderboardMode | null
@@ -242,7 +248,7 @@ const APPLIED_ROLE_CONFIG_KEY_PREFIX = 'ranked-roles:applied-config:'
 const DISCORD_APPLY_CURSOR_KEY_PREFIX = 'ranked-roles:discord-apply-cursor:'
 // Keep this shorter than the daily role sync interval so old isolates do not
 // hide a fresh daily assignment snapshot for another full day.
-const CURRENT_ASSIGNMENTS_CACHE_TTL_MS = 4 * 60 * 60 * 1_000
+const CURRENT_ASSIGNMENTS_CACHE_TTL_MS = 60 * 1_000
 
 const currentRankAssignmentsCacheByNamespace = new WeakMap<KVNamespace, Map<string, { assignments: RankedRoleAssignments, expiresAt: number }>>()
 
@@ -251,10 +257,10 @@ const KEEP_CUMULATIVE_PERCENT_BUFFER_PER_TIER = 0.005
 const DEMOTION_DELAY_SYNCS = 7
 const GLOBAL_RATING_SCOPE = 'global'
 const MODE_LADDER_MIN_GAMES = 10
-const TIER_1_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.elite }
-const TIER_2_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.legion }
+const TIER_1_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.tier1Games }
+const TIER_2_EVIDENCE_GATE = { effectiveGames: PUBLIC_RANK_REQUIREMENTS.tier2Games }
 const TIER_3_EVIDENCE_GATE = { effectiveGames: 8 }
-const TIER_1_QUALITY_GATE = { winsVsTier1: PUBLIC_RANK_REQUIREMENTS.eliteWins, winsVsTier2Plus: PUBLIC_RANK_REQUIREMENTS.legionOrEliteWins }
+const TIER_1_QUALITY_GATE = { winsVsTier1: PUBLIC_RANK_REQUIREMENTS.tier1Wins, winsVsTier2Plus: PUBLIC_RANK_REQUIREMENTS.tier2PlusWins }
 const BEST_MODE_QUALITY_FLOOR_MIN_GAMES = 20
 const TIER_2_MODE_QUALITY_FLOOR = { modeTier: 3, minModeGames: 18, minRoleScore: 900, winsVsTier1: 2 }
 const TIER_4_PARTICIPATION_FLOOR = { effectiveGames: 30, wins: 5 }
@@ -399,7 +405,9 @@ function interpolatePositiveAnchors(values: readonly number[], progress: number)
 }
 
 export async function previewRankedRoles(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
-  return buildRankedRolePreview(options)
+  const config = await getRankedRoleConfig(options.kv, options.guildId)
+  if (config.divisionPolicy) return previewSavedDivisionRanks(options.db, options.kv, options.guildId, options.playerIds)
+  return buildRankedRolePreview(options, config)
 }
 
 export async function summarizeRankedPreview(options: RankedRoleSyncOptions & {
@@ -448,6 +456,11 @@ export async function syncRankedRoles(options: RankedRoleSyncOptions): Promise<R
 }
 
 async function syncRankedRolesImpl(options: RankedRoleSyncOptions): Promise<RankedRoleSyncResult> {
+  const divisionPolicy = await getDivisionRankPolicy(options.db, options.guildId)
+  if (divisionPolicy && divisionPolicy.phase !== 'prepared') {
+    const status = await divisionRankStatus(options.db, options.guildId)
+    return { ...await previewSavedDivisionRanks(options.db, options.kv, options.guildId, options.playerIds), attemptedDiscordChanges: 0, appliedDiscordChanges: 0, pendingDiscordChanges: status.pendingRoles }
+  }
   const state = await buildRankedRolePreviewState({
     ...options,
     includePlayerIdentities: false,
@@ -577,10 +590,11 @@ export async function repairCurrentRankedRoleMembership(options: {
     getFreshCurrentRankAssignments(options.kv, options.guildId),
     getRankedRoleConfig(options.kv, options.guildId),
   ])
+  if (config.divisionPolicy) return false
   const assignment = assignments.byPlayerId[options.playerId]
   if (!assignment) return false
 
-  const desiredRoleId = assignment.unranked ? config.unrankedRoleId : getConfiguredRankedRoleId(config, assignment.tier)
+  const desiredRoleId = getAssignedRankRoleId(config, assignment)
   if (!desiredRoleId) return false
 
   const managedRoleIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
@@ -617,6 +631,7 @@ export async function resetCurrentRankedRoleState(options: {
   guildId: string
   token?: string
 }): Promise<{ clearedAssignments: number, appliedDiscordChanges: number }> {
+  if ((await getRankedRoleConfig(options.kv, options.guildId)).divisionPolicy) throw new Error('Active division assignments require a reviewed policy transition; the legacy rank reset is unavailable.')
   const previousAssignments = await getCurrentRankAssignments(options.kv, options.guildId)
   const trackedAssignments = Object.entries(previousAssignments.byPlayerId)
     .filter(([playerId]) => isDiscordSnowflake(playerId))
@@ -669,7 +684,11 @@ export async function listRankedRoleConfigGuildIds(kv: KVNamespace): Promise<str
   return [...new Set(guildIds)].sort((a, b) => a.localeCompare(b))
 }
 
-export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string): Promise<RankedRoleAssignments> {
+export async function getCurrentRankAssignments(kv: KVNamespace, guildId: string, playerIds?: readonly string[]): Promise<RankedRoleAssignments> {
+  if (playerIds && (await getRankedRoleConfig(kv, guildId)).divisionPolicy) {
+    const entries = await Promise.all([...new Set(playerIds)].map(async id => [id, normalizeCurrentRankAssignment(await kv.get(divisionPlayerProjectionKey(guildId, id), 'json'))] as const))
+    return { byPlayerId: Object.fromEntries(entries.flatMap(([id, entry]) => entry ? [[id, entry]] : [])) }
+  }
   const now = Date.now()
   const cached = getCachedCurrentRankAssignments(kv, guildId, now)
   if (cached) return cached
@@ -816,8 +835,8 @@ function normalizeMaxDiscordRoleSyncPlayers(value: number | undefined): number {
   return Math.max(0, Math.round(value))
 }
 
-async function buildRankedRolePreview(options: RankedRoleSyncOptions): Promise<RankedRolePreview> {
-  const state = await buildRankedRolePreviewState(options)
+async function buildRankedRolePreview(options: RankedRoleSyncOptions, config?: RankedRoleConfig): Promise<RankedRolePreview> {
+  const state = await buildRankedRolePreviewState(options, config)
   return state.preview
 }
 
@@ -831,12 +850,12 @@ async function buildRankedRolePreviewState({
   includePlayerIdentities = true,
   rankedMinGames = MODE_LADDER_MIN_GAMES,
   fullRosterGraceCaps = true,
-}: RankedRoleSyncOptions): Promise<RankedRolePreviewState> {
+}: RankedRoleSyncOptions, suppliedConfig?: RankedRoleConfig): Promise<RankedRolePreviewState> {
   const requestedPlayerIds = buildRequestedPlayerIds(playerIds)
   const [leaderboardSnapshots, previousAssignments, config, globalRatingRows, activeSeason] = await Promise.all([
     getLeaderboardModeSnapshotsForPreview(db, kv),
     getCurrentRankAssignments(kv, guildId),
-    getRankedRoleConfig(kv, guildId),
+    suppliedConfig ?? getRankedRoleConfig(kv, guildId),
     db
       .select({
         playerId: playerRatings.playerId,
@@ -1292,7 +1311,7 @@ function capTierByEvidence(tier: CompetitiveTier, row: GlobalRatingSnapshotRow, 
   if (tierNumber <= 2 && !meetsEvidenceGate(row, TIER_2_EVIDENCE_GATE)) {
     return capTierByEvidence(createRankedRoleTierId(3), row, config, publicEra)
   }
-  if (tierNumber <= 3 && !meetsEvidenceGate(row, publicEra ? { effectiveGames: PUBLIC_RANK_REQUIREMENTS.gladiator } : TIER_3_EVIDENCE_GATE)) {
+  if (tierNumber <= 3 && !meetsEvidenceGate(row, publicEra ? { effectiveGames: PUBLIC_RANK_REQUIREMENTS.tier3Games } : TIER_3_EVIDENCE_GATE)) {
     if (publicEra && isGlobalRatingQualified(row, true)) return createRankedRoleTierId(4)
     return getLowestRankedRoleTier(config) ?? createRankedRoleTierId(getRankedRoleTierCount(config))
   }
@@ -1717,6 +1736,7 @@ async function applyCurrentRankRoles(
     getCurrentRankAssignments(kv, guildId),
     getDiscordApplyCursor(kv, guildId),
   ])
+  if (config.divisionPolicy) return { attemptedChanges: 0, appliedChanges: 0, pendingChanges: 0 }
   const missingTiers = getMissingRankedRoleConfigTiers(config)
   if (missingTiers.length > 0) {
     throw new Error(`Cannot sync ranked roles until all current roles are configured: ${missingTiers.join(', ')}`)
@@ -2119,10 +2139,14 @@ function normalizeCurrentRankAssignment(value: unknown): CurrentRankAssignment |
     ? (value as { sourceMode?: LeaderboardMode }).sourceMode ?? null
     : null
   const appliedRoleId = normalizeSnowflake((value as { appliedRoleId?: unknown }).appliedRoleId)
+  const division = value as { policyVersion?: unknown, divisionMinimum?: unknown, overallRating?: unknown }
 
   return {
     tier,
     sourceMode,
+    ...((division.policyVersion === 'best-mode-quality-v1' || division.policyVersion === 'best-mode-one-division-v2') && (division.divisionMinimum === null || typeof division.divisionMinimum === 'number')
+      ? { policyVersion: division.policyVersion, divisionMinimum: division.divisionMinimum as number | null,
+          ...(typeof division.overallRating === 'number' && Number.isFinite(division.overallRating) && division.overallRating >= 0 ? { overallRating: division.overallRating } : {}) } : {}),
     ...((value as { unranked?: unknown }).unranked === true ? { unranked: true } : {}),
     ...(appliedRoleId ? { appliedRoleId } : {}),
   }

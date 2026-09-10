@@ -16,6 +16,7 @@ import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredG
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { prepareRatedMatchReplay, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
+import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
 import { getSeasonMutationError } from '../season/policy.ts'
 import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import { prepareSeasonReplay } from '../season/replay.ts'
@@ -108,7 +109,7 @@ async function resolveMatchByModeratorImpl(
         }
         const corrected = participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! }))
         await runAtomicSeasonBatch(db, corrected.map(row => db.update(matchParticipants).set({ placement: row.placement }).where(and(eq(matchParticipants.matchId, row.matchId), eq(matchParticipants.playerId, row.playerId)))))
-        const reported = await finalizeIsolatedSeasonReport(db, match, corrected, null, { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() }, await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId))
+        const reported = await finalizeIsolatedSeasonReport(db, match, corrected, null, { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() }, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, corrected.map(row => row.playerId)))
         if ('error' in reported) return reported
         return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: [match.id], historicalSeason: reported.historicalSeason }
       }

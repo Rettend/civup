@@ -3,7 +3,7 @@ import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { PlayerRating, PublicRatingSnapshot } from '@civup/rating'
 import { matches, matchParticipants, players } from '@civup/db'
 import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
-import { createRating, displayRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
+import { createRating, displayRating, formatPublicRankRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
@@ -11,6 +11,7 @@ import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
+import { getConfiguredDivisionLabel, getRankedRoleDisplayConfig } from '../services/ranked/roles.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
 import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
@@ -95,7 +96,7 @@ export async function teamCardEmbed(
       : null
     : modeContext.leaderboardMode && (!historical || ratingRows.length === uniquePlayerIds.length) ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
   const visual = publicEra && projectedRating != null
-    ? { tier: publicRatingRank(projectedRating).tier, roleId: null, label: publicRatingRank(projectedRating).label }
+    ? { tier: publicRatingRank(projectedRating).tier, roleId: null, label: guildId ? getConfiguredDivisionLabel(await getRankedRoleDisplayConfig(kv, guildId), publicRatingRank(projectedRating).minimum) : publicRatingRank(projectedRating).label }
     : !historical && guildId && projectedRating != null && modeContext.leaderboardMode
     ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
     : { tier: null, roleId: null, label: null }
@@ -159,7 +160,7 @@ export async function teamCardEmbed(
     fields.push({
       name: modeContext.fieldLabel,
       value: [
-        ...(projectedRating != null ? [`${selected.allTime ? 'Current rating' : 'Rating'}: ${formatProjectedRating(visual, projectedRating)}${publicEra ? ' RP' : ''}`] : []),
+        ...(projectedRating != null ? [`${selected.allTime ? 'Current: ' : ''}${formatProjectedRating(visual, projectedRating, publicEra && !historical)}${publicEra ? ' RP' : ''}`] : []),
         `Games: ${gamesPlayed}`,
         `Wins: ${wins} (${winRate}%)`,
       ].join('\n'),
@@ -236,9 +237,10 @@ function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all
   }
 }
 
-function formatProjectedRating(visual: TeamRatingVisual, rating: number): string {
-  if (visual.roleId) return `<@&${visual.roleId}> (${rating})`
-  if (visual.label) return `${visual.label} (${rating})`
+function formatProjectedRating(visual: TeamRatingVisual, rating: number, publicEra = false): string {
+  const ratingText = publicEra ? formatPublicRankRating(rating, visual.tier) : String(rating)
+  if (visual.roleId) return `<@&${visual.roleId}> · ${ratingText}`
+  if (visual.label) return `${visual.label} · ${ratingText}`
   return String(rating)
 }
 

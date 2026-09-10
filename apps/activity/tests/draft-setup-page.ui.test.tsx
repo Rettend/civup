@@ -6,7 +6,7 @@ import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } f
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
-const { formatRating, formatRecord, formatWinRate } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
+const { formatRating, formatRecord, formatWinRate, formatRankedRole } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
 const onLobbyStarted = mock(() => {})
 
@@ -683,6 +683,13 @@ describe('DraftSetupPage UI', () => {
     expect(formatRecord(rp)).toBe('1-3')
     expect(formatWinRate(rp)).toBe('25%')
     expect(formatRecord({ ...rp, seasonGames: 0, seasonWins: 0 })).toBe('0-0')
+  })
+
+  test('division badges use configured role names and colors while honoring saved historical labels', () => {
+    const roles = [{ tier: 'tier2' as const, rank: 2, roleId: 'role', label: 'Captain', color: '#123456' }]
+    expect(formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2 }, roles)).toEqual({ label: 'Captain II', color: '#123456' })
+    expect(formatRankedRole({ tier: 'tier2', sourceMode: null }, roles).label).toBe('Captain')
+    expect(formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2, label: 'Archived Officer II' }, roles).label).toBe('Archived Officer II')
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {
