@@ -10,7 +10,7 @@ import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
 import { currentRankAssignmentsKey, normalizeRankedRoleAssignments, setCurrentRankAssignments } from './role-sync.ts'
 import { getConfiguredDivisionLabel, getRankedRoleConfig, RANKED_ROLE_CONFIG_KEY_PREFIX } from './roles.ts'
 import { previewOverallDivisionRanks } from './overall-preview.ts'
-import { prepareQualityCheckpoint } from './quality-checkpoint.ts'
+import { initializeQualityCheckpointPage, prepareQualityCheckpoint, QualityHistoryDateError } from './quality-checkpoint.ts'
 import { divisionSourceGuard, isDivisionSourceConflict } from './division-source-guard.ts'
 import { publishPendingDivisionPlayers } from './division-projection.ts'
 
@@ -118,16 +118,30 @@ export async function calculateDueDivisionRanks(db: Database, policy: Policy, no
   }).from(sql`(select 1) as division_source`)
   if (!source?.seasonActive) throw new Error('The active season changed. Review the staged division policy before continuing.')
   if (source.writers) return { calculated: 0, blocked: 'rating-writers' as const }
-  const rows = await db.select().from(divisionRankStates).where(and(eq(divisionRankStates.guildId, policy.guildId),
+  const due = await db.select().from(divisionRankStates).where(and(eq(divisionRankStates.guildId, policy.guildId),
     playerIds ? inArray(divisionRankStates.playerId, playerIds) : undefined,
     lte(divisionRankStates.nextCheckAt, now), lte(divisionRankStates.retryAt, now))).orderBy(asc(divisionRankStates.nextCheckAt), asc(divisionRankStates.playerId)).limit(limit)
-  if (!rows.length) return { calculated: 0, blocked: null }
+  if (!due.length) return { calculated: 0, blocked: null }
+  const rows: typeof due = []
+  for (const row of due) {
+    try {
+      if ((!row.resultJson || !(JSON.parse(row.resultJson) as Result).recent) && !await initializeQualityCheckpointPage(db, policy.guildId, row.playerId, now)) continue
+      rows.push(row)
+    }
+    catch (error) {
+      if (isDivisionSourceConflict(error)) return { calculated: 0, blocked: 'source-changed' as const }
+      if (!(error instanceof QualityHistoryDateError)) throw error
+      await db.update(divisionRankStates).set({ lastError: error instanceof Error ? error.message : String(error), retryAt: now + 300_000 })
+        .where(and(eq(divisionRankStates.guildId, policy.guildId), eq(divisionRankStates.playerId, row.playerId), sql`${divisionRankStates.resultJson} is ${row.resultJson}`))
+    }
+  }
+  if (!rows.length) return { calculated: 0, blocked: 'quality-initialization' as const }
   const ids = rows.map(row => row.playerId)
   const sources = await db.select().from(divisionRankSources).where(inArray(divisionRankSources.playerId, ids))
   const revisions = new Map(sources.map(row => [row.playerId, row.revision]))
   const checkpoints = new Map(await Promise.all(rows.map(async row => {
     const previous = row.resultJson ? JSON.parse(row.resultJson) as Result : null
-    const checkpoint = row.sourceRevision === (revisions.get(row.playerId) ?? 0) && previous
+    const checkpoint = row.sourceRevision === (revisions.get(row.playerId) ?? 0) && previous?.recent
       ? { recent: previous.recent, undatedMatchIds: [], queries: [] }
       : await prepareQualityCheckpoint(db, policy.guildId, row.playerId, now, previous?.recent)
     return [row.playerId, checkpoint] as const

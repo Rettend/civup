@@ -1,7 +1,7 @@
 import { createDb, playerRatings, players, seasonPeakDivisionRanks, seasonPeakModeRanks, seasonPeakRanks, seasonRatingStates, seasonStandingSnapshots, seasons } from '@civup/db'
 import { expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { loadSeasonStandings } from '../../src/services/season/standings.ts'
+import { loadSeasonStandings, refreshHistoricalStandings } from '../../src/services/season/standings.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -17,6 +17,11 @@ test('historical standings are saved once, shared between players, and recovered
     await db.insert(seasonRatingStates).values(['b', 'a', 'new'].map(id => ({ seasonId: 's8', playerId: id, mode: 'duel', mu: id === 'new' ? 50 : 30, sigma: 3, evidence: { gamesPlayed: id === 'new' ? 1 : 10 }, updatedAt: 1 })))
     await db.insert(seasonPeakRanks).values({ seasonId: 's8', playerId: 'b', tier: 'tier2', achievedAt: 1 })
     await db.insert(seasonPeakModeRanks).values({ seasonId: 's8', playerId: 'b', mode: 'duel', tier: 'tier3', rating: 1200, achievedAt: 1 })
+    queries.length = 0
+    await expect(loadSeasonStandings(db, kv, 's8')).rejects.toThrow('not ready')
+    expect(queries.join('\n')).not.toContain('season_rating_states')
+    expect(queries.join('\n')).not.toContain('insert')
+    await refreshHistoricalStandings(db)
     const first = await loadSeasonStandings(db, kv, 's8')
     expect(first?.modes.find(row => row.playerId === 'a')?.position).toBe(1)
     expect(first?.modes.find(row => row.playerId === 'b')).toMatchObject({ position: 2, peakTier: 'tier3', peakRating: 1200 })
@@ -37,13 +42,17 @@ test('historical standings are saved once, shared between players, and recovered
 
     // A late report changes historical positions without involving live ratings.
     await db.update(seasonRatingStates).set({ mu: 35 }).where(eq(seasonRatingStates.playerId, 'b'))
+    await refreshHistoricalStandings(db)
     expect((await loadSeasonStandings(db, kv, 's8'))?.modes.find(row => row.playerId === 'b')?.position).toBe(1)
     await db.delete(seasonRatingStates).where(eq(seasonRatingStates.playerId, 'b'))
+    await refreshHistoricalStandings(db)
     expect((await loadSeasonStandings(db, kv, 's8'))?.modes.some(row => row.playerId === 'b')).toBe(false)
     await db.update(seasonPeakRanks).set({ tier: 'tier1' })
+    await refreshHistoricalStandings(db)
     expect((await loadSeasonStandings(db, kv, 's8'))?.peaks).toEqual([{ playerId: 'b', tier: 'tier1', divisionMinimum: null }])
 
     await db.update(seasons).set({ finalizedAt: 3 }).where(eq(seasons.id, 's8'))
+    await refreshHistoricalStandings(db)
     await loadSeasonStandings(db, kv, 's8')
     expect((await db.select().from(seasonStandingSnapshots))[0]?.finalizedAt).toBe(3)
     await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: 4, active: true })
@@ -66,13 +75,13 @@ test('standings publication failure preserves the saved snapshot and source race
     const get = kv.get.bind(kv)
     let raced = false
     kv.get = (async (...args: Parameters<typeof get>) => {
-      if (!raced) { raced = true; await db.update(seasonRatingStates).set({ mu: 35 }) }
+      if (!raced) { raced = true; await db.update(seasonRatingStates).set({ mu: 35 }); await refreshHistoricalStandings(db) }
       return get(...args)
     }) as typeof kv.get
     await loadSeasonStandings(db, kv, 's8')
     const saved = (await db.select().from(seasonStandingSnapshots))[0]!
     const keys = await kv.list({ prefix: 'leaderboard:season-snapshot:' })
-    expect(keys.keys.map(key => key.name)).toEqual([`leaderboard:season-snapshot:v1:s8:${saved.revision}`])
+    expect(keys.keys.map(key => key.name)).toEqual([`leaderboard:season-snapshot:v2:s8:${saved.revision}`])
     const failedKv = createTestKv()
     failedKv.put = async () => { throw new Error('KV unavailable') }
     await expect(loadSeasonStandings(db, failedKv, 's8')).rejects.toThrow('KV unavailable')
@@ -94,9 +103,11 @@ test('historical RP snapshots never substitute hidden ratings or reuse unpublish
     await expect(loadSeasonStandings(db, kv, 's9')).rejects.toThrow('not ready')
     expect(await db.select().from(seasonStandingSnapshots)).toHaveLength(0)
     await db.update(seasonRatingStates).set({ publicRating: 1000 })
+    await refreshHistoricalStandings(db)
     expect((await loadSeasonStandings(db, kv, 's9'))?.modes[0]).toMatchObject({ rating: 1000, position: 1 })
     await db.insert(seasonPeakRanks).values({ seasonId: 's9', playerId: 'p', tier: 'tier2', achievedAt: 1 })
     await db.insert(seasonPeakDivisionRanks).values({ seasonId: 's9', playerId: 'p', minimum: 1400, achievedAt: 1 })
+    await refreshHistoricalStandings(db)
     expect((await loadSeasonStandings(db, kv, 's9'))?.peaks).toEqual([{ playerId: 'p', tier: 'tier2', divisionMinimum: 1400 }])
     await db.update(seasons).set({ publicReadsEnabled: false })
     expect(await loadSeasonStandings(db, kv, 's9')).toBeNull()

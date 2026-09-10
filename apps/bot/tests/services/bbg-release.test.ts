@@ -1,8 +1,10 @@
-import { civStatTotals, matches, matchCivStatContributions } from '@civup/db'
+import { createDb, civStatTotals, matches, matchCivStatContributions } from '@civup/db'
 import { eq } from 'drizzle-orm'
 import { expect, test } from 'bun:test'
-import { getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshots, reconcileCivLeaderboardMatchContribution, selectReleaseContributions, setCivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { getStoredCivLeaderboardDisplayConfig, getStoredCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshots, reconcileCivLeaderboardMatchContribution, selectReleaseContributions, setCivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { advanceCivReleaseProjection } from '../../src/services/leaderboard/civ-release.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 
 test('release samples use at most 1000 games, replace oldest beta games globally, and restore after cancellation', () => {
   const row = (matchId: string, source: string, modeScope: string, completedAt: number) => ({ matchId, source, modeScope, completedAt })
@@ -18,7 +20,8 @@ test('release samples use at most 1000 games, replace oldest beta games globally
 })
 
 test('release snapshots preserve historical beta identity and exclude pre-release live drafts reported late', async () => {
-  const { db, sqlite } = await createTestDatabase()
+  const { sqlite } = await createTestDatabase()
+  const db = createDb(createSqliteD1Database(sqlite))
   const kv = createTestKv()
   try {
     await db.insert(civStatTotals).values({ scope: 'history-initialized', completedMatchCount: 0, updatedAt: 1 })
@@ -30,12 +33,14 @@ test('release snapshots preserve historical beta identity and exclude pre-releas
     }
     expect((await db.select().from(matchCivStatContributions).where(eq(matchCivStatContributions.matchId, 'beta1')))[0]!.source).toBe('beta')
     await setCivLeaderboardDisplayConfig(kv, { version: 1, label: 'BBG release', liveFrom: 1000, betaFrom: 0, betaUntil: 1000, pendingBetaFrom: 1000, betaReplacement: 'one-for-one', betaSeedMatchIds: ['beta1', 'beta2'] })
+    while (!await advanceCivReleaseProjection(db, await getStoredCivLeaderboardDisplayConfig(kv))) {}
     const snapshot = (await rebuildCivLeaderboardSnapshots(db, kv, ['duel'], 1400)).get('duel')!
     expect(snapshot.completedMatchCount).toBe(2)
     expect(snapshot.periodId).toBe('BBG release:1000')
     expect((await getStoredCivLeaderboardSnapshot(kv, 'duel'))?.periodId).toBe(snapshot.periodId)
     await db.update(matches).set({ status: 'cancelled' }).where(eq(matches.id, 'live'))
     await reconcileCivLeaderboardMatchContribution(db, 'live', 1500)
+    while (!await advanceCivReleaseProjection(db, await getStoredCivLeaderboardDisplayConfig(kv))) {}
     expect((await rebuildCivLeaderboardSnapshots(db, kv, ['duel'], 1600)).get('duel')!.completedMatchCount).toBe(2)
   }
   finally { sqlite.close() }

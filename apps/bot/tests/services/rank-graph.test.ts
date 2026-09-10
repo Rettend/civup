@@ -25,6 +25,7 @@ describe('rank graph image', () => {
       await seedPlayer(db, HERO_ID, 'Graph Hero')
       await seedRatingEvents(db, HERO_ID, 'ffa', 5)
       await db.update(matches).set({ seasonId: 's8' })
+      await refreshHistoricalStandings(db)
       const data = await buildRankGraphImageData(db, kv, 'guild-1', HERO_ID, { scope: 'ffa', gameLimit: 3, season: 8 })
       expect(data.bands.some(band => band.cutoffScore != null)).toBe(true)
       await db.update(playerRatings).set({ mu: 100, publicRating: 1700 }).where(eq(playerRatings.mode, 'ffa'))
@@ -282,3 +283,4 @@ async function seedRatingEvents(
 function isPng(bytes: Uint8Array): boolean {
   return Array.from(bytes.slice(0, 8)).join(',') === '137,80,78,71,13,10,26,10'
 }
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'
