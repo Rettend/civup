@@ -1,6 +1,6 @@
 import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
 import { allLeaderIds } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
@@ -9,6 +9,9 @@ import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match reporter identity', () => {
+  let clock: ReturnType<typeof spyOn>
+  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(20_000) })
+  afterEach(() => { clock.mockRestore() })
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
 
   test('stores the reporter id in draft data and resolves footer identity from seats', async () => {
@@ -131,7 +134,7 @@ describe('match reporter identity', () => {
         placements: '<@p1>',
       })
 
-      expect(result).toEqual({ error: 'SessionDO binding is required to validate match lifecycle.' })
+      expect(result).toEqual({ error: 'The bot cannot check this match. Ask a server admin to check it.' })
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'missing-session-do'))
       expect(participants.every(participant => participant.placement == null)).toBe(true)
     }
@@ -619,7 +622,7 @@ describe('match reporter identity', () => {
         placements: '<@p1>',
       }, directTerminalOptions)
 
-      expect(result).toEqual({ error: 'Hidden draft reports require leader assignments for every participant.' })
+      expect(result).toEqual({ error: 'Choose a leader for every player before reporting the result.' })
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'hidden-missing-leaders'))
       expect(participants.every(participant => participant.civId == null && participant.placement == null)).toBe(true)
     }

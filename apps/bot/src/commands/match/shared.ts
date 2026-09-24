@@ -498,8 +498,8 @@ async function getRoleGateErrorForLobby(
 ): Promise<string | null> {
   if (skipMatchmakingRankGate) return null
   if (!lobby.minRole && !lobby.maxRole) return null
-  if (!lobby.guildId) return 'This lobby is missing guild context, so rank gating is unavailable.'
-  if (!token) return 'Rank-gated lobbies are unavailable because the bot token is missing.'
+  if (!lobby.guildId) return 'This lobby is not linked to a Discord server, so rank limits cannot be checked.'
+  if (!token) return 'The bot cannot check rank limits right now. Ask a server admin to check its settings.'
 
   let config = rankedRoleConfigByGuildId.get(lobby.guildId)
   if (!config) {

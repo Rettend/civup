@@ -7,6 +7,7 @@
       "devDependencies": {
         "@antfu/eslint-config": "^7.2.0",
         "@types/bun": "latest",
+        "@typescript-eslint/parser": "8.54.0",
         "@typescript/native-preview": "^7.0.0-dev.20260206.1",
         "@unocss/eslint-plugin": "^66.6.0",
         "better-sqlite3": "^12.6.2",
