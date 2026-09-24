@@ -152,7 +152,7 @@ async function recalculateLeaderboardModeImpl(
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
 
-  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Legacy replay cannot cross a frozen RP opening. Seed-aware online corrections are not enabled yet.' }
+  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Ratings from a past season cannot be recalculated with this command.' }
 
   if (options.fromMatchId) {
     return recalculateLeaderboardModeFromBoundary(
@@ -169,7 +169,7 @@ async function recalculateLeaderboardModeImpl(
     )
   }
 
-  if (options.writeQueries) return { error: 'Deferred rating replay requires a match boundary.' }
+  if (options.writeQueries) return { error: 'Choose a match to recalculate ratings from.' }
   return recalculateLeaderboardModeFromScratch(db, leaderboardMode, gameModes, seasonRows)
 }
 
@@ -193,7 +193,7 @@ async function recalculateGlobalRatingsImpl(
     .from(seasons)
     .orderBy(asc(seasons.startsAt), asc(seasons.id))
 
-  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Legacy replay cannot cross a frozen RP opening. Seed-aware online corrections are not enabled yet.' }
+  if (seasonRows.some(season => season.ratingSystem === 'rp')) return { error: 'Ratings from a past season cannot be recalculated with this command.' }
 
   if (options.fromMatchId) {
     return recalculateGlobalRatingsFromBoundary(
@@ -209,7 +209,7 @@ async function recalculateGlobalRatingsImpl(
     )
   }
 
-  if (options.writeQueries) return { error: 'Deferred rating replay requires a match boundary.' }
+  if (options.writeQueries) return { error: 'Choose a match to recalculate ratings from.' }
   return recalculateGlobalRatingsFromScratch(db, seasonRows, options.opponentTierByPlayerId ?? new Map())
 }
 

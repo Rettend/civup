@@ -2,7 +2,7 @@ import type { DraftSeat, DraftState } from '@civup/game'
 import { matchBans, matches, matchParticipants, players, sessionDirectory, tournamentCutPairings, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, swapSeatPicks } from '@civup/game'
 import { createSessionAccessToken, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { DEFAULT_DRAFT_CONFIG } from '../../src/services/lobby/normalize.ts'
 import { createDraftMatch } from '../../src/services/match/draft.ts'
@@ -21,6 +21,7 @@ afterEach(() => {
 describe('SessionDO open session commands', () => {
   test('active substitutions update the canonical roster and draft, retry safely, and exclude the removed reporter', async () => {
     const { db, sqlite } = await createTestDatabase()
+    const clock = spyOn(Date, 'now').mockReturnValue(1000)
     const env: Partial<Cloudflare.Env> = { DB: createSqliteD1Database(sqlite), KV: createTestKv() }
     const namespace = createTestSessionNamespace(env)
     env.SessionDO = namespace
@@ -52,7 +53,7 @@ describe('SessionDO open session commands', () => {
       const [match] = await db.select().from(matches).where(eq(matches.id, lobby.id))
       expect(match?.status).toBe('active')
     }
-    finally { sqlite.close() }
+    finally { clock.mockRestore(); sqlite.close() }
   })
   test('creates an open session record from lobby creation', async () => {
     const room = new SessionDO(createFakeDurableObjectState(), {} as any)

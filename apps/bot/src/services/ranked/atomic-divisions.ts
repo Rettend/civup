@@ -3,7 +3,8 @@ import type { DbBatchItem } from '../db/batch.ts'
 import type { PublicRatingDecayState, RecentQualityEvidence, OverallModeStanding } from '@civup/rating'
 import { divisionRankPolicies, divisionRankSources, divisionRankStates, divisionQualityCredits, divisionQualityDirty, matches, playerRatingEvents, playerRatings, seasonMatchReports, seasonPeakDivisionRanks, seasonPeakRanks } from '@civup/db'
 import { addQualityResult, ageQualityEvidence, nextOverallRankChangeAt, nextPublicRatingDisplayChangeAt, ONE_DIVISION_RANK_POLICY_VERSION, resolveOverallRank } from '@civup/rating'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
+import { inJson as inArray } from '../db/in-json.ts'
 import { seasonSourceGuard } from '../season/report.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
 import { prepareQualityCheckpoint } from './quality-checkpoint.ts'
@@ -40,7 +41,6 @@ export async function prepareAtomicDivisionUpdates(db: Database, input: {
   const policies = await db.select().from(divisionRankPolicies).where(and(eq(divisionRankPolicies.seasonId, input.seasonId), eq(divisionRankPolicies.phase, 'active')))
   if (!policies.length || !input.ratings.length) return { guards: [], updates: [] }
   const ids = [...new Set(input.ratings.map(row => row.playerId))]
-  if (ids.length > 90 || input.replacedMatchIds.length > 40) throw new Error('Overall updates exceed the online replay limit.')
   const [live, sources, oldEvents] = await Promise.all([
     db.select().from(playerRatings).where(inArray(playerRatings.playerId, ids)),
     db.select().from(divisionRankSources).where(inArray(divisionRankSources.playerId, ids)),

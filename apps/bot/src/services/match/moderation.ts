@@ -95,8 +95,12 @@ async function resolveMatchByModeratorImpl(
 
   const leaderboardMode = gameContext.leaderboardMode
   if (leaderboardMode && !tournamentLinked && match.seasonId && await usesIsolatedSeasonRatings(db, match.seasonId)) {
-    if (match.status === 'active') {
-      const claim = options.sessionNamespace ? await claimSessionReport(options.sessionNamespace, match.id, { matchId: match.id }) : null
+    const [priorReport] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id)).limit(1)
+    const restoring = priorReport?.cancelledAt != null
+    if ((match.status === 'active' || match.status === 'cancelled') && !restoring) {
+      // Cancelled sessions reject participant report claims. Moderator resolution
+      // uses the guarded first-report transaction and terminal lifecycle command.
+      const claim = options.sessionNamespace && match.status === 'active' ? await claimSessionReport(options.sessionNamespace, match.id, { matchId: match.id }) : null
       if (claim && !claim.claimed) return { error: 'The match already has a report in progress or has been reported.' }
       try {
         const [current] = await db.select({ draftData: matches.draftData }).from(matches).where(eq(matches.id, match.id))
@@ -109,22 +113,31 @@ async function resolveMatchByModeratorImpl(
         }
         const corrected = participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! }))
         await runAtomicSeasonBatch(db, corrected.map(row => db.update(matchParticipants).set({ placement: row.placement }).where(and(eq(matchParticipants.matchId, row.matchId), eq(matchParticipants.playerId, row.playerId)))))
-        const reported = await finalizeIsolatedSeasonReport(db, match, corrected, null, { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() }, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, corrected.map(row => row.playerId)))
+        const reported = await finalizeIsolatedSeasonReport(db, match, corrected, null, { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() }, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, corrected.map(row => row.playerId)), match.status === 'cancelled')
         if ('error' in reported) return reported
         return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: [match.id], historicalSeason: reported.historicalSeason }
       }
       finally { if (claim?.claimed) await releaseSessionReportClaim(options.sessionNamespace, claim.claim.matchId, claim.claim) }
     }
     try {
-      const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, participants: participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! })) }, input.resolvedAt)
+      const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, restore: restoring, participants: participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! })) }, input.resolvedAt)
       await runAtomicSeasonBatch(db, replay.queries)
       const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
+      if (restoring) {
+        const reported = await finalizeIsolatedSeasonReport(db, match, updatedParticipants, null, options)
+        if ('error' in reported) return reported
+        await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
+        return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: replay.matchIds }
+      }
       await reconcileCivLeaderboardMatchContribution(db, match.id)
       await reconcilePlayerCivStatMatchContributionFromRows(db, match, updatedParticipants)
       await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
       return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, updatedParticipants), previousStatus, recalculatedMatchIds: replay.matchIds }
     }
-    catch (error) { return { error: error instanceof Error ? error.message : 'Season correction failed safely.' } }
+    catch (error) {
+      console.error(`Failed to correct season result for ${match.id}:`, error)
+      return { error: 'Could not confirm the result change. Check the match before trying again.' }
+    }
   }
   const originalBans = await db
     .select()
@@ -446,7 +459,7 @@ async function substituteMatchPlayerByModeratorImpl(
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
 
   if (!tournamentLinked && match.seasonId && gameContext.leaderboardMode && await usesIsolatedSeasonRatings(db, match.seasonId)) {
-    if (match.status !== 'completed') return { error: 'Active season substitutions require the session-owned roster workflow. No participant data was changed.' }
+    if (match.status !== 'completed') return { error: 'Players cannot be replaced in this match right now.' }
     try {
       const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, participants: participantRows.rows }, input.correctedAt)
       await runAtomicSeasonBatch(db, [
@@ -465,7 +478,10 @@ async function substituteMatchPlayerByModeratorImpl(
       }
       return { match: updatedMatch!, participants: updatedParticipants, previousStatus: match.status, recalculatedMatchIds: replay.matchIds, substitutions }
     }
-    catch (error) { return { error: error instanceof Error ? error.message : 'Season substitution failed safely.' } }
+    catch (error) {
+      console.error(`Failed to substitute player in season match ${match.id}:`, error)
+      return { error: 'Could not confirm the player change. Check the player list before trying again.' }
+    }
   }
 
   await upsertSubstitutePlayer(db, subPlayer, input.correctedAt)
@@ -1105,13 +1121,13 @@ async function validateReportableSession(
 
   const { sessionNamespace } = options
   if (!sessionNamespace) {
-    return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
+    return options.allowDirectTerminalWriteForTests ? null : 'The bot cannot check this match. Ask a server admin to check it.'
   }
   try {
     const record = await getSessionRecord(sessionNamespace, matchId)
     if (!record) return `Session **${matchId}** not found.`
     if (record.phase === 'reported') return null
-    if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled') return `Session is not reportable (phase: ${record.phase})`
+    if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled') return 'Finish the draft before changing the result.'
     return null
   }
   catch (error) {
@@ -1167,7 +1183,10 @@ async function cancelMatchByModeratorImpl(
       if (replayed.length > 0 && context?.leaderboardMode) await rebuildLeaderboardModeSnapshot(db, kv, context.leaderboardMode)
       return { match: updated!, participants: rows, previousStatus, recalculatedMatchIds: replayed }
     }
-    catch (error) { return { error: error instanceof Error ? error.message : 'Season cancellation failed safely.' } }
+    catch (error) {
+      console.error(`Failed to cancel season match ${match.id}:`, error)
+      return { error: 'Could not confirm the cancellation. Check the match before trying again.' }
+    }
   }
   const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
     ? await matchHasRatingEvents(db, input.matchId)
@@ -1263,7 +1282,7 @@ async function runTerminalSessionCommand(
   }
 
   if (!options.allowDirectTerminalWriteForTests) {
-    return 'SessionDO binding is required to update terminal match state.'
+    return 'The bot cannot close this match. Ask a server admin to check it.'
   }
 
   await applyDirectTerminalCommand(db, matchId, command)

@@ -1,13 +1,13 @@
 import type { Database } from '@civup/db'
 import { matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingSeeds, seasonRatingStates, seasons } from '@civup/db'
 import { calibratePublicRatings, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { cancelMatchByModerator, correctMatchLeadersByModerator, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../../src/services/match/moderation.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
 import { advanceSeasonRatingState, prepareSeasonOpening } from '../../src/services/season/opening.ts'
-import { seasonMutationError, SEASON_REPORTING_WINDOW_MS } from '../../src/services/season/policy.ts'
+import { seasonMutationError, SEASON_REPORTING_WINDOW_MS, MATCH_CORRECTION_WINDOW_MS } from '../../src/services/season/policy.ts'
 import { parseSeasonSelection, resolveSeasonSelection } from '../../src/services/season/selection.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 import { endSeason, startSeason } from '../../src/services/season/index.ts'
@@ -19,6 +19,15 @@ const cutoff = 1000
 const oldSeason = { id: 's8', name: 'Season 8', startsAt: 0, endsAt: cutoff, active: false, reportingDeadline: cutoff + SEASON_REPORTING_WINDOW_MS, finalizedAt: null }
 
 describe('RP season isolation', () => {
+  let clock: ReturnType<typeof spyOn>
+  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(3000) })
+  afterEach(() => { clock.mockRestore() })
+  test('current-season corrections allow exactly 30 days, but not older matches', () => {
+    const season = { ...oldSeason, active: true, endsAt: null }
+    const match = { seasonId: 's8', createdAt: 500, status: 'completed' }
+    expect(seasonMutationError(season, match, 'correction', 500 + MATCH_CORRECTION_WINDOW_MS)).toBeNull()
+    expect(seasonMutationError(season, match, 'correction', 501 + MATCH_CORRECTION_WINDOW_MS)).toContain('older than 30 days')
+  })
   test('first reports and unreported cancellations fit the exact reporting window, not corrections', () => {
     const match = { seasonId: 's8', createdAt: 500, status: 'active' }
     expect(seasonMutationError(oldSeason, match, 'first-report', cutoff + 1)).toBeNull()
@@ -26,7 +35,7 @@ describe('RP season isolation', () => {
     expect(seasonMutationError(oldSeason, match, 'first-report', oldSeason.reportingDeadline + 1, cutoff + 1)).toBeNull()
     expect(seasonMutationError(oldSeason, match, 'correction', cutoff + 1)).toContain('older season')
     expect(seasonMutationError(oldSeason, { ...match, status: 'completed' }, 'first-report', cutoff + 1)).toContain('older season')
-    expect(seasonMutationError(oldSeason, { ...match, createdAt: cutoff }, 'first-report', cutoff + 1)).toContain('does not belong')
+    expect(seasonMutationError(oldSeason, { ...match, createdAt: cutoff }, 'first-report', cutoff + 1)).toContain('wrong season')
     expect(seasonMutationError({ ...oldSeason, finalizedAt: cutoff + 2 }, match, 'first-report', cutoff + 3, cutoff + 1)).toContain('older season')
     expect(seasonMutationError(oldSeason, match, 'first-report', cutoff + 1, cutoff + 2)).toContain('older season')
     expect(seasonMutationError(oldSeason, match, 'unreported-cancellation', cutoff + 1)).toBeNull()
@@ -144,6 +153,31 @@ describe('RP season isolation', () => {
       expect(sqlite.query('SELECT * FROM match_participants').all()).toEqual(before)
       expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
       expect(await db.select().from(seasonRatingStates)).toHaveLength(0)
+    }
+    finally { sqlite.close() }
+  })
+
+  test('all moderator correction paths reject current-season matches older than 30 days before changing data', async () => {
+    const { db, sqlite } = await createTestDatabase()
+    const kv = createTestKv()
+    try {
+      clock.mockReturnValue(501 + MATCH_CORRECTION_WINDOW_MS)
+      await db.insert(players).values({ id: 'p', displayName: 'Player', createdAt: 0 })
+      await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: 0, active: true, ratingSystem: 'rp', isolatedRatingsEnabled: true })
+      await db.insert(matches).values({ id: 'old', gameMode: '1v1', status: 'completed', seasonId: 's9', createdAt: 500 })
+      await db.insert(matchParticipants).values({ matchId: 'old', playerId: 'p', placement: 1 })
+      const before = await db.select().from(matchParticipants)
+      const options = { allowDirectTerminalWriteForTests: true }
+      const results = [
+        await cancelMatchByModerator(db, kv, { matchId: 'old', cancelledAt: Date.now() }, options),
+        await resolveMatchByModerator(db, kv, { matchId: 'old', placements: ['p'], resolvedAt: Date.now() }, options),
+        await correctMatchLeadersByModerator(db, { matchId: 'old', playerId: 'p', leaderId: 'new', correctedAt: Date.now() }),
+        await substituteMatchPlayerByModerator(db, kv, { matchId: 'old', playerId: 'p', subPlayer: { playerId: 'other', displayName: 'Other' }, correctedAt: Date.now() }),
+      ]
+      for (const result of results) expect(result).toMatchObject({ error: expect.stringContaining('older than 30 days') })
+      expect(await db.select().from(matchParticipants)).toEqual(before)
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+      expect((await db.select().from(matches))[0]!.status).toBe('completed')
     }
     finally { sqlite.close() }
   })

@@ -332,7 +332,7 @@ export async function syncSessionDraftLifecyclePayload(
   sessionId: string,
   payload: DraftLifecyclePayload,
 ): Promise<SessionDraftLifecycleSyncResult> {
-  if (!namespace) return { ok: false, status: 503, error: 'SessionDO binding is required' }
+  if (!namespace) return { ok: false, status: 503, error: 'The bot cannot update this draft. Ask a server admin to check it.' }
 
   const id = namespace.idFromName(sessionId)
   const stub = namespace.get(id)

@@ -62,7 +62,7 @@ export const component_match_join = factory.component(
     const canonicalSessionId = launch.mode === 'browser'
       ? clickedLobby?.id ?? (clickedMatchId ? await resolveCanonicalSessionId(db, clickedMatchId) : null)
       : clickedLobby?.id ?? lobbyId
-    if (!canonicalSessionId) return privateLaunchError(c, 'Could not resolve this session. Please use a current lobby message and try again.')
+    if (!canonicalSessionId) return privateLaunchError(c, 'Could not find this lobby or match. Use the latest lobby message to join.')
     const activityTarget = clickedLobby?.status === 'open'
       ? { kind: 'lobby' as const, id: clickedLobby.id }
       : clickedMatchId
@@ -177,7 +177,7 @@ export const component_draft_activity = factory.component(
         const sessionId = launch.mode === 'browser'
           ? await resolveCanonicalSessionId(createDb(c.env.DB), matchId)
           : matchId
-        if (!sessionId) return privateLaunchError(c, 'Could not resolve this draft session. Please use a current lobby message.')
+        if (!sessionId) return privateLaunchError(c, 'Could not find this draft. Use the latest lobby message to join.')
         return respondWithPreferredLaunch(c, {
           destination: { kind: 'session', sessionId },
           activityChannelId: channelId,
@@ -188,7 +188,7 @@ export const component_draft_activity = factory.component(
       }
     }
     if (launch.mode === 'activity') return c.resActivity()
-    return privateLaunchError(c, 'Could not resolve this draft. Please use a current lobby message.')
+    return privateLaunchError(c, 'Could not find this draft. Use the latest lobby message to join.')
   },
 )
 

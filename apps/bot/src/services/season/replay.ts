@@ -6,7 +6,9 @@ import type { SQL } from 'drizzle-orm'
 import { matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingStates, seasonRatingCheckpoints, seasons } from '@civup/db'
 import { parseLeaderboardMode } from '@civup/game'
 import { advancePublicRatingBadge, calculatePublicRatingTransition, createRating, PUBLIC_RATING_START, publicRatingTarget, recordPublicRatingDecayGame, settlePublicRatingDecay, type PublicRatingDecayState } from '@civup/rating'
-import { and, eq, getTableColumns, gte, inArray, sql } from 'drizzle-orm'
+import { and, eq, getTableColumns, gte, sql } from 'drizzle-orm'
+import { inJson as inArray } from '../db/in-json.ts'
+import { matchCorrectionAgeError } from './policy.ts'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
 import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../match/report.ts'
 import { seasonSourceGuard } from './report.ts'
@@ -18,21 +20,28 @@ import { sameReplayNumber } from './replay-number.ts'
 const evidenceKeys = ['gamesPlayed', 'wins', 'importedGames', 'effectiveGames', 'winsVsTier1', 'winsVsTier2Plus', 'effectiveWinsVsTier1', 'effectiveWinsVsTier2Plus'] as const
 const eventFields = ['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'gamesDelta', 'winsDelta', 'importedGamesDelta', 'effectiveGamesDelta', 'winsVsTier1Delta', 'winsVsTier2PlusDelta', 'effectiveWinsVsTier1Delta', 'effectiveWinsVsTier2PlusDelta', 'publicRatingBefore', 'publicRatingAfter', 'publicSequence', 'publicFormulaVersion', 'publicCalibrationVersion', 'publicDecayBefore', 'publicDecayAfter', 'publicDecayDelta'] as const
 const storedEventValue = (value: unknown) => value != null && typeof value === 'object' ? JSON.stringify(value) : value ?? null
-const correctionTooLarge = 'Changing this match would affect too many later results for a mod command.'
 const floatingReplayFields = new Set<string>(['ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma', 'publicRatingBefore', 'publicRatingAfter', 'publicDecayDelta'])
 
 export interface SeasonReplayChange {
   matchId: string
   cancel?: boolean
+  restore?: boolean
   participants?: ParticipantRow[]
 }
 
 export async function prepareSeasonReplay(db: Database, seasonId: string, change?: SeasonReplayChange, now = Date.now()): Promise<{ queries: DbBatchItem[], matchIds: string[] }> {
   const [season] = await db.select().from(seasons).where(eq(seasons.id, seasonId)).limit(1)
   if (!season?.active || season.endsAt != null || season.finalizedAt != null || season.ratingSystem !== 'rp' || !season.isolatedRatingsEnabled) throw new Error('Only an active public season can be corrected online.')
+  if (change) {
+    const [match] = await db.select().from(matches).where(eq(matches.id, change.matchId)).limit(1)
+    if (!match || match.seasonId !== seasonId) throw new Error('The correction does not belong to this season.')
+    const ageError = matchCorrectionAgeError(match, now)
+    if (ageError) throw new Error(ageError)
+  }
   const decayPolicy = await loadPublicRatingDecayPolicy(db)
   const [boundary] = change ? await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, change.matchId)).limit(1) : []
   if (change && boundary?.seasonId !== seasonId) throw new Error('The correction has no recorded report order in this season.')
+  if (change?.restore && (change.cancel || !change.participants || boundary?.cancelledAt == null)) throw new Error('Restoring a result requires a cancelled report and complete placements.')
   const firstSequence = boundary?.sequence ?? 0
   const reportScope = and(eq(seasonMatchReports.seasonId, seasonId), change ? sql`${seasonMatchReports.matchId} in (
     with recursive affected(match_id, sequence) as (
@@ -47,20 +56,17 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
         join match_participants q on q.player_id=p.player_id
         join season_match_reports r on r.match_id=q.match_id
         where r.season_id=${seasonId} and r.sequence>a.sequence and r.cancelled_at is null
-      limit 41
     ) select match_id from affected
   )` : gte(seasonMatchReports.sequence, firstSequence))!
-  const reports = await db.select().from(seasonMatchReports).where(reportScope).orderBy(seasonMatchReports.sequence).limit(41)
-  if (reports.length > 40) throw new Error(correctionTooLarge)
+  const reports = await db.select().from(seasonMatchReports).where(reportScope).orderBy(seasonMatchReports.sequence)
   if (change && !reports.some(row => row.matchId === change.matchId)) throw new Error('The correction has no recorded report order.')
   if (reports.length === 0) return { queries: [], matchIds: [] }
   const ids = reports.map(row => row.matchId)
   const [storedMatches, participants, events] = await Promise.all([
     db.select().from(matches).where(inArray(matches.id, ids)),
-    db.select().from(matchParticipants).where(inArray(matchParticipants.matchId, ids)).limit(151),
-    db.select().from(playerRatingEvents).where(inArray(playerRatingEvents.matchId, ids)).limit(151),
+    db.select().from(matchParticipants).where(inArray(matchParticipants.matchId, ids)),
+    db.select().from(playerRatingEvents).where(inArray(playerRatingEvents.matchId, ids)),
   ])
-  if (participants.length > 150 || events.length > 150) throw new Error(correctionTooLarge)
   if (events.some(event => event.seasonId !== seasonId)) throw new Error('A report contains an event assigned to another season.')
   const key = (row: { playerId: string, mode: string }) => `${row.playerId}:${row.mode}`
   const requiredChains = new Set<string>()
@@ -76,7 +82,6 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     }
   }
   const playerIds = [...new Set([...participants.map(row => row.playerId), ...(change?.participants?.map(row => row.playerId) ?? [])])]
-  if (playerIds.length > 90) throw new Error(correctionTooLarge)
   const [seedRows, stateRows, liveRows] = playerIds.length ? await Promise.all([
     db.select().from(publicRatingSeeds).where(and(eq(publicRatingSeeds.seasonId, seasonId), inArray(publicRatingSeeds.playerId, playerIds))),
     db.select().from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, seasonId), inArray(seasonRatingStates.playerId, playerIds))),
@@ -84,9 +89,7 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   ]) : [[], [], []]
   const seeds = seedRows.filter(row => requiredChains.has(key(row)))
   const states = stateRows.filter(row => requiredChains.has(key(row)))
-  if (seeds.length > 100 || states.length > 100) throw new Error(correctionTooLarge)
   const versions = [...new Set([...seeds.map(seed => seed.calibrationVersion), ...events.flatMap(event => event.publicCalibrationVersion ? [event.publicCalibrationVersion] : [])])]
-  if (versions.length > 90) throw new Error('Too many calibration versions for online replay.')
   const calibrations = versions.length ? await db.select().from(publicRatingCalibrations).where(inArray(publicRatingCalibrations.version, versions)) : []
   if (storedMatches.length !== reports.length || storedMatches.some(match => match.seasonId !== seasonId || !['completed', 'cancelled'].includes(match.status))) throw new Error('Finish pending report projections before correcting this season.')
   if (change?.participants && (new Set(change.participants.map(row => row.playerId)).size !== change.participants.length || change.participants.length < 2 || change.participants.some(row => row.matchId !== change.matchId || row.placement == null))) throw new Error('Invalid corrected participants.')
@@ -135,7 +138,8 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     const checkpoints: Array<{ matchId: string, summary: RatingCheckpoint }> = []
     for (const report of reports) {
       const match = storedMatches.find(row => row.id === report.matchId)!
-      if (report.cancelledAt != null || match.status === 'cancelled' || (edit?.matchId === match.id && edit.cancel)) continue
+      const restoring = edit?.matchId === match.id && edit.restore
+      if ((!restoring && (report.cancelledAt != null || match.status === 'cancelled')) || (edit?.matchId === match.id && edit.cancel)) continue
       const context = getStoredGameModeContext(match.gameMode, match.draftData)
       if (!context?.leaderboardMode) throw new Error('Recorded season report is not a ranked match.')
       const rows = edit?.matchId === match.id && edit.participants ? edit.participants : participants.filter(row => row.matchId === match.id)
@@ -286,7 +290,9 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
   }
   queries.push(db.delete(playerRatingEvents).where(inArray(playerRatingEvents.matchId, ids)))
   queries.push(db.delete(seasonRatingCheckpoints).where(and(eq(seasonRatingCheckpoints.seasonId, seasonId), inArray(seasonRatingCheckpoints.sequence, reports.map(report => report.sequence)))))
-  if (output.checkpoints.length) queries.push(writeRatingCheckpoints(db, seasonId, output.checkpoints))
+  for (let offset = 0; offset < output.checkpoints.length; offset += 50) {
+    queries.push(writeRatingCheckpoints(db, seasonId, output.checkpoints.slice(offset, offset + 50)))
+  }
   for (const event of output.rebuilt) {
     queries.push(db.insert(playerRatingEvents).values({ ...event, updatedAt: now }))
     if (event.mode !== 'global') queries.push(db.update(matchParticipants).set({ ratingBeforeMu: event.ratingBeforeMu, ratingBeforeSigma: event.ratingBeforeSigma,
@@ -306,12 +312,12 @@ export async function prepareSeasonReplay(db: Database, seasonId: string, change
     queries.push(db.update(seasonMatchReports).set({ cancelledAt: now }).where(eq(seasonMatchReports.matchId, change.matchId)))
     queries.push(db.update(matchParticipants).set({ placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null }).where(eq(matchParticipants.matchId, change.matchId)))
   }
+  if (change?.restore) queries.push(db.update(seasonMatchReports).set({ cancelledAt: null }).where(eq(seasonMatchReports.matchId, change.matchId)))
   const division = await prepareAtomicDivisionUpdates(db, { seasonId, now, ratings: [...output.ratings.values()], replacedMatchIds: ids,
     events: output.rebuilt.map(event => ({ playerId: event.playerId, matchId: event.matchId, mode: event.mode,
       at: reports.find(report => report.matchId === event.matchId)!.acceptedAt, effectiveGamesDelta: event.effectiveGamesDelta ?? 0,
       effectiveWinsVsTier1Delta: event.effectiveWinsVsTier1Delta ?? 0, effectiveWinsVsTier2PlusDelta: event.effectiveWinsVsTier2PlusDelta ?? 0 })) })
   queries.unshift(...division.guards)
   queries.push(...division.updates)
-  if (queries.length > 400) throw new Error(correctionTooLarge)
   return { queries, matchIds: ids }
 }

@@ -1,4 +1,5 @@
 import antfu from '@antfu/eslint-config'
+import { playerCopyConfig } from './scripts/eslint-player-copy.js'
 
 export default antfu({
   formatters: true,
@@ -21,4 +22,4 @@ export default antfu({
     'style/max-statements-per-line': ['warn', { max: 2 }],
     'nonblock-statement-body-position': ['warn', 'beside'],
   },
-})
+}, playerCopyConfig)

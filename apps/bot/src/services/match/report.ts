@@ -376,7 +376,7 @@ async function reportMatchWithAdmission(
       .where(eq(matchParticipants.matchId, input.matchId))
 
     if (updatedParticipants.some(participant => participant.placement === null)) {
-      return { error: 'Could not resolve placements for all participants.' }
+      return { error: 'Some players are missing a finishing position. Check the result and report it again.' }
     }
 
     const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, { ...options, acceptedAt: options.acceptedAt ?? reportClaim.claim?.acceptedAt ?? Date.now() }, tournamentLinked)
@@ -454,24 +454,24 @@ function validateHiddenDraftLeaderAssignments(
   input: Record<string, string> | undefined,
 ): { assignments: Map<string, string> } | { error: string } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return { error: 'Hidden draft reports require leader assignments for every participant.' }
+    return { error: 'Choose a leader for every player before reporting the result.' }
   }
 
   const participantIds = new Set(participantRows.map(participant => participant.playerId))
   const assignments = new Map<string, string>()
   for (const [playerId, civId] of Object.entries(input)) {
     if (!participantIds.has(playerId)) {
-      return { error: `Leader assignment references an unknown participant: **${playerId}**.` }
+      return { error: `Player **${playerId}** is not in this match.` }
     }
     if (typeof civId !== 'string' || civId.trim().length === 0) {
-      return { error: `Leader assignment for **${playerId}** is missing a leader.` }
+      return { error: `Choose a leader for <@${playerId}>.` }
     }
     assignments.set(playerId, civId.trim())
   }
 
   for (const participant of participantRows) {
     if (!assignments.has(participant.playerId)) {
-      return { error: 'Hidden draft reports require leader assignments for every participant.' }
+      return { error: 'Choose a leader for every player before reporting the result.' }
     }
   }
 
@@ -483,11 +483,11 @@ function validateHiddenDraftLeaderAssignments(
 
   const assignedCivIds = [...assignments.values()]
   for (const civId of assignedCivIds) {
-    if (!validCivIds.has(civId)) return { error: `Unknown leader assignment: **${civId}**.` }
+    if (!validCivIds.has(civId)) return { error: `Leader **${civId}** is not available in this match.` }
   }
 
   if (draftState?.duplicateFactions !== true && new Set(assignedCivIds).size !== assignedCivIds.length) {
-    return { error: 'Leader assignments must be unique for this match.' }
+    return { error: 'Each player must have a different leader.' }
   }
 
   return { assignments }
@@ -1042,15 +1042,15 @@ export async function usesIsolatedSeasonRatings(db: Database, seasonId: string |
   return season?.enabled === true
 }
 
-export async function finalizeIsolatedSeasonReport(db: Database, match: typeof matches.$inferSelect, participants: ParticipantRow[], reporterId: string | null, options: ReportMatchOptions, opponentTiers: ReadonlyMap<string, string> = new Map()): Promise<ReportResult> {
+export async function finalizeIsolatedSeasonReport(db: Database, match: typeof matches.$inferSelect, participants: ParticipantRow[], reporterId: string | null, options: ReportMatchOptions, opponentTiers: ReadonlyMap<string, string> = new Map(), allowCancelled = false): Promise<ReportResult> {
   let prepared
   try {
-    prepared = await prepareSeasonReport(db, { match, participants, acceptedAt: options.acceptedAt ?? Date.now(), now: Date.now(), opponentTierByPlayerId: opponentTiers })
+    prepared = await prepareSeasonReport(db, { match, participants, acceptedAt: options.acceptedAt ?? Date.now(), now: Date.now(), opponentTierByPlayerId: opponentTiers, allowCancelled })
     await runAtomicSeasonBatch(db, prepared.queries)
   }
   catch (error) {
     console.error(`Season report preparation/apply failed for ${match.id}:`, error)
-    return { error: 'The season report could not be confirmed. Retry to check the saved result safely, or ask the owner to review it.' }
+    return { error: 'Could not confirm the result. Try reporting it again.' }
   }
   if (prepared.idempotent && prepared.late && match.status === 'completed') {
     await reconcileCivLeaderboardMatchContribution(db, match.id)
@@ -1058,7 +1058,7 @@ export async function finalizeIsolatedSeasonReport(db: Database, match: typeof m
     return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participants), idempotent: true, historicalSeason: true }
   }
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, prepared.acceptedAt, reporterId, true)
-  if (cleanupError) return { error: `${cleanupError} Ratings are saved; retry this report to finish it without rating the game twice.` }
+  if (cleanupError) return { error: 'Ratings are saved, but the match is not closed yet. Report the result again to finish.' }
   const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
   const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
   await reconcileCivLeaderboardMatchContribution(db, match.id)
@@ -1242,7 +1242,7 @@ async function ensureReportedMatchCleanup(
   }
 
   if (!options.allowDirectTerminalWriteForTests) {
-    return 'SessionDO binding is required to finalize reported match state.'
+    return 'The bot cannot finish saving this result. Ask a server admin to check it.'
   }
 
   if (updateMatch) {
@@ -1270,14 +1270,14 @@ async function validateReportableSession(
 ): Promise<string | null> {
   const { sessionNamespace } = options
   if (!sessionNamespace) {
-    return options.allowDirectTerminalWriteForTests ? null : 'SessionDO binding is required to validate match lifecycle.'
+    return options.allowDirectTerminalWriteForTests ? null : 'The bot cannot check this match. Ask a server admin to check it.'
   }
   try {
     const record = await getSessionRecord(sessionNamespace, matchId)
     if (!record) return `Session **${matchId}** not found.`
     if (record.phase === 'reported') return null
-    if (record.phase === 'cancelled') return 'Cancelled sessions cannot be reported'
-    if (record.phase !== 'active' && record.phase !== 'swap') return `Session is not reportable (phase: ${record.phase})`
+    if (record.phase === 'cancelled') return 'This match was cancelled. You cannot report a result for it.'
+    if (record.phase !== 'active' && record.phase !== 'swap') return 'Finish the draft before reporting the result.'
     return null
   }
   catch (error) {

@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
 import { matches, matchParticipants, matchPlayerCivStatContributions, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingDecayPolicies, publicRatingSeeds, seasonMatchReports, seasonRatingCheckpoints, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
 import { calibratePublicRatings, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { prepareSeasonReport, runAtomicSeasonBatch } from '../../src/services/season/report.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
@@ -40,6 +40,98 @@ async function setup() {
 }
 
 describe('atomic season reporting', () => {
+  let clock: ReturnType<typeof spyOn>
+  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(3000) })
+  afterEach(() => { clock.mockRestore() })
+  test.each(['p', 'q'])('restoring a cancelled rated match with winner %s matches uninterrupted history', async (winner) => {
+    const fixtures = await Promise.all([setup(), setup()])
+    try {
+      for (const [index, { db, addMatch }] of fixtures.entries()) {
+        for (const [id, at] of [['target', 1100], ['later', 1300]] as const) {
+          const input = await addMatch(id, at)
+          if (index === 1 && id === 'target' && winner === 'q') {
+            for (const row of input.participants) {
+              row.placement = row.playerId === winner ? 1 : 2
+              await db.update(matchParticipants).set({ placement: row.placement }).where(eq(matchParticipants.playerId, row.playerId))
+            }
+          }
+          await runAtomicSeasonBatch(db, (await prepareSeasonReport(db, { ...input, acceptedAt: at + 1, now: at + 1, opponentTierByPlayerId: new Map() })).queries)
+          await db.update(matches).set({ status: 'completed' }).where(eq(matches.id, id))
+        }
+      }
+      const { db } = fixtures[0]!
+      await runAtomicSeasonBatch(db, (await prepareSeasonReplay(db, 's9', { matchId: 'target', cancel: true }, 1500)).queries)
+      await db.update(matches).set({ status: 'cancelled' }).where(eq(matches.id, 'target'))
+      const participants = (await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'target'))).map(row => ({ ...row, placement: row.playerId === winner ? 1 : 2 }))
+      const replay = await prepareSeasonReplay(db, 's9', { matchId: 'target', participants, restore: true }, 1600)
+      expect(replay.matchIds).toEqual(['target', 'later'])
+      await runAtomicSeasonBatch(db, replay.queries)
+      const saved = await db.select().from(playerRatingEvents)
+      // A retry after a terminal-write interruption must preserve the restored winner.
+      expect(await resolveMatchByModerator(db, createTestKv(), { matchId: 'target', placements: winner === 'p' ? '<@q>' : '<@p>', resolvedAt: 3000 }, { allowDirectTerminalWriteForTests: true })).toMatchObject({ match: { status: 'completed' } })
+      expect(await db.select().from(playerRatingEvents)).toEqual(saved)
+      const normalize = (rows: typeof saved) => rows.map(({ updatedAt, ...row }) => row).sort((a, b) => `${a.matchId}:${a.playerId}:${a.mode}`.localeCompare(`${b.matchId}:${b.playerId}:${b.mode}`))
+      expect(normalize(saved)).toEqual(normalize(await fixtures[1]!.db.select().from(playerRatingEvents)))
+      expect(await db.select().from(seasonMatchReports)).toEqual(await fixtures[1]!.db.select().from(seasonMatchReports))
+      await expect(prepareSeasonReplay(db, 's9', undefined, 3000)).resolves.toBeDefined()
+    }
+    finally { for (const fixture of fixtures) fixture.sqlite.close() }
+  })
+  test('cancelled first-report recovery preserves the saved winner and never rates twice', async () => {
+    const { db, sqlite, addMatch } = await setup()
+    try {
+      const input = await addMatch('cancelled-first-report', 1100)
+      await db.update(matches).set({ status: 'cancelled' }).where(eq(matches.id, input.match.id))
+      input.match.status = 'cancelled'
+      const reportInput = { ...input, acceptedAt: 1200, now: 1200, opponentTierByPlayerId: new Map() }
+      // Participant reporting cannot bypass cancellation; only moderator resolution opts in.
+      await expect(runAtomicSeasonBatch(db, (await prepareSeasonReport(db, reportInput)).queries)).rejects.toThrow()
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+      await runAtomicSeasonBatch(db, (await prepareSeasonReport(db, { ...reportInput, allowCancelled: true })).queries)
+      const events = await db.select().from(playerRatingEvents)
+      const ratings = await db.select().from(playerRatings)
+      const reports = await db.select().from(seasonMatchReports)
+      // Simulate a saved rating transaction whose terminal lifecycle update was interrupted.
+      const result = await resolveMatchByModerator(db, createTestKv(), { matchId: input.match.id, placements: '<@q>', resolvedAt: 3000 }, { allowDirectTerminalWriteForTests: true })
+      expect(result).toMatchObject({ match: { status: 'completed' } })
+      expect((await db.select().from(matchParticipants)).find(row => row.playerId === 'p')!.placement).toBe(1)
+      expect(await db.select().from(playerRatingEvents)).toEqual(events)
+      expect(await db.select().from(playerRatings)).toEqual(ratings)
+      expect(await db.select().from(seasonMatchReports)).toEqual(reports)
+    }
+    finally { sqlite.close() }
+  })
+  test('a recent substitution replays over 100 connected reports and players with overall divisions atomically', async () => {
+    const { db, sqlite, addMatch } = await setup()
+    try {
+      await db.insert(players).values([...Array.from({ length: 101 }, (_, i) => `opponent-${i}`), 'sub'].map(id => ({ id, displayName: id, createdAt: 0 })))
+      for (let i = 0; i < 101; i++) {
+        const input = await addMatch(`large-${i}`, 1100 + i)
+        await db.update(matchParticipants).set({ playerId: `opponent-${i}` }).where(eq(matchParticipants.playerId, 'q'))
+        input.participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.match.id))
+        await runAtomicSeasonBatch(db, (await prepareSeasonReport(db, { ...input, acceptedAt: 1300 + i, now: 1300 + i, opponentTierByPlayerId: new Map() })).queries)
+        await db.update(matches).set({ status: 'completed', completedAt: 1300 + i }).where(eq(matches.id, input.match.id))
+      }
+      await db.update(seasons).set({ publicReadsEnabled: true }).where(eq(seasons.id, 's9'))
+      await db.insert(divisionRankPolicies).values({ guildId: 'guild', seasonId: 's9', version: ONE_DIVISION_RANK_POLICY_VERSION, phase: 'active', updatedAt: 1500,
+        configJson: JSON.stringify({ preparation: { unrankedRoleId: 'unranked', roleIdsByMinimum: Object.fromEntries(PUBLIC_RATING_BANDS.map(b => [b.minimum, `role-${b.minimum}`])) } }) })
+      for (const player of ['p', ...Array.from({ length: 101 }, (_, i) => `opponent-${i}`)]) {
+        while (!await initializeQualityCheckpointPage(db, 'guild', player, 1500)) {}
+      }
+      const participants = (await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'large-0'))).map(row => ({ ...row, playerId: row.playerId === 'p' ? 'sub' : row.playerId }))
+      const replay = await prepareSeasonReplay(db, 's9', { matchId: 'large-0', participants }, 1500)
+      expect(replay.matchIds).toHaveLength(101)
+      expect(replay.queries.length).toBeGreaterThan(400)
+      for (const query of replay.queries) expect((query as unknown as { toSQL(): { params: unknown[] } }).toSQL().params.length).toBeLessThanOrEqual(100)
+      await runAtomicSeasonBatch(db, replay.queries)
+      expect(await db.select().from(playerRatingEvents)).toHaveLength(404)
+      expect((await db.select().from(seasonRatingStates).where(eq(seasonRatingStates.playerId, 'p'))).every(row => row.seasonGames === 100)).toBe(true)
+      expect((await db.select().from(seasonRatingStates).where(eq(seasonRatingStates.playerId, 'sub'))).every(row => row.seasonGames === 1)).toBe(true)
+      expect(await db.select().from(divisionRankStates)).toHaveLength(103)
+      expect((await prepareSeasonReplay(db, 's9', undefined, 1600)).matchIds).toHaveLength(101)
+    }
+    finally { sqlite.close() }
+  })
   test('historical checkpoint pages resume, verify complete summaries, and reject partial or racing sources', async () => {
     const { db, sqlite, addMatch } = await setup()
     try {
@@ -161,7 +253,7 @@ describe('atomic season reporting', () => {
     finally { sqlite.close() }
   })
 
-  test('unreported S8 games can be scrapped within the window without changing either season ratings; saved reports stay protected', async () => {
+  test('moderators cannot scrap past-season games even within the late reporting window', async () => {
     const { db, sqlite, addMatch } = await setup()
     try {
       const now = Date.now()
@@ -177,8 +269,8 @@ describe('atomic season reporting', () => {
       const events = await db.select().from(playerRatingEvents)
       const kv = createTestKv()
       const options = { allowDirectTerminalWriteForTests: true }
-      expect(await cancelMatchByModerator(db, kv, { matchId: 'scrap', cancelledAt: now }, options)).toMatchObject({ match: { status: 'cancelled', seasonId: 's8' }, recalculatedMatchIds: [] })
-      expect(await cancelMatchByModerator(db, kv, { matchId: 'rated', cancelledAt: now }, options)).toMatchObject({ error: 'Finish the saved report before cancelling its ratings.' })
+      expect(await cancelMatchByModerator(db, kv, { matchId: 'scrap', cancelledAt: now }, options)).toMatchObject({ error: expect.stringContaining('older season') })
+      expect(await cancelMatchByModerator(db, kv, { matchId: 'rated', cancelledAt: now }, options)).toMatchObject({ error: expect.stringContaining('older season') })
       await db.update(matches).set({ status: 'completed' }).where(eq(matches.id, 'rated'))
       expect(await cancelMatchByModerator(db, kv, { matchId: 'rated', cancelledAt: now }, options)).toHaveProperty('error')
       expect(await db.select().from(playerRatings)).toEqual(ratings)
@@ -252,7 +344,7 @@ describe('atomic season reporting', () => {
       const next = await addMatch('return2', 1000 + 99 * day)
       await runAtomicSeasonBatch(db, (await prepareSeasonReport(db, { ...next, acceptedAt: 1000 + 100 * day, now: 1000 + 100 * day, opponentTierByPlayerId: new Map() })).queries)
       await db.update(matches).set({ status: 'completed' }).where(eq(matches.id, 'return2'))
-      expect(await prepareSeasonReplay(db, 's9', { matchId: 'return2' })).toBeDefined()
+      expect(await prepareSeasonReplay(db, 's9', { matchId: 'return2' }, 1000 + 101 * day)).toBeDefined()
       await runAtomicSeasonBatch(db, (await prepareSeasonReplay(db, 's9', { matchId: 'return', cancel: true }, 1000 + 101 * day)).queries)
       const remaining = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.playerId, 'p'))
       expect(remaining.every(row => row.publicDecayDelta === -80 && row.publicDecayAfter?.bankUntil === 1000 + 114 * day)).toBe(true)
