@@ -579,10 +579,10 @@ export function registerLobbyRoutes(app: Hono<Env>) {
     }
 
     if (minRoleChanged && normalizedMinRole && !lobby.guildId) {
-      return c.json({ error: 'This lobby is missing guild context, so min rank cannot be set.' }, 400)
+      return c.json({ error: 'This lobby is not linked to a Discord server, so a minimum rank cannot be set.' }, 400)
     }
     if (maxRoleChanged && normalizedMaxRole && !lobby.guildId) {
-      return c.json({ error: 'This lobby is missing guild context, so max rank cannot be set.' }, 400)
+      return c.json({ error: 'This lobby is not linked to a Discord server, so a maximum rank cannot be set.' }, 400)
     }
 
     const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, normalizedRedDeath, normalizedCivBlitz)

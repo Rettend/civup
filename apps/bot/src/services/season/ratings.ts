@@ -37,7 +37,7 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
       }).from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))
     const byKey = new Map(counts.map(row => [`${row.playerId}:${row.mode}`, row]))
     return ratings.map(row => {
-      if (season.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Public rating data is incomplete; no hidden-rating substitute is shown.')
+      if (season.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
       const count = byKey.get(`${row.playerId}:${row.mode}`)
       const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
       return { ...row, lifetimeGamesPlayed, gamesPlayed: count?.seasonGames ?? 0, wins: count?.seasonWins ?? 0 }
@@ -71,7 +71,7 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
     }
   }
   return ratings.map((row) => {
-    if (selected.ratingSeason?.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Public rating data is incomplete; no hidden-rating substitute is shown.')
+    if (selected.ratingSeason?.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
     const count = countByKey.get(`${row.playerId}:${row.mode}`)
     const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
     return { ...row, lifetimeGamesPlayed, gamesPlayed: Number(count?.gamesPlayed ?? 0), wins: Number(count?.wins ?? 0) }

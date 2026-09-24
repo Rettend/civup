@@ -462,9 +462,14 @@ Starting a season with soft reset enabled resets ratings instead of wiping them:
 ### `/mod`
 
 - `/mod match cancel match_id:...` cancels an open lobby, live match, or completed result; can be used to remove stuck lobbies
-- `/mod match resolve match_id:...` corrects the final result of a completed match; can be used to fix reporting mistakes
+- `/mod match resolve match_id:...` reports a result, corrects a completed result, or restores a cancelled match with the selected winner
+- `/mod match sub match_id:... player:... sub:...` replaces a player recorded in a match
 
-For completed matches, the bot recalculates the affected ratings.
+Match changes are available only in the current season and up to 30 days after the match was created. Past-season matches and matches older than 30 days are blocked.
+
+For completed matches, the bot recalculates the affected ratings and connected later results. RP corrections are not limited by a fixed number of affected matches or players.
+
+Restoring a previously rated match keeps its original report order and activity date, then recalculates affected later results. A cancelled match that was never rated receives its first report when resolved.
 
 ### Getting Match ID
 

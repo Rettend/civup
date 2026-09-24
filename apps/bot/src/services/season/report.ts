@@ -31,7 +31,6 @@ export function seasonSourceGuard(db: Database, condition: SQL): DbBatchItem {
 
 export async function runAtomicSeasonBatch(db: Database, queries: DbBatchItem[]): Promise<void> {
   if (queries.length === 0) return
-  if (queries.length > 400) throw new Error('Season update exceeds the online statement limit. Use reviewed local maintenance.')
   if (typeof db.batch !== 'function') throw new Error('Season ratings require an atomic database batch; sequential writes are not supported.')
   const encoder = new TextEncoder()
   for (const query of queries) {
@@ -50,6 +49,8 @@ export async function prepareSeasonReport(db: Database, input: {
   acceptedAt: number
   now: number
   opponentTierByPlayerId: ReadonlyMap<string, string>
+  /** Moderator resolution may record the first result of a cancelled match. */
+  allowCancelled?: boolean
 }): Promise<PreparedSeasonReport> {
   const { match, participants, now } = input
   if (!match.seasonId) throw new Error('Season reporting requires an assigned season.')
@@ -95,7 +96,7 @@ export async function prepareSeasonReport(db: Database, input: {
       and ${seasons.startsAt} = ${season.startsAt}
       and ${seasons.isolatedRatingsEnabled} = 1 and ${seasons.ratingSystem} = ${season.ratingSystem})`),
     seasonSourceGuard(db, sql`exists(select 1 from ${matches} where ${matches.id} = ${match.id}
-      and ${matches.status} = 'active' and ${matches.seasonId} = ${season.id}
+      and ${matches.status} = ${input.allowCancelled && match.status === 'cancelled' ? 'cancelled' : 'active'} and ${matches.seasonId} = ${season.id}
       and ${matches.createdAt} = ${match.createdAt} and ${matches.draftData} is ${match.draftData}
       and ${matches.gameMode} = ${match.gameMode} and ${matches.isOld} = ${match.isOld})
       and not exists(select 1 from ${seasonMatchReports} where ${seasonMatchReports.matchId} = ${match.id})

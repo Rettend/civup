@@ -1,7 +1,7 @@
-import { matchBans, matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, tournamentMatches, tournaments } from '@civup/db'
+import { matchBans, matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, seasonMatchReports, seasonRatingConfigurations, seasons, tournamentMatches, tournaments } from '@civup/db'
 import { allLeaderIds, getLeaders } from '@civup/game'
-import { buildLeaderboard, displayRating } from '@civup/rating'
-import { describe, expect, test } from 'bun:test'
+import { buildLeaderboard, calibratePublicRatings, displayRating, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../../src/services/match/index.ts'
@@ -10,6 +10,9 @@ import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSes
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
+  let clock: ReturnType<typeof spyOn>
+  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(20_000) })
+  afterEach(() => { clock.mockRestore() })
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
 
   test('creates a manual completed team match with leaders and ratings', async () => {
@@ -1015,8 +1018,16 @@ describe('match moderation recalculation', () => {
     }
   })
 
-  test('resolve reports a cancelled SessionDO match', async () => {
-    const { db, sqlite } = await createTestDatabase()
+  test.each(['legacy', 'rp'] as const)('resolve reports a cancelled SessionDO match (%s)', async (ratingSystem) => {
+    const fixture = await createTestDatabase()
+    const { sqlite } = fixture
+    const db = new Proxy(fixture.db, {
+      get(target, property) {
+        if (property === 'batch') return async (queries: Array<{ run(): unknown }>) => sqlite.transaction(() => queries.map(query => query.run()))()
+        const value = Reflect.get(target, property)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
     const kv = createTestKv()
 
     try {
@@ -1024,6 +1035,14 @@ describe('match moderation recalculation', () => {
         { id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 },
         { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
       ])
+      if (ratingSystem === 'rp') {
+        await db.insert(seasons).values({ id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: 0, active: true, ratingSystem: 'rp', isolatedRatingsEnabled: true })
+        for (const scope of ['duel', 'global']) {
+          const calibration = calibratePublicRatings({ version: `resolve-${scope}`, scope, sourceDigest: 'fixture', qualifiedHiddenScores: Array.from({ length: 101 }, (_, i) => i) })
+          await db.insert(publicRatingCalibrations).values({ ...calibration, calibration, createdAt: 0 })
+          await db.insert(seasonRatingConfigurations).values({ seasonId: 's9', mode: scope, formulaVersion: PUBLIC_RATING_FORMULA_VERSION, calibrationVersion: calibration.version })
+        }
+      }
       const lobby = await createLobby(kv, {
         mode: '1v1',
         hostId: 'p1',
@@ -1077,6 +1096,26 @@ describe('match moderation recalculation', () => {
       expect(p2?.placement).toBe(1)
       expect(p1?.ratingBeforeMu).not.toBeNull()
       expect(p2?.ratingAfterMu).not.toBeNull()
+      if (ratingSystem === 'rp') {
+        const reports = await db.select().from(seasonMatchReports)
+        expect(reports).toHaveLength(1)
+        expect(reports[0]!.cancelledAt).toBeNull()
+        expect(await db.select().from(playerRatingEvents)).toHaveLength(4)
+        const ratings = await db.select().from(playerRatings)
+        const retry = await resolveMatchByModerator(db, kv, { matchId: lobby.id, placements: '<@p2>', resolvedAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        expect('error' in retry).toBe(false)
+        expect(await db.select().from(seasonMatchReports)).toEqual(reports)
+        expect(await db.select().from(playerRatings)).toEqual(ratings)
+        const cancelledAgain = await cancelMatchByModerator(db, kv, { matchId: lobby.id, cancelledAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        expect(cancelledAgain).toMatchObject({ match: { status: 'cancelled' } })
+        expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
+        const restored = await resolveMatchByModerator(db, kv, { matchId: lobby.id, placements: '<@p1>', resolvedAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        expect(restored).toMatchObject({ match: { status: 'completed' }, previousStatus: 'cancelled' })
+        expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
+        expect(await db.select().from(seasonMatchReports)).toEqual(reports)
+        expect(await db.select().from(playerRatingEvents)).toHaveLength(4)
+        expect((await db.select().from(matchParticipants).where(eq(matchParticipants.playerId, 'p1')))[0]!.placement).toBe(1)
+      }
     }
     finally {
       sqlite.close()
