@@ -717,7 +717,7 @@ describe('match reporter identity', () => {
         reporterId: 'p1',
         placements: '<@p1>',
       })).resolves.toEqual({
-        error: 'Match **m4** is not ready to report until the draft is complete.',
+        error: 'Finish the draft before reporting the result.',
       })
     }
     finally {
