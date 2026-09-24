@@ -132,6 +132,18 @@ async function reportMatchWithAdmission(
     return { error: 'Only match participants can report results.' }
   }
 
+  // Check the match itself before season rules: a cancelled or unfinished
+  // match is not a request to correct a previously reported result.
+  if (match.status === 'cancelled') {
+    return { error: 'This match was cancelled. You cannot report a result for it.' }
+  }
+  if (match.status === 'drafting' || (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null)) {
+    return { error: 'Finish the draft before reporting the result.' }
+  }
+  if (match.status !== 'active' && match.status !== 'completed') {
+    return { error: 'This match is not open for reporting.' }
+  }
+
   if (!tournamentLinked && match.status === 'completed' && await usesIsolatedSeasonRatings(db, match.seasonId)) {
     return finalizeIsolatedSeasonReport(db, match, participantRows, input.reporterId, options)
   }
@@ -140,10 +152,6 @@ async function reportMatchWithAdmission(
   if (seasonError) {
     if (match.status === 'completed') return { match, participants: participantRows, idempotent: true, tournamentLinked }
     return { error: seasonError }
-  }
-
-  if (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null) {
-    return { error: `Match **${input.matchId}** is not ready to report until the draft is complete.` }
   }
 
   if (match.status === 'completed') {
@@ -171,10 +179,6 @@ async function reportMatchWithAdmission(
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContributionFromRows(db, match, participantRows)
     return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participantRows), idempotent: true, tournamentLinked }
-  }
-
-  if (match.status !== 'active') {
-    return { error: `Match **${input.matchId}** is not active (status: ${match.status}).` }
   }
 
   const reportClaim = await claimReportedMatchProcessing(options, input.matchId, input.reporterId)
