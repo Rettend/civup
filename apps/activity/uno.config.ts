@@ -218,7 +218,7 @@ export default defineConfig({
           }
 
           @media (min-width: 64rem) {
-            body.civup-ui-scaled .lg\:h-dvh {
+            body.civup-ui-scaled .lg\\:h-dvh {
               height: calc(100dvh / var(--civup-ui-scale));
             }
           }

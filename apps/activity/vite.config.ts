@@ -6,7 +6,7 @@ import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { createGenerator } from 'unocss'
 import UnoCSS from 'unocss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vite-plus'
 import solid from 'vite-plugin-solid'
 import unoConfig from './uno.config'
 
