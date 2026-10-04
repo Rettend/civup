@@ -21,24 +21,31 @@ const processes: Array<{ name: string, proc: ReturnType<typeof spawn> }> = []
 
 const rebuildActivity = process.argv.includes('--rebuild-activity')
 const activityLive = process.argv.includes('--activity-live')
+const noTunnel = process.argv.includes('--no-tunnel')
+const printCommands = process.argv.includes('--print-commands')
 
 const activityCommand = activityLive
-  ? ['bun', 'x', 'vite', '--force', '--strictPort', '--host', '0.0.0.0', '--port', '5173']
-  : ['bun', 'x', 'wrangler', 'dev', '--config', 'wrangler.json', '--port', '5173', '--show-interactive-dev-session=false', '--log-level', 'log']
+  ? ['bun', 'run', 'dev:live', '--force', '--strictPort']
+  : ['bun', 'run', 'preview']
 
 const services: Service[] = [
   {
     name: 'bot',
     cwd: botRoot,
-    cmd: ['bun', 'x', 'wrangler', 'dev', '--show-interactive-dev-session=false', '--log-level', 'log'],
+    cmd: ['bun', 'run', 'dev'],
   },
   {
     name: 'activity',
     cwd: activityRoot,
     cmd: activityCommand,
   },
-  { name: 'tunnel', cwd: repoRoot, cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'] },
+  ...(noTunnel ? [] : [{ name: 'tunnel', cwd: repoRoot, cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'] }]),
 ]
+
+if (printCommands) {
+  console.log(JSON.stringify({ rebuildActivity, services }, null, 2))
+  process.exit(0)
+}
 
 let shuttingDown = false
 
