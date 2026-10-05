@@ -1,10 +1,12 @@
-import type { DraftCancelReason, DraftDoublePickMetrics, DraftState, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type {
+  DraftCancelReason,
+  DraftDoublePickMetrics,
+  DraftState,
+  LeaderDataVersion,
+  ResolvedMapVoteResult,
+} from '@civup/game'
 
-export const DRAFT_LIFECYCLE_EVENT_KINDS = [
-  'DraftCompleted',
-  'DraftFinalized',
-  'DraftCancelled',
-] as const
+export const DRAFT_LIFECYCLE_EVENT_KINDS = ['DraftCompleted', 'DraftFinalized', 'DraftCancelled'] as const
 
 export type DraftLifecycleEventKind = (typeof DRAFT_LIFECYCLE_EVENT_KINDS)[number]
 

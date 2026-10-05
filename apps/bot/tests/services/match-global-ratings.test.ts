@@ -1,7 +1,7 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
-import { calculateRatings, createRating, DEFAULT_MU, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { calculateRatings, createRating, DEFAULT_MU, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
 import { recalculateGlobalRatings, recalculateLeaderboardMode, reportMatch } from '../../src/services/match/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -29,19 +29,16 @@ describe('match global ratings', () => {
       const hero = await loadParticipant(db, 'old-1', HERO_ID)
       const [fullHeroUpdate] = calculateRatings({
         type: 'team',
-        teams: [
-          { players: [createRating(HERO_ID)] },
-          { players: [createRating(VILLAIN_ID)] },
-        ],
+        teams: [{ players: [createRating(HERO_ID)] }, { players: [createRating(VILLAIN_ID)] }],
       })
-      const expectedImportedMu = DEFAULT_MU + (((fullHeroUpdate?.after.mu ?? DEFAULT_MU) - DEFAULT_MU) * IMPORTED_GAME_EFFECTIVE_WEIGHT)
+      const expectedImportedMu =
+        DEFAULT_MU + ((fullHeroUpdate?.after.mu ?? DEFAULT_MU) - DEFAULT_MU) * IMPORTED_GAME_EFFECTIVE_WEIGHT
       expect(rating?.gamesPlayed).toBe(1)
       expect(rating?.importedGames).toBe(1)
       expect(rating?.effectiveGames).toBe(0.5)
       expect(hero?.ratingAfterMu).toBeCloseTo(expectedImportedMu, 6)
       expect(rating?.lastPlayedAt).toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -52,18 +49,26 @@ describe('match global ratings', () => {
 
     try {
       await seedDuelPlayers(db)
-      await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-        byPlayerId: {
-          [VILLAIN_ID]: { tier: 'tier1', sourceMode: null },
-        },
-      }))
+      await kv.put(
+        'ranked-roles:current-assignments:guild-1',
+        JSON.stringify({
+          byPlayerId: {
+            [VILLAIN_ID]: { tier: 'tier1', sourceMode: null },
+          },
+        }),
+      )
       await seedActiveDuel(db, 'active-1', NOW)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'active-1',
-        reporterId: HERO_ID,
-        placements: `<@${HERO_ID}>`,
-      }, { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' })
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'active-1',
+          reporterId: HERO_ID,
+          placements: `<@${HERO_ID}>`,
+        },
+        { ...directTerminalOptions, rankedRoleGuildId: 'guild-1' },
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -84,9 +89,12 @@ describe('match global ratings', () => {
       expect(globalEvent?.winsVsTier1Delta).toBe(1)
       expect(globalEvent?.effectiveWinsVsTier1Delta).toBe(1)
       expect(globalEvent?.effectiveGamesDelta).toBe(1)
-      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
-    }
-    finally {
+      expect(
+        result.participants.every(
+          participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null,
+        ),
+      ).toBe(true)
+    } finally {
       sqlite.close()
     }
   })
@@ -117,8 +125,7 @@ describe('match global ratings', () => {
       expect(oldEvent?.importedGamesDelta).toBe(1)
       expect(oldEvent?.effectiveGamesDelta).toBe(0.5)
       expect(oldEvent?.effectiveWinsVsTier2PlusDelta).toBe(0.5)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -141,27 +148,32 @@ describe('match global ratings', () => {
       expect(rating?.winsVsTier2Plus).toBe(1)
       expect(rating?.effectiveWinsVsTier2Plus).toBe(0.5)
       expect(event?.effectiveWinsVsTier2PlusDelta).toBe(0.5)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
 })
 
 async function seedDuelPlayers(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): Promise<void> {
-  await db.insert(players).values([
-    { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
-    { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
-  ]).onConflictDoNothing()
+  await db
+    .insert(players)
+    .values([
+      { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
+      { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
+    ])
+    .onConflictDoNothing()
 }
 
 async function seedTeamPlayers(db: Awaited<ReturnType<typeof createTestDatabase>>['db']): Promise<void> {
-  await db.insert(players).values([
-    { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
-    { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
-    { id: ALLY_ID, displayName: ALLY_ID, avatarUrl: null, createdAt: NOW },
-    { id: OTHER_ID, displayName: OTHER_ID, avatarUrl: null, createdAt: NOW },
-  ]).onConflictDoNothing()
+  await db
+    .insert(players)
+    .values([
+      { id: HERO_ID, displayName: HERO_ID, avatarUrl: null, createdAt: NOW },
+      { id: VILLAIN_ID, displayName: VILLAIN_ID, avatarUrl: null, createdAt: NOW },
+      { id: ALLY_ID, displayName: ALLY_ID, avatarUrl: null, createdAt: NOW },
+      { id: OTHER_ID, displayName: OTHER_ID, avatarUrl: null, createdAt: NOW },
+    ])
+    .onConflictDoNothing()
 }
 
 async function seedActiveDuel(
@@ -184,7 +196,7 @@ async function seedActiveDuel(
 
 async function seedCompletedDuel(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  input: { matchId: string, completedAt: number, isOld: boolean },
+  input: { matchId: string; completedAt: number; isOld: boolean },
 ): Promise<void> {
   await db.insert(matches).values({
     id: input.matchId,
@@ -201,7 +213,7 @@ async function seedCompletedDuel(
 
 async function seedCompletedTeamMatch(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
-  input: { matchId: string, completedAt: number, isOld: boolean },
+  input: { matchId: string; completedAt: number; isOld: boolean },
 ): Promise<void> {
   await db.insert(matches).values({
     id: input.matchId,
@@ -214,10 +226,50 @@ async function seedCompletedTeamMatch(
     draftData: null,
   })
   await db.insert(matchParticipants).values([
-    { matchId: input.matchId, playerId: HERO_ID, team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: input.matchId, playerId: ALLY_ID, team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: input.matchId, playerId: VILLAIN_ID, team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: input.matchId, playerId: OTHER_ID, team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: input.matchId,
+      playerId: HERO_ID,
+      team: 0,
+      civId: null,
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: input.matchId,
+      playerId: ALLY_ID,
+      team: 0,
+      civId: null,
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: input.matchId,
+      playerId: VILLAIN_ID,
+      team: 1,
+      civId: null,
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: input.matchId,
+      playerId: OTHER_ID,
+      team: 1,
+      civId: null,
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -227,8 +279,28 @@ async function seedDuelParticipants(
   heroPlacement: number | null,
 ): Promise<void> {
   await db.insert(matchParticipants).values([
-    { matchId, playerId: HERO_ID, team: 0, civId: null, placement: heroPlacement, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId, playerId: VILLAIN_ID, team: 1, civId: null, placement: heroPlacement == null ? null : 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId,
+      playerId: HERO_ID,
+      team: 0,
+      civId: null,
+      placement: heroPlacement,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId,
+      playerId: VILLAIN_ID,
+      team: 1,
+      civId: null,
+      placement: heroPlacement == null ? null : 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -240,10 +312,7 @@ async function loadParticipant(
   const [participant] = await db
     .select()
     .from(matchParticipants)
-    .where(and(
-      eq(matchParticipants.matchId, matchId),
-      eq(matchParticipants.playerId, playerId),
-    ))
+    .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, playerId)))
     .limit(1)
   return participant ?? null
 }
@@ -256,10 +325,7 @@ async function loadPlayerRating(
   const [rating] = await db
     .select()
     .from(playerRatings)
-    .where(and(
-      eq(playerRatings.playerId, playerId),
-      eq(playerRatings.mode, mode),
-    ))
+    .where(and(eq(playerRatings.playerId, playerId), eq(playerRatings.mode, mode)))
     .limit(1)
   return rating ?? null
 }
@@ -273,11 +339,13 @@ async function loadPlayerRatingEvent(
   const [event] = await db
     .select()
     .from(playerRatingEvents)
-    .where(and(
-      eq(playerRatingEvents.matchId, matchId),
-      eq(playerRatingEvents.playerId, playerId),
-      eq(playerRatingEvents.mode, mode),
-    ))
+    .where(
+      and(
+        eq(playerRatingEvents.matchId, matchId),
+        eq(playerRatingEvents.playerId, playerId),
+        eq(playerRatingEvents.mode, mode),
+      ),
+    )
     .limit(1)
   return event ?? null
 }

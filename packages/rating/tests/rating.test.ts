@@ -13,7 +13,6 @@ import {
   displayRating,
   getLeaderboardMinGames,
   LEADERBOARD_MIN_GAMES,
-
   predictWinProbabilities,
   seasonReset,
 } from '../src/index.ts'
@@ -258,9 +257,7 @@ describe('buildLeaderboard', () => {
   })
 
   test('computes displayRating and winRate', () => {
-    const players = [
-      { playerId: 'p1', mu: 30, sigma: 4, gamesPlayed: 10, wins: 6 },
-    ]
+    const players = [{ playerId: 'p1', mu: 30, sigma: 4, gamesPlayed: 10, wins: 6 }]
 
     const lb = buildLeaderboard(players)
 
@@ -269,9 +266,7 @@ describe('buildLeaderboard', () => {
   })
 
   test('respects custom minGames', () => {
-    const players = [
-      { playerId: 'p1', mu: 30, sigma: 4, gamesPlayed: 3, wins: 2 },
-    ]
+    const players = [{ playerId: 'p1', mu: 30, sigma: 4, gamesPlayed: 3, wins: 2 }]
 
     expect(buildLeaderboard(players, 3)).toHaveLength(1)
     expect(buildLeaderboard(players, 5)).toHaveLength(0)

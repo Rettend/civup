@@ -1,9 +1,8 @@
 {
   "name": "@civup/db",
-  "type": "module",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "bun@1.4.2",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts"
@@ -18,5 +17,6 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.4"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

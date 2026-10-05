@@ -1,7 +1,12 @@
-import { matches, matchParticipants, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { matches, matchParticipants, players, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles, getSeasonSnapshotRoleMappings, listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
+import {
+  ensureSeasonSnapshotRoles,
+  finalizeSeasonSnapshotRoles,
+  getSeasonSnapshotRoleMappings,
+  listPlayerSeasonSnapshotHistory,
+} from '../../src/services/season/snapshot-roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -67,21 +72,24 @@ describe('season snapshot roles', () => {
       ratingAfterSigma: null,
     })
 
-    await kv.put('ranked-roles:season-snapshots:guild-1', JSON.stringify({
-      bySeasonId: {
-        'season-1': {
-          seasonNumber: 1,
-          seasonName: 'Season 1',
-          roles: {
-            tier5: '71111111111111111',
-            tier4: '72222222222222222',
-            tier3: '73333333333333333',
-            tier2: '74444444444444444',
-            tier1: '75555555555555555',
+    await kv.put(
+      'ranked-roles:season-snapshots:guild-1',
+      JSON.stringify({
+        bySeasonId: {
+          'season-1': {
+            seasonNumber: 1,
+            seasonName: 'Season 1',
+            roles: {
+              tier5: '71111111111111111',
+              tier4: '72222222222222222',
+              tier3: '73333333333333333',
+              tier2: '74444444444444444',
+              tier1: '75555555555555555',
+            },
           },
         },
-      },
-    }))
+      }),
+    )
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
       tier5: '11111111111111111',
       tier4: '12222222222222222',
@@ -90,7 +98,7 @@ describe('season snapshot roles', () => {
       tier1: '15555555555555555',
     })
 
-    const guildRoles = new Map<string, { id: string, name: string, color: number }>([
+    const guildRoles = new Map<string, { id: string; name: string; color: number }>([
       ['11111111111111111', { id: '11111111111111111', name: 'Rank 5 Current', color: 0x111111 }],
       ['12222222222222222', { id: '12222222222222222', name: 'Rank 4 Current', color: 0x222222 }],
       ['13333333333333333', { id: '13333333333333333', name: 'Rank 3 Current', color: 0x333333 }],
@@ -107,7 +115,7 @@ describe('season snapshot roles', () => {
       [heroId, ['unrelated-role']],
     ])
     let createIndex = 0
-    const patchCalls: Array<{ userId: string, roles: string[] }> = []
+    const patchCalls: Array<{ userId: string; roles: string[] }> = []
     const deletedRoleIds: string[] = []
 
     globalThis.fetch = (async (input, init) => {
@@ -120,7 +128,7 @@ describe('season snapshot roles', () => {
 
       if (method === 'POST' && url.endsWith('/roles')) {
         createIndex += 1
-        const payload = JSON.parse(String(init?.body)) as { name: string, color?: number }
+        const payload = JSON.parse(String(init?.body)) as { name: string; color?: number }
         const roleId = `8${String(createIndex).padStart(16, '0')}`
         guildRoles.set(roleId, { id: roleId, name: payload.name, color: payload.color ?? 0 })
         return new Response(JSON.stringify({ id: roleId }), { status: 200 })
@@ -164,7 +172,9 @@ describe('season snapshot roles', () => {
     })
 
     expect(createdRoles.tier4).toMatch(/^8/)
-    expect([...guildRoles.values()].some(role => role.name === 'S5 Rank 4 Current' && role.color === 0x222222)).toBeTrue()
+    expect(
+      [...guildRoles.values()].some(role => role.name === 'S5 Rank 4 Current' && role.color === 0x222222),
+    ).toBeTrue()
 
     await finalizeSeasonSnapshotRoles(db, kv, 'guild-1', 'token', {
       id: 'season-5',

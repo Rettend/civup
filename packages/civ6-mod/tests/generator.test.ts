@@ -7,16 +7,18 @@ const singleInput = {
   matchId: 'match-42',
   leaderDataVersion: 'live',
   excludeBbgExpanded: true,
-  seats: [{
-    seatIndex: 0,
-    displayName: 'Alice',
-    kit: {
-      civilizationAbility: 'civblitz:civilizationAbility:gran-colombia',
-      leaderAbility: 'civblitz:leaderAbility:america-teddy-roosevelt-rough-rider',
-      infrastructure: 'civblitz:infrastructure:hansa',
-      unit: 'civblitz:unit:mamluk',
+  seats: [
+    {
+      seatIndex: 0,
+      displayName: 'Alice',
+      kit: {
+        civilizationAbility: 'civblitz:civilizationAbility:gran-colombia',
+        leaderAbility: 'civblitz:leaderAbility:america-teddy-roosevelt-rough-rider',
+        infrastructure: 'civblitz:infrastructure:hansa',
+        unit: 'civblitz:unit:mamluk',
+      },
     },
-  }],
+  ],
 } as const satisfies CivBlitzModInput
 
 const multiInput = {
@@ -26,7 +28,7 @@ const multiInput = {
   seats: [
     {
       seatIndex: 0,
-      displayName: 'O\'Connor <&>',
+      displayName: "O'Connor <&>",
       kit: {
         civilizationAbility: 'civblitz:civilizationAbility:america',
         leaderAbility: 'civblitz:leaderAbility:rome-trajan',
@@ -83,41 +85,47 @@ describe('@civup/civ6-mod generator', () => {
     const gameplay = textFile(generated.files, 'Gameplay.sql')
     const frontend = textFile(generated.files, 'Frontend.sql')
     const leaderArt = textFile(generated.files, 'ArtDefs/Leaders.artdef')
-    expect(gameplay).toContain('\'TRAIT_CIVILIZATION_EJERCITO_PATRIOTA\'')
-    expect(gameplay).toContain('\'TRAIT_CIVILIZATION_COMANDANTE_GENERAL\'')
-    expect(gameplay).toContain('\'TRAIT_LEADER_ROOSEVELT_COROLLARY\'')
-    expect(gameplay).toContain('\'TRAIT_LEADER_UNIT_AMERICAN_ROUGH_RIDER\'')
-    expect(frontend).toContain('\'UNIT_COMANDANTE_GENERAL\'')
-    expect(frontend).toContain('\'UNIT_AMERICAN_ROUGH_RIDER\'')
-    expect(frontend).toContain('\'DISTRICT_HANSA\'')
-    expect(frontend).toContain('\'UNIT_ARABIAN_MAMLUK\'')
-    expect(frontend.indexOf('\'UNIT_ARABIAN_MAMLUK\'')).toBeLessThan(frontend.indexOf('\'DISTRICT_HANSA\''))
+    expect(gameplay).toContain("'TRAIT_CIVILIZATION_EJERCITO_PATRIOTA'")
+    expect(gameplay).toContain("'TRAIT_CIVILIZATION_COMANDANTE_GENERAL'")
+    expect(gameplay).toContain("'TRAIT_LEADER_ROOSEVELT_COROLLARY'")
+    expect(gameplay).toContain("'TRAIT_LEADER_UNIT_AMERICAN_ROUGH_RIDER'")
+    expect(frontend).toContain("'UNIT_COMANDANTE_GENERAL'")
+    expect(frontend).toContain("'UNIT_AMERICAN_ROUGH_RIDER'")
+    expect(frontend).toContain("'DISTRICT_HANSA'")
+    expect(frontend).toContain("'UNIT_ARABIAN_MAMLUK'")
+    expect(frontend.indexOf("'UNIT_ARABIAN_MAMLUK'")).toBeLessThan(frontend.indexOf("'DISTRICT_HANSA'"))
     expect(textFile(generated.files, 'Locale.sql')).toContain('Roosevelt Corollary (Ejército Patriota)')
     expect(textFile(generated.files, 'Locale.sql')).not.toContain('Alice')
-    expect(leaderArt).toContain(blpEntryXml(
-      'Leader_BLP_Entry',
-      'LEAD_AMER_TheodoreRoughRider',
-      'Leader',
-      'leader_teddy_roughrider.xlp',
-      'leaders/leader_teddy_roughrider',
-      'Leader',
-    ))
-    expect(leaderArt).toContain(blpEntryXml(
-      'Leader_Lightrig_BLP_Entry',
-      'Teddy_Roughrider_LightRig',
-      'LeaderLighting',
-      'leader_lightrigs.xlp',
-      'leaders/light_rigs',
-      'LeaderLighting',
-    ))
-    expect(leaderArt).toContain(blpEntryXml(
-      'Leader_ColorKey_BLP_Entry',
-      'Leader_Colorkey_2',
-      'ColorKey',
-      'ColorKeys.xlp',
-      'ColorKeys',
-      'ColorKey',
-    ))
+    expect(leaderArt).toContain(
+      blpEntryXml(
+        'Leader_BLP_Entry',
+        'LEAD_AMER_TheodoreRoughRider',
+        'Leader',
+        'leader_teddy_roughrider.xlp',
+        'leaders/leader_teddy_roughrider',
+        'Leader',
+      ),
+    )
+    expect(leaderArt).toContain(
+      blpEntryXml(
+        'Leader_Lightrig_BLP_Entry',
+        'Teddy_Roughrider_LightRig',
+        'LeaderLighting',
+        'leader_lightrigs.xlp',
+        'leaders/light_rigs',
+        'LeaderLighting',
+      ),
+    )
+    expect(leaderArt).toContain(
+      blpEntryXml(
+        'Leader_ColorKey_BLP_Entry',
+        'Leader_Colorkey_2',
+        'ColorKey',
+        'ColorKeys.xlp',
+        'ColorKeys',
+        'ColorKey',
+      ),
+    )
   })
 
   test('combines seats with unique bounded IDs and one global compatibility payload', () => {
@@ -178,8 +186,8 @@ describe('@civup/civ6-mod generator', () => {
     input.seats[0]!.kit.infrastructure = 'civblitz:infrastructure:street-carnival'
     const frontend = textFile(generateCivBlitzModFiles(input).files, 'Frontend.sql')
 
-    expect(frontend).toContain('Type = \'DISTRICT_STREET_CARNIVAL\'')
-    expect(frontend).toContain('Type = \'DISTRICT_WATER_STREET_CARNIVAL\'')
+    expect(frontend).toContain("Type = 'DISTRICT_STREET_CARNIVAL'")
+    expect(frontend).toContain("Type = 'DISTRICT_WATER_STREET_CARNIVAL'")
   })
 
   test('rejects direct, granted, and semantic trait collisions across the combined mod', () => {
@@ -203,9 +211,9 @@ describe('@civup/civ6-mod generator', () => {
       seats: multiInput.seats.map((seat, index) => ({ ...seat, displayName: `Renamed ${index}` })),
     })
 
-    expect(locale).toContain('Trajan\'\'s Column (Founding Fathers)')
-    expect(locale).toContain('Catherine\'\'s Flying Squadron (The Last Prophet)')
-    expect(locale).not.toContain('O\'\'Connor <&>')
+    expect(locale).toContain("Trajan''s Column (Founding Fathers)")
+    expect(locale).toContain("Catherine''s Flying Squadron (The Last Prophet)")
+    expect(locale).not.toContain("O''Connor <&>")
     expect(locale).not.toContain('Zoë & Co.')
     expect(modInfo).toContain('<Name>CivBlitz leaders mod for match 9007199254740991</Name>')
     expect(modInfo).toContain('<Description>CivBlitz leaders mod for match 9007199254740991</Description>')
@@ -214,7 +222,9 @@ describe('@civup/civ6-mod generator', () => {
     for (const visibleText of [modInfo, locale]) expect(visibleText).not.toMatch(/CivUp|Rocket Jump Technology|—/)
     expect(license).toContain('Copyright (c) 2021 Rocket Jump Technology')
     expect(renamed.modId).toBe(generated.modId)
-    expect(customIds(textFile(renamed.files, 'Gameplay.sql'))).toEqual(customIds(textFile(generated.files, 'Gameplay.sql')))
+    expect(customIds(textFile(renamed.files, 'Gameplay.sql'))).toEqual(
+      customIds(textFile(generated.files, 'Gameplay.sql')),
+    )
     expect(renamed).toEqual(generated)
   })
 
@@ -231,8 +241,7 @@ describe('@civup/civ6-mod generator', () => {
     try {
       generateCivBlitzModFiles({ ...singleInput, excludeBbgExpanded: false })
       throw new Error('Expected generation to fail')
-    }
-    catch (error) {
+    } catch (error) {
       expect(error).toBeInstanceOf(CivBlitzModError)
       const typed = error as CivBlitzModError
       expect(typed.code).toBe('BBG_EXPANDED_UNSUPPORTED')
@@ -256,7 +265,14 @@ function count(value: string, needle: string): number {
   return value.split(needle).length - 1
 }
 
-function blpEntryXml(parameterName: string, name: string, xlpClass: string, xlpPath: string, blpPackage: string, libraryName: string): string {
+function blpEntryXml(
+  parameterName: string,
+  name: string,
+  xlpClass: string,
+  xlpPath: string,
+  blpPackage: string,
+  libraryName: string,
+): string {
   return `<Element class="AssetObjects..BLPEntryValue"><m_EntryName text="${name}"/><m_XLPClass text="${xlpClass}"/><m_XLPPath text="${xlpPath}"/><m_BLPPackage text="${blpPackage}"/><m_LibraryName text="${libraryName}"/><m_ParamName text="${parameterName}"/></Element>`
 }
 
@@ -273,14 +289,14 @@ function parseManifestPaths(modInfo: string): string[] {
 function parseStoredZip(bytes: Uint8Array): Map<string, Uint8Array> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const eocdOffset = bytes.length - 22
-  expect(view.getUint32(eocdOffset, true)).toBe(0x06054B50)
+  expect(view.getUint32(eocdOffset, true)).toBe(0x06054b50)
   const count = view.getUint16(eocdOffset + 10, true)
   let offset = view.getUint32(eocdOffset + 16, true)
   const result = new Map<string, Uint8Array>()
   const decoder = new TextDecoder()
 
   for (let index = 0; index < count; index += 1) {
-    expect(view.getUint32(offset, true)).toBe(0x02014B50)
+    expect(view.getUint32(offset, true)).toBe(0x02014b50)
     expect(view.getUint16(offset + 8, true) & 0x0800).toBe(0x0800)
     expect(view.getUint16(offset + 10, true)).toBe(0)
     const expectedCrc = view.getUint32(offset + 16, true)
@@ -292,7 +308,7 @@ function parseStoredZip(bytes: Uint8Array): Map<string, Uint8Array> {
     const localOffset = view.getUint32(offset + 42, true)
     const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength))
     expect(compressedSize).toBe(size)
-    expect(view.getUint32(localOffset, true)).toBe(0x04034B50)
+    expect(view.getUint32(localOffset, true)).toBe(0x04034b50)
     const localNameLength = view.getUint16(localOffset + 26, true)
     const localExtraLength = view.getUint16(localOffset + 28, true)
     const dataOffset = localOffset + 30 + localNameLength + localExtraLength
@@ -305,10 +321,10 @@ function parseStoredZip(bytes: Uint8Array): Map<string, Uint8Array> {
 }
 
 function crc32(bytes: Uint8Array): number {
-  let crc = 0xFFFF_FFFF
+  let crc = 0xffff_ffff
   for (const byte of bytes) {
     crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0)
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
   }
-  return (crc ^ 0xFFFF_FFFF) >>> 0
+  return (crc ^ 0xffff_ffff) >>> 0
 }

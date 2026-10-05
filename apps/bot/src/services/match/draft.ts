@@ -1,17 +1,25 @@
+import type {
+  ActivateDraftInput,
+  ActivateDraftResult,
+  CancelDraftInput,
+  CancelDraftResult,
+  CreateDraftMatchInput,
+} from './types.ts'
 import type { Database } from '@civup/db'
 import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
-import type { ActivateDraftInput, ActivateDraftResult, CancelDraftInput, CancelDraftResult, CreateDraftMatchInput } from './types.ts'
-import { matchBans, matches, matchParticipants, players, seasons } from '@civup/db'
-import { getCivBlitzComponent, isCivBlitzFormatId, isRedDeathFormatId, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
+import { matchBans, matches, matchParticipants, players, seasons } from '@civup/db'
+import {
+  getCivBlitzComponent,
+  isCivBlitzFormatId,
+  isRedDeathFormatId,
+  normalizeAvailableLeaderDataVersion,
+} from '@civup/game'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 const D1_MAX_SQL_VARIABLES = 100
 
-export async function createDraftMatch(
-  db: Database,
-  input: CreateDraftMatchInput,
-): Promise<void> {
+export async function createDraftMatch(db: Database, input: CreateDraftMatchInput): Promise<void> {
   const now = input.startedAt ?? Date.now()
   if (!Number.isSafeInteger(now) || now < 0) throw new Error('Invalid draft start time.')
   const seasonId = sql<string | null>`(SELECT ${seasons.id} FROM ${seasons}
@@ -19,11 +27,7 @@ export async function createDraftMatch(
       AND (${seasons.active} = 1 OR ${seasons.endsAt} IS NOT NULL)
     ORDER BY ${seasons.startsAt} DESC LIMIT 1)`
 
-  const [existingMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [existingMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!existingMatch) {
     await db.insert(matches).values({
@@ -34,8 +38,7 @@ export async function createDraftMatch(
       createdAt: now,
       completedAt: null,
     })
-  }
-  else if (existingMatch.status === 'cancelled') {
+  } else if (existingMatch.status === 'cancelled') {
     await db.delete(matchBans).where(eq(matchBans.matchId, input.matchId))
     await db.delete(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
     await db
@@ -59,7 +62,7 @@ export async function createDraftMatch(
   }
 
   for (const seat of uniquePlayers.values()) {
-    const updateValues: { displayName: string, avatarUrl?: string } = {
+    const updateValues: { displayName: string; avatarUrl?: string } = {
       displayName: seat.displayName,
     }
     if (seat.avatarUrl) updateValues.avatarUrl = seat.avatarUrl
@@ -103,7 +106,11 @@ export async function createDraftMatch(
   }
 }
 
-export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number, maxVariables: number = D1_MAX_SQL_VARIABLES): T[][] {
+export function splitValuesForD1InsertLimit<T>(
+  values: T[],
+  columnCount: number,
+  maxVariables: number = D1_MAX_SQL_VARIABLES,
+): T[][] {
   if (values.length === 0) return []
   if (!Number.isInteger(columnCount) || columnCount <= 0) return [values]
 
@@ -115,17 +122,10 @@ export function splitValuesForD1InsertLimit<T>(values: T[], columnCount: number,
   return chunks
 }
 
-export async function activateDraftMatch(
-  db: Database,
-  input: ActivateDraftInput,
-): Promise<ActivateDraftResult> {
+export async function activateDraftMatch(db: Database, input: ActivateDraftInput): Promise<ActivateDraftResult> {
   const matchId = input.state.matchId
 
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
   if (!match) {
     return { error: `Match **${matchId}** not found.` }
@@ -135,10 +135,7 @@ export async function activateDraftMatch(
     return { error: `Match **${matchId}** cannot be activated (status: ${match.status}).` }
   }
 
-  const participantRows = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const participantRows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   if (participantRows.length === 0) {
     return { error: `Match **${matchId}** has no participants.` }
@@ -169,18 +166,10 @@ export async function activateDraftMatch(
       await db
         .update(matchParticipants)
         .set({ civId: nextCivId })
-        .where(
-          and(
-            eq(matchParticipants.matchId, matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        )
+        .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId)))
     }
 
-    await db
-      .update(matches)
-      .set({ draftData })
-      .where(eq(matches.id, matchId))
+    await db.update(matches).set({ draftData }).where(eq(matches.id, matchId))
 
     return {
       alreadyActive: true,
@@ -199,18 +188,13 @@ export async function activateDraftMatch(
     await db
       .update(matchParticipants)
       .set({ civId: civByPlayer.get(participant.playerId) ?? null })
-      .where(
-        and(
-          eq(matchParticipants.matchId, matchId),
-          eq(matchParticipants.playerId, participant.playerId),
-        ),
-      )
+      .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId)))
   }
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 
   const banRows = input.state.bans
-    .map((ban) => {
+    .map(ban => {
       const seat = input.state.seats[ban.seatIndex]
       if (!seat) return null
       return {
@@ -248,17 +232,10 @@ export async function activateDraftMatch(
   }
 }
 
-export async function cancelDraftMatch(
-  db: Database,
-  input: CancelDraftInput,
-): Promise<CancelDraftResult> {
+export async function cancelDraftMatch(db: Database, input: CancelDraftInput): Promise<CancelDraftResult> {
   const matchId = input.state.matchId
 
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
   if (!match) {
     return { error: `Match **${matchId}** not found.` }
@@ -268,10 +245,7 @@ export async function cancelDraftMatch(
     return { error: `Match **${matchId}** cannot be cancelled (status: ${match.status}).` }
   }
 
-  const participantRows = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const participantRows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   if (participantRows.length === 0) {
     return { error: `Match **${matchId}** has no participants.` }
@@ -289,12 +263,7 @@ export async function cancelDraftMatch(
     await db
       .update(matchParticipants)
       .set({ civId: civByPlayer.get(participant.playerId) ?? null })
-      .where(
-        and(
-          eq(matchParticipants.matchId, matchId),
-          eq(matchParticipants.playerId, participant.playerId),
-        ),
-      )
+      .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId)))
   }
 
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
@@ -320,16 +289,9 @@ export async function cancelDraftMatch(
     })
     .where(eq(matches.id, matchId))
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   return { match: updatedMatch!, participants: updatedParticipants }
 }
@@ -349,10 +311,7 @@ function normalizeDoublePickMetrics(metrics: DraftDoublePickMetrics | undefined)
   }
 }
 
-function mapCivsFromDraftState(
-  state: DraftState,
-  leaderDataVersion: LeaderDataVersion,
-): Map<string, string | null> {
+function mapCivsFromDraftState(state: DraftState, leaderDataVersion: LeaderDataVersion): Map<string, string | null> {
   const civByPlayer = new Map<string, string | null>()
   const pickBySeat = new Map<number, string>()
   for (const pick of state.picks) {

@@ -1,7 +1,9 @@
 export const CIV6_STEAM_APP_ID = '289070'
 export const MAX_STEAM_LOBBY_LINK_LENGTH = 120
 
-const STEAM_LOBBY_LINK_PATTERN = new RegExp(`^steam://joinlobby/${CIV6_STEAM_APP_ID}/([1-9][0-9]{0,19})/([1-9][0-9]{0,19})$`)
+const STEAM_LOBBY_LINK_PATTERN = new RegExp(
+  `^steam://joinlobby/${CIV6_STEAM_APP_ID}/([1-9][0-9]{0,19})/([1-9][0-9]{0,19})$`,
+)
 
 export const STEAM_LOBBY_LINK_ERROR = `steam_link must use steam://joinlobby/${CIV6_STEAM_APP_ID}/<lobbyId>/<steamId64>`
 

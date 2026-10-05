@@ -1,6 +1,6 @@
+import type { LobbyArrangeStrategy } from './types.ts'
 import type { GameMode, QueueEntry } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
-import type { LobbyArrangeStrategy } from './types.ts'
 import { isTeamMode, teamCount as modeTeamCount, teamSize } from '@civup/game'
 import { createRating, predictWinProbabilities } from '@civup/rating'
 
@@ -34,9 +34,7 @@ export interface ArrangeLobbySlotsInput {
   random?: () => number
 }
 
-export function arrangeLobbySlots(
-  input: ArrangeLobbySlotsInput,
-): { slots: (string | null)[] } | { error: string } {
+export function arrangeLobbySlots(input: ArrangeLobbySlotsInput): { slots: (string | null)[] } | { error: string } {
   if (input.strategy === 'shuffle-teams') {
     if (!supportsTeamArrange(input.mode)) return { error: 'Shuffle teams is only available in team lobbies.' }
     return arrangeTeamLobbySlots(input)
@@ -49,11 +47,10 @@ function supportsTeamArrange(mode: GameMode): boolean {
   return teamSize(mode) != null
 }
 
-function arrangeSeatLobbySlots(
-  input: ArrangeLobbySlotsInput,
-): { slots: (string | null)[] } | { error: string } {
+function arrangeSeatLobbySlots(input: ArrangeLobbySlotsInput): { slots: (string | null)[] } | { error: string } {
   const slottedPlayerIds = input.slots.filter((playerId): playerId is string => playerId != null)
-  if (slottedPlayerIds.length === 0) return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
+  if (slottedPlayerIds.length === 0)
+    return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
 
   if (input.strategy === 'shuffle-teams') {
     return { error: 'Shuffle teams is only available in team lobbies.' }
@@ -79,9 +76,7 @@ function arrangeSeatLobbySlots(
   return { slots: buildSeatSlots(input.slots.length, balancedPlayerIds) }
 }
 
-function arrangeTeamLobbySlots(
-  input: ArrangeLobbySlotsInput,
-): { slots: (string | null)[] } | { error: string } {
+function arrangeTeamLobbySlots(input: ArrangeLobbySlotsInput): { slots: (string | null)[] } | { error: string } {
   if (!supportsTeamArrange(input.mode)) {
     return { error: 'Team arrange actions are only available in team lobbies.' }
   }
@@ -108,26 +103,31 @@ function arrangeTeamLobbySlots(
     return { slots: buildShuffledTeamSlots(teamSlotCount, groups, activeTeamCount, input.slots.length, random) }
   }
 
-  const groups = slottedPlayerIds.map(playerId => ({
-    playerIds: [playerId],
-    size: 1,
-  } satisfies PlayerGroup))
+  const groups = slottedPlayerIds.map(
+    playerId =>
+      ({
+        playerIds: [playerId],
+        size: 1,
+      }) satisfies PlayerGroup,
+  )
   const assignments = enumerateAssignments(groups, teamSlotCount, activeTeamCount)
   if (assignments.length === 0) return { error: 'Could not auto-balance teams for this lobby.' }
 
-  const minSizeDiff = Math.min(...assignments.map((assignment) => {
+  const minSizeDiff = Math.min(
+    ...assignments.map(assignment => {
+      const minCount = Math.min(...assignment.teamCounts)
+      const maxCount = Math.max(...assignment.teamCounts)
+      return maxCount - minCount
+    }),
+  )
+  const candidateAssignments = assignments.filter(assignment => {
     const minCount = Math.min(...assignment.teamCounts)
     const maxCount = Math.max(...assignment.teamCounts)
-    return maxCount - minCount
-  }))
-  const candidateAssignments = assignments.filter((assignment) => {
-    const minCount = Math.min(...assignment.teamCounts)
-    const maxCount = Math.max(...assignment.teamCounts)
-    return (maxCount - minCount) === minSizeDiff
+    return maxCount - minCount === minSizeDiff
   })
 
   const ratingsByPlayerId = input.ratingsByPlayerId ?? new Map<string, RatingSnapshot>()
-  const scoredCandidates = candidateAssignments.map((assignment) => {
+  const scoredCandidates = candidateAssignments.map(assignment => {
     const teamIdsByTeam = assignmentToTeams(assignment, groups, activeTeamCount)
     const score = scoreBalancedCandidate(teamIdsByTeam, ratingsByPlayerId)
     const key = teamIdsByTeam.map(teamIds => teamIds.join(',')).join('|')
@@ -187,7 +187,7 @@ function enumerateAssignments(groups: PlayerGroup[], teamSize: number, teamTotal
   if (firstGroupSize > teamSize) return []
 
   const teamByGroup: number[] = [0]
-  const teamCounts = Array.from({ length: teamTotal }, (_, index) => index === 0 ? firstGroupSize : 0)
+  const teamCounts = Array.from({ length: teamTotal }, (_, index) => (index === 0 ? firstGroupSize : 0))
 
   const walk = (index: number) => {
     if (index >= groups.length) {
@@ -214,11 +214,7 @@ function enumerateAssignments(groups: PlayerGroup[], teamSize: number, teamTotal
   return assignments
 }
 
-function assignmentToTeams(
-  assignment: GroupAssignment,
-  groups: PlayerGroup[],
-  teamTotal: number,
-): string[][] {
+function assignmentToTeams(assignment: GroupAssignment, groups: PlayerGroup[], teamTotal: number): string[][] {
   const teamIdsByTeam = Array.from({ length: teamTotal }, () => [] as string[])
 
   for (let index = 0; index < groups.length; index++) {
@@ -233,10 +229,7 @@ function assignmentToTeams(
   return teamIdsByTeam
 }
 
-function scoreBalancedCandidate(
-  teamIdsByTeam: string[][],
-  ratingsByPlayerId: Map<string, RatingSnapshot>,
-): number {
+function scoreBalancedCandidate(teamIdsByTeam: string[][], ratingsByPlayerId: Map<string, RatingSnapshot>): number {
   if (teamIdsByTeam.some(teamIds => teamIds.length === 0)) return Number.POSITIVE_INFINITY
 
   const teams = teamIdsByTeam.map(teamIds => teamIds.map(playerId => toPlayerRating(playerId, ratingsByPlayerId)))
@@ -248,16 +241,12 @@ function scoreBalancedCandidate(
       return Number.POSITIVE_INFINITY
     }
     return probabilities.reduce((score, probability) => score + Math.abs(probability - target), 0)
-  }
-  catch {
+  } catch {
     return Number.POSITIVE_INFINITY
   }
 }
 
-function toPlayerRating(
-  playerId: string,
-  ratingsByPlayerId: Map<string, RatingSnapshot>,
-): PlayerRating {
+function toPlayerRating(playerId: string, ratingsByPlayerId: Map<string, RatingSnapshot>): PlayerRating {
   const snapshot = ratingsByPlayerId.get(playerId)
   if (snapshot) {
     return {
@@ -292,7 +281,7 @@ function buildShuffledTeamSlots(
   for (let team = 0; team < activeTeamCount; team++) {
     const teamPlayers = shuffledGroups[team] ?? []
     for (let index = 0; index < teamSize; index++) {
-      slots[(team * teamSize) + index] = teamPlayers[index] ?? null
+      slots[team * teamSize + index] = teamPlayers[index] ?? null
     }
   }
 

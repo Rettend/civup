@@ -12,9 +12,10 @@ export function handlePermissionList(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const modRoles = await getModRoleIds(c.env.KV, guildId)
-    const message = modRoles.length > 0
-      ? `Roles with /mod access: ${modRoles.map(roleId => `<@&${roleId}>`).join(', ')}`
-      : 'No Mod roles configured yet. Use `/admin permission add role:@Role` to grant /mod access.'
+    const message =
+      modRoles.length > 0
+        ? `Roles with /mod access: ${modRoles.map(roleId => `<@&${roleId}>`).join(', ')}`
+        : 'No Mod roles configured yet. Use `/admin permission add role:@Role` to grant /mod access.'
     await sendTransientEphemeralResponse(c, message, 'info')
   })
 }
@@ -39,11 +40,19 @@ export function handlePermissionAdd(c: AdminCommandContext) {
     const roleList = result.roles.map((id: string) => `<@&${id}>`).join(', ')
 
     if (!result.added) {
-      await sendTransientEphemeralResponse(c, `<@&${roleId}> already has /mod access. Current roles: ${roleList}.`, 'info')
+      await sendTransientEphemeralResponse(
+        c,
+        `<@&${roleId}> already has /mod access. Current roles: ${roleList}.`,
+        'info',
+      )
       return
     }
 
-    await sendTransientEphemeralResponse(c, `Granted /mod access to <@&${roleId}>. Current roles: ${roleList}.`, 'success')
+    await sendTransientEphemeralResponse(
+      c,
+      `Granted /mod access to <@&${roleId}>. Current roles: ${roleList}.`,
+      'success',
+    )
   })
 }
 
@@ -64,15 +73,21 @@ export function handlePermissionRemove(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const result = await removeModRole(c.env.KV, guildId, roleId)
-    const roleList = result.roles.length > 0
-      ? result.roles.map((id: string) => `<@&${id}>`).join(', ')
-      : '`none`'
+    const roleList = result.roles.length > 0 ? result.roles.map((id: string) => `<@&${id}>`).join(', ') : '`none`'
 
     if (!result.removed) {
-      await sendTransientEphemeralResponse(c, `<@&${roleId}> did not have /mod access. Current roles: ${roleList}.`, 'info')
+      await sendTransientEphemeralResponse(
+        c,
+        `<@&${roleId}> did not have /mod access. Current roles: ${roleList}.`,
+        'info',
+      )
       return
     }
 
-    await sendTransientEphemeralResponse(c, `Revoked /mod access from <@&${roleId}>. Current roles: ${roleList}.`, 'success')
+    await sendTransientEphemeralResponse(
+      c,
+      `Revoked /mod access from <@&${roleId}>. Current roles: ${roleList}.`,
+      'success',
+    )
   })
 }

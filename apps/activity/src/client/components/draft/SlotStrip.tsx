@@ -11,9 +11,10 @@ export function SlotStrip() {
   const state = () => draftStore.state
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
   const seatCount = () => state()?.seats.length ?? 0
-  const teamIndices = () => Array.from(new Set(
-    (state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team]),
-  )).sort((a, b) => a - b)
+  const teamIndices = () =>
+    Array.from(new Set((state()?.seats ?? []).flatMap(seat => (seat.team == null ? [] : [seat.team])))).sort(
+      (a, b) => a - b,
+    )
   const isMultiTeamLayout = () => isTeamMode() && teamIndices().length > 2
   const isParticipant = () => {
     const uid = userId()
@@ -26,21 +27,19 @@ export function SlotStrip() {
   const teamSeats = (team: number) => {
     const s = state()
     if (!s) return [] as number[]
-    return s.seats.map((seat, i) => ({ seat, i })).filter(x => x.seat.team === team).map(x => x.i)
+    return s.seats
+      .map((seat, i) => ({ seat, i }))
+      .filter(x => x.seat.team === team)
+      .map(x => x.i)
   }
-  const displayNumberBySeat = () => new Map(getVisualSeatOrder(state()?.seats).map((seatIndex, index) => [seatIndex, index + 1]))
+  const displayNumberBySeat = () =>
+    new Map(getVisualSeatOrder(state()?.seats).map((seatIndex, index) => [seatIndex, index + 1]))
 
-  const ffaLayout = () => createSeatGridLayout(
-    seatCount(),
-    isMobileLayout() ? 2 : Math.ceil(seatCount() / 2),
-  )
+  const ffaLayout = () => createSeatGridLayout(seatCount(), isMobileLayout() ? 2 : Math.ceil(seatCount() / 2))
 
   const shouldUseTeamGrid = (seatIndices: number[]) => isMobileLayout() || seatIndices.length >= 4
 
-  const teamGridLayout = (seatIndices: number[]) => createCellGridLayout(
-    seatIndices,
-    isMobileLayout() ? 1 : 2,
-  )
+  const teamGridLayout = (seatIndices: number[]) => createCellGridLayout(seatIndices, isMobileLayout() ? 1 : 2)
 
   const teamPlacementRank = (team: number) => teamPlacementOrder().indexOf(team)
   const hasTeamPlacements = () => teamPlacementOrder().length > 0
@@ -61,14 +60,15 @@ export function SlotStrip() {
     return `min(${slotCount * 400 + Math.max(0, slotCount - 1)}px, 100%)`
   }
 
-  const teamSeatWrapperClass = (align: 'start' | 'end', seatIndices: number[]) => cn(
-    'relative h-full w-full overflow-hidden transition-all duration-300',
-    shouldUseTeamGrid(seatIndices)
-      ? cn('grid gap-0 max-w-full', align === 'end' && 'ml-auto')
-      : align === 'end'
-        ? 'flex items-stretch justify-end'
-        : 'flex items-stretch justify-start',
-  )
+  const teamSeatWrapperClass = (align: 'start' | 'end', seatIndices: number[]) =>
+    cn(
+      'relative h-full w-full overflow-hidden transition-all duration-300',
+      shouldUseTeamGrid(seatIndices)
+        ? cn('grid gap-0 max-w-full', align === 'end' && 'ml-auto')
+        : align === 'end'
+          ? 'flex items-stretch justify-end'
+          : 'flex items-stretch justify-start',
+    )
 
   const teamSeatWrapperStyle = (seatIndices: number[]) => {
     if (!shouldUseTeamGrid(seatIndices)) return undefined
@@ -86,15 +86,12 @@ export function SlotStrip() {
     return style
   }
 
-  const teamOverlayClass = (align: 'start' | 'end', seatIndices: number[], zClass: string) => cn(
-    'pointer-events-none absolute',
-    zClass,
-    shouldUseTeamGrid(seatIndices)
-      ? 'inset-0'
-      : align === 'end'
-        ? 'inset-y-0 right-0'
-        : 'inset-y-0 left-0',
-  )
+  const teamOverlayClass = (align: 'start' | 'end', seatIndices: number[], zClass: string) =>
+    cn(
+      'pointer-events-none absolute',
+      zClass,
+      shouldUseTeamGrid(seatIndices) ? 'inset-0' : align === 'end' ? 'inset-y-0 right-0' : 'inset-y-0 left-0',
+    )
 
   const teamOverlayStyle = (seatIndices: number[]) => {
     if (shouldUseTeamGrid(seatIndices)) return undefined
@@ -109,10 +106,10 @@ export function SlotStrip() {
     ].join(', '),
   }
 
-  function TeamSeats(props: { team: number, align: 'start' | 'end', showLabel?: boolean }) {
+  function TeamSeats(props: { team: number; align: 'start' | 'end'; showLabel?: boolean }) {
     const seatIndices = () => teamSeats(props.team)
-    const cells = () => shouldUseTeamGrid(seatIndices()) ? teamGridLayout(seatIndices()).cells : seatIndices()
-    const cellClass = () => shouldUseTeamGrid(seatIndices()) ? 'h-full min-h-0 w-full' : 'slot-cell'
+    const cells = () => (shouldUseTeamGrid(seatIndices()) ? teamGridLayout(seatIndices()).cells : seatIndices())
+    const cellClass = () => (shouldUseTeamGrid(seatIndices()) ? 'h-full min-h-0 w-full' : 'slot-cell')
 
     return (
       <div class={cn('flex flex-1 h-full items-stretch', props.align === 'end' ? 'justify-end' : 'justify-start')}>
@@ -123,28 +120,19 @@ export function SlotStrip() {
           <div class={teamSeatWrapperClass(props.align, seatIndices())} style={teamSeatWrapperStyle(seatIndices())}>
             <Show when={isTeamResultMode()}>
               <div
-                class={cn(
-                  teamOverlayClass(props.align, seatIndices(), 'z-30'),
-                  teamWrapperOverlayClass(props.team),
-                )}
+                class={cn(teamOverlayClass(props.align, seatIndices(), 'z-30'), teamWrapperOverlayClass(props.team))}
                 style={teamOverlayStyle(seatIndices())}
               />
             </Show>
             <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
               <div
-                class={cn(
-                  'anim-fade-in',
-                  teamOverlayClass(props.align, seatIndices(), 'z-20'),
-                )}
+                class={cn('anim-fade-in', teamOverlayClass(props.align, seatIndices(), 'z-20'))}
                 style={{ ...winnerGlowStyle, ...teamOverlayStyle(seatIndices()) }}
               />
             </Show>
             <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>
               <div
-                class={cn(
-                  'flex items-center justify-center',
-                  teamOverlayClass(props.align, seatIndices(), 'z-40'),
-                )}
+                class={cn('flex items-center justify-center', teamOverlayClass(props.align, seatIndices(), 'z-40'))}
                 style={teamOverlayStyle(seatIndices())}
               >
                 <div
@@ -152,11 +140,17 @@ export function SlotStrip() {
                     'anim-fade-in flex items-center justify-center rounded-full border shadow-[0_4px_12px_rgba(0,0,0,0.5),0_8px_28px_rgba(0,0,0,0.4),0_16px_48px_rgba(0,0,0,0.25)]',
                     'h-14 w-14 bg-accent text-2xl font-black leading-none',
                   )}
-                  style={{ 'color': 'var(--badge-gold-text)', 'border-color': 'var(--badge-gold-border)', 'font-weight': 900 }}
+                  style={{
+                    'color': 'var(--badge-gold-text)',
+                    'border-color': 'var(--badge-gold-border)',
+                    'font-weight': 900,
+                  }}
                 >
                   <span
                     class={cn(
-                      isTwoTeamResultMode() ? 'i-ph-trophy-fill' : placementIconClass(teamPlacementRank(props.team) + 1),
+                      isTwoTeamResultMode()
+                        ? 'i-ph-trophy-fill'
+                        : placementIconClass(teamPlacementRank(props.team) + 1),
                       'text-[32px]',
                     )}
                   />
@@ -165,12 +159,12 @@ export function SlotStrip() {
             </Show>
             <For each={cells()}>
               {seatIdx => (
-                <Show
-                  when={seatIdx != null}
-                  fallback={<div class="h-full min-h-0 w-full" />}
-                >
+                <Show when={seatIdx != null} fallback={<div class="h-full min-h-0 w-full" />}>
                   <div class={cellClass()}>
-                    <PlayerSlot seatIndex={seatIdx!} displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
+                    <PlayerSlot
+                      seatIndex={seatIdx!}
+                      displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1}
+                    />
                   </div>
                 </Show>
               )}
@@ -184,11 +178,23 @@ export function SlotStrip() {
   return (
     <div class="flex flex-1 min-h-0 items-end justify-center">
       <Show when={isTeamMode() && !isMultiTeamLayout()}>
-        <div class={cn('slot-strip-team flex h-full w-full justify-center', isMobileLayout() ? 'items-stretch py-2' : 'items-end')}>
+        <div
+          class={cn(
+            'slot-strip-team flex h-full w-full justify-center',
+            isMobileLayout() ? 'items-stretch py-2' : 'items-end',
+          )}
+        >
           <TeamSeats team={0} align="end" />
 
-          <div class={cn('flex shrink-0 flex-col items-center self-center justify-center', isMobileLayout() ? 'w-7' : 'w-12')}>
-            <span class={cn('text-fg-muted/30 tracking-widest font-bold', isMobileLayout() ? 'text-xs' : 'text-lg')}>VS</span>
+          <div
+            class={cn(
+              'flex shrink-0 flex-col items-center self-center justify-center',
+              isMobileLayout() ? 'w-7' : 'w-12',
+            )}
+          >
+            <span class={cn('text-fg-muted/30 tracking-widest font-bold', isMobileLayout() ? 'text-xs' : 'text-lg')}>
+              VS
+            </span>
           </div>
 
           <TeamSeats team={1} align="start" />
@@ -197,12 +203,17 @@ export function SlotStrip() {
 
       <Show when={isMultiTeamLayout()}>
         <div
-          class={cn('slot-strip-team h-full w-full mx-auto grid grid-cols-2', isMobileLayout() ? 'gap-2 py-2' : 'gap-4')}
-          style={!isMobileLayout() ? { 'max-width': `${Math.max(...teamIndices().map(t => teamSeats(t).length), 1) * 400 * 2 + 16}px` } : undefined}
+          class={cn(
+            'slot-strip-team h-full w-full mx-auto grid grid-cols-2',
+            isMobileLayout() ? 'gap-2 py-2' : 'gap-4',
+          )}
+          style={
+            !isMobileLayout()
+              ? { 'max-width': `${Math.max(...teamIndices().map(t => teamSeats(t).length), 1) * 400 * 2 + 16}px` }
+              : undefined
+          }
         >
-          <For each={teamIndices()}>
-            {team => <TeamSeats team={team} align="start" showLabel />}
-          </For>
+          <For each={teamIndices()}>{team => <TeamSeats team={team} align="start" showLabel />}</For>
         </div>
       </Show>
 
@@ -220,7 +231,11 @@ export function SlotStrip() {
               {seatIdx => (
                 <div class="slot-cell-ffa h-full min-h-0 w-full">
                   <Show when={seatIdx != null}>
-                    <PlayerSlot seatIndex={seatIdx!} compact displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1} />
+                    <PlayerSlot
+                      seatIndex={seatIdx!}
+                      compact
+                      displayNumber={displayNumberBySeat().get(seatIdx!) ?? seatIdx! + 1}
+                    />
                   </Show>
                 </div>
               )}

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { createCellGridLayout, createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '../src/client/lib/seat-grid'
+import {
+  createCellGridLayout,
+  createSeatGridLayout,
+  findSeatGridPosition,
+  getSeatAtGridPosition,
+} from '../src/client/lib/seat-grid'
 
 describe('seat-grid helpers', () => {
   test('builds a two-column mobile-friendly grid for larger FFAs', () => {

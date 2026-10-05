@@ -1,12 +1,19 @@
-import type { CloudflareConfig, TextBinding, WorkerConfig } from '@cloudflare/config/public'
 import type { CloudflareTarget, CloudflareWorker } from './cloudflare-targets.ts'
+import type { CloudflareConfig, TextBinding, WorkerConfig } from '@cloudflare/config/public'
 import { bindings, exports, triggers } from '@cloudflare/config/public'
-import { botCronSchedules, botDurableObjectMigrations, cloudflarePublicVariables, cloudflareSecretKeys } from './cloudflare-targets.ts'
+import {
+  botCronSchedules,
+  botDurableObjectMigrations,
+  cloudflarePublicVariables,
+  cloudflareSecretKeys,
+} from './cloudflare-targets.ts'
 
 function textBindings<T extends Record<string, string | undefined>>(variables: T) {
-  return Object.fromEntries(Object.entries(variables)
-    .filter(([, value]) => value !== undefined)
-    .map(([name, value]) => [name, bindings.text(value!)])) as { [K in keyof T]: TextBinding<Extract<T[K], string>> }
+  return Object.fromEntries(
+    Object.entries(variables)
+      .filter(([, value]) => value !== undefined)
+      .map(([name, value]) => [name, bindings.text(value!)]),
+  ) as { [K in keyof T]: TextBinding<Extract<T[K], string>> }
 }
 
 const secretBindings = {
@@ -92,19 +99,22 @@ export function createBotLegacyDeploymentConfig(target: CloudflareTarget) {
     compatibility_flags: [...target.bot.compatibilityFlags],
     rules: createBotWranglerConfig(target).rules,
     vars: cloudflarePublicVariables(target, 'bot'),
-    durable_objects: { bindings: [activityClass, sessionClass, maintenanceClass]
-      .map(name => ({ name, class_name: name })) },
+    durable_objects: {
+      bindings: [activityClass, sessionClass, maintenanceClass].map(name => ({ name, class_name: name })),
+    },
     migrations: botDurableObjectMigrations.map(migration => ({
       tag: migration.tag,
       new_sqlite_classes: [...migration.newSqliteClasses],
     })),
-    d1_databases: [{
-      binding: target.d1.binding,
-      database_name: target.d1.name,
-      database_id: target.d1.id,
-      migrations_dir: `../../${target.d1.migrationsDirectory}`,
-      ...(target.d1.migrationsTable === 'd1_migrations' ? {} : { migrations_table: target.d1.migrationsTable }),
-    }],
+    d1_databases: [
+      {
+        binding: target.d1.binding,
+        database_name: target.d1.name,
+        database_id: target.d1.id,
+        migrations_dir: `../../${target.d1.migrationsDirectory}`,
+        ...(target.d1.migrationsTable === 'd1_migrations' ? {} : { migrations_table: target.d1.migrationsTable }),
+      },
+    ],
     kv_namespaces: [{ binding: target.kv.binding, id: target.kv.id }],
     ...(target.r2 === undefined ? {} : { r2_buckets: [{ binding: target.r2.binding, bucket_name: target.r2.name }] }),
     triggers: { crons: [...botCronSchedules] },
@@ -119,8 +129,13 @@ export const botCloudflareDeploymentBlockers = [
   'keep_vars is not supported by the cf configuration schema.',
 ] as const
 
-export function assertCloudflareDeploymentSupported(worker: CloudflareWorker, driver: 'cf' | 'wrangler-adapter' = 'cf'): void {
+export function assertCloudflareDeploymentSupported(
+  worker: CloudflareWorker,
+  driver: 'cf' | 'wrangler-adapter' = 'cf',
+): void {
   if (worker === 'bot' && driver === 'cf') {
-    throw new Error(`Native cf bot deployment is blocked: ${botCloudflareDeploymentBlockers.join(' ')} Use the derived Wrangler deployment adapter.`)
+    throw new Error(
+      `Native cf bot deployment is blocked: ${botCloudflareDeploymentBlockers.join(' ')} Use the derived Wrangler deployment adapter.`,
+    )
   }
 }

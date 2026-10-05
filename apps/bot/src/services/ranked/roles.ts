@@ -1,8 +1,14 @@
 import type { CompetitiveTier } from '@civup/game'
 import type { OverallRankPolicyVersion } from '@civup/rating'
-import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
-import { DiscordApiError } from '../discord/index.ts'
+import {
+  competitiveTierMeetsMaximum,
+  competitiveTierMeetsMinimum,
+  competitiveTierNumber,
+  competitiveTierRank,
+  isCompetitiveTier,
+} from '@civup/game'
 import { isOverallRankPolicyVersion, PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
+import { DiscordApiError } from '../discord/index.ts'
 
 export interface RankedRoleTierConfig {
   roleId: string | null
@@ -11,7 +17,7 @@ export interface RankedRoleTierConfig {
 }
 
 export interface RankedRoleConfig {
-  divisionPolicy?: { version: OverallRankPolicyVersion, roleIdsByMinimum: Record<string, string> }
+  divisionPolicy?: { version: OverallRankPolicyVersion; roleIdsByMinimum: Record<string, string> }
   unrankedRoleId?: string | null
   tiers: RankedRoleTierConfig[]
 }
@@ -40,10 +46,13 @@ interface RankedRoleDisplaySource {
 interface StoredRankedRoleDisplayRefreshState {
   version?: unknown
   lastSuccessAt?: unknown
-  roles?: Record<string, {
-    name?: unknown
-    color?: unknown
-  }>
+  roles?: Record<
+    string,
+    {
+      name?: unknown
+      color?: unknown
+    }
+  >
 }
 
 export interface RankedRoleVisual {
@@ -54,9 +63,15 @@ export interface RankedRoleVisual {
   color: string | null
 }
 
-export function getAssignedRankRoleId(config: RankedRoleConfig, assignment: { tier: CompetitiveTier, unranked?: boolean, divisionMinimum?: number | null }): string | null {
+export function getAssignedRankRoleId(
+  config: RankedRoleConfig,
+  assignment: { tier: CompetitiveTier; unranked?: boolean; divisionMinimum?: number | null },
+): string | null {
   if (assignment.unranked) return config.unrankedRoleId ?? null
-  if (config.divisionPolicy) return assignment.divisionMinimum == null ? null : config.divisionPolicy.roleIdsByMinimum[assignment.divisionMinimum] ?? null
+  if (config.divisionPolicy)
+    return assignment.divisionMinimum == null
+      ? null
+      : (config.divisionPolicy.roleIdsByMinimum[assignment.divisionMinimum] ?? null)
   return getConfiguredRankedRoleId(config, assignment.tier)
 }
 
@@ -100,7 +115,7 @@ export function normalizeRankedRoleTierId(value: unknown): CompetitiveTier | nul
 }
 
 export async function getRankedRoleConfig(kv: KVNamespace, guildId: string): Promise<RankedRoleConfig> {
-  const stored = await kv.get(configKey(guildId), 'json') as StoredRankedRoleConfig | null
+  const stored = (await kv.get(configKey(guildId), 'json')) as StoredRankedRoleConfig | null
   return normalizeRankedRoleConfig(stored)
 }
 
@@ -113,7 +128,7 @@ export async function getRankedRoleDisplayConfig(kv: KVNamespace, guildId: strin
 
   return {
     ...config,
-    tiers: config.tiers.map((slot) => {
+    tiers: config.tiers.map(slot => {
       const display = slot.roleId ? displayState.displayByRoleId.get(slot.roleId) : null
       return display ? { ...slot, label: display.name, color: display.color } : slot
     }),
@@ -145,7 +160,10 @@ export async function updateRankedRoleConfig(
 ): Promise<RankedRoleConfig> {
   const current = await getRankedRoleConfig(kv, guildId)
   const next = resizeRankedRoleConfig(current, resolveNextTierCount(current, input))
-  if (current.divisionPolicy) throw new Error('Division role mappings are active. Change them through the reviewed division maintenance workflow.')
+  if (current.divisionPolicy)
+    throw new Error(
+      'Division role mappings are active. Change them through the reviewed division maintenance workflow.',
+    )
   if (input.unrankedRoleId !== undefined) {
     const roleId = normalizeRoleId(input.unrankedRoleId)
     if (input.unrankedRoleId !== null && !roleId) throw new Error('Provide a valid Unranked role.')
@@ -241,7 +259,11 @@ export async function resolveMemberCurrentCompetitiveTier(
   return resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
 }
 
-export function getRankedRoleGateError(config: RankedRoleConfig, tier: CompetitiveTier, bound: 'min' | 'max' = 'min'): string | null {
+export function getRankedRoleGateError(
+  config: RankedRoleConfig,
+  tier: CompetitiveTier,
+  bound: 'min' | 'max' = 'min',
+): string | null {
   return getConfiguredRankedRoleId(config, tier)
     ? null
     : `This ${bound} rank is not configured yet. Ask an admin to run /admin ranked roles.`
@@ -256,13 +278,15 @@ export function buildRankedRoleVisuals(
     const tier = createRankedRoleTierId(index + 1)
     const display = displayByRoleId?.get(slot.roleId)
 
-    return [{
-      tier,
-      rank: index + 1,
-      roleId: slot.roleId,
-      label: display?.name ?? slot.label ?? slot.roleId,
-      color: display?.color ?? slot.color ?? null,
-    }]
+    return [
+      {
+        tier,
+        rank: index + 1,
+        roleId: slot.roleId,
+        label: display?.name ?? slot.label ?? slot.roleId,
+        color: display?.color ?? slot.color ?? null,
+      },
+    ]
   })
 }
 
@@ -288,8 +312,8 @@ export async function refreshRankedRoleDisplayMetadata(
   kv: KVNamespace,
   guildId: string,
   token: string,
-  options: { force?: boolean, now?: number } = {},
-): Promise<{ refreshed: boolean, updated: boolean, missingRoleIds: string[] }> {
+  options: { force?: boolean; now?: number } = {},
+): Promise<{ refreshed: boolean; updated: boolean; missingRoleIds: string[] }> {
   const now = typeof options.now === 'number' && Number.isFinite(options.now) ? options.now : Date.now()
   const currentState = await getRankedRoleDisplayRefreshState(kv, guildId, now)
   if (!options.force) {
@@ -329,7 +353,8 @@ export async function refreshRankedRoleDisplayMetadata(
 }
 
 export function formatRankedRoleSlotLabel(tierOrRank: CompetitiveTier | number): string {
-  const rank = typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : Math.max(1, rankedRoleNumber(tierOrRank))
+  const rank =
+    typeof tierOrRank === 'number' ? Math.max(1, Math.round(tierOrRank)) : Math.max(1, rankedRoleNumber(tierOrRank))
   return `Role ${rank}`
 }
 
@@ -356,8 +381,7 @@ export function memberMeetsRankedRoleGate(
   maxRole: CompetitiveTier | null = null,
 ): boolean {
   const currentTier = resolveCurrentCompetitiveTierFromRoleIds(roleIds, config)
-  return competitiveTierMeetsMinimum(currentTier, minRole)
-    && competitiveTierMeetsMaximum(currentTier, maxRole)
+  return competitiveTierMeetsMinimum(currentTier, minRole) && competitiveTierMeetsMaximum(currentTier, maxRole)
 }
 
 export async function fetchGuildMemberRoleIds(token: string, guildId: string, userId: string): Promise<string[]> {
@@ -379,7 +403,10 @@ export async function fetchGuildMemberRoleIds(token: string, guildId: string, us
   return payload.roles.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
 }
 
-export async function fetchGuildRoles(token: string, guildId: string): Promise<Array<{ id: string, name: string, color: string | null }>> {
+export async function fetchGuildRoles(
+  token: string,
+  guildId: string,
+): Promise<Array<{ id: string; name: string; color: string | null }>> {
   const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
     headers: {
       Authorization: `Bot ${token}`,
@@ -394,7 +421,7 @@ export async function fetchGuildRoles(token: string, guildId: string): Promise<A
   const payload = await response.json<unknown>()
   if (!Array.isArray(payload)) return []
 
-  const roles: Array<{ id: string, name: string, color: string | null }> = []
+  const roles: Array<{ id: string; name: string; color: string | null }> = []
   for (const rawRole of payload) {
     const normalized = normalizeDiscordGuildRole(rawRole as DiscordGuildRole)
     if (!normalized) continue
@@ -412,8 +439,11 @@ async function getRankedRoleDisplayRefreshState(
   kv: KVNamespace,
   guildId: string,
   now: number,
-): Promise<{ lastSuccessAt: number, displayByRoleId: Map<string, RankedRoleDisplaySource> } | null> {
-  const stored = await kv.get(`${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`, 'json') as StoredRankedRoleDisplayRefreshState | null
+): Promise<{ lastSuccessAt: number; displayByRoleId: Map<string, RankedRoleDisplaySource> } | null> {
+  const stored = (await kv.get(
+    `${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`,
+    'json',
+  )) as StoredRankedRoleDisplayRefreshState | null
   if (stored?.version !== RANKED_ROLE_DISPLAY_REFRESH_VERSION) return null
   if (typeof stored.lastSuccessAt !== 'number' || !Number.isFinite(stored.lastSuccessAt)) return null
   if (stored.lastSuccessAt < 0 || stored.lastSuccessAt > now) return null
@@ -440,11 +470,14 @@ async function setRankedRoleDisplayRefreshState(
   lastSuccessAt: number,
   displayByRoleId: Map<string, RankedRoleDisplaySource>,
 ): Promise<void> {
-  await kv.put(`${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`, JSON.stringify({
-    version: RANKED_ROLE_DISPLAY_REFRESH_VERSION,
-    lastSuccessAt,
-    roles: Object.fromEntries(displayByRoleId),
-  }))
+  await kv.put(
+    `${RANKED_ROLE_DISPLAY_REFRESH_KEY_PREFIX}${guildId}`,
+    JSON.stringify({
+      version: RANKED_ROLE_DISPLAY_REFRESH_VERSION,
+      lastSuccessAt,
+      roles: Object.fromEntries(displayByRoleId),
+    }),
+  )
 }
 
 function areRankedRoleDisplaysEqual(
@@ -495,7 +528,7 @@ function resolveNextTierCount(
 ): number {
   if (typeof input.tierCount === 'number') return input.tierCount
 
-  const highestConfiguredRank = current.tiers.reduce((best, tier, index) => tier.roleId ? index + 1 : best, 0)
+  const highestConfiguredRank = current.tiers.reduce((best, tier, index) => (tier.roleId ? index + 1 : best), 0)
   const highestProvidedRank = (input.tierRoleIdsByRank ?? []).reduce((best, roleId, index) => {
     return normalizeRoleId(roleId) ? index + 1 : best
   }, 0)
@@ -512,8 +545,9 @@ function createDefaultRankedRoleConfig(): RankedRoleConfig {
 }
 
 function compactRankedRoleConfig(config: RankedRoleConfig): RankedRoleConfig {
-  if (config.unrankedRoleId && config.tiers.some(tier => tier.roleId === config.unrankedRoleId)) throw new Error('Unranked must be separate from ranked roles.')
-  const highestConfiguredRank = config.tiers.reduce((best, tier, index) => tier.roleId ? index + 1 : best, 0)
+  if (config.unrankedRoleId && config.tiers.some(tier => tier.roleId === config.unrankedRoleId))
+    throw new Error('Unranked must be separate from ranked roles.')
+  const highestConfiguredRank = config.tiers.reduce((best, tier, index) => (tier.roleId ? index + 1 : best), 0)
   const tierCount = highestConfiguredRank > 0 ? highestConfiguredRank : DEFAULT_RANKED_ROLE_TIER_COUNT
   return resizeRankedRoleConfig(config, tierCount)
 }
@@ -549,13 +583,11 @@ function normalizeOptionalLabel(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function normalizeDiscordGuildRole(raw: DiscordGuildRole): { id: string, name: string, color: string | null } | null {
+function normalizeDiscordGuildRole(raw: DiscordGuildRole): { id: string; name: string; color: string | null } | null {
   const id = normalizeRoleId(raw.id)
   if (!id) return null
 
-  const name = typeof raw.name === 'string' && raw.name.trim().length > 0
-    ? raw.name
-    : id
+  const name = typeof raw.name === 'string' && raw.name.trim().length > 0 ? raw.name : id
 
   const color = normalizeDiscordRoleColor(raw.color)
   return { id, name, color }

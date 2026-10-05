@@ -25,7 +25,10 @@ export function createCellGridLayout<T>(cells: T[], maxColumns: number): GridLay
 export function createSeatGridLayout(seatCount: number, maxColumns: number): SeatGridLayout {
   if (seatCount <= 0 || maxColumns <= 0) return { columns: 0, rows: 0, cells: [] }
 
-  return createCellGridLayout(Array.from({ length: seatCount }, (_, index) => index), maxColumns)
+  return createCellGridLayout(
+    Array.from({ length: seatCount }, (_, index) => index),
+    maxColumns,
+  )
 }
 
 export function findSeatGridPosition(layout: SeatGridLayout, seatIndex: number) {

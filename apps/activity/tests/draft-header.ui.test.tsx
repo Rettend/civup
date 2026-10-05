@@ -115,7 +115,9 @@ describe('DraftHeader UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
-    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
+    updateUiMocks(draft => {
+      draft.draftState!.status = 'waiting'
+    })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
@@ -141,7 +143,9 @@ describe('DraftHeader UI', () => {
     const cluster = screen.getByTestId('draft-header-desktop-phase-cluster')
     const grid = cluster.parentElement as HTMLElement
     const leftCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-left"]') as HTMLElement
-    const rightCluster = cluster.querySelector('[data-testid="draft-header-desktop-phase-cluster-right"]') as HTMLElement
+    const rightCluster = cluster.querySelector(
+      '[data-testid="draft-header-desktop-phase-cluster-right"]',
+    ) as HTMLElement
 
     expect(grid.className).toContain('pl-12')
     expect(grid.className).toContain('pr-12')
@@ -177,7 +181,9 @@ describe('DraftHeader UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
-    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
+    updateUiMocks(draft => {
+      draft.draftState!.status = 'waiting'
+    })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
 

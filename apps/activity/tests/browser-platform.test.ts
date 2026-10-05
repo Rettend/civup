@@ -1,9 +1,17 @@
-import { ApiError } from '@civup/utils'
 import { waitFor } from '@solidjs/testing-library'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { buildActivitySessionHeaders, cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
+import { ApiError } from '@civup/utils'
+import {
+  buildActivitySessionHeaders,
+  cacheActivitySessionToken,
+  clearActivitySessionToken,
+} from '../src/client/lib/activity-session'
+import {
+  bootstrapBrowserChannel,
+  bootstrapBrowserSession,
+  BrowserLaunchValidationError,
+} from '../src/client/platform/browser-platform'
 import { openExternalLink } from '../src/client/platform/external-links'
-import { bootstrapBrowserChannel, bootstrapBrowserSession, BrowserLaunchValidationError } from '../src/client/platform/browser-platform'
 import { configureClientPlatform, getAuthTransport } from '../src/client/platform/runtime'
 
 const originalFetch = globalThis.fetch
@@ -80,10 +88,19 @@ describe('browser client platform', () => {
     const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
     globalThis.fetch = vi.fn(async () => Response.json({ error: 'Unauthorized activity session' }, { status: 401 }))
     let settled = false
-    void bootstrapBrowserSession('session-1').then(() => { settled = true }, () => { settled = true })
-    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith(
-      '/api/auth/discord?returnTo=%2Fweb%2Fsession%2Fsession-1%3Fview%3Ddraft%23players',
-    ))
+    void bootstrapBrowserSession('session-1').then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      },
+    )
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledExactlyOnceWith(
+        '/api/auth/discord?returnTo=%2Fweb%2Fsession%2Fsession-1%3Fview%3Ddraft%23players',
+      ),
+    )
     expect(settled).toBe(false)
   })
 

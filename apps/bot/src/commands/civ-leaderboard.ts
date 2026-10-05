@@ -1,14 +1,19 @@
-import type { Database } from '@civup/db'
-import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import type { CivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
+import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import type { CivLeaderboardModeScope } from '../services/leaderboard/civ-snapshot.ts'
-import { createDb } from '@civup/db'
+import type { Database } from '@civup/db'
 import { Command, Option } from 'discord-hono'
+import { createDb } from '@civup/db'
 import { civLeaderboardPageEmbed, parseCivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { CIV_LEADERBOARD_MODE_SCOPES, getStoredCivLeaderboardSnapshot, isCivLeaderboardStatsInitialized, rebuildCivLeaderboardSnapshot } from '../services/leaderboard/civ-snapshot.ts'
-import { paginationComponents } from '../services/response/pagination.ts'
+import {
+  CIV_LEADERBOARD_MODE_SCOPES,
+  getStoredCivLeaderboardSnapshot,
+  isCivLeaderboardStatsInitialized,
+  rebuildCivLeaderboardSnapshot,
+} from '../services/leaderboard/civ-snapshot.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
+import { paginationComponents } from '../services/response/pagination.ts'
 import { factory } from '../setup.ts'
 
 const CIV_LEADERBOARD_UNAVAILABLE_MESSAGE = 'Civ leaderboard snapshot is not available yet.'
@@ -45,12 +50,12 @@ export const command_civleaderboard = factory.command<Var>(
     new Option('mode', 'Civ leaderboard view').required().choices(...CIV_LEADERBOARD_MODE_CHOICES),
     new Option('scope', 'Civ leaderboard scope').choices(...CIV_LEADERBOARD_SCOPE_CHOICES),
   ),
-  (c) => {
+  c => {
     const board = parseCivLeaderboardBoard(c.var.mode)
     if (!board) return c.res('Pick a civ leaderboard mode.')
     const modeScope = parseCivLeaderboardModeScope(c.var.scope) ?? 'all'
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
+    return resDeferGeneralCommandResponse(c, async c => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
       return buildCivLeaderboardCommandPayload(db, kv, board, { modeScope })
@@ -72,7 +77,10 @@ export async function buildCivLeaderboardCommandPayload(
   if (!snapshot?.historyInitialized) return unavailablePayload(CIV_LEADERBOARD_UNINITIALIZED_MESSAGE)
   if (!board) return unavailablePayload('Pick a civ leaderboard mode.')
 
-  const page = civLeaderboardPageEmbed(board, snapshot, { pageIndex: options.pageIndex, titlePrefix: CIV_LEADERBOARD_SCOPE_TITLES[modeScope] })
+  const page = civLeaderboardPageEmbed(board, snapshot, {
+    pageIndex: options.pageIndex,
+    titlePrefix: CIV_LEADERBOARD_SCOPE_TITLES[modeScope],
+  })
   return {
     embeds: [page.embed],
     components: paginationComponents({
@@ -86,7 +94,9 @@ export async function buildCivLeaderboardCommandPayload(
 }
 
 export function parseCivLeaderboardModeScope(value: string | undefined): CivLeaderboardModeScope | null {
-  return CIV_LEADERBOARD_MODE_SCOPES.includes(value as CivLeaderboardModeScope) ? value as CivLeaderboardModeScope : null
+  return CIV_LEADERBOARD_MODE_SCOPES.includes(value as CivLeaderboardModeScope)
+    ? (value as CivLeaderboardModeScope)
+    : null
 }
 
 export function isCivLeaderboardPaginationNamespace(value: string): boolean {
@@ -105,6 +115,6 @@ function unavailablePayload(content = CIV_LEADERBOARD_UNAVAILABLE_MESSAGE): Disc
 async function getOrRebuildCivLeaderboardSnapshot(db: Database, kv: KVNamespace, modeScope: CivLeaderboardModeScope) {
   const snapshot = await getStoredCivLeaderboardSnapshot(kv, modeScope)
   if (snapshot?.historyInitialized) return snapshot
-  if (!await isCivLeaderboardStatsInitialized(db)) return snapshot
+  if (!(await isCivLeaderboardStatsInitialized(db))) return snapshot
   return rebuildCivLeaderboardSnapshot(db, kv, Date.now(), modeScope)
 }

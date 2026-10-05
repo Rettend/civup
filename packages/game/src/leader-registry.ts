@@ -1,8 +1,19 @@
 import type { Leader, LeaderDataVersion } from './types.ts'
 import { factionMap, factions, getFaction, searchFactions } from './factions.ts'
 import { normalizeAvailableLeaderDataVersion } from './leader-data-meta.ts'
-import { leaderMap as betaLeaderMap, leaders as betaLeaders, getLeader as getBetaLeader, searchLeaders as searchBetaLeaders } from './leaders-beta.ts'
-import { getLeader as getLiveLeader, allLeaderIds as liveLeaderIds, leaderMap as liveLeaderMap, leaders as liveLeaders, searchLeaders as searchLiveLeaders } from './leaders.ts'
+import {
+  leaderMap as betaLeaderMap,
+  leaders as betaLeaders,
+  getLeader as getBetaLeader,
+  searchLeaders as searchBetaLeaders,
+} from './leaders-beta.ts'
+import {
+  getLeader as getLiveLeader,
+  allLeaderIds as liveLeaderIds,
+  leaderMap as liveLeaderMap,
+  leaders as liveLeaders,
+  searchLeaders as searchLiveLeaders,
+} from './leaders.ts'
 
 export const leaders = liveLeaders
 export const leaderMap = liveLeaderMap

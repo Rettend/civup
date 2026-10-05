@@ -6,7 +6,9 @@ const SOURCE_CHANGED_PATH = 'division-rank-source-changed'
 
 /** An identifiable SQLite error rolls back the batch; unknown failures must not be retried. */
 export function divisionSourceGuard(db: Database, condition: SQL) {
-  return db.select({ valid: sql<number>`case when ${condition} then 1 else json_extract('{}', ${SOURCE_CHANGED_PATH}) end` }).from(sql`(select 1) as division_guard`)
+  return db
+    .select({ valid: sql<number>`case when ${condition} then 1 else json_extract('{}', ${SOURCE_CHANGED_PATH}) end` })
+    .from(sql`(select 1) as division_guard`)
 }
 
 export function isDivisionSourceConflict(error: unknown): boolean {

@@ -53,18 +53,17 @@ function createTeamPickSteps(gameMode: TeamGameMode, seatCount: number, pickOrde
   const steps: DraftStep[] = []
   for (const seat of pickOrder) {
     const previousStep = steps.at(-1)
-    const previousSeat = previousStep?.action === 'pick' && previousStep.seats !== 'all'
-      ? previousStep.seats.at(-1)
-      : null
+    const previousSeat =
+      previousStep?.action === 'pick' && previousStep.seats !== 'all' ? previousStep.seats.at(-1) : null
 
     if (
-      previousStep
-      && previousStep.action === 'pick'
-      && previousStep.seats !== 'all'
-      && previousStep.count === 1
-      && previousStep.timer === 60
-      && previousSeat != null
-      && getTeamPickOrderTeam(gameMode, seatCount, previousSeat) === getTeamPickOrderTeam(gameMode, seatCount, seat)
+      previousStep &&
+      previousStep.action === 'pick' &&
+      previousStep.seats !== 'all' &&
+      previousStep.count === 1 &&
+      previousStep.timer === 60 &&
+      previousSeat != null &&
+      getTeamPickOrderTeam(gameMode, seatCount, previousSeat) === getTeamPickOrderTeam(gameMode, seatCount, seat)
     ) {
       previousStep.seats = [...previousStep.seats, seat]
       if (configUsesDoubleTimer(gameMode)) {
@@ -112,7 +111,7 @@ function createTwoVTwoPickOrder(seatCount: number): number[] {
   const teams = getTwoVTwoTeamCount(seatCount)
   return [
     ...Array.from({ length: teams }, (_, seatIndex) => seatIndex),
-    ...Array.from({ length: teams }, (_, index) => (teams * 2) - 1 - index),
+    ...Array.from({ length: teams }, (_, index) => teams * 2 - 1 - index),
   ]
 }
 
@@ -369,10 +368,38 @@ const visibleBanBlindPickFormats: Record<VisibleBanGameMode, DraftFormat> = {
       return createTwoVTwoPickOrder(seatCount)
     },
   }),
-  '3v3': createTeamFormat({ id: 'default-3v3-visible-bans-blind-pick', name: '3v3 Blind Pick', gameMode: '3v3', blindBans: false, blindPicks: true, getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER }),
-  '4v4': createTeamFormat({ id: 'default-4v4-visible-bans-blind-pick', name: '4v4 Blind Pick', gameMode: '4v4', blindBans: false, blindPicks: true, getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER }),
-  '5v5': createTeamFormat({ id: 'default-5v5-visible-bans-blind-pick', name: '5v5 Blind Pick', gameMode: '5v5', blindBans: false, blindPicks: true, getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER }),
-  '6v6': createTeamFormat({ id: 'default-6v6-visible-bans-blind-pick', name: '6v6 Blind Pick', gameMode: '6v6', blindBans: false, blindPicks: true, getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER }),
+  '3v3': createTeamFormat({
+    id: 'default-3v3-visible-bans-blind-pick',
+    name: '3v3 Blind Pick',
+    gameMode: '3v3',
+    blindBans: false,
+    blindPicks: true,
+    getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER,
+  }),
+  '4v4': createTeamFormat({
+    id: 'default-4v4-visible-bans-blind-pick',
+    name: '4v4 Blind Pick',
+    gameMode: '4v4',
+    blindBans: false,
+    blindPicks: true,
+    getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER,
+  }),
+  '5v5': createTeamFormat({
+    id: 'default-5v5-visible-bans-blind-pick',
+    name: '5v5 Blind Pick',
+    gameMode: '5v5',
+    blindBans: false,
+    blindPicks: true,
+    getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER,
+  }),
+  '6v6': createTeamFormat({
+    id: 'default-6v6-visible-bans-blind-pick',
+    name: '6v6 Blind Pick',
+    gameMode: '6v6',
+    blindBans: false,
+    blindPicks: true,
+    getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER,
+  }),
 }
 
 /**
@@ -402,10 +429,7 @@ export const default1v1BlindPick: DraftFormat = {
   redDeath: false,
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
-    return [
-      { action: 'ban', seats: 'all', count: 3, timer: 120 },
-      createBlindPickStep([0, 1]),
-    ]
+    return [{ action: 'ban', seats: 'all', count: 3, timer: 120 }, createBlindPickStep([0, 1])]
   },
 }
 
@@ -422,10 +446,34 @@ export const default2v2BlindPick = createTeamFormat({
   },
 })
 
-export const default3v3BlindPick = createTeamFormat({ id: 'default-3v3-blind-pick', name: '3v3 Blind Pick', gameMode: '3v3', blindPicks: true, getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER })
-export const default4v4BlindPick = createTeamFormat({ id: 'default-4v4-blind-pick', name: '4v4 Blind Pick', gameMode: '4v4', blindPicks: true, getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER })
-export const default5v5BlindPick = createTeamFormat({ id: 'default-5v5-blind-pick', name: '5v5 Blind Pick', gameMode: '5v5', blindPicks: true, getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER })
-export const default6v6BlindPick = createTeamFormat({ id: 'default-6v6-blind-pick', name: '6v6 Blind Pick', gameMode: '6v6', blindPicks: true, getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER })
+export const default3v3BlindPick = createTeamFormat({
+  id: 'default-3v3-blind-pick',
+  name: '3v3 Blind Pick',
+  gameMode: '3v3',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER,
+})
+export const default4v4BlindPick = createTeamFormat({
+  id: 'default-4v4-blind-pick',
+  name: '4v4 Blind Pick',
+  gameMode: '4v4',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER,
+})
+export const default5v5BlindPick = createTeamFormat({
+  id: 'default-5v5-blind-pick',
+  name: '5v5 Blind Pick',
+  gameMode: '5v5',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER,
+})
+export const default6v6BlindPick = createTeamFormat({
+  id: 'default-6v6-blind-pick',
+  name: '6v6 Blind Pick',
+  gameMode: '6v6',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER,
+})
 
 /**
  * FFA Format:
@@ -439,10 +487,7 @@ export const defaultFfa: DraftFormat = {
   redDeath: false,
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
-    return [
-      FFA_BAN_STEP,
-      ...Array.from({ length: seatCount }, (_, seatIndex) => createSinglePickStep(seatIndex)),
-    ]
+    return [FFA_BAN_STEP, ...Array.from({ length: seatCount }, (_, seatIndex) => createSinglePickStep(seatIndex))]
   },
 }
 
@@ -458,10 +503,7 @@ export const defaultFfaSimultaneous: DraftFormat = {
   redDeath: false,
   blindBans: true,
   getSteps(_seatCount: number): DraftStep[] {
-    return [
-      FFA_BAN_STEP,
-      { action: 'pick', seats: 'all', count: 1, timer: 60 },
-    ]
+    return [FFA_BAN_STEP, { action: 'pick', seats: 'all', count: 1, timer: 60 }]
   },
 }
 
@@ -472,10 +514,7 @@ export const defaultFfaBlindPick: DraftFormat = {
   redDeath: false,
   blindBans: true,
   getSteps(seatCount: number): DraftStep[] {
-    return [
-      FFA_BAN_STEP,
-      createBlindPickStep(Array.from({ length: seatCount }, (_, seatIndex) => seatIndex)),
-    ]
+    return [FFA_BAN_STEP, createBlindPickStep(Array.from({ length: seatCount }, (_, seatIndex) => seatIndex))]
   },
 }
 
@@ -486,10 +525,7 @@ const visibleBanFfa: DraftFormat = {
   redDeath: false,
   blindBans: false,
   getSteps(seatCount: number): DraftStep[] {
-    return [
-      FFA_BAN_STEP,
-      ...Array.from({ length: seatCount }, (_, seatIndex) => createSinglePickStep(seatIndex)),
-    ]
+    return [FFA_BAN_STEP, ...Array.from({ length: seatCount }, (_, seatIndex) => createSinglePickStep(seatIndex))]
   },
 }
 
@@ -500,10 +536,7 @@ const visibleBanFfaBlindPick: DraftFormat = {
   redDeath: false,
   blindBans: false,
   getSteps(seatCount: number): DraftStep[] {
-    return [
-      FFA_BAN_STEP,
-      createBlindPickStep(Array.from({ length: seatCount }, (_, seatIndex) => seatIndex)),
-    ]
+    return [FFA_BAN_STEP, createBlindPickStep(Array.from({ length: seatCount }, (_, seatIndex) => seatIndex))]
   },
 }
 
@@ -580,13 +613,55 @@ export const redDeathFfa = createRedDeathFormat({
   },
 })
 
-export const redDeath1v1BlindPick = createRedDeathFormat({ id: 'red-death-1v1-blind-pick', name: 'Red Death 1v1 Blind Pick', gameMode: '1v1', blindPicks: true, getPickOrder: () => [0, 1] })
-export const redDeath2v2BlindPick = createRedDeathFormat({ id: 'red-death-2v2-blind-pick', name: 'Red Death 2v2 Blind Pick', gameMode: '2v2', blindPicks: true, getPickOrder: seatCount => createTwoVTwoPickOrder(seatCount) })
-export const redDeath3v3BlindPick = createRedDeathFormat({ id: 'red-death-3v3-blind-pick', name: 'Red Death 3v3 Blind Pick', gameMode: '3v3', blindPicks: true, getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER })
-export const redDeath4v4BlindPick = createRedDeathFormat({ id: 'red-death-4v4-blind-pick', name: 'Red Death 4v4 Blind Pick', gameMode: '4v4', blindPicks: true, getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER })
-export const redDeath5v5BlindPick = createRedDeathFormat({ id: 'red-death-5v5-blind-pick', name: 'Red Death 5v5 Blind Pick', gameMode: '5v5', blindPicks: true, getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER })
-export const redDeath6v6BlindPick = createRedDeathFormat({ id: 'red-death-6v6-blind-pick', name: 'Red Death 6v6 Blind Pick', gameMode: '6v6', blindPicks: true, getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER })
-export const redDeathFfaBlindPick = createRedDeathFormat({ id: 'red-death-ffa-blind-pick', name: 'Red Death FFA Blind Pick', gameMode: 'ffa', blindPicks: true, getPickOrder: seatCount => Array.from({ length: seatCount }, (_, seatIndex) => seatIndex) })
+export const redDeath1v1BlindPick = createRedDeathFormat({
+  id: 'red-death-1v1-blind-pick',
+  name: 'Red Death 1v1 Blind Pick',
+  gameMode: '1v1',
+  blindPicks: true,
+  getPickOrder: () => [0, 1],
+})
+export const redDeath2v2BlindPick = createRedDeathFormat({
+  id: 'red-death-2v2-blind-pick',
+  name: 'Red Death 2v2 Blind Pick',
+  gameMode: '2v2',
+  blindPicks: true,
+  getPickOrder: seatCount => createTwoVTwoPickOrder(seatCount),
+})
+export const redDeath3v3BlindPick = createRedDeathFormat({
+  id: 'red-death-3v3-blind-pick',
+  name: 'Red Death 3v3 Blind Pick',
+  gameMode: '3v3',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_3V3_PICK_ORDER,
+})
+export const redDeath4v4BlindPick = createRedDeathFormat({
+  id: 'red-death-4v4-blind-pick',
+  name: 'Red Death 4v4 Blind Pick',
+  gameMode: '4v4',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_4V4_PICK_ORDER,
+})
+export const redDeath5v5BlindPick = createRedDeathFormat({
+  id: 'red-death-5v5-blind-pick',
+  name: 'Red Death 5v5 Blind Pick',
+  gameMode: '5v5',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_5V5_PICK_ORDER,
+})
+export const redDeath6v6BlindPick = createRedDeathFormat({
+  id: 'red-death-6v6-blind-pick',
+  name: 'Red Death 6v6 Blind Pick',
+  gameMode: '6v6',
+  blindPicks: true,
+  getPickOrder: () => FULL_ROSTER_6V6_PICK_ORDER,
+})
+export const redDeathFfaBlindPick = createRedDeathFormat({
+  id: 'red-death-ffa-blind-pick',
+  name: 'Red Death FFA Blind Pick',
+  gameMode: 'ffa',
+  blindPicks: true,
+  getPickOrder: seatCount => Array.from({ length: seatCount }, (_, seatIndex) => seatIndex),
+})
 
 const redDeathBlindPickFormats: Record<BlindPickGameMode, DraftFormat> = {
   '1v1': redDeath1v1BlindPick,
@@ -669,18 +744,29 @@ export const draftFormats: DraftFormat[] = [
 ]
 
 /** Map of format ID to format */
-export const draftFormatMap = new Map<string, DraftFormat>(
-  draftFormats.map(f => [f.id, f]),
-)
+export const draftFormatMap = new Map<string, DraftFormat>(draftFormats.map(f => [f.id, f]))
 
 /** Get default format for a game mode */
 export function getDefaultFormat(gameMode: string): DraftFormat {
-  const format = draftFormats.find(f => f.gameMode === gameMode && !f.redDeath && f.blindBans !== false && !formatUsesBlindPicks(f))
+  const format = draftFormats.find(
+    f => f.gameMode === gameMode && !f.redDeath && f.blindBans !== false && !formatUsesBlindPicks(f),
+  )
   if (!format) throw new Error(`No format found for game mode: ${gameMode}`)
   return format
 }
 
-export function getDraftFormat(gameMode: string, options: { simultaneousPick?: boolean, randomDraft?: boolean, redDeath?: boolean, civBlitz?: boolean, blindBans?: boolean, blindPicks?: boolean, seatCount?: number } = {}): DraftFormat {
+export function getDraftFormat(
+  gameMode: string,
+  options: {
+    simultaneousPick?: boolean
+    randomDraft?: boolean
+    redDeath?: boolean
+    civBlitz?: boolean
+    blindBans?: boolean
+    blindPicks?: boolean
+    seatCount?: number
+  } = {},
+): DraftFormat {
   if (options.civBlitz) {
     const format = civBlitzFormats[gameMode as GameMode]
     if (!format) throw new Error(`No CivBlitz format found for game mode: ${gameMode}`)
@@ -689,7 +775,9 @@ export function getDraftFormat(gameMode: string, options: { simultaneousPick?: b
   if (options.redDeath) {
     const format = options.blindPicks
       ? redDeathBlindPickFormats[gameMode as BlindPickGameMode]
-      : draftFormats.find(candidate => candidate.gameMode === gameMode && candidate.redDeath && !formatUsesBlindPicks(candidate))
+      : draftFormats.find(
+          candidate => candidate.gameMode === gameMode && candidate.redDeath && !formatUsesBlindPicks(candidate),
+        )
     if (!format) throw new Error(`No Red Death format found for game mode: ${gameMode}`)
     return format
   }
@@ -701,7 +789,8 @@ export function getDraftFormat(gameMode: string, options: { simultaneousPick?: b
     return blindPickFormats[gameMode as BlindPickGameMode]
   }
   if (gameMode === 'ffa' && options.blindBans === false) return visibleBanFfa
-  if (options.blindBans === false && supportsVisibleCaptainBans(gameMode, options.seatCount)) return visibleBanFormats[gameMode]
+  if (options.blindBans === false && supportsVisibleCaptainBans(gameMode, options.seatCount))
+    return visibleBanFormats[gameMode]
   if (gameMode === 'ffa' && options.simultaneousPick) return defaultFfaSimultaneous
   return getDefaultFormat(gameMode)
 }
@@ -737,12 +826,16 @@ export function formatDraftStepLabel(
   const actionLabel = step.action.toUpperCase()
   if (step.seats === 'all') return actionLabel
 
-  const actors = Array.from(new Set(step.seats.flatMap((seatIndex) => {
-    const seat = seats[seatIndex]
-    if (!seat) return []
-    if (seat.team != null) return [`T${seat.team + 1}`]
-    return [`P${seatIndex + 1}`]
-  })))
+  const actors = Array.from(
+    new Set(
+      step.seats.flatMap(seatIndex => {
+        const seat = seats[seatIndex]
+        if (!seat) return []
+        if (seat.team != null) return [`T${seat.team + 1}`]
+        return [`P${seatIndex + 1}`]
+      }),
+    ),
+  )
 
   // Simultaneous blind team bans read better as a generic BAN label.
   if (step.action === 'ban' && actors.length > 1 && actors.every(actor => actor.startsWith('T'))) return actionLabel

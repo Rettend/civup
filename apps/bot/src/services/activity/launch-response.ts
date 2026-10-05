@@ -1,14 +1,12 @@
 import type { Env } from '../../env.ts'
+import type { LaunchModeResolution } from './browser-access.ts'
 import type { ActivityLaunchTargetSelection } from './launch-target.ts'
 import { Button, Components } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
-import type { LaunchModeResolution } from './browser-access.ts'
 import { buildBrowserChannelUrl, buildBrowserSessionUrl, resolveInteractionLaunchMode } from './browser-access.ts'
 import { storeActivityLaunchTargetSelection } from './launch-target.ts'
 
-export type LaunchDestination
-  = | { kind: 'channel', channelId: string }
-    | { kind: 'session', sessionId: string }
+export type LaunchDestination = { kind: 'channel'; channelId: string } | { kind: 'session'; sessionId: string }
 
 interface LaunchInteractionContext {
   env: Env['Bindings']
@@ -29,7 +27,7 @@ export async function respondWithPreferredLaunch(
     launch?: LaunchModeResolution
   },
 ): Promise<Response> {
-  const launch = input.launch ?? await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles)
+  const launch = input.launch ?? (await resolveInteractionLaunchMode(c.env, c.interaction.member?.roles))
   if (!launch.ok) return privateLaunchError(c, launch.error)
 
   if (launch.mode === 'activity') {
@@ -44,9 +42,10 @@ export async function respondWithPreferredLaunch(
   }
 
   if (!launch.config) return privateLaunchError(c, 'Browser access is not configured.')
-  const url = input.destination.kind === 'session'
-    ? buildBrowserSessionUrl(launch.config, input.destination.sessionId)
-    : buildBrowserChannelUrl(launch.config, input.destination.channelId)
+  const url =
+    input.destination.kind === 'session'
+      ? buildBrowserSessionUrl(launch.config, input.destination.sessionId)
+      : buildBrowserChannelUrl(launch.config, input.destination.channelId)
 
   return c.flags('EPHEMERAL').res({
     components: new Components().row(new Button(url, 'Open in Browser', 'Link')),

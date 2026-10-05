@@ -1,5 +1,5 @@
-import type { GameMode, QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
+import type { GameMode, QueueEntry } from '@civup/game'
 import { normalizeStoredSlots } from './normalize.ts'
 
 export function normalizeLobbySlots(
@@ -29,7 +29,7 @@ export function mapLobbySlotsToEntries(
   queueEntries: QueueEntry[],
 ): (QueueEntry | null)[] {
   const entryByPlayer = new Map<string, QueueEntry>(queueEntries.map(entry => [entry.playerId, entry]))
-  return slotPlayerIds.map((playerId) => {
+  return slotPlayerIds.map(playerId => {
     if (!playerId) return null
     return entryByPlayer.get(playerId) ?? null
   })
@@ -49,11 +49,13 @@ export function filterQueueEntriesForLobby(lobby: LobbyState, queueEntries: Queu
   return lobby.memberPlayerIds.flatMap((playerId, index) => {
     if (seen.has(playerId)) return []
     seen.add(playerId)
-    return entryByPlayer.get(playerId) ?? {
-      playerId,
-      displayName: 'Unknown',
-      avatarUrl: null,
-      joinedAt: lobby.createdAt + index,
-    }
+    return (
+      entryByPlayer.get(playerId) ?? {
+        playerId,
+        displayName: 'Unknown',
+        avatarUrl: null,
+        joinedAt: lobby.createdAt + index,
+      }
+    )
   })
 }

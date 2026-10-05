@@ -1,11 +1,14 @@
 import type { HashResolver } from '../hash.ts'
-import { civHash, formatHash } from '../hash.ts'
 import type { CivReplayHashFloatValue, CivReplayPlayerSnapshot } from './players.ts'
+import { civHash, formatHash } from '../hash.ts'
 
 export const UNITOPERATION_MAKE_TRADE_ROUTE = civHash('UNITOPERATION_MAKE_TRADE_ROUTE')
-export const TRADE_ROUTE_YIELDS_UNSUPPORTED = 'active trade-route endpoints are decoded from trader unit operation state; per-route yields, remaining turns, and total length are not decoded from save data yet'
-export const KNOWN_TRADE_ROUTE_YIELDS_DESCRIPTION = 'known route-yield components include destination/origin district route yields and active policy modifiers with unconditional, domestic, or international route-yield scopes; exact UI route yields remain unsupported'
-export const KNOWN_TRADE_ROUTE_YIELDS_EXCLUDED = 'excluded components include route-yield buildings/wonders, civ traits, great people, governments, commemorations, alliance type/level effects, suzerain/envoy effects, and any modifier scope not explicitly modeled'
+export const TRADE_ROUTE_YIELDS_UNSUPPORTED =
+  'active trade-route endpoints are decoded from trader unit operation state; per-route yields, remaining turns, and total length are not decoded from save data yet'
+export const KNOWN_TRADE_ROUTE_YIELDS_DESCRIPTION =
+  'known route-yield components include destination/origin district route yields and active policy modifiers with unconditional, domestic, or international route-yield scopes; exact UI route yields remain unsupported'
+export const KNOWN_TRADE_ROUTE_YIELDS_EXCLUDED =
+  'excluded components include route-yield buildings/wonders, civ traits, great people, governments, commemorations, alliance type/level effects, suzerain/envoy effects, and any modifier scope not explicitly modeled'
 
 export interface CivReplayUnitTradeRouteOperationSnapshot {
   destinationX: number
@@ -96,19 +99,21 @@ export interface CivReplayTradeRouteUnsupportedPolicyModifier {
 export function buildCivReplayTradeRoutes(players: CivReplayPlayerSnapshot[]) {
   const cityByCoordinate = buildCityCoordinateIndex(players)
   for (const player of players) {
-    player.tradeRoutes = player.units.flatMap(unit => unit.tradeRouteOperations.map(operation => {
-      const route = normalizeTradeRouteEndpointOrder({
-        ownerPlayerId: player.id,
-        traderUnitId: unit.id,
-        originX: operation.originX,
-        originY: operation.originY,
-        destinationX: operation.destinationX,
-        destinationY: operation.destinationY,
-        originCity: resolveCityAt(cityByCoordinate, operation.originX, operation.originY),
-        destinationCity: resolveCityAt(cityByCoordinate, operation.destinationX, operation.destinationY),
-      })
-      return attachTradeRouteMetadata(route)
-    }))
+    player.tradeRoutes = player.units.flatMap(unit =>
+      unit.tradeRouteOperations.map(operation => {
+        const route = normalizeTradeRouteEndpointOrder({
+          ownerPlayerId: player.id,
+          traderUnitId: unit.id,
+          originX: operation.originX,
+          originY: operation.originY,
+          destinationX: operation.destinationX,
+          destinationY: operation.destinationY,
+          originCity: resolveCityAt(cityByCoordinate, operation.originX, operation.originY),
+          destinationCity: resolveCityAt(cityByCoordinate, operation.destinationX, operation.destinationY),
+        })
+        return attachTradeRouteMetadata(route)
+      }),
+    )
     player.tradeRouteCount = player.tradeRoutes.length
   }
 }
@@ -127,8 +132,8 @@ export function summarizeCivReplayTradeRoutes(
     teamCount: routes.filter(route => isTeamRoute(route, teamByPlayerId)).length,
     unknownDestinationOwnerCount: routes.filter(route => route.destinationCityPlayerId == null).length,
     yieldTotals,
-    science: hasDecodedYields ? yieldTotals.YIELD_SCIENCE ?? 0 : null,
-    culture: hasDecodedYields ? yieldTotals.YIELD_CULTURE ?? 0 : null,
+    science: hasDecodedYields ? (yieldTotals.YIELD_SCIENCE ?? 0) : null,
+    culture: hasDecodedYields ? (yieldTotals.YIELD_CULTURE ?? 0) : null,
   }
 }
 
@@ -138,7 +143,10 @@ export function summarizeCivReplayKnownTradeRouteYields(
   hashResolver: HashResolver,
   model: CivReplayTradeRouteYieldModel,
 ): CivReplayTradeRouteKnownYieldSummary {
-  if (!player || model.districtYields.length + model.policyYields.length + model.unsupportedPolicyModifiers.length === 0) {
+  if (
+    !player ||
+    model.districtYields.length + model.policyYields.length + model.unsupportedPolicyModifiers.length === 0
+  ) {
     return { yieldTotals: {}, science: null, culture: null, unsupported: [] }
   }
 
@@ -153,7 +161,8 @@ export function summarizeCivReplayKnownTradeRouteYields(
   for (const route of player.tradeRoutes) {
     addKnownDistrictRouteYields(totals, route, builtDistrictsByCity, districtRules)
     addKnownPolicyRouteYields(totals, route, activePolicyTypes, policyRules)
-    if (route.originCityId == null || route.destinationCityId == null || route.relationship === 'unknown') unsupported.add('unknown endpoint owner or city prevents district route-yield calculation for at least one route')
+    if (route.originCityId == null || route.destinationCityId == null || route.relationship === 'unknown')
+      unsupported.add('unknown endpoint owner or city prevents district route-yield calculation for at least one route')
   }
 
   for (const policyType of activePolicyTypes) {
@@ -171,7 +180,9 @@ export function summarizeCivReplayKnownTradeRouteYields(
   }
 }
 
-function buildCityCoordinateIndex(players: readonly CivReplayPlayerSnapshot[]): Map<string, CivReplayTradeRouteCityRefSnapshot[]> {
+function buildCityCoordinateIndex(
+  players: readonly CivReplayPlayerSnapshot[],
+): Map<string, CivReplayTradeRouteCityRefSnapshot[]> {
   const index = new Map<string, CivReplayTradeRouteCityRefSnapshot[]>()
   for (const player of players) {
     for (const city of player.cities) {
@@ -184,14 +195,45 @@ function buildCityCoordinateIndex(players: readonly CivReplayPlayerSnapshot[]): 
   return index
 }
 
-function resolveCityAt(index: ReadonlyMap<string, readonly CivReplayTradeRouteCityRefSnapshot[]>, x: number, y: number): CivReplayTradeRouteCityRefSnapshot | null {
+function resolveCityAt(
+  index: ReadonlyMap<string, readonly CivReplayTradeRouteCityRefSnapshot[]>,
+  x: number,
+  y: number,
+): CivReplayTradeRouteCityRefSnapshot | null {
   if (!isPlausibleMapCoordinate(x) || !isPlausibleMapCoordinate(y)) return null
   const refs = index.get(coordinateKey(x, y)) ?? []
   return refs.length === 1 ? refs[0]! : null
 }
 
-function normalizeTradeRouteEndpointOrder(route: Omit<CivReplayTradeRouteSnapshot, 'originCityId' | 'originCityName' | 'originCityPlayerId' | 'destinationCityId' | 'destinationCityName' | 'destinationCityPlayerId' | 'relationship' | 'yields' | 'remainingTurns' | 'length'>): Omit<CivReplayTradeRouteSnapshot, 'originCityId' | 'originCityName' | 'originCityPlayerId' | 'destinationCityId' | 'destinationCityName' | 'destinationCityPlayerId' | 'relationship' | 'yields' | 'remainingTurns' | 'length'> {
-  if (route.originCity?.playerId === route.ownerPlayerId || route.destinationCity?.playerId !== route.ownerPlayerId) return route
+function normalizeTradeRouteEndpointOrder(
+  route: Omit<
+    CivReplayTradeRouteSnapshot,
+    | 'originCityId'
+    | 'originCityName'
+    | 'originCityPlayerId'
+    | 'destinationCityId'
+    | 'destinationCityName'
+    | 'destinationCityPlayerId'
+    | 'relationship'
+    | 'yields'
+    | 'remainingTurns'
+    | 'length'
+  >,
+): Omit<
+  CivReplayTradeRouteSnapshot,
+  | 'originCityId'
+  | 'originCityName'
+  | 'originCityPlayerId'
+  | 'destinationCityId'
+  | 'destinationCityName'
+  | 'destinationCityPlayerId'
+  | 'relationship'
+  | 'yields'
+  | 'remainingTurns'
+  | 'length'
+> {
+  if (route.originCity?.playerId === route.ownerPlayerId || route.destinationCity?.playerId !== route.ownerPlayerId)
+    return route
   return {
     ...route,
     originX: route.destinationX,
@@ -203,7 +245,21 @@ function normalizeTradeRouteEndpointOrder(route: Omit<CivReplayTradeRouteSnapsho
   }
 }
 
-function attachTradeRouteMetadata(route: Omit<CivReplayTradeRouteSnapshot, 'originCityId' | 'originCityName' | 'originCityPlayerId' | 'destinationCityId' | 'destinationCityName' | 'destinationCityPlayerId' | 'relationship' | 'yields' | 'remainingTurns' | 'length'>): CivReplayTradeRouteSnapshot {
+function attachTradeRouteMetadata(
+  route: Omit<
+    CivReplayTradeRouteSnapshot,
+    | 'originCityId'
+    | 'originCityName'
+    | 'originCityPlayerId'
+    | 'destinationCityId'
+    | 'destinationCityName'
+    | 'destinationCityPlayerId'
+    | 'relationship'
+    | 'yields'
+    | 'remainingTurns'
+    | 'length'
+  >,
+): CivReplayTradeRouteSnapshot {
   const originCityPlayerId = route.originCity?.playerId ?? null
   const destinationCityPlayerId = route.destinationCity?.playerId ?? null
   return {
@@ -214,7 +270,12 @@ function attachTradeRouteMetadata(route: Omit<CivReplayTradeRouteSnapshot, 'orig
     destinationCityId: route.destinationCity?.cityId ?? null,
     destinationCityName: route.destinationCity?.name ?? null,
     destinationCityPlayerId,
-    relationship: destinationCityPlayerId == null ? 'unknown' : destinationCityPlayerId === route.ownerPlayerId ? 'domestic' : 'international',
+    relationship:
+      destinationCityPlayerId == null
+        ? 'unknown'
+        : destinationCityPlayerId === route.ownerPlayerId
+          ? 'domestic'
+          : 'international',
     yields: [],
     remainingTurns: null,
     length: null,
@@ -228,7 +289,10 @@ function isTeamRoute(route: CivReplayTradeRouteSnapshot, teamByPlayerId: Readonl
   return ownerTeam != null && ownerTeam === destinationTeam
 }
 
-function sumTradeRouteYields(routes: readonly CivReplayTradeRouteSnapshot[], hashResolver: HashResolver): Record<string, number> {
+function sumTradeRouteYields(
+  routes: readonly CivReplayTradeRouteSnapshot[],
+  hashResolver: HashResolver,
+): Record<string, number> {
   const totals = new Map<string, number>()
   for (const route of routes) {
     for (const item of route.yields) {
@@ -251,9 +315,12 @@ function addKnownDistrictRouteYields(
     }
   }
 
-  if (route.destinationCityPlayerId == null || route.destinationCityId == null || route.relationship === 'unknown') return
+  if (route.destinationCityPlayerId == null || route.destinationCityId == null || route.relationship === 'unknown')
+    return
   const field = route.relationship === 'domestic' ? 'domesticDestination' : 'internationalDestination'
-  for (const districtType of builtDistrictsByCity.get(cityKey(route.destinationCityPlayerId, route.destinationCityId)) ?? []) {
+  for (const districtType of builtDistrictsByCity.get(
+    cityKey(route.destinationCityPlayerId, route.destinationCityId),
+  ) ?? []) {
     for (const rule of districtRules.get(districtType) ?? []) addYield(totals, rule.yieldType, rule[field])
   }
 }
@@ -272,13 +339,19 @@ function addKnownPolicyRouteYields(
   }
 }
 
-function policyRuleApplies(rule: CivReplayTradeRoutePolicyYieldRule, relationship: CivReplayTradeRouteRelationship): boolean {
+function policyRuleApplies(
+  rule: CivReplayTradeRoutePolicyYieldRule,
+  relationship: CivReplayTradeRouteRelationship,
+): boolean {
   if (rule.scope === 'all') return relationship !== 'unknown'
   if (rule.scope === 'domestic') return relationship === 'domestic'
   return relationship === 'international'
 }
 
-function buildBuiltDistrictsByCity(players: readonly CivReplayPlayerSnapshot[], hashResolver: HashResolver): Map<string, string[]> {
+function buildBuiltDistrictsByCity(
+  players: readonly CivReplayPlayerSnapshot[],
+  hashResolver: HashResolver,
+): Map<string, string[]> {
   const cityKeys = new Set<string>()
   for (const player of players) for (const city of player.cities) cityKeys.add(cityKey(player.id, city.id))
 
@@ -308,7 +381,9 @@ function flattenPolicyTypes(player: CivReplayPlayerSnapshot, hashResolver: HashR
   return policies
 }
 
-function groupDistrictYieldRules(rules: readonly CivReplayTradeRouteDistrictYieldRule[]): Map<string, CivReplayTradeRouteDistrictYieldRule[]> {
+function groupDistrictYieldRules(
+  rules: readonly CivReplayTradeRouteDistrictYieldRule[],
+): Map<string, CivReplayTradeRouteDistrictYieldRule[]> {
   const grouped = new Map<string, CivReplayTradeRouteDistrictYieldRule[]>()
   for (const rule of rules) {
     const items = grouped.get(rule.districtType) ?? []
@@ -318,7 +393,9 @@ function groupDistrictYieldRules(rules: readonly CivReplayTradeRouteDistrictYiel
   return grouped
 }
 
-function groupPolicyYieldRules(rules: readonly CivReplayTradeRoutePolicyYieldRule[]): Map<string, CivReplayTradeRoutePolicyYieldRule[]> {
+function groupPolicyYieldRules(
+  rules: readonly CivReplayTradeRoutePolicyYieldRule[],
+): Map<string, CivReplayTradeRoutePolicyYieldRule[]> {
   const grouped = new Map<string, CivReplayTradeRoutePolicyYieldRule[]>()
   for (const rule of rules) {
     const items = grouped.get(rule.policyType) ?? []
@@ -328,7 +405,9 @@ function groupPolicyYieldRules(rules: readonly CivReplayTradeRoutePolicyYieldRul
   return grouped
 }
 
-function groupUnsupportedPolicyModifiers(modifiers: readonly CivReplayTradeRouteUnsupportedPolicyModifier[]): Map<string, CivReplayTradeRouteUnsupportedPolicyModifier[]> {
+function groupUnsupportedPolicyModifiers(
+  modifiers: readonly CivReplayTradeRouteUnsupportedPolicyModifier[],
+): Map<string, CivReplayTradeRouteUnsupportedPolicyModifier[]> {
   const grouped = new Map<string, CivReplayTradeRouteUnsupportedPolicyModifier[]>()
   for (const modifier of modifiers) {
     const items = grouped.get(modifier.policyType) ?? []

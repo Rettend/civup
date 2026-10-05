@@ -1,9 +1,8 @@
 {
   "name": "civup-activity",
-  "type": "module",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "bun@1.4.2",
+  "type": "module",
   "scripts": {
     "dev": "bun run preview",
     "dev:new": "bun run build && bun run preview",
@@ -55,5 +54,6 @@
     "vite": "catalog:",
     "vitest": "catalog:",
     "wrangler": "4.147.0"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

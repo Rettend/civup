@@ -1,9 +1,15 @@
 import type { Env } from '../../env.ts'
 import type { ZipByteReader } from '@civup/civ6-save-metadata'
-import { createAutosaveZipIndex, parseCiv6SaveMetadata, parseZipEntriesFromReader, pickLatestAutosaveZipEntry, readZipEntryDataFromReader } from '@civup/civ6-save-metadata'
+import { eq } from 'drizzle-orm'
+import {
+  createAutosaveZipIndex,
+  parseCiv6SaveMetadata,
+  parseZipEntriesFromReader,
+  pickLatestAutosaveZipEntry,
+  readZipEntryDataFromReader,
+} from '@civup/civ6-save-metadata'
 import { autosaveUploads, createDb } from '@civup/db'
 import { betaLeaderDataVersionLabel, liveLeaderDataVersionLabel } from '@civup/game'
-import { eq } from 'drizzle-orm'
 
 export const AUTOSAVE_METADATA_PARSE_CONCURRENCY = 1
 
@@ -37,7 +43,11 @@ export async function runAutosaveMetadataParseQueue(
   await Promise.all(Array.from({ length: workerCount }, worker))
 }
 
-export async function parseAndStoreAutosaveUploadMetadata(env: Env['Bindings'], uploadId: string, key: string): Promise<void> {
+export async function parseAndStoreAutosaveUploadMetadata(
+  env: Env['Bindings'],
+  uploadId: string,
+  key: string,
+): Promise<void> {
   const db = createDb(env.DB)
   try {
     const bucket = env.AUTOSAVE_UPLOADS
@@ -86,8 +96,7 @@ export async function parseAndStoreAutosaveUploadMetadata(env: Env['Bindings'], 
       bbgTitle: metadata.bbgTitle,
       bbgVersion,
     })
-  }
-  catch (error) {
+  } catch (error) {
     const message = error instanceof Error && error.message.trim().length > 0 ? error.message : 'Parse failed'
     console.warn('[autosave-parse] failed', { id: uploadId, key, error: message })
     await db
@@ -117,6 +126,10 @@ function resolveBbgVersion(detected: boolean, title: string | null, parsedVersio
 }
 
 function normalizeMetadataValue(value: string | null | undefined): string | null {
-  const normalized = value?.trim().replace(/[^\x20-\x7E]/g, '_').slice(0, 200) ?? ''
+  const normalized =
+    value
+      ?.trim()
+      .replace(/[^\x20-\x7E]/g, '_')
+      .slice(0, 200) ?? ''
   return normalized.length > 0 ? normalized : null
 }

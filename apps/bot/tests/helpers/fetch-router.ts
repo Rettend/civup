@@ -1,7 +1,7 @@
 type FetchHandler = (request: Request) => Promise<Response | undefined> | Response | undefined
 
 const originalFetch = globalThis.fetch.bind(globalThis)
-const handlers: Array<{ id: symbol, handler: FetchHandler }> = []
+const handlers: Array<{ id: symbol; handler: FetchHandler }> = []
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init)

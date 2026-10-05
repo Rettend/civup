@@ -1,6 +1,6 @@
-import type { GameMode } from '@civup/game'
 import type { LobbySessionProjectionOptions } from './mutations.ts'
 import type { LobbyState } from './types.ts'
+import type { GameMode } from '@civup/game'
 import { GAME_MODES, slotToTeamIndex } from '@civup/game'
 import { lobbyTimeoutEmbed } from '../../embeds/match.ts'
 import { getOpenSessionLobbyProjectionsByMode, repairStaleOpenSessionDirectoryMemberships } from '../session/index.ts'
@@ -35,18 +35,25 @@ export async function pruneInactiveOpenLobbies(
   const pruned: PrunedInactiveLobby[] = []
   if (!options.db) return pruned
 
-  const currentLobbies = (await Promise.all(GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode, { includeStale: true })))).flat()
+  const currentLobbies = (
+    await Promise.all(
+      GAME_MODES.map(mode => getOpenSessionLobbyProjectionsByMode(options.db!, mode, { includeStale: true })),
+    )
+  ).flat()
   for (const lobby of currentLobbies) {
     if (!isLobbyInactive(lobby, now)) continue
     try {
-      pruned.push(await expireOpenLobby(kv, token, lobby, {
-        db: options.db,
-        sessionNamespace: options.sessionNamespace,
-      }))
-    }
-    catch (error) {
+      pruned.push(
+        await expireOpenLobby(kv, token, lobby, {
+          db: options.db,
+          sessionNamespace: options.sessionNamespace,
+        }),
+      )
+    } catch (error) {
       console.error(`Failed to expire inactive open lobby ${lobby.id}; applying stale admission fallback:`, error)
-      await repairStaleOpenSessionDirectoryMemberships(options.db, lobby.memberPlayerIds, now, { staleMs: LOBBY_INACTIVITY_TIMEOUT_MS })
+      await repairStaleOpenSessionDirectoryMemberships(options.db, lobby.memberPlayerIds, now, {
+        staleMs: LOBBY_INACTIVITY_TIMEOUT_MS,
+      })
       pruned.push({
         lobbyId: lobby.id,
         mode: lobby.mode,
@@ -75,12 +82,25 @@ async function expireOpenLobby(
 
   if (token) {
     try {
-      await upsertLobbyMessage(kv, token, cancelledLobby, {
-        embeds: [lobbyTimeoutEmbed(lobby.mode, buildInactiveLobbyParticipants(lobby.mode, slots), undefined, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)],
-        components: [],
-      }, options)
-    }
-    catch (error) {
+      await upsertLobbyMessage(
+        kv,
+        token,
+        cancelledLobby,
+        {
+          embeds: [
+            lobbyTimeoutEmbed(
+              lobby.mode,
+              buildInactiveLobbyParticipants(lobby.mode, slots),
+              undefined,
+              lobby.draftConfig.redDeath,
+              lobby.draftConfig.civBlitz,
+            ),
+          ],
+          components: [],
+        },
+        options,
+      )
+    } catch (error) {
       console.error(`Failed to update inactivity-cancelled lobby embed for lobby ${lobby.id}:`, error)
     }
   }

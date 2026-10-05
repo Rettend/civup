@@ -1,8 +1,8 @@
-import type { DraftState } from '@civup/game'
 import type { ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../src/client/stores'
-import { getMinimumLeaderPoolSize, inferGameMode } from '@civup/game'
+import type { DraftState } from '@civup/game'
 import { fireEvent, render } from '@solidjs/testing-library'
 import { flush } from 'solid-js'
+import { getMinimumLeaderPoolSize, inferGameMode } from '@civup/game'
 
 // Test-only imperative boundaries: fixture writes and synchronous DOM events
 // must settle before the existing UI assertions inspect the rendered state.
@@ -14,13 +14,17 @@ export const renderUi: typeof render = (...args) => {
 }
 function fireAndFlush<Args extends unknown[]>(event: (...args: Args) => boolean, ...args: Args): boolean {
   let result = false
-  flush(() => { result = event(...args) })
+  flush(() => {
+    result = event(...args)
+  })
   return result
 }
 
 export const fireUiEvent = Object.assign(
   ((...args: Parameters<typeof fireEvent>) => fireAndFlush(fireEvent, ...args)) as typeof fireEvent,
-  Object.fromEntries(Object.entries(fireEvent).map(([name, event]) => [name, (...args: unknown[]) => fireAndFlush(event, ...args)])),
+  Object.fromEntries(
+    Object.entries(fireEvent).map(([name, event]) => [name, (...args: unknown[]) => fireAndFlush(event, ...args)]),
+  ),
 )
 
 type DraftStatus = DraftState['status']
@@ -60,7 +64,9 @@ export function createActivityTargetOption(overrides: Partial<ActivityTargetOpti
   }
 }
 
-export function createJoinEligibility(overrides: Partial<LobbyJoinEligibilitySnapshot> = {}): LobbyJoinEligibilitySnapshot {
+export function createJoinEligibility(
+  overrides: Partial<LobbyJoinEligibilitySnapshot> = {},
+): LobbyJoinEligibilitySnapshot {
   return {
     canJoin: true,
     blockedReason: null,
@@ -128,7 +134,10 @@ export function createCompleteDraftState(overrides: Partial<DraftState> = {}): D
   return createDraftState('complete', overrides)
 }
 
-export function createCancelledDraftState(cancelReason: DraftState['cancelReason'], overrides: Partial<DraftState> = {}): DraftState {
+export function createCancelledDraftState(
+  cancelReason: DraftState['cancelReason'],
+  overrides: Partial<DraftState> = {},
+): DraftState {
   return createDraftState('cancelled', { cancelReason, ...overrides })
 }
 
@@ -147,14 +156,15 @@ function createDraftState(status: DraftStatus, overrides: Partial<DraftState>): 
       { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null, ...(isTeamMode ? { team: 1 } : {}) },
     ],
     bans: [],
-    picks: status === 'complete'
-      ? [
-          { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 },
-          { seatIndex: 1, civId: TEST_LEADER_IDS.saladinVizier, stepIndex: 1 },
-          { seatIndex: 2, civId: TEST_LEADER_IDS.johnCurtin, stepIndex: 1 },
-          { seatIndex: 3, civId: TEST_LEADER_IDS.montezuma, stepIndex: 1 },
-        ]
-      : [],
+    picks:
+      status === 'complete'
+        ? [
+            { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 },
+            { seatIndex: 1, civId: TEST_LEADER_IDS.saladinVizier, stepIndex: 1 },
+            { seatIndex: 2, civId: TEST_LEADER_IDS.johnCurtin, stepIndex: 1 },
+            { seatIndex: 3, civId: TEST_LEADER_IDS.montezuma, stepIndex: 1 },
+          ]
+        : [],
     steps: [
       { action: 'ban', count: 1, timer: 60, seats: [0] },
       { action: 'pick', count: 1, timer: 90, seats: [0] },

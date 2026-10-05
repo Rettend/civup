@@ -1,6 +1,7 @@
 import type { PlayerDataExportEstimate, PlayerDataExportSource } from '../src/client/lib/player-data-export'
 import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
 import { describe, expect, test } from 'vitest'
+import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 import {
   buildPlayerDataWorksheets,
   createPlayerDataExport,
@@ -10,7 +11,6 @@ import {
   PLAYER_DATA_EXPORT_CONTENT_TYPE,
   publishPlayerDataExport,
 } from '../src/client/lib/player-data-export'
-import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 
 describe('Activity player data export', () => {
   test('fetches and validates the cheap export estimate separately from data pages', async () => {
@@ -68,17 +68,15 @@ describe('Activity player data export', () => {
     expect(result.source.matches.map(row => row.id)).toEqual(['m1'])
     expect(result.filename).toBe('export-2026-07-15.xlsx')
     expect(result.blob.type).toBe(PLAYER_DATA_EXPORT_CONTENT_TYPE)
-    expect(progress).toEqual([
-      'players:1:0',
-      'players:2:0',
-      'matches:2:1',
-      'workbook:2:1',
-    ])
+    expect(progress).toEqual(['players:1:0', 'players:2:0', 'matches:2:1', 'workbook:2:1'])
   })
 
   test('reports authorization and malformed payload failures clearly', async () => {
-    const forbiddenFetch = (async () => Response.json({ error: 'Forbidden' }, { status: 403 })) as unknown as typeof fetch
-    await expect(fetchPlayerDataExport({ fetchImpl: forbiddenFetch })).rejects.toThrow('only available to server administrators')
+    const forbiddenFetch = (async () =>
+      Response.json({ error: 'Forbidden' }, { status: 403 })) as unknown as typeof fetch
+    await expect(fetchPlayerDataExport({ fetchImpl: forbiddenFetch })).rejects.toThrow(
+      'only available to server administrators',
+    )
 
     const malformedFetch = (async () => Response.json({ phase: 'players', players: [] })) as unknown as typeof fetch
     await expect(fetchPlayerDataExport({ fetchImpl: malformedFetch })).rejects.toThrow('malformed data')
@@ -87,16 +85,19 @@ describe('Activity player data export', () => {
   test('publishes the completed workbook and builds an authenticated external download URL', async () => {
     cacheActivitySessionToken('signed-session', 3600)
     try {
-      const requests: Array<{ input: string, init?: RequestInit }> = []
+      const requests: Array<{ input: string; init?: RequestInit }> = []
       const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
         requests.push({ input: String(input), init })
         return Response.json({ ok: true, filename: 'export-2026-07-15.xlsx', size: 4 })
       }) as typeof fetch
-      const published = await publishPlayerDataExport({
-        blob: new Blob(['xlsx'], { type: PLAYER_DATA_EXPORT_CONTENT_TYPE }),
-        filename: 'export-2026-07-15.xlsx',
-        source: sampleSource(),
-      }, fetchImpl)
+      const published = await publishPlayerDataExport(
+        {
+          blob: new Blob(['xlsx'], { type: PLAYER_DATA_EXPORT_CONTENT_TYPE }),
+          filename: 'export-2026-07-15.xlsx',
+          source: sampleSource(),
+        },
+        fetchImpl,
+      )
 
       expect(requests[0]!.input).toBe('/api/uploads/player-data-export?filename=export-2026-07-15.xlsx')
       expect(new Headers(requests[0]!.init?.headers).get('X-CivUp-Activity-Session')).toBe('signed-session')
@@ -105,8 +106,7 @@ describe('Activity player data export', () => {
         filename: 'export-2026-07-15.xlsx',
         url: 'http://localhost/api/uploads/player-data-export/download?activitySession=signed-session',
       })
-    }
-    finally {
+    } finally {
       clearActivitySessionToken()
     }
   })
@@ -126,8 +126,24 @@ describe('Activity player data export', () => {
       'match_bans',
     ])
     expect(byName.get('players')?.columns).toEqual(['player_id', 'display_name', 'created_at_utc', 'last_match_at_utc'])
-    expect(byName.get('ratings')?.columns).toEqual(['player_id', 'mode', 'mu', 'sigma', 'games_played', 'wins', 'last_played_at_utc'])
-    expect(byName.get('matches')?.columns).toEqual(['match_id', 'game_mode', 'status', 'old_bot', 'season_id', 'created_at_utc', 'completed_at_utc'])
+    expect(byName.get('ratings')?.columns).toEqual([
+      'player_id',
+      'mode',
+      'mu',
+      'sigma',
+      'games_played',
+      'wins',
+      'last_played_at_utc',
+    ])
+    expect(byName.get('matches')?.columns).toEqual([
+      'match_id',
+      'game_mode',
+      'status',
+      'old_bot',
+      'season_id',
+      'created_at_utc',
+      'completed_at_utc',
+    ])
     expect(byName.get('match_participants')?.columns).toEqual([
       'match_id',
       'player_id',
@@ -188,10 +204,7 @@ describe('Activity player data export', () => {
 
 function sampleSource(): PlayerDataExportSource {
   const source = emptySource()
-  source.players.push(
-    player('p2', 'Normal'),
-    player('p1', '=1+1 & <unsafe>'),
-  )
+  source.players.push(player('p2', 'Normal'), player('p1', '=1+1 & <unsafe>'))
   source.ratings.push(rating('p1'))
   source.matches.push(match('m-late', 200), match('m-early', 100))
   source.participants.push(participant('m-late', 'p1'), participant('m-early', 'p1'))
@@ -241,7 +254,12 @@ function ban(matchId: string) {
   return { matchId, civId: 'civ-russia', bannedBy: 'p1', phase: 1 }
 }
 
-function playerPage(generatedAt: number, nextCursor: string, playerRows: ReturnType<typeof player>[], ratings: ReturnType<typeof rating>[]) {
+function playerPage(
+  generatedAt: number,
+  nextCursor: string,
+  playerRows: ReturnType<typeof player>[],
+  ratings: ReturnType<typeof rating>[],
+) {
   return {
     version: 1,
     generatedAt,
@@ -272,9 +290,9 @@ function matchPage(
   }
 }
 
-function excelDate(timestampMs: number): { type: 'date', value: number } {
+function excelDate(timestampMs: number): { type: 'date'; value: number } {
   return {
     type: 'date',
-    value: Math.round(((timestampMs / 86_400_000) + 25_569) * 86_400) / 86_400,
+    value: Math.round((timestampMs / 86_400_000 + 25_569) * 86_400) / 86_400,
   }
 }

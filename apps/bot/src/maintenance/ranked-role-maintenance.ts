@@ -1,10 +1,16 @@
 import type { Env } from '../env.ts'
-import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 import { createDb } from '@civup/db'
 import { getKvStore } from '../services/kv/batch.ts'
-import { applyPendingRankedRoleDiscordChanges, clearRankedRolesDirtyState, getRankedRolesDirtyState, listRankedRoleConfigGuildIds, syncRankedRoles } from '../services/ranked/role-sync.ts'
-import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
 import { getDivisionRankPolicy, maintainDivisionRanks } from '../services/ranked/division-rank-runtime.ts'
+import {
+  applyPendingRankedRoleDiscordChanges,
+  clearRankedRolesDirtyState,
+  getRankedRolesDirtyState,
+  listRankedRoleConfigGuildIds,
+  syncRankedRoles,
+} from '../services/ranked/role-sync.ts'
+import { refreshRankedRoleDisplayMetadata } from '../services/ranked/roles.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
 
 export type RankedRoleMaintenanceAction = 'sync' | 'apply-pending'
 
@@ -51,10 +57,11 @@ export async function runRankedRoleMaintenance(
       try {
         const refresh = await refreshRankedRoleDisplayMetadata(kv, guildId, env.DISCORD_TOKEN, { now })
         if (refresh.missingRoleIds.length > 0) {
-          console.error(`[maintenance] Ranked role display refresh could not find ${refresh.missingRoleIds.length} configured role(s) in guild ${guildId}`)
+          console.error(
+            `[maintenance] Ranked role display refresh could not find ${refresh.missingRoleIds.length} configured role(s) in guild ${guildId}`,
+          )
         }
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`[maintenance] Failed to refresh ranked role display metadata for guild ${guildId}:`, error)
       }
 
@@ -76,12 +83,14 @@ export async function runRankedRoleMaintenance(
       continue
     }
 
-    const result = await runUnbufferedRatingMutation(createDb(env.DB), `role-apply:${guildId}`, () => applyPendingRankedRoleDiscordChanges({
-      kv,
-      guildId,
-      token: env.DISCORD_TOKEN,
-      maxPlayers: guildBudget,
-    }))
+    const result = await runUnbufferedRatingMutation(createDb(env.DB), `role-apply:${guildId}`, () =>
+      applyPendingRankedRoleDiscordChanges({
+        kv,
+        guildId,
+        token: env.DISCORD_TOKEN,
+        maxPlayers: guildBudget,
+      }),
+    )
     if ('error' in result) throw new Error(result.error)
     attemptedDiscordChanges += result.attemptedChanges
     appliedDiscordChanges += result.appliedChanges
@@ -89,7 +98,7 @@ export async function runRankedRoleMaintenance(
     remainingDiscordChanges = Math.max(0, remainingDiscordChanges - result.attemptedChanges)
   }
 
-  if (action === 'sync' && pendingDiscordChanges === 0 && await getRankedRolesDirtyState(kv)) {
+  if (action === 'sync' && pendingDiscordChanges === 0 && (await getRankedRolesDirtyState(kv))) {
     await clearRankedRolesDirtyState(kv)
   }
 

@@ -22,7 +22,17 @@ describe('DraftTimeline UI', () => {
   test('labels the initial blind pick as a normal pick phase', () => {
     uiMockState.draftState = createActiveDraftState({
       formatId: 'default-ffa-blind-pick',
-      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      steps: [
+        {
+          action: 'pick',
+          seats: 'all',
+          count: 1,
+          timer: 60,
+          blind: true,
+          blindPickRound: 0,
+          fallbackPickOrder: [0, 1, 2, 3],
+        },
+      ],
     })
 
     render(() => <DraftTimeline />)
@@ -32,9 +42,13 @@ describe('DraftTimeline UI', () => {
   })
 
   test('scrolls the connected current step after reactive updates and stops on disposal', () => {
-    const scrolled: Array<{ text: string | null, connected: boolean, current: string | null }> = []
+    const scrolled: Array<{ text: string | null; connected: boolean; current: string | null }> = []
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
-      scrolled.push({ text: this.textContent, connected: this.isConnected, current: this.getAttribute('data-current-step') })
+      scrolled.push({
+        text: this.textContent,
+        connected: this.isConnected,
+        current: this.getAttribute('data-current-step'),
+      })
     })
     try {
       uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
@@ -50,8 +64,7 @@ describe('DraftTimeline UI', () => {
       const count = scrolled.length
       uiMockState.mapVotePhase = 'done'
       expect(scrolled).toHaveLength(count)
-    }
-    finally {
+    } finally {
       scroll.mockRestore()
     }
   })

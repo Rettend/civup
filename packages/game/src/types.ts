@@ -11,9 +11,21 @@ export type CompetitiveTier = string
 
 export const GAME_MODES = ['ffa', '1v1', '2v2', '3v3', '4v4', '5v5', '6v6'] as const satisfies readonly GameMode[]
 
-export const LEADERBOARD_MODES = ['duel', 'duo', 'squad', 'ffa', 'red-death'] as const satisfies readonly LeaderboardMode[]
+export const LEADERBOARD_MODES = [
+  'duel',
+  'duo',
+  'squad',
+  'ffa',
+  'red-death',
+] as const satisfies readonly LeaderboardMode[]
 
-export const COMPETITIVE_TIERS = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5'] as const satisfies readonly CompetitiveTier[]
+export const COMPETITIVE_TIERS = [
+  'tier1',
+  'tier2',
+  'tier3',
+  'tier4',
+  'tier5',
+] as const satisfies readonly CompetitiveTier[]
 
 /** Whether a value is a normalized ranked tier id like `tier1`. */
 export function isCompetitiveTier(value: unknown): value is CompetitiveTier {
@@ -125,7 +137,6 @@ export interface Leader {
 // -- CivBlitz Types ---------------------------------------------------------
 
 export const CIV_BLITZ_CATEGORIES = ['civilizationAbility', 'leaderAbility', 'infrastructure', 'unit'] as const
-
 
 export type CivBlitzComponentCategory = (typeof CIV_BLITZ_CATEGORIES)[number]
 
@@ -339,27 +350,40 @@ export interface DraftPreviewState {
 }
 
 /** Actions that can be applied to a draft */
-export type DraftInput
-  = | { type: 'START' }
-    | { type: 'BAN', seatIndex: number, civIds: string[] }
-    | { type: 'PICK', seatIndex: number, civId: string }
-    | { type: 'CIV_BLITZ_SUBMIT', seatIndex: number, kit: CivBlitzPartialKit }
-    | { type: 'CANCEL', reason: DraftCancelReason }
-    | { type: 'TIMEOUT' }
+export type DraftInput =
+  | { type: 'START' }
+  | { type: 'BAN'; seatIndex: number; civIds: string[] }
+  | { type: 'PICK'; seatIndex: number; civId: string }
+  | { type: 'CIV_BLITZ_SUBMIT'; seatIndex: number; kit: CivBlitzPartialKit }
+  | { type: 'CANCEL'; reason: DraftCancelReason }
+  | { type: 'TIMEOUT' }
 
 /** Events emitted during state transitions (for broadcasting to clients) */
-export type DraftEvent
-  = | { type: 'DRAFT_STARTED' }
-    | { type: 'DRAFT_CANCELLED', reason: DraftCancelReason }
-    | { type: 'BAN_SUBMITTED', seatIndex: number, civIds: string[], blind: boolean }
-    | { type: 'PICK_SUBMITTED', seatIndex: number, civId: string, blind?: boolean }
-    | { type: 'CIV_BLITZ_SUBMITTED', seatIndex: number, categories: CivBlitzComponentCategory[], blind?: boolean }
-    | { type: 'CIV_BLITZ_REVEALED', submissions: CivBlitzSeatSubmission[], conflictComponentIds: string[], conflictedSeatIndexes: number[], categoriesBySeat: Record<number, CivBlitzComponentCategory[]>, round: number }
-    | { type: 'BLIND_PICKS_REVEALED', picks: DraftSelection[], conflictCivIds: string[], conflictedSeatIndexes: number[], round: number }
-    | { type: 'BLIND_BANS_REVEALED', bans: DraftSelection[] }
-    | { type: 'STEP_ADVANCED', stepIndex: number }
-    | { type: 'DRAFT_COMPLETE' }
-    | { type: 'TIMEOUT_APPLIED', seatIndex: number, selections: string[] }
+export type DraftEvent =
+  | { type: 'DRAFT_STARTED' }
+  | { type: 'DRAFT_CANCELLED'; reason: DraftCancelReason }
+  | { type: 'BAN_SUBMITTED'; seatIndex: number; civIds: string[]; blind: boolean }
+  | { type: 'PICK_SUBMITTED'; seatIndex: number; civId: string; blind?: boolean }
+  | { type: 'CIV_BLITZ_SUBMITTED'; seatIndex: number; categories: CivBlitzComponentCategory[]; blind?: boolean }
+  | {
+      type: 'CIV_BLITZ_REVEALED'
+      submissions: CivBlitzSeatSubmission[]
+      conflictComponentIds: string[]
+      conflictedSeatIndexes: number[]
+      categoriesBySeat: Record<number, CivBlitzComponentCategory[]>
+      round: number
+    }
+  | {
+      type: 'BLIND_PICKS_REVEALED'
+      picks: DraftSelection[]
+      conflictCivIds: string[]
+      conflictedSeatIndexes: number[]
+      round: number
+    }
+  | { type: 'BLIND_BANS_REVEALED'; bans: DraftSelection[] }
+  | { type: 'STEP_ADVANCED'; stepIndex: number }
+  | { type: 'DRAFT_COMPLETE' }
+  | { type: 'TIMEOUT_APPLIED'; seatIndex: number; selections: string[] }
 
 export interface DraftResult {
   state: DraftState

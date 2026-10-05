@@ -1,5 +1,5 @@
-import { api, ApiError } from '@civup/utils'
 import { Command, Embed } from 'discord-hono'
+import { api, ApiError } from '@civup/utils'
 import { canUseModCommands, hasAdminPermission, parseRoleIds } from '../services/permissions/index.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
@@ -30,7 +30,7 @@ interface HelpEntry {
 
 export const command_help = factory.command(
   new Command('help', 'Show available commands that you can use'),
-  async (c) => {
+  async c => {
     const memberPermissions = c.interaction.member?.permissions
     const canUseAdmin = hasAdminPermission({ permissions: memberPermissions })
 
@@ -41,47 +41,54 @@ export const command_help = factory.command(
       roles: parseRoleIds(c.interaction.member?.roles),
     })
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
-      let commandDefs: DiscordApplicationCommand[]
-      try {
-        commandDefs = await fetchRegisteredCommands(
-          c.env.DISCORD_TOKEN,
-          c.env.DISCORD_APPLICATION_ID,
-          c.interaction.guild_id,
-        )
-      }
-      catch (error) {
-        console.error('Failed to fetch command list for /help:', error)
-        await sendTransientEphemeralResponse(c, 'Could not load command list right now. Please try again.', 'error')
-        return null
-      }
+    return resDeferGeneralCommandResponse(
+      c,
+      async c => {
+        let commandDefs: DiscordApplicationCommand[]
+        try {
+          commandDefs = await fetchRegisteredCommands(
+            c.env.DISCORD_TOKEN,
+            c.env.DISCORD_APPLICATION_ID,
+            c.interaction.guild_id,
+          )
+        } catch (error) {
+          console.error('Failed to fetch command list for /help:', error)
+          await sendTransientEphemeralResponse(c, 'Could not load command list right now. Please try again.', 'error')
+          return null
+        }
 
-      const allEntries = buildHelpEntries(commandDefs)
-      const generalEntries = allEntries.filter((entry) => {
-        if (entry.root === 'admin' || entry.root === 'mod') return false
-        return true
-      })
+        const allEntries = buildHelpEntries(commandDefs)
+        const generalEntries = allEntries.filter(entry => {
+          if (entry.root === 'admin' || entry.root === 'mod') return false
+          return true
+        })
 
-      const embeds: Embed[] = []
-      if (canUseAdmin) {
-        const adminEntries = allEntries.filter(entry => entry.root === 'admin')
-        if (adminEntries.length > 0) embeds.push(helpGroupEmbed('Admin Commands', 0xDC2626, adminEntries))
-      }
+        const embeds: Embed[] = []
+        if (canUseAdmin) {
+          const adminEntries = allEntries.filter(entry => entry.root === 'admin')
+          if (adminEntries.length > 0) embeds.push(helpGroupEmbed('Admin Commands', 0xdc2626, adminEntries))
+        }
 
-      if (canUseMod) {
-        const modEntries = allEntries.filter(entry => entry.root === 'mod')
-        if (modEntries.length > 0) embeds.push(helpGroupEmbed('Mod Commands', 0xD97706, modEntries))
-      }
+        if (canUseMod) {
+          const modEntries = allEntries.filter(entry => entry.root === 'mod')
+          if (modEntries.length > 0) embeds.push(helpGroupEmbed('Mod Commands', 0xd97706, modEntries))
+        }
 
-      if (generalEntries.length > 0) embeds.push(helpGroupEmbed('General Commands', 0x2563EB, generalEntries))
+        if (generalEntries.length > 0) embeds.push(helpGroupEmbed('General Commands', 0x2563eb, generalEntries))
 
-      if (embeds.length === 0) {
-        await sendTransientEphemeralResponse(c, 'No commands available for your permissions in this context.', 'error')
-        return null
-      }
+        if (embeds.length === 0) {
+          await sendTransientEphemeralResponse(
+            c,
+            'No commands available for your permissions in this context.',
+            'error',
+          )
+          return null
+        }
 
-      return { embeds }
-    }, { redirect: !canUseAdmin && !canUseMod })
+        return { embeds }
+      },
+      { redirect: !canUseAdmin && !canUseMod },
+    )
   },
 )
 
@@ -171,7 +178,7 @@ function buildHelpEntries(commands: DiscordApplicationCommand[]): HelpEntry[] {
 function buildSlashInvocation(commandPath: string, options: DiscordApplicationCommandOption[]): string {
   const args = options
     .filter(option => option.type !== 1 && option.type !== 2)
-    .map((option) => {
+    .map(option => {
       const token = option.name.toLowerCase()
       return option.required ? `<${token}>` : `[${token}]`
     })
@@ -208,8 +215,7 @@ async function fetchRegisteredCommands(
         if (commandsByKey.has(key)) continue
         commandsByKey.set(key, command)
       }
-    }
-    catch (err: unknown) {
+    } catch (err: unknown) {
       lastError = `HTTP ${err instanceof ApiError ? err.status : 'Unknown'}`
       continue
     }

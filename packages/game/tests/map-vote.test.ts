@@ -39,16 +39,20 @@ describe('map vote helpers', () => {
   })
 
   test('normalizes ranked ballots and still accepts legacy stored ballots', () => {
-    expect(normalizeMapVoteSelection({
-      maps: ['lakes', 'random', 'lakes', 'inland-sea', 'tilted-axis'],
-    })).toEqual({
+    expect(
+      normalizeMapVoteSelection({
+        maps: ['lakes', 'random', 'lakes', 'inland-sea', 'tilted-axis'],
+      }),
+    ).toEqual({
       maps: ['lakes', 'random', 'inland-sea'],
     })
 
-    expect(normalizeMapVoteSelection({
-      mapTypes: ['east-vs-west'],
-      mapScripts: ['pangaea-ultima', 'seven-seas'],
-    })).toEqual({
+    expect(
+      normalizeMapVoteSelection({
+        mapTypes: ['east-vs-west'],
+        mapScripts: ['pangaea-ultima', 'seven-seas'],
+      }),
+    ).toEqual({
       maps: ['pangaea-ultima-east-vs-west', 'seven-seas'],
     })
   })
@@ -61,18 +65,22 @@ describe('map vote helpers', () => {
   })
 
   test('resolves ranked-choice map scripts through elimination rounds', () => {
-    const result = resolveMapVoteWinner([
-      { maps: ['pangaea-ultima'] },
-      { maps: ['pangaea-ultima'] },
-      { maps: ['pangaea-ultima'] },
-      { maps: ['pangaea-ultima'] },
-      { maps: ['seven-seas'] },
-      { maps: ['seven-seas'] },
-      { maps: ['seven-seas'] },
-      { maps: ['lakes', 'seven-seas'] },
-      { maps: ['lakes', 'seven-seas'] },
-      { maps: ['rich-highlands', 'seven-seas'] },
-    ], () => 0, 'seed-1')
+    const result = resolveMapVoteWinner(
+      [
+        { maps: ['pangaea-ultima'] },
+        { maps: ['pangaea-ultima'] },
+        { maps: ['pangaea-ultima'] },
+        { maps: ['pangaea-ultima'] },
+        { maps: ['seven-seas'] },
+        { maps: ['seven-seas'] },
+        { maps: ['seven-seas'] },
+        { maps: ['lakes', 'seven-seas'] },
+        { maps: ['lakes', 'seven-seas'] },
+        { maps: ['rich-highlands', 'seven-seas'] },
+      ],
+      () => 0,
+      'seed-1',
+    )
 
     expect(result).toEqual({
       mapType: 'standard',
@@ -89,11 +97,11 @@ describe('map vote helpers', () => {
   })
 
   test('keeps random as a candidate until it wins and only then resolves it', () => {
-    const result = resolveMapVoteWinner([
-      { maps: ['random'] },
-      { maps: ['random'] },
-      { maps: ['lakes'] },
-    ], () => 0, 'seed-2')
+    const result = resolveMapVoteWinner(
+      [{ maps: ['random'] }, { maps: ['random'] }, { maps: ['lakes'] }],
+      () => 0,
+      'seed-2',
+    )
 
     expect(result).toEqual({
       mapType: 'standard',
@@ -130,7 +138,9 @@ describe('map vote helpers', () => {
   })
 
   test('formats map type titles fully', () => {
-    expect(formatMapVoteResultTitle('east-vs-west', 'pangaea-ultima-no-wrap')).toBe('Pangaea Ultima (No Wrap) East vs West')
+    expect(formatMapVoteResultTitle('east-vs-west', 'pangaea-ultima-no-wrap')).toBe(
+      'Pangaea Ultima (No Wrap) East vs West',
+    )
     expect(formatMapVoteResultTitle('standard', 'seven-seas')).toBe('Seven Seas Standard')
   })
 })

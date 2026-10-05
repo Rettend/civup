@@ -33,16 +33,21 @@ describe('general command response routing', () => {
     })
 
     expect(harness.mode).toBe('ephemeral')
-    expect(harness.createMessageCalls).toEqual([[
-      'token',
-      'bot-commands',
-      {
-        content: 'hello world',
-        allowed_mentions: { parse: [] },
-      },
-    ]])
+    expect(harness.createMessageCalls).toEqual([
+      [
+        'token',
+        'bot-commands',
+        {
+          content: 'hello world',
+          allowed_mentions: { parse: [] },
+        },
+      ],
+    ])
     expect(harness.followups).toHaveLength(1)
-    expect((harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON().description).toBe('Posted in <#bot-commands>.')
+    expect(
+      (harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON()
+        .description,
+    ).toBe('Posted in <#bot-commands>.')
   })
 
   test('keeps output local when already used in the bot-commands channel', async () => {
@@ -93,17 +98,23 @@ describe('general command response routing', () => {
 
     expect(harness.mode).toBe('ephemeral')
     expect(harness.followups).toHaveLength(1)
-    expect((harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON().description).toBe('Failed to post in <#bot-commands>.')
+    expect(
+      (harness.followups[0] as { embeds: Array<{ toJSON: () => { description?: string } }> }).embeds[0]?.toJSON()
+        .description,
+    ).toBe('Failed to post in <#bot-commands>.')
   })
 })
 
-function createResponseHarness(kv: KVNamespace, channelId: string): {
+function createResponseHarness(
+  kv: KVNamespace,
+  channelId: string,
+): {
   mode: 'normal' | 'ephemeral' | null
   createMessageCalls: unknown[][]
   followups: unknown[]
   context: {
-    env: { KV: KVNamespace, DISCORD_TOKEN: string }
-    interaction: { guild_id: string, channel_id: string }
+    env: { KV: KVNamespace; DISCORD_TOKEN: string }
+    interaction: { guild_id: string; channel_id: string }
     executionCtx: { waitUntil: (promise: Promise<unknown>) => void }
     followup: (data?: unknown) => Promise<void>
     resDefer: (callback: (c: any) => Promise<void>) => Promise<Response>

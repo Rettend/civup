@@ -1,4 +1,9 @@
-import type { CloudflareProvisioningTarget, CloudflareStorageLocation, CloudflareTarget, CloudflareTargetName } from '../config/cloudflare-targets.ts'
+import type {
+  CloudflareProvisioningTarget,
+  CloudflareStorageLocation,
+  CloudflareTarget,
+  CloudflareTargetName,
+} from '../config/cloudflare-targets.ts'
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -21,17 +26,21 @@ function withLocalTargetsFile(contents: string, run: (file: string) => void) {
   try {
     writeFileSync(file, contents)
     run(file)
-  }
-  finally {
+  } finally {
     rmSync(directory, { recursive: true, force: true })
   }
 }
 
 describe('Cloudflare target selection', () => {
-  test.each([undefined, '', 'production', 'dev', 'ALTERNATE', ' alternate', 'alternate ', '__proto__'])('rejects an implicit or invalid target: %s', value => {
-    expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET to standard or alternate explicitly.')
-    expect(() => resolveCloudflareProvisioningTarget(value)).toThrow('Set CIVUP_TARGET to standard or alternate explicitly.')
-  })
+  test.each([undefined, '', 'production', 'dev', 'ALTERNATE', ' alternate', 'alternate ', '__proto__'])(
+    'rejects an implicit or invalid target: %s',
+    value => {
+      expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET to standard or alternate explicitly.')
+      expect(() => resolveCloudflareProvisioningTarget(value)).toThrow(
+        'Set CIVUP_TARGET to standard or alternate explicitly.',
+      )
+    },
+  )
 
   test('the same Worker and database names do not choose the same account or resources', () => {
     const standard = resolveCloudflareTarget('standard')
@@ -60,20 +69,24 @@ describe('Cloudflare target selection', () => {
   }
 
   test('storage also requires an explicit transport at runtime', () => {
-    expect(() => resolveCloudflareStorage('alternate', undefined as unknown as CloudflareStorageLocation))
-      .toThrow('Choose local or remote storage explicitly.')
+    expect(() => resolveCloudflareStorage('alternate', undefined as unknown as CloudflareStorageLocation)).toThrow(
+      'Choose local or remote storage explicitly.',
+    )
   })
 
   test('production browser and bot IDs come from the same public target', () => {
     for (const name of ['standard', 'alternate'] as const) {
       const target = resolveCloudflareTarget(name, fixtureTargetOptions)
-      expect(cloudflarePublicVariables(target, 'activity').DISCORD_CLIENT_ID)
-        .toBe(cloudflarePublicVariables(target, 'bot').DISCORD_APPLICATION_ID!)
+      expect(cloudflarePublicVariables(target, 'activity').DISCORD_CLIENT_ID).toBe(
+        cloudflarePublicVariables(target, 'bot').DISCORD_APPLICATION_ID!,
+      )
     }
     expect(cloudflarePublicVariables(cloudflareTargets.standard, 'bot').ENABLE_DEBUG_LOBBY_FILL).toBe('1')
     expect(cloudflarePublicVariables(fixtureAlternateTarget, 'bot').ENABLE_DEBUG_LOBBY_FILL).toBeUndefined()
     expect(cloudflarePublicVariables(cloudflareTargets.standard, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBeUndefined()
-    expect(cloudflarePublicVariables(fixtureAlternateTarget, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBe(fixtureAlternateTarget.discord.guildId)
+    expect(cloudflarePublicVariables(fixtureAlternateTarget, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBe(
+      fixtureAlternateTarget.discord.guildId,
+    )
     expect(cloudflarePublicVariables(fixtureAlternateTarget, 'activity')).not.toHaveProperty('ALLOWED_DISCORD_GUILD_IDS')
   })
 
@@ -86,9 +99,19 @@ describe('Cloudflare target selection', () => {
   })
 
   test('local metadata validation rejects placeholders, changed Worker names, and secret values', () => {
-    expect(() => parseCloudflareLocalTargets({ alternate: { ...fixtureAlternateTarget, accountId: 'YOUR_ALTERNATE_ACCOUNT_ID' } })).toThrow('invalid accountId')
-    expect(() => parseCloudflareLocalTargets({ alternate: { ...fixtureAlternateTarget, workers: { ...fixtureAlternateTarget.workers, bot: 'civup-bot-alternate' } } })).toThrow('invalid workers.bot')
-    expect(() => parseCloudflareLocalTargets({ alternate: { ...fixtureAlternateTarget, bot: { ...fixtureAlternateTarget.bot, variables: { DISCORD_TOKEN: 'fixture-value' } } } })).toThrow('Keep secret values out')
+    expect(() =>
+      parseCloudflareLocalTargets({ alternate: { ...fixtureAlternateTarget, accountId: 'YOUR_ALTERNATE_ACCOUNT_ID' } }),
+    ).toThrow('invalid accountId')
+    expect(() =>
+      parseCloudflareLocalTargets({
+        alternate: { ...fixtureAlternateTarget, workers: { ...fixtureAlternateTarget.workers, bot: 'civup-bot-alternate' } },
+      }),
+    ).toThrow('invalid workers.bot')
+    expect(() =>
+      parseCloudflareLocalTargets({
+        alternate: { ...fixtureAlternateTarget, bot: { ...fixtureAlternateTarget.bot, variables: { DISCORD_TOKEN: 'fixture-value' } } },
+      }),
+    ).toThrow('Keep secret values out')
     expect(parseCloudflareLocalTargets(fixtureLocalTargets)).toEqual(fixtureLocalTargets)
   })
 
@@ -140,7 +163,9 @@ describe('Cloudflare resource creation target selection', () => {
   })
 
   test('ALTERNATE can use the local example before storage IDs or deployment settings are filled in', () => {
-    const example: { alternate: CloudflareTarget } = JSON.parse(readFileSync(new URL('../config/cloudflare-targets.local.example.json', import.meta.url), 'utf8'))
+    const example: { alternate: CloudflareTarget } = JSON.parse(
+      readFileSync(new URL('../config/cloudflare-targets.local.example.json', import.meta.url), 'utf8'),
+    )
     const localTargets = { alternate: { ...example.alternate, accountId: fixtureAlternateTarget.accountId, r2: fixtureAlternateTarget.r2 } }
     withLocalTargetsFile(JSON.stringify(localTargets), localTargetsFile => {
       expect(resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toEqual({
@@ -175,19 +200,30 @@ describe('Cloudflare resource creation target selection', () => {
     })
   })
 
-  test.each(['', ' ', 'YOUR_ALTERNATE_ACCOUNT_ID', '1'.repeat(31), 'g'.repeat(32)])('rejects an invalid creation account: %s', accountId => {
-    expect(() => resolveCloudflareProvisioningTarget('alternate', {
-      localTargets: { alternate: { accountId, d1: { name: 'fixture-database' } } },
-    })).toThrow('invalid accountId')
-  })
+  test.each(['', ' ', 'YOUR_ALTERNATE_ACCOUNT_ID', '1'.repeat(31), 'g'.repeat(32)])(
+    'rejects an invalid creation account: %s',
+    accountId => {
+      expect(() =>
+        resolveCloudflareProvisioningTarget('alternate', {
+          localTargets: { alternate: { accountId, d1: { name: 'fixture-database' } } },
+        }),
+      ).toThrow('invalid accountId')
+    },
+  )
 
   test.each(['', '   '])('rejects empty resource names: %s', name => {
-    expect(() => resolveCloudflareProvisioningTarget('alternate', {
-      localTargets: { alternate: { accountId: fixtureAlternateTarget.accountId, d1: { name } } },
-    })).toThrow('invalid d1.name')
-    expect(() => resolveCloudflareProvisioningTarget('alternate', {
-      localTargets: { alternate: { accountId: fixtureAlternateTarget.accountId, d1: { name: 'fixture-database' }, r2: { name } } },
-    })).toThrow('invalid r2.name')
+    expect(() =>
+      resolveCloudflareProvisioningTarget('alternate', {
+        localTargets: { alternate: { accountId: fixtureAlternateTarget.accountId, d1: { name } } },
+      }),
+    ).toThrow('invalid d1.name')
+    expect(() =>
+      resolveCloudflareProvisioningTarget('alternate', {
+        localTargets: {
+          alternate: { accountId: fixtureAlternateTarget.accountId, d1: { name: 'fixture-database' }, r2: { name } },
+        },
+      }),
+    ).toThrow('invalid r2.name')
   })
 
   test('validates the required field types and optional R2 structure', () => {
@@ -208,20 +244,34 @@ describe('Cloudflare resource creation target selection', () => {
   })
 
   test('missing ALTERNATE settings never fall back to standard and share the existing file errors', () => {
-    expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargets: {} })).toThrow('ALTERNATE target settings are missing')
-    expect(() => resolveCloudflareProvisioningTarget('alternate', {
-      localTargetsFile: new URL('./missing-targets.local.json', import.meta.url),
-    })).toThrow('ALTERNATE target settings were not found')
-    expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile: 'targets.yaml' })).toThrow('must be a JSON file')
+    expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargets: {} })).toThrow(
+      'ALTERNATE target settings are missing',
+    )
+    expect(() =>
+      resolveCloudflareProvisioningTarget('alternate', {
+        localTargetsFile: new URL('./missing-targets.local.json', import.meta.url),
+      }),
+    ).toThrow('ALTERNATE target settings were not found')
+    expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile: 'targets.yaml' })).toThrow(
+      'must be a JSON file',
+    )
     withLocalTargetsFile('{', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow('ALTERNATE target settings are not valid JSON')
-      expect(() => resolveCloudflareTarget('alternate', { localTargetsFile })).toThrow('ALTERNATE target settings are not valid JSON')
+      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow(
+        'ALTERNATE target settings are not valid JSON',
+      )
+      expect(() => resolveCloudflareTarget('alternate', { localTargetsFile })).toThrow(
+        'ALTERNATE target settings are not valid JSON',
+      )
     })
     withLocalTargetsFile('{}', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow('ALTERNATE target settings are missing')
+      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow(
+        'ALTERNATE target settings are missing',
+      )
     })
     withLocalTargetsFile('[]', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow('need an object for targets')
+      expect(() => resolveCloudflareProvisioningTarget('alternate', { localTargetsFile })).toThrow(
+        'need an object for targets',
+      )
     })
   })
 })

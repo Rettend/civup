@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createRoot, createSignal, flush } from 'solid-js'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createOptimisticState } from '../src/client/lib/optimistic-state'
 
 interface TimerConfig {
@@ -10,7 +10,7 @@ interface TimerConfig {
 const disposers: (() => void)[] = []
 
 function createHarness(initial: TimerConfig) {
-  const harness = createRoot((dispose) => {
+  const harness = createRoot(dispose => {
     const [source, setSource] = createSignal(initial)
     const optimistic = createOptimisticState(source, {
       equals: (a, b) => a.banTimerSeconds === b.banTimerSeconds && a.pickTimerSeconds === b.pickTimerSeconds,
@@ -180,7 +180,13 @@ describe('createOptimisticState', () => {
     flush()
     expect(vi.getTimerCount()).toBe(1)
     let finish!: () => void
-    const pending = harness.optimistic.commit({ banTimerSeconds: 180, pickTimerSeconds: 210 }, () => new Promise(resolve => { finish = resolve }))
+    const pending = harness.optimistic.commit(
+      { banTimerSeconds: 180, pickTimerSeconds: 210 },
+      () =>
+        new Promise(resolve => {
+          finish = resolve
+        }),
+    )
     flush()
     harness.dispose()
     expect(vi.getTimerCount()).toBe(0)

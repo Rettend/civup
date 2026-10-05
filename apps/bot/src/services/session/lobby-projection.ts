@@ -1,10 +1,10 @@
-import type { Database } from '@civup/db'
-import type { GameMode } from '@civup/game'
 import type { SessionConfig, SessionPhase, SessionRoster } from '../../session-runtime/session-record.ts'
 import type { LobbyState } from '../lobby/types.ts'
+import type { Database } from '@civup/db'
+import type { GameMode } from '@civup/game'
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { matches, matchParticipants, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { GAME_MODES } from '@civup/game'
-import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { buildLobbyDraftConfigFromSessionConfig } from '../../session-runtime/session-record.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from './directory.ts'
 
@@ -20,7 +20,11 @@ export async function getLiveSessionLobbyProjections(
   const conditions = [inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES])]
   if (options.mode) conditions.push(eq(sessionDirectory.mode, options.mode))
 
-  const rows = await db.select().from(sessionDirectory).where(and(...conditions)).orderBy(desc(sessionDirectory.updatedAt))
+  const rows = await db
+    .select()
+    .from(sessionDirectory)
+    .where(and(...conditions))
+    .orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -30,23 +34,22 @@ export async function getOpenSessionLobbyProjectionsByMode(
   mode: GameMode,
   options: { includeStale?: boolean } = {},
 ): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
-    eq(sessionDirectory.mode, mode),
-    eq(sessionDirectory.phase, 'open'),
-  )).orderBy(asc(sessionDirectory.createdAt))
+  const rows = await db
+    .select()
+    .from(sessionDirectory)
+    .where(and(eq(sessionDirectory.mode, mode), eq(sessionDirectory.phase, 'open')))
+    .orderBy(asc(sessionDirectory.createdAt))
 
   const visibleRows = options.includeStale ? rows : filterStaleOpenDirectoryRows(rows)
   return visibleRows.flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
 
-export async function getOpenSessionLobbyProjectionsByChannel(
-  db: Database,
-  channelId: string,
-): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
-    eq(sessionDirectory.channelId, channelId),
-    eq(sessionDirectory.phase, 'open'),
-  )).orderBy(desc(sessionDirectory.updatedAt))
+export async function getOpenSessionLobbyProjectionsByChannel(db: Database, channelId: string): Promise<LobbyState[]> {
+  const rows = await db
+    .select()
+    .from(sessionDirectory)
+    .where(and(eq(sessionDirectory.channelId, channelId), eq(sessionDirectory.phase, 'open')))
+    .orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -54,16 +57,18 @@ export async function getOpenSessionLobbyProjectionsByChannel(
 export async function getOpenSessionLobbyProjectionForPlayer(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode; excludeLobbyIds?: readonly string[] } = {},
 ): Promise<LobbyState | null> {
-  return (await getCurrentSessionLobbyProjectionsForPlayer(db, playerId, options))
-    .find(lobby => lobby.status === 'open') ?? null
+  return (
+    (await getCurrentSessionLobbyProjectionsForPlayer(db, playerId, options)).find(lobby => lobby.status === 'open') ??
+    null
+  )
 }
 
 export async function getCurrentSessionLobbyProjectionsForPlayers(
   db: Database,
   playerIds: readonly string[],
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode; excludeLobbyIds?: readonly string[] } = {},
 ): Promise<Map<string, LobbyState | null>> {
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
   const result = new Map<string, LobbyState | null>()
@@ -77,7 +82,8 @@ export async function getCurrentSessionLobbyProjectionsForPlayers(
   ]
   if (options.mode) conditions.push(eq(sessionDirectory.mode, options.mode))
 
-  const rows = await db.select({ playerId: sessionDirectoryMembers.playerId, session: sessionDirectory })
+  const rows = await db
+    .select({ playerId: sessionDirectoryMembers.playerId, session: sessionDirectory })
     .from(sessionDirectoryMembers)
     .innerJoin(sessionDirectory, eq(sessionDirectory.sessionId, sessionDirectoryMembers.sessionId))
     .where(and(...conditions))
@@ -99,7 +105,7 @@ export async function getCurrentSessionLobbyProjectionsForPlayers(
 export async function getCurrentSessionLobbyProjectionsForPlayer(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode; excludeLobbyIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
   const lobby = (await getCurrentSessionLobbyProjectionsForPlayers(db, [playerId], options)).get(playerId) ?? null
   return lobby ? [lobby] : []
@@ -108,20 +114,18 @@ export async function getCurrentSessionLobbyProjectionsForPlayer(
 export async function getLiveSessionLobbyProjectionsForUser(
   db: Database,
   playerId: string,
-  options: { mode?: GameMode, excludeLobbyIds?: readonly string[] } = {},
+  options: { mode?: GameMode; excludeLobbyIds?: readonly string[] } = {},
 ): Promise<LobbyState[]> {
   const bySessionId = new Map<string, LobbyState>()
   for (const lobby of await getCurrentSessionLobbyProjectionsForPlayer(db, playerId, options)) {
     bySessionId.set(lobby.id, lobby)
   }
 
-  const matchRows = await db.select({ matchId: matchParticipants.matchId })
+  const matchRows = await db
+    .select({ matchId: matchParticipants.matchId })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(
-      eq(matchParticipants.playerId, playerId),
-      inArray(matches.status, ['drafting', 'active']),
-    ))
+    .where(and(eq(matchParticipants.playerId, playerId), inArray(matches.status, ['drafting', 'active'])))
     .orderBy(desc(matches.createdAt))
 
   const excludedLobbyIds = new Set(options.excludeLobbyIds ?? [])
@@ -137,26 +141,22 @@ export async function getLiveSessionLobbyProjectionsForUser(
   return [...bySessionId.values()].sort(compareLobbyProjectionByUpdatedAtDesc)
 }
 
-export async function getOpenSessionLobbyProjectionHostedBy(
-  db: Database,
-  hostId: string,
-): Promise<LobbyState | null> {
-  const rows = await db.select().from(sessionDirectory).where(and(
-    eq(sessionDirectory.hostId, hostId),
-    eq(sessionDirectory.phase, 'open'),
-  )).orderBy(asc(sessionDirectory.createdAt))
+export async function getOpenSessionLobbyProjectionHostedBy(db: Database, hostId: string): Promise<LobbyState | null> {
+  const rows = await db
+    .select()
+    .from(sessionDirectory)
+    .where(and(eq(sessionDirectory.hostId, hostId), eq(sessionDirectory.phase, 'open')))
+    .orderBy(asc(sessionDirectory.createdAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])[0] ?? null
 }
 
-export async function getLiveSessionLobbyProjectionsHostedBy(
-  db: Database,
-  hostId: string,
-): Promise<LobbyState[]> {
-  const rows = await db.select().from(sessionDirectory).where(and(
-    eq(sessionDirectory.hostId, hostId),
-    inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES]),
-  )).orderBy(desc(sessionDirectory.updatedAt))
+export async function getLiveSessionLobbyProjectionsHostedBy(db: Database, hostId: string): Promise<LobbyState[]> {
+  const rows = await db
+    .select()
+    .from(sessionDirectory)
+    .where(and(eq(sessionDirectory.hostId, hostId), inArray(sessionDirectory.phase, [...LIVE_PROJECTION_PHASES])))
+    .orderBy(desc(sessionDirectory.updatedAt))
 
   return filterStaleOpenDirectoryRows(rows).flatMap(row => parseSessionLobbyProjection(row) ?? [])
 }
@@ -166,18 +166,20 @@ function filterStaleOpenDirectoryRows(rows: SessionDirectoryRow[]): SessionDirec
   return rows.filter(row => !isStaleOpenDirectoryRow(row, now))
 }
 
-function isStaleOpenDirectoryRow(row: Pick<SessionDirectoryRow, 'phase' | 'updatedAt' | 'lastActivityAt'>, now: number = Date.now()): boolean {
+function isStaleOpenDirectoryRow(
+  row: Pick<SessionDirectoryRow, 'phase' | 'updatedAt' | 'lastActivityAt'>,
+  now: number = Date.now(),
+): boolean {
   return row.phase === 'open' && now - Math.max(row.updatedAt, row.lastActivityAt) >= SESSION_DIRECTORY_OPEN_STALE_MS
 }
 
-export async function getSessionLobbyProjectionByMatch(
-  db: Database,
-  matchId: string,
-): Promise<LobbyState | null> {
-  const [row] = await db.select().from(sessionDirectory).where(or(
-    eq(sessionDirectory.matchId, matchId),
-    eq(sessionDirectory.sessionId, matchId),
-  )).orderBy(desc(sessionDirectory.updatedAt)).limit(1)
+export async function getSessionLobbyProjectionByMatch(db: Database, matchId: string): Promise<LobbyState | null> {
+  const [row] = await db
+    .select()
+    .from(sessionDirectory)
+    .where(or(eq(sessionDirectory.matchId, matchId), eq(sessionDirectory.sessionId, matchId)))
+    .orderBy(desc(sessionDirectory.updatedAt))
+    .limit(1)
 
   return row ? parseSessionLobbyProjection(row) : null
 }
@@ -219,28 +221,32 @@ export function parseSessionLobbyProjection(row: SessionDirectoryRow): LobbyStat
 function parseSessionRoster(raw: string): SessionRoster | null {
   try {
     const parsed = JSON.parse(raw) as Partial<SessionRoster>
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.participants) || !Array.isArray(parsed.slots)) return null
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.participants) || !Array.isArray(parsed.slots))
+      return null
 
-    const participants = parsed.participants.flatMap((candidate) => {
+    const participants = parsed.participants.flatMap(candidate => {
       if (!candidate || typeof candidate !== 'object') return []
       const member = candidate as Partial<SessionRoster['participants'][number]>
       if (typeof member.playerId !== 'string' || member.playerId.length === 0) return []
-      return [{
-        playerId: member.playerId,
-        displayName: typeof member.displayName === 'string' ? member.displayName : null,
-        avatarUrl: typeof member.avatarUrl === 'string' ? member.avatarUrl : null,
-        joinedAt: typeof member.joinedAt === 'number' ? member.joinedAt : 0,
-        ...(Array.isArray(member.partyIds) ? { partyIds: member.partyIds.filter((partyId): partyId is string => typeof partyId === 'string') } : {}),
-        slotIndex: typeof member.slotIndex === 'number' ? member.slotIndex : null,
-      }]
+      return [
+        {
+          playerId: member.playerId,
+          displayName: typeof member.displayName === 'string' ? member.displayName : null,
+          avatarUrl: typeof member.avatarUrl === 'string' ? member.avatarUrl : null,
+          joinedAt: typeof member.joinedAt === 'number' ? member.joinedAt : 0,
+          ...(Array.isArray(member.partyIds)
+            ? { partyIds: member.partyIds.filter((partyId): partyId is string => typeof partyId === 'string') }
+            : {}),
+          slotIndex: typeof member.slotIndex === 'number' ? member.slotIndex : null,
+        },
+      ]
     })
 
     return {
       participants,
-      slots: parsed.slots.map(slot => typeof slot === 'string' ? slot : null),
+      slots: parsed.slots.map(slot => (typeof slot === 'string' ? slot : null)),
     }
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -272,8 +278,7 @@ function parseSessionConfig(raw: string, mode: SessionDirectoryRow['mode']): Ses
       minRole: parsed.minRole ?? null,
       maxRole: parsed.maxRole ?? null,
     }
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -295,7 +300,14 @@ function mapSessionPhaseToLobbyStatus(phase: SessionPhase): LobbyState['status']
 }
 
 function isSessionPhase(value: string): value is SessionPhase {
-  return value === 'open' || value === 'draft' || value === 'swap' || value === 'active' || value === 'reported' || value === 'cancelled'
+  return (
+    value === 'open' ||
+    value === 'draft' ||
+    value === 'swap' ||
+    value === 'active' ||
+    value === 'reported' ||
+    value === 'cancelled'
+  )
 }
 
 function isGameMode(value: unknown): value is GameMode {

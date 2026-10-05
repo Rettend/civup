@@ -1,3 +1,4 @@
+import { describe, expect, test } from 'vitest'
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
@@ -6,7 +7,6 @@ import {
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
-import { describe, expect, test } from 'vitest'
 import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE } from '../src/server/browser-auth'
 
@@ -36,12 +36,18 @@ describe('browser cookie proxy', () => {
   test('accepts cookie auth, strips credentials, and combines identity with direct context', async () => {
     const forwarded: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player', avatarUrl: null })
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/browser/session/stable-session`, {
-      headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
-    }), createEnv(forwarded, Response.json({ status: 'ended', sessionId: 'stable-session', matchId: 'match-1', phase: 'cancelled' })))
+    const response = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/browser/session/stable-session`, {
+        headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
+      }),
+      createEnv(
+        forwarded,
+        Response.json({ status: 'ended', sessionId: 'stable-session', matchId: 'match-1', phase: 'cancelled' }),
+      ),
+    )
 
     expect(response.status).toBe(200)
-    expect(await response.json() as unknown).toEqual({
+    expect((await response.json()) as unknown).toEqual({
       identity: { userId: 'player-1', displayName: 'Player', avatarUrl: null },
       context: { status: 'ended', sessionId: 'stable-session', matchId: 'match-1', phase: 'cancelled' },
     })
@@ -57,21 +63,30 @@ describe('browser cookie proxy', () => {
     const cookie = `${BROWSER_SESSION_COOKIE}=${token}`
     const env = createEnv([], new Response('ok'))
 
-    const crossOriginPost = await activityWorker.fetch(new Request(`${ORIGIN}/api/lobby/1v1/config`, {
-      method: 'POST',
-      headers: { Cookie: cookie, Origin: 'https://evil.example', 'Content-Type': 'application/json' },
-      body: '{}',
-    }), env)
+    const crossOriginPost = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/lobby/1v1/config`, {
+        method: 'POST',
+        headers: { 'Cookie': cookie, 'Origin': 'https://evil.example', 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      env,
+    )
     expect(crossOriginPost.status).toBe(403)
 
-    const missingOriginSocket = await activityWorker.fetch(new Request(`${ORIGIN}/api/parties/session/stable-session`, {
-      headers: { Cookie: cookie, Upgrade: 'websocket', Connection: 'Upgrade' },
-    }), env)
+    const missingOriginSocket = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/parties/session/stable-session`, {
+        headers: { Cookie: cookie, Upgrade: 'websocket', Connection: 'Upgrade' },
+      }),
+      env,
+    )
     expect(missingOriginSocket.status).toBe(403)
 
-    const sameOriginSocket = await activityWorker.fetch(new Request(`${ORIGIN}/api/parties/session/stable-session`, {
-      headers: { Cookie: cookie, Origin: ORIGIN, Upgrade: 'websocket', Connection: 'Upgrade' },
-    }), env)
+    const sameOriginSocket = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/parties/session/stable-session`, {
+        headers: { Cookie: cookie, Origin: ORIGIN, Upgrade: 'websocket', Connection: 'Upgrade' },
+      }),
+      env,
+    )
     expect(sameOriginSocket.status).toBe(200)
   })
 
@@ -79,9 +94,12 @@ describe('browser cookie proxy', () => {
     const forwarded: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'embedded', displayName: null, avatarUrl: null })
     const env = { ...createEnv(forwarded, new Response('ok')), ACTIVITY_PUBLIC_ORIGIN: undefined }
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/launch/channel/embedded`, {
-      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
-    }), env)
+    const response = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/activity/launch/channel/embedded`, {
+        headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+      }),
+      env,
+    )
     expect(response.status).toBe(200)
     expect(forwarded).toHaveLength(1)
   })
@@ -101,11 +119,14 @@ describe('browser cookie proxy', () => {
         controller.close()
       },
     })
-    const upstream = new Response(body, { headers: { 'Content-Type': 'application/json', ETag: 'page-etag' } })
+    const upstream = new Response(body, { headers: { 'Content-Type': 'application/json', 'ETag': 'page-etag' } })
 
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/activity/admin/player-data-export?cursor=next`, {
-      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
-    }), createEnv(forwarded, upstream))
+    const response = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/activity/admin/player-data-export?cursor=next`, {
+        headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+      }),
+      createEnv(forwarded, upstream),
+    )
 
     expect(await response.text()).toBe('{"phase":"players"}')
     expect(new URL(forwarded[0]!.url).searchParams.get('cursor')).toBe('next')
@@ -118,27 +139,33 @@ describe('browser cookie proxy', () => {
   test('streams CivBlitz ZIP downloads through a short-lived match-scoped ticket', async () => {
     const forwarded: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
-    const bytes = new Uint8Array([0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0x80, 0x01])
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x80, 0x01])
     const upstream = new Response(bytes, {
       headers: {
         'Content-Disposition': 'attachment; filename="civblitz-match.zip"',
         'Content-Length': String(bytes.byteLength),
         'Content-Type': 'application/zip',
-        ETag: 'mod-etag',
+        'ETag': 'mod-etag',
       },
     })
 
-    const ticketResponse = await activityWorker.fetch(new Request(`${ORIGIN}/api/match/match-1/civblitz/download-ticket`, {
-      method: 'POST',
-      headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
-    }), createEnv(forwarded, upstream))
+    const ticketResponse = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/match/match-1/civblitz/download-ticket`, {
+        method: 'POST',
+        headers: { [CIVUP_ACTIVITY_SESSION_HEADER]: token },
+      }),
+      createEnv(forwarded, upstream),
+    )
     const ticketPayload = await ticketResponse.json<{ ticket: string }>()
     expect(ticketResponse.status).toBe(200)
     expect(typeof ticketPayload.ticket).toBe('string')
 
-    const response = await activityWorker.fetch(new Request(
-      `${ORIGIN}/api/match/match-1/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
-    ), createEnv(forwarded, upstream))
+    const response = await activityWorker.fetch(
+      new Request(
+        `${ORIGIN}/api/match/match-1/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
+      ),
+      createEnv(forwarded, upstream),
+    )
 
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
     expect(response.headers.get('Content-Type')).toBe('application/zip')
@@ -150,45 +177,67 @@ describe('browser cookie proxy', () => {
     expect(new URL(forwarded[0]!.url).search).toBe('')
     expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
 
-    const wrongMatch = await activityWorker.fetch(new Request(
-      `${ORIGIN}/api/match/match-2/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
-    ), createEnv([], upstream))
+    const wrongMatch = await activityWorker.fetch(
+      new Request(
+        `${ORIGIN}/api/match/match-2/civblitz/download?civBlitzDownloadTicket=${encodeURIComponent(ticketPayload.ticket)}`,
+      ),
+      createEnv([], upstream),
+    )
     expect(wrongMatch.status).toBe(401)
 
-    const reusableSessionUrl = await activityWorker.fetch(new Request(
-      `${ORIGIN}/api/match/match-1/civblitz/download?activitySession=${encodeURIComponent(token)}`,
-    ), createEnv([], upstream))
+    const reusableSessionUrl = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/match/match-1/civblitz/download?activitySession=${encodeURIComponent(token)}`),
+      createEnv([], upstream),
+    )
     expect(reusableSessionUrl.status).toBe(401)
   })
 
   test('returns browser identity without exposing the session and clears logout only for exact origin', async () => {
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player', avatarUrl: null })
     const env = createEnv([], new Response('ok'))
-    const me = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/me`, {
-      headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
-    }), env)
+    const me = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/me`, {
+        headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
+      }),
+      env,
+    )
     expect(await me.json<any>()).toEqual({ userId: 'player-1', displayName: 'Player', avatarUrl: null })
 
-    const rejectedLogout = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/logout`, {
-      method: 'POST', headers: { Origin: 'https://evil.example' },
-    }), env)
+    const rejectedLogout = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Origin: 'https://evil.example' },
+      }),
+      env,
+    )
     expect(rejectedLogout.status).toBe(403)
-    const logout = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/logout`, {
-      method: 'POST', headers: { Origin: ORIGIN },
-    }), env)
+    const logout = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Origin: ORIGIN },
+      }),
+      env,
+    )
     expect(logout.status).toBe(204)
     expect(logout.headers.get('Set-Cookie')).toContain(`${BROWSER_SESSION_COOKIE}=;`)
     expect(logout.headers.get('Set-Cookie')).toContain('Max-Age=0')
   })
 
   test('rejects expired browser sessions', async () => {
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null }, {
-      nowMs: Date.now() - 10_000,
-      ttlSeconds: 1,
-    })
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/me`, {
-      headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
-    }), createEnv([], new Response('ok')))
+    const token = await createActivitySession(
+      SECRET,
+      { userId: 'player-1', displayName: null, avatarUrl: null },
+      {
+        nowMs: Date.now() - 10_000,
+        ttlSeconds: 1,
+      },
+    )
+    const response = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/me`, {
+        headers: { Cookie: `${BROWSER_SESSION_COOKIE}=${token}` },
+      }),
+      createEnv([], new Response('ok')),
+    )
     expect(response.status).toBe(401)
   })
 })

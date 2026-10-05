@@ -1,5 +1,5 @@
-import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
+import { playerRatings, players } from '@civup/db'
 import { buildLeaderboardCommandImages } from '../../src/commands/leaderboard.ts'
 import { rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -30,8 +30,7 @@ describe('leaderboard command payload', () => {
         expect(payload.images[0]?.mode).toBe('ffa')
         expect(isPng(payload.images[0]!.data)).toBe(true)
       }
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -43,7 +42,9 @@ describe('leaderboard command payload', () => {
     const payload = await buildLeaderboardCommandImages(db, kv, 'ffa')
 
     expect('images' in payload ? payload.images : undefined).toBeUndefined()
-    expect('content' in payload ? payload.content : undefined).toBe('Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.')
+    expect('content' in payload ? payload.content : undefined).toBe(
+      'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.',
+    )
     sqlite.close()
   })
 })

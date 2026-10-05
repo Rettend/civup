@@ -1,5 +1,5 @@
-import type { CompetitiveTier } from '@civup/game'
 import type { AdminCommandContext, AdminVar } from './types.ts'
+import type { CompetitiveTier } from '@civup/game'
 import { createDb } from '@civup/db'
 import { formatLeaderboardModeLabel, parseLeaderboardMode } from '@civup/game'
 import { getKvStore } from '../../services/kv/batch.ts'
@@ -27,8 +27,12 @@ export function handleRankedRoles(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const config = await getRankedRoleConfig(c.env.KV, guildId)
-    await sendTransientEphemeralResponse(c, `Current ranked roles:
-${formatRankedRoleConfig(config)}`, 'success')
+    await sendTransientEphemeralResponse(
+      c,
+      `Current ranked roles:
+${formatRankedRoleConfig(config)}`,
+      'success',
+    )
   })
 }
 
@@ -45,30 +49,37 @@ export function handleRankedRolesSet(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const hasConfigChanges = roleInputs.some(roleId => roleId !== undefined) || c.var.unranked !== undefined
-    let roleDisplayById: Map<string, { name: string, color: string | null }> | undefined = resolvedRoleDisplayById.size > 0
-      ? resolvedRoleDisplayById
-      : undefined
+    let roleDisplayById: Map<string, { name: string; color: string | null }> | undefined =
+      resolvedRoleDisplayById.size > 0 ? resolvedRoleDisplayById : undefined
     if (!roleDisplayById) {
       try {
         const roles = await fetchGuildRoles(c.env.DISCORD_TOKEN, guildId)
         roleDisplayById = new Map(roles.map(role => [role.id, { name: role.name, color: role.color }]))
-      }
-      catch (error) {
+      } catch (error) {
         console.error('Failed to fetch guild roles while saving ranked role config:', error)
       }
     }
 
     const currentConfig = await getRankedRoleConfig(c.env.KV, guildId)
     const config = hasConfigChanges
-      ? await updateRankedRoleConfig(c.env.KV, guildId, {
-          tierRoleIdsByRank: roleInputs,
-          unrankedRoleId: c.var.unranked,
-        }, roleDisplayById)
+      ? await updateRankedRoleConfig(
+          c.env.KV,
+          guildId,
+          {
+            tierRoleIdsByRank: roleInputs,
+            unrankedRoleId: c.var.unranked,
+          },
+          roleDisplayById,
+        )
       : currentConfig
 
     const actionPrefix = hasConfigChanges ? 'Updated current ranked roles:' : 'Current ranked roles:'
-    await sendTransientEphemeralResponse(c, `${actionPrefix}
-${formatRankedRoleConfig(config)}`, 'success')
+    await sendTransientEphemeralResponse(
+      c,
+      `${actionPrefix}
+${formatRankedRoleConfig(config)}`,
+      'success',
+    )
   })
 }
 
@@ -96,9 +107,15 @@ export function handleRankedRolesUnset(c: AdminCommandContext) {
         })
       : currentConfig
 
-    const actionPrefix = currentConfig.tiers[slot - 1]?.roleId ? 'Updated current ranked roles:' : 'Current ranked roles:'
-    await sendTransientEphemeralResponse(c, `${actionPrefix}
-${formatRankedRoleConfig(config)}`, 'success')
+    const actionPrefix = currentConfig.tiers[slot - 1]?.roleId
+      ? 'Updated current ranked roles:'
+      : 'Current ranked roles:'
+    await sendTransientEphemeralResponse(
+      c,
+      `${actionPrefix}
+${formatRankedRoleConfig(config)}`,
+      'success',
+    )
   })
 }
 
@@ -125,8 +142,7 @@ export function handleRankedSync(c: AdminCommandContext) {
       if (result.pendingDiscordChanges === 0) await clearRankedRolesDirtyState(kv)
       const config = await getRankedRoleConfig(kv, guildId)
       await sendEphemeralResponse(c, formatRankedRoleSyncResult(result, config), 'success')
-    }
-    catch (error) {
+    } catch (error) {
       console.error('Failed to sync ranked roles:', error)
       const message = error instanceof Error ? error.message : 'Failed to sync ranked roles.'
       await sendTransientEphemeralResponse(c, message, 'error')
@@ -145,12 +161,27 @@ export function handleReset(c: AdminCommandContext) {
 
   return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
     const _db = createDb(c.env.DB)
-    await sendTransientEphemeralResponse(c, `<@${playerId}>'s **${formatLeaderboardModeLabel(mode, mode)}** rating has been reset.`, 'success')
+    await sendTransientEphemeralResponse(
+      c,
+      `<@${playerId}>'s **${formatLeaderboardModeLabel(mode, mode)}** rating has been reset.`,
+      'success',
+    )
   })
 }
 
 function getRankedRoleInputs(vars: AdminVar): Array<string | null | undefined> {
-  return [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5, vars.role6, vars.role7, vars.role8, vars.role9, vars.role10]
+  return [
+    vars.role1,
+    vars.role2,
+    vars.role3,
+    vars.role4,
+    vars.role5,
+    vars.role6,
+    vars.role7,
+    vars.role8,
+    vars.role9,
+    vars.role10,
+  ]
 }
 
 function parseUnsetSlot(value: string | undefined): number | null {
@@ -192,7 +223,9 @@ function formatRankedRoleSyncResult(
   ].filter((line): line is string => Boolean(line))
 
   if (result.missingConfigTiers.length > 0) {
-    lines.push(`Missing current role mappings: ${result.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`)
+    lines.push(
+      `Missing current role mappings: ${result.missingConfigTiers.map(tier => formatRankedRoleSlotLabel(tier)).join(', ')}`,
+    )
   }
 
   return lines.join('\n')

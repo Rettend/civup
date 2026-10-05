@@ -244,7 +244,13 @@ const TAG_ORDER_INDEX = new Map<string, number>(TAG_ORDER.map((tag, index) => [t
 /** Return parsed category from a namespaced tag string */
 export function getTagCategory(tag: string): LeaderTagCategory | null {
   const [category] = tag.split(':')
-  if (category === 'econ' || category === 'win' || category === 'spike' || category === 'role' || category === 'other') {
+  if (
+    category === 'econ' ||
+    category === 'win' ||
+    category === 'spike' ||
+    category === 'role' ||
+    category === 'other'
+  ) {
     return category
   }
   return null

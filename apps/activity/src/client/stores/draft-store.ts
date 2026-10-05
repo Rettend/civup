@@ -1,6 +1,21 @@
-import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
-import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
+import type {
+  DraftEvent,
+  DraftPreviewState,
+  DraftSelection,
+  DraftState,
+  DraftStep,
+  LeaderDataVersion,
+  LeaderSwapState,
+  MapVoteSnapshot,
+} from '@civup/game'
 import { createSignal, createStore } from 'solid-js'
+import {
+  EMPTY_MAP_VOTE_SNAPSHOT,
+  getPickSeatForPlayer,
+  inferGameMode,
+  isCivBlitzFormatId,
+  isRedDeathFormatId,
+} from '@civup/game'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
   bans: {},
@@ -189,17 +204,23 @@ export function updateDraft(
 
   clearSwapFlashTimeout()
   swapFlashTimeout = setTimeout(() => {
-    setDraftStore(s => { s.swapFlashSeatIndices = [] })
+    setDraftStore(s => {
+      s.swapFlashSeatIndices = []
+    })
     swapFlashTimeout = null
   }, SWAP_FLASH_DURATION_MS)
 }
 
 export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
-  setDraftStore(s => { s.steamLobbyLink = steamLobbyLink })
+  setDraftStore(s => {
+    s.steamLobbyLink = steamLobbyLink
+  })
 }
 
 export function updateDraftPreviews(previews: DraftPreviewState) {
-  setDraftStore(s => { s.previews = previews })
+  setDraftStore(s => {
+    s.previews = previews
+  })
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
@@ -300,8 +321,9 @@ export function canSwapLeadersWith(seatIndex: number): boolean {
     return hasCompleteCivBlitzKit(mySeatIndex) && hasCompleteCivBlitzKit(seatIndex)
   }
 
-  return state.picks.some(pick => pick.seatIndex === mySeatIndex)
-    && state.picks.some(pick => pick.seatIndex === seatIndex)
+  return (
+    state.picks.some(pick => pick.seatIndex === mySeatIndex) && state.picks.some(pick => pick.seatIndex === seatIndex)
+  )
 }
 
 export function seatJustSwapped(seatIndex: number): boolean {
@@ -369,9 +391,7 @@ export function hasSubmitted(): boolean {
   const step = s.steps[s.currentStepIndex]
   if (!step) return false
 
-  const targetSeat = step.action === 'pick'
-    ? currentPickTargetSeatIndex() ?? seat
-    : seat
+  const targetSeat = step.action === 'pick' ? (currentPickTargetSeatIndex() ?? seat) : seat
 
   const submissionCount = s.submissions[targetSeat]?.length ?? 0
   const optimisticCount = draftStore.optimisticSeatPicks[targetSeat] ? 1 : 0
@@ -408,11 +428,13 @@ export function phaseLabel(): string {
 
 function hasCompleteCivBlitzKit(seatIndex: number): boolean {
   const kit = draftStore.state?.civBlitz?.lockedKits[seatIndex]
-  return !!kit
-    && typeof kit.civilizationAbility === 'string'
-    && typeof kit.leaderAbility === 'string'
-    && typeof kit.infrastructure === 'string'
-    && typeof kit.unit === 'string'
+  return (
+    !!kit &&
+    typeof kit.civilizationAbility === 'string' &&
+    typeof kit.leaderAbility === 'string' &&
+    typeof kit.infrastructure === 'string' &&
+    typeof kit.unit === 'string'
+  )
 }
 
 /** Get the timer duration for the current step (in seconds) */

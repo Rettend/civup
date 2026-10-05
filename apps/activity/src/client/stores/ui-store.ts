@@ -93,39 +93,57 @@ export const resultSelectionsLocked = () => uiState.resultSelectionsLocked
 export const hiddenDraftLeaderSelections = () => uiState.hiddenDraftLeaderSelections
 
 export function setSearchQuery(next: string | ((prev: string) => string)) {
-  setUiState(s => { s.searchQuery = resolveUpdate(next, s.searchQuery) })
+  setUiState(s => {
+    s.searchQuery = resolveUpdate(next, s.searchQuery)
+  })
 }
 
 export function setTagFilters(next: TagFilterState | ((prev: TagFilterState) => TagFilterState)) {
-  setUiState(s => { s.tagFilters = resolveUpdate(next, s.tagFilters) })
+  setUiState(s => {
+    s.tagFilters = resolveUpdate(next, s.tagFilters)
+  })
 }
 
 export function setBanSelections(next: string[] | ((prev: string[]) => string[])) {
-  setUiState(s => { s.banSelections = resolveUpdate(next, s.banSelections) })
+  setUiState(s => {
+    s.banSelections = resolveUpdate(next, s.banSelections)
+  })
 }
 
 export function setBanSelectionStepToken(next: string | null | ((prev: string | null) => string | null)) {
-  setUiState(s => { s.banSelectionStepToken = resolveUpdate(next, s.banSelectionStepToken) })
+  setUiState(s => {
+    s.banSelectionStepToken = resolveUpdate(next, s.banSelectionStepToken)
+  })
 }
 
 export function setIsRandomSelected(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState(s => { s.isRandomSelected = resolveUpdate(next, s.isRandomSelected) })
+  setUiState(s => {
+    s.isRandomSelected = resolveUpdate(next, s.isRandomSelected)
+  })
 }
 
 export function setGridOpen(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState(s => { s.gridOpen = resolveUpdate(next, s.gridOpen) })
+  setUiState(s => {
+    s.gridOpen = resolveUpdate(next, s.gridOpen)
+  })
 }
 
 export function setGridExpanded(next: boolean | ((prev: boolean) => boolean)) {
-  setPersistedUiState(s => { s.gridExpanded = resolveUpdate(next, s.gridExpanded) })
+  setPersistedUiState(s => {
+    s.gridExpanded = resolveUpdate(next, s.gridExpanded)
+  })
 }
 
 export function setGridViewMode(next: GridViewMode | ((prev: GridViewMode) => GridViewMode)) {
-  setPersistedUiState(s => { s.gridViewMode = resolveUpdate(next, s.gridViewMode) })
+  setPersistedUiState(s => {
+    s.gridViewMode = resolveUpdate(next, s.gridViewMode)
+  })
 }
 
 export function setUiScale(next: number | ((prev: number) => number)) {
-  setPersistedUiState(s => { s.uiScale = normalizeUiScale(resolveUpdate(next, s.uiScale)) })
+  setPersistedUiState(s => {
+    s.uiScale = normalizeUiScale(resolveUpdate(next, s.uiScale))
+  })
 }
 
 export function increaseUiScale() {
@@ -141,27 +159,39 @@ export function resetUiScale() {
 }
 
 export function setDetailLeaderId(next: string | null | ((prev: string | null) => string | null)) {
-  setUiState(s => { s.detailLeaderId = resolveUpdate(next, s.detailLeaderId) })
+  setUiState(s => {
+    s.detailLeaderId = resolveUpdate(next, s.detailLeaderId)
+  })
 }
 
 export function setIsMiniView(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState(s => { s.isMiniView = resolveUpdate(next, s.isMiniView) })
+  setUiState(s => {
+    s.isMiniView = resolveUpdate(next, s.isMiniView)
+  })
 }
 
 export function setIsMobileLayout(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState(s => { s.isMobileLayout = resolveUpdate(next, s.isMobileLayout) })
+  setUiState(s => {
+    s.isMobileLayout = resolveUpdate(next, s.isMobileLayout)
+  })
 }
 
 export function setFfaPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
-  setUiState(s => { s.ffaPlacementOrder = resolveUpdate(next, s.ffaPlacementOrder) })
+  setUiState(s => {
+    s.ffaPlacementOrder = resolveUpdate(next, s.ffaPlacementOrder)
+  })
 }
 
 export function setTeamPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
-  setUiState(s => { s.teamPlacementOrder = resolveUpdate(next, s.teamPlacementOrder) })
+  setUiState(s => {
+    s.teamPlacementOrder = resolveUpdate(next, s.teamPlacementOrder)
+  })
 }
 
 export function setResultSelectionsLocked(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState(s => { s.resultSelectionsLocked = resolveUpdate(next, s.resultSelectionsLocked) })
+  setUiState(s => {
+    s.resultSelectionsLocked = resolveUpdate(next, s.resultSelectionsLocked)
+  })
 }
 
 export function toggleHiddenDraftLeaderSelection(civId: string, maxSelections: number) {
@@ -174,35 +204,46 @@ export function toggleHiddenDraftLeaderSelection(civId: string, maxSelections: n
 }
 
 export function clearHiddenDraftLeaderSelections() {
-  setUiState(s => { s.hiddenDraftLeaderSelections = [] })
+  setUiState(s => {
+    s.hiddenDraftLeaderSelections = []
+  })
 }
 
 // ── Phase Accent ───────────────────────────────────────────
 
 /** Current phase accent color class based on draft step */
-export const phaseAccent = createMemo(() => {
-  const step = currentStep()
-  if (!step) return 'gold' as const
-  return step.action === 'ban' ? ('red' as const) : ('gold' as const)
-}, { lazy: true })
+export const phaseAccent = createMemo(
+  () => {
+    const step = currentStep()
+    if (!step) return 'gold' as const
+    return step.action === 'ban' ? ('red' as const) : ('gold' as const)
+  },
+  { lazy: true },
+)
 
 /** CSS color value for the current phase accent */
-export const phaseAccentColor = createMemo(() => {
-  return phaseAccent() === 'red' ? 'var(--danger)' : 'var(--accent)'
-}, { lazy: true })
+export const phaseAccentColor = createMemo(
+  () => {
+    return phaseAccent() === 'red' ? 'var(--danger)' : 'var(--accent)'
+  },
+  { lazy: true },
+)
 
 /** Header tint class for phase mood */
-export const phaseHeaderBg = createMemo(() => {
-  const step = currentStep()
-  if (!step) return 'bg-bg-subtle'
-  return step.action === 'ban' ? 'bg-[var(--phase-ban-bg)]' : 'bg-bg-subtle'
-}, { lazy: true })
+export const phaseHeaderBg = createMemo(
+  () => {
+    const step = currentStep()
+    if (!step) return 'bg-bg-subtle'
+    return step.action === 'ban' ? 'bg-[var(--phase-ban-bg)]' : 'bg-bg-subtle'
+  },
+  { lazy: true },
+)
 
 // ── Actions ────────────────────────────────────────────────
 
 /** Toggle a civ in the ban selection list */
 export function toggleBanSelection(civId: string, maxBans: number) {
-  setBanSelections((prev) => {
+  setBanSelections(prev => {
     if (prev.includes(civId)) {
       return prev.filter(id => id !== civId)
     }
@@ -248,7 +289,7 @@ export function setPickSelections(next: string[] | ((prev: string[]) => string[]
 
 /** Toggle the single selected pick. */
 export function togglePickSelection(civId: string) {
-  setPickSelections((prev) => {
+  setPickSelections(prev => {
     if (prev[0] === civId) return []
     return [civId]
   })
@@ -272,7 +313,7 @@ export function clearTagFilters() {
 
 /** Toggle the detail panel for a leader */
 export function toggleDetail(leaderId: string) {
-  setDetailLeaderId(prev => prev === leaderId ? null : leaderId)
+  setDetailLeaderId(prev => (prev === leaderId ? null : leaderId))
 }
 
 /** Return whether this leader is persisted as a favorite. */
@@ -284,13 +325,17 @@ export function isLeaderFavorited(leaderId: string): boolean {
 export function toggleLeaderFavorite(leaderId: string) {
   setPersistedUiState(s => {
     const prev = s.favoriteLeaderIds
-    s.favoriteLeaderIds = prev.includes(leaderId) ? prev.filter(id => id !== leaderId) : normalizeIdList([...prev, leaderId])
+    s.favoriteLeaderIds = prev.includes(leaderId)
+      ? prev.filter(id => id !== leaderId)
+      : normalizeIdList([...prev, leaderId])
   })
 }
 
 /** Clear all persisted favorite leaders. */
 export function clearLeaderFavorites() {
-  setPersistedUiState(s => { s.favoriteLeaderIds = [] })
+  setPersistedUiState(s => {
+    s.favoriteLeaderIds = []
+  })
 }
 
 /** Toggle a seat in the FFA placement order */
@@ -373,10 +418,9 @@ function normalizePersistedUiState(value: unknown): UiPersistedState {
 
   const record = value as Record<string, unknown>
   const gridExpanded = record.gridExpanded === true
-  const gridViewMode: GridViewMode = record.gridViewMode === 'list' ? 'list' : record.gridViewMode === 'multi-list' ? 'multi-list' : 'grid'
-  const favoriteLeaderIds = Array.isArray(record.favoriteLeaderIds)
-    ? normalizeIdList(record.favoriteLeaderIds)
-    : []
+  const gridViewMode: GridViewMode =
+    record.gridViewMode === 'list' ? 'list' : record.gridViewMode === 'multi-list' ? 'multi-list' : 'grid'
+  const favoriteLeaderIds = Array.isArray(record.favoriteLeaderIds) ? normalizeIdList(record.favoriteLeaderIds) : []
   const uiScale = normalizeUiScale(record.uiScale)
 
   return {

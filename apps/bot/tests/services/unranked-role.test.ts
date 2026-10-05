@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test'
-import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, setCurrentRankAssignments } from '../../src/services/ranked/role-sync.ts'
+import {
+  applyPendingRankedRoleDiscordChanges,
+  getCurrentRankAssignments,
+  setCurrentRankAssignments,
+} from '../../src/services/ranked/role-sync.ts'
 import { getRankedRoleConfig, setRankedRoleTierCount } from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
@@ -20,13 +24,18 @@ test('Unranked cleanup and later qualification preserve historical and unrelated
     return new Response(null, { status: 204 })
   }) as typeof fetch
   try {
-    await setCurrentRankAssignments(kv, 'g', { byPlayerId: { [playerId]: { tier: 'tier5', sourceMode: null, unranked: true, appliedRoleId: tiers[4]!.roleId } } })
+    await setCurrentRankAssignments(kv, 'g', {
+      byPlayerId: { [playerId]: { tier: 'tier5', sourceMode: null, unranked: true, appliedRoleId: tiers[4]!.roleId } },
+    })
     expect((await getCurrentRankAssignments(kv, 'g')).byPlayerId[playerId]?.unranked).toBe(true)
     expect((await applyPendingRankedRoleDiscordChanges({ kv, guildId: 'g', token: 'token' })).pendingChanges).toBe(0)
     expect(roles).toEqual(new Set([unrankedRoleId, 'historic', 'unrelated']))
-    await setCurrentRankAssignments(kv, 'g', { byPlayerId: { [playerId]: { tier: 'tier4', sourceMode: null, appliedRoleId: unrankedRoleId } } })
+    await setCurrentRankAssignments(kv, 'g', {
+      byPlayerId: { [playerId]: { tier: 'tier4', sourceMode: null, appliedRoleId: unrankedRoleId } },
+    })
     await applyPendingRankedRoleDiscordChanges({ kv, guildId: 'g', token: 'token' })
     expect(roles).toEqual(new Set([tiers[3]!.roleId, 'historic', 'unrelated']))
+  } finally {
+    globalThis.fetch = original
   }
-  finally { globalThis.fetch = original }
 })

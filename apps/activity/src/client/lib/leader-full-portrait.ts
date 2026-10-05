@@ -17,8 +17,9 @@ export function getLeaderFullPortraitUrl(leader: Pick<Leader, 'id' | 'fullPortra
 
 export function preloadLeaderFullPortraitIds(leaderIds: Iterable<string>, leaderDataVersion: LeaderDataVersion): void {
   for (const leaderId of leaderIds) {
-    try { preloadLeaderFullPortraitUrl(getLeaderFullPortraitUrl(getLeader(leaderId, leaderDataVersion))) }
-    catch { }
+    try {
+      preloadLeaderFullPortraitUrl(getLeaderFullPortraitUrl(getLeader(leaderId, leaderDataVersion)))
+    } catch {}
   }
 }
 

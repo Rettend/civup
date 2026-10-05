@@ -40,24 +40,24 @@ interface DiscordCurrentUserGuildResponse {
   permissions?: string
 }
 
-export type DiscordTokenExchangeResult
-  = | { ok: true, accessToken: string, expiresIn?: number }
-    | { ok: false, status: number, detail: string, retryAfter: string | null, rateLimited: boolean }
+export type DiscordTokenExchangeResult =
+  | { ok: true; accessToken: string; expiresIn?: number }
+  | { ok: false; status: number; detail: string; retryAfter: string | null; rateLimited: boolean }
 
-export type DiscordIdentityResult
-  = | {
-    ok: true
-    userId: string
-    displayName: string | null
-    avatarUrl: string
-    guildId: string | null
-    guildPermissions: string | null
-  }
-    | { ok: false, status: 403 | 502, error: string }
+export type DiscordIdentityResult =
+  | {
+      ok: true
+      userId: string
+      displayName: string | null
+      avatarUrl: string
+      guildId: string | null
+      guildPermissions: string | null
+    }
+  | { ok: false; status: 403 | 502; error: string }
 
 export async function exchangeDiscordAuthorizationCode(
   env: DiscordAuthEnvironment,
-  input: { code: string, redirectUri: string, codeVerifier?: string },
+  input: { code: string; redirectUri: string; codeVerifier?: string },
 ): Promise<DiscordTokenExchangeResult> {
   const body = new URLSearchParams({
     client_id: env.DISCORD_CLIENT_ID,
@@ -79,8 +79,7 @@ export async function exchangeDiscordAuthorizationCode(
     let detailJson: DiscordTokenErrorResponse | null = null
     try {
       detailJson = JSON.parse(detailRaw) as DiscordTokenErrorResponse
-    }
-    catch {}
+    } catch {}
     const detail = detailJson?.error_description ?? detailJson?.error ?? detailRaw ?? 'Token exchange failed'
     return {
       ok: false,
@@ -93,12 +92,21 @@ export async function exchangeDiscordAuthorizationCode(
 
   const payload = await response.json<DiscordTokenSuccessResponse>()
   if (!payload.access_token) {
-    return { ok: false, status: 502, detail: 'Token exchange returned no access token', retryAfter: null, rateLimited: false }
+    return {
+      ok: false,
+      status: 502,
+      detail: 'Token exchange returned no access token',
+      retryAfter: null,
+      rateLimited: false,
+    }
   }
   return { ok: true, accessToken: payload.access_token, expiresIn: payload.expires_in }
 }
 
-export async function loadDiscordIdentity(accessToken: string, allowedGuildId: string | null): Promise<DiscordIdentityResult> {
+export async function loadDiscordIdentity(
+  accessToken: string,
+  allowedGuildId: string | null,
+): Promise<DiscordIdentityResult> {
   let user: DiscordIdentityResponse
   let guildPermissions: string | null = null
   if (allowedGuildId) {
@@ -118,16 +126,18 @@ export async function loadDiscordIdentity(accessToken: string, allowedGuildId: s
     const guilds = await guildsResponse.json<DiscordCurrentUserGuildResponse[]>()
     if (!Array.isArray(guilds)) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
     const guild = guilds.find(candidate => candidate.id === allowedGuildId)
-    if (!guild) return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
+    if (!guild)
+      return { ok: false, status: 403, error: 'This activity is only available in the configured Discord server' }
     guildPermissions = normalizeDiscordPermissions(guild.permissions, guild.owner === true)
     if (!guildPermissions) return { ok: false, status: 502, error: 'Failed to verify Discord permissions' }
 
     const member = await memberResponse.json<DiscordGuildMemberResponse>()
     if (!member.user) return { ok: false, status: 502, error: 'Failed to verify Discord user' }
     user = { ...member.user, nick: member.nick ?? null, guildAvatar: member.avatar ?? null, guildId: allowedGuildId }
-  }
-  else {
-    const response = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${accessToken}` } })
+  } else {
+    const response = await fetch('https://discord.com/api/v10/users/@me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
     if (!response.ok) return { ok: false, status: 502, error: 'Failed to verify Discord user' }
     user = await response.json<DiscordIdentityResponse>()
   }
@@ -149,16 +159,17 @@ function normalizeDiscordPermissions(value: string | undefined, isOwner: boolean
   try {
     const permissions = BigInt(value)
     return (isOwner ? permissions | (1n << 3n) : permissions).toString()
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 function resolveDiscordDisplayName(user: DiscordIdentityResponse): string | null {
-  return normalizeOptionalDiscordName(user.nick)
-    ?? normalizeOptionalDiscordName(user.global_name)
-    ?? normalizeOptionalDiscordName(user.username)
+  return (
+    normalizeOptionalDiscordName(user.nick) ??
+    normalizeOptionalDiscordName(user.global_name) ??
+    normalizeOptionalDiscordName(user.username)
+  )
 }
 
 function normalizeOptionalDiscordName(value: string | null | undefined): string | null {

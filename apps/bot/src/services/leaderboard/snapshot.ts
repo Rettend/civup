@@ -1,12 +1,19 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { leaderboardDecaySchedules, playerRatings, seasonPeakDivisionRanks, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
-import { PUBLIC_RATING_BANDS } from '@civup/rating'
-import { LEADERBOARD_MODES } from '@civup/game'
+import type { PublicRatingDecayState } from '@civup/rating'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  leaderboardDecaySchedules,
+  playerRatings,
+  seasonPeakDivisionRanks,
+  seasonPeakRanks,
+  seasonRatingStates,
+  seasons,
+} from '@civup/db'
+import { LEADERBOARD_MODES } from '@civup/game'
+import { PUBLIC_RATING_BANDS } from '@civup/rating'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
-import type { PublicRatingDecayState } from '@civup/rating'
 
 export interface LeaderboardSnapshotRow {
   playerId: string
@@ -19,7 +26,7 @@ export interface LeaderboardSnapshotRow {
   publicRating?: number
   seasonGames?: number
   seasonWins?: number
-  pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier, label?: string, division?: number }>
+  pastRanks?: Array<{ seasonNumber: number; tier: CompetitiveTier; label?: string; division?: number }>
   publicDecay?: PublicRatingDecayState | null
 }
 
@@ -77,7 +84,10 @@ export async function ensureLeaderboardModeSnapshots(
   const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, missingModes)
 
   const era = await loadSnapshotEra(db)
-  const rebuilt = missingModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()), ...era }))
+  const rebuilt = missingModes.map(mode => ({
+    ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], Date.now()),
+    ...era,
+  }))
 
   await saveDecaySchedules(db, rebuilt)
   await setLeaderboardModeSnapshots(kv, rebuilt)
@@ -103,10 +113,13 @@ export async function getStoredLeaderboardModeSnapshots(
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   if (requestedModes.length === 0) return new Map()
 
-  const rawSnapshots = await kvMget(kv, requestedModes.map(mode => ({
-    key: leaderboardModeSnapshotKey(mode),
-    type: 'json',
-  })))
+  const rawSnapshots = await kvMget(
+    kv,
+    requestedModes.map(mode => ({
+      key: leaderboardModeSnapshotKey(mode),
+      type: 'json',
+    })),
+  )
 
   const snapshots = new Map<LeaderboardMode, LeaderboardModeSnapshot>()
   for (let index = 0; index < requestedModes.length; index++) {
@@ -154,7 +167,7 @@ export async function buildLeaderboardModeSnapshotFromD1(
   updatedAt = Date.now(),
 ): Promise<LeaderboardModeSnapshot> {
   const rows = await listLeaderboardModeRowsFromD1(db, mode, updatedAt)
-  const snapshot = { ...buildLeaderboardModeSnapshot(mode, rows, updatedAt), ...await loadSnapshotEra(db) }
+  const snapshot = { ...buildLeaderboardModeSnapshot(mode, rows, updatedAt), ...(await loadSnapshotEra(db)) }
   await saveDecaySchedules(db, [snapshot])
   return snapshot
 }
@@ -167,40 +180,96 @@ export async function buildLeaderboardModeSnapshotsFromD1(
   const requestedModes = [...new Set(modes.filter(isLeaderboardMode))]
   const rowsByMode = await listLeaderboardModeRowsFromD1ByModes(db, requestedModes, updatedAt)
   const era = await loadSnapshotEra(db)
-  const snapshots = requestedModes.map(mode => ({ ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt), ...era }))
+  const snapshots = requestedModes.map(mode => ({
+    ...buildLeaderboardModeSnapshot(mode, rowsByMode.get(mode) ?? [], updatedAt),
+    ...era,
+  }))
   await saveDecaySchedules(db, snapshots)
   return new Map(snapshots.map(snapshot => [snapshot.mode, snapshot]))
 }
 
 async function saveDecaySchedules(db: Database, snapshots: readonly LeaderboardModeSnapshot[]) {
   if (!snapshots.length) return
-  await db.insert(leaderboardDecaySchedules).values(snapshots.map(snapshot => ({
-    mode: snapshot.mode,
-    nextDecayAt: sql<number | null>`case when exists(select 1 from seasons where active = 1 and rating_system = 'rp') then ${snapshot.nextDecayAt ?? null} else null end`,
-    updatedAt: snapshot.updatedAt,
-  }))).onConflictDoUpdate({
-    target: leaderboardDecaySchedules.mode,
-    set: { nextDecayAt: sql`excluded.next_decay_at`, updatedAt: sql`excluded.updated_at` },
-    setWhere: sql`excluded.updated_at >= ${leaderboardDecaySchedules.updatedAt}`,
-  })
+  await db
+    .insert(leaderboardDecaySchedules)
+    .values(
+      snapshots.map(snapshot => ({
+        mode: snapshot.mode,
+        nextDecayAt: sql<
+          number | null
+        >`case when exists(select 1 from seasons where active = 1 and rating_system = 'rp') then ${snapshot.nextDecayAt ?? null} else null end`,
+        updatedAt: snapshot.updatedAt,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: leaderboardDecaySchedules.mode,
+      set: { nextDecayAt: sql`excluded.next_decay_at`, updatedAt: sql`excluded.updated_at` },
+      setWhere: sql`excluded.updated_at >= ${leaderboardDecaySchedules.updatedAt}`,
+    })
 }
 
-async function loadSnapshotEra(db: Database): Promise<Pick<LeaderboardModeSnapshot, 'ratingSystem' | 'publicReadsEnabled' | 'seasonNumber' | 'pastRanksByPlayerId'>> {
-  const [season] = await db.select({ seasonNumber: seasons.seasonNumber, ratingSystem: seasons.ratingSystem, enabled: seasons.publicReadsEnabled }).from(seasons).orderBy(desc(seasons.active), desc(seasons.startsAt)).limit(1)
+async function loadSnapshotEra(
+  db: Database,
+): Promise<
+  Pick<LeaderboardModeSnapshot, 'ratingSystem' | 'publicReadsEnabled' | 'seasonNumber' | 'pastRanksByPlayerId'>
+> {
+  const [season] = await db
+    .select({
+      seasonNumber: seasons.seasonNumber,
+      ratingSystem: seasons.ratingSystem,
+      enabled: seasons.publicReadsEnabled,
+    })
+    .from(seasons)
+    .orderBy(desc(seasons.active), desc(seasons.startsAt))
+    .limit(1)
   if (!season) return {}
-  const closed = await db.select({ id: seasons.id, seasonNumber: seasons.seasonNumber }).from(seasons).where(eq(seasons.active, false)).orderBy(desc(seasons.seasonNumber)).limit(8)
-  const historical = closed.length ? await db.select({ playerId: seasonPeakRanks.playerId, seasonId: seasonPeakRanks.seasonId, tier: seasonPeakRanks.tier, minimum: seasonPeakDivisionRanks.minimum }).from(seasonPeakRanks)
-    .leftJoin(seasonPeakDivisionRanks, and(eq(seasonPeakDivisionRanks.seasonId, seasonPeakRanks.seasonId), eq(seasonPeakDivisionRanks.playerId, seasonPeakRanks.playerId)))
-    .where(inArray(seasonPeakRanks.seasonId, closed.map(season => season.id))) : []
+  const closed = await db
+    .select({ id: seasons.id, seasonNumber: seasons.seasonNumber })
+    .from(seasons)
+    .where(eq(seasons.active, false))
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(8)
+  const historical = closed.length
+    ? await db
+        .select({
+          playerId: seasonPeakRanks.playerId,
+          seasonId: seasonPeakRanks.seasonId,
+          tier: seasonPeakRanks.tier,
+          minimum: seasonPeakDivisionRanks.minimum,
+        })
+        .from(seasonPeakRanks)
+        .leftJoin(
+          seasonPeakDivisionRanks,
+          and(
+            eq(seasonPeakDivisionRanks.seasonId, seasonPeakRanks.seasonId),
+            eq(seasonPeakDivisionRanks.playerId, seasonPeakRanks.playerId),
+          ),
+        )
+        .where(
+          inArray(
+            seasonPeakRanks.seasonId,
+            closed.map(season => season.id),
+          ),
+        )
+    : []
   const pastRanksByPlayerId: NonNullable<LeaderboardModeSnapshot['pastRanksByPlayerId']> = {}
   for (const row of historical) {
     const ranks = pastRanksByPlayerId[row.playerId] ?? []
-    ranks.push({ seasonNumber: closed.find(season => season.id === row.seasonId)!.seasonNumber, tier: row.tier as CompetitiveTier,
-      ...(row.minimum != null ? { division: PUBLIC_RATING_BANDS.find(band => band.minimum === row.minimum)?.division } : {}) })
+    ranks.push({
+      seasonNumber: closed.find(season => season.id === row.seasonId)!.seasonNumber,
+      tier: row.tier as CompetitiveTier,
+      ...(row.minimum != null
+        ? { division: PUBLIC_RATING_BANDS.find(band => band.minimum === row.minimum)?.division }
+        : {}),
+    })
     pastRanksByPlayerId[row.playerId] = ranks
   }
   for (const ranks of Object.values(pastRanksByPlayerId)) ranks.sort((a, b) => b.seasonNumber - a.seasonNumber)
-  return { seasonNumber: season.seasonNumber, pastRanksByPlayerId, ...(season.ratingSystem === 'rp' ? { ratingSystem: 'rp' as const, publicReadsEnabled: season.enabled } : {}) }
+  return {
+    seasonNumber: season.seasonNumber,
+    pastRanksByPlayerId,
+    ...(season.ratingSystem === 'rp' ? { ratingSystem: 'rp' as const, publicReadsEnabled: season.enabled } : {}),
+  }
 }
 
 export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: LeaderboardMode): Promise<void> {
@@ -208,7 +277,10 @@ export async function clearLeaderboardModeSnapshot(kv: KVNamespace, mode: Leader
 }
 
 export async function clearAllLeaderboardModeSnapshots(kv: KVNamespace): Promise<void> {
-  await kvMdelete(kv, LEADERBOARD_MODES.map(mode => leaderboardModeSnapshotKey(mode)))
+  await kvMdelete(
+    kv,
+    LEADERBOARD_MODES.map(mode => leaderboardModeSnapshotKey(mode)),
+  )
 }
 
 function buildLeaderboardModeSnapshot(
@@ -219,7 +291,15 @@ function buildLeaderboardModeSnapshot(
   return {
     mode,
     updatedAt,
-    nextDecayAt: rows.some(row => row.publicDecay?.active) ? Math.min(...rows.flatMap(row => row.publicDecay?.active ? [row.publicDecay.bankUntil > updatedAt ? row.publicDecay.bankUntil : updatedAt + 86_400_000] : [])) : undefined,
+    nextDecayAt: rows.some(row => row.publicDecay?.active)
+      ? Math.min(
+          ...rows.flatMap(row =>
+            row.publicDecay?.active
+              ? [row.publicDecay.bankUntil > updatedAt ? row.publicDecay.bankUntil : updatedAt + 86_400_000]
+              : [],
+          ),
+        )
+      : undefined,
     rows: rows.map(row => ({
       playerId: row.playerId,
       mode,
@@ -242,29 +322,34 @@ async function setLeaderboardModeSnapshots(
 ): Promise<void> {
   if (snapshots.length === 0) return
 
-  await kvMput(kv, snapshots.map(snapshot => ({
-    key: leaderboardModeSnapshotKey(snapshot.mode),
-    value: JSON.stringify({
-      version: LEADERBOARD_MODE_SNAPSHOT_VERSION,
-      updatedAt: snapshot.updatedAt,
-      seasonNumber: snapshot.seasonNumber,
-      nextDecayAt: snapshot.nextDecayAt,
-      pastRanksByPlayerId: snapshot.pastRanksByPlayerId,
-      ...(snapshot.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: snapshot.publicReadsEnabled === true } : {}),
-      rows: snapshot.rows.map(row => ({
-        playerId: row.playerId,
-        mu: row.mu,
-        sigma: row.sigma,
-        gamesPlayed: row.gamesPlayed,
-        wins: row.wins,
-        lastPlayedAt: row.lastPlayedAt,
-        ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
-        seasonGames: row.seasonGames,
-        seasonWins: row.seasonWins,
-        pastRanks: row.pastRanks,
-      })),
-    } satisfies StoredLeaderboardModeSnapshot),
-  })))
+  await kvMput(
+    kv,
+    snapshots.map(snapshot => ({
+      key: leaderboardModeSnapshotKey(snapshot.mode),
+      value: JSON.stringify({
+        version: LEADERBOARD_MODE_SNAPSHOT_VERSION,
+        updatedAt: snapshot.updatedAt,
+        seasonNumber: snapshot.seasonNumber,
+        nextDecayAt: snapshot.nextDecayAt,
+        pastRanksByPlayerId: snapshot.pastRanksByPlayerId,
+        ...(snapshot.ratingSystem === 'rp'
+          ? { ratingSystem: 'rp', publicReadsEnabled: snapshot.publicReadsEnabled === true }
+          : {}),
+        rows: snapshot.rows.map(row => ({
+          playerId: row.playerId,
+          mu: row.mu,
+          sigma: row.sigma,
+          gamesPlayed: row.gamesPlayed,
+          wins: row.wins,
+          lastPlayedAt: row.lastPlayedAt,
+          ...(row.publicRating != null ? { publicRating: row.publicRating } : {}),
+          seasonGames: row.seasonGames,
+          seasonWins: row.seasonWins,
+          pastRanks: row.pastRanks,
+        })),
+      } satisfies StoredLeaderboardModeSnapshot),
+    })),
+  )
 }
 
 async function listLeaderboardModeRowsFromD1(
@@ -298,9 +383,15 @@ async function listLeaderboardModeRowsFromD1ByModes(
       seasonWins: seasonRatingStates.seasonWins,
     })
     .from(playerRatings)
-    .leftJoin(seasonRatingStates, and(eq(seasonRatingStates.playerId, playerRatings.playerId), eq(seasonRatingStates.mode, playerRatings.mode), sql`${seasonRatingStates.seasonId} = (select id from seasons order by active desc, starts_at desc limit 1)`))
+    .leftJoin(
+      seasonRatingStates,
+      and(
+        eq(seasonRatingStates.playerId, playerRatings.playerId),
+        eq(seasonRatingStates.mode, playerRatings.mode),
+        sql`${seasonRatingStates.seasonId} = (select id from seasons order by active desc, starts_at desc limit 1)`,
+      ),
+    )
     .where(inArray(playerRatings.mode, requestedModes))
-
 
   const rowsByMode = new Map<LeaderboardMode, LeaderboardSnapshotRow[]>(requestedModes.map(mode => [mode, []]))
   for (const row of await projectPublicRatingDecay(db, rows, now)) {
@@ -341,21 +432,25 @@ export function normalizeLeaderboardModeSnapshot(
 
   return {
     mode,
-    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
-      ? Math.round(raw.updatedAt)
-      : 0,
-    ...(raw.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicReadsEnabled: raw.publicReadsEnabled === true } as const : {}),
+    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? Math.round(raw.updatedAt) : 0,
+    ...(raw.ratingSystem === 'rp'
+      ? ({ ratingSystem: 'rp', publicReadsEnabled: raw.publicReadsEnabled === true } as const)
+      : {}),
     ...(typeof raw.seasonNumber === 'number' ? { seasonNumber: raw.seasonNumber } : {}),
-    ...(typeof raw.nextDecayAt === 'number' && Number.isFinite(raw.nextDecayAt) ? { nextDecayAt: raw.nextDecayAt } : {}),
-    pastRanksByPlayerId: raw.pastRanksByPlayerId != null && typeof raw.pastRanksByPlayerId === 'object' ? Object.fromEntries(Object.entries(raw.pastRanksByPlayerId).map(([id, ranks]) => [id, normalizePastRanks(ranks)])) : {},
+    ...(typeof raw.nextDecayAt === 'number' && Number.isFinite(raw.nextDecayAt)
+      ? { nextDecayAt: raw.nextDecayAt }
+      : {}),
+    pastRanksByPlayerId:
+      raw.pastRanksByPlayerId != null && typeof raw.pastRanksByPlayerId === 'object'
+        ? Object.fromEntries(
+            Object.entries(raw.pastRanksByPlayerId).map(([id, ranks]) => [id, normalizePastRanks(ranks)]),
+          )
+        : {},
     rows,
   }
 }
 
-function normalizeLeaderboardSnapshotRow(
-  mode: LeaderboardMode,
-  value: unknown,
-): LeaderboardSnapshotRow | null {
+function normalizeLeaderboardSnapshotRow(mode: LeaderboardMode, value: unknown): LeaderboardSnapshotRow | null {
   if (!value || typeof value !== 'object') return null
 
   const raw = value as Record<string, unknown>
@@ -374,7 +469,9 @@ function normalizeLeaderboardSnapshotRow(
     gamesPlayed,
     wins,
     lastPlayedAt: normalizeNullableTimestamp(raw.lastPlayedAt),
-    ...(typeof raw.publicRating === 'number' && Number.isFinite(raw.publicRating) && raw.publicRating >= 0 ? { publicRating: raw.publicRating } : {}),
+    ...(typeof raw.publicRating === 'number' && Number.isFinite(raw.publicRating) && raw.publicRating >= 0
+      ? { publicRating: raw.publicRating }
+      : {}),
     seasonGames: normalizeNonNegativeInteger(raw.seasonGames) ?? undefined,
     seasonWins: normalizeNonNegativeInteger(raw.seasonWins) ?? undefined,
     pastRanks: normalizePastRanks(raw.pastRanks),
@@ -382,7 +479,16 @@ function normalizeLeaderboardSnapshotRow(
 }
 
 function normalizePastRanks(value: unknown): NonNullable<LeaderboardSnapshotRow['pastRanks']> {
-  return Array.isArray(value) ? value.filter((rank): rank is { seasonNumber: number, tier: CompetitiveTier } => rank != null && typeof rank === 'object' && Number.isSafeInteger(rank.seasonNumber) && rank.seasonNumber > 0 && /^tier[1-9]\d*$/.test(rank.tier)) : []
+  return Array.isArray(value)
+    ? value.filter(
+        (rank): rank is { seasonNumber: number; tier: CompetitiveTier } =>
+          rank != null &&
+          typeof rank === 'object' &&
+          Number.isSafeInteger(rank.seasonNumber) &&
+          rank.seasonNumber > 0 &&
+          /^tier[1-9]\d*$/.test(rank.tier),
+      )
+    : []
 }
 
 function normalizeFiniteNumber(value: unknown): number | null {

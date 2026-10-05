@@ -28,7 +28,7 @@ export const Z_MULTIPLIER = 0
 export const RANKED_ROLE_Z_MULTIPLIER = 0.75
 
 /** Two-team favorites keep full value until this win probability. */
-const EXPECTED_WIN_DISCOUNT_START = 0.70
+const EXPECTED_WIN_DISCOUNT_START = 0.7
 
 /** Even the most lopsided wins still move rating a tiny bit. */
 const MIN_EXPECTED_WIN_WEIGHT = 0.05
@@ -65,8 +65,8 @@ function getExpectedWinWeight(winnerProbability: number): number {
 function scaleRatingUpdate(update: RatingUpdate, weight: number): RatingUpdate {
   if (weight >= 1) return update
 
-  const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * weight)
-  const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * weight)
+  const afterMu = update.before.mu + (update.after.mu - update.before.mu) * weight
+  const afterSigma = update.before.sigma + (update.after.sigma - update.before.sigma) * weight
   const displayAfter = displayRating(afterMu, afterSigma)
 
   return {
@@ -136,7 +136,7 @@ export function createRating(playerId: string): PlayerRating {
  * Visible Elo derived from skill.
  */
 export function displayRating(mu: number, sigma: number): number {
-  const anchoredSkill = (mu - (Z_MULTIPLIER * sigma)) - (DEFAULT_MU - (Z_MULTIPLIER * DEFAULT_SIGMA))
+  const anchoredSkill = mu - Z_MULTIPLIER * sigma - (DEFAULT_MU - Z_MULTIPLIER * DEFAULT_SIGMA)
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * anchoredSkill
 }
 
@@ -145,7 +145,7 @@ export * from './overall-rank.ts'
 
 /** Conservative Elo-like score used for global ranked role bands. */
 export function roleRating(mu: number, sigma: number): number {
-  const conservativeSkill = mu - (RANKED_ROLE_Z_MULTIPLIER * sigma)
+  const conservativeSkill = mu - RANKED_ROLE_Z_MULTIPLIER * sigma
   return DISPLAY_RATING_BASE + DISPLAY_RATING_SCALE * (conservativeSkill - DEFAULT_MU)
 }
 
@@ -156,8 +156,8 @@ export function roleRating(mu: number, sigma: number): number {
  */
 export interface RatingUpdate {
   playerId: string
-  before: { mu: number, sigma: number }
-  after: { mu: number, sigma: number }
+  before: { mu: number; sigma: number }
+  after: { mu: number; sigma: number }
   displayBefore: number
   displayAfter: number
   displayDelta: number
@@ -198,9 +198,7 @@ function playerEstablishedness(player: PlayerRating): number | null {
   if (gamesPlayed == null) return null
 
   const sigmaDenominator = DEFAULT_SIGMA - PROVISIONAL_ESTABLISHED_SIGMA
-  const sigmaFactor = sigmaDenominator <= 0
-    ? 1
-    : clamp((DEFAULT_SIGMA - player.sigma) / sigmaDenominator, 0, 1)
+  const sigmaFactor = sigmaDenominator <= 0 ? 1 : clamp((DEFAULT_SIGMA - player.sigma) / sigmaDenominator, 0, 1)
   const gamesFactor = clamp(gamesPlayed / LEADERBOARD_MIN_GAMES, 0, 1)
   return Math.max(sigmaFactor, gamesFactor)
 }
@@ -221,8 +219,8 @@ function averageWinnerTeamEstablishedness(team: TeamInput): number | null {
 function sourceWeightedDisplayDelta(update: RatingUpdate, sourceWeight: number): number {
   if (sourceWeight >= 1) return update.displayDelta
 
-  const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight)
-  const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight)
+  const afterMu = update.before.mu + (update.after.mu - update.before.mu) * sourceWeight
+  const afterSigma = update.before.sigma + (update.after.sigma - update.before.sigma) * sourceWeight
   return displayRating(afterMu, afterSigma) - update.displayBefore
 }
 
@@ -237,15 +235,22 @@ function applyProvisionalLossProtection(
   const loserTeam = teams[1]
   if (!winnerTeam || !loserTeam) return updates
   if (options?.policy === 'rp-v3') {
-    const uncertainty = winnerTeam.players.reduce((sum, player) => {
-      const games = knownGamesPlayed(player)
-      if (games == null) return sum
-      return sum + clamp((player.sigma - 3) / (DEFAULT_SIGMA - 3), 0, 1) * clamp(1 - games / 18, 0, 1)
-    }, 0) / winnerTeam.players.length
+    const uncertainty =
+      winnerTeam.players.reduce((sum, player) => {
+        const games = knownGamesPlayed(player)
+        if (games == null) return sum
+        return sum + clamp((player.sigma - 3) / (DEFAULT_SIGMA - 3), 0, 1) * clamp(1 - games / 18, 0, 1)
+      }, 0) / winnerTeam.players.length
     const maximumReduction = winnerTeam.players.length === 1 && loserTeam.players.length === 1 ? 0.5 : 0.25
     return updates.map(update => {
       const loser = loserTeam.players.find(player => player.playerId === update.playerId)
-      if (!loser || (knownGamesPlayed(loser) ?? 0) < 18 || loser.sigma > PROVISIONAL_ESTABLISHED_SIGMA || update.displayDelta >= 0) return update
+      if (
+        !loser ||
+        (knownGamesPlayed(loser) ?? 0) < 18 ||
+        loser.sigma > PROVISIONAL_ESTABLISHED_SIGMA ||
+        update.displayDelta >= 0
+      )
+        return update
       return scaleRatingUpdate(update, 1 - maximumReduction * uncertainty)
     })
   }
@@ -274,7 +279,7 @@ function applyDuelProvisionalLossProtection(
   const lossWeight = Math.max(DUEL_PROVISIONAL_LOSS_MIN_WEIGHT, winnerEstablishedness)
   if (lossWeight >= 0.999) return updates
 
-  return updates.map((update) => {
+  return updates.map(update => {
     if (update.playerId !== loser.playerId || update.displayDelta >= 0) return update
     return scaleRatingUpdate(update, lossWeight)
   })
@@ -293,7 +298,7 @@ function applyTeamProvisionalLossProtection(
   if (lossWeight >= 0.999) return updates
 
   const losingPlayerById = new Map(loserTeam.players.map(player => [player.playerId, player]))
-  return updates.map((update) => {
+  return updates.map(update => {
     const loser = losingPlayerById.get(update.playerId)
     if (!loser) return update
 
@@ -322,20 +327,14 @@ function applyTeamProvisionalLossProtection(
  * @returns Rating updates for every player across all teams.
  */
 export function calculateTeamRatings(teams: TeamInput[], options?: RatingCalculationOptions): RatingUpdate[] {
-  const osTeams: OSRating[][] = teams.map(t =>
-    t.players.map(p => ({ mu: p.mu, sigma: p.sigma })),
-  )
+  const osTeams: OSRating[][] = teams.map(t => t.players.map(p => ({ mu: p.mu, sigma: p.sigma })))
 
   // rank = [1, 2] means first team won, second lost
   // For multi-team (e.g. 3+ teams), rank corresponds to placement
   const rank = teams.map((_, i) => i + 1)
 
-  const ratingOptions = teams.length > 2
-    ? getPlacementRatingOptions(teams.length)
-    : RATING_OPTIONS
-  const winnerProbability = teams.length === 2
-    ? (predictWin(osTeams, ratingOptions)[0] ?? 0.5)
-    : null
+  const ratingOptions = teams.length > 2 ? getPlacementRatingOptions(teams.length) : RATING_OPTIONS
+  const winnerProbability = teams.length === 2 ? (predictWin(osTeams, ratingOptions)[0] ?? 0.5) : null
 
   const updatedTeams = rate(osTeams, { rank, ...ratingOptions })
 
@@ -364,7 +363,8 @@ export function calculateTeamRatings(teams: TeamInput[], options?: RatingCalcula
 
   if (winnerProbability == null) return scaleRatingUpdates(updates, PLACEMENT_UPDATE_WEIGHT)
 
-  const scaledUpdates = options?.policy === 'rp-v3' ? updates : scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
+  const scaledUpdates =
+    options?.policy === 'rp-v3' ? updates : scaleRatingUpdates(updates, getExpectedWinWeight(winnerProbability))
   return applyProvisionalLossProtection(teams, scaledUpdates, options)
 }
 
@@ -414,9 +414,7 @@ export function calculateFfaRatings(entries: FfaEntry[]): RatingUpdate[] {
 
 // ── Unified Calculation ────────────────────────────────────
 
-export type MatchResult
-  = | { type: 'team', teams: TeamInput[] }
-    | { type: 'ffa', entries: FfaEntry[] }
+export type MatchResult = { type: 'team'; teams: TeamInput[] } | { type: 'ffa'; entries: FfaEntry[] }
 
 /**
  * Calculate rating updates for any match type.
@@ -440,12 +438,8 @@ export function calculateRatings(result: MatchResult, options?: RatingCalculatio
  * @returns Array of win probabilities (one per team, sums to ~1.0).
  */
 export function predictWinProbabilities(teams: PlayerRating[][]): number[] {
-  const osTeams: OSRating[][] = teams.map(t =>
-    t.map(p => ({ mu: p.mu, sigma: p.sigma })),
-  )
-  const options = teams.length > 2
-    ? getPlacementRatingOptions(teams.length)
-    : RATING_OPTIONS
+  const osTeams: OSRating[][] = teams.map(t => t.map(p => ({ mu: p.mu, sigma: p.sigma })))
+  const options = teams.length > 2 ? getPlacementRatingOptions(teams.length) : RATING_OPTIONS
   return predictWin(osTeams, options)
 }
 
@@ -507,7 +501,7 @@ export function seasonReset(
   mu: number,
   sigma: number,
   resetFactor: number = DEFAULT_SEASON_RESET_FACTOR,
-): { mu: number, sigma: number } {
+): { mu: number; sigma: number } {
   const newSigma = sigma + (DEFAULT_SIGMA - sigma) * resetFactor
   return { mu, sigma: newSigma }
 }

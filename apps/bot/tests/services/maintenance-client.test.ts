@@ -1,7 +1,11 @@
 import type { RankedRoleMaintenanceResult } from '../../src/maintenance/ranked-role-maintenance.ts'
 import { describe, expect, test } from 'bun:test'
 import { cron_leaderboards, cron_ranked_roles } from '../../src/cron/cleanup.ts'
-import { requestCivBlitzModArchive, requestLeaderboardMaintenance, requestRankedRoleMaintenance } from '../../src/maintenance/maintenance-client.ts'
+import {
+  requestCivBlitzModArchive,
+  requestLeaderboardMaintenance,
+  requestRankedRoleMaintenance,
+} from '../../src/maintenance/maintenance-client.ts'
 
 describe('maintenance client', () => {
   test('routes ranked role work through the global maintenance object', async () => {
@@ -77,7 +81,7 @@ describe('maintenance client', () => {
         return {
           async fetch(request: Request) {
             capturedRequest = request
-            return new Response(new Uint8Array([0x50, 0x4B]), { headers: { 'Content-Type': 'application/zip' } })
+            return new Response(new Uint8Array([0x50, 0x4b]), { headers: { 'Content-Type': 'application/zip' } })
           },
         }
       },
@@ -106,7 +110,8 @@ describe('maintenance client', () => {
       get() {
         return {
           async fetch(input: RequestInfo | URL) {
-            const action = new URL(input instanceof Request ? input.url : input.toString()).pathname.split('/').at(-1) ?? ''
+            const action =
+              new URL(input instanceof Request ? input.url : input.toString()).pathname.split('/').at(-1) ?? ''
             actions.push(action)
             return Response.json({
               action,

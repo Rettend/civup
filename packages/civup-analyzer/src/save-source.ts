@@ -21,14 +21,16 @@ export function extractSaveFilesFromSourceBytes(
   options: ExtractSaveFilesOptions = {},
 ): CivupSaveFile[] {
   if (isCiv6SavePath(source)) {
-    return [{
-      index: 0,
-      saveName: source,
-      turnFromName: null,
-      compressedSizeBytes: null,
-      uncompressedSizeBytes: bytes.length,
-      bytes,
-    }]
+    return [
+      {
+        index: 0,
+        saveName: source,
+        turnFromName: null,
+        compressedSizeBytes: null,
+        uncompressedSizeBytes: bytes.length,
+        bytes,
+      },
+    ]
   }
 
   const entries = listAutosaveZipEntries(parseZipEntries(bytes))

@@ -32,9 +32,10 @@ export function getDefaultLeaderPoolSize(
 ): number {
   const normalizedPlayerCount = Math.max(1, Math.round(playerCount))
   const maxLeaderPoolSize = getMaxLeaderPoolSize(version)
-  const baseSize = mode === 'ffa'
-    ? Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount) * FFA_DEFAULT_POOL_MULTIPLIER
-    : VERSUS_DEFAULT_LEADER_POOL_BASE + normalizedPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER
+  const baseSize =
+    mode === 'ffa'
+      ? Math.max(FFA_DEFAULT_PLAYER_FLOOR, normalizedPlayerCount) * FFA_DEFAULT_POOL_MULTIPLIER
+      : VERSUS_DEFAULT_LEADER_POOL_BASE + normalizedPlayerCount * VERSUS_DEFAULT_LEADER_POOL_PER_PLAYER
   const adjustedSize = baseSize + getLeaderPoolRankAdjustment(mode, rankTier)
   const minimumSize = getMinimumLeaderPoolSize(mode, normalizedPlayerCount)
 
@@ -60,7 +61,9 @@ export function resolveLeaderPoolSize(
   return leaderPoolSize ?? getDefaultLeaderPoolSize(mode, playerCount, version, rankTier)
 }
 
-export function resolveAverageLeaderPoolRankTier(tiers: readonly (CompetitiveTier | null | undefined)[]): CompetitiveTier {
+export function resolveAverageLeaderPoolRankTier(
+  tiers: readonly (CompetitiveTier | null | undefined)[],
+): CompetitiveTier {
   if (tiers.length === 0) return DEFAULT_LEADER_POOL_RANK_TIER
 
   const averageRank = tiers.reduce((total, tier) => total + leaderPoolRankNumber(tier), 0) / tiers.length

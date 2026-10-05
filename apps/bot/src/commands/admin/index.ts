@@ -1,17 +1,37 @@
 import type { AdminVar } from './types.ts'
-import { LEADERBOARD_MODE_CHOICES } from '@civup/game'
 import { Command, Option, SubCommand, SubGroup } from 'discord-hono'
+import { LEADERBOARD_MODE_CHOICES } from '@civup/game'
 import { ADMIN_COMMAND_DEFAULT_MEMBER_PERMISSIONS, hasAdminPermission } from '../../services/permissions/index.ts'
 import { factory } from '../../setup.ts'
 import { component_admin_show_response } from './components.ts'
 import { handleConfig } from './config.ts'
 import { handleHealth } from './health.ts'
 import { handlePermissionAdd, handlePermissionList, handlePermissionRemove } from './permission.ts'
-import { handleRankedRoles, handleRankedRolesSet, handleRankedRolesUnset, handleRankedSync, handleReset } from './ranked.ts'
-import { component_admin_season_cancel, component_admin_season_confirm, handleSeasonEnd, handleSeasonStart } from './season.ts'
+import {
+  handleRankedRoles,
+  handleRankedRolesSet,
+  handleRankedRolesUnset,
+  handleRankedSync,
+  handleReset,
+} from './ranked.ts'
+import {
+  component_admin_season_cancel,
+  component_admin_season_confirm,
+  handleSeasonEnd,
+  handleSeasonStart,
+} from './season.ts'
 import { handleSetup } from './setup.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
-import { handleTournamentCreate, handleTournamentCut, handleTournamentEdit, handleTournamentImport, handleTournamentStart, handleTournamentStatus, modal_admin_tournament_create, modal_admin_tournament_edit } from './tournament.ts'
+import {
+  handleTournamentCreate,
+  handleTournamentCut,
+  handleTournamentEdit,
+  handleTournamentImport,
+  handleTournamentStart,
+  handleTournamentStatus,
+  modal_admin_tournament_create,
+  modal_admin_tournament_edit,
+} from './tournament.ts'
 
 export const command_admin = factory.command<AdminVar>(
   new Command('admin', 'Admin commands')
@@ -52,18 +72,20 @@ export const command_admin = factory.command<AdminVar>(
           new Option('unranked', 'Starting role removed when a player qualifies', 'Role'),
         ),
         new SubCommand('unset', 'Unset one ranked role slot').options(
-          new Option('slot', 'Ranked role slot to clear').choices(
-            { name: '1', value: '1' },
-            { name: '2', value: '2' },
-            { name: '3', value: '3' },
-            { name: '4', value: '4' },
-            { name: '5', value: '5' },
-            { name: '6', value: '6' },
-            { name: '7', value: '7' },
-            { name: '8', value: '8' },
-            { name: '9', value: '9' },
-            { name: '10', value: '10' },
-          ).required(),
+          new Option('slot', 'Ranked role slot to clear')
+            .choices(
+              { name: '1', value: '1' },
+              { name: '2', value: '2' },
+              { name: '3', value: '3' },
+              { name: '4', value: '4' },
+              { name: '5', value: '5' },
+              { name: '6', value: '6' },
+              { name: '7', value: '7' },
+              { name: '8', value: '8' },
+              { name: '9', value: '9' },
+              { name: '10', value: '10' },
+            )
+            .required(),
         ),
         new SubCommand('sync', 'Compute and apply current ranked role assignments'),
       ),
@@ -105,15 +127,19 @@ export const command_admin = factory.command<AdminVar>(
         new Option('value', 'New value'),
       ),
       new SubCommand('health', 'Check the installation'),
-      new SubCommand('reset', 'Reset a player\'s rating').options(
+      new SubCommand('reset', "Reset a player's rating").options(
         new Option('player', 'Player to reset', 'User').required(),
         new Option('mode', 'Rating mode to reset').choices(...LEADERBOARD_MODE_CHOICES).required(),
       ),
     ),
-  (c) => {
+  c => {
     if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
-      return c.flags('EPHEMERAL').resDefer(async (c) => {
-        await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for /admin commands.', 'error')
+      return c.flags('EPHEMERAL').resDefer(async c => {
+        await sendTransientEphemeralResponse(
+          c,
+          'You need Administrator or Manage Server permission for /admin commands.',
+          'error',
+        )
       })
     }
 
@@ -137,10 +163,16 @@ export const command_admin = factory.command<AdminVar>(
     if (c.sub.string === 'health') return handleHealth(c)
     if (c.sub.string === 'reset') return handleReset(c)
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
+    return c.flags('EPHEMERAL').resDefer(async c => {
       await sendTransientEphemeralResponse(c, 'Unknown admin subcommand.', 'error')
     })
   },
 )
 
-export { component_admin_season_cancel, component_admin_season_confirm, component_admin_show_response, modal_admin_tournament_create, modal_admin_tournament_edit }
+export {
+  component_admin_season_cancel,
+  component_admin_season_confirm,
+  component_admin_show_response,
+  modal_admin_tournament_create,
+  modal_admin_tournament_edit,
+}

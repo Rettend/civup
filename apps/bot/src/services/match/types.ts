@@ -1,4 +1,12 @@
-import type { DraftCancelReason, DraftDoublePickMetrics, DraftSeat, DraftState, GameMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
+import type {
+  DraftCancelReason,
+  DraftDoublePickMetrics,
+  DraftSeat,
+  DraftState,
+  GameMode,
+  LeaderDataVersion,
+  ResolvedMapVoteResult,
+} from '@civup/game'
 import type { PublicRatingSnapshot } from '@civup/rating'
 
 export interface MatchRow {
@@ -46,7 +54,18 @@ export interface ReportProcessingClaim {
   acceptedAt?: number
 }
 
-export type ReportResult = { match: MatchRow, participants: ParticipantRow[], idempotent?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, reportClaim?: ReportProcessingClaim, tournamentLinked?: boolean, historicalSeason?: boolean } | { error: string }
+export type ReportResult =
+  | {
+      match: MatchRow
+      participants: ParticipantRow[]
+      idempotent?: boolean
+      reportProcessing?: boolean
+      reportFinalizing?: boolean
+      reportClaim?: ReportProcessingClaim
+      tournamentLinked?: boolean
+      historicalSeason?: boolean
+    }
+  | { error: string }
 
 export interface ResolveMatchInput {
   matchId: string
@@ -150,7 +169,9 @@ export interface ActivateDraftInput {
   doublePickMetrics?: DraftDoublePickMetrics
 }
 
-export type ActivateDraftResult = { match: MatchRow, participants: ParticipantRow[], alreadyActive: boolean } | { error: string }
+export type ActivateDraftResult =
+  | { match: MatchRow; participants: ParticipantRow[]; alreadyActive: boolean }
+  | { error: string }
 
 export interface CancelDraftInput {
   state: DraftState
@@ -165,7 +186,7 @@ export interface CancelDraftInput {
   allowActive?: boolean
 }
 
-export type CancelDraftResult = { match: MatchRow, participants: ParticipantRow[] } | { error: string }
+export type CancelDraftResult = { match: MatchRow; participants: ParticipantRow[] } | { error: string }
 
 export interface PruneMatchesOptions {
   staleDraftingMs?: number

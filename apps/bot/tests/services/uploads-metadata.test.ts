@@ -11,7 +11,7 @@ describe('recovered autosave metadata parsing', () => {
     let maxActive = 0
     const parsed: string[] = []
 
-    await runAutosaveMetadataParseQueue(uploads, async (upload) => {
+    await runAutosaveMetadataParseQueue(uploads, async upload => {
       active += 1
       maxActive = Math.max(maxActive, active)
       await new Promise(resolve => setTimeout(resolve, 2))

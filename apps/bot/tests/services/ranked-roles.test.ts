@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getRankedRoleConfig, getRankedRoleDisplayConfig, RANKED_ROLE_CONFIG_KEY_PREFIX, RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS, refreshRankedRoleDisplayMetadata, resolveCurrentCompetitiveTierFromRoleIds, setRankedRoleCurrentRoles, setRankedRoleTierCount, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
+import {
+  getRankedRoleConfig,
+  getRankedRoleDisplayConfig,
+  RANKED_ROLE_CONFIG_KEY_PREFIX,
+  RANKED_ROLE_DISPLAY_REFRESH_INTERVAL_MS,
+  refreshRankedRoleDisplayMetadata,
+  resolveCurrentCompetitiveTierFromRoleIds,
+  setRankedRoleCurrentRoles,
+  setRankedRoleTierCount,
+  updateRankedRoleConfig,
+} from '../../src/services/ranked/roles.ts'
 import { createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
@@ -26,18 +36,15 @@ describe('ranked role config service', () => {
   })
 
   test('resolves the highest configured tier from member roles', () => {
-    const tier = resolveCurrentCompetitiveTierFromRoleIds(
-      ['11111111111111111', '33333333333333333'],
-      {
-        tiers: [
-          { roleId: '44444444444444444', label: null, color: null },
-          { roleId: '33333333333333333', label: null, color: null },
-          { roleId: '22222222222222222', label: null, color: null },
-          { roleId: '11111111111111111', label: null, color: null },
-          { roleId: '00000000000000000', label: null, color: null },
-        ],
-      },
-    )
+    const tier = resolveCurrentCompetitiveTierFromRoleIds(['11111111111111111', '33333333333333333'], {
+      tiers: [
+        { roleId: '44444444444444444', label: null, color: null },
+        { roleId: '33333333333333333', label: null, color: null },
+        { roleId: '22222222222222222', label: null, color: null },
+        { roleId: '11111111111111111', label: null, color: null },
+        { roleId: '00000000000000000', label: null, color: null },
+      ],
+    })
 
     expect(tier).toBe('tier2')
   })
@@ -65,7 +72,13 @@ describe('ranked role config service', () => {
     const kv = createTestKv()
 
     await updateRankedRoleConfig(kv, 'guild-1', {
-      tierRoleIdsByRank: ['11111111111111111', '22222222222222222', '33333333333333333', '44444444444444444', '55555555555555555'],
+      tierRoleIdsByRank: [
+        '11111111111111111',
+        '22222222222222222',
+        '33333333333333333',
+        '44444444444444444',
+        '55555555555555555',
+      ],
     })
 
     const config = await updateRankedRoleConfig(kv, 'guild-1', {
@@ -80,15 +93,18 @@ describe('ranked role config service', () => {
   test('normalizes stored configs with trailing empty tiers', async () => {
     const kv = createTestKv()
 
-    await kv.put(`${RANKED_ROLE_CONFIG_KEY_PREFIX}guild-1`, JSON.stringify({
-      tiers: [
-        { roleId: '11111111111111111', label: 'Role 1', color: null },
-        { roleId: '22222222222222222', label: 'Role 2', color: null },
-        { roleId: '33333333333333333', label: 'Role 3', color: null },
-        { roleId: '44444444444444444', label: 'Role 4', color: null },
-        { roleId: null, label: null, color: null },
-      ],
-    }))
+    await kv.put(
+      `${RANKED_ROLE_CONFIG_KEY_PREFIX}guild-1`,
+      JSON.stringify({
+        tiers: [
+          { roleId: '11111111111111111', label: 'Role 1', color: null },
+          { roleId: '22222222222222222', label: 'Role 2', color: null },
+          { roleId: '33333333333333333', label: 'Role 3', color: null },
+          { roleId: '44444444444444444', label: 'Role 4', color: null },
+          { roleId: null, label: null, color: null },
+        ],
+      }),
+    )
 
     const config = await getRankedRoleConfig(kv, 'guild-1')
 
@@ -101,13 +117,18 @@ describe('ranked role config service', () => {
     const kv = createTestKv()
     const guildId = '99999999999999999'
     const roleId = '11111111111111111'
-    await updateRankedRoleConfig(kv, guildId, {
-      tierRoleIdsByRank: [roleId],
-    }, new Map([[roleId, { name: 'Old role', color: '#010203' }]]))
+    await updateRankedRoleConfig(
+      kv,
+      guildId,
+      {
+        tierRoleIdsByRank: [roleId],
+      },
+      new Map([[roleId, { name: 'Old role', color: '#010203' }]]),
+    )
     let fetchCount = 0
     globalThis.fetch = (async () => {
       fetchCount += 1
-      return new Response(JSON.stringify([{ id: roleId, name: 'Elite', color: 0xC92A2A }]), {
+      return new Response(JSON.stringify([{ id: roleId, name: 'Elite', color: 0xc92a2a }]), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -155,11 +176,12 @@ describe('ranked role config service', () => {
     await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [roleId] })
     globalThis.fetch = (async () => new Response('forbidden', { status: 403 })) as typeof fetch
 
-    await expect(refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })).rejects.toThrow('Discord fetch guild roles failed: 403 forbidden')
+    await expect(refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })).rejects.toThrow(
+      'Discord fetch guild roles failed: 403 forbidden',
+    )
 
-    globalThis.fetch = (async () => new Response(JSON.stringify([
-      { id: roleId, name: 'Elite', color: 0xC92A2A },
-    ]), { status: 200 })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify([{ id: roleId, name: 'Elite', color: 0xc92a2a }]), { status: 200 })) as typeof fetch
     const result = await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })
 
     expect(result).toEqual({ refreshed: true, updated: true, missingRoleIds: [] })
@@ -173,10 +195,13 @@ describe('ranked role config service', () => {
     await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [oldRoleId] })
     globalThis.fetch = (async () => {
       await updateRankedRoleConfig(kv, guildId, { tierRoleIdsByRank: [newRoleId] })
-      return new Response(JSON.stringify([
-        { id: oldRoleId, name: 'Old role', color: 0x010203 },
-        { id: newRoleId, name: 'New role', color: 0xAABBCC },
-      ]), { status: 200 })
+      return new Response(
+        JSON.stringify([
+          { id: oldRoleId, name: 'Old role', color: 0x010203 },
+          { id: newRoleId, name: 'New role', color: 0xaabbcc },
+        ]),
+        { status: 200 },
+      )
     }) as typeof fetch
 
     await refreshRankedRoleDisplayMetadata(kv, guildId, 'token', { now: 1_000 })

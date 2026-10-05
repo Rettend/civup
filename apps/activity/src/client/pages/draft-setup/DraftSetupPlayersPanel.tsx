@@ -1,12 +1,12 @@
 import type { LobbyBalanceTeamSummary, PlayerRow } from './helpers'
-import { buildRolePillStyle } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
+import { Portal } from '@solidjs/web'
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import { formatLeaderPoolRankLabel } from '@civup/game'
 import { DISPLAY_RATING_BASE, displayRating, formatPublicRankRating } from '@civup/rating'
-import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
-import { Portal } from '@solidjs/web'
 import { cn } from '~/client/lib/css'
+import { buildRolePillStyle } from './helpers'
 
 type DraftSetupPlayersPanelState = ReturnType<typeof useDraftSetupState>['players']
 
@@ -33,7 +33,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   const [arrangeOverlayActive, setArrangeOverlayActive] = createSignal(false)
   const [arrangeOverlayStrategy, setArrangeOverlayStrategy] = createSignal<LobbyArrangeStrategy | null>(null)
   const [openPlayerId, setOpenPlayerId] = createSignal<string | null>(null)
-  const [playerPopoverPosition, setPlayerPopoverPosition] = createSignal<{ left: number, top: number } | null>(null)
+  const [playerPopoverPosition, setPlayerPopoverPosition] = createSignal<{ left: number; top: number } | null>(null)
   let arrangeOverlayTimeout: ReturnType<typeof setTimeout> | null = null
   let playerPopoverRef: HTMLDivElement | undefined
   let playerPopoverAnchor: HTMLElement | undefined
@@ -78,13 +78,17 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     if (typeof window === 'undefined' || !anchor?.isConnected || playerPopoverAnchor !== anchor) return
     const rect = anchor.getBoundingClientRect()
     const popoverWidth = playerPopoverRef?.offsetWidth ?? PLAYER_POPOVER_MIN_WIDTH
-    const maxLeft = Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, window.innerWidth - popoverWidth - PLAYER_POPOVER_VIEWPORT_PADDING)
+    const maxLeft = Math.max(
+      PLAYER_POPOVER_VIEWPORT_PADDING,
+      window.innerWidth - popoverWidth - PLAYER_POPOVER_VIEWPORT_PADDING,
+    )
     const left = Math.min(Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, rect.left), maxLeft)
     const belowTop = rect.bottom + PLAYER_POPOVER_GAP
     const aboveTop = rect.top - PLAYER_POPOVER_HEIGHT_ESTIMATE - PLAYER_POPOVER_GAP
-    const top = belowTop + PLAYER_POPOVER_HEIGHT_ESTIMATE <= window.innerHeight - PLAYER_POPOVER_VIEWPORT_PADDING
-      ? belowTop
-      : Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, aboveTop)
+    const top =
+      belowTop + PLAYER_POPOVER_HEIGHT_ESTIMATE <= window.innerHeight - PLAYER_POPOVER_VIEWPORT_PADDING
+        ? belowTop
+        : Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, aboveTop)
     setPlayerPopoverPosition({ left, top })
   }
 
@@ -135,8 +139,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
           if (row.playerId) map.set(row.playerId, row.slot)
         }
       }
-    }
-    else {
+    } else {
       for (const column of state().ffaColumns()) {
         for (const row of column) {
           if (row.playerId) map.set(row.playerId, row.slot)
@@ -148,90 +151,103 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
 
   const renderSignature = createMemo(() => {
     if (state().isTeamMode()) {
-      return `team:${state().teamIndices().map((team) => {
-        const rows = state().teamRows(team)
-        return `${team}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`
-      }).join('|')}`
+      return `team:${state()
+        .teamIndices()
+        .map(team => {
+          const rows = state().teamRows(team)
+          return `${team}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`
+        })
+        .join('|')}`
     }
 
-    return `ffa:${state().ffaColumns().map((rows, columnIndex) => `${columnIndex}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`).join('|')}`
+    return `ffa:${state()
+      .ffaColumns()
+      .map(
+        (rows, columnIndex) => `${columnIndex}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`,
+      )
+      .join('|')}`
   })
 
-  createEffect(() => state().arrangeEvent(), (arrangeEvent) => {
-    const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
+  createEffect(
+    () => state().arrangeEvent(),
+    arrangeEvent => {
+      const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
 
-    if (!hasInitializedArrangeKey) {
-      hasInitializedArrangeKey = true
+      if (!hasInitializedArrangeKey) {
+        hasInitializedArrangeKey = true
+        lastSeenArrangeKey = arrangeKey
+        return
+      }
+
+      if (!arrangeEvent || arrangeKey == null || arrangeKey === lastSeenArrangeKey) return
       lastSeenArrangeKey = arrangeKey
-      return
-    }
+      armedArrangeKey = arrangeKey
 
-    if (!arrangeEvent || arrangeKey == null || arrangeKey === lastSeenArrangeKey) return
-    lastSeenArrangeKey = arrangeKey
-    armedArrangeKey = arrangeKey
+      if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
+      state().clearPendingArrangeStrategy?.()
+      setArrangeOverlayStrategy(arrangeEvent.strategy)
+      setArrangeOverlayActive(true)
+      arrangeOverlayTimeout = setTimeout(() => {
+        arrangeOverlayTimeout = null
+        setArrangeOverlayActive(false)
+      }, ARRANGE_OVERLAY_VISIBLE_MS)
+    },
+  )
 
-    if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
-    state().clearPendingArrangeStrategy?.()
-    setArrangeOverlayStrategy(arrangeEvent.strategy)
-    setArrangeOverlayActive(true)
-    arrangeOverlayTimeout = setTimeout(() => {
-      arrangeOverlayTimeout = null
-      setArrangeOverlayActive(false)
-    }, ARRANGE_OVERLAY_VISIBLE_MS)
-  })
+  createEffect(
+    () => Boolean(openPlayerId() && !selectedPlayerRow()),
+    missing => {
+      if (missing) closePlayerPopover()
+    },
+  )
 
-  createEffect(() => Boolean(openPlayerId() && !selectedPlayerRow()), (missing) => {
-    if (missing) closePlayerPopover()
-  })
+  createEffect(
+    () => ({ signature: renderSignature(), map: playerSlotMap() }),
+    ({ signature, map }) => {
+      let cancelled = false
+      queueMicrotask(() => {
+        if (cancelled) return
+        const shouldAnimate =
+          lastRenderSignature != null && signature !== lastRenderSignature && armedArrangeKey != null
+        const newRects = new Map<string, DOMRect>()
 
-  createEffect(() => ({ signature: renderSignature(), map: playerSlotMap() }), ({ signature, map }) => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      const shouldAnimate = lastRenderSignature != null && signature !== lastRenderSignature && armedArrangeKey != null
-      const newRects = new Map<string, DOMRect>()
+        for (const playerId of map.keys()) {
+          const el = elementsByPlayer.get(playerId)
+          if (!el?.isConnected) continue
+          const newRect = el.getBoundingClientRect()
+          newRects.set(playerId, newRect)
 
-      for (const playerId of map.keys()) {
-        const el = elementsByPlayer.get(playerId)
-        if (!el?.isConnected) continue
-        const newRect = el.getBoundingClientRect()
-        newRects.set(playerId, newRect)
+          const prevRect = prevRectByPlayer.get(playerId)
+          if (!prevRect) continue
 
-        const prevRect = prevRectByPlayer.get(playerId)
-        if (!prevRect) continue
+          const dx = prevRect.left - newRect.left
+          const dy = prevRect.top - newRect.top
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+          if (!shouldAnimate) continue
 
-        const dx = prevRect.left - newRect.left
-        const dy = prevRect.top - newRect.top
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
-        if (!shouldAnimate) continue
-
-        try {
-          el.animate(
-            [
-              { transform: `translate(${dx}px, ${dy}px)` },
-              { transform: 'translate(0, 0)' },
-            ],
-            {
+          try {
+            el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }], {
               duration: FLIP_DURATION_MS,
               delay: ARRANGE_OVERLAY_LEAD_MS,
               easing: FLIP_EASING,
               fill: 'backwards',
-            },
-          )
+            })
+          } catch {}
         }
-        catch {}
-      }
 
-      prevRectByPlayer.clear()
-      for (const [playerId, rect] of newRects) prevRectByPlayer.set(playerId, rect)
-      for (const playerId of prevRectByPlayer.keys()) {
-        if (!map.has(playerId)) prevRectByPlayer.delete(playerId)
+        prevRectByPlayer.clear()
+        for (const [playerId, rect] of newRects) prevRectByPlayer.set(playerId, rect)
+        for (const playerId of prevRectByPlayer.keys()) {
+          if (!map.has(playerId)) prevRectByPlayer.delete(playerId)
+        }
+        lastRenderSignature = signature
+        if (shouldAnimate) armedArrangeKey = null
+      })
+      return () => {
+        cancelled = true
       }
-      lastRenderSignature = signature
-      if (shouldAnimate) armedArrangeKey = null
-    })
-    return () => { cancelled = true }
-  })
+    },
+  )
 
   onSettled(() => () => {
     if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
@@ -244,56 +260,63 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     <div class="relative">
       <Show
         when={state().isTeamMode()}
-        fallback={(
+        fallback={
           <div class="gap-3 grid grid-cols-2">
             <For each={state().ffaColumns()}>
-              {rows => <DraftSetupPlayerColumn {...createPlayerColumnProps(state(), rows, flip, openPlayerId(), openPlayerPopover, closePlayerPopover)} />}
+              {rows => (
+                <DraftSetupPlayerColumn
+                  {...createPlayerColumnProps(
+                    state(),
+                    rows,
+                    flip,
+                    openPlayerId(),
+                    openPlayerPopover,
+                    closePlayerPopover,
+                  )}
+                />
+              )}
             </For>
           </div>
-        )}
+        }
       >
-        <div class={state().isLargeTeamLobbyMode()
-          ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
-          : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')}
+        <div
+          class={
+            state().isLargeTeamLobbyMode()
+              ? 'flex flex-col gap-4 lg:flex-row lg:overflow-x-auto lg:pb-1'
+              : cn('gap-4 grid', state().teamIndices().length > 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2')
+          }
         >
           <For each={state().teamIndices()}>
             {team => (
               <div class={state().isLargeTeamLobbyMode() ? 'min-w-0 lg:min-w-[280px] lg:flex-1' : undefined}>
                 <div class="mb-2 flex gap-3 items-center justify-between">
-                  <div class="text-xs text-accent tracking-wider font-bold">
-                    Team
-                    {' '}
-                    {String.fromCharCode(65 + team)}
-                  </div>
+                  <div class="text-xs text-accent tracking-wider font-bold">Team {String.fromCharCode(65 + team)}</div>
                   <Show when={state().teamBalance(team)}>
                     {summary => (
-                      <div class="text-[11px] text-accent font-semibold text-right whitespace-nowrap" title={formatTeamBalanceTitle(summary(), team)}>
-                        {Math.round(summary().probability * 100)}
-                        %
+                      <div
+                        class="text-[11px] text-accent font-semibold text-right whitespace-nowrap"
+                        title={formatTeamBalanceTitle(summary(), team)}
+                      >
+                        {Math.round(summary().probability * 100)}%
                         <Show when={formatTeamBalanceRange(summary())}>
-                          {range => (
-                            <span class="text-fg-subtle font-normal ml-1">
-                              (
-                              {range()}
-                              )
-                            </span>
-                          )}
+                          {range => <span class="text-fg-subtle font-normal ml-1">({range()})</span>}
                         </Show>
                         <Show when={formatProjectedWinDelta(summary())}>
-                          {delta => (
-                            <span class="text-fg-subtle font-normal ml-1">
-                              ·
-                              {' '}
-                              {delta()}
-                            </span>
-                          )}
+                          {delta => <span class="text-fg-subtle font-normal ml-1">· {delta()}</span>}
                         </Show>
                       </div>
                     )}
                   </Show>
                 </div>
                 <DraftSetupPlayerColumn
-                  {...createPlayerColumnProps(state(), state().teamRows(team), flip, openPlayerId(), openPlayerPopover, closePlayerPopover)}
+                  {...createPlayerColumnProps(
+                    state(),
+                    state().teamRows(team),
+                    flip,
+                    openPlayerId(),
+                    openPlayerPopover,
+                    closePlayerPopover,
+                  )}
                 />
               </div>
             )}
@@ -310,7 +333,9 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
               statsLabel={state().statsLabel()}
               unranked={state().unranked()}
               style={playerPopoverStyle()}
-              setRef={(element) => { playerPopoverRef = element }}
+              setRef={element => {
+                playerPopoverRef = element
+              }}
             />
           </Portal>
         )}
@@ -327,7 +352,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
         <div
           class="rounded-full h-64 w-64 absolute"
           style={{
-            background: 'radial-gradient(circle, rgba(9, 9, 11, 0.78) 0%, rgba(9, 9, 11, 0.4) 38%, rgba(9, 9, 11, 0) 72%)',
+            background:
+              'radial-gradient(circle, rgba(9, 9, 11, 0.78) 0%, rgba(9, 9, 11, 0.4) 38%, rgba(9, 9, 11, 0) 72%)',
             filter: 'blur(12px)',
           }}
         />
@@ -420,7 +446,9 @@ function DraftSetupPlayerColumn(props: ReturnType<typeof createPlayerColumnProps
             flip={props.flip}
             popoverOpen={props.openPlayerId === row.playerId}
             onJoin={() => props.onJoin(row.slot)}
-            onTransferHost={() => { if (row.playerId) props.onTransferHost(row.playerId) }}
+            onTransferHost={() => {
+              if (row.playerId) props.onTransferHost(row.playerId)
+            }}
             onRemove={() => props.onRemove(row.slot)}
             onOpenPlayer={anchor => props.onOpenPlayer(row, anchor)}
             onClosePlayer={props.onClosePlayer}
@@ -472,12 +500,15 @@ function PlayerChip(props: {
     if (openOnPlayer) openPlayer(anchor)
   }
 
-  createEffect(() => ({ playerId: props.row.playerId, flip: props.flip }), ({ playerId, flip }) => {
-    const el = chipEl
-    if (!el || !playerId) return
-    flip.register(playerId, el)
-    return () => flip.unregister(playerId, el)
-  })
+  createEffect(
+    () => ({ playerId: props.row.playerId, flip: props.flip }),
+    ({ playerId, flip }) => {
+      const el = chipEl
+      if (!el || !playerId) return
+      flip.register(playerId, el)
+      return () => flip.unregister(playerId, el)
+    },
+  )
 
   return (
     <div
@@ -497,11 +528,11 @@ function PlayerChip(props: {
       tabindex={(props.row.empty && !props.showJoin) || props.pending ? undefined : 0}
       aria-haspopup={!props.row.empty ? 'dialog' : undefined}
       aria-expanded={!props.row.empty ? (props.popoverOpen ? 'true' : 'false') : undefined}
-      onPointerEnter={(event) => openPlayer(event.currentTarget)}
+      onPointerEnter={event => openPlayer(event.currentTarget)}
       onPointerLeave={() => props.onClosePlayer?.()}
-      onFocus={(event) => openPlayer(event.currentTarget)}
+      onFocus={event => openPlayer(event.currentTarget)}
       onBlur={() => props.onClosePlayer?.()}
-      onClick={(event) => {
+      onClick={event => {
         if (suppressNextClick) {
           suppressNextClick = false
           event.preventDefault()
@@ -509,13 +540,13 @@ function PlayerChip(props: {
         }
         handlePrimaryAction(event.currentTarget, false)
       }}
-      onKeyDown={(event) => {
+      onKeyDown={event => {
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
         handlePrimaryAction(event.currentTarget, true)
       }}
       draggable={props.draggable && !props.pending ? 'true' : 'false'}
-      onDragStart={(event) => {
+      onDragStart={event => {
         if (!event.dataTransfer) return
         suppressNextClick = true
         event.dataTransfer.effectAllowed = 'move'
@@ -527,12 +558,12 @@ function PlayerChip(props: {
         if (!props.allowDrop) return
         props.onDragEnter?.()
       }}
-      onDragOver={(event) => {
+      onDragOver={event => {
         if (!props.allowDrop) return
         event.preventDefault()
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
       }}
-      onDrop={(event) => {
+      onDrop={event => {
         if (!props.allowDrop) return
         event.preventDefault()
         props.onDrop?.()
@@ -540,7 +571,10 @@ function PlayerChip(props: {
     >
       {/* Keep row-level drag handlers; drop events still bubble from nested content. */}
       <div class="flex shrink-0 h-5 w-5 items-center justify-center">
-        <Show when={!props.row.empty && props.row.avatarUrl} fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}>
+        <Show
+          when={!props.row.empty && props.row.avatarUrl}
+          fallback={<div class="i-ph-user-bold text-sm text-fg-subtle" />}
+        >
           {avatar => (
             <img
               src={avatar()}
@@ -563,7 +597,7 @@ function PlayerChip(props: {
           type="button"
           title="Join lobby"
           class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-fg hover:bg-white/8 group-hover:opacity-100"
-          onClick={(event) => {
+          onClick={event => {
             event.stopPropagation()
             props.onJoin?.()
           }}
@@ -579,7 +613,7 @@ function PlayerChip(props: {
               type="button"
               title="Make host"
               class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-accent hover:bg-white/8 group-hover:opacity-100"
-              onClick={(event) => {
+              onClick={event => {
                 event.stopPropagation()
                 props.onTransferHost?.()
               }}
@@ -593,7 +627,7 @@ function PlayerChip(props: {
               type="button"
               title="Remove player"
               class="text-fg-muted rounded-sm opacity-0 flex h-5 w-5 cursor-pointer transition-opacity items-center justify-center hover:text-danger hover:bg-white/8 group-hover:opacity-100"
-              onClick={(event) => {
+              onClick={event => {
                 event.stopPropagation()
                 props.onRemove?.()
               }}
@@ -612,13 +646,13 @@ function PlayerStatsPopover(props: {
   rankedRoles: RankedRoleOptionSnapshot[]
   statsLabel: string
   unranked: boolean
-  style: { left: string, top: string } | undefined
+  style: { left: string; top: string } | undefined
   setRef: (element: HTMLDivElement) => void
 }) {
   const ratingValue = () => formatRating(props.row.balanceRating, props.unranked)
   const recordValue = () => formatRecord(props.row.balanceRating)
   const winRateValue = () => formatWinRate(props.row.balanceRating)
-  const rankValue = () => props.row.balanceRating?.rank ? `#${props.row.balanceRating.rank}` : 'Unranked'
+  const rankValue = () => (props.row.balanceRating?.rank ? `#${props.row.balanceRating.rank}` : 'Unranked')
   const role = createMemo(() => formatRankedRole(props.row.rankedRole, props.rankedRoles))
 
   return (
@@ -641,17 +675,37 @@ function PlayerStatsPopover(props: {
               <div class="truncate text-sm font-semibold text-fg">{props.row.name}</div>
               <div class="mt-1 flex flex-wrap content-start gap-1 max-h-[52px] overflow-hidden">
                 <Show when={props.row.balanceRating?.seasonNumber || role().label !== 'Unassigned'}>
-                  <span class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0" style={buildRolePillStyle(role().color)}>
-                    {props.row.balanceRating?.seasonNumber ? `S${props.row.balanceRating.seasonNumber} ` : ''}{role().label === 'Unassigned' ? 'Unranked' : role().label}
+                  <span
+                    class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0"
+                    style={buildRolePillStyle(role().color)}
+                  >
+                    {props.row.balanceRating?.seasonNumber ? `S${props.row.balanceRating.seasonNumber} ` : ''}
+                    {role().label === 'Unassigned' ? 'Unranked' : role().label}
                   </span>
                 </Show>
-                <For each={props.row.balanceRating?.pastRanks ?? []}>{(rank) => {
-                  const past = () => formatRankedRole({ tier: rank.tier, sourceMode: null, label: rank.label, division: rank.division }, props.rankedRoles)
-                  return <span class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0" style={buildRolePillStyle(past().color)}>S{rank.seasonNumber} {past().label}</span>
-                }}</For>
+                <For each={props.row.balanceRating?.pastRanks ?? []}>
+                  {rank => {
+                    const past = () =>
+                      formatRankedRole(
+                        { tier: rank.tier, sourceMode: null, label: rank.label, division: rank.division },
+                        props.rankedRoles,
+                      )
+                    return (
+                      <span
+                        class="h-6 text-[11px] leading-none font-semibold px-2 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center max-w-full shrink-0"
+                        style={buildRolePillStyle(past().color)}
+                      >
+                        S{rank.seasonNumber} {past().label}
+                      </span>
+                    )
+                  }}
+                </For>
               </div>
             </div>
-            <div class="shrink-0 text-right text-[10px] text-fg-subtle font-semibold tracking-wide whitespace-nowrap" title={props.statsLabel}>
+            <div
+              class="shrink-0 text-right text-[10px] text-fg-subtle font-semibold tracking-wide whitespace-nowrap"
+              title={props.statsLabel}
+            >
               {props.statsLabel}
             </div>
           </div>
@@ -661,7 +715,9 @@ function PlayerStatsPopover(props: {
       <div class="mt-3 grid min-w-full grid-cols-[minmax(max-content,1fr)_minmax(max-content,1fr)_minmax(max-content,1fr)] rounded-lg bg-white/5 divide-x divide-white/8">
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{ratingValue()}</div>
-          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">{props.row.balanceRating?.ratingSystem === 'rp' ? 'RP' : 'Rating'}</div>
+          <div class="text-[10px] text-fg-muted uppercase tracking-wider mt-0.5">
+            {props.row.balanceRating?.ratingSystem === 'rp' ? 'RP' : 'Rating'}
+          </div>
         </div>
         <div class="px-3 py-2 text-center">
           <div class="text-sm font-semibold text-fg whitespace-nowrap">{rankValue()}</div>
@@ -683,30 +739,47 @@ function PlayerStatsPopover(props: {
 
 export function formatRating(rating: PlayerRow['balanceRating'], unranked = false): string {
   if (unranked) return 'Unranked'
-  if (rating?.ratingSystem === 'rp') return rating.publicRating == null ? 'Pending' : String(Math.round(rating.publicRating))
+  if (rating?.ratingSystem === 'rp')
+    return rating.publicRating == null ? 'Pending' : String(Math.round(rating.publicRating))
   if (!rating) return String(DISPLAY_RATING_BASE)
   return String(Math.round(displayRating(rating.mu, rating.sigma)))
 }
 
 export function formatRecord(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.ratingSystem === 'rp' ? rating.seasonGames ?? 0 : rating?.gamesPlayed ?? 0)
-  const wins = Math.max(0, Math.min(gamesPlayed, rating?.ratingSystem === 'rp' ? rating.seasonWins ?? 0 : rating?.wins ?? 0))
+  const gamesPlayed = Math.max(
+    0,
+    rating?.ratingSystem === 'rp' ? (rating.seasonGames ?? 0) : (rating?.gamesPlayed ?? 0),
+  )
+  const wins = Math.max(
+    0,
+    Math.min(gamesPlayed, rating?.ratingSystem === 'rp' ? (rating.seasonWins ?? 0) : (rating?.wins ?? 0)),
+  )
   return `${wins}-${gamesPlayed - wins}`
 }
 
 export function formatWinRate(rating: PlayerRow['balanceRating']): string {
-  const gamesPlayed = Math.max(0, rating?.ratingSystem === 'rp' ? rating.seasonGames ?? 0 : rating?.gamesPlayed ?? 0)
+  const gamesPlayed = Math.max(
+    0,
+    rating?.ratingSystem === 'rp' ? (rating.seasonGames ?? 0) : (rating?.gamesPlayed ?? 0),
+  )
   if (gamesPlayed === 0) return '0%'
-  const wins = rating?.ratingSystem === 'rp' ? rating.seasonWins ?? 0 : rating?.wins ?? 0
+  const wins = rating?.ratingSystem === 'rp' ? (rating.seasonWins ?? 0) : (rating?.wins ?? 0)
   return `${Math.round((wins / gamesPlayed) * 100)}%`
 }
 
-export function formatRankedRole(rankedRole: PlayerRow['rankedRole'], rankedRoles: RankedRoleOptionSnapshot[]): { label: string, color: string | null } {
+export function formatRankedRole(
+  rankedRole: PlayerRow['rankedRole'],
+  rankedRoles: RankedRoleOptionSnapshot[],
+): { label: string; color: string | null } {
   if (!rankedRole) return { label: 'Unassigned', color: null }
   const option = rankedRoles.find(candidate => candidate.tier === rankedRole.tier) ?? null
   return {
-    label: (rankedRole.label ?? `${option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier)}${rankedRole.division === 3 ? ' III' : rankedRole.division === 2 ? ' II' : rankedRole.division === 1 ? ' I' : ''}`)
-      + (rankedRole.overallRating != null ? ` · ${formatPublicRankRating(rankedRole.overallRating, rankedRole.tier)} RP` : ''),
+    label:
+      (rankedRole.label ??
+        `${option?.label ?? formatLeaderPoolRankLabel(rankedRole.tier)}${rankedRole.division === 3 ? ' III' : rankedRole.division === 2 ? ' II' : rankedRole.division === 1 ? ' I' : ''}`) +
+      (rankedRole.overallRating != null
+        ? ` · ${formatPublicRankRating(rankedRole.overallRating, rankedRole.tier)} RP`
+        : ''),
     color: option?.color ?? null,
   }
 }

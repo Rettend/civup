@@ -12,21 +12,24 @@ interface TimerProps {
 export function Timer(props: TimerProps) {
   const [remaining, setRemaining] = createSignal(0)
 
-  createEffect(() => props.endsAt, (endsAt) => {
-    if (endsAt == null) {
-      setRemaining(0)
-      return
-    }
+  createEffect(
+    () => props.endsAt,
+    endsAt => {
+      if (endsAt == null) {
+        setRemaining(0)
+        return
+      }
 
-    function tick() {
-      const left = Math.max(0, endsAt! - Date.now())
-      setRemaining(left)
-    }
+      function tick() {
+        const left = Math.max(0, endsAt! - Date.now())
+        setRemaining(left)
+      }
 
-    tick()
-    const interval = setInterval(tick, 100)
-    return () => clearInterval(interval)
-  })
+      tick()
+      const interval = setInterval(tick, 100)
+      return () => clearInterval(interval)
+    },
+  )
 
   const seconds = () => Math.ceil(remaining() / 1000)
   const progress = () => {

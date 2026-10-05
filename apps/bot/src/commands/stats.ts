@@ -1,22 +1,33 @@
 import type { StatsModeFilter } from '../embeds/player-card.ts'
-import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
-import { createDb } from '@civup/db'
-import { GAME_MODE_CHOICES, getLeaders, LEADERBOARD_MODES, parseGameMode, searchLeaders, toLeaderboardMode } from '@civup/game'
+import type { SeasonSelection } from '../services/season/selection.ts'
 import { Autocomplete, Command, Option } from 'discord-hono'
+import { createDb } from '@civup/db'
+import {
+  GAME_MODE_CHOICES,
+  getLeaders,
+  LEADERBOARD_MODES,
+  parseGameMode,
+  searchLeaders,
+  toLeaderboardMode,
+} from '@civup/game'
 import { leaderStatsEmbed } from '../embeds/leader-card.ts'
 import { playerCardEmbed } from '../embeds/player-card.ts'
-import { getSeasonSnapshotRoleMappings } from '../services/season/snapshot-roles.ts'
 import { teamCardEmbed } from '../embeds/team-card.ts'
-import { getIdentityByUserId } from './identity.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { getPlayerStatsRankProfile } from '../services/player/rank.ts'
-import { getRankedRoleConfig } from '../services/ranked/roles.ts'
 import { rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership } from '../services/ranked/role-sync.ts'
+import { getRankedRoleConfig } from '../services/ranked/roles.ts'
 import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
+import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
+import {
+  parseSeasonSelection,
+  resolveSeasonSelection,
+  seasonAutocompleteChoices,
+} from '../services/season/selection.ts'
+import { getSeasonSnapshotRoleMappings } from '../services/season/snapshot-roles.ts'
 import { factory } from '../setup.ts'
-import type { SeasonSelection } from '../services/season/selection.ts'
-import { parseSeasonSelection, resolveSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
+import { getIdentityByUserId } from './identity.ts'
 
 interface Var {
   player?: string
@@ -45,36 +56,42 @@ export const command_stats = factory.autocomplete<Var>(
     new Option('teammate4', 'Fourth teammate for lineup stats', 'User'),
     new Option('teammate5', 'Fifth teammate for lineup stats', 'User'),
   ),
-  async (c) => {
+  async c => {
     const input = typeof c.focused?.value === 'string' ? c.focused.value : ''
-    const choices = c.focused?.name === 'season'
-      ? await seasonAutocompleteChoices(createDb(c.env.DB), input)
-      : buildLeaderAutocompleteChoices(input)
+    const choices =
+      c.focused?.name === 'season'
+        ? await seasonAutocompleteChoices(createDb(c.env.DB), input)
+        : buildLeaderAutocompleteChoices(input)
     return c.resAutocomplete(new Autocomplete(input).choices(...choices))
   },
-  (c) => {
+  c => {
     const guildId = c.interaction.guild_id
     const leaderId = c.var.leader ? resolveLeaderInput(c.var.leader) : null
-    const targetId = c.var.player
-      ?? c.interaction.member?.user?.id
-      ?? c.interaction.user?.id
+    const targetId = c.var.player ?? c.interaction.member?.user?.id ?? c.interaction.user?.id
     const invokingPlayerId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-    const invokingRoleIds = targetId === invokingPlayerId && Array.isArray(c.interaction.member?.roles)
-      ? c.interaction.member.roles.filter((roleId): roleId is string => typeof roleId === 'string')
-      : null
-    const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5]
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    const invokingRoleIds =
+      targetId === invokingPlayerId && Array.isArray(c.interaction.member?.roles)
+        ? c.interaction.member.roles.filter((roleId): roleId is string => typeof roleId === 'string')
+        : null
+    const teammateIds = [c.var.teammate1, c.var.teammate2, c.var.teammate3, c.var.teammate4, c.var.teammate5].filter(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    )
     const mode = (parseGameMode(c.var.mode) ?? 'all') as StatsModeFilter
-    const isDefaultSelfLookup = !c.var.player && !c.var.leader && !c.var.mode && !c.var.season && teammateIds.length === 0
+    const isDefaultSelfLookup =
+      !c.var.player && !c.var.leader && !c.var.mode && !c.var.season && teammateIds.length === 0
     let season: SeasonSelection
-    try { season = parseSeasonSelection(c.var.season) }
-    catch (error) { return c.res(error instanceof Error ? error.message : 'Choose a season.') }
+    try {
+      season = parseSeasonSelection(c.var.season)
+    } catch (error) {
+      return c.res(error instanceof Error ? error.message : 'Choose a season.')
+    }
 
     if (c.var.leader && !leaderId) return c.res('Choose a leader from the autocomplete suggestions.')
-    if (leaderId && (c.var.player || teammateIds.length > 0)) return c.res('Use either leader stats or player/team stats.')
+    if (leaderId && (c.var.player || teammateIds.length > 0))
+      return c.res('Use either leader stats or player/team stats.')
 
     if (leaderId) {
-      return resDeferGeneralCommandResponse(c, async (c) => {
+      return resDeferGeneralCommandResponse(c, async c => {
         const db = createDb(c.env.DB)
         const embed = await leaderStatsEmbed(db, leaderId, mode, season)
         return { embeds: [embed] }
@@ -87,82 +104,103 @@ export const command_stats = factory.autocomplete<Var>(
       return c.res('Pick unique players for lineup stats.')
     }
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
-      const db = createDb(c.env.DB)
-      const kv = getKvStore(c.env)
-      const selected = await resolveSeasonSelection(db, season)
-      const historical = selected.season != null && !selected.season.active
-      const identities = new Map(playerIds.flatMap((playerId) => {
-        const identity = getIdentityByUserId(c, playerId)
-        return identity ? [[identity.userId, identity] as const] : []
-      }))
-      await upsertPlayerProfiles(db, [...identities.values()].map(identity => ({
-        playerId: identity.userId,
-        displayName: identity.displayName,
-        avatarUrl: identity.avatarUrl,
-      })))
+    return resDeferGeneralCommandResponse(
+      c,
+      async c => {
+        const db = createDb(c.env.DB)
+        const kv = getKvStore(c.env)
+        const selected = await resolveSeasonSelection(db, season)
+        const historical = selected.season != null && !selected.season.active
+        const identities = new Map(
+          playerIds.flatMap(playerId => {
+            const identity = getIdentityByUserId(c, playerId)
+            return identity ? [[identity.userId, identity] as const] : []
+          }),
+        )
+        await upsertPlayerProfiles(
+          db,
+          [...identities.values()].map(identity => ({
+            playerId: identity.userId,
+            displayName: identity.displayName,
+            avatarUrl: identity.avatarUrl,
+          })),
+        )
 
-      if (teammateIds.length > 0) {
-        const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode, season)
-        return { embeds: [embed] }
-      }
+        if (teammateIds.length > 0) {
+          const embed = await teamCardEmbed(db, kv, guildId ?? null, playerIds, mode, season)
+          return { embeds: [embed] }
+        }
 
-      const rankProfile = guildId && !historical && (selected.ratingSeason?.ratingSystem !== 'rp' || selected.ratingSeason.publicReadsEnabled)
-        ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
-        : null
+        const rankProfile =
+          guildId &&
+          !historical &&
+          (selected.ratingSeason?.ratingSystem !== 'rp' || selected.ratingSeason.publicReadsEnabled)
+            ? await getPlayerStatsRankProfile(db, kv, guildId, targetId)
+            : null
 
-      if (
-        guildId
-        && invokingRoleIds
-        && rankProfile?.rankedRoleRepair
-        && rankedRoleMembershipNeedsRepair({
-          currentRoleIds: invokingRoleIds,
-          ...rankProfile.rankedRoleRepair,
-        })
-      ) {
-        c.executionCtx.waitUntil(runUnbufferedRatingMutation(db, `role-repair:${targetId}`, () => repairCurrentRankedRoleMembership({
+        if (
+          guildId &&
+          invokingRoleIds &&
+          rankProfile?.rankedRoleRepair &&
+          rankedRoleMembershipNeedsRepair({
+            currentRoleIds: invokingRoleIds,
+            ...rankProfile.rankedRoleRepair,
+          })
+        ) {
+          c.executionCtx.waitUntil(
+            runUnbufferedRatingMutation(db, `role-repair:${targetId}`, () =>
+              repairCurrentRankedRoleMembership({
+                kv,
+                token: c.env.DISCORD_TOKEN,
+                guildId,
+                playerId: targetId,
+                currentRoleIds: invokingRoleIds,
+              }),
+            ).catch(error => {
+              console.error(`Failed to repair ranked role from /stats for ${targetId}:`, error)
+            }),
+          )
+        }
+
+        const visibleModes =
+          mode === 'all'
+            ? LEADERBOARD_MODES
+            : (() => {
+                const leaderboardMode = toLeaderboardMode(mode)
+                return leaderboardMode ? ([leaderboardMode] as const) : LEADERBOARD_MODES
+              })()
+
+        const historicalMapping =
+          historical && guildId && selected.season
+            ? (await getSeasonSnapshotRoleMappings(kv, guildId)).bySeasonId[selected.season.id]
+            : undefined
+        const embed = await playerCardEmbed(db, targetId, mode, {
+          unrankedRoleId: historical && guildId ? (await getRankedRoleConfig(kv, guildId)).unrankedRoleId : undefined,
           kv,
-          token: c.env.DISCORD_TOKEN,
-          guildId,
-          playerId: targetId,
-          currentRoleIds: invokingRoleIds,
-        })).catch((error) => {
-          console.error(`Failed to repair ranked role from /stats for ${targetId}:`, error)
-        }))
-      }
-
-      const visibleModes = mode === 'all'
-        ? LEADERBOARD_MODES
-        : (() => {
-            const leaderboardMode = toLeaderboardMode(mode)
-            return leaderboardMode ? [leaderboardMode] as const : LEADERBOARD_MODES
-          })()
-
-      const historicalMapping = historical && guildId && selected.season ? (await getSeasonSnapshotRoleMappings(kv, guildId)).bySeasonId[selected.season.id] : undefined
-      const embed = await playerCardEmbed(db, targetId, mode, {
-        unrankedRoleId: historical && guildId ? (await getRankedRoleConfig(kv, guildId)).unrankedRoleId : undefined,
-        kv,
-        historicalRoleIds: historicalMapping?.roles,
-        historicalRoleLabels: historicalMapping?.labels,
-        rankProfile: rankProfile?.rankProfile ?? null,
-        ratingRows: rankProfile?.ratingRows,
-        visibleModes,
-        season,
-      })
-      return { embeds: [embed] }
-    }, {
-      ephemeral: isDefaultSelfLookup,
-    })
+          historicalRoleIds: historicalMapping?.roles,
+          historicalRoleLabels: historicalMapping?.labels,
+          rankProfile: rankProfile?.rankProfile ?? null,
+          ratingRows: rankProfile?.ratingRows,
+          visibleModes,
+          season,
+        })
+        return { embeds: [embed] }
+      },
+      {
+        ephemeral: isDefaultSelfLookup,
+      },
+    )
   },
 )
 
-function buildLeaderAutocompleteChoices(query: string): Array<{ name: string, value: string }> {
+function buildLeaderAutocompleteChoices(query: string): Array<{ name: string; value: string }> {
   const trimmed = query.trim()
-  const leaders = trimmed.length > 0
-    ? [...searchLeaders(trimmed, 'live'), ...searchLeaders(trimmed, 'beta')]
-    : [...getLeaders('live'), ...getLeaders('beta')]
+  const leaders =
+    trimmed.length > 0
+      ? [...searchLeaders(trimmed, 'live'), ...searchLeaders(trimmed, 'beta')]
+      : [...getLeaders('live'), ...getLeaders('beta')]
   const seen = new Set<string>()
-  const choices: Array<{ name: string, value: string }> = []
+  const choices: Array<{ name: string; value: string }> = []
 
   for (const leader of leaders) {
     if ((!LIVE_LEADER_ID_SET.has(leader.id) && !BETA_LEADER_ID_SET.has(leader.id)) || seen.has(leader.id)) continue
@@ -182,9 +220,13 @@ function resolveLeaderInput(input: string): string | null {
   if (LIVE_LEADER_ID_SET.has(normalized) || BETA_LEADER_ID_SET.has(normalized)) return normalized
 
   const lower = normalized.toLowerCase()
-  const exact = getLeaders('live').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
+  const exact = getLeaders('live').find(
+    leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower,
+  )
   if (exact) return exact.id
-  const betaExact = getLeaders('beta').find(leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower)
+  const betaExact = getLeaders('beta').find(
+    leader => leader.name.toLowerCase() === lower || `${leader.name} ${leader.civilization}`.toLowerCase() === lower,
+  )
   if (betaExact) return betaExact.id
 
   const matches = searchLeaders(normalized, 'live').filter(leader => LIVE_LEADER_ID_SET.has(leader.id))

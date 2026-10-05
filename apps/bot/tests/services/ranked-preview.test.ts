@@ -1,5 +1,5 @@
-import { playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
+import { playerRatings, players } from '@civup/db'
 import { rankedPreviewEmbeds } from '../../src/embeds/ranked-preview.ts'
 import { markRankedRolesDirty, summarizeRankedPreview } from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles, updateRankedRoleConfig } from '../../src/services/ranked/roles.ts'
@@ -200,52 +200,61 @@ async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death',
   count: number,
-  options: { prefix: string, gamesPlayed: number },
+  options: { prefix: string; gamesPlayed: number },
 ): Promise<void> {
   for (let index = 1; index <= count; index++) {
     const playerId = playerIdFor(options.prefix, index)
-    await db.insert(players).values({
-      id: playerId,
-      displayName: playerId,
-      avatarUrl: null,
-      createdAt: NOW,
-    }).onConflictDoNothing()
-    await db.insert(playerRatings).values({
-      playerId,
-      mode,
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: options.gamesPlayed,
-      lastPlayedAt: NOW,
-      effectiveGames: options.gamesPlayed,
-    }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: {
+    await db
+      .insert(players)
+      .values({
+        id: playerId,
+        displayName: playerId,
+        avatarUrl: null,
+        createdAt: NOW,
+      })
+      .onConflictDoNothing()
+    await db
+      .insert(playerRatings)
+      .values({
+        playerId,
+        mode,
         mu: 40 - index,
         sigma: 6,
         gamesPlayed: options.gamesPlayed,
         lastPlayedAt: NOW,
         effectiveGames: options.gamesPlayed,
-      },
-    })
-    await db.insert(playerRatings).values({
-      playerId,
-      mode: 'global',
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: options.gamesPlayed,
-      lastPlayedAt: NOW,
-      effectiveGames: options.gamesPlayed,
-    }).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: {
+      })
+      .onConflictDoUpdate({
+        target: [playerRatings.playerId, playerRatings.mode],
+        set: {
+          mu: 40 - index,
+          sigma: 6,
+          gamesPlayed: options.gamesPlayed,
+          lastPlayedAt: NOW,
+          effectiveGames: options.gamesPlayed,
+        },
+      })
+    await db
+      .insert(playerRatings)
+      .values({
+        playerId,
+        mode: 'global',
         mu: 40 - index,
         sigma: 6,
         gamesPlayed: options.gamesPlayed,
         lastPlayedAt: NOW,
         effectiveGames: options.gamesPlayed,
-      },
-    })
+      })
+      .onConflictDoUpdate({
+        target: [playerRatings.playerId, playerRatings.mode],
+        set: {
+          mu: 40 - index,
+          sigma: 6,
+          gamesPlayed: options.gamesPlayed,
+          lastPlayedAt: NOW,
+          effectiveGames: options.gamesPlayed,
+        },
+      })
   }
 }
 

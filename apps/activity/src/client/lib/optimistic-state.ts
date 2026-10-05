@@ -17,11 +17,7 @@ export interface OptimisticState<T> {
   pending: Accessor<T | null>
   status: Accessor<OptimisticStatus>
   error: Accessor<string | null>
-  commit: (
-    nextValue: T,
-    persist: () => Promise<void>,
-    options?: OptimisticCommitOptions,
-  ) => Promise<boolean>
+  commit: (nextValue: T, persist: () => Promise<void>, options?: OptimisticCommitOptions) => Promise<boolean>
   clearError: () => void
 }
 
@@ -69,7 +65,7 @@ export function createOptimisticState<T>(
   )
 
   const clearError = () => {
-    setStatus(prev => prev === 'error' ? 'idle' : prev)
+    setStatus(prev => (prev === 'error' ? 'idle' : prev))
     setError(null)
   }
 
@@ -89,8 +85,7 @@ export function createOptimisticState<T>(
 
     try {
       await persist()
-    }
-    catch (persistError) {
+    } catch (persistError) {
       if (thisCommit !== commitVersion) return false
       setPending(null)
       setStatus('error')

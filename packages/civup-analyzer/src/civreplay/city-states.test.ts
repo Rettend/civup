@@ -19,10 +19,18 @@ describe('city-state resolver', () => {
 describe('buildCivReplayCityStateRoster', () => {
   test('classifies alive minor-owned city-state capitals', () => {
     const resolver = createCityStateResolver({ loadDefaultTypesDb: false })
-    const roster = buildCivReplayCityStateRoster([
-      { id: 0, cities: [{ id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 5 }] },
-      { id: 6, influenceTokensReceived: [2, 5, 0, 5], cities: [{ id: 0, name: 'LOC_CITY_NAME_BOLOGNA', x: 12, y: 22, population: 3 }] },
-    ], resolver, { majorPlayerIds: [0] })
+    const roster = buildCivReplayCityStateRoster(
+      [
+        { id: 0, cities: [{ id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 5 }] },
+        {
+          id: 6,
+          influenceTokensReceived: [2, 5, 0, 5],
+          cities: [{ id: 0, name: 'LOC_CITY_NAME_BOLOGNA', x: 12, y: 22, population: 3 }],
+        },
+      ],
+      resolver,
+      { majorPlayerIds: [0] },
+    )
 
     expect(roster.count).toBe(1)
     expect(roster.aliveCount).toBe(1)
@@ -43,11 +51,19 @@ describe('buildCivReplayCityStateRoster', () => {
 
   test('infers suzerain from city-state influence tokens', () => {
     const resolver = createCityStateResolver({ loadDefaultTypesDb: false })
-    const roster = buildCivReplayCityStateRoster([
-      { id: 0, cities: [{ id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 5 }] },
-      { id: 1, cities: [{ id: 0, name: 'LOC_CITY_NAME_LONDON', x: 30, y: 20, population: 5 }] },
-      { id: 6, influenceTokensReceived: [2, 5, 0, 3], cities: [{ id: 0, name: 'LOC_CITY_NAME_BOLOGNA', x: 12, y: 22, population: 3 }] },
-    ], resolver, { majorPlayerIds: [0, 1, 3] })
+    const roster = buildCivReplayCityStateRoster(
+      [
+        { id: 0, cities: [{ id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 5 }] },
+        { id: 1, cities: [{ id: 0, name: 'LOC_CITY_NAME_LONDON', x: 30, y: 20, population: 5 }] },
+        {
+          id: 6,
+          influenceTokensReceived: [2, 5, 0, 3],
+          cities: [{ id: 0, name: 'LOC_CITY_NAME_BOLOGNA', x: 12, y: 22, population: 3 }],
+        },
+      ],
+      resolver,
+      { majorPlayerIds: [0, 1, 3] },
+    )
 
     expect(roster.cityStates[0]).toMatchObject({
       envoys: [
@@ -63,15 +79,19 @@ describe('buildCivReplayCityStateRoster', () => {
 
   test('keeps captured city-state capitals distinct from suzerain/envoy state', () => {
     const resolver = createCityStateResolver({ loadDefaultTypesDb: false })
-    const roster = buildCivReplayCityStateRoster([
-      {
-        id: 2,
-        cities: [
-          { id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 8 },
-          { id: 1, name: 'LOC_CITY_NAME_JERUSALEM', x: 11, y: 21, population: 4 },
-        ],
-      },
-    ], resolver, { majorPlayerIds: [2] })
+    const roster = buildCivReplayCityStateRoster(
+      [
+        {
+          id: 2,
+          cities: [
+            { id: 0, name: 'LOC_CITY_NAME_WASHINGTON', x: 10, y: 20, population: 8 },
+            { id: 1, name: 'LOC_CITY_NAME_JERUSALEM', x: 11, y: 21, population: 4 },
+          ],
+        },
+      ],
+      resolver,
+      { majorPlayerIds: [2] },
+    )
 
     expect(roster.count).toBe(1)
     expect(roster.aliveCount).toBe(0)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest'
-import { openCivBlitzModDownload, requestCivBlitzModDownloadUrl } from '../src/client/lib/civblitz-mod-download'
 import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
+import { openCivBlitzModDownload, requestCivBlitzModDownloadUrl } from '../src/client/lib/civblitz-mod-download'
 import { configureClientPlatform } from '../src/client/platform/runtime'
 
 const originalFetch = globalThis.fetch
@@ -29,8 +29,7 @@ describe('CivBlitz mod download URL', () => {
       expect(requests[0]?.method).toBe('POST')
       expect(requests[0]?.headers.get('X-CivUp-Activity-Session')).toBe('signed-session')
       expect(new URL(requests[0]!.url).pathname).toBe('/api/match/match%2Fwith%20spaces/civblitz/download-ticket')
-    }
-    finally {
+    } finally {
       clearActivitySessionToken()
     }
   })

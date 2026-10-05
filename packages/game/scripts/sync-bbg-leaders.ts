@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
 import type { Leader } from '../src/types.ts'
+import { Database } from 'bun:sqlite'
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { extname, resolve } from 'node:path'
 import process from 'node:process'
-import { Database } from 'bun:sqlite'
 import { leaders as existingLiveLeaders } from '../src/leaders.ts'
 
 type Variant = 'live' | 'beta'
@@ -67,7 +67,7 @@ interface LeaderDataMetaSnapshot {
 
 const TARGET_DOMAIN = 'Players:Expansion2_Players'
 const ENGLISH_LANGUAGE = 'en_US'
-const GAME_ROOT = 'C:/Program Files (x86)/Steam/steamapps/common/Sid Meier\'s Civilization VI'
+const GAME_ROOT = "C:/Program Files (x86)/Steam/steamapps/common/Sid Meier's Civilization VI"
 const BBG_EXPANDED_ROOT = 'C:/Program Files (x86)/Steam/steamapps/workshop/content/289070/3533091092'
 const BBG_ROOT_BY_VARIANT: Record<Variant, string> = {
   live: 'C:/Program Files (x86)/Steam/steamapps/workshop/content/289070/2865001760',
@@ -82,16 +82,14 @@ const ITEM_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/
 const LEADER_ASSET_ROOT = resolve(import.meta.dir, '../../../apps/activity/public/assets/bbg/leaders')
 const NON_SCENARIO_RULESETS = ['RULESET_STANDARD', 'RULESET_EXPANSION_1', 'RULESET_EXPANSION_2']
 const TEXT_OVERRIDES: Record<string, string> = {}
-const EXCLUDED_ITEM_TYPES = new Set([
-  'IMPROVEMENT_SUK_DUNON',
-])
+const EXCLUDED_ITEM_TYPES = new Set(['IMPROVEMENT_SUK_DUNON'])
 const ITEM_ICON_ASSET_NAME_OVERRIDES: Partial<Record<ConfigPlayerItemRow['Type'], string>> = {
   UNIT_LIME_THULE_DOGSLED: 'Dogsled Hunter',
   UNIT_MACEDONIAN_HETAIROI: 'Hetairoi',
-  IMPROVEMENT_LIME_THULE_WBH: 'Hunter\'s House',
+  IMPROVEMENT_LIME_THULE_WBH: "Hunter's House",
 }
 const ITEM_ICON_ASSET_NAME_OVERRIDES_BY_NAME: Record<string, string> = {
-  'Whalebone House': 'Hunter\'s House',
+  'Whalebone House': "Hunter's House",
 }
 const APPENDABLE_EXPANDED_LEADER_TYPES = new Set([
   'LEADER_CVS_ANACAONA',
@@ -131,7 +129,8 @@ async function loadRosterRows(variant: Variant): Promise<SourceRosterRow[]> {
   await seedExpandedConfig(configDb)
   await seedVariantConfig(configDb, variant)
 
-  const players = configDb.query(`
+  const players = configDb
+    .query(`
     SELECT *
     FROM Players
     WHERE Domain = ?
@@ -139,14 +138,17 @@ async function loadRosterRows(variant: Variant): Promise<SourceRosterRow[]> {
       AND LeaderType NOT LIKE 'LEADER_MINOR_CIV_%'
       AND CivilizationType <> 'CIVILIZATION_BARBARIAN'
     ORDER BY CivilizationType, LeaderType
-  `).all(TARGET_DOMAIN) as ConfigPlayerRow[]
+  `)
+    .all(TARGET_DOMAIN) as ConfigPlayerRow[]
 
-  const itemRows = configDb.query(`
+  const itemRows = configDb
+    .query(`
     SELECT *
     FROM PlayerItems
     WHERE Domain = ?
     ORDER BY CivilizationType, LeaderType, SortIndex, Type
-  `).all(TARGET_DOMAIN) as ConfigPlayerItemRow[]
+  `)
+    .all(TARGET_DOMAIN) as ConfigPlayerItemRow[]
   configDb.close()
 
   const itemsByKey = new Map<string, ConfigPlayerItemRow[]>()
@@ -218,7 +220,12 @@ async function seedBaseAndDlcConfig(db: Database): Promise<void> {
 
   for (const filePath of xmlFiles) {
     const content = await readFile(filePath, 'utf8')
-    if (!content.includes('<Players>') && !content.includes('<PlayerItems>') && !content.includes('<RulesetDomainOverrides>')) continue
+    if (
+      !content.includes('<Players>') &&
+      !content.includes('<PlayerItems>') &&
+      !content.includes('<RulesetDomainOverrides>')
+    )
+      continue
 
     const parsed = parseConfigXml(content)
     if (parsed.players.length === 0 && parsed.items.length === 0 && parsed.rulesetDomainOverrides.length === 0) continue
@@ -268,7 +275,10 @@ function createConfigInserters(db: Database): {
   return { playerInsert, itemInsert, overrideInsert }
 }
 
-function insertConfigRows(inserters: ReturnType<typeof createConfigInserters>, parsed: ReturnType<typeof parseConfigXml>): void {
+function insertConfigRows(
+  inserters: ReturnType<typeof createConfigInserters>,
+  parsed: ReturnType<typeof parseConfigXml>,
+): void {
   for (const row of parsed.players) {
     inserters.playerInsert.run(
       row.Domain ?? 'Players:StandardPlayers',
@@ -316,7 +326,7 @@ async function seedVariantConfig(db: Database, variant: Variant): Promise<void> 
 }
 
 async function seedConfigFiles(db: Database, root: string): Promise<void> {
-  const files = await collectFiles(root, (filePath) => {
+  const files = await collectFiles(root, filePath => {
     const extension = extname(filePath).toLowerCase()
     return extension === '.xml' || extension === '.sql'
   })
@@ -327,7 +337,12 @@ async function seedConfigFiles(db: Database, root: string): Promise<void> {
     const extension = extname(filePath).toLowerCase()
 
     if (extension === '.xml') {
-      if (!content.includes('<Players>') && !content.includes('<PlayerItems>') && !content.includes('<RulesetDomainOverrides>')) continue
+      if (
+        !content.includes('<Players>') &&
+        !content.includes('<PlayerItems>') &&
+        !content.includes('<RulesetDomainOverrides>')
+      )
+        continue
       const parsed = parseConfigXml(content)
       insertConfigRows(inserters, parsed)
       continue
@@ -339,8 +354,7 @@ async function seedConfigFiles(db: Database, root: string): Promise<void> {
       if (!isRelevantConfigStatement(statement)) continue
       try {
         db.exec(statement)
-      }
-      catch (error) {
+      } catch (error) {
         console.warn(`Skipped config statement from ${filePath}: ${String(error)}`)
       }
     }
@@ -374,17 +388,14 @@ async function readLeaderDataMeta(): Promise<LeaderDataMetaSnapshot> {
 
   return {
     liveVersionLabel: live.versionLabel,
-    betaVersionLabel: hasBetaLeaderData ? beta?.versionLabel ?? null : null,
+    betaVersionLabel: hasBetaLeaderData ? (beta?.versionLabel ?? null) : null,
     hasBetaLeaderData,
   }
 }
 
 async function readInstalledLeaderDataInfo(variant: Variant): Promise<InstalledLeaderDataInfo> {
   const modinfoPath = resolve(BBG_ROOT_BY_VARIANT[variant], 'BetterBalancedGame.modinfo')
-  const [content, stats] = await Promise.all([
-    readFile(modinfoPath, 'utf8'),
-    stat(modinfoPath),
-  ])
+  const [content, stats] = await Promise.all([readFile(modinfoPath, 'utf8'), stat(modinfoPath)])
 
   return {
     versionLabel: parseInstalledLeaderDataVersionLabel(content),
@@ -443,7 +454,10 @@ function createLocalizationDatabase(): Database {
 }
 
 async function seedBaseAndDlcLocalizations(db: Database): Promise<void> {
-  const xmlFiles = await collectFiles(GAME_ROOT, filePath => extname(filePath).toLowerCase() === '.xml' && /[\\/]Text[\\/]en_US[\\/]/.test(filePath))
+  const xmlFiles = await collectFiles(
+    GAME_ROOT,
+    filePath => extname(filePath).toLowerCase() === '.xml' && /[\\/]Text[\\/]en_US[\\/]/.test(filePath),
+  )
   const insert = db.query('INSERT OR REPLACE INTO LocalizedText (Language, Tag, Text) VALUES (?, ?, ?)')
 
   for (const filePath of xmlFiles) {
@@ -464,7 +478,7 @@ async function seedVariantLocalizations(db: Database, variant: Variant): Promise
 }
 
 async function seedExpandedLocalizations(db: Database): Promise<void> {
-  const files = await collectFiles(BBG_EXPANDED_ROOT, (filePath) => {
+  const files = await collectFiles(BBG_EXPANDED_ROOT, filePath => {
     const extension = extname(filePath).toLowerCase()
     return extension === '.xml' || extension === '.sql'
   })
@@ -486,15 +500,19 @@ async function seedExpandedLocalizations(db: Database): Promise<void> {
       if (!isRelevantLocalizationStatement(statement)) continue
       try {
         db.exec(statement)
-      }
-      catch (error) {
+      } catch (error) {
         console.warn(`Skipped localization statement from ${filePath}: ${String(error)}`)
       }
     }
   }
 }
 
-function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, itemAssetIndex: Map<string, string>, leaderAssetIndex: Map<string, string>): Leader[] {
+function buildLeaders(
+  rosterRows: SourceRosterRow[],
+  localizationDb: Database,
+  itemAssetIndex: Map<string, string>,
+  leaderAssetIndex: Map<string, string>,
+): Leader[] {
   const nextLeaders = existingLiveLeaders.map(cloneLeader)
   const liveLeaderIndexByKey = new Map<string, number>()
   const missingLeaders: Leader[] = []
@@ -505,7 +523,8 @@ function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, i
   }
 
   for (const row of rosterRows) {
-    const localizedCivilization = resolveText(localizationDb, row.player.CivilizationName) ?? row.player.CivilizationName ?? ''
+    const localizedCivilization =
+      resolveText(localizationDb, row.player.CivilizationName) ?? row.player.CivilizationName ?? ''
     const localizedLeaderName = resolveText(localizationDb, row.player.LeaderName) ?? row.player.LeaderName ?? ''
     const key = normalizedLeaderKey(localizedCivilization, localizedLeaderName)
     const existingIndex = liveLeaderIndexByKey.get(key)
@@ -532,9 +551,23 @@ function buildLeaders(rosterRows: SourceRosterRow[], localizationDb: Database, i
   return nextLeaders
 }
 
-function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, itemAssetIndex: Map<string, string>, leaderAssetIndex: Map<string, string>, existing: Leader | null): Leader {
-  const leaderName = resolveText(localizationDb, row.player.LeaderName) ?? existing?.name ?? row.player.LeaderName ?? row.player.LeaderType
-  const civilization = resolveText(localizationDb, row.player.CivilizationName) ?? existing?.civilization ?? row.player.CivilizationName ?? row.player.CivilizationType
+function buildLeaderFromRoster(
+  row: SourceRosterRow,
+  localizationDb: Database,
+  itemAssetIndex: Map<string, string>,
+  leaderAssetIndex: Map<string, string>,
+  existing: Leader | null,
+): Leader {
+  const leaderName =
+    resolveText(localizationDb, row.player.LeaderName) ??
+    existing?.name ??
+    row.player.LeaderName ??
+    row.player.LeaderType
+  const civilization =
+    resolveText(localizationDb, row.player.CivilizationName) ??
+    existing?.civilization ??
+    row.player.CivilizationName ??
+    row.player.CivilizationType
 
   const uniqueUnits: Leader['uniqueUnits'] = []
   const uniqueBuildings: Leader['uniqueBuildings'] = []
@@ -564,7 +597,11 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
       continue
     }
 
-    if (item.Type.startsWith('BUILDING_') || item.Type.startsWith('DISTRICT_') || item.Type.startsWith('LEADER_BUILDING_')) {
+    if (
+      item.Type.startsWith('BUILDING_') ||
+      item.Type.startsWith('DISTRICT_') ||
+      item.Type.startsWith('LEADER_BUILDING_')
+    ) {
       uniqueBuildings.push(normalized)
       buildingIndex += 1
       continue
@@ -576,14 +613,24 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
     }
   }
 
-  const civilizationAbilityName = resolveText(localizationDb, row.player.CivilizationAbilityName) ?? existing?.civilizationAbility.name ?? row.player.CivilizationAbilityName
-  const civilizationAbilityDescription = resolveText(localizationDb, row.player.CivilizationAbilityDescription) ?? existing?.civilizationAbility.description ?? row.player.CivilizationAbilityDescription
+  const civilizationAbilityName =
+    resolveText(localizationDb, row.player.CivilizationAbilityName) ??
+    existing?.civilizationAbility.name ??
+    row.player.CivilizationAbilityName
+  const civilizationAbilityDescription =
+    resolveText(localizationDb, row.player.CivilizationAbilityDescription) ??
+    existing?.civilizationAbility.description ??
+    row.player.CivilizationAbilityDescription
   if (!civilizationAbilityName || !civilizationAbilityDescription) {
     throw new Error(`Missing civilization ability for ${row.player.CivilizationType}/${row.player.LeaderType}`)
   }
 
-  const leaderAbilityName = resolveText(localizationDb, row.player.LeaderAbilityName) ?? existing?.ability.name ?? row.player.LeaderAbilityName
-  const leaderAbilityDescription = resolveText(localizationDb, row.player.LeaderAbilityDescription) ?? existing?.ability.description ?? row.player.LeaderAbilityDescription
+  const leaderAbilityName =
+    resolveText(localizationDb, row.player.LeaderAbilityName) ?? existing?.ability.name ?? row.player.LeaderAbilityName
+  const leaderAbilityDescription =
+    resolveText(localizationDb, row.player.LeaderAbilityDescription) ??
+    existing?.ability.description ??
+    row.player.LeaderAbilityDescription
   if (!leaderAbilityName || !leaderAbilityDescription) {
     throw new Error(`Missing leader ability for ${row.player.CivilizationType}/${row.player.LeaderType}`)
   }
@@ -603,9 +650,11 @@ function buildLeaderFromRoster(row: SourceRosterRow, localizationDb: Database, i
       description: resolveLeaderText(leaderAbilityDescription),
     },
     secondaryAbility: existing?.secondaryAbility ? { ...existing.secondaryAbility } : undefined,
-    uniqueUnits: uniqueUnits.length > 0 ? uniqueUnits : existing?.uniqueUnits.map(cloneUnique) ?? [],
-    uniqueBuildings: uniqueBuildings.length > 0 ? uniqueBuildings : getExistingUniqueBuildings(existing).map(cloneUnique),
-    uniqueImprovements: uniqueImprovements.length > 0 ? uniqueImprovements : getExistingUniqueImprovements(existing).map(cloneUnique),
+    uniqueUnits: uniqueUnits.length > 0 ? uniqueUnits : (existing?.uniqueUnits.map(cloneUnique) ?? []),
+    uniqueBuildings:
+      uniqueBuildings.length > 0 ? uniqueBuildings : getExistingUniqueBuildings(existing).map(cloneUnique),
+    uniqueImprovements:
+      uniqueImprovements.length > 0 ? uniqueImprovements : getExistingUniqueImprovements(existing).map(cloneUnique),
     tags: [],
   }
 }
@@ -623,8 +672,13 @@ function buildUniqueFromItem(
   existing: Leader | null,
   index: number,
 ): Leader['uniqueUnits'][number] | null {
-  const name = resolveText(localizationDb, item.Name) ?? inheritedUniqueName(existing, item.Type, index) ?? item.Name ?? null
-  const description = resolveText(localizationDb, item.Description) ?? inheritedUniqueDescription(existing, item.Type, index) ?? item.Description ?? null
+  const name =
+    resolveText(localizationDb, item.Name) ?? inheritedUniqueName(existing, item.Type, index) ?? item.Name ?? null
+  const description =
+    resolveText(localizationDb, item.Description) ??
+    inheritedUniqueDescription(existing, item.Type, index) ??
+    item.Description ??
+    null
   if (!name || !description) return null
   const normalizedDescription = resolveLeaderText(description)
 
@@ -662,7 +716,12 @@ async function buildLeaderAssetIndex(): Promise<Map<string, string>> {
   return assets
 }
 
-function resolveLeaderPortraitUrl(civilization: string, leaderName: string, leaderAssetIndex: Map<string, string>, existing: Leader | null): string | undefined {
+function resolveLeaderPortraitUrl(
+  civilization: string,
+  leaderName: string,
+  leaderAssetIndex: Map<string, string>,
+  existing: Leader | null,
+): string | undefined {
   return existing?.portraitUrl ?? leaderAssetIndex.get(normalizeCompareText(`${civilization} ${leaderName}`))
 }
 
@@ -706,9 +765,21 @@ function inheritedUniqueIconUrl(existing: Leader | null, type: string, index: nu
   return getExistingUnique(existing, type, index)?.iconUrl
 }
 
-function getExistingUnique(existing: Leader | null, type: string, index: number): Leader['uniqueUnits'][number] | Leader['uniqueBuildings'][number] | Leader['uniqueImprovements'][number] | undefined {
+function getExistingUnique(
+  existing: Leader | null,
+  type: string,
+  index: number,
+):
+  | Leader['uniqueUnits'][number]
+  | Leader['uniqueBuildings'][number]
+  | Leader['uniqueImprovements'][number]
+  | undefined {
   if (!existing) return undefined
-  if (type.startsWith('UNIT_')) return existing.uniqueUnits[index] ?? existing.uniqueUnits.find(unit => normalizeCompareText(unit.name) === normalizeCompareText(type))
+  if (type.startsWith('UNIT_'))
+    return (
+      existing.uniqueUnits[index] ??
+      existing.uniqueUnits.find(unit => normalizeCompareText(unit.name) === normalizeCompareText(type))
+    )
   if (type.startsWith('IMPROVEMENT_')) return getExistingUniqueImprovements(existing)[index]
   return getExistingUniqueBuildings(existing)[index]
 }
@@ -732,13 +803,19 @@ function resolveText(localizationDb: Database, tag: string | undefined): string 
   const overrideText = TEXT_OVERRIDES[tag]
   if (overrideText != null) return overrideText
 
-  const localizedRow = localizationDb.query('SELECT Text FROM LocalizedText WHERE Language = ? AND Tag = ?').get(ENGLISH_LANGUAGE, tag) as { Text?: string } | null
+  const localizedRow = localizationDb
+    .query('SELECT Text FROM LocalizedText WHERE Language = ? AND Tag = ?')
+    .get(ENGLISH_LANGUAGE, tag) as { Text?: string } | null
   if (localizedRow?.Text != null) return localizedRow.Text
 
-  const baseGameRow = localizationDb.query('SELECT Text FROM BaseGameText WHERE Tag = ?').get(tag) as { Text?: string } | null
+  const baseGameRow = localizationDb.query('SELECT Text FROM BaseGameText WHERE Tag = ?').get(tag) as {
+    Text?: string
+  } | null
   if (baseGameRow?.Text != null) return baseGameRow.Text
 
-  const englishRow = localizationDb.query('SELECT Text FROM EnglishText WHERE Tag = ?').get(tag) as { Text?: string } | null
+  const englishRow = localizationDb.query('SELECT Text FROM EnglishText WHERE Tag = ?').get(tag) as {
+    Text?: string
+  } | null
   return englishRow?.Text == null ? undefined : englishRow.Text
 }
 
@@ -878,8 +955,8 @@ function splitSqlStatements(content: string): string[] {
 
     current += char
 
-    if (char === '\'' && !inDoubleQuote) {
-      if (next === '\'') {
+    if (char === "'" && !inDoubleQuote) {
+      if (next === "'") {
         current += next
         index += 1
         continue
@@ -919,8 +996,10 @@ function isRelevantConfigStatement(statement: string): boolean {
 }
 
 function isRelevantLocalizationStatement(statement: string): boolean {
-  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement)) return true
-  if (/\bWITH\b[\s\S]*\bINSERT(?: OR REPLACE)? INTO\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement)) return true
+  if (/\b(INSERT(?: OR REPLACE)? INTO|UPDATE)\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement))
+    return true
+  if (/\bWITH\b[\s\S]*\bINSERT(?: OR REPLACE)? INTO\s+(LocalizedText|BaseGameText|EnglishText)\b/i.test(statement))
+    return true
   return false
 }
 
@@ -931,7 +1010,7 @@ async function collectFiles(root: string, predicate: (filePath: string) => boole
   for (const entry of entries) {
     const filePath = resolve(root, entry.name)
     if (entry.isDirectory()) {
-      files.push(...await collectFiles(filePath, predicate))
+      files.push(...(await collectFiles(filePath, predicate)))
       continue
     }
     if (entry.isFile() && predicate(filePath)) files.push(filePath)
@@ -974,7 +1053,7 @@ function decodeXmlEntities(value: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
     .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, '\'')
+    .replace(/&apos;/g, "'")
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -982,10 +1061,7 @@ function decodeXmlEntities(value: string): string {
 }
 
 function normalizeCompareText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 }
 
 function slugify(value: string): string {
@@ -1000,7 +1076,9 @@ function slugify(value: string): string {
 }
 
 function extractReplaces(description: string): string | undefined {
-  const directMatch = description.match(/\breplac(?:es|e|ing)\s+(?:the\s+)?([^.,;|]+?)(?:\s+when|\s+that|\s+and|[.,;|]|$)/i)
+  const directMatch = description.match(
+    /\breplac(?:es|e|ing)\s+(?:the\s+)?([^.,;|]+?)(?:\s+when|\s+that|\s+and|[.,;|]|$)/i,
+  )
   if (directMatch?.[1]) {
     const replaces = directMatch[1].trim()
     return replaces.length > 0 ? replaces : undefined
@@ -1013,9 +1091,10 @@ function extractReplaces(description: string): string | undefined {
 
 function renderLeadersTs(leaders: Leader[], variant: Variant, sourceVariant: Variant): string {
   const data = renderTsValue(leaders)
-  const variantLine = variant === sourceVariant
-    ? ` * Variant: ${variant}`
-    : ` * Variant: ${variant} (mirrors ${sourceVariant}; no active beta is installed)`
+  const variantLine =
+    variant === sourceVariant
+      ? ` * Variant: ${variant}`
+      : ` * Variant: ${variant} (mirrors ${sourceVariant}; no active beta is installed)`
   return `import type { Leader } from './types.ts'\nimport { applyLeaderTags } from './leader-tags.ts'\n\n/**\n * Leader data synced from local Civ VI files.\n *\n${variantLine}\n * Generated by: packages/game/scripts/sync-bbg-leaders.ts\n */\nexport const leaders: Leader[] = ${data}\n\napplyLeaderTags(leaders)\n\n/** Map of leader ID to leader data for quick lookup */\nexport const leaderMap = new Map<string, Leader>(\n  leaders.map(l => [l.id, l]),\n)\n\n/** All leader IDs (the default civ pool) */\nexport const allLeaderIds = leaders.map(l => l.id)\n\n/** Get a leader by ID, throws if not found */\nexport function getLeader(id: string): Leader {\n  const leader = leaderMap.get(id)\n  if (!leader) throw new Error(\`Leader not found: \${id}\`)\n  return leader\n}\n\n/** Search leaders by name or civilization (case-insensitive) */\nexport function searchLeaders(query: string): Leader[] {\n  const q = query.toLowerCase()\n  return leaders.filter(l =>\n    l.name.toLowerCase().includes(q)\n    || l.civilization.toLowerCase().includes(q),\n  )\n}\n`
 }
 

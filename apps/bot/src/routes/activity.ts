@@ -1,5 +1,3 @@
-import type { GameMode } from '@civup/game'
-import type { Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { ActivityTargetSelection } from '../services/activity/launch-target.ts'
 import type { ActivitySessionDirectoryEntry, LobbySnapshot } from '../services/activity/session-state.ts'
@@ -8,17 +6,40 @@ import type { LobbyState } from '../services/lobby/index.ts'
 import type { RankedRoleAssignments } from '../services/ranked/role-sync.ts'
 import type { SessionRecord } from '../session-runtime/session-record.ts'
 import type { buildOpenLobbySnapshot } from './lobby/snapshot.ts'
+import type { GameMode } from '@civup/game'
+import type { Hono } from 'hono'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { formatModeLabel, toBalanceLeaderboardMode } from '@civup/game'
 import { createSessionAccessToken } from '@civup/utils'
-import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getBrowserAccessState, normalizePublicOrigin } from '../services/activity/browser-access.ts'
-import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection } from '../services/activity/launch-target.ts'
-import { attachTournamentLobbySnapshot, buildActivityOverviewOptions, buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromDirectoryEntry, buildLobbySnapshotFromSessionRecord, getActivitySessionById, getActivitySessionByStableId, getActivitySessionsByChannel, getOpenActivitySessionsForUser } from '../services/activity/session-state.ts'
+import {
+  clearActivityFollowTargetSelection,
+  clearActivityLaunchTargetSelection,
+  readActivityFollowTargetSelection,
+  readActivityLaunchTargetSelection,
+  storeActivityFollowTargetSelection,
+} from '../services/activity/launch-target.ts'
+import {
+  attachTournamentLobbySnapshot,
+  buildActivityOverviewOptions,
+  buildActivityOverviewOptionsFromSessionRecord,
+  buildLobbySnapshotFromDirectoryEntry,
+  buildLobbySnapshotFromSessionRecord,
+  getActivitySessionById,
+  getActivitySessionByStableId,
+  getActivitySessionsByChannel,
+  getOpenActivitySessionsForUser,
+} from '../services/activity/session-state.ts'
 import { getKvStore, kvMget } from '../services/kv/batch.ts'
 import { leaderboardModeSnapshotKey, normalizeLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { findPersistedBlockingDraftMatchIdsForPlayers } from '../services/match/live.ts'
-import { cacheCurrentRankAssignments, currentRankAssignmentsKey, getCachedCurrentRankAssignments, normalizeRankedRoleAssignments } from '../services/ranked/role-sync.ts'
+import {
+  cacheCurrentRankAssignments,
+  currentRankAssignmentsKey,
+  getCachedCurrentRankAssignments,
+  normalizeRankedRoleAssignments,
+} from '../services/ranked/role-sync.ts'
 import { getCurrentSessionLobbyProjectionsForPlayer } from '../services/session/index.ts'
 import { getSessionRecord, getSessionRepeatDraftAvailability } from '../session-runtime/session-do-client.ts'
 import { rejectMismatchedActivityParam, requireAuthenticatedActivity } from './auth.ts'
@@ -52,23 +73,23 @@ interface ActivityTargetOption {
   updatedAt: number
 }
 
-type ActivityLaunchSelection
-  = | {
-    kind: 'lobby'
-    option: ActivityTargetOption
-    pendingJoin: boolean
-    joinEligibility: LobbyJoinEligibility
-    lobby: LobbySnapshot
-  }
+type ActivityLaunchSelection =
   | {
-    kind: 'match'
-    option: ActivityTargetOption
-    matchId: string
-    steamLobbyLink: string | null
-    sessionAccessToken: string | null
-    lobbyId: string | null
-    mode: GameMode | null
-  }
+      kind: 'lobby'
+      option: ActivityTargetOption
+      pendingJoin: boolean
+      joinEligibility: LobbyJoinEligibility
+      lobby: LobbySnapshot
+    }
+  | {
+      kind: 'match'
+      option: ActivityTargetOption
+      matchId: string
+      steamLobbyLink: string | null
+      sessionAccessToken: string | null
+      lobbyId: string | null
+      mode: GameMode | null
+    }
 
 interface ActivityLaunchSnapshot {
   selection: ActivityLaunchSelection | null
@@ -104,7 +125,7 @@ interface ActivityRuntimeOptions {
 }
 
 export function registerActivityRoutes(app: Hono<Env>) {
-  app.get('/api/activity/session/:sessionId', async (c) => {
+  app.get('/api/activity/session/:sessionId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     const configError = await getBrowserContextConfigurationError(c.env)
@@ -166,7 +187,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     })
   })
 
-  app.get('/api/activity/channel/:channelId', async (c) => {
+  app.get('/api/activity/channel/:channelId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     const configError = await getBrowserContextConfigurationError(c.env)
@@ -191,17 +212,21 @@ export function registerActivityRoutes(app: Hono<Env>) {
     })
   })
 
-  app.get('/api/match/:channelId', async (c) => {
+  app.get('/api/match/:channelId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
     const channelId = c.req.param('channelId')
     const channelSessions = await getActivitySessionsByChannel(createDb(c.env.DB), channelId)
-    const liveMatchIds = [...new Set(channelSessions.flatMap(session => (
-      (session.phase === 'draft' || session.phase === 'swap' || session.phase === 'active')
-        ? [session.matchId ?? session.sessionId]
-        : []
-    )))]
+    const liveMatchIds = [
+      ...new Set(
+        channelSessions.flatMap(session =>
+          session.phase === 'draft' || session.phase === 'swap' || session.phase === 'active'
+            ? [session.matchId ?? session.sessionId]
+            : [],
+        ),
+      ),
+    ]
     const matchId = liveMatchIds.length === 1 ? liveMatchIds[0] : null
 
     if (!matchId) {
@@ -211,7 +236,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
     return c.json({ matchId })
   })
 
-  app.get('/api/match/user/:userId', async (c) => {
+  app.get('/api/match/user/:userId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -227,10 +252,7 @@ export function registerActivityRoutes(app: Hono<Env>) {
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        eq(matchParticipants.playerId, userId),
-        inArray(matches.status, ['drafting', 'active']),
-      ))
+      .where(and(eq(matchParticipants.playerId, userId), inArray(matches.status, ['drafting', 'active'])))
       .orderBy(desc(matches.createdAt))
       .limit(1)
 
@@ -238,36 +260,42 @@ export function registerActivityRoutes(app: Hono<Env>) {
       return c.json({ matchId: active.matchId })
     }
 
-    const liveMatchId = (await getOpenActivitySessionsForUser(db, userId))
-      .find(session => session.phase === 'draft' || session.phase === 'swap')
-      ?.sessionId ?? null
+    const liveMatchId =
+      (await getOpenActivitySessionsForUser(db, userId)).find(
+        session => session.phase === 'draft' || session.phase === 'swap',
+      )?.sessionId ?? null
     if (liveMatchId) return c.json({ matchId: liveMatchId })
 
     return c.json({ error: 'No active match for this user' }, 404)
   })
 
-  app.get('/api/lobby/:channelId', async (c) => {
+  app.get('/api/lobby/:channelId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
     const channelId = c.req.param('channelId')
     const kv = getKvStore(c.env)
     const db = createDb(c.env.DB)
-    const sessions = (await getActivitySessionsByChannel(db, channelId))
-      .filter(session => session.phase === 'open')
+    const sessions = (await getActivitySessionsByChannel(db, channelId)).filter(session => session.phase === 'open')
 
     if (sessions.length === 1) {
       const session = sessions[0]!
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
-      const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      const snapshot = record
+        ? await buildLobbySnapshotFromSessionRecord(kv, record)
+        : await buildLobbySnapshotFromDirectoryEntry(kv, session)
+      const lobby = await attachRepeatDraftSnapshot(
+        await attachTournamentLobbySnapshot(db, snapshot),
+        c.env.SessionDO,
+        session.sessionId,
+      )
       return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this channel' }, 404)
   })
 
-  app.get('/api/lobby/user/:userId', async (c) => {
+  app.get('/api/lobby/user/:userId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -277,19 +305,25 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const userId = auth.identity.userId
     const kv = getKvStore(c.env)
     const db = createDb(c.env.DB)
-    const session = (await getOpenActivitySessionsForUser(db, userId))
-      .find(candidate => candidate.phase === 'open') ?? null
+    const session =
+      (await getOpenActivitySessionsForUser(db, userId)).find(candidate => candidate.phase === 'open') ?? null
     if (session) {
       const record = await resolveAuthoritativeSessionRecord(c.env.SessionDO, session)
-      const snapshot = record ? await buildLobbySnapshotFromSessionRecord(kv, record) : await buildLobbySnapshotFromDirectoryEntry(kv, session)
-      const lobby = await attachRepeatDraftSnapshot(await attachTournamentLobbySnapshot(db, snapshot), c.env.SessionDO, session.sessionId)
+      const snapshot = record
+        ? await buildLobbySnapshotFromSessionRecord(kv, record)
+        : await buildLobbySnapshotFromDirectoryEntry(kv, session)
+      const lobby = await attachRepeatDraftSnapshot(
+        await attachTournamentLobbySnapshot(db, snapshot),
+        c.env.SessionDO,
+        session.sessionId,
+      )
       return c.json(lobby)
     }
 
     return c.json({ error: 'No open lobby for this user' }, 404)
   })
 
-  app.get('/api/activity/launch/:channelId/:userId', async (c) => {
+  app.get('/api/activity/launch/:channelId/:userId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -300,23 +334,24 @@ export function registerActivityRoutes(app: Hono<Env>) {
     const userId = auth.identity.userId
     const kv = getKvStore(c.env)
 
-    return c.json(await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
-      db: c.env.DB,
-      sessionNamespace: c.env.SessionDO,
-      activityNamespace: c.env.Activity,
-      internalSecret: c.env.CIVUP_SECRET,
-    }))
+    return c.json(
+      await buildActivityLaunchSnapshot(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, userId, {
+        db: c.env.DB,
+        sessionNamespace: c.env.SessionDO,
+        activityNamespace: c.env.Activity,
+        internalSecret: c.env.CIVUP_SECRET,
+      }),
+    )
   })
 
-  app.post('/api/activity/target', async (c) => {
+  app.post('/api/activity/target', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
     let body: unknown
     try {
       body = await c.req.json()
-    }
-    catch {
+    } catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -348,15 +383,23 @@ export function registerActivityRoutes(app: Hono<Env>) {
     }
 
     const kv = getKvStore(c.env)
-    const result = await selectActivityTargetForUser(c.env.DISCORD_TOKEN, c.env.CIVUP_SECRET, kv, channelId, auth.identity.userId, {
-      kind,
-      id,
-    }, {
-      db: c.env.DB,
-      sessionNamespace: c.env.SessionDO,
-      activityNamespace: c.env.Activity,
-      internalSecret: c.env.CIVUP_SECRET,
-    })
+    const result = await selectActivityTargetForUser(
+      c.env.DISCORD_TOKEN,
+      c.env.CIVUP_SECRET,
+      kv,
+      channelId,
+      auth.identity.userId,
+      {
+        kind,
+        id,
+      },
+      {
+        db: c.env.DB,
+        sessionNamespace: c.env.SessionDO,
+        activityNamespace: c.env.Activity,
+        internalSecret: c.env.CIVUP_SECRET,
+      },
+    )
     if (!result.ok) {
       return c.json({ error: result.error }, result.status)
     }
@@ -376,14 +419,29 @@ export async function selectActivityTargetForUser(
     id: string
   },
   options?: ActivityRuntimeOptions,
-): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status: 409 }> {
+): Promise<{ ok: true; snapshot: ActivityLaunchSnapshot } | { ok: false; error: string; status: 409 }> {
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
   const selection = pickActivityLaunchSelectionForTarget(context.targets, target)
   if (!selection) return { ok: false, error: 'That target is no longer available.', status: 409 }
 
-  await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, target)
+  await storeActivityFollowTargetSelection(
+    options?.activityNamespace,
+    options?.internalSecret ?? undefined,
+    channelId,
+    userId,
+    target,
+  )
 
-  const snapshot = await buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
+  const snapshot = await buildActivityLaunchSnapshotFromTargets(
+    token,
+    activitySecret,
+    kv,
+    userId,
+    context,
+    selection,
+    options?.db,
+    options?.sessionNamespace,
+  )
   return { ok: true, snapshot }
 }
 
@@ -401,29 +459,81 @@ export async function buildActivityLaunchSnapshot(
   },
 ): Promise<ActivityLaunchSnapshot> {
   const context = await loadActivityLaunchContext(kv, channelId, userId, options?.db, options?.sessionNamespace)
-  const launchTarget = await readActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+  const launchTarget = await readActivityLaunchTargetSelection(
+    options?.activityNamespace,
+    options?.internalSecret ?? undefined,
+    channelId,
+    userId,
+  )
   if (launchTarget?.kind === 'overview') {
-    await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
-    await clearActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
-    return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, null, options?.db, options?.sessionNamespace)
+    await clearActivityLaunchTargetSelection(
+      options?.activityNamespace,
+      options?.internalSecret ?? undefined,
+      channelId,
+      userId,
+    )
+    await clearActivityFollowTargetSelection(
+      options?.activityNamespace,
+      options?.internalSecret ?? undefined,
+      channelId,
+      userId,
+    )
+    return buildActivityLaunchSnapshotFromTargets(
+      token,
+      activitySecret,
+      kv,
+      userId,
+      context,
+      null,
+      options?.db,
+      options?.sessionNamespace,
+    )
   }
   await addRequestedReportedActivityTarget(context, launchTarget, userId, options?.db)
   const requestedSelection = pickActivityLaunchSelectionForTarget(context.targets, launchTarget)
   if (launchTarget && requestedSelection) {
-    await clearActivityLaunchTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
-    await storeActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId, launchTarget)
+    await clearActivityLaunchTargetSelection(
+      options?.activityNamespace,
+      options?.internalSecret ?? undefined,
+      channelId,
+      userId,
+    )
+    await storeActivityFollowTargetSelection(
+      options?.activityNamespace,
+      options?.internalSecret ?? undefined,
+      channelId,
+      userId,
+      launchTarget,
+    )
   }
   const followTarget = requestedSelection
     ? null
-    : await readActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    : await readActivityFollowTargetSelection(
+        options?.activityNamespace,
+        options?.internalSecret ?? undefined,
+        channelId,
+        userId,
+      )
   const followedSelection = pickActivityLaunchSelectionForTarget(context.targets, followTarget)
   if (followTarget && !followedSelection) {
-    await clearActivityFollowTargetSelection(options?.activityNamespace, options?.internalSecret ?? undefined, channelId, userId)
+    await clearActivityFollowTargetSelection(
+      options?.activityNamespace,
+      options?.internalSecret ?? undefined,
+      channelId,
+      userId,
+    )
   }
-  const selection = requestedSelection
-    ?? followedSelection
-    ?? pickDefaultActivityLaunchSelection(context.targets)
-  return buildActivityLaunchSnapshotFromTargets(token, activitySecret, kv, userId, context, selection, options?.db, options?.sessionNamespace)
+  const selection = requestedSelection ?? followedSelection ?? pickDefaultActivityLaunchSelection(context.targets)
+  return buildActivityLaunchSnapshotFromTargets(
+    token,
+    activitySecret,
+    kv,
+    userId,
+    context,
+    selection,
+    options?.db,
+    options?.sessionNamespace,
+  )
 }
 
 async function addRequestedReportedActivityTarget(
@@ -433,7 +543,8 @@ async function addRequestedReportedActivityTarget(
   d1: D1Database | null | undefined,
 ): Promise<void> {
   if (!d1 || launchTarget?.kind !== 'match') return
-  if (context.targets.some(candidate => candidate.option.kind === 'match' && candidate.option.id === launchTarget.id)) return
+  if (context.targets.some(candidate => candidate.option.kind === 'match' && candidate.option.id === launchTarget.id))
+    return
 
   const session = await getActivitySessionById(createDb(d1), launchTarget.id)
   if (session?.phase !== 'reported') return
@@ -462,10 +573,19 @@ async function buildActivityLaunchSnapshotFromTargets(
   sessionNamespace: DurableObjectNamespace | null | undefined,
 ): Promise<ActivityLaunchSnapshot> {
   return {
-    selection: selection ? await serializeActivityLaunchSelection(token, activitySecret, kv, userId, context, selection, db, sessionNamespace) : null,
-    options: context.targets
-      .filter(target => target.session.phase !== 'reported')
-      .map(target => target.option),
+    selection: selection
+      ? await serializeActivityLaunchSelection(
+          token,
+          activitySecret,
+          kv,
+          userId,
+          context,
+          selection,
+          db,
+          sessionNamespace,
+        )
+      : null,
+    options: context.targets.filter(target => target.session.phase !== 'reported').map(target => target.option),
   }
 }
 
@@ -482,15 +602,32 @@ async function serializeActivityLaunchSelection(
   if (selection.target.option.kind === 'lobby') {
     const record = await resolveAuthoritativeSessionRecord(sessionNamespace, selection.target.session)
     const lobbySnapshot = record
-      ? await buildLobbySnapshotFromSessionRecord(kv, record, selection.target.balanceSnapshot, selection.target.rankAssignments)
-      : await buildLobbySnapshotFromDirectoryEntry(kv, selection.target.session, selection.target.balanceSnapshot, selection.target.rankAssignments)
+      ? await buildLobbySnapshotFromSessionRecord(
+          kv,
+          record,
+          selection.target.balanceSnapshot,
+          selection.target.rankAssignments,
+        )
+      : await buildLobbySnapshotFromDirectoryEntry(
+          kv,
+          selection.target.session,
+          selection.target.balanceSnapshot,
+          selection.target.rankAssignments,
+        )
     const tournamentLobby = db ? await attachTournamentLobbySnapshot(createDb(db), lobbySnapshot) : lobbySnapshot
     const lobby = await attachRepeatDraftSnapshot(tournamentLobby, sessionNamespace, selection.target.session.sessionId)
     return {
       kind: 'lobby',
       option: selection.target.option,
       pendingJoin: selection.pendingJoin,
-      joinEligibility: await resolveSessionJoinEligibility(kv, userId, selection.target.session, lobby, context.targets, db),
+      joinEligibility: await resolveSessionJoinEligibility(
+        kv,
+        userId,
+        selection.target.session,
+        lobby,
+        context.targets,
+        db,
+      ),
       lobby,
     }
   }
@@ -500,7 +637,12 @@ async function serializeActivityLaunchSelection(
     option: selection.target.option,
     matchId: selection.target.option.id,
     steamLobbyLink: selection.target.session.steamLobbyLink,
-    sessionAccessToken: await issueSessionAccessToken(activitySecret, userId, selection.target.session.sessionId, selection.target.option.channelId),
+    sessionAccessToken: await issueSessionAccessToken(
+      activitySecret,
+      userId,
+      selection.target.session.sessionId,
+      selection.target.option.channelId,
+    ),
     lobbyId: selection.target.session.sessionId,
     mode: selection.target.session.mode,
   }
@@ -511,7 +653,7 @@ async function attachRepeatDraftSnapshot(
   sessionNamespace: DurableObjectNamespace | null | undefined,
   sessionId: string,
 ): Promise<LobbySnapshot> {
-  const repeatDraft = await getSessionRepeatDraftAvailability(sessionNamespace, sessionId).catch((error) => {
+  const repeatDraft = await getSessionRepeatDraftAvailability(sessionNamespace, sessionId).catch(error => {
     console.warn('[activity] failed to attach repeat draft snapshot', { sessionId }, error)
     return null
   })
@@ -554,12 +696,10 @@ export async function resolveLobbyJoinEligibility(
     }
   }
 
-  const otherCurrentLobbies = options?.db
-    ? await getCurrentLobbyProjectionsForJoin(options.db, userId, lobby.id)
-    : []
+  const otherCurrentLobbies = options?.db ? await getCurrentLobbyProjectionsForJoin(options.db, userId, lobby.id) : []
   const blockingDraftMatchIds = await findPersistedBlockingDraftMatchIdsForPlayers(options?.db, [userId])
-  const hasLiveMatch = otherCurrentLobbies.some(candidate => candidate.status !== 'open')
-    || blockingDraftMatchIds?.has(userId) === true
+  const hasLiveMatch =
+    otherCurrentLobbies.some(candidate => candidate.status !== 'open') || blockingDraftMatchIds?.has(userId) === true
   if (hasLiveMatch) {
     return {
       canJoin: false,
@@ -586,13 +726,14 @@ export async function resolveLobbyJoinEligibility(
 
     return {
       canJoin: false,
-      blockedReason: blockingLobby.status === 'open'
-        ? blockingLobby.hostId === userId && blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
-          ? 'You are hosting another open lobby with other players. Cancel it first.'
-          : blockingLobby.mode === lobby.mode
-            ? 'You are already in another open lobby.'
-            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath, civBlitz: blockingLobby.draftConfig.civBlitz })} lobby.`
-        : 'You are already in a live match.',
+      blockedReason:
+        blockingLobby.status === 'open'
+          ? blockingLobby.hostId === userId && blockingLobby.memberPlayerIds.some(playerId => playerId !== userId)
+            ? 'You are hosting another open lobby with other players. Cancel it first.'
+            : blockingLobby.mode === lobby.mode
+              ? 'You are already in another open lobby.'
+              : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.draftConfig.redDeath, civBlitz: blockingLobby.draftConfig.civBlitz })} lobby.`
+          : 'You are already in a live match.',
       pendingSlot: null,
     }
   }
@@ -613,15 +754,12 @@ export async function resolveLobbyJoinEligibility(
   }
 }
 
-async function getCurrentLobbyProjectionsForJoin(
-  db: D1Database,
-  userId: string,
-  excludedLobbyId: string,
-) {
+async function getCurrentLobbyProjectionsForJoin(db: D1Database, userId: string, excludedLobbyId: string) {
   try {
-    return await getCurrentSessionLobbyProjectionsForPlayer(createDb(db), userId, { excludeLobbyIds: [excludedLobbyId] })
-  }
-  catch {
+    return await getCurrentSessionLobbyProjectionsForPlayer(createDb(db), userId, {
+      excludeLobbyIds: [excludedLobbyId],
+    })
+  } catch {
     return []
   }
 }
@@ -660,8 +798,20 @@ async function resolveSessionJoinEligibility(
   }
 
   const liveSessions = db ? await getOpenActivitySessionsForUser(createDb(db), userId) : []
-  const blockingDraft = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'))
-  if (blockingDraft || targets.some(target => target.option.kind === 'match' && target.session.phase !== 'active' && target.option.id !== session.sessionId && (target.option.isHost || target.option.isMember))) {
+  const blockingDraft = liveSessions.find(
+    candidate =>
+      candidate.sessionId !== session.sessionId && (candidate.phase === 'draft' || candidate.phase === 'swap'),
+  )
+  if (
+    blockingDraft ||
+    targets.some(
+      target =>
+        target.option.kind === 'match' &&
+        target.session.phase !== 'active' &&
+        target.option.id !== session.sessionId &&
+        (target.option.isHost || target.option.isMember),
+    )
+  ) {
     return {
       canJoin: false,
       blockedReason: 'You are already in a live match.',
@@ -669,7 +819,8 @@ async function resolveSessionJoinEligibility(
     }
   }
 
-  const blockingLobby = liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'open') ?? null
+  const blockingLobby =
+    liveSessions.find(candidate => candidate.sessionId !== session.sessionId && candidate.phase === 'open') ?? null
   if (blockingLobby) {
     const hasOtherMembers = blockingLobby.roster.participants.some(member => member.playerId !== userId)
     if (!(blockingLobby.hostId === userId && hasOtherMembers)) {
@@ -685,11 +836,12 @@ async function resolveSessionJoinEligibility(
 
     return {
       canJoin: false,
-      blockedReason: blockingLobby.hostId === userId && blockingLobby.roster.participants.some(member => member.playerId !== userId)
-        ? 'You are hosting another open lobby with other players. Cancel it first.'
-        : blockingLobby.mode === session.mode
-          ? 'You are already in another open lobby.'
-          : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath, civBlitz: blockingLobby.config.civBlitz })} lobby.`,
+      blockedReason:
+        blockingLobby.hostId === userId && blockingLobby.roster.participants.some(member => member.playerId !== userId)
+          ? 'You are hosting another open lobby with other players. Cancel it first.'
+          : blockingLobby.mode === session.mode
+            ? 'You are already in another open lobby.'
+            : `You're already in a ${formatModeLabel(blockingLobby.mode, blockingLobby.mode, { redDeath: blockingLobby.config.redDeath, civBlitz: blockingLobby.config.civBlitz })} lobby.`,
       pendingSlot: null,
     }
   }
@@ -736,9 +888,10 @@ async function loadActivityLaunchContext(
   const targets: ChannelActivityTarget[] = []
 
   for (const session of channelSessions) {
-    const authoritativeRecord = session.phase === 'open'
-      ? await resolveAuthoritativeSessionRecord(sessionNamespace, session).catch(() => null)
-      : null
+    const authoritativeRecord =
+      session.phase === 'open'
+        ? await resolveAuthoritativeSessionRecord(sessionNamespace, session).catch(() => null)
+        : null
     const authoritativeOpenRecord = authoritativeRecord?.phase === 'open' ? authoritativeRecord : null
     const option = authoritativeOpenRecord
       ? buildActivityOverviewOptionsFromSessionRecord(authoritativeOpenRecord)[0]
@@ -765,7 +918,8 @@ async function loadActivityLaunchContext(
 async function getBrowserContextConfigurationError(env: Env['Bindings']): Promise<string | null> {
   const state = await getBrowserAccessState(env.KV)
   if (!state.enabled) return 'Browser access is disabled'
-  if (!normalizePublicOrigin(env.ACTIVITY_PUBLIC_ORIGIN) || !env.ALLOWED_DISCORD_GUILD_ID?.trim()) return 'Browser access is not configured'
+  if (!normalizePublicOrigin(env.ACTIVITY_PUBLIC_ORIGIN) || !env.ALLOWED_DISCORD_GUILD_ID?.trim())
+    return 'Browser access is not configured'
   return null
 }
 
@@ -794,19 +948,30 @@ async function loadActivityLaunchState(
   kv: KVNamespace,
   channelSessions: ActivitySessionDirectoryEntry[],
 ): Promise<ActivityLaunchState> {
-  const requestedBalanceModes = [...new Set(
-    channelSessions
-      .filter(session => session.phase === 'open')
-      .map(session => toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz }))
-      .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
-  )]
-  const requestedGuildIds = [...new Set(channelSessions
-    .filter(session => session.phase === 'open')
-    .filter(session => !session.config.redDeath)
-    .map(session => session.guildId)
-    .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0))]
+  const requestedBalanceModes = [
+    ...new Set(
+      channelSessions
+        .filter(session => session.phase === 'open')
+        .map(session =>
+          toBalanceLeaderboardMode(session.mode, {
+            redDeath: session.config.redDeath,
+            civBlitz: session.config.civBlitz,
+          }),
+        )
+        .filter((mode): mode is NonNullable<ReturnType<typeof toBalanceLeaderboardMode>> => mode != null),
+    ),
+  ]
+  const requestedGuildIds = [
+    ...new Set(
+      channelSessions
+        .filter(session => session.phase === 'open')
+        .filter(session => !session.config.redDeath)
+        .map(session => session.guildId)
+        .filter((guildId): guildId is string => typeof guildId === 'string' && guildId.length > 0),
+    ),
+  ]
   const rankAssignmentsByGuildId = new Map<string, RankedRoleAssignments>()
-  const uncachedGuildIds = requestedGuildIds.filter((guildId) => {
+  const uncachedGuildIds = requestedGuildIds.filter(guildId => {
     const cached = getCachedCurrentRankAssignments(kv, guildId)
     if (!cached) return true
     rankAssignmentsByGuildId.set(guildId, cached)
@@ -848,7 +1013,10 @@ function resolveSessionBalanceSnapshot(
   balanceSnapshots: ReadonlyMap<string, LeaderboardModeSnapshot>,
   session: ActivitySessionDirectoryEntry,
 ): LeaderboardModeSnapshot | null {
-  const mode = toBalanceLeaderboardMode(session.mode, { redDeath: session.config.redDeath, civBlitz: session.config.civBlitz })
+  const mode = toBalanceLeaderboardMode(session.mode, {
+    redDeath: session.config.redDeath,
+    civBlitz: session.config.civBlitz,
+  })
   if (!mode) return null
   return balanceSnapshots.get(mode) ?? null
 }
@@ -857,7 +1025,7 @@ function resolveSessionRankAssignments(
   rankAssignmentsByGuildId: ReadonlyMap<string, RankedRoleAssignments>,
   session: ActivitySessionDirectoryEntry,
 ): RankedRoleAssignments | null {
-  return session.guildId ? rankAssignmentsByGuildId.get(session.guildId) ?? null : null
+  return session.guildId ? (rankAssignmentsByGuildId.get(session.guildId) ?? null) : null
 }
 
 function compareActivityTargets(left: ChannelActivityTarget, right: ChannelActivityTarget): number {
@@ -878,8 +1046,7 @@ function activityTargetPriority(option: ActivityTargetOption): number {
 }
 
 function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): ResolvedActivitySelection | null {
-  const preferredTarget = pickCurrentActivityMembershipTarget(targets)
-    ?? null
+  const preferredTarget = pickCurrentActivityMembershipTarget(targets) ?? null
   if (!preferredTarget) return null
 
   return {
@@ -888,26 +1055,53 @@ function pickDefaultActivityLaunchSelection(targets: ChannelActivityTarget[]): R
   }
 }
 
-function pickActivityLaunchSelectionForTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityTargetSelection | null): ResolvedActivitySelection | null {
+function pickActivityLaunchSelectionForTarget(
+  targets: ChannelActivityTarget[],
+  requestedTarget: ActivityTargetSelection | null,
+): ResolvedActivitySelection | null {
   if (!requestedTarget) return null
-  const target = targets.find(candidate => candidate.option.kind === requestedTarget.kind && candidate.option.id === requestedTarget.id)
-    ?? findLifecycleSuccessorTarget(targets, requestedTarget)
-    ?? null
+  const target =
+    targets.find(
+      candidate => candidate.option.kind === requestedTarget.kind && candidate.option.id === requestedTarget.id,
+    ) ??
+    findLifecycleSuccessorTarget(targets, requestedTarget) ??
+    null
   return target ? { target, pendingJoin: false } : null
 }
 
-function findLifecycleSuccessorTarget(targets: ChannelActivityTarget[], requestedTarget: ActivityTargetSelection): ChannelActivityTarget | null {
+function findLifecycleSuccessorTarget(
+  targets: ChannelActivityTarget[],
+  requestedTarget: ActivityTargetSelection,
+): ChannelActivityTarget | null {
   if (requestedTarget.kind === 'lobby') {
-    return targets.find(candidate => candidate.option.kind === 'match' && candidate.option.lobbyId === requestedTarget.id) ?? null
+    return (
+      targets.find(candidate => candidate.option.kind === 'match' && candidate.option.lobbyId === requestedTarget.id) ??
+      null
+    )
   }
 
-  return targets.find(candidate => candidate.option.kind === 'lobby' && (candidate.option.id === requestedTarget.id || candidate.option.lobbyId === requestedTarget.id || candidate.option.matchId === requestedTarget.id)) ?? null
+  return (
+    targets.find(
+      candidate =>
+        candidate.option.kind === 'lobby' &&
+        (candidate.option.id === requestedTarget.id ||
+          candidate.option.lobbyId === requestedTarget.id ||
+          candidate.option.matchId === requestedTarget.id),
+    ) ?? null
+  )
 }
 
 function pickCurrentActivityMembershipTarget(targets: ChannelActivityTarget[]): ChannelActivityTarget | null {
-  return targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'match' && (target.session.phase === 'draft' || target.session.phase === 'swap'))
-    ?? targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'lobby')
-    ?? null
+  return (
+    targets.find(
+      target =>
+        (target.option.isHost || target.option.isMember) &&
+        target.option.kind === 'match' &&
+        (target.session.phase === 'draft' || target.session.phase === 'swap'),
+    ) ??
+    targets.find(target => (target.option.isHost || target.option.isMember) && target.option.kind === 'lobby') ??
+    null
+  )
 }
 
 async function issueSessionAccessToken(

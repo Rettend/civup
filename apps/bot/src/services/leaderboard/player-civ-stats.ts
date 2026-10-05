@@ -1,10 +1,20 @@
+import type { DbBatchItem } from '../db/batch.ts'
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
-import type { DbBatchItem } from '../db/batch.ts'
-import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, seasonRatingStates, seasons, tournamentMatches } from '@civup/db'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import {
+  matchParticipants,
+  matchPlayerCivStatContributions,
+  matches,
+  playerCivStats,
+  playerRatings,
+  players,
+  seasonRatingStates,
+  seasons,
+  tournamentMatches,
+} from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
-import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { runDbBatch } from '../db/batch.ts'
 
 export const PLAYER_CIV_MIN_RANK_GAMES = 5
@@ -73,7 +83,7 @@ interface ParsedDraftData {
 const EMPTY_SEASON_ID = ''
 const INSERT_CHUNK_SIZE = 100
 
-export function playerCivStatsFilter(input: PlayerCivStatsFilter): { seasonId: string | null, mode: string | null } {
+export function playerCivStatsFilter(input: PlayerCivStatsFilter): { seasonId: string | null; mode: string | null } {
   return {
     seasonId: normalizeFilterPart(input.seasonId),
     mode: normalizeFilterPart(input.mode),
@@ -126,11 +136,14 @@ export async function loadPlayerCivRankingSummaries(
       globalSigma: sql<number | null>`max(${ratingTable.sigma})`,
     })
     .from(playerCivStats)
-    .leftJoin(ratingTable, and(
-      eq(ratingTable.playerId, playerCivStats.playerId),
-      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
-      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
-    ))
+    .leftJoin(
+      ratingTable,
+      and(
+        eq(ratingTable.playerId, playerCivStats.playerId),
+        eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+        frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
+      ),
+    )
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId, playerCivStats.civId)
 
@@ -148,10 +161,12 @@ export async function loadPlayerCivRankingSummaries(
     byCivId.set(row.civId, entries)
   }
 
-  return new Map(uniqueCivIds.map((civId) => {
-    const entries = byCivId.get(civId) ?? []
-    return [civId, summarizeRanking(civId, playerId, entries)]
-  }))
+  return new Map(
+    uniqueCivIds.map(civId => {
+      const entries = byCivId.get(civId) ?? []
+      return [civId, summarizeRanking(civId, playerId, entries)]
+    }),
+  )
 }
 
 export async function listTopPlayerCivRankings(
@@ -176,11 +191,14 @@ export async function listTopPlayerCivRankings(
     })
     .from(playerCivStats)
     .leftJoin(players, eq(players.id, playerCivStats.playerId))
-    .leftJoin(ratingTable, and(
-      eq(ratingTable.playerId, playerCivStats.playerId),
-      eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
-      frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
-    ))
+    .leftJoin(
+      ratingTable,
+      and(
+        eq(ratingTable.playerId, playerCivStats.playerId),
+        eq(ratingTable.mode, GLOBAL_RATING_SCOPE),
+        frozen ? eq(seasonRatingStates.seasonId, filter.seasonId!) : undefined,
+      ),
+    )
     .where(and(...conditions))
     .groupBy(playerCivStats.playerId)
 
@@ -230,7 +248,10 @@ export async function reconcilePlayerCivStatMatchContribution(
       tournamentSessionId: tournamentMatches.sessionId,
     })
     .from(matches)
-    .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
+    .leftJoin(
+      tournamentMatches,
+      or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)),
+    )
     .where(eq(matches.id, matchId))
     .limit(1)
 
@@ -253,14 +274,15 @@ export async function reconcilePlayerCivStatMatchContribution(
 
 export async function reconcilePlayerCivStatMatchContributionFromRows(
   db: Database,
-  match: { id: string, status?: string | null, draftData: string | null, gameMode: string, seasonId: string | null },
-  participants: readonly { playerId: string, civId: string | null, placement: number | null }[],
-  options: { updatedAt?: number, previous?: 'load' | 'empty' } = {},
+  match: { id: string; status?: string | null; draftData: string | null; gameMode: string; seasonId: string | null },
+  participants: readonly { playerId: string; civId: string | null; placement: number | null }[],
+  options: { updatedAt?: number; previous?: 'load' | 'empty' } = {},
 ): Promise<void> {
   const updatedAt = options.updatedAt ?? Date.now()
-  const next = match.status != null && match.status !== 'completed'
-    ? { entries: [] }
-    : buildMatchPlayerCivStatContribution(match, participants)
+  const next =
+    match.status != null && match.status !== 'completed'
+      ? { entries: [] }
+      : buildMatchPlayerCivStatContribution(match, participants)
   await replacePlayerCivStatMatchContribution(db, match.id, next, updatedAt, options.previous ?? 'load')
 }
 
@@ -275,7 +297,12 @@ export async function removePlayerCivStatMatchContribution(
 export async function backfillPlayerCivStatsFromHistory(
   db: Database,
   updatedAt = Date.now(),
-): Promise<{ scannedCompletedMatchCount: number, scannedParticipantRowCount: number, contributionRowCount: number, aggregateRowCount: number }> {
+): Promise<{
+  scannedCompletedMatchCount: number
+  scannedParticipantRowCount: number
+  contributionRowCount: number
+  aggregateRowCount: number
+}> {
   const [matchRows, participantRows] = await Promise.all([
     db
       .select({
@@ -298,7 +325,10 @@ export async function backfillPlayerCivStatsFromHistory(
       .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
   ])
 
-  const participantsByMatchId = new Map<string, Array<{ playerId: string, civId: string | null, placement: number | null }>>()
+  const participantsByMatchId = new Map<
+    string,
+    Array<{ playerId: string; civId: string | null; placement: number | null }>
+  >()
   for (const row of participantRows) {
     const rows = participantsByMatchId.get(row.matchId) ?? []
     rows.push({ playerId: row.playerId, civId: row.civId, placement: row.placement })
@@ -333,15 +363,17 @@ export async function backfillPlayerCivStatsFromHistory(
   for (let index = 0; index < aggregateRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = aggregateRows.slice(index, index + INSERT_CHUNK_SIZE)
     if (chunk.length > 0) {
-      await db.insert(playerCivStats).values(chunk.map(entry => ({
-        seasonId: entry.seasonId,
-        gameMode: entry.gameMode,
-        playerId: entry.playerId,
-        civId: entry.civId,
-        picks: entry.picks,
-        wins: entry.wins,
-        updatedAt,
-      })))
+      await db.insert(playerCivStats).values(
+        chunk.map(entry => ({
+          seasonId: entry.seasonId,
+          gameMode: entry.gameMode,
+          playerId: entry.playerId,
+          civId: entry.civId,
+          picks: entry.picks,
+          wins: entry.wins,
+          updatedAt,
+        })),
+      )
     }
   }
 
@@ -360,26 +392,34 @@ async function replacePlayerCivStatMatchContribution(
   updatedAt: number,
   previousMode: 'load' | 'empty' = 'load',
 ): Promise<void> {
-  const previous = previousMode === 'empty'
-    ? { entries: [], serialized: null }
-    : await getPlayerCivStatMatchContribution(db, matchId)
+  const previous =
+    previousMode === 'empty' ? { entries: [], serialized: null } : await getPlayerCivStatMatchContribution(db, matchId)
   const serialized = next.entries.length > 0 ? serializeContributionEntries(next.entries) : null
   if (serialized === previous.serialized) return
-  const source = previous.serialized == null
-    ? sql`not exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId})`
-    : sql`exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId} and ${matchPlayerCivStatContributions.contributionsJson} = ${previous.serialized})`
-  const queries: DbBatchItem[] = [db.select({ valid: sql`case when ${source} then 1 else json_extract('Stale player statistics contribution', '$') end` }).from(sql`(select 1) as contribution_guard`)]
+  const source =
+    previous.serialized == null
+      ? sql`not exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId})`
+      : sql`exists(select 1 from ${matchPlayerCivStatContributions} where ${matchPlayerCivStatContributions.matchId} = ${matchId} and ${matchPlayerCivStatContributions.contributionsJson} = ${previous.serialized})`
+  const queries: DbBatchItem[] = [
+    db
+      .select({
+        valid: sql`case when ${source} then 1 else json_extract('Stale player statistics contribution', '$') end`,
+      })
+      .from(sql`(select 1) as contribution_guard`),
+  ]
 
   if (serialized != null) {
-    queries.push(db
-      .insert(matchPlayerCivStatContributions)
-      .values({ matchId, contributionsJson: serialized, updatedAt })
-      .onConflictDoUpdate({
-        target: matchPlayerCivStatContributions.matchId,
-        set: { contributionsJson: serialized, updatedAt },
-      }))
-  }
-  else queries.push(db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.matchId, matchId)))
+    queries.push(
+      db
+        .insert(matchPlayerCivStatContributions)
+        .values({ matchId, contributionsJson: serialized, updatedAt })
+        .onConflictDoUpdate({
+          target: matchPlayerCivStatContributions.matchId,
+          set: { contributionsJson: serialized, updatedAt },
+        }),
+    )
+  } else
+    queries.push(db.delete(matchPlayerCivStatContributions).where(eq(matchPlayerCivStatContributions.matchId, matchId)))
   queries.push(...buildPlayerCivStatAggregateDelta(db, previous, next, updatedAt))
   await runDbBatch(db, queries)
 }
@@ -394,7 +434,9 @@ async function getPlayerCivStatMatchContribution(
     .where(eq(matchPlayerCivStatContributions.matchId, matchId))
     .limit(1)
 
-  return row ? { entries: parseContributionEntries(row.contributionsJson), serialized: row.contributionsJson } : { entries: [], serialized: null }
+  return row
+    ? { entries: parseContributionEntries(row.contributionsJson), serialized: row.contributionsJson }
+    : { entries: [], serialized: null }
 }
 
 function buildPlayerCivStatAggregateDelta(
@@ -408,44 +450,52 @@ function buildPlayerCivStatAggregateDelta(
   const queries: DbBatchItem[] = []
 
   for (const chunk of chunkArray(deltas, Math.floor(100 / 7))) {
-    queries.push(db
-      .insert(playerCivStats)
-      .values(chunk.map(delta => ({
-        seasonId: delta.seasonId,
-        gameMode: delta.gameMode,
-        playerId: delta.playerId,
-        civId: delta.civId,
-        picks: delta.picks,
-        wins: delta.wins,
-        updatedAt,
-      })))
-      .onConflictDoUpdate({
-        target: [playerCivStats.seasonId, playerCivStats.gameMode, playerCivStats.playerId, playerCivStats.civId],
-        set: {
-          picks: sql<number>`max(0, ${playerCivStats.picks} + excluded.picks)`,
-          wins: sql<number>`max(0, ${playerCivStats.wins} + excluded.wins)`,
-          updatedAt,
-        },
-      }))
+    queries.push(
+      db
+        .insert(playerCivStats)
+        .values(
+          chunk.map(delta => ({
+            seasonId: delta.seasonId,
+            gameMode: delta.gameMode,
+            playerId: delta.playerId,
+            civId: delta.civId,
+            picks: delta.picks,
+            wins: delta.wins,
+            updatedAt,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [playerCivStats.seasonId, playerCivStats.gameMode, playerCivStats.playerId, playerCivStats.civId],
+          set: {
+            picks: sql<number>`max(0, ${playerCivStats.picks} + excluded.picks)`,
+            wins: sql<number>`max(0, ${playerCivStats.wins} + excluded.wins)`,
+            updatedAt,
+          },
+        }),
+    )
   }
 
   const affectedSeasonIds = [...new Set(deltas.map(delta => delta.seasonId))]
   const affectedModes = [...new Set(deltas.map(delta => delta.gameMode))]
   const affectedCivIds = [...new Set(deltas.map(delta => delta.civId))]
-  queries.push(db
-    .delete(playerCivStats)
-    .where(and(
-      inArray(playerCivStats.seasonId, affectedSeasonIds),
-      inArray(playerCivStats.gameMode, affectedModes),
-      inArray(playerCivStats.civId, affectedCivIds),
-      sql`${playerCivStats.picks} <= 0 and ${playerCivStats.wins} <= 0`,
-    )))
+  queries.push(
+    db
+      .delete(playerCivStats)
+      .where(
+        and(
+          inArray(playerCivStats.seasonId, affectedSeasonIds),
+          inArray(playerCivStats.gameMode, affectedModes),
+          inArray(playerCivStats.civId, affectedCivIds),
+          sql`${playerCivStats.picks} <= 0 and ${playerCivStats.wins} <= 0`,
+        ),
+      ),
+  )
   return queries
 }
 
 function buildMatchPlayerCivStatContribution(
-  match: { draftData: string | null, gameMode: string, seasonId: string | null },
-  participants: readonly { playerId: string, civId: string | null, placement: number | null }[],
+  match: { draftData: string | null; gameMode: string; seasonId: string | null },
+  participants: readonly { playerId: string; civId: string | null; placement: number | null }[],
 ): MatchPlayerCivStatContribution {
   if (isRedDeathMatch(match.draftData) || isCivBlitzMatch(match.draftData)) return { entries: [] }
 
@@ -475,35 +525,45 @@ function buildMatchPlayerCivStatContribution(
   }
 }
 
-function summarizeRanking(
-  civId: string,
-  playerId: string,
-  entries: PlayerCivRankEntry[],
-): PlayerCivRankingSummary {
+function summarizeRanking(civId: string, playerId: string, entries: PlayerCivRankEntry[]): PlayerCivRankingSummary {
   const serverPicks = entries.reduce((sum, entry) => sum + entry.picks, 0)
   const serverWins = entries.reduce((sum, entry) => sum + entry.wins, 0)
   const playerEntry = entries.find(entry => entry.playerId === playerId) ?? null
   const serverWinRate = serverPicks > 0 ? serverWins / serverPicks : null
-  const adjustedEligibleEntries = serverWinRate == null || serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES
-    ? []
-    : entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES)
+  const adjustedEligibleEntries =
+    serverWinRate == null || serverPicks < PLAYER_CIV_SERVER_AVG_MIN_GAMES
+      ? []
+      : entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES)
   return {
     civId,
     serverPicks,
     serverWins,
     serverWinRatePct: serverPicks > 0 ? round((serverWins / serverPicks) * 100, 1) : null,
-    playerAdjustedWinRatePct: playerEntry && serverWinRate != null && serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
-      ? round(rankAdjustedWinRate(playerEntry, serverWinRate) * 100, 1)
-      : null,
-    playerAdjustedWinRateRank: playerEntry && serverWinRate != null && serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
-      ? rankEntry(playerEntry, adjustedEligibleEntries, (left, right) => compareByLeaderRank(left, right, serverWinRate))
-      : null,
-    playerWinRateRank: playerEntry && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
-      ? rankEntry(playerEntry, entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES), compareByWinRate)
-      : null,
-    playerGamesRank: playerEntry
-      ? rankByGamesPlayed(playerEntry, entries)
-      : null,
+    playerAdjustedWinRatePct:
+      playerEntry &&
+      serverWinRate != null &&
+      serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES &&
+      playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
+        ? round(rankAdjustedWinRate(playerEntry, serverWinRate) * 100, 1)
+        : null,
+    playerAdjustedWinRateRank:
+      playerEntry &&
+      serverWinRate != null &&
+      serverPicks >= PLAYER_CIV_SERVER_AVG_MIN_GAMES &&
+      playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
+        ? rankEntry(playerEntry, adjustedEligibleEntries, (left, right) =>
+            compareByLeaderRank(left, right, serverWinRate),
+          )
+        : null,
+    playerWinRateRank:
+      playerEntry && playerEntry.picks >= PLAYER_CIV_MIN_RANK_GAMES
+        ? rankEntry(
+            playerEntry,
+            entries.filter(entry => entry.picks >= PLAYER_CIV_MIN_RANK_GAMES),
+            compareByWinRate,
+          )
+        : null,
+    playerGamesRank: playerEntry ? rankByGamesPlayed(playerEntry, entries) : null,
   }
 }
 
@@ -522,7 +582,7 @@ function rankEntry<T extends PlayerCivStatSummary>(
 }
 
 function compareByWinRate(left: PlayerCivStatSummary, right: PlayerCivStatSummary): number {
-  const winRateDiff = (right.wins * left.picks) - (left.wins * right.picks)
+  const winRateDiff = right.wins * left.picks - left.wins * right.picks
   if (winRateDiff !== 0) return winRateDiff
   return compareByGames(left, right)
 }
@@ -541,13 +601,18 @@ function compareByLeaderRank(left: PlayerCivRankEntry, right: PlayerCivRankEntry
 }
 
 function leaderRankScore(entry: PlayerCivRankEntry, serverWinRate: number): number {
-  return rankAdjustedWinRate(entry, serverWinRate)
-    + (rankConfidence(entry) * globalRatingBonus(entry.globalRating))
-    + volumeBonus(entry.picks)
+  return (
+    rankAdjustedWinRate(entry, serverWinRate) +
+    rankConfidence(entry) * globalRatingBonus(entry.globalRating) +
+    volumeBonus(entry.picks)
+  )
 }
 
 function rankAdjustedWinRate(entry: PlayerCivStatSummary, serverWinRate: number): number {
-  return (entry.wins + (serverWinRate * PLAYER_CIV_STRICT_RANK_PRIOR_GAMES)) / (entry.picks + PLAYER_CIV_STRICT_RANK_PRIOR_GAMES)
+  return (
+    (entry.wins + serverWinRate * PLAYER_CIV_STRICT_RANK_PRIOR_GAMES) /
+    (entry.picks + PLAYER_CIV_STRICT_RANK_PRIOR_GAMES)
+  )
 }
 
 function rankConfidence(entry: PlayerCivStatSummary): number {
@@ -645,30 +710,30 @@ function diffContributionEntries(
     deltas.set(key, delta)
   }
 
-  return [...deltas.values()]
-    .filter(entry => entry.picks !== 0 || entry.wins !== 0)
-    .sort(compareContributionEntries)
+  return [...deltas.values()].filter(entry => entry.picks !== 0 || entry.wins !== 0).sort(compareContributionEntries)
 }
 
 function serializeContributionEntries(entries: readonly PlayerCivStatContributionEntry[]): string {
-  return JSON.stringify(entries
-    .filter(entry => entry.picks > 0 || entry.wins > 0)
-    .map(entry => ({
-      seasonId: entry.seasonId,
-      gameMode: entry.gameMode,
-      playerId: entry.playerId,
-      civId: entry.civId,
-      picks: normalizeCount(entry.picks),
-      wins: normalizeCount(entry.wins),
-    }))
-    .sort(compareContributionEntries))
+  return JSON.stringify(
+    entries
+      .filter(entry => entry.picks > 0 || entry.wins > 0)
+      .map(entry => ({
+        seasonId: entry.seasonId,
+        gameMode: entry.gameMode,
+        playerId: entry.playerId,
+        civId: entry.civId,
+        picks: normalizeCount(entry.picks),
+        wins: normalizeCount(entry.wins),
+      }))
+      .sort(compareContributionEntries),
+  )
 }
 
 function parseContributionEntries(raw: string): PlayerCivStatContributionEntry[] {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.flatMap((entry) => {
+    return parsed.flatMap(entry => {
       if (!entry || typeof entry !== 'object') return []
       const candidate = entry as Partial<PlayerCivStatContributionEntry>
       if (typeof candidate.gameMode !== 'string' || candidate.gameMode.length === 0) return []
@@ -684,8 +749,7 @@ function parseContributionEntries(raw: string): PlayerCivStatContributionEntry[]
       }
       return normalized.picks === 0 && normalized.wins === 0 ? [] : [normalized]
     })
-  }
-  catch {
+  } catch {
     return []
   }
 }
@@ -694,7 +758,10 @@ function contributionKey(seasonId: string, gameMode: string, playerId: string, c
   return `${seasonId}\0${gameMode}\0${playerId}\0${civId}`
 }
 
-function compareContributionEntries(left: PlayerCivStatContributionEntry, right: PlayerCivStatContributionEntry): number {
+function compareContributionEntries(
+  left: PlayerCivStatContributionEntry,
+  right: PlayerCivStatContributionEntry,
+): number {
   const seasonDiff = left.seasonId.localeCompare(right.seasonId)
   if (seasonDiff !== 0) return seasonDiff
 
@@ -725,8 +792,7 @@ function parseDraftData(draftData: string | null): ParsedDraftData | null {
     const parsed: unknown = JSON.parse(draftData)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     return parsed as ParsedDraftData
-  }
-  catch {
+  } catch {
     return null
   }
 }

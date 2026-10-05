@@ -58,12 +58,20 @@ export interface DiscordGuildRoleResponse {
   position?: number
 }
 
-export async function updateGuildRolePositions(token: string, guildId: string, positions: Array<{ id: string, position: number }>): Promise<DiscordGuildRoleResponse[]> {
-  const response = await requestDiscord('update guild role positions', `https://discord.com/api/v10/guilds/${guildId}/roles`, {
-    method: 'PATCH',
-    headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(positions),
-  })
+export async function updateGuildRolePositions(
+  token: string,
+  guildId: string,
+  positions: Array<{ id: string; position: number }>,
+): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord(
+    'update guild role positions',
+    `https://discord.com/api/v10/guilds/${guildId}/roles`,
+    {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bot ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(positions),
+    },
+  )
   return response.json<DiscordGuildRoleResponse[]>()
 }
 
@@ -140,7 +148,9 @@ export async function createChannelMessage(
   return response.json<DiscordMessageResponse>()
 }
 
-export async function createChannelMessageWithFile(payload: DiscordChannelFilePayload): Promise<DiscordMessageResponse> {
+export async function createChannelMessageWithFile(
+  payload: DiscordChannelFilePayload,
+): Promise<DiscordMessageResponse> {
   const response = await requestDiscord(
     'create message',
     `https://discord.com/api/v10/channels/${payload.channelId}/messages`,
@@ -177,7 +187,9 @@ export async function editOriginalInteractionResponseWithFile(payload: DiscordIn
   )
 }
 
-export async function createInteractionFollowupMessageWithFile(payload: DiscordInteractionFilePayload): Promise<DiscordMessageResponse> {
+export async function createInteractionFollowupMessageWithFile(
+  payload: DiscordInteractionFilePayload,
+): Promise<DiscordMessageResponse> {
   const form = new FormData()
   const messagePayload: Record<string, unknown> = {
     allowed_mentions: { parse: [] },
@@ -201,7 +213,9 @@ export async function createInteractionFollowupMessageWithFile(payload: DiscordI
   return response.json<DiscordMessageResponse>()
 }
 
-export async function createInteractionFollowupMessage(payload: DiscordInteractionFollowupPayload): Promise<DiscordMessageResponse> {
+export async function createInteractionFollowupMessage(
+  payload: DiscordInteractionFollowupPayload,
+): Promise<DiscordMessageResponse> {
   const response = await requestDiscord(
     'create interaction followup',
     `https://discord.com/api/v10/webhooks/${payload.applicationId}/${payload.interactionToken}`,
@@ -217,22 +231,15 @@ export async function createInteractionFollowupMessage(payload: DiscordInteracti
   return response.json<DiscordMessageResponse>()
 }
 
-export async function createDmChannel(
-  token: string,
-  userId: string,
-): Promise<DiscordDmChannelResponse> {
-  const response = await requestDiscord(
-    'create dm channel',
-    'https://discord.com/api/v10/users/@me/channels',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ recipient_id: userId }),
+export async function createDmChannel(token: string, userId: string): Promise<DiscordDmChannelResponse> {
+  const response = await requestDiscord('create dm channel', 'https://discord.com/api/v10/users/@me/channels', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bot ${token}`,
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify({ recipient_id: userId }),
+  })
 
   return response.json<DiscordDmChannelResponse>()
 }
@@ -262,21 +269,19 @@ export async function editChannelMessage(
   messageId: string,
   payload: DiscordMessagePayload,
 ): Promise<void> {
-  await requestDiscord(
-    'edit message',
-    `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+  await requestDiscord('edit message', `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bot ${token}`,
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify(payload),
+  })
 }
 
-export async function editChannelMessageWithFile(payload: DiscordChannelFilePayload & { messageId: string }): Promise<void> {
+export async function editChannelMessageWithFile(
+  payload: DiscordChannelFilePayload & { messageId: string },
+): Promise<void> {
   await requestDiscord(
     'edit message',
     `https://discord.com/api/v10/channels/${payload.channelId}/messages/${payload.messageId}`,
@@ -290,36 +295,24 @@ export async function editChannelMessageWithFile(payload: DiscordChannelFilePayl
   )
 }
 
-export async function deleteChannelMessage(
-  token: string,
-  channelId: string,
-  messageId: string,
-): Promise<void> {
-  await requestDiscord(
-    'delete message',
-    `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bot ${token}`,
-      },
+export async function deleteChannelMessage(token: string, channelId: string, messageId: string): Promise<void> {
+  await requestDiscord('delete message', `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bot ${token}`,
     },
-  )
+  })
 }
 
 export async function unarchiveThread(token: string, channelId: string): Promise<void> {
-  await requestDiscord(
-    'unarchive thread',
-    `https://discord.com/api/v10/channels/${channelId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ archived: false }),
+  await requestDiscord('unarchive thread', `https://discord.com/api/v10/channels/${channelId}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bot ${token}`,
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify({ archived: false }),
+  })
 }
 
 function buildDiscordFileForm(payload: DiscordChannelFilePayload): FormData {
@@ -343,18 +336,14 @@ export async function editGuildMemberRoles(
   userId: string,
   roleIds: string[],
 ): Promise<void> {
-  await requestDiscord(
-    'edit guild member roles',
-    `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bot ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ roles: roleIds }),
+  await requestDiscord('edit guild member roles', `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bot ${token}`,
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify({ roles: roleIds }),
+  })
 }
 
 export async function addGuildMemberRole(
@@ -437,20 +426,13 @@ export async function updateGuildRole(
   return response.json<DiscordGuildRoleResponse>()
 }
 
-export async function fetchGuildRoles(
-  token: string,
-  guildId: string,
-): Promise<DiscordGuildRoleResponse[]> {
-  const response = await requestDiscord(
-    'fetch guild roles',
-    `https://discord.com/api/v10/guilds/${guildId}/roles`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bot ${token}`,
-      },
+export async function fetchGuildRoles(token: string, guildId: string): Promise<DiscordGuildRoleResponse[]> {
+  const response = await requestDiscord('fetch guild roles', `https://discord.com/api/v10/guilds/${guildId}/roles`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bot ${token}`,
     },
-  )
+  })
   const payload = await response.json<unknown>()
   if (!Array.isArray(payload)) return []
   return payload.filter((role): role is DiscordGuildRoleResponse => {
@@ -458,36 +440,46 @@ export async function fetchGuildRoles(
   })
 }
 
-export async function fetchGuildMemberPage(token: string, guildId: string, after?: string): Promise<Array<{ user: { id: string, bot?: boolean }, roles: string[] }>> {
-  const response = await requestDiscord('fetch guild members', `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000${after ? `&after=${encodeURIComponent(after)}` : ''}`, {
-    method: 'GET', headers: { Authorization: `Bot ${token}` },
-  })
+export async function fetchGuildMemberPage(
+  token: string,
+  guildId: string,
+  after?: string,
+): Promise<Array<{ user: { id: string; bot?: boolean }; roles: string[] }>> {
+  const response = await requestDiscord(
+    'fetch guild members',
+    `https://discord.com/api/v10/guilds/${guildId}/members?limit=1000${after ? `&after=${encodeURIComponent(after)}` : ''}`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bot ${token}` },
+    },
+  )
   const rows = await response.json<unknown>()
-  if (!Array.isArray(rows) || rows.some(row => !row?.user?.id || !Array.isArray(row.roles))) throw new Error('Guild member response is incomplete.')
+  if (!Array.isArray(rows) || rows.some(row => !row?.user?.id || !Array.isArray(row.roles)))
+    throw new Error('Guild member response is incomplete.')
   return rows
 }
 
 export async function fetchGuildChannelRoleOverwriteIds(token: string, guildId: string): Promise<Set<string>> {
-  const response = await requestDiscord('fetch guild channel permissions', `https://discord.com/api/v10/guilds/${guildId}/channels`, { headers: { Authorization: `Bot ${token}` } })
-  const channels = await response.json<Array<{ permission_overwrites?: Array<{ id: string, type: number }> }>>()
-  return new Set(channels.flatMap(channel => (channel.permission_overwrites ?? []).filter(overwrite => overwrite.type === 0).map(overwrite => overwrite.id)))
+  const response = await requestDiscord(
+    'fetch guild channel permissions',
+    `https://discord.com/api/v10/guilds/${guildId}/channels`,
+    { headers: { Authorization: `Bot ${token}` } },
+  )
+  const channels = await response.json<Array<{ permission_overwrites?: Array<{ id: string; type: number }> }>>()
+  return new Set(
+    channels.flatMap(channel =>
+      (channel.permission_overwrites ?? []).filter(overwrite => overwrite.type === 0).map(overwrite => overwrite.id),
+    ),
+  )
 }
 
-export async function deleteGuildRole(
-  token: string,
-  guildId: string,
-  roleId: string,
-): Promise<void> {
-  await requestDiscord(
-    'delete guild role',
-    `https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bot ${token}`,
-      },
+export async function deleteGuildRole(token: string, guildId: string, roleId: string): Promise<void> {
+  await requestDiscord('delete guild role', `https://discord.com/api/v10/guilds/${guildId}/roles/${roleId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bot ${token}`,
     },
-  )
+  })
 }
 
 async function requestDiscord(
@@ -536,8 +528,7 @@ function parseDiscordErrorPayload(detail: string): DiscordErrorPayload | null {
     const parsed: unknown = JSON.parse(detail)
     if (!parsed || typeof parsed !== 'object') return null
     return parsed as DiscordErrorPayload
-  }
-  catch {
+  } catch {
     return null
   }
 }

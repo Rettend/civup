@@ -1,6 +1,8 @@
 import type { Database as BunSqliteDatabase } from 'bun:sqlite'
 
-type SqliteLike = Pick<BunSqliteDatabase, 'prepare' | 'exec'> | { $client?: Pick<BunSqliteDatabase, 'prepare' | 'exec'> }
+type SqliteLike =
+  | Pick<BunSqliteDatabase, 'prepare' | 'exec'>
+  | { $client?: Pick<BunSqliteDatabase, 'prepare' | 'exec'> }
 
 const EMPTY_D1_META = {
   served_by: 'bun-sqlite-test',
@@ -27,8 +29,7 @@ export function createSqliteD1Database(input: SqliteLike): D1Database {
         for (const statement of statements) results.push(await statement.all())
         sqlite.exec('COMMIT')
         return results
-      }
-      catch (error) {
+      } catch (error) {
         sqlite.exec('ROLLBACK')
         throw error
       }

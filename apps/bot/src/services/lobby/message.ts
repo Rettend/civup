@@ -14,10 +14,12 @@ export function canApplyQueuedLobbyMessageUpdate(
   currentLobby: Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'> | null,
 ): currentLobby is Pick<LobbyState, 'id' | 'revision' | 'status' | 'messageId'> {
   if (!currentLobby) return false
-  return currentLobby.id === expectedLobby.id
-    && currentLobby.revision === expectedLobby.revision
-    && currentLobby.status === expectedLobby.status
-    && currentLobby.messageId === expectedLobby.messageId
+  return (
+    currentLobby.id === expectedLobby.id &&
+    currentLobby.revision === expectedLobby.revision &&
+    currentLobby.status === expectedLobby.status &&
+    currentLobby.messageId === expectedLobby.messageId
+  )
 }
 
 export async function getCurrentLobbyForQueuedMessageUpdate(
@@ -46,8 +48,7 @@ export async function upsertLobbyMessage(
       allowed_mentions: { parse: [] },
     })
     return lobby
-  }
-  catch (error) {
+  } catch (error) {
     if (!isDiscordApiError(error, 404)) throw error
 
     const created = await createChannelMessage(token, lobby.channelId, {
@@ -57,11 +58,13 @@ export async function upsertLobbyMessage(
     })
 
     const updated = await setLobbyMessage(kv, lobby.id, lobby.channelId, created.id, options)
-    return updated ?? {
-      ...lobby,
-      messageId: created.id,
-      updatedAt: Date.now(),
-    }
+    return (
+      updated ?? {
+        ...lobby,
+        messageId: created.id,
+        updatedAt: Date.now(),
+      }
+    )
   }
 }
 
@@ -72,7 +75,7 @@ export async function repostLobbyMessage(
   lobby: LobbyState,
   payload: LobbyRenderPayload,
   options?: LobbySessionProjectionOptions,
-): Promise<{ lobby: LobbyState, previousMessageId: string }> {
+): Promise<{ lobby: LobbyState; previousMessageId: string }> {
   const previousMessageId = lobby.messageId
   const created = await createChannelMessage(token, lobby.channelId, {
     content: null,

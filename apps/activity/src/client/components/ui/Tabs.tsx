@@ -19,17 +19,12 @@ interface TabsProps<T extends string = string> {
 }
 
 export function Tabs<T extends string = string>(local: TabsProps<T>) {
-  const resolve = <V,>(v: MaybeAccessor<V> | undefined) => typeof v === 'function' ? (v as Accessor<V>)() : v
+  const resolve = <V,>(v: MaybeAccessor<V> | undefined) => (typeof v === 'function' ? (v as Accessor<V>)() : v)
   const value = createMemo(() => resolve(local.value))
   const disabled = createMemo(() => resolve(local.disabled) ?? false)
 
   return (
-    <div
-      class={cn(
-        'rounded-md border border-border-subtle bg-bg/50 p-0.5 flex items-center',
-        local.class,
-      )}
-    >
+    <div class={cn('rounded-md border border-border-subtle bg-bg/50 p-0.5 flex items-center', local.class)}>
       <For each={local.options}>
         {option => {
           const active = () => value() === option.value

@@ -1,17 +1,31 @@
-import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
-import { allLeaderIds } from '@civup/game'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { matches, matchParticipants, playerRatingEvents, playerRatings, players } from '@civup/db'
+import { allLeaderIds } from '@civup/game'
 import { getReporterIdentityFromDraftData } from '../../src/services/match/draft-data.ts'
 import { reportMatch } from '../../src/services/match/report.ts'
-import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
-import { createLobby, getLobbyById, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  getSessionRecord,
+  runSessionDraftLifecycleCommand,
+  runSessionTerminalLifecycleCommand,
+} from '../../src/session-runtime/session-do-client.ts'
+import {
+  createLobby,
+  getLobbyById,
+  getTestLobbyRuntime,
+  setLobbyMemberPlayerIds,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match reporter identity', () => {
   let clock: ReturnType<typeof spyOn>
-  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(20_000) })
-  afterEach(() => { clock.mockRestore() })
+  beforeEach(() => {
+    clock = spyOn(Date, 'now').mockReturnValue(20_000)
+  })
+  afterEach(() => {
+    clock.mockRestore()
+  })
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
 
   test('stores the reporter id in draft data and resolves footer identity from seats', async () => {
@@ -85,11 +99,16 @@ describe('match reporter identity', () => {
         },
       ])
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'm1',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -99,8 +118,7 @@ describe('match reporter identity', () => {
         displayName: 'Fresh Reporter',
         avatarUrl: 'https://cdn.discordapp.com/avatars/p1/fresh.png',
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -124,8 +142,28 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({ completedAt: 1 }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'missing-session-do', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'missing-session-do', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'missing-session-do',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'missing-session-do',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       const result = await reportMatch(db, kv, {
@@ -135,10 +173,12 @@ describe('match reporter identity', () => {
       })
 
       expect(result).toEqual({ error: 'The bot cannot check this match. Ask a server admin to check it.' })
-      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'missing-session-do'))
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'missing-session-do'))
       expect(participants.every(participant => participant.placement == null)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -169,21 +209,32 @@ describe('match reporter identity', () => {
           { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2, hiddenDraft: true }) }).where(eq(matches.id, lobby.id))
-
-      const result = await reportMatch(db, kv, {
-        matchId: lobby.id,
-        reporterId: 'p1',
-        placements: '<@p1>',
-        leaderAssignments: {
-          p1: allLeaderIds[0]!,
-          p2: allLeaderIds[1]!,
-        },
-      }, {
-        sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2, hiddenDraft: true }) })
+        .where(eq(matches.id, lobby.id))
+
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          reporterId: 'p1',
+          placements: '<@p1>',
+          leaderAssignments: {
+            p1: allLeaderIds[0]!,
+            p2: allLeaderIds[1]!,
+          },
+        },
+        {
+          sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+        },
+      )
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
@@ -195,10 +246,17 @@ describe('match reporter identity', () => {
       expect(rolledBackMatch?.completedAt).toBeNull()
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
-      expect(participants.every(participant => participant.civId == null && participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+      expect(
+        participants.every(
+          participant =>
+            participant.civId == null &&
+            participant.placement == null &&
+            participant.ratingBeforeMu == null &&
+            participant.ratingAfterMu == null,
+        ),
+      ).toBe(true)
       expect(await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))).toHaveLength(0)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -229,20 +287,35 @@ describe('match reporter identity', () => {
           { playerId: 'p2', displayName: 'Player Two', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
-      await db.update(matchParticipants).set({ placement: 2 }).where(eq(matchParticipants.matchId, lobby.id))
-      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'mark-reported', matchId: lobby.id, at: 3 })
-      await db.update(matches).set({ status: 'active', completedAt: null }).where(eq(matches.id, lobby.id))
-
-      const result = await reportMatch(db, kv, {
-        matchId: lobby.id,
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, {
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
         sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) })
+        .where(eq(matches.id, lobby.id))
+      await db.update(matchParticipants).set({ placement: 2 }).where(eq(matchParticipants.matchId, lobby.id))
+      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, {
+        type: 'mark-reported',
+        matchId: lobby.id,
+        at: 3,
+      })
+      await db.update(matches).set({ status: 'active', completedAt: null }).where(eq(matches.id, lobby.id))
+
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        {
+          sessionNamespace: runtime.sessionNamespace,
+        },
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -250,8 +323,7 @@ describe('match reporter identity', () => {
       expect(result.match.status).toBe('completed')
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
       expect(participants.every(participant => participant.placement === 2)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -283,15 +355,40 @@ describe('match reporter identity', () => {
         }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'active-existing-events', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-existing-events', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'active-existing-events',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'active-existing-events',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const first = await reportMatch(db, kv, {
-        matchId: 'active-existing-events',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const first = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'active-existing-events',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
       expect('error' in first).toBe(false)
       if ('error' in first) return
 
@@ -300,13 +397,21 @@ describe('match reporter identity', () => {
       expect(ratingsAfterFirst).toHaveLength(4)
       expect(eventsAfterFirst).toHaveLength(4)
 
-      await db.update(matches).set({ status: 'active', completedAt: null }).where(eq(matches.id, 'active-existing-events'))
+      await db
+        .update(matches)
+        .set({ status: 'active', completedAt: null })
+        .where(eq(matches.id, 'active-existing-events'))
 
-      const second = await reportMatch(db, kv, {
-        matchId: 'active-existing-events',
-        reporterId: 'p2',
-        placements: '<@p2>',
-      }, directTerminalOptions)
+      const second = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'active-existing-events',
+          reporterId: 'p2',
+          placements: '<@p2>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in second).toBe(false)
       if ('error' in second) return
@@ -315,12 +420,16 @@ describe('match reporter identity', () => {
       expect(sortByPlayerAndMode(await db.select().from(playerRatings))).toEqual(ratingsAfterFirst)
       expect(sortByPlayerAndMode(await db.select().from(playerRatingEvents))).toEqual(eventsAfterFirst)
 
-      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'active-existing-events'))
-      const placementByPlayerId = new Map(participants.map(participant => [participant.playerId, participant.placement]))
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'active-existing-events'))
+      const placementByPlayerId = new Map(
+        participants.map(participant => [participant.playerId, participant.placement]),
+      )
       expect(placementByPlayerId.get('p1')).toBe(1)
       expect(placementByPlayerId.get('p2')).toBe(2)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -344,8 +453,28 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({ completedAt: 2 }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'partial-prepared-events', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 30, ratingAfterSigma: 7 },
-        { matchId: 'partial-prepared-events', playerId: 'p2', team: 1, civId: null, placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 20, ratingAfterSigma: 7 },
+        {
+          matchId: 'partial-prepared-events',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 30,
+          ratingAfterSigma: 7,
+        },
+        {
+          matchId: 'partial-prepared-events',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 20,
+          ratingAfterSigma: 7,
+        },
       ])
       await db.insert(playerRatings).values({
         playerId: 'p1',
@@ -379,23 +508,34 @@ describe('match reporter identity', () => {
         updatedAt: 3,
       })
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'partial-prepared-events',
-        reporterId: 'p1',
-        placements: '<@p2>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'partial-prepared-events',
+          reporterId: 'p1',
+          placements: '<@p2>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.match.status).toBe('completed')
-      expect(await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'partial-prepared-events'))).toHaveLength(4)
+      expect(
+        await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'partial-prepared-events')),
+      ).toHaveLength(4)
 
-      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'partial-prepared-events'))
-      const placementByPlayerId = new Map(participants.map(participant => [participant.playerId, participant.placement]))
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'partial-prepared-events'))
+      const placementByPlayerId = new Map(
+        participants.map(participant => [participant.playerId, participant.placement]),
+      )
       expect(placementByPlayerId.get('p1')).toBe(2)
       expect(placementByPlayerId.get('p2')).toBe(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -434,26 +574,50 @@ describe('match reporter identity', () => {
         }),
       })
       await db.insert(matchParticipants).values([
-        { matchId, playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId, playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId,
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId,
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2'], lobby)
       await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
 
-      const result = await reportMatch(db, kv, {
-        matchId,
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId,
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
       expect(await kv.get('lobby:host:p1')).toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -477,23 +641,51 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({ completedAt: 1 }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'm3', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'm3', playerId: 'p2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'm3',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'm3',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'm3',
-        reporterId: 'p1',
-        placements: '',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'm3',
+          reporterId: 'p1',
+          placements: '',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.idempotent).toBe(true)
-      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
-    }
-    finally {
+      expect(
+        result.participants.every(
+          participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null,
+        ),
+      ).toBe(true)
+    } finally {
       sqlite.close()
     }
   })
@@ -517,8 +709,28 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({ completedAt: 2 }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'completed-incomplete-events', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 30, ratingAfterSigma: 7 },
-        { matchId: 'completed-incomplete-events', playerId: 'p2', team: 1, civId: null, placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 20, ratingAfterSigma: 7 },
+        {
+          matchId: 'completed-incomplete-events',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 30,
+          ratingAfterSigma: 7,
+        },
+        {
+          matchId: 'completed-incomplete-events',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 20,
+          ratingAfterSigma: 7,
+        },
       ])
       await db.insert(playerRatingEvents).values([
         {
@@ -565,18 +777,24 @@ describe('match reporter identity', () => {
         },
       ])
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'completed-incomplete-events',
-        reporterId: 'p1',
-        placements: '',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'completed-incomplete-events',
+          reporterId: 'p1',
+          placements: '',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.idempotent).toBe(true)
-      expect(await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'completed-incomplete-events'))).toHaveLength(4)
-    }
-    finally {
+      expect(
+        await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.matchId, 'completed-incomplete-events')),
+      ).toHaveLength(4)
+    } finally {
       sqlite.close()
     }
   })
@@ -612,21 +830,48 @@ describe('match reporter identity', () => {
         }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'hidden-missing-leaders', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'hidden-missing-leaders', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'hidden-missing-leaders',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'hidden-missing-leaders',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'hidden-missing-leaders',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'hidden-missing-leaders',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
 
       expect(result).toEqual({ error: 'Choose a leader for every player before reporting the result.' })
-      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'hidden-missing-leaders'))
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'hidden-missing-leaders'))
       expect(participants.every(participant => participant.civId == null && participant.placement == null)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -664,30 +909,57 @@ describe('match reporter identity', () => {
         }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'hidden-report', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'hidden-report', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'hidden-report',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'hidden-report',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'hidden-report',
-        reporterId: 'p1',
-        placements: '<@p1>',
-        leaderAssignments: {
-          p1: leaderOne,
-          p2: leaderTwo,
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'hidden-report',
+          reporterId: 'p1',
+          placements: '<@p1>',
+          leaderAssignments: {
+            p1: leaderOne,
+            p2: leaderTwo,
+          },
         },
-      }, directTerminalOptions)
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.match.status).toBe('completed')
 
-      const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'hidden-report'))
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, 'hidden-report'))
       const civByPlayer = new Map(participants.map(participant => [participant.playerId, participant.civId]))
       expect(civByPlayer.get('p1')).toBe(leaderOne)
       expect(civByPlayer.get('p2')).toBe(leaderTwo)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -711,25 +983,46 @@ describe('match reporter identity', () => {
         draftData: JSON.stringify({ state: { seats: [{ playerId: 'p1' }, { playerId: 'p2' }] } }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'm4', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'm4', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'm4',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'm4',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      await expect(reportMatch(db, kv, {
-        matchId: 'm4',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      })).resolves.toEqual({
+      await expect(
+        reportMatch(db, kv, {
+          matchId: 'm4',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        }),
+      ).resolves.toEqual({
         error: 'Finish the draft before reporting the result.',
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
 })
 
-function sortByPlayerAndMode<T extends { playerId: string, mode: string }>(rows: T[]): T[] {
+function sortByPlayerAndMode<T extends { playerId: string; mode: string }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => a.playerId.localeCompare(b.playerId) || a.mode.localeCompare(b.mode))
 }
 
@@ -744,10 +1037,12 @@ function failTerminalLifecycleForSession(namespace: DurableObjectNamespace, sess
         fetch(input: RequestInfo | URL, init?: RequestInit) {
           const request = input instanceof Request ? input : new Request(input, init)
           if (String(id) === sessionId && new URL(request.url).pathname === '/commands/session-lifecycle') {
-            return Promise.resolve(new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' },
-            }))
+            return Promise.resolve(
+              new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
+                status: 503,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
           }
           return stub.fetch(request)
         },

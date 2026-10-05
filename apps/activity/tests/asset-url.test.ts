@@ -11,9 +11,10 @@ describe('resolveAssetUrl', () => {
         '/assets/bbg/leaders/Austria Maria Theresa.webp': 'asset-rev',
       }
 
-      expect(resolveAssetUrl('/assets/bbg/leaders/Austria%20Maria%20Theresa.webp')).toBe('/assets/bbg/leaders/Austria%20Maria%20Theresa.webp?v=asset-rev')
-    }
-    finally {
+      expect(resolveAssetUrl('/assets/bbg/leaders/Austria%20Maria%20Theresa.webp')).toBe(
+        '/assets/bbg/leaders/Austria%20Maria%20Theresa.webp?v=asset-rev',
+      )
+    } finally {
       globalWithAssets.__ASSET_REVISION_MAP__ = previousMap
     }
   })

@@ -5,7 +5,22 @@ import { channelIndexKey, hostKey, idKey, LOBBY_TTL, modeIndexKey } from '../../
 import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts'
 import { STALE_ACTIVE_MATCH_TIMEOUT_MS } from '../../src/services/match/retention.ts'
 import { getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { clearLobbyById, createLobby, getCurrentLobbyHostedBy, getExistingTestLobbyRuntime, getLobbiesByMode, getLobbyByChannel, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  clearLobbyById,
+  createLobby,
+  getCurrentLobbyHostedBy,
+  getExistingTestLobbyRuntime,
+  getLobbiesByMode,
+  getLobbyByChannel,
+  getLobbyById,
+  setLobbyDraftConfig,
+  setLobbyMaxRole,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
+  setLobbySlots,
+  setLobbyStatus,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue, getSeededRosterEntries } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -18,10 +33,15 @@ test('keeps supported map vote config for ffa lobbies', async () => {
     messageId: 'message-1',
   })
 
-  const updated = await setLobbyDraftConfig(kv, lobby.id, {
-    ...lobby.draftConfig,
-    mapVoteEnabled: true,
-  }, lobby)
+  const updated = await setLobbyDraftConfig(
+    kv,
+    lobby.id,
+    {
+      ...lobby.draftConfig,
+      mapVoteEnabled: true,
+    },
+    lobby,
+  )
 
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
@@ -35,10 +55,15 @@ test('keeps supported map vote config for team lobbies', async () => {
     messageId: 'message-1',
   })
 
-  const updated = await setLobbyDraftConfig(kv, lobby.id, {
-    ...lobby.draftConfig,
-    mapVoteEnabled: true,
-  }, lobby)
+  const updated = await setLobbyDraftConfig(
+    kv,
+    lobby.id,
+    {
+      ...lobby.draftConfig,
+      mapVoteEnabled: true,
+    },
+    lobby,
+  )
 
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
@@ -52,10 +77,15 @@ test('keeps supported map vote config for duel lobbies', async () => {
     messageId: 'message-1',
   })
 
-  const updated = await setLobbyDraftConfig(kv, lobby.id, {
-    ...lobby.draftConfig,
-    mapVoteEnabled: true,
-  }, lobby)
+  const updated = await setLobbyDraftConfig(
+    kv,
+    lobby.id,
+    {
+      ...lobby.draftConfig,
+      mapVoteEnabled: true,
+    },
+    lobby,
+  )
 
   expect(updated?.draftConfig.mapVoteEnabled).toBe(true)
 })
@@ -240,12 +270,25 @@ describe('lobby service D1-backed projection behavior', () => {
     const nextSlots = [...(withMembers?.slots ?? lobby.slots)]
     nextSlots[1] = 'player-2'
     const updated = await setLobbySlots(kv, lobby.id, nextSlots, withMembers ?? lobby, { queueEntries })
-    const snapshot = await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby, { queueEntries, slots: nextSlots })
+    const snapshot = await syncLobbyDerivedState(kv, updated ?? withMembers ?? lobby, {
+      queueEntries,
+      slots: nextSlots,
+    })
 
     expect(updated).not.toBeNull()
     expect(snapshot?.revision).toBe(updated?.revision)
-    expect(snapshot?.entries?.[0]).toEqual({ playerId: 'host-1', displayName: 'Host', avatarUrl: null, rankedRole: null })
-    expect(snapshot?.entries?.[1]).toEqual({ playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, rankedRole: null })
+    expect(snapshot?.entries?.[0]).toEqual({
+      playerId: 'host-1',
+      displayName: 'Host',
+      avatarUrl: null,
+      rankedRole: null,
+    })
+    expect(snapshot?.entries?.[1]).toEqual({
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      rankedRole: null,
+    })
   })
 
   test('does not build live snapshots when a lobby stops being open', async () => {
@@ -355,8 +398,15 @@ describe('lobby service D1-backed projection behavior', () => {
       messageId: 'message-1',
     })
 
-    const updated = await setLobbySlots(kv, lobby.id, ['host-1', null, null, null, null, null, null, null, null, null, null, null], lobby)
-    const snapshot = await syncLobbyDerivedState(kv, updated ?? lobby, { queueEntries: getSeededRosterEntries(kv, 'ffa') })
+    const updated = await setLobbySlots(
+      kv,
+      lobby.id,
+      ['host-1', null, null, null, null, null, null, null, null, null, null, null],
+      lobby,
+    )
+    const snapshot = await syncLobbyDerivedState(kv, updated ?? lobby, {
+      queueEntries: getSeededRosterEntries(kv, 'ffa'),
+    })
 
     expect(snapshot?.minPlayers).toBe(6)
     expect(snapshot?.targetSize).toBe(12)
@@ -372,13 +422,14 @@ describe('lobby service D1-backed projection behavior', () => {
       joinedAt: Date.now(),
     })
 
-    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
-      version: 4,
-      updatedAt: Date.now(),
-      rows: [
-        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
-      ],
-    }))
+    await kv.put(
+      leaderboardModeSnapshotKey('duo'),
+      JSON.stringify({
+        version: 4,
+        updatedAt: Date.now(),
+        rows: [{ playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null }],
+      }),
+    )
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -544,7 +595,12 @@ describe('lobby service D1-backed projection behavior', () => {
       }),
     ])
 
-    const reopenedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...(closedLobby ?? lobby).draftConfig, closed: false }, closedLobby ?? lobby)
+    const reopenedLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      { ...(closedLobby ?? lobby).draftConfig, closed: false },
+      closedLobby ?? lobby,
+    )
     await syncLobbyDerivedState(kv, reopenedLobby ?? closedLobby ?? lobby)
 
     const reopenedOverview = await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-closed')
@@ -574,17 +630,21 @@ describe('lobby service D1-backed projection behavior', () => {
       messageId: 'message-1',
     })
 
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      status: 'open',
-    }))
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(
+      expect.objectContaining({
+        id: lobby.id,
+        status: 'open',
+      }),
+    )
 
     const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      status: 'drafting',
-    }))
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(
+      expect.objectContaining({
+        id: lobby.id,
+        status: 'drafting',
+      }),
+    )
   })
 
   test('keeps a hosted open lobby even when queue metadata is missing', async () => {
@@ -597,10 +657,12 @@ describe('lobby service D1-backed projection behavior', () => {
       messageId: 'message-1',
     })
 
-    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      status: 'open',
-    }))
+    await expect(getCurrentLobbyHostedBy(kv, 'host-1')).resolves.toEqual(
+      expect.objectContaining({
+        id: lobby.id,
+        status: 'open',
+      }),
+    )
     await expect(kv.get(hostKey('host-1'))).resolves.toBeNull()
   })
 
@@ -635,10 +697,12 @@ describe('lobby service D1-backed projection behavior', () => {
     const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     const { db } = getExistingTestLobbyRuntime(kv)
 
-    await expect(getSessionLobbyProjectionByMatch(db, lobby.id)).resolves.toEqual(expect.objectContaining({
-      id: lobby.id,
-      matchId: lobby.id,
-    }))
+    await expect(getSessionLobbyProjectionByMatch(db, lobby.id)).resolves.toEqual(
+      expect.objectContaining({
+        id: lobby.id,
+        matchId: lobby.id,
+      }),
+    )
     expect(draftingLobby?.matchId).toBe(lobby.id)
   })
 

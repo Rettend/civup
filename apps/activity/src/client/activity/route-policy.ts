@@ -1,6 +1,4 @@
-export type BrowserLaunchRoute
-  = | { kind: 'session', sessionId: string }
-    | { kind: 'channel', channelId: string }
+export type BrowserLaunchRoute = { kind: 'session'; sessionId: string } | { kind: 'channel'; channelId: string }
 
 export function parseBrowserLaunchRoute(pathname: string): BrowserLaunchRoute | null {
   const normalized = pathname.replace(/\/+$/, '')
@@ -10,8 +8,7 @@ export function parseBrowserLaunchRoute(pathname: string): BrowserLaunchRoute | 
     const id = decodeURIComponent(match[2]).trim()
     if (!id) return null
     return match[1] === 'session' ? { kind: 'session', sessionId: id } : { kind: 'channel', channelId: id }
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -41,9 +38,11 @@ export function parseBrowserReturnPath(search: string, expectedKind: BrowserLaun
 
     const nestedSessionPath = parseBrowserReturnPath(url.search, 'session')
     const nestedSessionRoute = nestedSessionPath ? parseBrowserLaunchRoute(nestedSessionPath) : null
-    return browserChannelPath(route.channelId, nestedSessionRoute?.kind === 'session' ? nestedSessionRoute.sessionId : undefined)
-  }
-  catch {
+    return browserChannelPath(
+      route.channelId,
+      nestedSessionRoute?.kind === 'session' ? nestedSessionRoute.sessionId : undefined,
+    )
+  } catch {
     return null
   }
 }

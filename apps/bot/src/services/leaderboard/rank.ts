@@ -3,7 +3,8 @@ import { displayRating, getLeaderboardMinGames } from '@civup/rating'
 
 export function buildLeaderboardRankByPlayer(snapshot: LeaderboardModeSnapshot): Map<string, number> {
   const publicEra = snapshot.ratingSystem === 'rp'
-  if (publicEra && (!snapshot.publicReadsEnabled || snapshot.rows.some(row => row.publicRating == null))) return new Map()
+  if (publicEra && (!snapshot.publicReadsEnabled || snapshot.rows.some(row => row.publicRating == null)))
+    return new Map()
   const ranked = snapshot.rows
     .filter(row => row.gamesPlayed >= getLeaderboardMinGames(snapshot.mode))
     .map(row => ({ playerId: row.playerId, rating: publicEra ? row.publicRating! : displayRating(row.mu, row.sigma) }))

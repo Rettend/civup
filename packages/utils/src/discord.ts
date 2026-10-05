@@ -7,8 +7,7 @@ export function buildDiscordAvatarUrl(userId: string, avatarHash: string | null 
   try {
     const index = Number((BigInt(userId) >> 22n) % 6n)
     return `https://cdn.discordapp.com/embed/avatars/${index}.png`
-  }
-  catch {
+  } catch {
     return 'https://cdn.discordapp.com/embed/avatars/0.png'
   }
 }

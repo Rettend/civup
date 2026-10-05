@@ -3,7 +3,15 @@
 import { cleanup, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, fireUiEvent as fireEvent, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import {
+  createActiveDraftState,
+  createCancelledDraftState,
+  createCompleteDraftState,
+  createWaitingDraftState,
+  fireUiEvent as fireEvent,
+  renderUi as render,
+  TEST_LEADER_IDS,
+} from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const onSwitchTarget = vi.fn(() => {})
@@ -24,7 +32,9 @@ describe('DraftPage UI', () => {
   test('shows the connecting shell', () => {
     uiMockState.connectionStatus = 'connecting'
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Joining draft room...')).toBeTruthy()
     expect(queryUiScaleControl()).toBeTruthy()
@@ -34,7 +44,9 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = null
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Joining draft room...')).toBeTruthy()
     expect(screen.queryByText('Waiting for host to start draft...')).toBeNull()
@@ -44,7 +56,9 @@ describe('DraftPage UI', () => {
   test('shows the reconnecting shell before draft state hydrates', () => {
     uiMockState.connectionStatus = 'reconnecting'
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Reconnecting to draft room...')).toBeTruthy()
   })
@@ -66,7 +80,9 @@ describe('DraftPage UI', () => {
     uiMockState.userId = 'player-2'
     uiMockState.draftHostId = 'host-1'
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Waiting for host to start draft...')).toBeTruthy()
     expect(screen.queryByText('Ready to start')).toBeNull()
@@ -79,7 +95,9 @@ describe('DraftPage UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Draft' }))
 
@@ -106,9 +124,7 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createWaitingDraftState({ formatId: '3v3' })
     uiMockState.mapVotePhase = 'reveal'
-    uiMockState.mapVoteSeatVotes = [
-      { seatIndex: 0, confirmed: true, maps: ['inland-sea-east-vs-west'] },
-    ]
+    uiMockState.mapVoteSeatVotes = [{ seatIndex: 0, confirmed: true, maps: ['inland-sea-east-vs-west'] }]
     uiMockState.mapVoteWinningType = 'east-vs-west'
     uiMockState.mapVoteWinningScript = 'inland-sea'
     uiMockState.mapVoteWinningTypeCandidate = 'east-vs-west'
@@ -116,7 +132,9 @@ describe('DraftPage UI', () => {
     uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
     uiMockState.gridOpen = true
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Close map vote' })).toBeNull())
     expect(screen.queryByRole('button', { name: /map vote/i })).toBeNull()
@@ -128,7 +146,16 @@ describe('DraftPage UI', () => {
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect((queryUiScaleControl() as HTMLButtonElement | null)?.disabled).toBe(true)
@@ -143,7 +170,16 @@ describe('DraftPage UI', () => {
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect(screen.getByText('Player 2')).toBeTruthy()
@@ -160,7 +196,15 @@ describe('DraftPage UI', () => {
     uiMockState.draftState = createCompleteDraftState()
     uiMockState.draftSeatIndex = 0
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+      />
+    ))
 
     expect(screen.getByText('You can close the activity!')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Confirm Result' })).toBeTruthy()
@@ -176,7 +220,9 @@ describe('DraftPage UI', () => {
       civBlitz: createCivBlitzState(true),
     })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByRole('button', { name: 'Download leaders mod' })).toBeTruthy()
     expect(screen.getByText('Everyone installs this same mod.')).toBeTruthy()
@@ -192,7 +238,9 @@ describe('DraftPage UI', () => {
       civBlitz: createCivBlitzState(false),
     })
 
-    ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />))
+    ;({ unmount } = render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    )))
     expect(screen.getByText('Shared mod download is not available for BBG Expanded drafts.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Download leaders mod' })).toBeNull()
 
@@ -202,7 +250,9 @@ describe('DraftPage UI', () => {
       formatId: 'civblitz-ffa',
       civBlitz: createCivBlitzState(true),
     })
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
     expect(screen.queryByRole('button', { name: 'Download leaders mod' })).toBeNull()
   })
 
@@ -212,7 +262,15 @@ describe('DraftPage UI', () => {
     uiMockState.draftSeatIndex = 0
     uiMockState.draftState = createCompleteDraftState({ formatId: '2v2' })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="teamers"
+      />
+    ))
 
     expect(screen.getByText('VS')).toBeTruthy()
 
@@ -225,7 +283,16 @@ describe('DraftPage UI', () => {
     let unmount = () => {}
     const mount = (steamLobbyLink: string | null) => {
       unmount()
-      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={steamLobbyLink} lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
+      ;({ unmount } = render(() => (
+        <DraftPage
+          matchId="match-1"
+          autoStart={false}
+          steamLobbyLink={steamLobbyLink}
+          lobbyId="lobby-1"
+          lobbyMode="ffa"
+          onSwitchTarget={onSwitchTarget}
+        />
+      )))
     }
 
     uiMockState.connectionStatus = 'connected'
@@ -248,7 +315,16 @@ describe('DraftPage UI', () => {
     let unmount = () => {}
     const mount = () => {
       unmount()
-      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
+      ;({ unmount } = render(() => (
+        <DraftPage
+          matchId="match-1"
+          autoStart
+          steamLobbyLink={null}
+          lobbyId="lobby-1"
+          lobbyMode="ffa"
+          onSwitchTarget={onSwitchTarget}
+        />
+      )))
     }
 
     uiMockState.connectionStatus = 'connected'
@@ -274,7 +350,16 @@ describe('DraftPage UI', () => {
     uiMockState.isSpectator = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByText('Spectating')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Open leader grid' }).hasAttribute('disabled')).toBe(true)
@@ -293,7 +378,16 @@ describe('DraftPage UI', () => {
       ],
     })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="teamers" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="teamers"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open leader grid' })).toBeTruthy())
     expect(uiMockState.gridOpen).toBe(false)
@@ -303,7 +397,16 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createCancelledDraftState('cancel')
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByText('Draft Cancelled')).toBeTruthy()
     expect(screen.getByText('Host cancelled this draft before lock-in.')).toBeTruthy()
@@ -314,7 +417,16 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createCancelledDraftState('timeout')
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByText('Draft Auto-Scrubbed')).toBeTruthy()
     expect(screen.getByText('A player timed out picking a leader.')).toBeTruthy()
@@ -326,7 +438,16 @@ describe('DraftPage UI', () => {
     uiMockState.connectionStatus = 'connected'
     uiMockState.draftState = createCancelledDraftState('cancel')
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
+    render(() => (
+      <DraftPage
+        matchId="match-1"
+        autoStart={false}
+        steamLobbyLink="steam://joinlobby/289070/example"
+        lobbyId="lobby-1"
+        lobbyMode="ffa"
+        onSwitchTarget={onSwitchTarget}
+      />
+    ))
 
     expect(screen.getByRole('button', { name: 'Open Steam link' })).toBeTruthy()
 
@@ -336,7 +457,9 @@ describe('DraftPage UI', () => {
   })
 })
 
-function createCivBlitzState(excludeBbgExpanded: boolean): NonNullable<ReturnType<typeof createCompleteDraftState>['civBlitz']> {
+function createCivBlitzState(
+  excludeBbgExpanded: boolean,
+): NonNullable<ReturnType<typeof createCompleteDraftState>['civBlitz']> {
   const options = {
     civilizationAbility: ['civblitz:civilizationAbility:america'],
     leaderAbility: ['civblitz:leaderAbility:rome-trajan'],

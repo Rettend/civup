@@ -1,8 +1,7 @@
 export function normalizeHost(host: string | undefined, fallback: string): string {
   const raw = (host && host.trim()) || fallback
-  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://')
-    ? raw
-    : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
+  const withProtocol =
+    raw.startsWith('http://') || raw.startsWith('https://') ? raw : `${isLocalHost(raw) ? 'http' : 'https'}://${raw}`
   return withProtocol.replace(/\/$/, '')
 }
 
@@ -22,8 +21,7 @@ function hostnameFrom(value: string | URL): string {
     if (raw.startsWith('http://') || raw.startsWith('https://')) {
       return new URL(raw).hostname.toLowerCase()
     }
-  }
-  catch {}
+  } catch {}
 
   const withoutPath = raw.split('/')[0] ?? raw
   return withoutPath.replace(/:\d+$/, '')

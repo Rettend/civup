@@ -19,10 +19,14 @@ export interface PublicRatingSnapshot {
 
 export type PublicTier = 'tier1' | 'tier2' | 'tier3' | 'tier4' | 'tier5'
 
-export function rankDivisionLayout(tierCount: number): Array<{ tier: `tier${number}`, division: 0 | 1 | 2 | 3 }> {
+export function rankDivisionLayout(tierCount: number): Array<{ tier: `tier${number}`; division: 0 | 1 | 2 | 3 }> {
   if (!Number.isSafeInteger(tierCount) || tierCount < 2) throw new Error('A rank ladder needs at least two tiers.')
   return Array.from({ length: tierCount }, (_, index) => tierCount - index).flatMap(rank =>
-    (rank === 1 || rank === tierCount ? [0] as const : [3, 2, 1] as const).map(division => ({ tier: `tier${rank}` as const, division })))
+    (rank === 1 || rank === tierCount ? ([0] as const) : ([3, 2, 1] as const)).map(division => ({
+      tier: `tier${rank}` as const,
+      division,
+    })),
+  )
 }
 
 export function rankDivisionSuffix(division: number): string {
@@ -42,7 +46,7 @@ export interface PublicRatingCalibration {
   scope: string
   sourceDigest: string
   population: number
-  anchors: readonly { hiddenScore: number, target: number }[]
+  anchors: readonly { hiddenScore: number; target: number }[]
 }
 
 function finite(value: number, name: string): number {
@@ -61,7 +65,7 @@ export function visiblePublicRating(value: number): number {
   return Math.round(value)
 }
 
-export function publicRatingRank(value: number): typeof PUBLIC_RATING_BANDS[number] {
+export function publicRatingRank(value: number): (typeof PUBLIC_RATING_BANDS)[number] {
   const visible = visiblePublicRating(value)
   return PUBLIC_RATING_BANDS.findLast(band => visible >= band.minimum)!
 }
@@ -74,7 +78,11 @@ export function formatPublicRankRating(value: number, displayedTier: string | nu
 }
 
 /** A non-null badge holds the previous division until this scope's next rated game. */
-export function advancePublicRatingBadge(before: number, after: number, heldMinimum: number | null = null): number | null {
+export function advancePublicRatingBadge(
+  before: number,
+  after: number,
+  heldMinimum: number | null = null,
+): number | null {
   const previous = publicRatingRank(before)
   const current = publicRatingRank(after)
   if (heldMinimum != null) {
@@ -84,7 +92,10 @@ export function advancePublicRatingBadge(before: number, after: number, heldMini
   return after < before && current.minimum < previous.minimum ? previous.minimum : null
 }
 
-export function publicRatingBadgeRank(rating: number, heldMinimum?: number | null): typeof PUBLIC_RATING_BANDS[number] {
+export function publicRatingBadgeRank(
+  rating: number,
+  heldMinimum?: number | null,
+): (typeof PUBLIC_RATING_BANDS)[number] {
   const natural = publicRatingRank(rating)
   if (heldMinimum == null) return natural
   const held = PUBLIC_RATING_BANDS.find(band => band.minimum === heldMinimum)
@@ -106,8 +117,10 @@ export function publicRatingPresentation(before: number, after: number) {
 }
 
 export function validatePublicRatingCalibration(calibration: PublicRatingCalibration): void {
-  if (!calibration.version || !calibration.scope || !calibration.sourceDigest) throw new Error('Calibration provenance is required.')
-  if (!Number.isSafeInteger(calibration.population) || calibration.population < 2) throw new Error('Calibration needs at least two qualified players.')
+  if (!calibration.version || !calibration.scope || !calibration.sourceDigest)
+    throw new Error('Calibration provenance is required.')
+  if (!Number.isSafeInteger(calibration.population) || calibration.population < 2)
+    throw new Error('Calibration needs at least two qualified players.')
   if (calibration.anchors.length < 2) throw new Error('Calibration needs at least two distinct anchors.')
   for (let index = 0; index < calibration.anchors.length; index++) {
     const anchor = calibration.anchors[index]!
@@ -127,7 +140,14 @@ export function calibratePublicRatings(input: {
   qualifiedHiddenScores: readonly number[]
 }): PublicRatingCalibration {
   const scores = input.qualifiedHiddenScores.map(score => finite(score, 'Hidden score')).sort((a, b) => a - b)
-  const quantiles = [[0, 300], [0.1, 600], [0.6, 900], [0.8, 1200], [0.95, 1500], [1, 1599]] as const
+  const quantiles = [
+    [0, 300],
+    [0.1, 600],
+    [0.6, 900],
+    [0.8, 1200],
+    [0.95, 1500],
+    [1, 1599],
+  ] as const
   const calibration: PublicRatingCalibration = {
     version: input.version,
     scope: input.scope,
@@ -174,10 +194,15 @@ export function publicOpeningSeed(input: {
   finite(input.hiddenScore, 'Hidden score')
   validatePublicRatingCalibration(input.calibration)
   const position = fraction(input.closingTierPosition ?? 0.5, 'Closing tier position')
-  if (input.closingTier != null && !['tier1', 'tier2', 'tier3', 'tier4', 'tier5'].includes(input.closingTier)) throw new Error('Unknown closing managed tier.')
-  if (input.closingTier != null && !input.qualified) throw new Error('A managed closing role without qualification needs owner review before seeding.')
+  if (input.closingTier != null && !['tier1', 'tier2', 'tier3', 'tier4', 'tier5'].includes(input.closingTier))
+    throw new Error('Unknown closing managed tier.')
+  if (input.closingTier != null && !input.qualified)
+    throw new Error('A managed closing role without qualification needs owner review before seeding.')
   const result = (rating: number, target: number | null, guard: PublicOpeningSeed['guard']): PublicOpeningSeed => ({
-    rating, target, guard, seedVersion: PUBLIC_RATING_SEED_VERSION,
+    rating,
+    target,
+    guard,
+    seedVersion: PUBLIC_RATING_SEED_VERSION,
   })
   if (!input.qualified) return result(PUBLIC_RATING_START, null, 'unqualified')
   const target = publicRatingTarget(input.hiddenScore, input.calibration)
@@ -185,7 +210,8 @@ export function publicOpeningSeed(input: {
   const seed = PUBLIC_RATING_START + 0.85 * (target - PUBLIC_RATING_START)
   const previousTopDivision = input.closingTier === 'tier2' ? 1100 : input.closingTier === 'tier3' ? 800 : 0
   const minimumTierRating = input.closingTier === 'tier2' ? 900 : input.closingTier === 'tier3' ? 600 : 0
-  if (visiblePublicRating(seed) < minimumTierRating) return result(previousTopDivision + 99 * position, target, 'one-rank')
+  if (visiblePublicRating(seed) < minimumTierRating)
+    return result(previousTopDivision + 99 * position, target, 'one-rank')
   return result(seed, target, null)
 }
 
@@ -201,7 +227,8 @@ export interface PublicRatingTransitionInput {
 }
 
 export function calculatePublicRatingTransition(input: PublicRatingTransitionInput) {
-  if (input.formulaVersion !== PUBLIC_RATING_FORMULA_VERSION) throw new Error(`Unknown RP formula version: ${input.formulaVersion}`)
+  if (input.formulaVersion !== PUBLIC_RATING_FORMULA_VERSION)
+    throw new Error(`Unknown RP formula version: ${input.formulaVersion}`)
   visiblePublicRating(input.priorRating)
   visiblePublicRating(input.targetRating)
   finite(input.hiddenMuBefore, 'Hidden mu before')
@@ -213,7 +240,7 @@ export function calculatePublicRatingTransition(input: PublicRatingTransitionInp
   const maximum = 35 + 40 * uncertainty
   const gap = Math.max(-1, Math.min(1, (input.targetRating - input.priorRating) / 300))
   const catchup = Math.exp(Math.sign(hiddenDelta) * gap * (0.25 + uncertainty * 0.35))
-  const movement = maximum * Math.tanh(hiddenDelta * 36 * catchup / maximum) * sourceWeight
+  const movement = maximum * Math.tanh((hiddenDelta * 36 * catchup) / maximum) * sourceWeight
   const after = Math.max(0, input.priorRating + movement)
   return {
     before: input.priorRating,
@@ -245,12 +272,13 @@ export function replayPublicRating(input: {
   const identities = new Set<string>()
   let rating = input.openingRating
   let previousSequence = 0
-  const events = ordered.map((event) => {
+  const events = ordered.map(event => {
     if (!Number.isSafeInteger(event.sequence) || event.sequence <= previousSequence || identities.has(event.id)) {
       throw new Error('Public replay requires unique event identities and positive, unique recorded sequences.')
     }
     const calibration = input.calibrations.get(event.calibrationVersion)
-    if (!calibration || calibration.version !== event.calibrationVersion) throw new Error(`Missing calibration: ${event.calibrationVersion}`)
+    if (!calibration || calibration.version !== event.calibrationVersion)
+      throw new Error(`Missing calibration: ${event.calibrationVersion}`)
     const transition = calculatePublicRatingTransition({
       ...event,
       priorRating: rating,

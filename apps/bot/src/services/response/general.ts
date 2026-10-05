@@ -1,9 +1,9 @@
 import type { Env } from '../../env.ts'
 import type { DiscordMessagePayload } from '../discord/index.ts'
 import { createChannelMessage, createInteractionFollowupMessage } from '../discord/index.ts'
+import { SeasonSelectionError } from '../season/selection.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { sendTransientEphemeralResponse } from './ephemeral.ts'
-import { SeasonSelectionError } from '../season/selection.ts'
 
 type GeneralCommandResponse = string | DiscordMessagePayload | DiscordMessagePayload[] | null
 
@@ -40,15 +40,16 @@ export async function resDeferGeneralCommandResponse(
   const commandsChannelId = await getSystemChannel(c.env.KV, 'commands')
   const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
   const forceEphemeral = options?.ephemeral === true
-  const shouldRedirect = !forceEphemeral
-    && options?.redirect !== false
-    && !!c.interaction.guild_id
-    && !!commandsChannelId
-    && !!interactionChannelId
-    && interactionChannelId !== commandsChannelId
+  const shouldRedirect =
+    !forceEphemeral &&
+    options?.redirect !== false &&
+    !!c.interaction.guild_id &&
+    !!commandsChannelId &&
+    !!interactionChannelId &&
+    interactionChannelId !== commandsChannelId
 
   const responder = forceEphemeral || shouldRedirect ? c.flags('EPHEMERAL') : c
-  return responder.resDefer(async (deferred) => {
+  return responder.resDefer(async deferred => {
     try {
       const payload = await buildPayload(deferred)
       const payloads = normalizeGeneralCommandPayloads(payload)
@@ -76,21 +77,22 @@ export async function resDeferGeneralCommandResponse(
             normalizedPayload,
           )
         }
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`Failed to post redirected command output to ${commandsChannelId}:`, error)
         await sendTransientEphemeralResponse(deferred, `Failed to post in <#${commandsChannelId}>.`, 'error')
         return
       }
 
       await sendTransientEphemeralResponse(deferred, `Posted in <#${commandsChannelId}>.`, 'info')
-    }
-    catch (error) {
+    } catch (error) {
       console.error('Failed to build deferred command response:', error)
       try {
-        await sendTransientEphemeralResponse(deferred, error instanceof SeasonSelectionError ? error.message : 'Failed to build this command response.', 'error')
-      }
-      catch (followupError) {
+        await sendTransientEphemeralResponse(
+          deferred,
+          error instanceof SeasonSelectionError ? error.message : 'Failed to build this command response.',
+          'error',
+        )
+      } catch (followupError) {
         console.error('Failed to send deferred command error response:', followupError)
       }
     }

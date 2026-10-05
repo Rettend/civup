@@ -1,16 +1,36 @@
-import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
 import type { ParticipantRow } from '../match/types.ts'
-import { leaderboardMessageStates, matchParticipants, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
+import type { Database } from '@civup/db'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
-import { createChannelMessageWithFile, deleteChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
+import {
+  leaderboardMessageStates,
+  matchParticipants,
+  players,
+  tournamentCutPairings,
+  tournamentMatches,
+  tournamentPlayers,
+  tournaments,
+} from '@civup/db'
+import {
+  createChannelMessageWithFile,
+  deleteChannelMessage,
+  editChannelMessageWithFile,
+  isDiscordApiError,
+} from '../discord/index.ts'
 import { getSystemChannel } from '../system/channels.ts'
 import { renderTournamentLeaderboardPng } from './image.ts'
 
 export type TournamentRematchPolicy = 'allow' | 'warn' | 'block'
 export type TournamentStatus = 'setup' | 'qualifier' | 'qualifier_locked' | 'top_cut' | 'completed' | 'cancelled'
-export type TournamentStage = 'qualifier' | 'quarterfinal' | 'semifinal' | 'final' | 'third_place' | 'tiebreaker' | 'top_cut'
+export type TournamentStage =
+  | 'qualifier'
+  | 'quarterfinal'
+  | 'semifinal'
+  | 'final'
+  | 'third_place'
+  | 'tiebreaker'
+  | 'top_cut'
 export type TournamentMatchStatus = 'open' | 'drafting' | 'active' | 'reported' | 'cancelled'
 export type TournamentCutPairingStatus = 'scheduled' | 'open' | 'drafting' | 'reported' | 'cancelled'
 
@@ -194,7 +214,7 @@ export function normalizeTournamentPositiveInteger(value: unknown, fallback: num
   return fallback
 }
 
-export function isSupportedTournamentTopCut(value: number): value is typeof SUPPORTED_TOURNAMENT_TOP_CUTS[number] {
+export function isSupportedTournamentTopCut(value: number): value is (typeof SUPPORTED_TOURNAMENT_TOP_CUTS)[number] {
   return (SUPPORTED_TOURNAMENT_TOP_CUTS as readonly number[]).includes(value)
 }
 
@@ -219,12 +239,16 @@ export async function createTournament(db: Database, input: CreateTournamentInpu
   return tournament
 }
 
-export async function updateTournament(db: Database, tournamentId: string, input: {
-  name?: string
-  minGames?: number
-  topCut?: number
-  rematchPolicy?: TournamentRematchPolicy
-}): Promise<void> {
+export async function updateTournament(
+  db: Database,
+  tournamentId: string,
+  input: {
+    name?: string
+    minGames?: number
+    topCut?: number
+    rematchPolicy?: TournamentRematchPolicy
+  },
+): Promise<void> {
   const set: Record<string, unknown> = { updatedAt: Date.now() }
   if (input.name != null) set.name = input.name
   if (input.minGames != null) set.minGames = input.minGames
@@ -237,7 +261,12 @@ export async function startTournament(db: Database, tournamentId: string): Promi
   const tournament = await getTournamentById(db, tournamentId)
   if (!tournament) return { error: 'Tournament not found.' }
   if (tournament.status !== 'setup') {
-    return { error: tournament.status === 'qualifier' ? 'Tournament has already started.' : `Tournament is already ${tournament.status}.` }
+    return {
+      error:
+        tournament.status === 'qualifier'
+          ? 'Tournament has already started.'
+          : `Tournament is already ${tournament.status}.`,
+    }
   }
 
   await db
@@ -332,13 +361,21 @@ export async function parseTournamentPlayersCsv(csv: string): Promise<Tournament
   return imported
 }
 
-export async function importTournamentPlayersCsv(db: Database, tournamentId: string, csv: string): Promise<TournamentImportResult | { error: string }> {
+export async function importTournamentPlayersCsv(
+  db: Database,
+  tournamentId: string,
+  csv: string,
+): Promise<TournamentImportResult | { error: string }> {
   const parsed = await parseTournamentPlayersCsv(csv)
   if ('error' in parsed) return parsed
   return importTournamentPlayers(db, tournamentId, parsed)
 }
 
-export async function importTournamentPlayers(db: Database, tournamentId: string, rows: TournamentPlayerImportRow[]): Promise<TournamentImportResult | { error: string }> {
+export async function importTournamentPlayers(
+  db: Database,
+  tournamentId: string,
+  rows: TournamentPlayerImportRow[],
+): Promise<TournamentImportResult | { error: string }> {
   const normalizedNames = new Map<string, string[]>()
   for (const row of rows) {
     const key = normalizeIdentityName(row.displayName)
@@ -379,33 +416,39 @@ export async function importTournamentPlayers(db: Database, tournamentId: string
   const now = Date.now()
   const linkedRows = rows.filter(row => row.playerId)
   for (const row of linkedRows) {
-    const playerUpdateValues = row.avatarUrl === undefined
-      ? { displayName: row.displayName }
-      : { displayName: row.displayName, avatarUrl: row.avatarUrl }
-    await db.insert(players).values({
-      id: row.playerId!,
-      displayName: row.displayName,
-      avatarUrl: row.avatarUrl ?? null,
-      createdAt: now,
-    }).onConflictDoUpdate({
-      target: players.id,
-      set: playerUpdateValues,
-    })
+    const playerUpdateValues =
+      row.avatarUrl === undefined
+        ? { displayName: row.displayName }
+        : { displayName: row.displayName, avatarUrl: row.avatarUrl }
+    await db
+      .insert(players)
+      .values({
+        id: row.playerId!,
+        displayName: row.displayName,
+        avatarUrl: row.avatarUrl ?? null,
+        createdAt: now,
+      })
+      .onConflictDoUpdate({
+        target: players.id,
+        set: playerUpdateValues,
+      })
   }
 
   await db.delete(tournamentPlayers).where(eq(tournamentPlayers.tournamentId, tournamentId))
   for (const batch of chunkArray(rows, TOURNAMENT_PLAYER_IMPORT_BATCH_SIZE)) {
-    await db.insert(tournamentPlayers).values(batch.map(row => ({
-      tournamentId,
-      seed: row.seed,
-      playerId: row.playerId,
-      displayName: row.displayName,
-      avatarUrl: row.avatarUrl ?? null,
-      confirmed: row.confirmed,
-      linkedAt: row.playerId ? now : null,
-      createdAt: now,
-      updatedAt: now,
-    })))
+    await db.insert(tournamentPlayers).values(
+      batch.map(row => ({
+        tournamentId,
+        seed: row.seed,
+        playerId: row.playerId,
+        displayName: row.displayName,
+        avatarUrl: row.avatarUrl ?? null,
+        confirmed: row.confirmed,
+        linkedAt: row.playerId ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    )
   }
 
   return {
@@ -420,14 +463,11 @@ export async function resolveTournamentPlayerForIdentity(
   db: Database,
   tournamentId: string,
   identity: TournamentIdentity,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const [linked] = await db
     .select()
     .from(tournamentPlayers)
-    .where(and(
-      eq(tournamentPlayers.tournamentId, tournamentId),
-      eq(tournamentPlayers.playerId, identity.userId),
-    ))
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
     .limit(1)
   if (linked) {
     if (!linked.confirmed) return { ok: false, error: 'You have left this tournament.' }
@@ -435,20 +475,14 @@ export async function resolveTournamentPlayerForIdentity(
     await db
       .update(tournamentPlayers)
       .set({ avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
-      .where(and(
-        eq(tournamentPlayers.tournamentId, tournamentId),
-        eq(tournamentPlayers.playerId, identity.userId),
-      ))
+      .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
     return { ok: true }
   }
 
   const pendingRows = await db
     .select()
     .from(tournamentPlayers)
-    .where(and(
-      eq(tournamentPlayers.tournamentId, tournamentId),
-      eq(tournamentPlayers.confirmed, true),
-    ))
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.confirmed, true)))
   const identityName = normalizeIdentityName(identity.displayName)
   const matches = pendingRows.filter(row => !row.playerId && normalizeIdentityName(row.displayName) === identityName)
   if (matches.length === 1) {
@@ -462,14 +496,17 @@ export async function resolveTournamentPlayerForIdentity(
         linkedAt: Date.now(),
         updatedAt: Date.now(),
       })
-      .where(and(
-        eq(tournamentPlayers.tournamentId, tournamentId),
-        eq(tournamentPlayers.displayName, matches[0]!.displayName),
-      ))
+      .where(
+        and(
+          eq(tournamentPlayers.tournamentId, tournamentId),
+          eq(tournamentPlayers.displayName, matches[0]!.displayName),
+        ),
+      )
     return { ok: true }
   }
 
-  if (matches.length > 1) return { ok: false, error: 'Your tournament entry is ambiguous. Ask an admin to link your Discord ID.' }
+  if (matches.length > 1)
+    return { ok: false, error: 'Your tournament entry is ambiguous. Ask an admin to link your Discord ID.' }
   return { ok: false, error: 'You are not linked as a player in the active tournament.' }
 }
 
@@ -477,14 +514,11 @@ async function resolveLinkedTournamentPlayerForIdentity(
   db: Database,
   tournamentId: string,
   identity: TournamentIdentity,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const [linked] = await db
     .select()
     .from(tournamentPlayers)
-    .where(and(
-      eq(tournamentPlayers.tournamentId, tournamentId),
-      eq(tournamentPlayers.playerId, identity.userId),
-    ))
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
     .limit(1)
   if (!linked) return { ok: false, error: 'That player is not linked as a player in the active tournament.' }
   if (!linked.confirmed) return { ok: false, error: 'That player has left this tournament.' }
@@ -493,10 +527,7 @@ async function resolveLinkedTournamentPlayerForIdentity(
   await db
     .update(tournamentPlayers)
     .set({ avatarUrl: identity.avatarUrl ?? linked.avatarUrl, updatedAt: Date.now() })
-    .where(and(
-      eq(tournamentPlayers.tournamentId, tournamentId),
-      eq(tournamentPlayers.playerId, identity.userId),
-    ))
+    .where(and(eq(tournamentPlayers.tournamentId, tournamentId), eq(tournamentPlayers.playerId, identity.userId)))
   return { ok: true }
 }
 
@@ -513,31 +544,32 @@ export async function createTournamentMatchLink(
   },
 ): Promise<void> {
   const now = Date.now()
-  const cutPairing = input.cutPairingId
-    ? await getTournamentCutPairingById(db, input.cutPairingId)
-    : null
+  const cutPairing = input.cutPairingId ? await getTournamentCutPairingById(db, input.cutPairingId) : null
   const stage = input.stage ?? (cutPairing ? normalizeTournamentStage(cutPairing.round) : 'qualifier')
-  await db.insert(tournamentMatches).values({
-    sessionId: input.sessionId,
-    tournamentId: input.tournamentId,
-    matchId: null,
-    stage,
-    status: 'open',
-    playerOneId: input.playerOneId ?? cutPairing?.playerOneId ?? input.hostId,
-    playerTwoId: input.playerTwoId ?? cutPairing?.playerTwoId ?? null,
-    winnerId: null,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: tournamentMatches.sessionId,
-    set: {
+  await db
+    .insert(tournamentMatches)
+    .values({
+      sessionId: input.sessionId,
       tournamentId: input.tournamentId,
+      matchId: null,
       stage,
+      status: 'open',
       playerOneId: input.playerOneId ?? cutPairing?.playerOneId ?? input.hostId,
       playerTwoId: input.playerTwoId ?? cutPairing?.playerTwoId ?? null,
+      winnerId: null,
+      createdAt: now,
       updatedAt: now,
-    },
-  })
+    })
+    .onConflictDoUpdate({
+      target: tournamentMatches.sessionId,
+      set: {
+        tournamentId: input.tournamentId,
+        stage,
+        playerOneId: input.playerOneId ?? cutPairing?.playerOneId ?? input.hostId,
+        playerTwoId: input.playerTwoId ?? cutPairing?.playerTwoId ?? null,
+        updatedAt: now,
+      },
+    })
 
   if (input.cutPairingId) {
     await db
@@ -548,15 +580,15 @@ export async function createTournamentMatchLink(
 }
 
 export async function getTournamentCutPairingById(db: Database, id: string) {
-  const [row] = await db
-    .select()
-    .from(tournamentCutPairings)
-    .where(eq(tournamentCutPairings.id, id))
-    .limit(1)
+  const [row] = await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.id, id)).limit(1)
   return row ?? null
 }
 
-export async function updateTournamentMatchRoster(db: Database, sessionId: string, playerIds: readonly string[]): Promise<void> {
+export async function updateTournamentMatchRoster(
+  db: Database,
+  sessionId: string,
+  playerIds: readonly string[],
+): Promise<void> {
   const cutPairing = await getTournamentCutPairingBySessionId(db, sessionId)
   if (cutPairing) {
     await db
@@ -637,14 +669,22 @@ async function getTournamentCutPairingForMatchLink(db: Database, link: typeof to
   const [row] = await db
     .select()
     .from(tournamentCutPairings)
-    .where(and(
-      eq(tournamentCutPairings.tournamentId, link.tournamentId),
-      eq(tournamentCutPairings.round, link.stage),
-      or(
-        and(eq(tournamentCutPairings.playerOneId, link.playerOneId), eq(tournamentCutPairings.playerTwoId, link.playerTwoId)),
-        and(eq(tournamentCutPairings.playerOneId, link.playerTwoId), eq(tournamentCutPairings.playerTwoId, link.playerOneId)),
+    .where(
+      and(
+        eq(tournamentCutPairings.tournamentId, link.tournamentId),
+        eq(tournamentCutPairings.round, link.stage),
+        or(
+          and(
+            eq(tournamentCutPairings.playerOneId, link.playerOneId),
+            eq(tournamentCutPairings.playerTwoId, link.playerTwoId),
+          ),
+          and(
+            eq(tournamentCutPairings.playerOneId, link.playerTwoId),
+            eq(tournamentCutPairings.playerTwoId, link.playerOneId),
+          ),
+        ),
       ),
-    ))
+    )
     .limit(1)
   return row ?? null
 }
@@ -705,12 +745,16 @@ export async function buildTournamentReservedSlotLabels(
   const pairing = await getTournamentCutPairingBySessionId(db, lobby.id)
   if (!pairing || (pairing.status !== 'scheduled' && pairing.status !== 'open')) return []
 
-  const reservedIds = [pairing.playerOneId, pairing.playerTwoId].filter((playerId): playerId is string => Boolean(playerId))
+  const reservedIds = [pairing.playerOneId, pairing.playerTwoId].filter((playerId): playerId is string =>
+    Boolean(playerId),
+  )
   const slottedIds = new Set(lobby.slots.filter((playerId): playerId is string => Boolean(playerId)))
   const missingIds = reservedIds.filter(playerId => !slottedIds.has(playerId))
   if (missingIds.length === 0) return []
 
-  const playersById = new Map((await listTournamentPlayersByIds(db, pairing.tournamentId, missingIds)).map(player => [player.playerId, player]))
+  const playersById = new Map(
+    (await listTournamentPlayersByIds(db, pairing.tournamentId, missingIds)).map(player => [player.playerId, player]),
+  )
   const missingLabels = missingIds.map(playerId => playersById.get(playerId)?.displayName ?? playerId)
   const labels: (string | null)[] = Array.from({ length: lobby.slots.length }, () => null)
   let nextMissing = 0
@@ -738,9 +782,10 @@ export async function buildTournamentLobbySnapshot(
     ? tournament.rematchPolicy
     : DEFAULT_TOURNAMENT_REMATCH_POLICY
   const uniquePlayerIds = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
-  const rematchWarning = rematchPolicy === 'warn' && uniquePlayerIds.length === 2
-    ? await buildRematchWarning(db, tournament.id, uniquePlayerIds[0]!, uniquePlayerIds[1]!)
-    : null
+  const rematchWarning =
+    rematchPolicy === 'warn' && uniquePlayerIds.length === 2
+      ? await buildRematchWarning(db, tournament.id, uniquePlayerIds[0]!, uniquePlayerIds[1]!)
+      : null
 
   return {
     id: tournament.id,
@@ -763,7 +808,7 @@ export async function validateTournamentLobbyJoin(
   db: Database,
   lobby: LobbyState,
   identity: TournamentIdentity,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const link = await getTournamentMatchBySessionId(db, lobby.id)
   if (!link) return { ok: true }
   const tournament = await getTournamentById(db, link.tournamentId)
@@ -772,7 +817,8 @@ export async function validateTournamentLobbyJoin(
   if (tournament.status === 'top_cut') {
     const pairing = await getTournamentCutPairingBySessionId(db, lobby.id)
     if (!pairing) return { ok: false, error: 'This playoff lobby is missing its pairing.' }
-    if (pairing.status !== 'scheduled' && pairing.status !== 'open') return { ok: false, error: 'This playoff pairing is not accepting players.' }
+    if (pairing.status !== 'scheduled' && pairing.status !== 'open')
+      return { ok: false, error: 'This playoff pairing is not accepting players.' }
     if (identity.userId !== pairing.playerOneId && identity.userId !== pairing.playerTwoId) {
       return { ok: false, error: 'This playoff lobby is reserved for its paired players.' }
     }
@@ -781,7 +827,8 @@ export async function validateTournamentLobbyJoin(
     return { ok: true }
   }
 
-  if (tournament.status !== 'qualifier') return { ok: false, error: 'This tournament is not accepting qualifier matches.' }
+  if (tournament.status !== 'qualifier')
+    return { ok: false, error: 'This tournament is not accepting qualifier matches.' }
   const player = await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
   if (!player.ok) return player
 
@@ -866,9 +913,15 @@ export async function buildTournamentStandings(db: Database, tournamentId: strin
   const matchRows = await db
     .select()
     .from(tournamentMatches)
-    .where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.stage, 'qualifier'), eq(tournamentMatches.status, 'reported')))
+    .where(
+      and(
+        eq(tournamentMatches.tournamentId, tournamentId),
+        eq(tournamentMatches.stage, 'qualifier'),
+        eq(tournamentMatches.status, 'reported'),
+      ),
+    )
 
-  const statsByPlayerId = new Map<string, { games: number, wins: number, opponentIds: string[] }>()
+  const statsByPlayerId = new Map<string, { games: number; wins: number; opponentIds: string[] }>()
   for (const row of playerRows) {
     if (!row.playerId) continue
     statsByPlayerId.set(row.playerId, { games: 0, wins: 0, opponentIds: [] })
@@ -886,28 +939,35 @@ export async function buildTournamentStandings(db: Database, tournamentId: strin
   }
 
   const minGames = tournament?.minGames ?? DEFAULT_TOURNAMENT_MIN_GAMES
-  return playerRows.map((player) => {
-    const stats = player.playerId ? statsByPlayerId.get(player.playerId) : null
-    const games = stats?.games ?? 0
-    const wins = stats?.wins ?? 0
-    const opponentWinRate = stats && stats.opponentIds.length > 0
-      ? stats.opponentIds.reduce((sum, opponentId) => sum + getWinRate(statsByPlayerId.get(opponentId)), 0) / stats.opponentIds.length
-      : 0
-    return {
-      playerId: player.playerId,
-      displayName: player.displayName,
-      seed: player.seed,
-      games,
-      wins,
-      losses: Math.max(0, games - wins),
-      winRate: games > 0 ? wins / games : 0,
-      opponentWinRate,
-      eligible: games >= minGames,
-    }
-  }).sort(compareTournamentStandingRows)
+  return playerRows
+    .map(player => {
+      const stats = player.playerId ? statsByPlayerId.get(player.playerId) : null
+      const games = stats?.games ?? 0
+      const wins = stats?.wins ?? 0
+      const opponentWinRate =
+        stats && stats.opponentIds.length > 0
+          ? stats.opponentIds.reduce((sum, opponentId) => sum + getWinRate(statsByPlayerId.get(opponentId)), 0) /
+            stats.opponentIds.length
+          : 0
+      return {
+        playerId: player.playerId,
+        displayName: player.displayName,
+        seed: player.seed,
+        games,
+        wins,
+        losses: Math.max(0, games - wins),
+        winRate: games > 0 ? wins / games : 0,
+        opponentWinRate,
+        eligible: games >= minGames,
+      }
+    })
+    .sort(compareTournamentStandingRows)
 }
 
-export async function createTournamentCut(db: Database, tournamentId: string): Promise<TournamentCutResult | { error: string }> {
+export async function createTournamentCut(
+  db: Database,
+  tournamentId: string,
+): Promise<TournamentCutResult | { error: string }> {
   const tournament = await getTournamentById(db, tournamentId)
   if (!tournament) return { error: 'Tournament not found.' }
   if (tournament.status === 'setup') {
@@ -931,7 +991,8 @@ export async function createTournamentCut(db: Database, tournamentId: string): P
   const qualified = standings.filter(row => row.eligible && row.playerId)
   const actualTopCut = Math.min(tournament.topCut, qualified.length)
   const pairedTopCut = actualTopCut - (actualTopCut % 2)
-  if (pairedTopCut < 2) return { error: 'At least two eligible linked players are required to create playoff pairings.' }
+  if (pairedTopCut < 2)
+    return { error: 'At least two eligible linked players are required to create playoff pairings.' }
 
   const cutRows = qualified.slice(0, pairedTopCut).map((row, index) => ({
     ...row,
@@ -957,21 +1018,23 @@ export async function createTournamentCut(db: Database, tournamentId: string): P
 
   const now = Date.now()
   await db.update(tournaments).set({ status: 'top_cut', updatedAt: now }).where(eq(tournaments.id, tournamentId))
-  await db.insert(tournamentCutPairings).values(pairings.map(pairing => ({
-    id: nanoid(10),
-    tournamentId,
-    round,
-    seedOne: pairing.seedOne,
-    seedTwo: pairing.seedTwo,
-    playerOneId: pairing.playerOneId,
-    playerTwoId: pairing.playerTwoId,
-    sessionId: null,
-    matchId: null,
-    winnerId: null,
-    status: 'scheduled',
-    createdAt: now,
-    updatedAt: now,
-  })))
+  await db.insert(tournamentCutPairings).values(
+    pairings.map(pairing => ({
+      id: nanoid(10),
+      tournamentId,
+      round,
+      seedOne: pairing.seedOne,
+      seedTwo: pairing.seedTwo,
+      playerOneId: pairing.playerOneId,
+      playerTwoId: pairing.playerTwoId,
+      sessionId: null,
+      matchId: null,
+      winnerId: null,
+      status: 'scheduled',
+      createdAt: now,
+      updatedAt: now,
+    })),
+  )
 
   return {
     tournamentId,
@@ -995,23 +1058,44 @@ export async function buildTournamentOpponentCardData(
   const tournament = await getActiveTournament(db)
   if (!tournament) return { error: 'No active tournament.' }
 
-  const resolved = options.autoLink === false
-    ? await resolveLinkedTournamentPlayerForIdentity(db, tournament.id, identity)
-    : await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
+  const resolved =
+    options.autoLink === false
+      ? await resolveLinkedTournamentPlayerForIdentity(db, tournament.id, identity)
+      : await resolveTournamentPlayerForIdentity(db, tournament.id, identity)
   if (!resolved.ok) return { error: resolved.error }
 
   const standings = await buildTournamentStandings(db, tournament.id)
   const playerStanding = standings.find(row => row.playerId === identity.userId)
-  if (!playerStanding) return { error: options.autoLink === false ? 'That player is not linked as a player in the active tournament.' : 'You are not linked as a player in the active tournament.' }
+  if (!playerStanding)
+    return {
+      error:
+        options.autoLink === false
+          ? 'That player is not linked as a player in the active tournament.'
+          : 'You are not linked as a player in the active tournament.',
+    }
 
   const rankByPlayerId = buildTournamentRankByPlayerId(standings)
-  const player = await toOpponentCardPlayer(db, tournament.id, playerStanding, rankByPlayerId.get(identity.userId) ?? null)
-  const pairing = tournament.status === 'top_cut'
-    ? await buildTopCutOpponentCardPairing(db, tournament.id, identity.userId, standings)
-    : null
+  const player = await toOpponentCardPlayer(
+    db,
+    tournament.id,
+    playerStanding,
+    rankByPlayerId.get(identity.userId) ?? null,
+  )
+  const pairing =
+    tournament.status === 'top_cut'
+      ? await buildTopCutOpponentCardPairing(db, tournament.id, identity.userId, standings)
+      : null
   const opponents = pairing
     ? []
-    : await buildQualifierOpponentRows(db, tournament.id, identity.userId, playerStanding, standings, tournament.minGames, rankByPlayerId)
+    : await buildQualifierOpponentRows(
+        db,
+        tournament.id,
+        identity.userId,
+        playerStanding,
+        standings,
+        tournament.minGames,
+        rankByPlayerId,
+      )
 
   return {
     tournamentName: tournament.name,
@@ -1031,21 +1115,32 @@ export async function buildTournamentLeaderboardImageData(
   const tournament = await getTournamentById(db, tournamentId)
   if (!tournament) return null
 
-  const standings = standingsInput ?? await buildTournamentStandings(db, tournament.id)
-  const pairingRows = pairingsInput ?? await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+  const standings = standingsInput ?? (await buildTournamentStandings(db, tournament.id))
+  const pairingRows =
+    pairingsInput ??
+    (await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id)))
   const cutSize = getCutSizeFromPairings(pairingRows)
   const sortedPairingRows = [...pairingRows].sort((left, right) => compareCutPairingsForDisplay(left, right, cutSize))
   const playersById = await getTournamentDisplayPlayersById(db, tournament.id, [
-    ...standings.flatMap(row => row.playerId ? [row.playerId] : []),
-    ...sortedPairingRows.flatMap(row => [row.playerOneId, row.playerTwoId, row.winnerId].filter((id): id is string => Boolean(id))),
+    ...standings.flatMap(row => (row.playerId ? [row.playerId] : [])),
+    ...sortedPairingRows.flatMap(row =>
+      [row.playerOneId, row.playerTwoId, row.winnerId].filter((id): id is string => Boolean(id)),
+    ),
   ])
-  const imageStandings = await Promise.all(standings.map(async row => ({
-    ...await toOpponentCardPlayer(db, tournament.id, row),
-    eligible: row.eligible,
-  })))
-  const championId = sortedPairingRows.find(row => row.round === 'final' && row.status === 'reported' && row.winnerId)?.winnerId ?? null
+  const imageStandings = await Promise.all(
+    standings.map(async row => ({
+      ...(await toOpponentCardPlayer(db, tournament.id, row)),
+      eligible: row.eligible,
+    })),
+  )
+  const championId =
+    sortedPairingRows.find(row => row.round === 'final' && row.status === 'reported' && row.winnerId)?.winnerId ?? null
   const championStanding = championId ? standings.find(row => row.playerId === championId) : null
-  const scoreByPairingId = new Map(await Promise.all(sortedPairingRows.map(async row => [row.id, await buildTournamentCutSeriesScore(db, row)] as const)))
+  const scoreByPairingId = new Map(
+    await Promise.all(
+      sortedPairingRows.map(async row => [row.id, await buildTournamentCutSeriesScore(db, row)] as const),
+    ),
+  )
 
   return {
     tournamentName: tournament.name,
@@ -1060,8 +1155,8 @@ export async function buildTournamentLeaderboardImageData(
       playerTwoId: row.playerTwoId,
       playerOneDisplayName: formatTournamentDisplayPlayer(playersById, row.playerOneId),
       playerTwoDisplayName: formatTournamentDisplayPlayer(playersById, row.playerTwoId),
-      playerOneAvatarUrl: row.playerOneId ? playersById.get(row.playerOneId)?.avatarUrl ?? null : null,
-      playerTwoAvatarUrl: row.playerTwoId ? playersById.get(row.playerTwoId)?.avatarUrl ?? null : null,
+      playerOneAvatarUrl: row.playerOneId ? (playersById.get(row.playerOneId)?.avatarUrl ?? null) : null,
+      playerTwoAvatarUrl: row.playerTwoId ? (playersById.get(row.playerTwoId)?.avatarUrl ?? null) : null,
       playerOneScore: scoreByPairingId.get(row.id)?.playerOneWins ?? 0,
       playerTwoScore: scoreByPairingId.get(row.id)?.playerTwoWins ?? 0,
       requiredWins: getTopCutRoundRequiredWins(row.round),
@@ -1081,7 +1176,11 @@ export async function buildTournamentResultImageData(
   const tournament = await getTournamentById(db, link.tournamentId)
   if (!tournament) return null
 
-  const playersById = await getTournamentDisplayPlayersById(db, tournament.id, participants.map(participant => participant.playerId))
+  const playersById = await getTournamentDisplayPlayersById(
+    db,
+    tournament.id,
+    participants.map(participant => participant.playerId),
+  )
   return {
     tournamentName: tournament.name,
     stage: link.stage as TournamentStage,
@@ -1103,9 +1202,10 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
   if (!channelId) return false
 
   const standings = await buildTournamentStandings(db, tournament.id)
-  const pairings = tournament.status === 'top_cut' || tournament.status === 'completed'
-    ? await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
-    : []
+  const pairings =
+    tournament.status === 'top_cut' || tournament.status === 'completed'
+      ? await db.select().from(tournamentCutPairings).where(eq(tournamentCutPairings.tournamentId, tournament.id))
+      : []
   const imageData = await buildTournamentLeaderboardImageData(db, tournament.id, standings, pairings)
   if (!imageData) return false
 
@@ -1113,9 +1213,15 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
   if (hasPairings) {
     await deleteLeaderboardMessage(db, token, channelId, tournamentTopCutStandingsScope(tournament.id))
     const bracketPng = await renderTournamentLeaderboardPng(imageData)
-    await upsertLeaderboardMessage(db, token, channelId, tournamentTopCutBracketScope(tournament.id), bracketPng, 'tournament-bracket.png')
-  }
-  else {
+    await upsertLeaderboardMessage(
+      db,
+      token,
+      channelId,
+      tournamentTopCutBracketScope(tournament.id),
+      bracketPng,
+      'tournament-bracket.png',
+    )
+  } else {
     const standingsPng = await renderTournamentLeaderboardPng(imageData)
     await upsertLeaderboardMessage(db, token, channelId, 'tournament:active', standingsPng, 'tournament-standings.png')
     await deleteLeaderboardMessage(db, token, channelId, 'tournament:active:bracket')
@@ -1126,15 +1232,18 @@ export async function refreshTournamentLeaderboard(db: Database, kv: KVNamespace
 }
 
 async function upsertTournamentPlayerIdentity(db: Database, identity: TournamentIdentity): Promise<void> {
-  await db.insert(players).values({
-    id: identity.userId,
-    displayName: identity.displayName,
-    avatarUrl: identity.avatarUrl,
-    createdAt: Date.now(),
-  }).onConflictDoUpdate({
-    target: players.id,
-    set: { displayName: identity.displayName, avatarUrl: identity.avatarUrl },
-  })
+  await db
+    .insert(players)
+    .values({
+      id: identity.userId,
+      displayName: identity.displayName,
+      avatarUrl: identity.avatarUrl,
+      createdAt: Date.now(),
+    })
+    .onConflictDoUpdate({
+      target: players.id,
+      set: { displayName: identity.displayName, avatarUrl: identity.avatarUrl },
+    })
 }
 
 async function getTournamentForLeaderboard(db: Database) {
@@ -1157,7 +1266,11 @@ function tournamentTopCutBracketScope(tournamentId: string): string {
   return `tournament:${tournamentId}:bracket`
 }
 
-async function deleteStaleTournamentLeaderboardPageMessages(db: Database, token: string, channelId: string): Promise<void> {
+async function deleteStaleTournamentLeaderboardPageMessages(
+  db: Database,
+  token: string,
+  channelId: string,
+): Promise<void> {
   for (const scope of ['tournament:active:2', 'tournament:active:3']) {
     const [existing] = await db
       .select()
@@ -1169,8 +1282,7 @@ async function deleteStaleTournamentLeaderboardPageMessages(db: Database, token:
     if (existing.channelId === channelId) {
       try {
         await deleteChannelMessage(token, channelId, existing.messageId)
-      }
-      catch (error) {
+      } catch (error) {
         if (!isDiscordApiError(error, 404)) throw error
       }
     }
@@ -1204,8 +1316,7 @@ async function upsertLeaderboardMessage(
       })
       await upsertTournamentLeaderboardMessageState(db, scope, channelId, existing.messageId)
       return
-    }
-    catch (error) {
+    } catch (error) {
       if (!isDiscordApiError(error, 404)) throw error
     }
   }
@@ -1231,8 +1342,7 @@ async function deleteLeaderboardMessage(db: Database, token: string, channelId: 
   if (existing.channelId === channelId) {
     try {
       await deleteChannelMessage(token, channelId, existing.messageId)
-    }
-    catch (error) {
+    } catch (error) {
       if (!isDiscordApiError(error, 404)) throw error
     }
   }
@@ -1259,7 +1369,7 @@ async function listTournamentPlayersByIds(db: Database, tournamentId: string, pl
 
 async function getTournamentDisplayPlayersById(db: Database, tournamentId: string, playerIds: readonly string[]) {
   const ids = [...new Set(playerIds.filter(Boolean))]
-  if (ids.length === 0) return new Map<string, { displayName: string, avatarUrl: string | null }>()
+  if (ids.length === 0) return new Map<string, { displayName: string; avatarUrl: string | null }>()
 
   const [tournamentRows, playerRows] = await Promise.all([
     listTournamentPlayersByIds(db, tournamentId, ids),
@@ -1268,7 +1378,7 @@ async function getTournamentDisplayPlayersById(db: Database, tournamentId: strin
       .from(players)
       .where(inArray(players.id, ids)),
   ])
-  const result = new Map<string, { displayName: string, avatarUrl: string | null }>()
+  const result = new Map<string, { displayName: string; avatarUrl: string | null }>()
   for (const row of playerRows) result.set(row.id, { displayName: row.displayName, avatarUrl: row.avatarUrl })
   for (const row of tournamentRows) {
     if (!row.playerId) continue
@@ -1280,7 +1390,10 @@ async function getTournamentDisplayPlayersById(db: Database, tournamentId: strin
   return result
 }
 
-function formatTournamentDisplayPlayer(playersById: Map<string, { displayName: string, avatarUrl: string | null }>, playerId: string | null): string {
+function formatTournamentDisplayPlayer(
+  playersById: Map<string, { displayName: string; avatarUrl: string | null }>,
+  playerId: string | null,
+): string {
   if (!playerId) return 'TBD'
   return playersById.get(playerId)?.displayName ?? playerId
 }
@@ -1294,23 +1407,37 @@ async function getOpenTournamentCutPairingForPlayer(db: Database, tournamentId: 
   const rows = await db
     .select()
     .from(tournamentCutPairings)
-    .where(and(
-      eq(tournamentCutPairings.tournamentId, tournamentId),
-      inArray(tournamentCutPairings.status, ['scheduled', 'open', 'drafting']),
-      or(eq(tournamentCutPairings.playerOneId, playerId), eq(tournamentCutPairings.playerTwoId, playerId)),
-    ))
+    .where(
+      and(
+        eq(tournamentCutPairings.tournamentId, tournamentId),
+        inArray(tournamentCutPairings.status, ['scheduled', 'open', 'drafting']),
+        or(eq(tournamentCutPairings.playerOneId, playerId), eq(tournamentCutPairings.playerTwoId, playerId)),
+      ),
+    )
   return rows.sort(compareCutPairingsForLobbyTarget)[0] ?? null
 }
 
-function compareCutPairingsForLobbyTarget(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect): number {
-  const statusScore = (status: string) => status === 'open' ? 0 : status === 'scheduled' ? 1 : 2
-  return statusScore(left.status) - statusScore(right.status)
-    || (left.seedOne + left.seedTwo) - (right.seedOne + right.seedTwo)
-    || left.id.localeCompare(right.id)
+function compareCutPairingsForLobbyTarget(
+  left: typeof tournamentCutPairings.$inferSelect,
+  right: typeof tournamentCutPairings.$inferSelect,
+): number {
+  const statusScore = (status: string) => (status === 'open' ? 0 : status === 'scheduled' ? 1 : 2)
+  return (
+    statusScore(left.status) - statusScore(right.status) ||
+    left.seedOne + left.seedTwo - (right.seedOne + right.seedTwo) ||
+    left.id.localeCompare(right.id)
+  )
 }
 
 function normalizeTournamentStage(round: string): TournamentStage {
-  if (round === 'quarterfinal' || round === 'semifinal' || round === 'final' || round === 'third_place' || round === 'tiebreaker') return round
+  if (
+    round === 'quarterfinal' ||
+    round === 'semifinal' ||
+    round === 'final' ||
+    round === 'third_place' ||
+    round === 'tiebreaker'
+  )
+    return round
   return 'top_cut'
 }
 
@@ -1321,11 +1448,12 @@ async function syncTournamentCutPairingAfterReport(
 ): Promise<void> {
   const score = await buildTournamentCutSeriesScore(db, pairing)
   const requiredWins = getTopCutRoundRequiredWins(pairing.round)
-  const winnerId = score.playerOneWins >= requiredWins
-    ? pairing.playerOneId
-    : score.playerTwoWins >= requiredWins
-      ? pairing.playerTwoId
-      : null
+  const winnerId =
+    score.playerOneWins >= requiredWins
+      ? pairing.playerOneId
+      : score.playerTwoWins >= requiredWins
+        ? pairing.playerTwoId
+        : null
   const now = Date.now()
 
   if (!winnerId) {
@@ -1346,21 +1474,29 @@ async function syncTournamentCutPairingAfterReport(
 async function buildTournamentCutSeriesScore(
   db: Database,
   pairing: typeof tournamentCutPairings.$inferSelect,
-): Promise<{ playerOneWins: number, playerTwoWins: number }> {
+): Promise<{ playerOneWins: number; playerTwoWins: number }> {
   if (!pairing.playerOneId || !pairing.playerTwoId) return { playerOneWins: 0, playerTwoWins: 0 }
 
   const rows = await db
     .select({ winnerId: tournamentMatches.winnerId })
     .from(tournamentMatches)
-    .where(and(
-      eq(tournamentMatches.tournamentId, pairing.tournamentId),
-      eq(tournamentMatches.stage, pairing.round),
-      eq(tournamentMatches.status, 'reported'),
-      or(
-        and(eq(tournamentMatches.playerOneId, pairing.playerOneId), eq(tournamentMatches.playerTwoId, pairing.playerTwoId)),
-        and(eq(tournamentMatches.playerOneId, pairing.playerTwoId), eq(tournamentMatches.playerTwoId, pairing.playerOneId)),
+    .where(
+      and(
+        eq(tournamentMatches.tournamentId, pairing.tournamentId),
+        eq(tournamentMatches.stage, pairing.round),
+        eq(tournamentMatches.status, 'reported'),
+        or(
+          and(
+            eq(tournamentMatches.playerOneId, pairing.playerOneId),
+            eq(tournamentMatches.playerTwoId, pairing.playerTwoId),
+          ),
+          and(
+            eq(tournamentMatches.playerOneId, pairing.playerTwoId),
+            eq(tournamentMatches.playerTwoId, pairing.playerOneId),
+          ),
+        ),
       ),
-    ))
+    )
 
   return {
     playerOneWins: rows.filter(row => row.winnerId === pairing.playerOneId).length,
@@ -1381,22 +1517,21 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
   const currentPairings = await db
     .select()
     .from(tournamentCutPairings)
-      .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, round)))
+    .where(and(eq(tournamentCutPairings.tournamentId, tournamentId), eq(tournamentCutPairings.round, round)))
   if (currentPairings.length === 0) return
 
   const nextRound = getNextTopCutRound(round)
   const now = Date.now()
   if (!nextRound) {
     if (currentPairings.some(pairing => pairing.status !== 'reported' || !pairing.winnerId)) return
-    await db
-      .update(tournaments)
-      .set({ status: 'completed', updatedAt: now })
-      .where(eq(tournaments.id, tournamentId))
+    await db.update(tournaments).set({ status: 'completed', updatedAt: now }).where(eq(tournaments.id, tournamentId))
     return
   }
 
   const cutSize = await getTournamentCutSize(db, tournamentId)
-  const sortedPairings = [...currentPairings].sort((left, right) => compareCutPairingsByBracketPosition(left, right, cutSize))
+  const sortedPairings = [...currentPairings].sort((left, right) =>
+    compareCutPairingsByBracketPosition(left, right, cutSize),
+  )
   const existingNextPairings = await db
     .select()
     .from(tournamentCutPairings)
@@ -1414,7 +1549,9 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
     if (!leftWinner || !rightWinner) continue
 
     const branchIndex = getPairingBranchIndex(leftPairing, cutSize, branchWidth)
-    const existingNextPairing = existingNextPairings.find(pairing => getPairingBranchIndex(pairing, cutSize, branchWidth) === branchIndex)
+    const existingNextPairing = existingNextPairings.find(
+      pairing => getPairingBranchIndex(pairing, cutSize, branchWidth) === branchIndex,
+    )
     const nextPairing = {
       seedOne: leftWinner.seed,
       seedTwo: rightWinner.seed,
@@ -1433,8 +1570,7 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
         .update(tournamentCutPairings)
         .set(nextPairing)
         .where(eq(tournamentCutPairings.id, existingNextPairing.id))
-    }
-    else {
+    } else {
       await db.insert(tournamentCutPairings).values({
         id: nanoid(10),
         tournamentId,
@@ -1449,12 +1585,13 @@ async function advanceTournamentCutIfRoundComplete(db: Database, tournamentId: s
   if (changed) await db.update(tournaments).set({ updatedAt: now }).where(eq(tournaments.id, tournamentId))
 }
 
-async function resetTournamentCutPairingAfterCancel(db: Database, pairing: typeof tournamentCutPairings.$inferSelect): Promise<void> {
+async function resetTournamentCutPairingAfterCancel(
+  db: Database,
+  pairing: typeof tournamentCutPairings.$inferSelect,
+): Promise<void> {
   const now = Date.now()
   const nextRound = getNextTopCutRound(pairing.round)
-  const downstreamPairings = nextRound
-    ? await getDirectDownstreamCutPairings(db, pairing, nextRound)
-    : []
+  const downstreamPairings = nextRound ? await getDirectDownstreamCutPairings(db, pairing, nextRound) : []
 
   const canReset = downstreamPairings.every(canReplaceUnstartedCutPairing)
   if (!canReset) {
@@ -1466,9 +1603,12 @@ async function resetTournamentCutPairingAfterCancel(db: Database, pairing: typeo
   }
 
   if (downstreamPairings.length > 0 && nextRound) {
-    await db
-      .delete(tournamentCutPairings)
-      .where(inArray(tournamentCutPairings.id, downstreamPairings.map(row => row.id)))
+    await db.delete(tournamentCutPairings).where(
+      inArray(
+        tournamentCutPairings.id,
+        downstreamPairings.map(row => row.id),
+      ),
+    )
   }
 
   await db
@@ -1482,7 +1622,7 @@ async function resetTournamentCutPairingAfterCancel(db: Database, pairing: typeo
     .where(eq(tournaments.id, pairing.tournamentId))
 }
 
-function isAdvancingTopCutRound(round: string): round is typeof ADVANCING_TOP_CUT_ROUNDS[number] {
+function isAdvancingTopCutRound(round: string): round is (typeof ADVANCING_TOP_CUT_ROUNDS)[number] {
   return (ADVANCING_TOP_CUT_ROUNDS as readonly string[]).includes(round)
 }
 
@@ -1492,9 +1632,13 @@ function getNextTopCutRound(round: string): 'semifinal' | 'final' | null {
   return null
 }
 
-function getPairingWinner(pairing: typeof tournamentCutPairings.$inferSelect): { playerId: string, seed: number } | null {
-  if (pairing.winnerId === pairing.playerOneId && pairing.playerOneId) return { playerId: pairing.playerOneId, seed: pairing.seedOne }
-  if (pairing.winnerId === pairing.playerTwoId && pairing.playerTwoId) return { playerId: pairing.playerTwoId, seed: pairing.seedTwo }
+function getPairingWinner(
+  pairing: typeof tournamentCutPairings.$inferSelect,
+): { playerId: string; seed: number } | null {
+  if (pairing.winnerId === pairing.playerOneId && pairing.playerOneId)
+    return { playerId: pairing.playerOneId, seed: pairing.seedOne }
+  if (pairing.winnerId === pairing.playerTwoId && pairing.playerTwoId)
+    return { playerId: pairing.playerTwoId, seed: pairing.seedTwo }
   return null
 }
 
@@ -1511,11 +1655,18 @@ async function getDirectDownstreamCutPairings(
     db
       .select()
       .from(tournamentCutPairings)
-      .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, pairing.round))),
+      .where(
+        and(
+          eq(tournamentCutPairings.tournamentId, pairing.tournamentId),
+          eq(tournamentCutPairings.round, pairing.round),
+        ),
+      ),
     db
       .select()
       .from(tournamentCutPairings)
-      .where(and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, nextRound))),
+      .where(
+        and(eq(tournamentCutPairings.tournamentId, pairing.tournamentId), eq(tournamentCutPairings.round, nextRound)),
+      ),
     getTournamentCutSize(db, pairing.tournamentId),
   ])
   if (currentPairings.length === 0 || nextPairings.length === 0) return []
@@ -1530,7 +1681,11 @@ function getNextRoundBranchWidth(cutSize: number, currentPairingCount: number): 
   return nextPairingCount > 0 ? Math.max(1, cutSize / nextPairingCount) : Math.max(1, cutSize)
 }
 
-function getPairingBranchIndex(pairing: Pick<typeof tournamentCutPairings.$inferSelect, 'seedOne' | 'seedTwo'>, cutSize: number, branchWidth: number): number {
+function getPairingBranchIndex(
+  pairing: Pick<typeof tournamentCutPairings.$inferSelect, 'seedOne' | 'seedTwo'>,
+  cutSize: number,
+  branchWidth: number,
+): number {
   const seedOrder = getInitialBracketSeedOrder(cutSize)
   const seedPosition = new Map(seedOrder.map((seed, index) => [seed, index]))
   const firstPosition = seedPosition.get(pairing.seedOne) ?? pairing.seedOne
@@ -1546,11 +1701,21 @@ async function getTournamentCutSize(db: Database, tournamentId: string): Promise
   return Math.max(0, ...pairings.flatMap(pairing => [pairing.seedOne, pairing.seedTwo]))
 }
 
-function compareCutPairingsByBracketPosition(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect, cutSize: number): number {
+function compareCutPairingsByBracketPosition(
+  left: typeof tournamentCutPairings.$inferSelect,
+  right: typeof tournamentCutPairings.$inferSelect,
+  cutSize: number,
+): number {
   const seedOrder = getInitialBracketSeedOrder(cutSize)
   const seedPosition = new Map(seedOrder.map((seed, index) => [seed, index]))
-  const leftPosition = Math.min(seedPosition.get(left.seedOne) ?? left.seedOne, seedPosition.get(left.seedTwo) ?? left.seedTwo)
-  const rightPosition = Math.min(seedPosition.get(right.seedOne) ?? right.seedOne, seedPosition.get(right.seedTwo) ?? right.seedTwo)
+  const leftPosition = Math.min(
+    seedPosition.get(left.seedOne) ?? left.seedOne,
+    seedPosition.get(left.seedTwo) ?? left.seedTwo,
+  )
+  const rightPosition = Math.min(
+    seedPosition.get(right.seedOne) ?? right.seedOne,
+    seedPosition.get(right.seedTwo) ?? right.seedTwo,
+  )
   return leftPosition - rightPosition || left.id.localeCompare(right.id)
 }
 
@@ -1565,20 +1730,28 @@ async function buildQualifierOpponentRows(
 ): Promise<TournamentOpponentCardPlayer[]> {
   const rows = standings.filter(row => row.playerId && row.playerId !== playerId)
   const meetings = await Promise.all(rows.map(row => countReportedMeetings(db, tournamentId, playerId, row.playerId!)))
-  const ranked = rows.map((row, index) => ({ row, meetings: meetings[index] ?? 0 }))
+  const ranked = rows
+    .map((row, index) => ({ row, meetings: meetings[index] ?? 0 }))
     .sort((left, right) => compareTournamentRecommendationRows(playerStanding, left, right))
     .slice(0, 8)
 
-  return Promise.all(ranked.map(async entry => ({
-    ...await toOpponentCardPlayer(db, tournamentId, entry.row, entry.row.playerId ? rankByPlayerId.get(entry.row.playerId) ?? null : null),
-    note: buildOpponentRecommendationNote(playerStanding, entry.row, entry.meetings, minGames),
-  })))
+  return Promise.all(
+    ranked.map(async entry => ({
+      ...(await toOpponentCardPlayer(
+        db,
+        tournamentId,
+        entry.row,
+        entry.row.playerId ? (rankByPlayerId.get(entry.row.playerId) ?? null) : null,
+      )),
+      note: buildOpponentRecommendationNote(playerStanding, entry.row, entry.meetings, minGames),
+    })),
+  )
 }
 
 function compareTournamentRecommendationRows(
   player: TournamentStandingRow,
-  left: { row: TournamentStandingRow, meetings: number },
-  right: { row: TournamentStandingRow, meetings: number },
+  left: { row: TournamentStandingRow; meetings: number },
+  right: { row: TournamentStandingRow; meetings: number },
 ): number {
   const meetingDiff = left.meetings - right.meetings
   if (meetingDiff !== 0) return meetingDiff
@@ -1596,7 +1769,12 @@ function getRecordDistance(player: TournamentStandingRow, opponent: TournamentSt
   return Math.abs(opponent.wins - player.wins) + Math.abs(opponent.losses - player.losses)
 }
 
-function buildOpponentRecommendationNote(player: TournamentStandingRow, opponent: TournamentStandingRow, meetings: number, minGames: number): string {
+function buildOpponentRecommendationNote(
+  player: TournamentStandingRow,
+  opponent: TournamentStandingRow,
+  meetings: number,
+  minGames: number,
+): string {
   const parts: string[] = []
   if (meetings > 0) parts.push(`rematch x${meetings}`)
   if (opponent.games < minGames) parts.push('needs games')
@@ -1624,8 +1802,18 @@ async function buildTopCutOpponentCardPairing(
     round: pairing.round,
     seedOne: pairing.seedOne,
     seedTwo: pairing.seedTwo,
-    playerOne: await toOpponentCardPlayer(db, tournamentId, playerOneStanding, getTournamentRank(rankByPlayerId, playerOneStanding.playerId)),
-    playerTwo: await toOpponentCardPlayer(db, tournamentId, playerTwoStanding, getTournamentRank(rankByPlayerId, playerTwoStanding.playerId)),
+    playerOne: await toOpponentCardPlayer(
+      db,
+      tournamentId,
+      playerOneStanding,
+      getTournamentRank(rankByPlayerId, playerOneStanding.playerId),
+    ),
+    playerTwo: await toOpponentCardPlayer(
+      db,
+      tournamentId,
+      playerTwoStanding,
+      getTournamentRank(rankByPlayerId, playerTwoStanding.playerId),
+    ),
   }
 }
 
@@ -1636,10 +1824,10 @@ async function toOpponentCardPlayer(
   rank?: number | null,
 ): Promise<TournamentOpponentCardPlayer> {
   const player = row.playerId ? await getTournamentPlayerByUserId(db, tournamentId, row.playerId) : null
-  const [globalPlayer] = row.playerId
-    && !player?.avatarUrl
-    ? await db.select({ avatarUrl: players.avatarUrl }).from(players).where(eq(players.id, row.playerId)).limit(1)
-    : []
+  const [globalPlayer] =
+    row.playerId && !player?.avatarUrl
+      ? await db.select({ avatarUrl: players.avatarUrl }).from(players).where(eq(players.id, row.playerId)).limit(1)
+      : []
   return {
     playerId: row.playerId,
     displayName: row.displayName,
@@ -1654,19 +1842,26 @@ async function toOpponentCardPlayer(
 }
 
 function buildTournamentRankByPlayerId(standings: TournamentStandingRow[]): Map<string, number> {
-  return new Map(standings.flatMap((row, index) => row.playerId ? [[row.playerId, index + 1] as const] : []))
+  return new Map(standings.flatMap((row, index) => (row.playerId ? [[row.playerId, index + 1] as const] : [])))
 }
 
 function getTournamentRank(rankByPlayerId: Map<string, number>, playerId: string | null): number | null {
-  return playerId ? rankByPlayerId.get(playerId) ?? null : null
+  return playerId ? (rankByPlayerId.get(playerId) ?? null) : null
 }
 
-function compareCutPairingsForDisplay(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect, cutSize: number): number {
-  const roundScore = (round: string) => round === 'quarterfinal' ? 0 : round === 'semifinal' ? 1 : round === 'final' ? 2 : 3
-  return roundScore(left.round) - roundScore(right.round)
-    || compareCutPairingsByBracketPosition(left, right, cutSize)
-    || left.seedOne - right.seedOne
-    || left.id.localeCompare(right.id)
+function compareCutPairingsForDisplay(
+  left: typeof tournamentCutPairings.$inferSelect,
+  right: typeof tournamentCutPairings.$inferSelect,
+  cutSize: number,
+): number {
+  const roundScore = (round: string) =>
+    round === 'quarterfinal' ? 0 : round === 'semifinal' ? 1 : round === 'final' ? 2 : 3
+  return (
+    roundScore(left.round) - roundScore(right.round) ||
+    compareCutPairingsByBracketPosition(left, right, cutSize) ||
+    left.seedOne - right.seedOne ||
+    left.id.localeCompare(right.id)
+  )
 }
 
 function getCutSizeFromPairings(pairings: Array<typeof tournamentCutPairings.$inferSelect>): number {
@@ -1688,28 +1883,43 @@ async function upsertTournamentLeaderboardMessageState(
     })
 }
 
-async function countReportedMeetings(db: Database, tournamentId: string, leftPlayerId: string, rightPlayerId: string): Promise<number> {
+async function countReportedMeetings(
+  db: Database,
+  tournamentId: string,
+  leftPlayerId: string,
+  rightPlayerId: string,
+): Promise<number> {
   const rows = await db
     .select({ sessionId: tournamentMatches.sessionId })
     .from(tournamentMatches)
-    .where(and(
-      eq(tournamentMatches.tournamentId, tournamentId),
-      eq(tournamentMatches.status, 'reported'),
-      or(
-        and(eq(tournamentMatches.playerOneId, leftPlayerId), eq(tournamentMatches.playerTwoId, rightPlayerId)),
-        and(eq(tournamentMatches.playerOneId, rightPlayerId), eq(tournamentMatches.playerTwoId, leftPlayerId)),
+    .where(
+      and(
+        eq(tournamentMatches.tournamentId, tournamentId),
+        eq(tournamentMatches.status, 'reported'),
+        or(
+          and(eq(tournamentMatches.playerOneId, leftPlayerId), eq(tournamentMatches.playerTwoId, rightPlayerId)),
+          and(eq(tournamentMatches.playerOneId, rightPlayerId), eq(tournamentMatches.playerTwoId, leftPlayerId)),
+        ),
       ),
-    ))
+    )
   return rows.length
 }
 
-async function buildRematchWarning(db: Database, tournamentId: string, leftPlayerId: string, rightPlayerId: string): Promise<string | null> {
+async function buildRematchWarning(
+  db: Database,
+  tournamentId: string,
+  leftPlayerId: string,
+  rightPlayerId: string,
+): Promise<string | null> {
   const previousMeetings = await countReportedMeetings(db, tournamentId, leftPlayerId, rightPlayerId)
   if (previousMeetings < 1) return null
   return 'Rematch: these players have already played against each other.'
 }
 
-function getOrCreateStats(statsByPlayerId: Map<string, { games: number, wins: number, opponentIds: string[] }>, playerId: string) {
+function getOrCreateStats(
+  statsByPlayerId: Map<string, { games: number; wins: number; opponentIds: string[] }>,
+  playerId: string,
+) {
   const existing = statsByPlayerId.get(playerId)
   if (existing) return existing
   const created = { games: 0, wins: 0, opponentIds: [] }
@@ -1717,7 +1927,7 @@ function getOrCreateStats(statsByPlayerId: Map<string, { games: number, wins: nu
   return created
 }
 
-function getWinRate(stats: { games: number, wins: number } | null | undefined): number {
+function getWinRate(stats: { games: number; wins: number } | null | undefined): number {
   if (!stats || stats.games <= 0) return 0
   return stats.wins / stats.games
 }
@@ -1829,5 +2039,10 @@ function chunkArray<T>(values: T[], size: number): T[][] {
 }
 
 function normalizeIdentityName(value: string): string {
-  return value.trim().toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]/g, '')
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]/g, '')
 }

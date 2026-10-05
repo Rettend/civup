@@ -1,13 +1,13 @@
-import type { Database } from '@civup/db'
-import type { DiscordMessagePayload } from '../services/discord/index.ts'
 import type { PlayerHistoryModeFilter } from '../embeds/player-history.ts'
+import type { DiscordMessagePayload } from '../services/discord/index.ts'
+import type { Database } from '@civup/db'
+import { Command, Option } from 'discord-hono'
 import { createDb } from '@civup/db'
 import { GAME_MODE_CHOICES, parseGameMode } from '@civup/game'
-import { Command, Option } from 'discord-hono'
 import { playerHistoryPageEmbed } from '../embeds/player-history.ts'
-import { paginationComponents } from '../services/response/pagination.ts'
-import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
+import { resDeferGeneralCommandResponse } from '../services/response/general.ts'
+import { paginationComponents } from '../services/response/pagination.ts'
 import { factory } from '../setup.ts'
 import { getIdentityByUserId } from './identity.ts'
 
@@ -23,29 +23,33 @@ export const command_history = factory.command<Var>(
     new Option('player', 'Player to look up (defaults to you)', 'User'),
     new Option('mode', 'Filter by game mode').choices(...GAME_MODE_CHOICES),
   ),
-  (c) => {
-    const targetId = c.var.player
-      ?? c.interaction.member?.user?.id
-      ?? c.interaction.user?.id
+  c => {
+    const targetId = c.var.player ?? c.interaction.member?.user?.id ?? c.interaction.user?.id
     const mode = (parseGameMode(c.var.mode) ?? 'all') as PlayerHistoryModeFilter
     const isDefaultSelfLookup = !c.var.player && !c.var.mode
 
     if (!targetId) return c.res('Could not identify the player.')
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
-      const db = createDb(c.env.DB)
-      const identity = getIdentityByUserId(c, targetId)
-      if (identity) {
-        await upsertPlayerProfiles(db, [{
-          playerId: identity.userId,
-          displayName: identity.displayName,
-          avatarUrl: identity.avatarUrl,
-        }])
-      }
-      return buildPlayerHistoryCommandPayload(db, targetId, mode)
-    }, {
-      ephemeral: isDefaultSelfLookup,
-    })
+    return resDeferGeneralCommandResponse(
+      c,
+      async c => {
+        const db = createDb(c.env.DB)
+        const identity = getIdentityByUserId(c, targetId)
+        if (identity) {
+          await upsertPlayerProfiles(db, [
+            {
+              playerId: identity.userId,
+              displayName: identity.displayName,
+              avatarUrl: identity.avatarUrl,
+            },
+          ])
+        }
+        return buildPlayerHistoryCommandPayload(db, targetId, mode)
+      },
+      {
+        ephemeral: isDefaultSelfLookup,
+      },
+    )
   },
 )
 
