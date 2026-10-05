@@ -1,14 +1,14 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { fireEvent, render, screen } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { createActivityTargetOption } from './ui-fixtures'
+import { screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createActivityTargetOption, fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
-const onSelect = mock(() => {})
-const onResume = mock(() => {})
-const onPractice = mock(() => {})
-const onExportData = mock(() => {})
+const onSelect = vi.fn(() => {})
+const onResume = vi.fn(() => {})
+const onPractice = vi.fn(() => {})
+const onExportData = vi.fn(() => {})
 
 const { LobbyOverviewPage, activityTargetOptionKey } = await import('../src/client/pages/lobby-overview')
 

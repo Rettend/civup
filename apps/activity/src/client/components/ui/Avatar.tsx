@@ -1,5 +1,5 @@
-import type { JSX } from 'solid-js'
-import { splitProps } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface AvatarProps extends JSX.HTMLAttributes<HTMLDivElement> {
@@ -22,8 +22,8 @@ const rings = {
   none: '',
 } as const
 
-export function Avatar(props: AvatarProps) {
-  const [local, rest] = splitProps(props, ['src', 'alt', 'size', 'ring', 'class'])
+export function Avatar(local: AvatarProps) {
+  const rest = omit(local, 'src', 'alt', 'size', 'ring', 'class')
 
   const initials = () => {
     if (!local.alt) return '?'

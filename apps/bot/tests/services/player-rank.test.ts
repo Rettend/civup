@@ -12,6 +12,7 @@ import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snaps
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { currentRankAssignmentsKey } from '../../src/services/ranked/role-sync.ts'
 import { listPlayerSeasonSnapshotHistory } from '../../src/services/season/snapshot-roles.ts'
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -1582,4 +1583,3 @@ function ratingEvent(input: {
 function displayRatingToMu(rating: number): number {
   return 25 + ((rating - 1000) / 36)
 }
-import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'

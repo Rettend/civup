@@ -28,10 +28,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .ppl.env
 .ppl.secrets
 .ppl.vars
+/config/cloudflare-targets.local.json
 
 # Cloudflare Workers local secrets
 .dev.vars
 .wrangler
+.cloudflare
+.vite
 .tmp
 cloudflared.dev.yml
 .partykit

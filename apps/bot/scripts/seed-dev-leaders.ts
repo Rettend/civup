@@ -1,8 +1,7 @@
-/* eslint-disable no-console */
-import { existsSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { redDeathLeaderMap } from '@civup/game'
 import { Database } from 'bun:sqlite'
+/* eslint-disable no-console */
+import { redDeathLeaderMap } from '@civup/game'
+import { resolveLocalD1SqlitePath } from './local-storage.ts'
 
 const SEED_PREFIX = 'dev-leaders'
 const RETTEND_ID = '361534796830081024'
@@ -53,7 +52,7 @@ const botLeaders = [
   'egypt-cleopatra-egyptian',
 ] as const
 
-const db = new Database(resolveLocalD1SqlitePath())
+const db = new Database(resolveLocalD1SqlitePath({ override: process.env.DRIZZLE_DB_URL }), { create: false })
 db.run('PRAGMA foreign_keys = ON')
 
 try {
@@ -74,12 +73,10 @@ try {
   for (const [mode, stats] of Object.entries(summary)) {
     console.log(`${mode}: ${stats.games}g, ${stats.wins} wins`)
   }
-}
-catch (error) {
+} catch (error) {
   db.exec('rollback')
   throw error
-}
-finally {
+} finally {
   db.close()
 }
 
@@ -99,7 +96,7 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
 
   const nextBotLeader = (avoid?: string) => {
     for (let tries = 0; tries < botLeaders.length; tries += 1) {
-      const leader = botLeaders[botLeaderCursor % botLeaders.length]
+      const leader = botLeaders[botLeaderCursor % botLeaders.length]!
       botLeaderCursor += 1
       if (leader !== avoid) return leader
     }
@@ -200,7 +197,12 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
   return matches
 }
 
-function rettendParticipant(input: { team: number | null, placement: number, civId: string, matchIndex: number }): SeedParticipant {
+function rettendParticipant(input: {
+  team: number | null
+  placement: number
+  civId: string
+  matchIndex: number
+}): SeedParticipant {
   const beforeMu = 25 + (input.matchIndex % 16) * 0.08
   const afterMu = beforeMu + (input.placement === 1 ? 0.35 : -0.22)
   return {
@@ -229,7 +231,8 @@ function seedPlayers(db: Database): void {
 }
 
 function insertMatches(db: Database, matches: SeedMatch[]): void {
-  const insertMatch = db.query(`insert into matches (id, game_mode, status, is_old, season_id, draft_data, created_at, completed_at)
+  const insertMatch =
+    db.query(`insert into matches (id, game_mode, status, is_old, season_id, draft_data, created_at, completed_at)
     values (?1, ?2, 'completed', 0, ?3, null, ?4, ?5)`)
   const insertParticipant = db.query(`insert into match_participants (
     match_id,
@@ -274,8 +277,12 @@ function cleanPreviousSeed(db: Database): void {
   db.query(`delete from players where id like '${SEED_PREFIX}-bot-%'`).run()
 }
 
-function seedRettendRatings(db: Database, summary: Partial<Record<RatingMode, { games: number, wins: number }>>, lastPlayedAt: number): void {
-  const ratingByMode: Record<RatingMode, { mu: number, sigma: number }> = {
+function seedRettendRatings(
+  db: Database,
+  summary: Partial<Record<RatingMode, { games: number; wins: number }>>,
+  lastPlayedAt: number,
+): void {
+  const ratingByMode: Record<RatingMode, { mu: number; sigma: number }> = {
     duel: { mu: 30.6, sigma: 6.1 },
     duo: { mu: 31.4, sigma: 5.9 },
     squad: { mu: 29.8, sigma: 6.2 },
@@ -307,17 +314,22 @@ function seedRettendRatings(db: Database, summary: Partial<Record<RatingMode, { 
     last_played_at = excluded.last_played_at,
     updated_at = excluded.updated_at`)
 
-  for (const [mode, stats] of Object.entries(summary) as Array<[RatingMode, { games: number, wins: number }]>) {
+  for (const [mode, stats] of Object.entries(summary) as Array<[RatingMode, { games: number; wins: number }]>) {
     const rating = ratingByMode[mode]
     upsert.run(RETTEND_ID, mode, rating.mu, rating.sigma, stats.games, stats.wins, lastPlayedAt, Date.now())
   }
 
-  const total = Object.values(summary).reduce((acc, stats) => ({ games: acc.games + (stats?.games ?? 0), wins: acc.wins + (stats?.wins ?? 0) }), { games: 0, wins: 0 })
+  const total = Object.values(summary).reduce(
+    (acc, stats) => ({ games: acc.games + (stats?.games ?? 0), wins: acc.wins + (stats?.wins ?? 0) }),
+    { games: 0, wins: 0 },
+  )
   upsert.run(RETTEND_ID, 'global', 31.2, 6.0, total.games, total.wins, lastPlayedAt, Date.now())
 }
 
-function summarizeRettendRatings(matches: readonly SeedMatch[]): Partial<Record<RatingMode, { games: number, wins: number }>> {
-  const summary: Partial<Record<RatingMode, { games: number, wins: number }>> = {}
+function summarizeRettendRatings(
+  matches: readonly SeedMatch[],
+): Partial<Record<RatingMode, { games: number; wins: number }>> {
+  const summary: Partial<Record<RatingMode, { games: number; wins: number }>> = {}
   for (const match of matches) {
     const mode = toRatingMode(match.gameMode)
     const participant = match.participants.find(row => row.playerId === RETTEND_ID)
@@ -393,9 +405,13 @@ function rebuildPlayerCivStats(db: Database, updatedAt: number): void {
 }
 
 function selectDisplaySeasonId(db: Database): string | null {
-  const active = db.query('select id from seasons where active = 1 order by starts_at desc limit 1').get() as { id: string } | undefined
+  const active = db.query('select id from seasons where active = 1 order by starts_at desc limit 1').get() as
+    | { id: string }
+    | undefined
   if (active) return active.id
-  const latest = db.query('select id from seasons order by season_number desc limit 1').get() as { id: string } | undefined
+  const latest = db.query('select id from seasons order by season_number desc limit 1').get() as
+    | { id: string }
+    | undefined
   return latest?.id ?? null
 }
 
@@ -408,28 +424,6 @@ function toRatingMode(gameMode: GameMode): RatingMode {
 
 function botId(index: number): string {
   return `${SEED_PREFIX}-bot-${String(index + 1).padStart(2, '0')}`
-}
-
-function resolveLocalD1SqlitePath(): string {
-  const d1Dir = resolve(import.meta.dir, '../.wrangler/state/v3/d1/miniflare-D1DatabaseObject')
-  if (!existsSync(d1Dir)) throw new Error(`Local D1 directory not found: ${d1Dir}`)
-
-  for (const file of readdirSync(d1Dir)) {
-    if (!file.endsWith('.sqlite') || file === 'metadata.sqlite') continue
-    const sqlitePath = resolve(d1Dir, file)
-    const db = new Database(sqlitePath, { readonly: true })
-    try {
-      const tables = new Set((db
-        .query("select name from sqlite_master where type = 'table'")
-        .all() as Array<{ name: string }>).map(row => row.name))
-      if (tables.has('matches') && tables.has('match_participants') && tables.has('player_civ_stats')) return sqlitePath
-    }
-    finally {
-      db.close()
-    }
-  }
-
-  throw new Error(`Could not find a local D1 SQLite file in ${d1Dir}`)
 }
 
 function sqlString(value: string): string {

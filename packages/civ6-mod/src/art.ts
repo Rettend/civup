@@ -112,7 +112,6 @@ export function generateLandmarksArtDef(seats: readonly ResolvedCivBlitzModSeat[
 
 export function generateArtDep(name: string, uuid: string): string {
   // The immutable dependency table is declared after the XML helpers to keep the generator readable.
-  // eslint-disable-next-line ts/no-use-before-define
   const systems = artSystems.map(system => `<Element>
 <ConsumerName text="${xmlEscape(system.name)}"/>
 ${textElements('ArtDefDependencyPaths', system.paths)}

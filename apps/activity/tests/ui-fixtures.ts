@@ -1,5 +1,27 @@
 import type { DraftState } from '@civup/game'
 import type { ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../src/client/stores'
+import { getMinimumLeaderPoolSize, inferGameMode } from '@civup/game'
+import { fireEvent, render } from '@solidjs/testing-library'
+import { flush } from 'solid-js'
+
+// Test-only imperative boundaries: fixture writes and synchronous DOM events
+// must settle before the existing UI assertions inspect the rendered state.
+export const renderUi: typeof render = (...args) => {
+  flush()
+  const result = render(...args)
+  flush()
+  return result
+}
+function fireAndFlush<Args extends unknown[]>(event: (...args: Args) => boolean, ...args: Args): boolean {
+  let result = false
+  flush(() => { result = event(...args) })
+  return result
+}
+
+export const fireUiEvent = Object.assign(
+  ((...args: Parameters<typeof fireEvent>) => fireAndFlush(fireEvent, ...args)) as typeof fireEvent,
+  Object.fromEntries(Object.entries(fireEvent).map(([name, event]) => [name, (...args: unknown[]) => fireAndFlush(event, ...args)])),
+)
 
 type DraftStatus = DraftState['status']
 
@@ -70,7 +92,7 @@ export function createLobbySnapshot(overrides: Partial<LobbySnapshot> = {}): Lob
     draftConfig: {
       banTimerSeconds: 60,
       pickTimerSeconds: 90,
-      leaderPoolSize: 6,
+      leaderPoolSize: getMinimumLeaderPoolSize(inferGameMode(overrides.mode ?? 'ffa'), overrides.targetSize ?? 4),
       leaderDataVersion: 'live',
       mapVoteEnabled: true,
       blindBans: true,

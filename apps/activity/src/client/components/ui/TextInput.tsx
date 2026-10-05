@@ -1,4 +1,5 @@
-import type { Accessor, JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import type { Accessor } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 type MaybeAccessor<T> = T | Accessor<T>

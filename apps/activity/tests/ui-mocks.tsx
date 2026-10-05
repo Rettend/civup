@@ -1,64 +1,68 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
 import type { CivBlitzPartialKit, DraftState, LeaderDataVersion, MapScriptId, MapTypeId, MapVoteMapId, RankedChoiceRound, RevealedMapVoteSeatBallot } from '@civup/game'
 import type { LeaderTagCategory } from '../src/client/lib/leader-tags'
 import type { LobbyArrangeStrategy, LobbySnapshot, RankedRoleOptionSnapshot } from '../src/client/stores'
 import { getPickSeatForPlayer } from '@civup/game'
-import { mock } from 'bun:test'
-import { createMutable } from 'solid-js/store'
+import { vi } from 'vitest'
+import { createStore, flush, untrack } from 'solid-js'
 import { getTagCategory } from '../src/client/lib/leader-tags'
 
 export const storeSpies = {
-  sendStart: mock(() => true),
-  sendCancel: mock(() => {}),
-  sendScrub: mock(() => true),
-  sendRevert: mock(() => true),
-  sendBan: mock((_civIds: string[]) => {}),
-  sendPick: mock((_civId: string) => {}),
-  sendCivBlitzSubmit: mock((_kit: CivBlitzPartialKit) => {}),
-  sendPreview: mock((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
-  sendMapVoteConfirm: mock(() => true),
-  sendMapVoteSelection: mock((_selection: { maps: MapVoteMapId[] }) => true),
-  sendLeaderSwap: mock((_seatIndex: number) => {}),
-  updateDraftSteamLobbyLink: mock((steamLobbyLink: string | null) => {
-    uiMockState.steamLobbyLink = steamLobbyLink
+  sendStart: vi.fn(() => true),
+  sendCancel: vi.fn(() => {}),
+  sendScrub: vi.fn(() => true),
+  sendRevert: vi.fn(() => true),
+  sendBan: vi.fn((_civIds: string[]) => {}),
+  sendPick: vi.fn((_civId: string) => {}),
+  sendCivBlitzSubmit: vi.fn((_kit: CivBlitzPartialKit) => {}),
+  sendPreview: vi.fn((_kind: 'ban' | 'pick', _civIds: string[]) => {}),
+  sendMapVoteConfirm: vi.fn(() => true),
+  sendMapVoteSelection: vi.fn((_selection: { maps: MapVoteMapId[] }) => true),
+  sendLeaderSwap: vi.fn((_seatIndex: number) => {}),
+  updateDraftSteamLobbyLink: vi.fn((steamLobbyLink: string | null) => {
+    setUiMockState(draft => { draft.steamLobbyLink = steamLobbyLink })
   }),
-  reportMatchResult: mock(async (_matchId: string, _reporterId: string, _placements: string, _leaderAssignments?: Record<string, string>) => ({ ok: true })),
-  scrubMatchResult: mock(async () => ({ ok: true })),
-  toggleFfaPlacement: mock((seatIndex: number) => {
-    const existingIndex = uiMockState.ffaPlacementOrder.indexOf(seatIndex)
-    if (existingIndex >= 0) uiMockState.ffaPlacementOrder.splice(existingIndex, 1)
-    else uiMockState.ffaPlacementOrder.push(seatIndex)
+  reportMatchResult: vi.fn(async (_matchId: string, _reporterId: string, _placements: string, _leaderAssignments?: Record<string, string>) => ({ ok: true })),
+  scrubMatchResult: vi.fn(async () => ({ ok: true })),
+  toggleFfaPlacement: vi.fn((seatIndex: number) => {
+    setUiMockState(draft => {
+      const existingIndex = draft.ffaPlacementOrder.indexOf(seatIndex)
+      if (existingIndex >= 0) draft.ffaPlacementOrder.splice(existingIndex, 1)
+      else draft.ffaPlacementOrder.push(seatIndex)
+    })
   }),
-  toggleTeamPlacement: mock((team: number) => {
-    const existingIndex = uiMockState.teamPlacementOrder.indexOf(team)
-    if (existingIndex >= 0) uiMockState.teamPlacementOrder.splice(existingIndex, 1)
-    else uiMockState.teamPlacementOrder.push(team)
+  toggleTeamPlacement: vi.fn((team: number) => {
+    setUiMockState(draft => {
+      const existingIndex = draft.teamPlacementOrder.indexOf(team)
+      if (existingIndex >= 0) draft.teamPlacementOrder.splice(existingIndex, 1)
+      else draft.teamPlacementOrder.push(team)
+    })
   }),
-  arrangeLobbySlots: mock(async (_mode: string, _lobbyId: string, _userId: string, _strategy: LobbyArrangeStrategy) => uiMockState.arrangeLobbySlotsResult),
-  cancelLobby: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.cancelLobbyResult),
-  canFillLobbyWithTestPlayers: mock(async (_mode: string) => uiMockState.canFillLobbyWithTestPlayersResult),
-  fetchLobbyRankedRoles: mock(async (_mode: string, _lobbyId: string) => uiMockState.fetchLobbyRankedRolesResult),
-  fillLobbyWithTestPlayers: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
-  placeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
-  removeLobbySlot: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
-  transferLobbyHost: mock(async (_mode: string, _payload: { lobbyId: string, userId: string, targetPlayerId: string }) => uiMockState.transferLobbyHostResult),
-  repeatLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
-  startLobbyDraft: mock(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
-  updateLobbyConfig: mock(async (_mode: string, _lobbyId: string, _userId: string, patch: Record<string, unknown>) => {
+  arrangeLobbySlots: vi.fn(async (_mode: string, _lobbyId: string, _userId: string, _strategy: LobbyArrangeStrategy) => uiMockState.arrangeLobbySlotsResult),
+  cancelLobby: vi.fn(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.cancelLobbyResult),
+  canFillLobbyWithTestPlayers: vi.fn(async (_mode: string) => untrack(() => uiMockState.canFillLobbyWithTestPlayersResult)),
+  fetchLobbyRankedRoles: vi.fn(async (_mode: string, _lobbyId: string) => untrack(() => uiMockState.fetchLobbyRankedRolesResult)),
+  fillLobbyWithTestPlayers: vi.fn(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.fillLobbyWithTestPlayersResult),
+  placeLobbySlot: vi.fn(async (_mode: string, _payload: { lobbyId: string, userId: string, targetSlot: number, playerId?: string, displayName?: string, avatarUrl?: string | null }) => uiMockState.placeLobbySlotResult),
+  removeLobbySlot: vi.fn(async (_mode: string, _payload: { lobbyId: string, userId: string, slot: number }) => uiMockState.removeLobbySlotResult),
+  transferLobbyHost: vi.fn(async (_mode: string, _payload: { lobbyId: string, userId: string, targetPlayerId: string }) => uiMockState.transferLobbyHostResult),
+  repeatLobbyDraft: vi.fn(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.repeatLobbyDraftResult),
+  startLobbyDraft: vi.fn(async (_mode: string, _lobbyId: string, _userId: string) => uiMockState.startLobbyDraftResult),
+  updateLobbyConfig: vi.fn(async (_mode: string, _lobbyId: string, _userId: string, patch: Record<string, unknown>) => {
     const result = uiMockState.updateLobbyConfigResult
     if (!result.ok) return result
     return { ok: true, lobby: mockLobbySnapshotFromConfigPatch(patch) }
   }),
-  updateLobbyMode: mock(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
+  updateLobbyMode: vi.fn(async (_mode: string, _lobbyId: string, _userId: string, _nextMode: string) => uiMockState.updateLobbyModeResult),
 }
 
 export const discordSpies = {
-  openExternalLink: mock(async () => ({ opened: true })),
+  openExternalLink: vi.fn(async () => ({ opened: true })),
 }
 
 export const clipboardSpies = {
-  copyTextToClipboard: mock(async () => true),
+  copyTextToClipboard: vi.fn(async () => true),
 }
 
 interface MockState {
@@ -161,7 +165,7 @@ function mockLobbySnapshot(): LobbySnapshot {
     draftConfig: {
       banTimerSeconds: 60,
       pickTimerSeconds: 90,
-      leaderPoolSize: 6,
+      leaderPoolSize: 12,
       leaderDataVersion: 'live',
       mapVoteEnabled: false,
       blindBans: true,
@@ -292,56 +296,29 @@ function defaults(): MockState {
   }
 }
 
-export const uiMockState: MockState = createMutable(defaults())
+const [mockStore, setUiMockState] = createStore(defaults())
+
+// Preserve the suites' concise top-level fixture assignments. These are
+// explicit draft-setter updates, not mutable store proxies. Mocked app actions
+// below use the staged setter directly, just like the real stores.
+export const uiMockState = Object.defineProperties({} as MockState, Object.fromEntries(
+  Object.keys(defaults()).map(key => [key, {
+    enumerable: true,
+    get: () => mockStore[key as keyof MockState],
+    set: (value: unknown) => updateUiMocks(draft => { Reflect.set(draft, key, value) }),
+  }]),
+))
+
+export function updateUiMocks(update: (draft: MockState) => void) {
+  flush(() => setUiMockState(update))
+}
 
 export function resetUiMocks() {
-  Object.assign(uiMockState, defaults())
-  uiMockState.gridOpen = false
-  uiMockState.gridExpanded = false
-  uiMockState.gridViewMode = 'grid'
-  uiMockState.resultSelectionsLocked = false
-  uiMockState.selectedWinningTeam = null
-  uiMockState.selectedLeaderId = null
-  uiMockState.detailLeaderId = null
-  uiMockState.pickSelections = []
-  uiMockState.banSelections = []
-  uiMockState.banSelectionStepToken = null
-  uiMockState.isRandomSelected = false
-  uiMockState.favoriteLeaderIds = []
-  uiMockState.ffaPlacementOrder = []
-  uiMockState.teamPlacementOrder = []
-  uiMockState.hiddenDraftLeaderSelections = []
-  uiMockState.canOpenLeaderGrid = true
-  uiMockState.canSendPickPreview = false
-  uiMockState.sendStartResult = true
-  uiMockState.mapVoteEnabled = true
-  uiMockState.mapVotePhase = 'idle'
-  uiMockState.mapVoteSelectedMaps = []
-  uiMockState.mapVoteHasConfirmed = false
-  uiMockState.mapVoteConfirmedSeatIndices = []
-  uiMockState.mapVoteSeatVotes = []
-  uiMockState.mapVoteWinningType = null
-  uiMockState.mapVoteWinningScript = null
-  uiMockState.mapVoteWinningTypeCandidate = null
-  uiMockState.mapVoteWinningScriptCandidate = null
-  uiMockState.mapVoteTypeRounds = []
-  uiMockState.mapVoteScriptRounds = []
-  uiMockState.mapVoteVotingEndsAt = null
-  uiMockState.mapVoteRevealEndsAt = null
-  uiMockState.searchQuery = ''
-  uiMockState.previewPicks = {}
-  uiMockState.draftPreviewBans = {}
-  uiMockState.draftPreviewPicks = {}
-  uiMockState.steamLobbyLink = null
-  uiMockState.hiddenDraft = false
-  uiMockState.canSwapLeaderSeatIndices = []
-  uiMockState.swapFlashSeatIndices = []
-  uiMockState.swapWindowOpen = false
-  uiMockState.tagFiltersState = emptyTagFilters()
-  for (const spy of Object.values(discordSpies)) spy.mockClear()
-  for (const spy of Object.values(clipboardSpies)) spy.mockClear()
-  for (const spy of Object.values(storeSpies)) spy.mockClear()
-  storeSpies.sendStart.mockImplementation(() => uiMockState.sendStartResult)
+  updateUiMocks(draft => Object.assign(draft, defaults()))
+  for (const spy of Object.values(discordSpies)) spy.mockReset()
+  for (const spy of Object.values(clipboardSpies)) spy.mockReset()
+  for (const spy of Object.values(storeSpies)) spy.mockReset()
+  storeSpies.sendStart.mockImplementation(() => untrack(() => uiMockState.sendStartResult))
   storeSpies.sendScrub.mockImplementation(() => true)
   storeSpies.sendRevert.mockImplementation(() => true)
 }
@@ -408,32 +385,38 @@ function phaseAccentColor() {
 }
 
 function setPickSelections(next: string[]) {
-  uiMockState.pickSelections = [...next]
-  uiMockState.selectedLeaderId = uiMockState.pickSelections[0] ?? null
+  setUiMockState(draft => {
+    draft.pickSelections = [...next]
+    draft.selectedLeaderId = next[0] ?? null
+  })
 }
 
 function clearSelections() {
   setPickSelections([])
-  uiMockState.banSelections = []
-  uiMockState.banSelectionStepToken = null
-  uiMockState.isRandomSelected = false
-  uiMockState.searchQuery = ''
-  uiMockState.tagFiltersState = emptyTagFilters()
-  uiMockState.detailLeaderId = null
-  uiMockState.selectedWinningTeam = null
-  uiMockState.ffaPlacementOrder = []
-  uiMockState.teamPlacementOrder = []
-  uiMockState.hiddenDraftLeaderSelections = []
+  setUiMockState(draft => {
+    draft.banSelections = []
+    draft.banSelectionStepToken = null
+    draft.isRandomSelected = false
+    draft.searchQuery = ''
+    draft.tagFiltersState = emptyTagFilters()
+    draft.detailLeaderId = null
+    draft.selectedWinningTeam = null
+    draft.ffaPlacementOrder = []
+    draft.teamPlacementOrder = []
+    draft.hiddenDraftLeaderSelections = []
+  })
 }
 
 function clearHiddenDraftLeaderSelections() {
-  uiMockState.hiddenDraftLeaderSelections = []
+  setUiMockState(draft => { draft.hiddenDraftLeaderSelections = [] })
 }
 
 function toggleHiddenDraftLeaderSelection(leaderId: string) {
-  uiMockState.hiddenDraftLeaderSelections = uiMockState.hiddenDraftLeaderSelections.includes(leaderId)
-    ? uiMockState.hiddenDraftLeaderSelections.filter(current => current !== leaderId)
-    : [...uiMockState.hiddenDraftLeaderSelections, leaderId]
+  setUiMockState(draft => {
+    draft.hiddenDraftLeaderSelections = draft.hiddenDraftLeaderSelections.includes(leaderId)
+      ? draft.hiddenDraftLeaderSelections.filter(current => current !== leaderId)
+      : [...draft.hiddenDraftLeaderSelections, leaderId]
+  })
 }
 
 function phaseHeaderBg() {
@@ -477,54 +460,55 @@ function mapVoteReadyToConfirm() {
 
 function startMapVote(_matchId: string) {
   if (uiMockState.mapVotePhase !== 'idle') return
-  uiMockState.mapVotePhase = 'voting'
-  uiMockState.mapVoteSelectedMaps = []
-  uiMockState.mapVoteHasConfirmed = false
-  uiMockState.mapVoteConfirmedSeatIndices = []
-  uiMockState.mapVoteSeatVotes = []
-  uiMockState.mapVoteWinningType = null
-  uiMockState.mapVoteWinningScript = null
-  uiMockState.mapVoteWinningTypeCandidate = null
-  uiMockState.mapVoteWinningScriptCandidate = null
-  uiMockState.mapVoteTypeRounds = []
-  uiMockState.mapVoteScriptRounds = []
-  uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
-  uiMockState.mapVoteRevealEndsAt = null
+  resetMapVote()
+  setUiMockState(draft => {
+    draft.mapVotePhase = 'voting'
+    draft.mapVoteVotingEndsAt = Date.now() + 90_000
+  })
 }
 
 function confirmMapVote() {
   if (!mapVoteReadyToConfirm()) return false
-  uiMockState.mapVoteHasConfirmed = true
-  if (uiMockState.draftSeatIndex != null && !uiMockState.mapVoteConfirmedSeatIndices.includes(uiMockState.draftSeatIndex)) {
-    uiMockState.mapVoteConfirmedSeatIndices = [...uiMockState.mapVoteConfirmedSeatIndices, uiMockState.draftSeatIndex].sort((left, right) => left - right)
-  }
+  setUiMockState(draft => {
+    draft.mapVoteHasConfirmed = true
+    if (draft.draftSeatIndex != null && !draft.mapVoteConfirmedSeatIndices.includes(draft.draftSeatIndex)) {
+      draft.mapVoteConfirmedSeatIndices = [...draft.mapVoteConfirmedSeatIndices, draft.draftSeatIndex].sort((left, right) => left - right)
+    }
+  })
   return storeSpies.sendMapVoteConfirm()
 }
 
 function finishMapVote() {
   if (uiMockState.mapVotePhase !== 'reveal') return
-  uiMockState.mapVotePhase = 'done'
-  uiMockState.mapVoteVotingEndsAt = null
-  uiMockState.mapVoteRevealEndsAt = null
+  setUiMockState(draft => {
+    draft.mapVotePhase = 'done'
+    draft.mapVoteVotingEndsAt = null
+    draft.mapVoteRevealEndsAt = null
+  })
 }
 
 function resetMapVote() {
-  uiMockState.mapVotePhase = 'idle'
-  uiMockState.mapVoteSelectedMaps = []
-  uiMockState.mapVoteHasConfirmed = false
-  uiMockState.mapVoteConfirmedSeatIndices = []
-  uiMockState.mapVoteSeatVotes = []
-  uiMockState.mapVoteWinningType = null
-  uiMockState.mapVoteWinningScript = null
-  uiMockState.mapVoteWinningTypeCandidate = null
-  uiMockState.mapVoteWinningScriptCandidate = null
-  uiMockState.mapVoteTypeRounds = []
-  uiMockState.mapVoteScriptRounds = []
-  uiMockState.mapVoteVotingEndsAt = null
-  uiMockState.mapVoteRevealEndsAt = null
+  setUiMockState(draft => {
+    draft.mapVotePhase = 'idle'
+    draft.mapVoteSelectedMaps = []
+    draft.mapVoteHasConfirmed = false
+    draft.mapVoteConfirmedSeatIndices = []
+    draft.mapVoteSeatVotes = []
+    draft.mapVoteWinningType = null
+    draft.mapVoteWinningScript = null
+    draft.mapVoteWinningTypeCandidate = null
+    draft.mapVoteWinningScriptCandidate = null
+    draft.mapVoteTypeRounds = []
+    draft.mapVoteScriptRounds = []
+    draft.mapVoteVotingEndsAt = null
+    draft.mapVoteRevealEndsAt = null
+  })
 }
 
-mock.module('~/client/discord', () => ({
+// Each UI suite imports this helper before dynamically importing components.
+// doMock registers these factories after state initialization, without hoisting
+// mutable Solid state or leaking these module replacements to real-store suites.
+vi.doMock('~/client/discord', () => ({
   discordSdk: {
     commands: {
       openExternalLink: (...args: Parameters<typeof discordSpies.openExternalLink>) => discordSpies.openExternalLink(...args),
@@ -532,11 +516,11 @@ mock.module('~/client/discord', () => ({
   },
 }))
 
-mock.module('~/client/lib/clipboard', () => ({
+vi.doMock('~/client/lib/clipboard', () => ({
   copyTextToClipboard: (...args: Parameters<typeof clipboardSpies.copyTextToClipboard>) => clipboardSpies.copyTextToClipboard(...args),
 }))
 
-mock.module('~/client/stores', () => ({
+vi.doMock('~/client/stores', () => ({
   BLIND_PICK_SUBMISSION_PLACEHOLDER: '__blind__',
   MAP_VOTE_REVEAL_DURATION_SECONDS: 10,
   MAP_VOTE_VOTING_DURATION_SECONDS: 90,
@@ -544,9 +528,9 @@ mock.module('~/client/stores', () => ({
   arrangeLobbySlots: (...args: Parameters<typeof storeSpies.arrangeLobbySlots>) => storeSpies.arrangeLobbySlots(...args),
   banSelectionStepToken: () => uiMockState.banSelectionStepToken,
   banSelections: () => uiMockState.banSelections,
-  clearLeaderFavorites: () => { uiMockState.favoriteLeaderIds = [] },
+  clearLeaderFavorites: () => setUiMockState(draft => { draft.favoriteLeaderIds = [] }),
   clearHiddenDraftLeaderSelections,
-  clearWinningTeam: () => { uiMockState.selectedWinningTeam = null },
+  clearWinningTeam: () => setUiMockState(draft => { draft.selectedWinningTeam = null }),
   cancelLobby: (...args: Parameters<typeof storeSpies.cancelLobby>) => storeSpies.cancelLobby(...args),
   canFillLobbyWithTestPlayers: (...args: Parameters<typeof storeSpies.canFillLobbyWithTestPlayers>) => storeSpies.canFillLobbyWithTestPlayers(...args),
   canSwapLeadersWith: (seatIndex: number) => uiMockState.canSwapLeaderSeatIndices.includes(seatIndex),
@@ -554,12 +538,14 @@ mock.module('~/client/stores', () => ({
   avatarUrl: () => uiMockState.avatarUrl,
   canOpenLeaderGrid: () => uiMockState.canOpenLeaderGrid,
   clearSelections,
-  clearTagFilters: () => { uiMockState.tagFiltersState = emptyTagFilters() },
-  clearFfaPlacements: () => { uiMockState.ffaPlacementOrder = [] },
+  clearTagFilters: () => setUiMockState(draft => { draft.tagFiltersState = emptyTagFilters() }),
+  clearFfaPlacements: () => setUiMockState(draft => { draft.ffaPlacementOrder = [] }),
   clearResultSelections: () => {
-    uiMockState.selectedWinningTeam = null
-    uiMockState.ffaPlacementOrder = []
-    uiMockState.teamPlacementOrder = []
+    setUiMockState(draft => {
+      draft.selectedWinningTeam = null
+      draft.ffaPlacementOrder = []
+      draft.teamPlacementOrder = []
+    })
   },
   connectionError: () => uiMockState.connectionError,
   connectionStatus: () => uiMockState.connectionStatus,
@@ -702,51 +688,51 @@ mock.module('~/client/stores', () => ({
   sendScrub: (...args: Parameters<typeof storeSpies.sendScrub>) => storeSpies.sendScrub(...args),
   sendStart: (...args: Parameters<typeof storeSpies.sendStart>) => storeSpies.sendStart(...args),
   sendLeaderSwap: (...args: Parameters<typeof storeSpies.sendLeaderSwap>) => storeSpies.sendLeaderSwap(...args),
-  setBanSelections: (next: string[]) => { uiMockState.banSelections = [...next] },
-  setDetailLeaderId: (leaderId: string | null) => { uiMockState.detailLeaderId = leaderId },
+  setBanSelections: (next: string[]) => setUiMockState(draft => { draft.banSelections = [...next] }),
+  setDetailLeaderId: (leaderId: string | null) => setUiMockState(draft => { draft.detailLeaderId = leaderId }),
   setIsMiniView: () => {},
   setIsMobileLayout: () => {},
-  setGridExpanded: (next: boolean) => { uiMockState.gridExpanded = next },
-  setGridOpen: (next: boolean) => { uiMockState.gridOpen = next },
-  setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => { uiMockState.gridViewMode = next },
-  setIsRandomSelected: (next: boolean) => { uiMockState.isRandomSelected = next },
-  setMapVoteEnabled: (next: boolean) => { uiMockState.mapVoteEnabled = next },
+  setGridExpanded: (next: boolean) => setUiMockState(draft => { draft.gridExpanded = next }),
+  setGridOpen: (next: boolean) => setUiMockState(draft => { draft.gridOpen = next }),
+  setGridViewMode: (next: 'grid' | 'multi-list' | 'list') => setUiMockState(draft => { draft.gridViewMode = next }),
+  setIsRandomSelected: (next: boolean) => setUiMockState(draft => { draft.isRandomSelected = next }),
+  setMapVoteEnabled: (next: boolean) => setUiMockState(draft => { draft.mapVoteEnabled = next }),
   toggleMapVoteSelectedMap: (next: MapVoteMapId | null) => {
     if (uiMockState.mapVotePhase !== 'voting' || uiMockState.mapVoteHasConfirmed || uiMockState.draftSeatIndex == null || next == null) return { changed: false, readyToConfirm: false }
     const currentMaps = uiMockState.mapVoteSelectedMaps
     const nextMaps = toggleRankedChoice(currentMaps, next, 3)
     if (nextMaps.join('|') === currentMaps.join('|')) return { changed: false, readyToConfirm: mapVoteReadyToConfirm() }
-    uiMockState.mapVoteSelectedMaps = nextMaps
+    setUiMockState(draft => { draft.mapVoteSelectedMaps = nextMaps })
     storeSpies.sendMapVoteSelection({ maps: nextMaps })
-    return { changed: true, readyToConfirm: mapVoteReadyToConfirm() }
+    return { changed: true, readyToConfirm: nextMaps.length > 0 }
   },
   setPickSelections,
-  setResultSelectionsLocked: (next: boolean) => { uiMockState.resultSelectionsLocked = next },
-  setSearchQuery: (next: string) => { uiMockState.searchQuery = next },
+  setResultSelectionsLocked: (next: boolean) => setUiMockState(draft => { draft.resultSelectionsLocked = next }),
+  setSearchQuery: (next: string) => setUiMockState(draft => { draft.searchQuery = next }),
   setSelectedLeader: (leaderId: string | null) => { setPickSelections(leaderId ? [leaderId] : []) },
-  selectWinningTeam: (team: number | null) => { uiMockState.selectedWinningTeam = team },
+  selectWinningTeam: (team: number | null) => setUiMockState(draft => { draft.selectedWinningTeam = team }),
   startLobbyDraft: (...args: Parameters<typeof storeSpies.startLobbyDraft>) => storeSpies.startLobbyDraft(...args),
   startMapVote,
-  setBanSelectionStepToken: (next: string | null) => { uiMockState.banSelectionStepToken = next },
+  setBanSelectionStepToken: (next: string | null) => setUiMockState(draft => { draft.banSelectionStepToken = next }),
   tagFilters: () => uiMockState.tagFiltersState,
   teamPlacementOrder: () => uiMockState.teamPlacementOrder,
-  toggleDetail: (leaderId: string) => { uiMockState.detailLeaderId = uiMockState.detailLeaderId === leaderId ? null : leaderId },
+  toggleDetail: (leaderId: string) => setUiMockState(draft => { draft.detailLeaderId = draft.detailLeaderId === leaderId ? null : leaderId }),
   toggleBanSelection: (leaderId: string, maxBans: number) => {
     if (uiMockState.banSelections.includes(leaderId)) {
-      uiMockState.banSelections = uiMockState.banSelections.filter(id => id !== leaderId)
+      setUiMockState(draft => { draft.banSelections = draft.banSelections.filter(id => id !== leaderId) })
       return
     }
     if (uiMockState.banSelections.length >= maxBans) return
-    uiMockState.banSelections = [...uiMockState.banSelections, leaderId]
+    setUiMockState(draft => { draft.banSelections.push(leaderId) })
   },
   toggleFfaPlacement: (...args: Parameters<typeof storeSpies.toggleFfaPlacement>) => storeSpies.toggleFfaPlacement(...args),
   toggleHiddenDraftLeaderSelection,
   toggleLeaderFavorite: (leaderId: string) => {
     if (uiMockState.favoriteLeaderIds.includes(leaderId)) {
-      uiMockState.favoriteLeaderIds = uiMockState.favoriteLeaderIds.filter(id => id !== leaderId)
+      setUiMockState(draft => { draft.favoriteLeaderIds = draft.favoriteLeaderIds.filter(id => id !== leaderId) })
       return
     }
-    uiMockState.favoriteLeaderIds = [...uiMockState.favoriteLeaderIds, leaderId]
+    setUiMockState(draft => { draft.favoriteLeaderIds.push(leaderId) })
   },
   togglePickSelection: (leaderId: string) => {
     setPickSelections(uiMockState.pickSelections[0] === leaderId ? [] : [leaderId])
@@ -757,10 +743,7 @@ mock.module('~/client/stores', () => ({
     const nextTags = uiMockState.tagFiltersState[category].includes(tag)
       ? uiMockState.tagFiltersState[category].filter(current => current !== tag)
       : [...uiMockState.tagFiltersState[category], tag]
-    uiMockState.tagFiltersState = {
-      ...uiMockState.tagFiltersState,
-      [category]: nextTags,
-    }
+    setUiMockState(draft => { draft.tagFiltersState[category] = nextTags })
   },
   toggleTeamPlacement: (...args: Parameters<typeof storeSpies.toggleTeamPlacement>) => storeSpies.toggleTeamPlacement(...args),
   toggleLobbyPremadeLink: async () => ({ ok: true }),

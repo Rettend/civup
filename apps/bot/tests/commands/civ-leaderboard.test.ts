@@ -544,7 +544,6 @@ describe('civ leaderboard command payload', () => {
 
   test('repair keeps ineligible stored contributions hidden', async () => {
     const { db, sqlite } = await createTestDatabase()
-    const kv = createTestKv()
 
     try {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })

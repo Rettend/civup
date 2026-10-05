@@ -1,6 +1,6 @@
 import { matches } from '@civup/db'
 import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
@@ -8,6 +8,7 @@ import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import { createExecutionContextHarness } from '../helpers/app-harness.ts'
 import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -16,10 +17,29 @@ const originalFetch = globalThis.fetch
 const originalMathRandom = Math.random
 const TITAN_ROLE_ID = '99999999999999999'
 const GLADIATOR_ROLE_ID = '11111111111111111'
+const { executionCtx, flushBackgroundTasks } = createExecutionContextHarness()
+const unexpectedNetworkRequests: string[] = []
 
-afterEach(() => {
-  globalThis.fetch = originalFetch
-  Math.random = originalMathRandom
+beforeEach(() => {
+  unexpectedNetworkRequests.length = 0
+  globalThis.fetch = (async (input, init) => {
+    const request = new Request(input, init)
+    const description = `${request.method} ${request.url}`
+    unexpectedNetworkRequests.push(description)
+    throw new Error(`Unexpected network request: ${description}`)
+  }) as typeof fetch
+})
+
+afterEach(async () => {
+  try {
+    // Background message updates must finish while this test's fetch mock is installed.
+    await flushBackgroundTasks()
+    expect(unexpectedNetworkRequests).toEqual([])
+  }
+  finally {
+    globalThis.fetch = originalFetch
+    Math.random = originalMathRandom
+  }
 })
 
 function activityRuntimeOptions(kv: KVNamespace) {
@@ -84,7 +104,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(removeResponse.status).toBe(200)
 
     const storedLobby = await getLobbyById(kv, lobby.id)
@@ -100,7 +120,7 @@ describe('lobby routes', () => {
         banTimerSeconds: null,
         pickTimerSeconds: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(configResponse.status).toBe(200)
 
     const configuredLobby = await configResponse.json()
@@ -150,7 +170,7 @@ describe('lobby routes', () => {
         displayName: 'Guest',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -199,7 +219,7 @@ describe('lobby routes', () => {
         displayName: 'Player 1',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
@@ -255,7 +275,7 @@ describe('lobby routes', () => {
         displayName: 'Player 1',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(200)
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
@@ -315,7 +335,7 @@ describe('lobby routes', () => {
         displayName: 'Guest',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(200)
     await expect(joinResponse.json()).resolves.toMatchObject({
@@ -376,7 +396,7 @@ describe('lobby routes', () => {
         displayName: 'Guest',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({
@@ -429,7 +449,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('player-1', 'Player 1'),
       body: JSON.stringify({ userId: 'player-1', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, 'player-2', null])
@@ -472,7 +492,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'guest' }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -485,14 +505,14 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'host' }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(nonHostResponse.status).toBe(403)
 
     const unslottedResponse = await app.request('/api/lobby/2v2/transfer-host', {
       method: 'POST',
       headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, targetPlayerId: 'missing' }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(unslottedResponse.status).toBe(400)
     await expect(unslottedResponse.json()).resolves.toEqual({ error: 'New host must be in a lobby slot.' })
   })
@@ -531,7 +551,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -567,7 +587,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'Shuffle teams is only available in team lobbies.' })
@@ -613,7 +633,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders(hostId, 'Host'),
       body: JSON.stringify({ userId: hostId, lobbyId: lobby.id }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -666,7 +686,7 @@ describe('lobby routes', () => {
         displayName: 'Titan',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -712,7 +732,7 @@ describe('lobby routes', () => {
         banTimerSeconds: null,
         pickTimerSeconds: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -760,7 +780,7 @@ describe('lobby routes', () => {
         banTimerSeconds: null,
         pickTimerSeconds: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -784,6 +804,11 @@ describe('lobby routes', () => {
     const withMaxRole = await setLobbyMaxRole(kv, lobby.id, 'tier2', withMinRole ?? lobby)
     expect(withMaxRole).not.toBeNull()
 
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
@@ -792,7 +817,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         civBlitz: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -815,6 +840,11 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
+    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch
+
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
@@ -826,7 +856,7 @@ describe('lobby routes', () => {
         civBlitzExcludeBbgExpanded: false,
         civBlitzOptionCount: expandedMax,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -865,7 +895,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: true }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(closeResponse.status).toBe(200)
     await expect(closeResponse.json()).resolves.toMatchObject({ draftConfig: { closed: true } })
     expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'closed' }))
@@ -874,7 +904,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: false }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(openResponse.status).toBe(200)
     await expect(openResponse.json()).resolves.toMatchObject({ draftConfig: { closed: false } })
     expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'open' }))
@@ -901,7 +931,7 @@ describe('lobby routes', () => {
         banTimerSeconds: null,
         pickTimerSeconds: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(403)
   })
@@ -940,7 +970,7 @@ describe('lobby routes', () => {
         pickTimerSeconds: null,
         steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -974,7 +1004,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         steamLobbyLink: 'steam://joinlobby/289070/22222222222222222/76561198000000000',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1003,7 +1033,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         steamLobbyLink: 'steam://joinlobby/289070/33333333333333333/76561198000000000',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(403)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1055,7 +1085,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1125,13 +1155,13 @@ describe('lobby routes', () => {
         leaderDataVersion: 'live',
         leaderPoolSize: oversizedPool,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(invalid.status).toBe(400)
     const response = await app.request('/api/lobby/2v2/config', {
       method: 'POST',
       headers: buildAuthHeaders('host', 'Host'),
       body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'live', leaderPoolSize: liveMax }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -1190,7 +1220,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         dealOptionsSize: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1230,7 +1260,7 @@ describe('lobby routes', () => {
         mapVoteEnabled: true,
         simultaneousPick: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1278,7 +1308,7 @@ describe('lobby routes', () => {
         minRole: null,
         maxRole: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1325,7 +1355,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         closed: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1375,7 +1405,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         civBlitz: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1418,7 +1448,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         targetSize: 12,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(expandResponse.status).toBe(200)
     await expect(expandResponse.json()).resolves.toMatchObject({ targetSize: 12 })
@@ -1432,7 +1462,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         mapVoteEnabled: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(configResponse.status).toBe(200)
     await expect(configResponse.json()).resolves.toMatchObject({ targetSize: 12 })
@@ -1471,7 +1501,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         randomDraft: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1511,7 +1541,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         duplicateFactions: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1544,7 +1574,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1575,7 +1605,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         banTimerSeconds: 45,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'Only the Steam lobby link can be updated after the draft starts.' })
@@ -1619,7 +1649,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(removeResponse.status).toBe(200)
 
     expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'guest')).toBeNull()
@@ -1634,7 +1664,7 @@ describe('lobby routes', () => {
         displayName: 'Guest',
         avatarUrl: null,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(rejoinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1679,7 +1709,7 @@ describe('lobby routes', () => {
       method: 'POST',
       headers: buildAuthHeaders('guest', 'Guest'),
       body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
     expect(removeResponse.status).toBe(200)
 
     const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'guest', activityRuntimeOptions(kv))
@@ -1734,7 +1764,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '3v3',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -1788,7 +1818,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '1v1',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -1834,7 +1864,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '3v3',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -1889,7 +1919,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '6v6',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -1944,7 +1974,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '1v1',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -1999,7 +2029,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: 'ffa',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2049,7 +2079,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '4v4',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -2098,7 +2128,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '2v2',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
 
@@ -2147,7 +2177,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         nextMode: '2v2',
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -2190,7 +2220,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         blindBans: false,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2231,7 +2261,7 @@ describe('lobby routes', () => {
         lobbyId: lobby.id,
         blindBans: false,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2271,7 +2301,7 @@ describe('lobby routes', () => {
         lobbyId: ffaLobby.id,
         blindBans: false,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(ffaResponse.status).toBe(200)
     await expect(ffaResponse.json()).resolves.toMatchObject({
@@ -2301,7 +2331,7 @@ describe('lobby routes', () => {
         blindBans: false,
         redDeath: true,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(redDeathResponse.status).toBe(200)
     await expect(redDeathResponse.json()).resolves.toMatchObject({
@@ -2331,7 +2361,7 @@ describe('lobby routes', () => {
         blindBans: false,
         targetSize: 8,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(oversizedResponse.status).toBe(200)
     await expect(oversizedResponse.json()).resolves.toMatchObject({
@@ -2378,7 +2408,7 @@ describe('lobby routes', () => {
         targetSize: 4,
         blindBans: false,
       }),
-    }, buildEnv(kv))
+    }, buildEnv(kv), executionCtx)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2406,8 +2436,4 @@ function buildAuthHeaders(userId: string, displayName = userId): HeadersInit {
     'X-CivUp-Activity-User-Id': userId,
     'X-CivUp-Activity-Display-Name': displayName,
   }
-}
-
-async function flushBackgroundTasks(): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, 0))
 }

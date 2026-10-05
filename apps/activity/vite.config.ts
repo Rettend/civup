@@ -4,10 +4,13 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { cloudflare } from '@cloudflare/vite-plugin'
+import solid from '@solidjs/vite-plugin'
 import { createGenerator } from 'unocss'
 import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite-plus'
-import solid from 'vite-plugin-solid'
+import { cloudflareLocalPersistenceDirectory, resolveCloudflareTarget } from '../../config/cloudflare-targets'
+import { activityClientBuildEnvironment } from '../../scripts/cloudflare-worker/activity-build'
+import { browserBuildMetadataFile } from '../../scripts/cloudflare-worker/artifacts'
 import unoConfig from './uno.config'
 
 type UnoGenerator = Awaited<ReturnType<typeof createGenerator>>
@@ -20,23 +23,27 @@ function loadDevVars(): Record<string, string> {
       const trimmed = line.trim()
       if (!trimmed || trimmed.startsWith('#')) continue
       const eqIdx = trimmed.indexOf('=')
-      if (eqIdx > 0) {
-        vars[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1)
-      }
+      if (eqIdx > 0) vars[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1)
     }
     return vars
-  }
-  catch {
+  } catch {
     return {}
   }
 }
 
-function loadProductionDiscordClientId(): string {
-  const configPath = process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH ?? 'wrangler.json'
-  const config = JSON.parse(readFileSync(resolve(import.meta.dirname, configPath), 'utf-8')) as {
-    vars?: { DISCORD_CLIENT_ID?: unknown }
+function browserBuildIdentity(target: string, mode: string, browserApplicationId: string): Plugin {
+  return {
+    name: 'civup-browser-build-identity',
+    apply: 'build',
+    generateBundle() {
+      if (this.environment.name !== 'client') return
+      this.emitFile({
+        type: 'asset',
+        fileName: browserBuildMetadataFile,
+        source: JSON.stringify({ target, mode, browserApplicationId }),
+      })
+    },
   }
-  return typeof config.vars?.DISCORD_CLIENT_ID === 'string' ? config.vars.DISCORD_CLIENT_ID.trim() : ''
 }
 
 function devUnoCssLink(): Plugin {
@@ -55,8 +62,7 @@ function devUnoCssLink(): Plugin {
           res.setHeader('Content-Type', 'text/css')
           res.setHeader('Cache-Control', 'no-store')
           res.end(css)
-        }
-        catch (error) {
+        } catch (error) {
           console.error('[dev-unocss-link] Failed to serve UnoCSS:', error)
           res.statusCode = 500
           res.setHeader('Content-Type', 'text/css')
@@ -121,7 +127,9 @@ function buildAssetRevisionMap(): Record<string, string> {
 
       if (!entry.isFile()) continue
 
-      const assetUrl = `/${relative(resolve(import.meta.dirname, 'public'), absolutePath).split(sep).join('/')}`
+      const assetUrl = `/${relative(resolve(import.meta.dirname, 'public'), absolutePath)
+        .split(sep)
+        .join('/')}`
       const revision = createHash('sha1').update(readFileSync(absolutePath)).digest('hex').slice(0, 10)
       revisions[assetUrl] = revision
     }
@@ -132,29 +140,31 @@ function buildAssetRevisionMap(): Record<string, string> {
 
 const assetRevisionMap = buildAssetRevisionMap()
 
-export default defineConfig(({ command, mode }) => {
-  const discordClientId = mode === 'development'
-    ? (process.env.DISCORD_CLIENT_ID ?? loadDevVars().DISCORD_CLIENT_ID ?? '').trim()
-    : loadProductionDiscordClientId()
+export default defineConfig(({ mode }) => {
+  if (mode !== 'development' && mode !== 'production')
+    throw new Error('Choose development or production for the Activity build mode.')
+  const target = resolveCloudflareTarget(process.env.CIVUP_TARGET, {
+    localTargetsFile: process.env.CIVUP_LOCAL_TARGETS_FILE,
+  })
+  const discordClientId =
+    mode === 'development'
+      ? (process.env.DISCORD_CLIENT_ID ?? loadDevVars().DISCORD_CLIENT_ID ?? '').trim()
+      : target.discord.applicationId
   if (!discordClientId) throw new Error('DISCORD_CLIENT_ID is required to build the Activity')
 
   return {
     envDir: false,
-    build: {
-      outDir: 'dist/client',
+    environments: {
+      client: activityClientBuildEnvironment(import.meta.dirname),
     },
     resolve: {
-      alias: [
-        { find: /^solid-js$/, replacement: 'solid-js/dist/solid.js' },
-        { find: /^solid-js\/web$/, replacement: 'solid-js/web/dist/web.js' },
-        { find: /^solid-js\/store$/, replacement: 'solid-js/store/dist/store.js' },
-        { find: '~', replacement: resolve(import.meta.dirname, 'src') },
-      ],
+      alias: [{ find: '~', replacement: resolve(import.meta.dirname, 'src') }],
+      dedupe: ['solid-js', '@solidjs/web'],
     },
     server: {
-      allowedHosts: [
-        'activity-dev.rettend.me',
-      ],
+      port: 5173,
+      strictPort: true,
+      allowedHosts: ['activity-dev.rettend.me'],
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
         'Pragma': 'no-cache',
@@ -162,8 +172,9 @@ export default defineConfig(({ command, mode }) => {
         'Surrogate-Control': 'no-store',
       },
     },
+    preview: { host: '0.0.0.0', port: 5173, strictPort: true },
     optimizeDeps: {
-      exclude: ['solid-js', 'solid-js/web', 'solid-js/store', '@solidjs/router'],
+      exclude: ['solid-js', '@solidjs/web', '@solidjs/router'],
     },
     define: {
       '__ASSET_REVISION_MAP__': JSON.stringify(assetRevisionMap),
@@ -172,8 +183,13 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       UnoCSS(),
       devUnoCssLink(),
-      solid({ dev: false, hot: false }),
-      ...(command === 'serve' ? [cloudflare()] : []),
+      solid(),
+      browserBuildIdentity(process.env.CIVUP_TARGET!, mode, discordClientId),
+      cloudflare({
+        remoteBindings: false,
+        persistState: { path: resolve(import.meta.dirname, '../..', cloudflareLocalPersistenceDirectory) },
+        experimental: { newConfig: { cfBuildOutput: true, types: { generate: false } } },
+      }),
     ],
   }
 })

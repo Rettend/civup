@@ -64,25 +64,22 @@ describe('leader pool helpers', () => {
     expect(pool.every(id => typeof id === 'string' && id.length > 0)).toBe(true)
   })
 
-  test('samples beta-only leaders when using beta data', () => {
+  test('samples the full live roster for retired beta requests', () => {
     const liveLeaderIds = getLeaderIds('live')
-    const betaOnlyLeaderIds = getLeaderIds('beta').filter(id => !liveLeaderIds.includes(id))
+    const betaLeaderIds = getLeaderIds('beta')
     const pool = sampleLeaderPool(getMaxLeaderPoolSize('beta'), () => 0, 'beta')
 
     expect(MAX_LEADER_POOL_SIZE).toBe(getMaxLeaderPoolSize('beta'))
-    expect(betaOnlyLeaderIds).toEqual([
-      'austria-maria-theresa',
-      'goths-theodoric',
-      'poland-stanislaw-ii',
-      'taino-anacaona',
-    ])
-    expect(betaOnlyLeaderIds.every(id => pool.includes(id))).toBe(true)
+    expect(betaLeaderIds).toEqual(liveLeaderIds)
+    expect(pool).toEqual(liveLeaderIds)
   })
 
   test('rejects invalid sample sizes', () => {
     const liveMaxLeaderPoolSize = getMaxLeaderPoolSize('live')
 
     expect(() => sampleLeaderPool(0)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
-    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(`Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`)
+    expect(() => sampleLeaderPool(liveMaxLeaderPoolSize + 1)).toThrow(
+      `Leader pool size must be between 1 and ${liveMaxLeaderPoolSize}.`,
+    )
   })
 })

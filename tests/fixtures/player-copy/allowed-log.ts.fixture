@@ -1,0 +1,9 @@
+console.error('Season-isolated reporting failed', error)
+throw new Error('SessionDO binding is required')
+const technicalText = 'seed-aware'
+export function query() {
+  return sql`select "rating scope"`
+}
+export function report() {
+  return { error: 'Choose a leader for every player.' }
+}

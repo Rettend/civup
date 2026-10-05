@@ -1,8 +1,8 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { render, screen } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState } from './ui-fixtures'
+import { screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createActiveDraftState, renderUi as render } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const { DraftTimeline } = await import('../src/client/components/draft/DraftTimeline')
@@ -29,6 +29,31 @@ describe('DraftTimeline UI', () => {
 
     expect(screen.getByText('PICK')).toBeTruthy()
     expect(screen.queryByText('BLIND PICK')).toBeNull()
+  })
+
+  test('scrolls the connected current step after reactive updates and stops on disposal', () => {
+    const scrolled: Array<{ text: string | null, connected: boolean, current: string | null }> = []
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      scrolled.push({ text: this.textContent, connected: this.isConnected, current: this.getAttribute('data-current-step') })
+    })
+    try {
+      uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+      const { unmount } = render(() => <DraftTimeline />)
+      expect(scrolled.at(-1)).toMatchObject({ connected: true, current: 'true' })
+
+      uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
+      expect(scrolled.at(-1)?.text).toContain('PICK')
+      uiMockState.mapVotePhase = 'voting'
+      expect(scrolled.at(-1)).toEqual({ text: 'MAP', connected: true, current: 'true' })
+
+      unmount()
+      const count = scrolled.length
+      uiMockState.mapVotePhase = 'done'
+      expect(scrolled).toHaveLength(count)
+    }
+    finally {
+      scroll.mockRestore()
+    }
   })
 
   test('omits repeated action text in fused team pick phases', () => {

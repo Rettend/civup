@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { CivReplayMapTileSnapshot } from './map.ts'
-import type { CivReplayCitySnapshot, CivReplayPlayerSnapshot } from './players.ts'
-import type { CivReplayUnitSnapshot } from './players.ts'
+import type { CivReplayCitySnapshot, CivReplayPlayerSnapshot, CivReplayUnitSnapshot } from './players.ts'
 import type { CivReplayTurnSnapshot } from './snapshot.ts'
 import { attachCivReplaySnapshotEvents } from './events.ts'
 

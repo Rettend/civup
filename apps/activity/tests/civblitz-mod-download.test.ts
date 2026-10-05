@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'vitest'
 import { openCivBlitzModDownload, requestCivBlitzModDownloadUrl } from '../src/client/lib/civblitz-mod-download'
 import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 import { configureClientPlatform } from '../src/client/platform/runtime'

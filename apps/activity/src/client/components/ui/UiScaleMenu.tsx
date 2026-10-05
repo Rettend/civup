@@ -1,5 +1,5 @@
-import { createSignal, onCleanup, Show } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { createSignal, onSettled, Show } from 'solid-js'
+import { Portal } from '@solidjs/web'
 import { cn } from '~/client/lib/css'
 import {
   decreaseUiScale,
@@ -90,7 +90,8 @@ export function UiScaleMenu(props: UiScaleMenuProps) {
     toggleMenu()
   }
 
-  if (typeof document !== 'undefined') {
+  onSettled(() => {
+    if (typeof document === 'undefined') return
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target
       if (!open() || !target) return
@@ -112,13 +113,13 @@ export function UiScaleMenu(props: UiScaleMenuProps) {
     document.addEventListener('keydown', handleKeyDown)
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('scroll', handleViewportChange, true)
-    onCleanup(() => {
+    return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('resize', handleViewportChange)
       window.removeEventListener('scroll', handleViewportChange, true)
-    })
-  }
+    }
+  })
 
   return (
     <>
@@ -134,9 +135,9 @@ export function UiScaleMenu(props: UiScaleMenuProps) {
         title={`UI Scale: ${scaleLabel()}`}
         aria-label="UI Scale"
         aria-haspopup="dialog"
-        aria-expanded={open()}
+        aria-expanded={open() ? 'true' : 'false'}
         disabled={props.disabled}
-        on:click={handleButtonClick}
+        onClick={handleButtonClick}
       >
         <span class={cn('i-ph-gear-six-bold', props.iconClass ?? 'h-4 w-4')} />
       </button>

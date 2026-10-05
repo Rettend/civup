@@ -25,7 +25,7 @@ export function shouldForceReconnectForStaleDraft(params: {
   return params.lastSocketActivityAt <= timerEndsAt
 }
 
-function getReconnectWatchdogTimerEndsAt(params: {
+export function getReconnectWatchdogTimerEndsAt(params: {
   state: DraftState | null
   timerEndsAt: number | null
   mapVote?: Pick<MapVoteSnapshot, 'phase' | 'endsAt'> | null

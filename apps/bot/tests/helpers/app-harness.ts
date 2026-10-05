@@ -32,7 +32,7 @@ export function createExecutionContextHarness(): ExecutionContextHarness {
     executionCtx,
     async flushBackgroundTasks() {
       while (pending.size > 0) {
-        await Promise.all([...pending])
+        await Promise.all(pending)
       }
     },
   }

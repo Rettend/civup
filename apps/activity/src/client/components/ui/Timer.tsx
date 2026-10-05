@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface TimerProps {
@@ -12,8 +12,7 @@ interface TimerProps {
 export function Timer(props: TimerProps) {
   const [remaining, setRemaining] = createSignal(0)
 
-  createEffect(() => {
-    const endsAt = props.endsAt
+  createEffect(() => props.endsAt, (endsAt) => {
     if (endsAt == null) {
       setRemaining(0)
       return
@@ -26,7 +25,7 @@ export function Timer(props: TimerProps) {
 
     tick()
     const interval = setInterval(tick, 100)
-    onCleanup(() => clearInterval(interval))
+    return () => clearInterval(interval)
   })
 
   const seconds = () => Math.ceil(remaining() / 1000)

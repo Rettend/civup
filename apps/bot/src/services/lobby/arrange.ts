@@ -97,8 +97,6 @@ function arrangeTeamLobbySlots(
     return { slots: Array.from({ length: input.slots.length }, () => null as string | null) }
   }
 
-  const slotOrderByPlayerId = buildSlotOrderByPlayerId(input.slots)
-
   if (input.strategy === 'randomize') {
     const random = input.random ?? Math.random
     return { slots: shuffle(input.slots, random) }

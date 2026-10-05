@@ -1,13 +1,13 @@
-import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, LeaderDataVersion, MapVoteSelection } from '@civup/game'
+import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, DraftState, LeaderDataVersion, MapVoteSelection, MapVoteSnapshot } from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
-import { createSignal, untrack } from 'solid-js'
+import { createSignal, latest } from 'solid-js'
 import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { getAuthTransport } from '../platform/runtime'
-import { shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { draftNow, draftStore, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
+import { getReconnectWatchdogTimerEndsAt, shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
+import { draftNow, draftStore, getScheduledDraftNow, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
@@ -143,6 +143,7 @@ export type SelectedSessionStateChange
 
 interface SessionConnectionOptions {
   onStateChanged?: (change: SelectedSessionStateChange) => void
+  forceReconnect?: boolean
 }
 
 export interface LobbyStateWatch {
@@ -260,6 +261,8 @@ let socket: PartySocket | null = null
 let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, onStateChanged?: (change: SelectedSessionStateChange) => void } | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
+// Transport callbacks can run before the reactive clock offset commits.
+let socketServerTimeOffsetMs = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
 let lastServerErrorMessage: { message: string, at: number } | null = null
 let pendingConfigAck:
@@ -273,7 +276,11 @@ let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to the selected session runtime socket. */
 export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, options: SessionConnectionOptions = {}) {
-  if (socket && currentSessionConnection?.sessionId === sessionId && currentSessionConnection.sessionAccessToken === sessionAccessToken) {
+  if (!options.forceReconnect && socket
+    && currentSessionConnection?.sessionId === sessionId
+    && currentSessionConnection.sessionAccessToken === sessionAccessToken
+    && currentSessionConnection.target.host === target.host
+    && currentSessionConnection.target.prefix === target.prefix) {
     currentSessionConnection = { ...currentSessionConnection, target, onStateChanged: options.onStateChanged }
     return
   }
@@ -282,9 +289,12 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
   const previousSocket = socket
   socket = null
   previousSocket?.close()
+  rejectPendingConfigAck()
   lastSentPreviewKeys = {}
   lastSocketActivityAt = 0
-  lastForcedReconnectTimerEndsAt = null
+  const connectionStartedAt = Date.now()
+  socketServerTimeOffsetMs = getScheduledDraftNow(connectionStartedAt) - connectionStartedAt
+  if (!options.forceReconnect) lastForcedReconnectTimerEndsAt = null
   lastServerErrorMessage = null
   currentSessionConnection = null
 
@@ -318,7 +328,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
-    lastSocketActivityAt = draftNow()
+    lastSocketActivityAt = Date.now() + socketServerTimeOffsetMs
     lastServerErrorMessage = null
     setConnectionStatus('connected')
     setConnectionError(null)
@@ -330,12 +340,15 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     const receivedAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as SessionServerMessage
-      if (msg.type === 'init' || msg.type === 'update') syncDraftServerTime(msg.serverNow, receivedAt)
-      lastSocketActivityAt = draftNow(receivedAt)
+      if (msg.type === 'init' || msg.type === 'update') {
+        syncDraftServerTime(msg.serverNow, receivedAt)
+        if (typeof msg.serverNow === 'number' && Number.isFinite(msg.serverNow)) socketServerTimeOffsetMs = msg.serverNow - receivedAt
+      }
+      lastSocketActivityAt = receivedAt + socketServerTimeOffsetMs
       handleServerMessage(msg)
     }
     catch (err) {
-      lastSocketActivityAt = draftNow(receivedAt)
+      lastSocketActivityAt = receivedAt + socketServerTimeOffsetMs
       relayDevLog('error', 'Failed to parse server message', err)
       console.error('Failed to parse server message:', err)
     }
@@ -351,7 +364,10 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     const reason = closeReason ?? (typeof event.type === 'string' ? event.type : '-')
 
     if (code !== 1000) {
-      if (isFatalSocketClose(code)) stopSocketReconnects(nextSocket, `fatal close ${code}`)
+      if (isFatalSocketClose(code)) {
+        socket = null
+        stopSocketReconnects(nextSocket, `fatal close ${code}`)
+      }
       if (code === 4401) clearActivitySessionToken()
 
       relayDevLog('warn', 'Session socket closed unexpectedly', {
@@ -370,6 +386,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
       socket = null
       stopStaleDraftReconnectWatchdog()
+      rejectPendingConfigAck()
       currentSessionConnection = null
       lastSocketActivityAt = 0
       setConnectionStatus('error')
@@ -380,6 +397,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
     socket = null
     stopStaleDraftReconnectWatchdog()
+    rejectPendingConfigAck()
     currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('disconnected')
@@ -406,6 +424,7 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     })
     socket = null
     stopStaleDraftReconnectWatchdog()
+    rejectPendingConfigAck()
     currentSessionConnection = null
     lastSocketActivityAt = 0
     setConnectionStatus('error')
@@ -416,26 +435,31 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
 
 export function disconnect() {
   stopStaleDraftReconnectWatchdog()
-  socket?.close()
+  const previousSocket = socket
   socket = null
+  previousSocket?.close()
   currentSessionConnection = null
   lastSocketActivityAt = 0
   lastForcedReconnectTimerEndsAt = null
   lastServerErrorMessage = null
   lastSentPreviewKeys = {}
-  if (pendingConfigAck) {
-    clearTimeout(pendingConfigAck.timeout)
-    pendingConfigAck.reject(new Error('Disconnected before config update was acknowledged.'))
-    pendingConfigAck = null
-  }
+  rejectPendingConfigAck()
   setConnectionStatus('disconnected')
+  setConnectionError(null)
   setConnectionCloseReason(null)
+}
+
+function rejectPendingConfigAck() {
+  if (!pendingConfigAck) return
+  clearTimeout(pendingConfigAck.timeout)
+  pendingConfigAck.reject(new Error('The lobby disconnected before the change was confirmed.'))
+  pendingConfigAck = null
 }
 
 function startStaleDraftReconnectWatchdog() {
   stopStaleDraftReconnectWatchdog()
   staleDraftReconnectInterval = setInterval(() => {
-    if (!shouldForceReconnectForStaleDraft({
+    if (!latest(() => shouldForceReconnectForStaleDraft({
       connectionStatus: connectionStatus(),
       state: draftStore.state,
       timerEndsAt: draftStore.timerEndsAt,
@@ -443,11 +467,15 @@ function startStaleDraftReconnectWatchdog() {
       lastSocketActivityAt,
       lastForcedReconnectTimerEndsAt,
       nowMs: draftNow(),
-    })) { return }
+    }))) { return }
 
     const currentSession = currentSessionConnection
     if (!currentSession) return
-    lastForcedReconnectTimerEndsAt = draftStore.timerEndsAt
+    lastForcedReconnectTimerEndsAt = latest(() => getReconnectWatchdogTimerEndsAt({
+      state: draftStore.state,
+      timerEndsAt: draftStore.timerEndsAt,
+      mapVote: draftStore.mapVote,
+    }))
 
     relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
       sessionId: currentSession.sessionId,
@@ -458,7 +486,10 @@ function startStaleDraftReconnectWatchdog() {
       lastSocketActivityAt,
       target: describeSessionSocketTarget(currentSession.target),
     })
-    connectToSession(currentSession.target, currentSession.sessionId, currentSession.sessionAccessToken)
+    connectToSession(currentSession.target, currentSession.sessionId, currentSession.sessionAccessToken, {
+      onStateChanged: currentSession.onStateChanged,
+      forceReconnect: true,
+    })
   }, STALE_DRAFT_RECONNECT_CHECK_MS)
 }
 
@@ -547,8 +578,9 @@ function isLobbySnapshot(value: unknown): value is LobbySnapshot {
 // ── Send Messages ──────────────────────────────────────────
 
 export function sendMessage(msg: SessionClientMessage): boolean {
-  const status = untrack(connectionStatus)
-  if (!socket || status !== 'connected') {
+  // The socket is an imperative boundary. Its live state changes before the
+  // UI status signal commits, including open/close callbacks in the same tick.
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     console.warn('Cannot send message: not connected')
     return false
   }
@@ -1098,7 +1130,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       break
     case 'init':
       clearSelections()
-      syncForcedReconnectTimer(msg.timerEndsAt)
+      syncForcedReconnectTimer(msg.state, msg.timerEndsAt, msg.mapVote)
       syncPreviewCache(msg.previews, msg.seatIndex)
       initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
@@ -1106,7 +1138,7 @@ function handleServerMessage(msg: SessionServerMessage) {
       }
       break
     case 'update':
-      syncForcedReconnectTimer(msg.timerEndsAt)
+      syncForcedReconnectTimer(msg.state, msg.timerEndsAt, msg.mapVote)
       syncPreviewCache(msg.previews)
       updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
       if (pendingConfigAck) {
@@ -1178,7 +1210,7 @@ function formatConfigAckError(message: string): Error {
   return new Error(message)
 }
 
-function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Record<number, string[]> }, seatIndex: number | null = draftStore.seatIndex) {
+function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Record<number, string[]> }, seatIndex: number | null = latest(() => draftStore.seatIndex)) {
   if (seatIndex == null) {
     lastSentPreviewKeys = {}
     return
@@ -1190,8 +1222,9 @@ function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Rec
   }
 }
 
-function syncForcedReconnectTimer(timerEndsAt: number | null) {
-  if (timerEndsAt == null || timerEndsAt !== lastForcedReconnectTimerEndsAt) {
+function syncForcedReconnectTimer(state: DraftState, timerEndsAt: number | null, mapVote?: MapVoteSnapshot) {
+  const watchdogEndsAt = getReconnectWatchdogTimerEndsAt({ state, timerEndsAt, mapVote })
+  if (watchdogEndsAt == null || watchdogEndsAt !== lastForcedReconnectTimerEndsAt) {
     lastForcedReconnectTimerEndsAt = null
   }
 }

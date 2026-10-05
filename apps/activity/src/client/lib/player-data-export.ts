@@ -74,7 +74,7 @@ export interface PlayerDataExportSource {
   bans: PlayerDataExportBan[]
 }
 
-export type PlayerDataExportProgress = {
+export interface PlayerDataExportProgress {
   phase: 'players' | 'matches' | 'workbook'
   players: number
   ratings: number
@@ -332,7 +332,7 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       name: 'players',
       columns: ['player_id', 'display_name', 'created_at_utc', 'last_match_at_utc'],
       rowCount: source.players.length,
-      rows: function* () {
+      *rows() {
         for (const player of source.players) {
           yield [player.id, player.displayName, formatTimestampMs(player.createdAt), formatTimestampMs(lastMatchAtByPlayerId.get(player.id))]
         }
@@ -342,7 +342,7 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       name: 'ratings',
       columns: ['player_id', 'mode', 'mu', 'sigma', 'games_played', 'wins', 'last_played_at_utc'],
       rowCount: source.ratings.length,
-      rows: function* () {
+      *rows() {
         for (const rating of source.ratings) {
           yield [rating.playerId, rating.mode, rating.mu, rating.sigma, rating.gamesPlayed, rating.wins, formatTimestampMs(rating.lastPlayedAt)]
         }
@@ -352,7 +352,7 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       name: 'matches',
       columns: ['match_id', 'game_mode', 'status', 'old_bot', 'season_id', 'created_at_utc', 'completed_at_utc'],
       rowCount: source.matches.length,
-      rows: function* () {
+      *rows() {
         for (const match of source.matches) {
           yield [match.id, match.gameMode, match.status, match.isOld, match.seasonId, formatTimestampMs(match.createdAt), formatTimestampMs(match.completedAt)]
         }
@@ -362,7 +362,7 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       name: 'match_participants',
       columns: ['match_id', 'player_id', 'team', 'civ_id', 'placement', 'rating_before_mu', 'rating_before_sigma', 'rating_after_mu', 'rating_after_sigma'],
       rowCount: source.participants.length,
-      rows: function* () {
+      *rows() {
         for (const participant of source.participants) {
           yield [
             participant.matchId,
@@ -382,7 +382,7 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       name: 'match_bans',
       columns: ['match_id', 'phase', 'civ_id', 'banned_by_player_id'],
       rowCount: source.bans.length,
-      rows: function* () {
+      *rows() {
         for (const ban of source.bans) yield [ban.matchId, ban.phase, ban.civId, ban.bannedBy]
       },
     },
@@ -597,7 +597,7 @@ function worksheetFromRows(name: string, columns: readonly string[], rows: XlsxC
     columns,
     columnCount,
     rowCount: rows.length,
-    rows: function* () {
+    *rows() {
       for (const row of rows) yield row
     },
   }
@@ -1033,6 +1033,8 @@ function escapeXmlAttribute(value: string): string {
 
 function escapeXmlText(value: string): string {
   return value
+    // XML 1.0 does not allow these control characters in workbook cells.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\v\f\u000E-\u001F\uFFFE\uFFFF]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

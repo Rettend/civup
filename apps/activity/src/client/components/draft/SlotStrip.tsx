@@ -46,7 +46,6 @@ export function SlotStrip() {
   const hasTeamPlacements = () => teamPlacementOrder().length > 0
   const teamLabel = (team: number) => `Team ${String.fromCharCode(65 + team)}`
   const isTwoTeamResultMode = () => isTeamResultMode() && teamIndices().length <= 2
-  const isMultiTeamResultMode = () => isTeamResultMode() && teamIndices().length > 2
   const isPlacedTeam = (team: number) => teamPlacementRank(team) >= 0
 
   const teamWrapperOverlayClass = (team: number) => {
@@ -137,7 +136,7 @@ export function SlotStrip() {
                   'anim-fade-in',
                   teamOverlayClass(props.align, seatIndices(), 'z-20'),
                 )}
-                style={{ ...winnerGlowStyle, ...(teamOverlayStyle(seatIndices()) ?? {}) }}
+                style={{ ...winnerGlowStyle, ...teamOverlayStyle(seatIndices()) }}
               />
             </Show>
             <Show when={isTeamResultMode() && isPlacedTeam(props.team)}>

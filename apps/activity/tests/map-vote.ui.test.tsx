@@ -1,8 +1,8 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createWaitingDraftState } from './ui-fixtures'
+import { cleanup, screen, waitFor } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { createWaitingDraftState, fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftPage } = await import('../src/client/pages/draft')

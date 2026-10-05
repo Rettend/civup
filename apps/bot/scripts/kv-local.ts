@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite'
 /* eslint-disable no-console */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { Database } from 'bun:sqlite'
+import { resolveCloudflareStorage } from '../../../config/cloudflare-targets.ts'
+import { localResourcePaths } from './local-storage.ts'
 
 interface KvEntryRow {
   key: string
@@ -16,6 +18,7 @@ const usage = [
   '',
   'Flags:',
   '  --all           Include expired keys',
+  '  --target <name> Select standard or ppl local namespace (default: CIVUP_TARGET or standard)',
   '',
   'Commands:',
   '  list [prefix]   List keys and expiration timestamps',
@@ -25,13 +28,22 @@ const usage = [
 
 const args = Bun.argv.slice(2)
 const includeExpired = args.includes('--all')
-const positionalArgs = args.filter(arg => !arg.startsWith('--'))
+const targetIndex = args.indexOf('--target')
+if (targetIndex >= 0 && (!args[targetIndex + 1] || args[targetIndex + 1]!.startsWith('--')))
+  throw new Error('Missing value for --target.')
+const target = targetIndex >= 0 ? args[targetIndex + 1] : (process.env.CIVUP_TARGET ?? 'standard')
+const positionalArgs = args.filter(
+  (arg, index) => !arg.startsWith('--') && (targetIndex < 0 || index !== targetIndex + 1),
+)
 const command = positionalArgs[0] ?? 'list'
 const arg = positionalArgs[1]
 
-const kvRoot = resolve(import.meta.dir, '../.wrangler/state/v3/kv')
-const sqlitePath = resolveLatestKvSqlite(resolve(kvRoot, 'miniflare-KVNamespaceObject'))
-const blobsDir = resolveBlobsDir(kvRoot)
+const selection = resolveCloudflareStorage(target, 'local')
+const paths = localResourcePaths(selection)
+const sqlitePath = paths.kvSqlite
+const blobsDir = paths.kvBlobs
+if (!existsSync(sqlitePath))
+  throw new Error(`Local KV for ${selection.target} (${selection.kv.id}) was not found at ${sqlitePath}.`)
 
 const db = new Database(sqlitePath, { readonly: true })
 
@@ -99,13 +111,13 @@ function selectRows(prefix?: string): KvEntryRow[] {
 
   if (!prefix) {
     if (includeExpired) {
-      return db
-        .query('SELECT key, blob_id, expiration, metadata FROM _mf_entries ORDER BY key')
-        .all() as KvEntryRow[]
+      return db.query('SELECT key, blob_id, expiration, metadata FROM _mf_entries ORDER BY key').all() as KvEntryRow[]
     }
 
     return db
-      .query('SELECT key, blob_id, expiration, metadata FROM _mf_entries WHERE expiration IS NULL OR expiration > ?1 ORDER BY key')
+      .query(
+        'SELECT key, blob_id, expiration, metadata FROM _mf_entries WHERE expiration IS NULL OR expiration > ?1 ORDER BY key',
+      )
       .all(now) as KvEntryRow[]
   }
 
@@ -116,7 +128,9 @@ function selectRows(prefix?: string): KvEntryRow[] {
   }
 
   return db
-    .query('SELECT key, blob_id, expiration, metadata FROM _mf_entries WHERE key LIKE ?1 AND (expiration IS NULL OR expiration > ?2) ORDER BY key')
+    .query(
+      'SELECT key, blob_id, expiration, metadata FROM _mf_entries WHERE key LIKE ?1 AND (expiration IS NULL OR expiration > ?2) ORDER BY key',
+    )
     .all(`${prefix}%`, now) as KvEntryRow[]
 }
 
@@ -127,9 +141,7 @@ function readBlobValue(blobRoot: string, blobId: string): string {
 }
 
 function summarizeRow(row: KvEntryRow, blobRoot: string): string | null {
-  if (
-    !row.key.startsWith('lobby:mode:')
-  ) {
+  if (!row.key.startsWith('lobby:mode:')) {
     return null
   }
 
@@ -138,52 +150,14 @@ function summarizeRow(row: KvEntryRow, blobRoot: string): string | null {
   if (!row.key.startsWith('lobby:mode:')) return null
 
   try {
-    const parsed = JSON.parse(value) as { matchId?: unknown, status?: unknown }
+    const parsed = JSON.parse(value) as { matchId?: unknown; status?: unknown }
     const matchId = typeof parsed.matchId === 'string' ? parsed.matchId : null
     const status = typeof parsed.status === 'string' ? parsed.status : null
-    const parts = [matchId ? `matchId=${matchId}` : null, status ? `status=${status}` : null]
-      .filter((part): part is string => part !== null)
+    const parts = [matchId ? `matchId=${matchId}` : null, status ? `status=${status}` : null].filter(
+      (part): part is string => part !== null,
+    )
     return parts.length > 0 ? parts.join(' ') : null
-  }
-  catch {
+  } catch {
     return null
   }
-}
-
-function resolveLatestKvSqlite(sqliteDir: string): string {
-  if (!existsSync(sqliteDir)) {
-    throw new Error(`Missing local KV sqlite directory: ${sqliteDir}`)
-  }
-
-  const sqliteFiles = readdirSync(sqliteDir)
-    .filter(file => file.endsWith('.sqlite'))
-    .map((file) => {
-      const filePath = resolve(sqliteDir, file)
-      return {
-        filePath,
-        mtimeMs: statSync(filePath).mtimeMs,
-      }
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-
-  const latest = sqliteFiles[0]
-  if (!latest) {
-    throw new Error(`No sqlite files found in ${sqliteDir}`)
-  }
-
-  return latest.filePath
-}
-
-function resolveBlobsDir(kvBaseDir: string): string {
-  const candidates = readdirSync(kvBaseDir)
-    .filter(name => name !== 'miniflare-KVNamespaceObject')
-    .map(name => resolve(kvBaseDir, name, 'blobs'))
-    .filter(path => existsSync(path))
-
-  const first = candidates[0]
-  if (!first) {
-    throw new Error(`No KV blobs directory found under ${kvBaseDir}`)
-  }
-
-  return first
 }

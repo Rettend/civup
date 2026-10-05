@@ -1,8 +1,8 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { render, screen } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState } from './ui-fixtures'
+import { screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { createActiveDraftState, createCompleteDraftState, renderUi as render } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const { SlotStrip } = await import('../src/client/components/draft/SlotStrip')

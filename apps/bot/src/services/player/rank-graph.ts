@@ -89,7 +89,6 @@ interface RankGraphTierThreshold {
 const IMAGE_WIDTH = 1200
 const IMAGE_HEIGHT = 630
 const SIDE_PAD = 52
-const HEADER_HEIGHT = 100
 const CHART_X = 84
 const CHART_Y = 120
 const CHART_W = 1050

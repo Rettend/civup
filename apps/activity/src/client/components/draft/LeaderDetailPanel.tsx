@@ -1,6 +1,6 @@
 import type { CivBlitzComponent, CivBlitzComponentCategory, Leader, LeaderUnique } from '@civup/game'
 import { getLeader } from '@civup/game'
-import { createEffect, For, onCleanup, Show } from 'solid-js'
+import { createEffect, For, onSettled, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { detailLeaderId, draftStore, isLeaderFavorited, setDetailLeaderId, toggleLeaderFavorite } from '~/client/stores'
@@ -18,6 +18,8 @@ const detailPanelScrollTopByKey = new Map<string, number>()
 /** Click-to-open detail panel beside the grid */
 export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent | null, onClose?: () => void } = {}) {
   let scrollElement: HTMLDivElement | undefined
+  let rememberedElement: HTMLDivElement | undefined
+  let currentScrollKey: string | null = null
   const leader = (): Leader | null => {
     const id = detailLeaderId()
     if (!id) return null
@@ -48,20 +50,21 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
     return id ? `leader:${id}` : null
   }
   const rememberScroll = () => {
-    const key = scrollKey()
-    if (key && scrollElement) detailPanelScrollTopByKey.set(key, scrollElement.scrollTop)
+    if (currentScrollKey && rememberedElement) detailPanelScrollTopByKey.set(currentScrollKey, rememberedElement.scrollTop)
   }
-  const restoreScroll = () => {
-    const key = scrollKey()
-    if (!key || !scrollElement) return
+  const restoreScroll = (key: string | null) => {
+    rememberScroll()
+    currentScrollKey = key
+    rememberedElement = scrollElement
+    const element = scrollElement
+    if (!key || !element) return
     const scrollTop = detailPanelScrollTopByKey.get(key) ?? 0
     queueMicrotask(() => {
-      if (scrollKey() === key && scrollElement) scrollElement.scrollTop = scrollTop
+      if (currentScrollKey === key && scrollElement === element && element.isConnected) element.scrollTop = scrollTop
     })
   }
   const setScrollElement = (element: HTMLDivElement) => {
     scrollElement = element
-    restoreScroll()
   }
   const componentImageUrl = () => props.civBlitzComponent?.iconUrl ?? props.civBlitzComponent?.portraitUrl ?? null
   const componentImageClass = () => {
@@ -69,15 +72,13 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
     return cn('object-contain p-1.5', props.civBlitzComponent.category === 'civilizationAbility' ? 'rounded-full' : 'rounded')
   }
 
-  createEffect(() => {
-    scrollKey()
-    restoreScroll()
-  })
+  createEffect(scrollKey, restoreScroll)
 
-  onCleanup(rememberScroll)
+  onSettled(() => rememberScroll)
 
-  if (props.civBlitzComponent) {
-    return (
+  const civBlitzDetails = () => (
+    <Show when={props.civBlitzComponent}>
+      {component => (
       <div ref={setScrollElement} class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible" onScroll={rememberScroll} data-leader-detail-panel>
         <div class="flex flex-col gap-1 items-end right-4 top-2 absolute z-10">
           <button
@@ -101,20 +102,22 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
             )}
           </Show>
           <div class="min-w-0">
-            <h3 class="text-base text-fg font-bold truncate">{props.civBlitzComponent.name}</h3>
-            <span class="text-sm text-fg-muted">{props.civBlitzComponent.civilization ?? CIV_BLITZ_CATEGORY_LABELS[props.civBlitzComponent.category]}</span>
+            <h3 class="text-base text-fg font-bold truncate">{component().name}</h3>
+            <span class="text-sm text-fg-muted">{component().civilization ?? CIV_BLITZ_CATEGORY_LABELS[component().category]}</span>
           </div>
         </div>
 
         <div class="mb-3">
-          <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">{CIV_BLITZ_CATEGORY_LABELS[props.civBlitzComponent.category]}</div>
-          <RichLeaderText text={props.civBlitzComponent.description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
+          <div class="text-[10px] text-accent tracking-widest font-bold mb-1 uppercase">{CIV_BLITZ_CATEGORY_LABELS[component().category]}</div>
+          <RichLeaderText text={component().description} class="text-xs text-fg-muted leading-relaxed mt-0.5 block" />
         </div>
       </div>
-    )
-  }
+      )}
+    </Show>
+  )
 
   return (
+    <Show when={!props.civBlitzComponent} fallback={civBlitzDetails()}>
     <Show when={leader()}>
       {l => (
         <div ref={setScrollElement} class="p-4 h-full w-full select-text relative overflow-x-hidden overflow-y-auto sm:overflow-x-visible" onScroll={rememberScroll} data-leader-detail-panel>
@@ -186,6 +189,7 @@ export function LeaderDetailPanel(props: { civBlitzComponent?: CivBlitzComponent
           </For>
         </div>
       )}
+    </Show>
     </Show>
   )
 }

@@ -6,6 +6,7 @@ import { buildRankCommandImage } from '../../src/commands/rank.ts'
 import { buildRankGraphImageData, renderRankGraphSvg } from '../../src/services/player/rank-graph.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'
 
 const NOW = 1_700_000_000_000
 const HERO_ID = '100010000000000099'
@@ -283,4 +284,3 @@ async function seedRatingEvents(
 function isPng(bytes: Uint8Array): boolean {
   return Array.from(bytes.slice(0, 8)).join(',') === '137,80,78,71,13,10,26,10'
 }
-import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'

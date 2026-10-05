@@ -83,7 +83,7 @@ function LastArrangeIndicator(props: { strategy: LobbyArrangeStrategy, isTeamMod
       aria-label={`Last used: ${label()}`}
     >
       <span>Last used:</span>
-      <span class={cn(getLastArrangeIconClass(props.strategy), 'text-xs text-accent')} aria-hidden />
+      <span class={cn(getLastArrangeIconClass(props.strategy), 'text-xs text-accent')} aria-hidden="true" />
     </span>
   )
 }

@@ -1,5 +1,5 @@
 import type { ActivityTargetOption } from '../src/client/stores'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {

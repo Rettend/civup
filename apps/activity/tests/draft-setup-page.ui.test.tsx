@@ -1,14 +1,25 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState } from './ui-fixtures'
+import { cleanup, fireEvent as nativeFireEvent, screen, waitFor } from '@solidjs/testing-library'
+import { createSignal, flush } from 'solid-js'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState, fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
 const { formatRating, formatRecord, formatWinRate, formatRankedRole } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
-const onLobbyStarted = mock(() => {})
+const onLobbyStarted = vi.fn(() => {})
+
+function renderLobby(initial: ReturnType<typeof createLobbySnapshot>) {
+  let setLobby: (lobby: ReturnType<typeof createLobbySnapshot>) => void = () => {}
+  const result = render(() => {
+    const [lobby, updateLobby] = createSignal(initial)
+    setLobby = updateLobby
+    return <DraftSetupPage lobby={lobby()} />
+  })
+  return { ...result, setLobby }
+}
 
 async function selectDropdownOption(label: string, optionLabel: string) {
   const trigger = screen.getByRole('button', { name: label })
@@ -467,7 +478,78 @@ describe('DraftSetupPage UI', () => {
     expect(firstPatch.blindBans).toBe(false)
     expect(secondPatch.blindBans).toBe(false)
     expect(secondPatch.randomDraft).toBe(true)
-    expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false)
+    await waitFor(() => expect(randomDraftSwitch.hasAttribute('disabled')).toBe(false))
+  })
+
+  test('saves input normalized in the blur event without a synchronous flush', async () => {
+    render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
+    const banInput = screen.getByRole('spinbutton', { name: 'Ban Timer (minutes)' }) as HTMLInputElement
+
+    nativeFireEvent.focus(banInput)
+    nativeFireEvent.input(banInput, { target: { value: '999' } })
+    nativeFireEvent.blur(banInput)
+
+    await waitFor(() => expect(storeSpies.updateLobbyConfig).toHaveBeenCalled())
+    expect(storeSpies.updateLobbyConfig.mock.calls[0]![3].banTimerSeconds).toBe(1800)
+  })
+
+  test('keeps a valid roles request pending across newer snapshots of the same lobby', async () => {
+    let resolveRoles: (value: Awaited<ReturnType<typeof storeSpies.fetchLobbyRankedRoles>>) => void = () => {}
+    storeSpies.fetchLobbyRankedRoles.mockImplementationOnce(() => new Promise(resolve => { resolveRoles = resolve }))
+    const { setLobby } = renderLobby(createLobbySnapshot({ minRole: 'gold' }))
+    await waitFor(() => expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1))
+
+    setLobby(createLobbySnapshot({ revision: 2, minRole: 'gold' }))
+    flush()
+    resolveRoles({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'Current lobby rank', color: '#facc15' }] })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('Current lobby rank'))
+    expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1)
+  })
+
+  test('ignores roles and test-player responses from a previous lobby', async () => {
+    let resolveRoles: (value: Awaited<ReturnType<typeof storeSpies.fetchLobbyRankedRoles>>) => void = () => {}
+    let resolveAvailability: (value: boolean) => void = () => {}
+    storeSpies.fetchLobbyRankedRoles
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRoles = resolve }))
+      .mockResolvedValue({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'New lobby rank', color: '#facc15' }] })
+    storeSpies.canFillLobbyWithTestPlayers
+      .mockImplementationOnce(() => new Promise(resolve => { resolveAvailability = resolve }))
+      .mockResolvedValue(false)
+    const { setLobby } = renderLobby(createLobbySnapshot({ minRole: 'gold' }))
+    await waitFor(() => expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1))
+
+    setLobby(createLobbySnapshot({ id: 'lobby-2', minRole: 'gold' }))
+    flush()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('New lobby rank'))
+    resolveRoles({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'Old lobby rank', color: '#facc15' }] })
+    resolveAvailability(true)
+    await Promise.all([storeSpies.fetchLobbyRankedRoles.mock.results[0]!.value, storeSpies.canFillLobbyWithTestPlayers.mock.results[0]!.value])
+    flush()
+
+    expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('New lobby rank')
+    expect(screen.queryByText('Old lobby rank')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Fill with test players' })).toBeNull()
+  })
+
+  test('does not replace a newer config snapshot with an older save response', async () => {
+    let resolveSave = () => {}
+    const save = new Promise<void>(resolve => { resolveSave = resolve })
+    storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
+      await save
+      return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, 2, { ...patch, banTimerSeconds: 120 }) }
+    })
+    const initial = createLobbySnapshot({ mode: '2v2' })
+    const { setLobby } = renderLobby(initial)
+    fireEvent.click(screen.getByRole('button', { name: 'Ban Draft' }))
+    await waitFor(() => expect(storeSpies.updateLobbyConfig).toHaveBeenCalledTimes(1))
+
+    setLobby({ ...initial, revision: 5, draftConfig: { ...initial.draftConfig, blindBans: false } })
+    flush()
+    resolveSave()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ban Draft' }).hasAttribute('disabled')).toBe(false))
+
+    expect((screen.getByRole('spinbutton', { name: 'Ban Timer (minutes)' }) as HTMLInputElement).value).toBe('1')
   })
 
   test('keeps a refocused timer input active when an older blur save finishes', async () => {
@@ -486,7 +568,7 @@ describe('DraftSetupPage UI', () => {
     banInput.focus()
     fireEvent.focus(banInput)
     fireEvent.input(banInput, { target: { value: '2' } })
-    fireEvent.blur(banInput)
+    banInput.blur()
 
     await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.length).toBe(1))
 
@@ -738,12 +820,14 @@ describe('DraftSetupPage UI', () => {
 
     expect(screen.queryByRole('button', { name: 'Shuffle teams' })).toBeNull()
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Auto-balance teams' }).hasAttribute('disabled')).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Auto-balance teams' }))
     await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'balance'))
 
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Start Draft' }))
     await waitFor(() => expect(storeSpies.startLobbyDraft).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))
-    expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'session-token')
+    await waitFor(() => expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'session-token'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Lobby' }))
     await waitFor(() => expect(storeSpies.cancelLobby).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))

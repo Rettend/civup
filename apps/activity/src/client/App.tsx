@@ -1,5 +1,6 @@
-import { Route, Router } from '@solidjs/router'
-import { lazy, Suspense } from 'solid-js'
+import type { ParentProps } from 'solid-js'
+import { createRouter } from '@solidjs/router'
+import { lazy, Loading } from 'solid-js'
 import {
   preloadActivityIndexRoute,
   preloadActivityRedirectRoute,
@@ -23,27 +24,47 @@ const LobbyWaitingRoute = lazy(preloadLobbyWaitingRoute)
 const PracticePage = lazy(preloadPracticePage)
 const WebSessionRoute = lazy(preloadWebSessionRoute)
 
+function EmbeddedActivityShell(props: ParentProps) {
+  return <ActivityShell surface="discord-embedded">{props.children}</ActivityShell>
+}
+
+function BrowserActivityShell(props: ParentProps) {
+  return <ActivityShell surface="web">{props.children}</ActivityShell>
+}
+
+export const ActivityRouter = createRouter({
+  routes: [
+    { path: '/practice/:game?', component: PracticePage },
+    {
+      path: '/',
+      component: EmbeddedActivityShell,
+      children: [
+        { path: '/', component: ActivityIndexRoute },
+        { path: '/overview', component: LobbyOverviewRoute },
+        { path: '/uploads', component: AutosaveCatalogPage },
+        { path: '/lobby/:lobbyId', component: LobbyWaitingRoute },
+        { path: '/draft/:matchId', component: DraftActivityRoute },
+      ],
+    },
+    {
+      path: '/web',
+      component: BrowserActivityShell,
+      children: [
+        { path: '/channel/:channelId', component: LobbyOverviewRoute },
+        { path: '/session/:sessionId', component: WebSessionRoute },
+      ],
+    },
+    { path: '*all', component: ActivityRedirectRoute },
+  ],
+})
+
 export default function App() {
   return (
     <>
       <UiScaleController />
-      <Suspense fallback={<AppRouteFallback />}>
-        <Router>
-          <Route path="/practice/:game?" component={PracticePage} />
-          <Route path="/" component={ActivityShell}>
-            <Route path="/" component={ActivityIndexRoute} />
-            <Route path="/overview" component={LobbyOverviewRoute} />
-            <Route path="/uploads" component={AutosaveCatalogPage} />
-            <Route path="/lobby/:lobbyId" component={LobbyWaitingRoute} />
-            <Route path="/draft/:matchId" component={DraftActivityRoute} />
-          </Route>
-          <Route path="/web" component={ActivityShell}>
-            <Route path="/channel/:channelId" component={LobbyOverviewRoute} />
-            <Route path="/session/:sessionId" component={WebSessionRoute} />
-          </Route>
-          <Route path="*all" component={ActivityRedirectRoute} />
-        </Router>
-      </Suspense>
+      <Loading fallback={<AppRouteFallback />}>
+        <ActivityRouter />
+      </Loading>
     </>
   )
 }

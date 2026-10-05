@@ -12,7 +12,8 @@ import type {
   CivReplayUnitSnapshot,
 } from './players.ts'
 import type { CivReplayTurnSnapshot } from './snapshot.ts'
-import { createCivReplayCityAttributionContext, inferUnitCreatedCity, type CivReplayCityAttributionContext } from './city-attribution.ts'
+import type { CivReplayCityAttributionContext } from './city-attribution.ts'
+import { createCivReplayCityAttributionContext, inferUnitCreatedCity } from './city-attribution.ts'
 
 export type CivReplaySnapshotEvent =
   | CivReplayCityFoundedEvent

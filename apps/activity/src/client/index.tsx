@@ -1,6 +1,6 @@
-import { render } from 'solid-js/web'
+import { render } from '@solidjs/web'
 import { relayDevLog, shouldRelayDevLog } from './lib/dev-log'
-import '@fontsource-variable/inter'
+import '@fontsource-variable/inter/index.css'
 import 'virtual:uno.css'
 
 declare global {

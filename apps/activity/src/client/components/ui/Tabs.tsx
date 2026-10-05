@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createMemo, For, splitProps } from 'solid-js'
+import { createMemo, For } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 type MaybeAccessor<T> = T | Accessor<T>
@@ -18,8 +18,7 @@ interface TabsProps<T extends string = string> {
   class?: string
 }
 
-export function Tabs<T extends string = string>(props: TabsProps<T>) {
-  const [local] = splitProps(props, ['options', 'value', 'disabled', 'onChange', 'class'])
+export function Tabs<T extends string = string>(local: TabsProps<T>) {
   const resolve = <V,>(v: MaybeAccessor<V> | undefined) => typeof v === 'function' ? (v as Accessor<V>)() : v
   const value = createMemo(() => resolve(local.value))
   const disabled = createMemo(() => resolve(local.disabled) ?? false)
@@ -45,7 +44,7 @@ export function Tabs<T extends string = string>(props: TabsProps<T>) {
                   : 'text-fg-muted border border-transparent hover:text-fg hover:bg-white/4',
               )}
               disabled={disabled()}
-              aria-pressed={active()}
+              aria-pressed={active() ? 'true' : 'false'}
               aria-label={option.ariaLabel ?? option.label}
               onClick={() => local.onChange?.(option.value)}
             >

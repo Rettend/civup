@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { createEffect, createSignal, onSettled } from 'solid-js'
 import {
   decreaseUiScale,
   increaseUiScale,
@@ -13,12 +13,13 @@ export function UiScaleController() {
   let wheelDelta = 0
   const [viewportHeight, setViewportHeight] = createSignal(0)
 
-  createEffect(() => {
+  createEffect(() => ({
+    scale: isMiniView() ? 1 : uiScale() / 100,
+    height: viewportHeight() || readViewportHeight(),
+  }), ({ scale, height }) => {
     if (typeof document === 'undefined') return
 
     const body = document.body
-    const scale = isMiniView() ? 1 : uiScale() / 100
-    const height = viewportHeight() || readViewportHeight()
 
     body.style.setProperty('--civup-ui-scale', String(scale))
     body.style.setProperty('--civup-ui-scale-inverse', String(1 / scale))
@@ -29,7 +30,7 @@ export function UiScaleController() {
     else body.style.setProperty('zoom', String(scale))
   })
 
-  onMount(() => {
+  onSettled(() => {
     const handleViewportResize = () => setViewportHeight(readViewportHeight())
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
@@ -73,21 +74,17 @@ export function UiScaleController() {
     window.addEventListener('keydown', handleKeyDown)
     document.addEventListener('wheel', handleWheel, { passive: false })
 
-    onCleanup(() => {
+    return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
       window.removeEventListener('resize', handleViewportResize)
       window.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('wheel', handleWheel)
-    })
-  })
-
-  onCleanup(() => {
-    if (typeof document === 'undefined') return
-    document.body.style.removeProperty('--civup-ui-scale')
-    document.body.style.removeProperty('--civup-ui-scale-inverse')
-    document.body.style.removeProperty('--civup-scaled-viewport-height')
-    document.body.style.removeProperty('zoom')
-    document.body.classList.remove('civup-ui-scaled')
+      document.body.style.removeProperty('--civup-ui-scale')
+      document.body.style.removeProperty('--civup-ui-scale-inverse')
+      document.body.style.removeProperty('--civup-scaled-viewport-height')
+      document.body.style.removeProperty('zoom')
+      document.body.classList.remove('civup-ui-scaled')
+    }
   })
 
   return null

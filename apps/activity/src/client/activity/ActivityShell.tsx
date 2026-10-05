@@ -1,4 +1,4 @@
-import type { JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import type { PlayerDataExportFile, PlayerDataExportState } from '../lib/player-data-export'
 import type { ActivityTargetDescriptor } from '../lib/activity-targets'
 import type {
@@ -16,13 +16,13 @@ import type {
 import type { ActivityState } from './activity-context'
 import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { useLocation, useNavigate } from '@solidjs/router'
-import { batch, createEffect, createSignal, onCleanup, onMount, Show, startTransition, untrack } from 'solid-js'
+import { createEffect, createSignal, onSettled, Show, untrack } from 'solid-js'
 import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
 import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { buildActivitySessionHeaders } from '../lib/activity-session'
 import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/autosave-upload'
 import { relayDevLog } from '../lib/dev-log'
-import { bootstrapBrowserChannel, bootstrapBrowserSession } from '../platform/browser-platform'
+import { bootstrapBrowserChannel, bootstrapBrowserSession, BrowserLaunchValidationError } from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
 import { openExternalLink } from '../platform/external-links'
 import {
@@ -117,10 +117,11 @@ type LiveRoute
     | { kind: 'lobby', id: string }
     | { kind: 'draft', id: string }
 
-export default function ActivityShell(props: { children?: JSX.Element }) {
+export default function ActivityShell(props: { surface: 'web' | 'discord-embedded', children?: JSX.Element }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const surface = location.pathname.startsWith('/web/') ? 'web' as const : 'discord-embedded' as const
+  // Each surface is a separate layout route; this shell never changes surface.
+  const surface = untrack(() => props.surface)
   const browserRoute = () => surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
   const directBrowserSessionId = () => {
     const route = browserRoute()
@@ -149,6 +150,8 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   const [playerDataExportState, setPlayerDataExportState] = createSignal<PlayerDataExportState>({ status: 'idle' })
   const [loadedBrowserRouteKey, setLoadedBrowserRouteKey] = createSignal<string | null>(null)
   let activityWatch: LobbyStateWatch | null = null
+  let activityWatchVersion = 0
+  let selectedSessionVersion = 0
   let launchSnapshotFallbackTimeout: ReturnType<typeof setTimeout> | null = null
   let autosaveUploadResetTimeout: ReturnType<typeof setTimeout> | null = null
   let autosaveFileInput: HTMLInputElement | undefined
@@ -168,11 +171,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   let overviewPushSourcePath: string | null = null
   let pendingLiveRoutePath: string | null = null
   let suppressAutoSelection = false
-  let refreshInFlight = false
+  let refreshInFlight: object | null = null
+  let disposed = false
   const liveLobbySnapshots = new Map<string, LobbySnapshot>()
   const failedAutoSelectionKeys = new Set<string>()
 
   const stopActivityWatch = () => {
+    activityWatchVersion += 1
     if (!activityWatch) return
     activityWatch.close()
     activityWatch = null
@@ -197,8 +202,24 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     setAvailableTargets(options)
   }
 
-  const clearDraftConnection = () => {
+  const disconnectSelectedSession = () => {
+    selectedSessionVersion += 1
     disconnect()
+  }
+
+  const connectSelectedSession = (sessionId: string, sessionAccessToken: string | null) => {
+    if (disposed || document.visibilityState === 'hidden') return
+    const requestVersion = ++selectedSessionVersion
+    connectToSession(SESSION_SOCKET_TARGET, sessionId, sessionAccessToken, {
+      onStateChanged: (change) => {
+        if (disposed || requestVersion !== selectedSessionVersion) return
+        handleSelectedSessionStateChange(change)
+      },
+    })
+  }
+
+  const clearDraftConnection = () => {
+    disconnectSelectedSession()
     resetDraft()
   }
 
@@ -207,27 +228,47 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     return status === 'connecting' || status === 'reconnecting' || status === 'connected'
   }
 
-  const shouldHoldAuthenticatedDraftState = (nextSelectionKind: 'lobby' | 'match' | null = null) => {
-    if (state().status !== 'authenticated') return false
+  const readSelectionState = () => ({
+    current: state(),
+    lastSelection: lastResolvedSelection(),
+    targets: availableTargets(),
+    fallback: fallbackOptions(),
+    cleared: clearedTarget(),
+    inFlight: isDraftConnectionInFlight(),
+    draft: draftStore.state ? { status: draftStore.state.status, cancelReason: draftStore.state.cancelReason } : null,
+    browserRoute: browserRoute(),
+    directSessionId: directBrowserSessionId(),
+    pathname: location.pathname,
+  })
+
+  const shouldHoldAuthenticatedDraftState = (nextSelectionKind: 'lobby' | 'match' | null = null, selectionState = readSelectionState()) => {
+    if (selectionState.current.status !== 'authenticated') return false
     return shouldHoldAuthenticatedDraftStateForSelection({
       nextSelectionKind,
-      hasInFlightConnection: isDraftConnectionInFlight(),
-      draftState: draftStore.state,
+      hasInFlightConnection: selectionState.inFlight,
+      draftState: selectionState.draft,
     })
   }
 
-  onCleanup(() => {
+  onSettled(() => () => {
+    disposed = true
     clearLaunchSnapshotFallback()
     clearAutosaveUploadReset()
     browserRouteRequestVersion += 1
+    selectionRequestVersion += 1
+    launchSnapshotRequestVersion += 1
+    liveStateRevision += 1
     adminCapabilitiesRequestVersion += 1
     playerDataExportRequestVersion += 1
+    refreshInFlight = null
     pendingPlayerDataExport = null
+    activeChannelId = null
+    activeUserId = null
     stopActivityWatch()
     clearDraftConnection()
   })
 
-  onMount(() => {
+  onSettled(() => {
     const viewport = window.visualViewport
     const syncMiniView = () => {
       const width = viewport?.width ?? window.innerWidth
@@ -248,13 +289,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     window.addEventListener('resize', syncMiniView)
     viewport?.addEventListener('resize', syncMiniView)
 
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('resize', syncMiniView)
       viewport?.removeEventListener('resize', syncMiniView)
-    })
+    }
   })
 
-  onMount(() => {
+  onSettled(() => {
     if (surface === 'web') return
     const handleDragEnter = (event: DragEvent) => {
       if (!isFileDrag(event)) return
@@ -290,12 +331,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     window.addEventListener('dragleave', handleDragLeave)
     window.addEventListener('drop', handleDrop)
 
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('dragenter', handleDragEnter)
       window.removeEventListener('dragover', handleDragOver)
       window.removeEventListener('dragleave', handleDragLeave)
       window.removeEventListener('drop', handleDrop)
-    })
+    }
   })
 
   const currentTargetKey = () => {
@@ -330,12 +371,12 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
   }
 
-  const resolveMatchSelectionOption = (matchId: string, lobbyId: string | null, lobbyMode: string | null): ActivityTargetOption => {
-    const resolved = availableTargets().find(option => option.kind === 'match' && option.id === matchId)
-      ?? fallbackOptions().find(option => option.kind === 'match' && option.id === matchId)
+  const resolveMatchSelectionOption = (matchId: string, lobbyId: string | null, lobbyMode: string | null, selectionState = readSelectionState()): ActivityTargetOption => {
+    const resolved = selectionState.targets.find(option => option.kind === 'match' && option.id === matchId)
+      ?? selectionState.fallback.find(option => option.kind === 'match' && option.id === matchId)
     if (resolved) return resolved
 
-    const lastSelection = lastResolvedSelection()
+    const lastSelection = selectionState.lastSelection
     if (lastSelection?.kind === 'match' && lastSelection.matchId === matchId) {
       return lastSelection.option
     }
@@ -368,15 +409,17 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       lobbyMode: string | null
       reported?: boolean
     },
+    selectionState = readSelectionState(),
   ) => {
+    if (disposed) return
     setPickerError(null)
 
-    const current = state()
+    const current = selectionState.current
     const nextAutoStart = current.status === 'authenticated' && current.matchId === matchId
       ? current.autoStart || autoStart
       : autoStart
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
-    const hasTerminalDraft = draftStore.state?.status === 'complete' || draftStore.state?.status === 'cancelled'
+    const hasTerminalDraft = selectionState.draft?.status === 'complete' || selectionState.draft?.status === 'cancelled'
     const nextLobbyId = lobbyContext?.lobbyId
       ?? (current.status === 'lobby-waiting'
         ? current.lobby.id
@@ -391,11 +434,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           : null)
     const nextReported = lobbyContext?.reported === true
 
-    const previousSelection = lastResolvedSelection()
+    const previousSelection = selectionState.lastSelection
     if (previousSelection?.kind !== 'match' || previousSelection.matchId !== matchId) {
       setLastResolvedSelection({
         kind: 'match',
-        option: resolveMatchSelectionOption(matchId, nextLobbyId, nextLobbyMode),
+        option: resolveMatchSelectionOption(matchId, nextLobbyId, nextLobbyMode, selectionState),
         matchId,
         steamLobbyLink,
         sessionAccessToken,
@@ -407,17 +450,18 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode, reported: nextReported })
     if (nextReported) {
       const shouldKeepTerminalDraft = isSameMatch && hasTerminalDraft
-      disconnect()
+      disconnectSelectedSession()
       if (!shouldKeepTerminalDraft) resetDraft()
       return
     }
-    if (isSameMatch && (isDraftConnectionInFlight() || hasTerminalDraft)) return
+    if (isSameMatch && (selectionState.inFlight || hasTerminalDraft || document.visibilityState === 'hidden')) return
 
     resetDraft()
-    connectToSession(SESSION_SOCKET_TARGET, nextLobbyId ?? matchId, sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+    connectSelectedSession(nextLobbyId ?? matchId, sessionAccessToken)
   }
 
   const handleSelectedSessionStateChange = (change: SelectedSessionStateChange) => {
+    if (disposed) return
     liveStateRevision += 1
 
     if (change.type === 'session-started') {
@@ -453,7 +497,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         })
         setLiveTargetState({ kind: 'lobby', id: snapshot.id, pendingJoin: false })
         setState({ status: 'lobby-waiting', lobby: snapshot, joinPending: false, joinEligibility })
-        disconnect()
+        disconnectSelectedSession()
         return
       }
 
@@ -490,13 +534,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     })) { return }
 
     if (current.status === 'authenticated') {
-      connectToSession(SESSION_SOCKET_TARGET, current.lobbyId ?? current.matchId, current.sessionAccessToken, { onStateChanged: handleSelectedSessionStateChange })
+      connectSelectedSession(current.lobbyId ?? current.matchId, current.sessionAccessToken)
       return
     }
 
     const directSessionId = directBrowserSessionId()
     if (current.status === 'lobby-waiting' && directSessionId) {
-      connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+      connectSelectedSession(directSessionId, null)
       return
     }
     if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch) startActivityWatch(activeChannelId, activeUserId)
@@ -506,39 +550,41 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     snapshot: ActivityLaunchSnapshot,
     autoStart = false,
     allowSelectionWhileOverview = false,
+    selectionState = readSelectionState(),
   ) => {
+    if (disposed) return
     const filteredSnapshot: ActivityLaunchSnapshot = {
-      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, clearedTarget())
+      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, selectionState.cleared)
         ? null
         : snapshot.selection,
-      options: visibleTargetOptions(snapshot.options),
+      options: filterClearedActivityTargetOptions(snapshot.options, selectionState.cleared),
     }
-    const current = state()
+    const current = selectionState.current
     updateAvailableTargets(filteredSnapshot.options)
 
     if (!filteredSnapshot.selection) {
       setPickerError(null)
 
-      if (shouldHoldAuthenticatedDraftState()) return
+      if (shouldHoldAuthenticatedDraftState(null, selectionState)) return
 
       setLastResolvedSelection(null)
       if (current.status === 'authenticated') {
         clearDraftConnection()
       }
       else if (current.status === 'lobby-waiting') {
-        disconnect()
+        disconnectSelectedSession()
       }
 
       setState({ status: 'overview' })
       return
     }
 
-    if (current.status === 'authenticated' && filteredSnapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby')) return
+    if (current.status === 'authenticated' && filteredSnapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby', selectionState)) return
 
     setLastResolvedSelection(filteredSnapshot.selection)
 
     if (!shouldApplyResolvedActivitySelection({
-      isOverviewVisible: current.status === 'overview',
+      isOverviewVisible: current.status === 'overview' || pendingLiveRoutePath === '/overview',
       allowSelectionWhileOverview,
     })) { return }
 
@@ -566,17 +612,16 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         }
         return { status: 'lobby-waiting', lobby: resolvedLobby, joinPending, joinEligibility }
       })
-      disconnect()
-      const directSessionId = directBrowserSessionId()
+      disconnectSelectedSession()
+      const directSessionId = selectionState.directSessionId
       if (directSessionId) {
-        connectToSession(SESSION_SOCKET_TARGET, directSessionId, null, { onStateChanged: handleSelectedSessionStateChange })
+        connectSelectedSession(directSessionId, null)
       }
       return
     }
 
     if (filteredSnapshot.selection.option.reported === true) {
-      const current = state()
-      if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && draftStore.state?.status === 'complete') {
+      if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && selectionState.draft?.status === 'complete') {
         if (!current.reported) setState({ ...current, reported: true })
         return
       }
@@ -584,14 +629,14 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
         lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
         reported: true,
-      })
+      }, selectionState)
       return
     }
 
     transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.sessionAccessToken, {
       lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
       lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
-    })
+    }, selectionState)
   }
 
   const hydrateActivityLaunchSnapshot = (snapshot: ActivityLaunchSnapshot, allowSelectionWhileOverview = false) => {
@@ -611,16 +656,19 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     applyLaunchSnapshot(filteredSnapshot, false, allowSelectionWhileOverview)
   }
 
-  const refreshActivityLaunchSnapshot = async (channelId: string, userId: string) => {
-    const route = browserRoute()
+  const refreshActivityLaunchSnapshot = async (channelId: string, userId: string, route = browserRoute()) => {
+    if (disposed) return
+    const requestVersion = ++launchSnapshotRequestVersion
+    const routeRequestVersion = browserRouteRequestVersion
+    const liveStateRevisionAtStart = liveStateRevision
     if (surface === 'web' && route?.kind === 'channel') {
       const bootstrap = await bootstrapBrowserChannel(route.channelId)
-      if (activeChannelId !== channelId || activeUserId !== userId) return
+      if (disposed || requestVersion !== launchSnapshotRequestVersion || routeRequestVersion !== browserRouteRequestVersion
+        || liveStateRevisionAtStart !== liveStateRevision
+        || activeChannelId !== channelId || activeUserId !== userId) return
       hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
       return
     }
-    const requestVersion = ++launchSnapshotRequestVersion
-    const liveStateRevisionAtStart = liveStateRevision
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
     if (!snapshot) return
 
@@ -639,13 +687,20 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     hydrateActivityLaunchSnapshot(snapshot)
   }
 
-  const requestActivityLaunchSnapshotRefresh = async () => {
-    const directSessionId = directBrowserSessionId()
+  const requestActivityLaunchSnapshotRefresh = async (route = browserRoute()) => {
+    if (disposed) return
+    const directSessionId = route?.kind === 'session' ? route.sessionId : null
     if (directSessionId) {
       if (refreshInFlight) return
-      refreshInFlight = true
+      const routeRequestVersion = browserRouteRequestVersion
+      const requestVersion = ++launchSnapshotRequestVersion
+      const liveStateRevisionAtStart = liveStateRevision
+      const refreshRequest = {}
+      refreshInFlight = refreshRequest
       try {
         const bootstrap = await bootstrapBrowserSession(directSessionId)
+        if (disposed || routeRequestVersion !== browserRouteRequestVersion || requestVersion !== launchSnapshotRequestVersion
+          || liveStateRevisionAtStart !== liveStateRevision) return
         if (bootstrap.context.status === 'ended') {
           setState({ status: 'error', message: 'This session has ended.' })
           clearDraftConnection()
@@ -657,7 +712,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         }, true)
       }
       finally {
-        refreshInFlight = false
+        if (refreshInFlight === refreshRequest) refreshInFlight = null
       }
       return
     }
@@ -665,59 +720,54 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const userId = activeUserId
     if (!channelId || !userId || refreshInFlight) return
 
-    refreshInFlight = true
+    const refreshRequest = {}
+    refreshInFlight = refreshRequest
     try {
-      await refreshActivityLaunchSnapshot(channelId, userId)
+      await refreshActivityLaunchSnapshot(channelId, userId, route)
     }
     finally {
-      refreshInFlight = false
+      if (refreshInFlight === refreshRequest) refreshInFlight = null
     }
   }
 
-  const navigateToSelectionFromOverview = (selection: ActivityLaunchSelection, options: { auto?: boolean } = {}) => {
+  const navigateToSelectionFromOverview = (selection: ActivityLaunchSelection, options: { auto?: boolean } = {}, selectionState = readSelectionState()) => {
     if (surface === 'web') {
       const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
-      void startTransition(() => navigate(browserSessionPath(sessionId), { scroll: false }))
+      navigate(browserSessionPath(sessionId), { scroll: false })
       return
     }
-    if (options.auto || state().status !== 'overview') return
-    if (parseLiveRoute(location.pathname)?.kind !== 'overview') return
+    if (options.auto || selectionState.current.status !== 'overview') return
+    if (parseLiveRoute(selectionState.pathname)?.kind !== 'overview') return
 
     const selectedPath = getCanonicalSelectionPath(selection)
     pendingLiveRoutePath = selectedPath
-    void startTransition(() => {
-      navigate(selectedPath, { scroll: false })
-    })
+    navigate(selectedPath, { scroll: false })
   }
 
-  const openOverview = (options: { replace?: boolean } = {}) => {
+  const openOverview = (options: { replace?: boolean } = {}, selectionState = readSelectionState()) => {
     if (surface === 'web') {
       const channelId = activeChannelId
       if (!channelId) return
-      void startTransition(() => navigate(browserChannelPath(channelId, directBrowserSessionId() ?? undefined), { scroll: false }))
+      navigate(browserChannelPath(channelId, directBrowserSessionId() ?? undefined), { scroll: false })
       return
     }
 
-    const current = state()
+    const current = selectionState.current
     const replace = options.replace ?? false
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = '/overview'
     selectionRequestVersion += 1
     setPickerBusy(false)
     setPickerError(null)
-    if (!replace && location.pathname !== '/overview') overviewPushSourcePath = location.pathname
-    batch(() => {
-      setOverviewPinned(true)
-      setState({ status: 'overview' })
-    })
-    void startTransition(() => {
-      navigate('/overview', { replace, scroll: false })
-    })
+    if (!replace && selectionState.pathname !== '/overview') overviewPushSourcePath = selectionState.pathname
+    setOverviewPinned(true)
+    setState({ status: 'overview' })
+    navigate('/overview', { replace, scroll: false })
     if (current.status === 'authenticated') {
       clearDraftConnection()
     }
     else if (current.status === 'lobby-waiting') {
-      disconnect()
+      disconnectSelectedSession()
       resetDraft()
     }
     else {
@@ -731,21 +781,20 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       const channelId = activeChannelId
       if (!channelId) return
       const returnRoute = browserReturnRoute()
-      void startTransition(() => navigate(browserPracticePath(channelId, returnRoute?.kind === 'session' ? returnRoute.sessionId : undefined), { scroll: false }))
+      navigate(browserPracticePath(channelId, returnRoute?.kind === 'session' ? returnRoute.sessionId : undefined), { scroll: false })
       return
     }
 
     pendingTargetSelectionKey = null
     pendingLiveRoutePath = null
     selectionRequestVersion += 1
+    launchSnapshotRequestVersion += 1
     setPickerBusy(false)
     setPickerError(null)
     stopActivityWatch()
     clearLaunchSnapshotFallback()
     clearDraftConnection()
-    void startTransition(() => {
-      navigate('/practice/great-people', { scroll: false })
-    })
+    navigate('/practice/great-people', { scroll: false })
   }
 
   const openAutosaveUpload = () => {
@@ -759,9 +808,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const openAutosaveCatalog = () => {
-    void startTransition(() => {
-      navigate('/uploads', { scroll: false })
-    })
+    navigate('/uploads', { scroll: false })
   }
 
   const canViewAutosaveCatalog = () => {
@@ -878,6 +925,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
   }
 
   const setAutosaveUploadMessage = (nextState: AutosaveUploadState, resetDelayMs = 4500) => {
+    if (disposed) return
     clearAutosaveUploadReset()
     setAutosaveUploadState(nextState)
     if (nextState.status === 'uploading') return
@@ -1004,7 +1052,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
   const requestTargetSelection = async (option: ActivityTargetOption, auto = false) => {
     if (surface === 'web') {
-      void startTransition(() => navigate(browserSessionPath(option.lobbyId), { scroll: false }))
+      navigate(browserSessionPath(option.lobbyId), { scroll: false })
       return
     }
     const channelId = activeChannelId
@@ -1043,21 +1091,32 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
   }
 
-  const applyLiveActivityState = () => {
+  const readLiveActivityState = () => ({
+    overviewSnapshot: liveOverviewSnapshot(),
+    targetState: liveTargetState(),
+    lobbyVersion: liveLobbySnapshotVersion(),
+    fallback: fallbackOptions(),
+    pinned: overviewPinned(),
+    // Selection/connection state is sampled, not a dependency: applying live
+    // data writes those same values. Only the live inputs above trigger replay.
+    selectionState: untrack(readSelectionState),
+  })
+
+  const applyLiveActivityState = (input = readLiveActivityState()) => {
     const currentUserId = activeUserId
-    const overviewSnapshot = liveOverviewSnapshot()
-    const targetState = liveTargetState()
-    const current = state()
+    const { overviewSnapshot, targetState, selectionState } = input
+    const pinned = input.pinned || pendingLiveRoutePath === '/overview'
+    const current = selectionState.current
     if (!currentUserId || overviewSnapshot === undefined) return
 
     clearLaunchSnapshotFallback()
 
     const rawOptions = overviewSnapshot === undefined
-      ? fallbackOptions()
+      ? selectionState.fallback
       : overviewSnapshot
         ? materializeOverviewOptions(overviewSnapshot, currentUserId)
         : []
-    const options = applyLiveLobbyMembership(visibleTargetOptions(rawOptions), liveLobbySnapshots, currentUserId)
+    const options = applyLiveLobbyMembership(filterClearedActivityTargetOptions(rawOptions, selectionState.cleared), liveLobbySnapshots, currentUserId)
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
       ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
@@ -1067,7 +1126,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     const resolvedAutoSelectedOption = resolveAutoSelectedActivityTarget({
       options,
       target: targetState,
-      overviewPinned: overviewPinned(),
+      overviewPinned: pinned,
       suppressAutoSelection,
     })
     const autoSelectedOption = resolvedAutoSelectedOption && !failedAutoSelectionKeys.has(activityTargetOptionKey(resolvedAutoSelectedOption))
@@ -1093,13 +1152,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       setLiveTargetState(null)
       setClearedTarget(targetState)
       suppressAutoSelection = true
-      void requestActivityLaunchSnapshotRefresh()
+      void requestActivityLaunchSnapshotRefresh(selectionState.browserRoute)
       return
     }
 
     if (resolvedSnapshot?.selection) {
       const resolvedKey = activityTargetOptionKey(resolvedSnapshot.selection.option)
-      const allowSelectionWhileOverview = !overviewPinned() || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
+      const allowSelectionWhileOverview = !pinned || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
       if (!shouldApplyResolvedActivitySelection({
         isOverviewVisible: current.status === 'overview',
         allowSelectionWhileOverview,
@@ -1109,7 +1168,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         pendingTargetSelectionKey = null
         setPickerBusy(false)
       }
-      applyLaunchSnapshot(resolvedSnapshot, false, allowSelectionWhileOverview)
+      applyLaunchSnapshot(resolvedSnapshot, false, allowSelectionWhileOverview, selectionState)
       return
     }
 
@@ -1118,22 +1177,22 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     if (!targetOption) {
       if (autoSelectedOption) {
         void requestTargetSelection(autoSelectedOption, true)
-        if (state().status === 'loading') return
+        if (current.status === 'loading') return
       }
     }
 
     if (pendingTargetSelectionKey == null) {
       setPickerBusy(false)
     }
-    applyLaunchSnapshot({ selection: null, options }, false, !overviewPinned())
+    applyLaunchSnapshot({ selection: null, options }, false, !pinned, selectionState)
   }
 
-  const handleActivityStateChange = (_channelId: string, _currentUserId: string, change: ActivityStateChange) => {
+  const handleActivityStateChange = (channelId: string, currentUserId: string, change: ActivityStateChange) => {
+    if (disposed || activeChannelId !== channelId || activeUserId !== currentUserId) return
     liveStateRevision += 1
 
     if (change.type === 'overview') {
       setLiveOverviewSnapshot(change.snapshot)
-      applyLiveActivityState()
       return
     }
 
@@ -1153,34 +1212,33 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         }
       }
       setLiveLobbySnapshotVersion(version => version + 1)
-      applyLiveActivityState()
     }
   }
 
-  createEffect(() => {
-    liveOverviewSnapshot()
-    liveTargetState()
-    liveLobbySnapshotVersion()
-    fallbackOptions()
-    overviewPinned()
-    untrack(applyLiveActivityState)
-  })
+  createEffect(
+    readLiveActivityState,
+    input => applyLiveActivityState(input),
+  )
 
-  createEffect(() => {
-    if (state().status !== 'overview') setOverviewPinned(false)
+  createEffect(() => state().status, (status) => {
+    if (status !== 'overview') setOverviewPinned(false)
   })
 
   createEffect(() => {
     const current = state()
-    const refreshKey = getBrokenMatchRefreshKey({
-      appStatus: current.status,
-      currentMatchId: current.status === 'authenticated' ? current.matchId : null,
-      connectionStatus: connectionStatus(),
-      connectionCloseReason: connectionCloseReason(),
-      draftState: draftStore.state,
-    })
-
-    if (current.status !== 'authenticated') {
+    return {
+      status: current.status,
+      route: browserRoute(),
+      refreshKey: getBrokenMatchRefreshKey({
+        appStatus: current.status,
+        currentMatchId: current.status === 'authenticated' ? current.matchId : null,
+        connectionStatus: connectionStatus(),
+        connectionCloseReason: connectionCloseReason(),
+        draftState: draftStore.state,
+      }),
+    }
+  }, ({ status, refreshKey, route }) => {
+    if (status !== 'authenticated') {
       brokenMatchRefreshKey = null
       return
     }
@@ -1188,11 +1246,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     if (!refreshKey || brokenMatchRefreshKey === refreshKey) return
 
     brokenMatchRefreshKey = refreshKey
-    void requestActivityLaunchSnapshotRefresh()
+    void requestActivityLaunchSnapshotRefresh(route)
   })
 
   const startActivityWatch = (channelId: string, currentUserId: string) => {
+    if (disposed) return
     stopActivityWatch()
+    const requestVersion = activityWatchVersion
     clearLaunchSnapshotFallback()
     pendingTargetSelectionKey = null
     selectionRequestVersion += 1
@@ -1210,9 +1270,11 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
       channelId,
       userId: currentUserId,
       onStateChanged: (change) => {
+        if (disposed || requestVersion !== activityWatchVersion) return
         handleActivityStateChange(channelId, currentUserId, change)
       },
       onError: (message) => {
+        if (disposed || requestVersion !== activityWatchVersion) return
         if (liveOverviewSnapshot() === undefined) {
           setState({ status: 'error', message })
         }
@@ -1226,15 +1288,13 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }, 1500)
   }
 
-  createEffect(() => {
-    const current = state()
-    const channelId = activeChannelId
-    const userId = activeUserId
-    if (surface === 'web' && loadedBrowserRouteKey() !== browserRouteKey()) {
-      stopActivityWatch()
-      return
-    }
-    if (!shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: current.status }) || !channelId || !userId) {
+  createEffect(() => ({
+    routeReady: surface !== 'web' || loadedBrowserRouteKey() === browserRouteKey(),
+    shouldWatch: shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: state().status }),
+    channelId: activeChannelId,
+    userId: activeUserId,
+  }), ({ routeReady, shouldWatch, channelId, userId }) => {
+    if (!routeReady || !shouldWatch || !channelId || !userId || document.visibilityState === 'hidden') {
       stopActivityWatch()
       return
     }
@@ -1257,22 +1317,27 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     await requestTargetSelection(option)
   }
 
-  const restoreLastSelection = async () => {
+  const restoreLastSelection = async (selectionState = readSelectionState(), liveInput = readLiveActivityState()) => {
     if (surface === 'web') {
       const returnPath = browserReturnPath()
-      if (returnPath) void startTransition(() => navigate(returnPath, { scroll: false }))
+      if (returnPath) navigate(returnPath, { scroll: false })
       return
     }
 
-    const lastSelection = lastResolvedSelection()
+    const lastSelection = selectionState.lastSelection
     if (!lastSelection) return
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(lastSelection.option)
     failedAutoSelectionKeys.delete(optionKey)
-    if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: currentTargetKey() })) {
+    const selectedKey = selectionState.current.status === 'authenticated'
+      ? activityTargetOptionKey({ kind: 'match', id: selectionState.current.matchId })
+      : selectionState.current.status === 'lobby-waiting'
+        ? activityTargetOptionKey({ kind: 'lobby', id: selectionState.current.lobby.id })
+        : activityTargetOptionKey(lastSelection.option)
+    if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: selectedKey })) {
       pendingTargetSelectionKey = optionKey
-      navigateToSelectionFromOverview(lastSelection)
-      applyLiveActivityState()
+      navigateToSelectionFromOverview(lastSelection, {}, selectionState)
+      applyLiveActivityState({ ...liveInput, selectionState })
       return
     }
     await requestTargetSelection(lastSelection.option)
@@ -1280,20 +1345,34 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
 
   const canResumeSelection = () => browserReturnPath() != null || lastResolvedSelection() != null
 
-  createEffect(() => {
-    if (surface !== 'web') return
-    const route = browserRoute()
-    const routeKey = browserRouteKey()
+  createEffect(() => surface === 'web' ? { route: browserRoute(), routeKey: browserRouteKey() } : null, (browser) => {
+    if (!browser) return
+    const { route, routeKey } = browser
     const requestVersion = ++browserRouteRequestVersion
+    launchSnapshotRequestVersion += 1
+    selectionRequestVersion += 1
+    adminCapabilitiesRequestVersion += 1
+    activeChannelId = null
+    activeUserId = null
+    refreshInFlight = null
 
     stopActivityWatch()
     clearLaunchSnapshotFallback()
     clearDraftConnection()
+    setLoadedBrowserRouteKey(null)
+    setLastResolvedSelection(null)
+    setClearedTarget(null)
+    setLiveOverviewSnapshot(undefined)
+    setLiveTargetState(null)
+    setFallbackOptions([])
+    liveLobbySnapshots.clear()
+    setLiveLobbySnapshotVersion(version => version + 1)
+    setOverviewPinned(false)
     setPickerBusy(false)
     setPickerError(null)
     setState({ status: 'loading' })
 
-    void untrack(async () => {
+    void (async () => {
       try {
         if (!route) throw new Error('Invalid browser URL')
         if (route.kind === 'session') {
@@ -1332,58 +1411,54 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
         relayDevLog('error', 'Browser app setup failed', err)
         setState({
           status: 'error',
-          message: err instanceof Error && err.message.trim().length > 0
-            ? err.message
-            : typeof err === 'string' && err.trim().length > 0
-              ? err
-              : 'Unknown error',
+          message: err instanceof BrowserLaunchValidationError ? err.message : 'Could not open the activity.',
         })
       }
-    })
+    })()
   })
 
-  onMount(async () => {
+  onSettled(() => {
     if (surface === 'web') return
-    try {
-      const bootstrap = await bootstrapDiscordPlatform()
-      setAuthenticatedUser(bootstrap.identity)
-      const channelId = bootstrap.channelId
+    void (async () => {
+      try {
+        const bootstrap = await bootstrapDiscordPlatform()
+        if (disposed) return
+        setAuthenticatedUser(bootstrap.identity)
+        const channelId = bootstrap.channelId
 
-      if (!channelId) {
-        setState({ status: 'error', message: 'No channel ID found - start from Discord' })
-        return
-      }
+        if (!channelId) {
+          setState({ status: 'error', message: 'Open this activity from Discord.' })
+          return
+        }
 
-      activeChannelId = channelId
-      activeUserId = bootstrap.identity.userId
-      void refreshAdminCapabilities()
-      const initialRoute = parseLiveRoute(location.pathname)
-      if (initialRoute?.kind === 'overview') {
-        setOverviewPinned(true)
-        if (availableTargets().length > 0) setState({ status: 'overview' })
+        activeChannelId = channelId
+        activeUserId = bootstrap.identity.userId
+        void refreshAdminCapabilities()
+        const initialRoute = parseLiveRoute(location.pathname)
+        if (initialRoute?.kind === 'overview') {
+          setOverviewPinned(true)
+          if (availableTargets().length > 0) setState({ status: 'overview' })
+        }
+        void requestActivityLaunchSnapshotRefresh()
       }
-      void requestActivityLaunchSnapshotRefresh()
-    }
-    catch (err) {
-      console.error('Discord SDK setup failed:', err)
-      relayDevLog('error', 'Activity app setup failed', err)
-      setState({
-        status: 'error',
-        message: err instanceof Error && err.message.trim().length > 0
-          ? err.message
-          : typeof err === 'string' && err.trim().length > 0
-            ? err
-            : 'Unknown error',
-      })
-    }
+      catch (err) {
+        if (disposed) return
+        console.error('Discord SDK setup failed:', err)
+        relayDevLog('error', 'Activity app setup failed', err)
+        setState({
+          status: 'error',
+          message: 'Could not open the activity.',
+        })
+      }
+    })()
   })
 
-  onMount(() => {
+  onSettled(() => {
     const handleVisibilityChange = () => {
       if (!activeChannelId || !activeUserId) return
       if (document.visibilityState === 'hidden') {
         // Keep the current draft UI state, but drop background sockets so hidden activities do not keep retrying.
-        disconnect()
+        disconnectSelectedSession()
         stopActivityWatch()
         clearLaunchSnapshotFallback()
         return
@@ -1402,79 +1477,69 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
     }
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    onCleanup(() => {
+    return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-    })
+    }
   })
 
   let routeRestoreAttemptKey: string | null = null
 
-  createEffect(() => {
-    if (surface === 'web') return
-    const route = parseLiveRoute(location.pathname)
-    const current = state()
+  createEffect(() => surface === 'web' ? null : {
+    pathname: location.pathname,
+    current: state(),
+    selection: lastResolvedSelection(),
+    busy: pickerBusy(),
+    selectionState: untrack(readSelectionState),
+    liveInput: readLiveActivityState(),
+  }, (snapshot) => {
+    if (!snapshot) return
+    const { pathname, current, selection, busy, selectionState, liveInput } = snapshot
+    const route = parseLiveRoute(pathname)
     if (current.status === 'loading' || current.status === 'error') return
-
-    if (!route || route.kind === 'root') {
-      routeRestoreAttemptKey = null
-      return
-    }
-
-    if (route.kind === 'overview') {
-      routeRestoreAttemptKey = null
-      const currentPath = getCanonicalLivePath(current)
-      if (current.status !== 'overview' && currentPath !== pendingLiveRoutePath) untrack(() => openOverview({ replace: true }))
-      return
-    }
-
-    if (current.status !== 'overview') {
-      routeRestoreAttemptKey = null
-      return
-    }
-
-    if (overviewPushSourcePath === location.pathname) return
-
-    if (!liveRouteMatchesSelection(route, lastResolvedSelection())) return
-
-    const routeKey = liveRouteKey(route)
-    if (routeRestoreAttemptKey === routeKey || pickerBusy()) return
-    routeRestoreAttemptKey = routeKey
-    void untrack(restoreLastSelection)
-  })
-
-  createEffect(() => {
-    if (surface === 'web') return
-    const current = state()
     const canonicalPath = getCanonicalLivePath(current)
     if (!canonicalPath) return
-    if (pendingLiveRoutePath && location.pathname === pendingLiveRoutePath) pendingLiveRoutePath = null
-    if (location.pathname === canonicalPath) {
-      if (canonicalPath === '/overview') overviewPushSourcePath = null
+
+    // Router navigation can hold the same staged update as shell state. Never
+    // replace that in-flight destination using the last committed selection.
+    if (pendingLiveRoutePath) {
+      if (pathname !== pendingLiveRoutePath) return
+      pendingLiveRoutePath = null
+    }
+
+    if (route?.kind === 'uploads') return
+    if (route?.kind === 'overview') {
+      routeRestoreAttemptKey = null
+      if (current.status !== 'overview') openOverview({ replace: true }, selectionState)
+      else overviewPushSourcePath = null
       return
     }
 
-    const route = parseLiveRoute(location.pathname)
-    if (route?.kind === 'uploads') return
-    if (canonicalPath === '/overview' && overviewPushSourcePath === location.pathname) return
-    if (canonicalPath === pendingLiveRoutePath) return
+    if (pathname === canonicalPath) {
+      routeRestoreAttemptKey = null
+      return
+    }
+
+    if (canonicalPath === '/overview' && overviewPushSourcePath === pathname) return
     if (
       current.status === 'overview'
       && route
-      && route.kind !== 'overview'
       && route.kind !== 'root'
-      && pickerBusy()
-      && liveRouteMatchesSelection(route, lastResolvedSelection())
+      && liveRouteMatchesSelection(route, selection)
     ) {
+      const routeKey = liveRouteKey(route)
+      if (!busy && routeRestoreAttemptKey !== routeKey) {
+        routeRestoreAttemptKey = routeKey
+        void restoreLastSelection(selectionState, liveInput)
+      }
       return
     }
 
-    void startTransition(() => {
-      navigate(canonicalPath, { replace: true, scroll: false })
-    })
+    routeRestoreAttemptKey = null
+    navigate(canonicalPath, { replace: true, scroll: false })
   })
 
   return (
-    <ActivityControllerContext.Provider
+    <ActivityControllerContext
       value={{
         canSwitchTargets: true,
         canResumeSelection,
@@ -1533,7 +1598,7 @@ export default function ActivityShell(props: { children?: JSX.Element }) {
           setAutosaveUploadState({ status: 'idle' })
         }}
       />
-    </ActivityControllerContext.Provider>
+    </ActivityControllerContext>
   )
 }
 
@@ -1578,14 +1643,14 @@ function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () 
     <Show when={props.state.status !== 'idle'}>
       <div class="fixed bottom-5 right-5 z-[90] max-w-[min(24rem,calc(100vw-2.5rem))]">
         <div class="flex items-start gap-3 rounded-2xl border border-border-subtle bg-bg-subtle/95 px-4 py-3 text-fg shadow-2xl backdrop-blur">
-          <span class={`${iconClass()} mt-0.5 shrink-0 text-xl`} />
-          <div class={`min-w-0 flex-1 text-sm font-semibold break-words ${messageClass()}`}>{message()}</div>
+          <span class={[iconClass(), 'mt-0.5 shrink-0 text-xl']} />
+          <div class={['min-w-0 flex-1 text-sm font-semibold break-words', messageClass()]}>{message()}</div>
           <Show when={props.state.status !== 'uploading'}>
             <button
               type="button"
               class="text-fg-muted transition hover:text-fg"
               aria-label="Dismiss upload status"
-              onClick={props.onDismiss}
+              onClick={() => props.onDismiss()}
             >
               <span class="i-ph-x-bold text-base" />
             </button>

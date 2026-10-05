@@ -1,6 +1,6 @@
 import type { DraftState, MapVoteSnapshot } from '@civup/game'
 import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, isDraftError, processDraftInput } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 

@@ -1,16 +1,18 @@
 {
   "name": "@civup/rating",
-  "type": "module",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "bun@1.4.2",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit"
+    "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=../../coverage/rating",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "openskill": "^4.1.0"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

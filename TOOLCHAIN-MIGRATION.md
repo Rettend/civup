@@ -2,7 +2,9 @@
 
 Move the workspace to Vite+ and Vite 8, Oxlint/Oxfmt, stable TypeScript 7, Solid 2 with Router 2, and Cloudflare's `cf` CLI with shared TypeScript configuration.
 
-This is an implementation plan, dated 2026-10-05. The source baseline is `947209c6`, now on `origin/main`. Before planning, the existing type/copy checks, 1,097 workspace tests, and Activity development build passed. The proposed dependency combination has not yet been installed or tested in this repository.
+This is the implementation plan, dated 2026-10-05. The source baseline is `947209c6`, now on `origin/main`. Before planning, the existing type/copy checks, 1,097 workspace tests, and Activity development build passed.
+
+The migration is implemented. The integrated copy/type checks, read-only lint, workspace tests, and runner-specific coverage pass. Development, standard, and PPL Activity builds and both bot target builds pass locally. The isolated storage check verifies migrations, typed D1 values, transaction rollback, KV TTLs, and pagination under Node and Bun. Real Discord iframe/OAuth interaction still requires a separately requested development session.
 
 ## Implementation choices
 
@@ -15,6 +17,21 @@ This is an implementation plan, dated 2026-10-05. The source baseline is `947209
 - Preserve current public command names where practical. In particular, `deploy:prod` currently selects the standard account; PPL has its own runner.
 
 Implementation and verification are local work. Deployment, remote migrations, secret uploads, Discord registration, and production maintenance require the user's explicit request under the repository's existing rules.
+
+### Verified compatibility findings
+
+- Vite+ `1.0.0` resolves Vite `8.3.1` and Vitest `5.0.1`. All three Activity build modes passed before the Solid upgrade.
+- The Solid 1/Vitest bridge passed all original 304 Activity tests and V8 coverage. An isolated Solid 2 fixture passed native and Babel compilation, Router 2 navigation, TypeScript 7, and a production SPA build.
+- Game, rating, and save-metadata tests now have package test and coverage entrypoints. Their existing suites were absent from the previous package-script-based workspace command.
+- Stable TypeScript 7 supplies `tsc` through the `@typescript/native` alias. The `typescript` package name points to TypeScript 6's library API for lint plugins. Pin matching Workers types across the workspace to avoid separate Drizzle peer instances.
+- PPL configuration was already local-only. Its public data remains in git-ignored `config/cloudflare-targets.local.json`; tracked tests use fixture identities.
+- The pinned Cloudflare config schema cannot preserve tagged Durable Object migrations or `keep_vars`. Bot deployment therefore needs a derived Wrangler adapter, using the same target data and existing migration history.
+- `cf workers secrets bulk` exists but accepts a body argument or file, not stdin. The secret helper retains Wrangler's stdin transport and per-Worker allowlist.
+- `cf kv keys list` discards cursor metadata. Complete enumeration needs the narrow Wrangler/Miniflare adapters in `scripts/cloudflare-client.ts`.
+- Local `cf d1 raw` cannot preserve numeric/null bindings or every SQL-script result. The Node Miniflare adapter covers those cases and transactional batches. The opt-in local integration verifies migrations and storage operations against the same temporary persistence directory.
+- `cf build` cannot spawn its JavaScript delegate on Windows, and its framework registry rejects the pinned Cloudflare Vite plugin. Build wrappers invoke the installed Wrangler/Vite+ builders explicitly under Node; Activity deployment still uses `cf deploy --prebuilt`.
+- Activity declares the final client asset directory before the Cloudflare plugin runs. This keeps UnoCSS's CSS processing attached to the correct output; artifact checks reject missing, unlinked, or placeholder utility styles.
+- The migration assistant is read-only but targets Solid RC 0; it reports valid RC 13 split effects as migration sites. Installed RC 13 types, guides, and runtime tests determine the supported API.
 
 ## Dependency starting point
 
@@ -135,7 +152,7 @@ Read the cheatsheet shipped with the selected Solid 2 version and the matching m
 
 **New module:** `config/cloudflare-targets.ts`.
 
-Define a typed, plain-data record for `standard` and `ppl`. It supplies:
+Define typed, plain public target data: tracked `standard` settings and git-ignored local `ppl` settings. It supplies:
 
 - Cloudflare account ID and the two Worker names.
 - Discord application/client ID, public key, guild settings, and Activity origin.

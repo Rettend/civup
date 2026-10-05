@@ -137,7 +137,7 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
               {item => (
                 <button
                   type="button"
-                  aria-pressed={filter() === item.key}
+                  aria-pressed={filter() === item.key ? 'true' : 'false'}
                   aria-label={item.label}
                   title={item.label}
                   onClick={() => setFilter(item.key)}
@@ -206,7 +206,7 @@ function OverviewTargetCard(props: {
     <button
       type="button"
       aria-label={formatTargetAriaLabel(props.option)}
-      aria-pressed={props.selected}
+      aria-pressed={props.selected ? 'true' : 'false'}
       disabled={props.busy}
       onClick={() => props.onSelect(props.option)}
       class={cn(

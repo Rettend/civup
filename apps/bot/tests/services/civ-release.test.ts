@@ -1,8 +1,9 @@
+import type { ContributionRow, CivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { createDb, civReleaseDirty, civReleaseProjections, matches, matchCivStatContributions } from '@civup/db'
 import { expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { advanceCivReleaseProjection, readCivReleaseSnapshots } from '../../src/services/leaderboard/civ-release.ts'
-import { CIV_LEADERBOARD_MODE_SCOPES, selectReleaseContributions, snapshotFromContributionRows, type ContributionRow, type CivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
+import { CIV_LEADERBOARD_MODE_SCOPES, selectReleaseContributions, snapshotFromContributionRows } from '../../src/services/leaderboard/civ-snapshot.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 

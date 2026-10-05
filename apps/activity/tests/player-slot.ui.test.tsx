@@ -1,10 +1,10 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { fireEvent, render, screen } from '@solidjs/testing-library'
+import { screen } from '@solidjs/testing-library'
 import { getCivBlitzRegistry } from '@civup/game'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
-import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { createActiveDraftState, createCompleteDraftState, fireUiEvent as fireEvent, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState, updateUiMocks } from './ui-mocks'
 
 const { PlayerSlot } = await import('../src/client/components/draft/PlayerSlot')
 
@@ -99,7 +99,7 @@ describe('PlayerSlot UI', () => {
 
   test('animates preview portraits when shown', async () => {
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.previewPicks[1] = TEST_LEADER_IDS.johnCurtin
+    updateUiMocks(draft => { draft.previewPicks[1] = TEST_LEADER_IDS.johnCurtin })
 
     render(() => <PlayerSlot seatIndex={1} />)
     const image = await screen.findByAltText('John Curtin')
@@ -112,11 +112,11 @@ describe('PlayerSlot UI', () => {
       formatId: '2v2',
       steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
     })
-    uiMockState.draftPreviewBans[0] = [
+    updateUiMocks(draft => { draft.draftPreviewBans[0] = [
       TEST_LEADER_IDS.abrahamLincoln,
       TEST_LEADER_IDS.johnCurtin,
       TEST_LEADER_IDS.montezuma,
-    ]
+    ] })
 
     render(() => <PlayerSlot seatIndex={0} />)
 
@@ -135,10 +135,10 @@ describe('PlayerSlot UI', () => {
       formatId: '2v2',
       steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
     })
-    uiMockState.draftPreviewBans[0] = [
+    updateUiMocks(draft => { draft.draftPreviewBans[0] = [
       TEST_LEADER_IDS.abrahamLincoln,
       TEST_LEADER_IDS.johnCurtin,
-    ]
+    ] })
 
     render(() => <PlayerSlot seatIndex={0} />)
 
@@ -151,10 +151,10 @@ describe('PlayerSlot UI', () => {
       formatId: '2v2',
       steps: [{ action: 'ban', seats: [0, 1], count: 3, timer: 120 }],
     })
-    uiMockState.draftPreviewBans[0] = [
+    updateUiMocks(draft => { draft.draftPreviewBans[0] = [
       TEST_LEADER_IDS.abrahamLincoln,
       TEST_LEADER_IDS.johnCurtin,
-    ]
+    ] })
 
     render(() => <PlayerSlot seatIndex={0} />)
     const firstImage = screen.getByAltText('Ban preview: Abraham Lincoln')
@@ -338,7 +338,7 @@ describe('PlayerSlot UI', () => {
   test('keeps the map-vote breathing nodes mounted and grays out a confirmed seat during voting', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteHasConfirmed = true
     uiMockState.mapVoteConfirmedSeatIndices = [0]
@@ -354,7 +354,7 @@ describe('PlayerSlot UI', () => {
   test('stops the gold breathing glow for other confirmed seats too', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteConfirmedSeatIndices = [1]
 
@@ -373,7 +373,7 @@ describe('PlayerSlot UI', () => {
     try {
       uiMockState.userId = 'host-1'
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-      uiMockState.draftState.status = 'waiting'
+      updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
       uiMockState.mapVotePhase = 'voting'
       uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
       uiMockState.mapVoteSelectedMaps = []
@@ -403,7 +403,7 @@ describe('PlayerSlot UI', () => {
     try {
       uiMockState.userId = 'host-1'
       uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-      uiMockState.draftState.status = 'waiting'
+      updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
       uiMockState.mapVotePhase = 'voting'
       uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
@@ -423,7 +423,7 @@ describe('PlayerSlot UI', () => {
   test('shows only the final winning map during reveal and highlights supporting ballots', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
       { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
@@ -451,7 +451,7 @@ describe('PlayerSlot UI', () => {
   test('highlights a supporting ballot that ranked the winning map', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
       { seatIndex: 0, confirmed: true, maps: ['seven-seas'] },
@@ -471,7 +471,7 @@ describe('PlayerSlot UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.isMobileLayout = true
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
       { seatIndex: 0, confirmed: true, maps: ['lakes', 'inland-sea-east-vs-west'] },
@@ -491,7 +491,7 @@ describe('PlayerSlot UI', () => {
   test('shows a non-supporting ballot\'s first-ranked map instead of the final winner', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
       { seatIndex: 0, confirmed: true, maps: ['lakes'] },
@@ -513,7 +513,7 @@ describe('PlayerSlot UI', () => {
   test('shows the final winner even for seats that did not cast a ballot', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteSeatVotes = [
       { seatIndex: 0, confirmed: false, maps: [] },

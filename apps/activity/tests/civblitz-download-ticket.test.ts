@@ -1,5 +1,5 @@
 import { createCivBlitzDownloadTicket, verifyCivBlitzDownloadTicket } from '@civup/utils'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 const SECRET = 'civblitz-download-ticket-secret'
 const NOW = Date.UTC(2026, 6, 19, 12)

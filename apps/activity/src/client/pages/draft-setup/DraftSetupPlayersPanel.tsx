@@ -1,10 +1,11 @@
-import { buildRolePillStyle, type LobbyBalanceTeamSummary, type PlayerRow } from './helpers'
+import type { LobbyBalanceTeamSummary, PlayerRow } from './helpers'
+import { buildRolePillStyle } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { LobbyArrangeStrategy, RankedRoleOptionSnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel } from '@civup/game'
 import { DISPLAY_RATING_BASE, displayRating, formatPublicRankRating } from '@civup/rating'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
-import { Portal } from 'solid-js/web'
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
+import { Portal } from '@solidjs/web'
 import { cn } from '~/client/lib/css'
 
 type DraftSetupPlayersPanelState = ReturnType<typeof useDraftSetupState>['players']
@@ -74,7 +75,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
   }
 
   const updatePlayerPopoverPosition = (anchor = playerPopoverAnchor) => {
-    if (typeof window === 'undefined' || !anchor) return
+    if (typeof window === 'undefined' || !anchor?.isConnected || playerPopoverAnchor !== anchor) return
     const rect = anchor.getBoundingClientRect()
     const popoverWidth = playerPopoverRef?.offsetWidth ?? PLAYER_POPOVER_MIN_WIDTH
     const maxLeft = Math.max(PLAYER_POPOVER_VIEWPORT_PADDING, window.innerWidth - popoverWidth - PLAYER_POPOVER_VIEWPORT_PADDING)
@@ -95,7 +96,8 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     queueMicrotask(() => updatePlayerPopoverPosition(anchor))
   }
 
-  if (typeof document !== 'undefined') {
+  onSettled(() => {
+    if (typeof document === 'undefined') return
     const handlePointerDown = (event: PointerEvent) => {
       if (!openPlayerId()) return
       const target = event.target
@@ -117,13 +119,13 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     document.addEventListener('keydown', handleKeyDown)
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('scroll', handleViewportChange, true)
-    onCleanup(() => {
+    return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true)
       document.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('resize', handleViewportChange)
       window.removeEventListener('scroll', handleViewportChange, true)
-    })
-  }
+    }
+  })
 
   const playerSlotMap = createMemo(() => {
     const map = new Map<string, number>()
@@ -155,8 +157,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     return `ffa:${state().ffaColumns().map((rows, columnIndex) => `${columnIndex}[${rows.map(row => `${row.playerId ?? 'empty'}@${row.slot}`).join(',')}]`).join('|')}`
   })
 
-  createEffect(() => {
-    const arrangeEvent = state().arrangeEvent()
+  createEffect(() => state().arrangeEvent(), (arrangeEvent) => {
     const arrangeKey = arrangeEvent ? `${arrangeEvent.strategy}:${arrangeEvent.at}` : null
 
     if (!hasInitializedArrangeKey) {
@@ -179,20 +180,20 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
     }, ARRANGE_OVERLAY_VISIBLE_MS)
   })
 
-  createEffect(() => {
-    if (openPlayerId() && !selectedPlayerRow()) closePlayerPopover()
+  createEffect(() => Boolean(openPlayerId() && !selectedPlayerRow()), (missing) => {
+    if (missing) closePlayerPopover()
   })
 
-  createEffect(() => {
-    const signature = renderSignature()
-    const map = playerSlotMap()
+  createEffect(() => ({ signature: renderSignature(), map: playerSlotMap() }), ({ signature, map }) => {
+    let cancelled = false
     queueMicrotask(() => {
+      if (cancelled) return
       const shouldAnimate = lastRenderSignature != null && signature !== lastRenderSignature && armedArrangeKey != null
       const newRects = new Map<string, DOMRect>()
 
       for (const playerId of map.keys()) {
         const el = elementsByPlayer.get(playerId)
-        if (!el) continue
+        if (!el?.isConnected) continue
         const newRect = el.getBoundingClientRect()
         newRects.set(playerId, newRect)
 
@@ -223,15 +224,16 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
 
       prevRectByPlayer.clear()
       for (const [playerId, rect] of newRects) prevRectByPlayer.set(playerId, rect)
-      for (const playerId of [...prevRectByPlayer.keys()]) {
+      for (const playerId of prevRectByPlayer.keys()) {
         if (!map.has(playerId)) prevRectByPlayer.delete(playerId)
       }
       lastRenderSignature = signature
       if (shouldAnimate) armedArrangeKey = null
     })
+    return () => { cancelled = true }
   })
 
-  onCleanup(() => {
+  onSettled(() => () => {
     if (arrangeOverlayTimeout) clearTimeout(arrangeOverlayTimeout)
     elementsByPlayer.clear()
     prevRectByPlayer.clear()
@@ -315,7 +317,7 @@ export function DraftSetupPlayersPanel(props: { state: DraftSetupPlayersPanelSta
       </Show>
 
       <div
-        aria-hidden
+        aria-hidden="true"
         class={cn(
           'pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300',
           overlayActive() ? 'opacity-100' : 'opacity-0',
@@ -470,12 +472,11 @@ function PlayerChip(props: {
     if (openOnPlayer) openPlayer(anchor)
   }
 
-  createEffect(() => {
-    const playerId = props.row.playerId
+  createEffect(() => ({ playerId: props.row.playerId, flip: props.flip }), ({ playerId, flip }) => {
     const el = chipEl
     if (!el || !playerId) return
-    props.flip.register(playerId, el)
-    onCleanup(() => props.flip.unregister(playerId, el))
+    flip.register(playerId, el)
+    return () => flip.unregister(playerId, el)
   })
 
   return (
@@ -493,9 +494,9 @@ function PlayerChip(props: {
         props.dropActive && 'border-accent/65 border-dashed bg-accent/8',
       )}
       role={props.row.empty && !props.showJoin ? undefined : 'button'}
-      tabIndex={(props.row.empty && !props.showJoin) || props.pending ? undefined : 0}
+      tabindex={(props.row.empty && !props.showJoin) || props.pending ? undefined : 0}
       aria-haspopup={!props.row.empty ? 'dialog' : undefined}
-      aria-expanded={!props.row.empty ? props.popoverOpen : undefined}
+      aria-expanded={!props.row.empty ? (props.popoverOpen ? 'true' : 'false') : undefined}
       onPointerEnter={(event) => openPlayer(event.currentTarget)}
       onPointerLeave={() => props.onClosePlayer?.()}
       onFocus={(event) => openPlayer(event.currentTarget)}
@@ -513,7 +514,7 @@ function PlayerChip(props: {
         event.preventDefault()
         handlePrimaryAction(event.currentTarget, true)
       }}
-      draggable={props.draggable && !props.pending}
+      draggable={props.draggable && !props.pending ? 'true' : 'false'}
       onDragStart={(event) => {
         if (!event.dataTransfer) return
         suppressNextClick = true
@@ -544,7 +545,7 @@ function PlayerChip(props: {
             <img
               src={avatar()}
               alt={props.row.name}
-              draggable={false}
+              draggable="false"
               class="rounded-full h-5 w-5 pointer-events-none object-cover"
             />
           )}
@@ -631,7 +632,7 @@ function PlayerStatsPopover(props: {
       <div class="flex items-start gap-3">
         <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/8 ring-1 ring-white/12 overflow-hidden">
           <Show when={props.row.avatarUrl} fallback={<span class="i-ph:user-bold text-lg text-fg-subtle" />}>
-            {avatar => <img src={avatar()} alt="" class="h-full w-full object-cover" draggable={false} />}
+            {avatar => <img src={avatar()} alt="" class="h-full w-full object-cover" draggable="false" />}
           </Show>
         </div>
         <div class="min-w-0 flex-1">

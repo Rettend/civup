@@ -10,11 +10,10 @@ import { upsertPlayerProfile } from '../services/player/profile.ts'
 import { sendTransientEphemeralResponse } from '../services/response/ephemeral.ts'
 import { getSystemChannel } from '../services/system/channels.ts'
 import type { SeasonSelection } from '../services/season/selection.ts'
-import { parseSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
+import { parseSeasonSelection, resolveSeasonSelection, seasonAutocompleteChoices } from '../services/season/selection.ts'
 import { factory } from '../setup.ts'
 import { getDivisionRankPolicy, previewSavedDivisionRanks } from '../services/ranked/division-rank-runtime.ts'
 import { getAssignedRankRoleId } from '../services/ranked/roles.ts'
-import { resolveSeasonSelection } from '../services/season/selection.ts'
 
 interface Var {
   player?: string

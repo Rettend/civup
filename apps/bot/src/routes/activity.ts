@@ -860,14 +860,6 @@ function resolveSessionRankAssignments(
   return session.guildId ? rankAssignmentsByGuildId.get(session.guildId) ?? null : null
 }
 
-function countFilledSlots(slots: (string | null)[]): number {
-  let count = 0
-  for (const slot of slots) {
-    if (slot != null) count += 1
-  }
-  return count
-}
-
 function compareActivityTargets(left: ChannelActivityTarget, right: ChannelActivityTarget): number {
   const leftPriority = activityTargetPriority(left.option)
   const rightPriority = activityTargetPriority(right.option)

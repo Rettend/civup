@@ -1,0 +1,4 @@
+const banner = <p title="SessionDO binding is required">Season-isolated reporting is not enabled.</p>
+const result = { error: `Seed-aware corrections are unavailable for ${id}.` }
+setError(`A validated season assignment is required for ${id}.`)
+const fragment = <>No hidden-rating substitute is shown.</>

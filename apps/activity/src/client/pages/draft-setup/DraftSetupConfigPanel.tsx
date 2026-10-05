@@ -1,4 +1,5 @@
-import type { Accessor, JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import type { Accessor } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
@@ -196,7 +197,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         onFocus={() => state.actions.setEditingField('leaderPool')}
         onClamp={() => state.actions.clampField('leaderPool')}
         onInput={event => state.actions.inputLeaderPool(event.currentTarget.value)}
-        onBlur={() => void state.actions.saveOnBlur()}
+        onBlur={() => void state.actions.saveOnBlur('leaderPool')}
       />
     ),
     renderReadonly: state => (
@@ -220,7 +221,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         onFocus={() => state.actions.setEditingField('ban')}
         onClamp={() => state.actions.clampField('ban')}
         onInput={event => state.actions.inputBanMinutes(event.currentTarget.value)}
-        onBlur={() => void state.actions.saveOnBlur()}
+        onBlur={() => void state.actions.saveOnBlur('ban')}
       />
     ),
     renderReadonly: state => (
@@ -244,7 +245,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         onFocus={() => state.actions.setEditingField('pick')}
         onClamp={() => state.actions.clampField('pick')}
         onInput={event => state.actions.inputPickMinutes(event.currentTarget.value)}
-        onBlur={() => void state.actions.saveOnBlur()}
+        onBlur={() => void state.actions.saveOnBlur('pick')}
       />
     ),
     renderReadonly: state => (
@@ -433,10 +434,10 @@ function ModeTabsRow(props: {
 }) {
   const value = createMemo(() => props.value())
   const disabled = createMemo(() => props.disabled())
-  const options = [
+  const options = createMemo(() => [
     { value: 'blind' as const, label: 'Blind', ariaLabel: `${props.label} Blind` },
     { value: 'draft' as const, label: 'Draft', ariaLabel: `${props.label} Draft` },
-  ]
+  ])
 
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
@@ -444,7 +445,7 @@ function ModeTabsRow(props: {
         {props.label}
       </span>
       <Tabs
-        options={options}
+        options={options()}
         value={value}
         disabled={disabled}
         onChange={props.onChange}
@@ -487,9 +488,8 @@ function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
   const isOpen = () => localOpen() ?? !state().derived.optimisticLobbyClosed()
   const label = () => isOpen() ? 'Lobby Open' : 'Lobby Closed'
 
-  createEffect(() => {
-    const local = localOpen()
-    if (local != null && local === !state().derived.draftConfig().closed) setLocalOpen(null)
+  createEffect(() => localOpen() != null && localOpen() === !state().derived.draftConfig().closed, (confirmed) => {
+    if (confirmed) setLocalOpen(null)
   })
 
   return (

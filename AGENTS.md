@@ -18,3 +18,10 @@ Examples:
 - “The players changed. Check the player list and report the result again.”
 
 Before finishing a change, read every new or changed user-facing message in the context where it appears. Could a player understand it without an explanation? Run `bun run check:copy`; it catches known jargon, but does not replace reading the wording.
+
+# Tooling
+
+- Use `bun run test` for the whole workspace. Activity tests use Vite+/Vitest and the Solid compiler; bot and package tests use Bun. Do not run Activity tests with `bun test`.
+- `bun run check` includes copy, workspace, and tooling typechecks. Vite+ lint checks are read-only; `lint:fix` and `format` change files.
+- Run Vite+ and Cloudflare CLIs under Node 24. Bun remains the package manager and script runner.
+- Resolve Cloudflare accounts and resources through `config/cloudflare-targets.ts`. PPL settings stay in the git-ignored local JSON file. Choose local or remote storage separately and keep local tools on the same explicit persistence directory.

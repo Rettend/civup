@@ -11,7 +11,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
 import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
-import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
+import { reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
@@ -89,11 +89,6 @@ const GLOBAL_RATING_SCOPE = 'global'
 function withTournamentLinked(result: ReportResult, tournamentLinked: boolean): ReportResult {
   if ('error' in result) return result
   return { ...result, tournamentLinked }
-}
-
-interface RatingState {
-  mu: number
-  sigma: number
 }
 
 export async function reportMatch(

@@ -1,12 +1,12 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
+import { cleanup, screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, fireUiEvent as fireEvent, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
-const onSwitchTarget = mock(() => {})
+const onSwitchTarget = vi.fn(() => {})
 
 const { DraftPage } = await import('../src/client/pages/draft')
 
@@ -139,23 +139,16 @@ describe('DraftPage UI', () => {
   })
 
   test('supports a real active draft pick flow through the page overlay', () => {
-    let unmount = () => {}
-    const mount = () => {
-      unmount()
-      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />))
-    }
-
     uiMockState.connectionStatus = 'connected'
     uiMockState.gridOpen = true
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
 
-    mount()
+    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink="steam://joinlobby/289070/example" lobbyId="lobby-1" lobbyMode="ffa" onSwitchTarget={onSwitchTarget} />)
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect(screen.getByText('Player 2')).toBeTruthy()
 
     fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
-    mount()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Pick' }))
 
     expect(storeSpies.sendPick).toHaveBeenCalledWith(TEST_LEADER_IDS.abrahamLincoln)

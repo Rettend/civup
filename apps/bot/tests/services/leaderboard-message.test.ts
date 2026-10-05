@@ -1,4 +1,5 @@
 import type { Database } from '@civup/db'
+import type { LobbySnapshot } from '../../src/services/activity/session-state.ts'
 import { leaderboardDecaySchedules, leaderboardDirtyStates, leaderboardMessageStates, matches, matchParticipants, playerRatings, players, publicRatingDecayPolicies, seasons, seasonRatingStates, seasonPeakRanks } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
@@ -7,7 +8,7 @@ import { archiveSeasonLeaderboards, markLeaderboardsDirty, refreshDirtyLeaderboa
 import { ensureLeaderboardModeSnapshot, getStoredLeaderboardModeSnapshot, leaderboardModeSnapshotKey, rebuildLeaderboardModeSnapshot } from '../../src/services/leaderboard/snapshot.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 import { buildPlayerLeaderboardImageDataBatch } from '../../src/services/leaderboard/image.ts'
-import { attachLobbyBalanceRatingsToSnapshot, type LobbySnapshot } from '../../src/services/activity/session-state.ts'
+import { attachLobbyBalanceRatingsToSnapshot } from '../../src/services/activity/session-state.ts'
 
 const NOW = 1_700_000_000_000
 const originalFetch = globalThis.fetch

@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
 import { civHash, createHashResolver } from '../hash.ts'
 import type { CivReplayCitySnapshot, CivReplayDistrictSnapshot, CivReplayPlayerSnapshot, CivReplayUnitSnapshot } from './players.ts'
-import { buildCivReplayTradeRoutes, summarizeCivReplayKnownTradeRouteYields, summarizeCivReplayTradeRoutes, type CivReplayTradeRouteSnapshot } from './trade-routes.ts'
+import type { CivReplayTradeRouteSnapshot } from './trade-routes.ts'
+import { buildCivReplayTradeRoutes, summarizeCivReplayKnownTradeRouteYields, summarizeCivReplayTradeRoutes } from './trade-routes.ts'
 
 test('builds active trade routes from trader operation endpoint coordinates', () => {
   const foreignCity = city({ id: 4, name: 'Rheims', x: 12, y: 21 })

@@ -7,6 +7,7 @@ import type {
   CivReplayProgressionSnapshot,
 } from './civreplay/players.ts'
 import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
+import type { HashResolver } from './hash.ts'
 import type {
   CivReplayTradeRouteDistrictYieldRule,
   CivReplayTradeRoutePolicyYieldRule,
@@ -14,7 +15,7 @@ import type {
   CivReplayTradeRouteUnsupportedPolicyModifier,
 } from './civreplay/trade-routes.ts'
 import { createCivReplayCityAttributionContext, inferTileOwningCity } from './civreplay/city-attribution.ts'
-import { civHash, formatHash, type HashResolver } from './hash.ts'
+import { civHash, formatHash } from './hash.ts'
 
 export interface CivupOpeningDistrictAdjacencyChange {
   turn: number | null

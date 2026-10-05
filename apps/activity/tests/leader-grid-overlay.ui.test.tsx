@@ -1,11 +1,11 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
 import type { CivBlitzCategoryOptions, DraftStep } from '@civup/game'
 import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
-import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { cleanup, screen, waitFor } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createActiveDraftState, createCompleteDraftState, fireUiEvent as fireEvent, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState, updateUiMocks } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
 const { LeaderCard } = await import('../src/client/components/draft/LeaderCard')
@@ -24,10 +24,6 @@ function setViewportWidth(width: number) {
       removeEventListener: () => {},
     },
   })
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function createCivBlitzOptions(): CivBlitzCategoryOptions {
@@ -55,20 +51,15 @@ describe('LeaderGridOverlay UI', () => {
 
   test('supports search, filters, list mode, and list selection flows', async () => {
     setViewportWidth(1440)
-    const mount = createMount()
-
-    mount()
+    render(() => <LeaderGridOverlay />)
 
     fireEvent.click(screen.getByRole('button', { name: 'List view' }))
-    mount()
     fireEvent.input(screen.getByPlaceholderText('Search...'), { target: { value: 'Montezuma' } })
-    mount()
 
     expect(uiMockState.searchQuery).toBe('Montezuma')
     expect(screen.getByRole('button', { name: /Montezuma/i })).toBeTruthy()
 
     fireEvent.input(screen.getByPlaceholderText('Search...'), { target: { value: '' } })
-    mount()
     uiMockState.tagFiltersState = {
       econ: ['econ:production'],
       win: [],
@@ -76,31 +67,24 @@ describe('LeaderGridOverlay UI', () => {
       role: [],
       other: [],
     }
-    mount()
-
     expect(uiMockState.tagFiltersState.econ).toEqual(['econ:production'])
     expect(screen.getByRole('button', { name: 'Clear' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Abraham Lincoln/i }))
-    mount()
 
     expect(uiMockState.selectedLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
     expect(screen.getByRole('button', { name: 'Confirm Pick' }).hasAttribute('disabled')).toBe(false)
   })
 
   test('supports random toggle, direct card selection, and pick confirmation', async () => {
-    const mount = createMount()
-
-    mount()
+    render(() => <LeaderGridOverlay />)
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Random' })[0]!)
-    mount()
 
     expect(uiMockState.isRandomSelected).toBe(true)
     expect(uiMockState.selectedLeaderId).toBeNull()
 
     fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
-    mount()
 
     expect(uiMockState.isRandomSelected).toBe(false)
     expect(uiMockState.selectedLeaderId).toBe(TEST_LEADER_IDS.abrahamLincoln)
@@ -111,6 +95,65 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.selectedLeaderId).toBeNull()
     expect(uiMockState.pickSelections).toEqual([])
+  })
+
+  test.each(['ban', 'pick'] as const)('hydrates the %s preview before sending a selection', async (action) => {
+    vi.useFakeTimers()
+    updateUiMocks(draft => {
+      draft.canSendPickPreview = true
+      draft.draftState = createActiveDraftState({
+        currentStepIndex: action === 'ban' ? 0 : 1,
+      })
+      if (action === 'ban') draft.draftPreviewBans[0] = [TEST_LEADER_IDS.abrahamLincoln]
+      else draft.draftPreviewPicks[0] = [TEST_LEADER_IDS.abrahamLincoln]
+    })
+
+    render(() => <LeaderGridOverlay />)
+    await vi.advanceTimersByTimeAsync(60)
+
+    expect(action === 'ban' ? uiMockState.banSelections : uiMockState.pickSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln])
+    expect(storeSpies.sendPreview).toHaveBeenCalledWith(action, [TEST_LEADER_IDS.abrahamLincoln])
+    expect(storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === action).every(([, ids]) => ids.length > 0)).toBe(true)
+  })
+
+  test('cancels queued previews when the overlay is disposed', async () => {
+    vi.useFakeTimers()
+    uiMockState.canSendPickPreview = true
+    const { unmount } = render(() => <LeaderGridOverlay />)
+    await vi.advanceTimersByTimeAsync(60)
+    storeSpies.sendPreview.mockClear()
+
+    fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
+    unmount()
+    await vi.advanceTimersByTimeAsync(120)
+
+    expect(storeSpies.sendPreview).not.toHaveBeenCalled()
+  })
+
+  test('observes connected list columns and disconnects when the view changes', () => {
+    const observed: Array<{ element: Element, connected: boolean }> = []
+    const disconnect = vi.fn()
+    class TestResizeObserver implements ResizeObserver {
+      constructor(_callback: ResizeObserverCallback) {}
+      observe(element: Element) { observed.push({ element, connected: element.isConnected }) }
+      unobserve(_element: Element) {}
+      disconnect = disconnect
+    }
+    const observer = vi.spyOn(globalThis, 'ResizeObserver').mockImplementation(TestResizeObserver)
+    try {
+      render(() => <LeaderGridOverlay />)
+      fireEvent.click(screen.getByRole('button', { name: 'Multi-column list' }))
+
+      expect(observed).toHaveLength(1)
+      expect(observed[0]!.connected).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Grid view' }))
+
+      expect(disconnect).toHaveBeenCalledTimes(1)
+      expect(observed[0]!.element.isConnected).toBe(false)
+    }
+    finally {
+      observer.mockRestore()
+    }
   })
 
   test('keeps pointer tooltip stable through click focus churn', () => {
@@ -176,6 +219,7 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('supports ban selections and confirmation through the shared overlay flow', async () => {
+    vi.useFakeTimers()
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
       steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
@@ -195,7 +239,8 @@ describe('LeaderGridOverlay UI', () => {
 
     storeSpies.sendPreview.mockClear()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm Bans (2/2)' }))
-    await wait(80)
+    // Cross the 60 ms preview-throttle deadline to verify confirmation cancels it.
+    await vi.advanceTimersByTimeAsync(60)
 
     expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
     expect(storeSpies.sendPreview.mock.calls.some(call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0)).toBe(false)
@@ -250,12 +295,9 @@ describe('LeaderGridOverlay UI', () => {
       steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [2] }],
     })
 
-    const mount = createMount()
-
-    mount()
+    render(() => <LeaderGridOverlay />)
 
     fireEvent.click(screen.getByAltText('Abraham Lincoln').closest('button')!)
-    mount()
 
     fireEvent.click(screen.getByRole('button', { name: 'Pick for Player 3' }))
 
@@ -264,10 +306,11 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('hydrates CivBlitz selections from pick previews after remount', async () => {
+    vi.useFakeTimers()
     const options = createCivBlitzOptions()
     const previewIds = CIV_BLITZ_CATEGORIES.map(category => options[category][0]!)
     uiMockState.isCivBlitzDraft = true
-    uiMockState.draftPreviewPicks[0] = previewIds
+    updateUiMocks(draft => { draft.draftPreviewPicks[0] = previewIds })
     uiMockState.draftState = createActiveDraftState({
       formatId: 'civblitz-2v2',
       currentStepIndex: 0,
@@ -286,6 +329,10 @@ describe('LeaderGridOverlay UI', () => {
     })
 
     render(() => <LeaderGridOverlay />)
+    await vi.advanceTimersByTimeAsync(60)
+
+    expect(storeSpies.sendPreview).toHaveBeenCalledWith('pick', previewIds)
+    expect(storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === 'pick').every(([, ids]) => ids.length > 0)).toBe(true)
 
     await waitFor(() => {
       const confirmButton = screen.getByRole('button', { name: /Confirm/ })
@@ -469,9 +516,7 @@ describe('LeaderGridOverlay UI', () => {
       picks: [{ seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
     })
     mount()
-    await wait(0)
-
-    expect((document.querySelector('[data-leader-detail-panel]') as HTMLElement).scrollTop).toBe(96)
+    await waitFor(() => expect((document.querySelector('[data-leader-detail-panel]') as HTMLElement).scrollTop).toBe(96))
   })
 
   test('supports random ban confirmation through the shared overlay flow', () => {

@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "jsx": "react-jsx",
     // Environment setup & latest features
     "lib": ["ESNext"],
+    "types": [],
     "moduleDetection": "force",
     "module": "Preserve",
 
@@ -16,6 +16,7 @@
     "strict": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
+    "noUncheckedSideEffectImports": true,
 
     "noPropertyAccessFromIndexSignature": false,
     "noUncheckedIndexedAccess": true,
@@ -25,5 +26,6 @@
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
-  }
+  },
+  "files": []
 }

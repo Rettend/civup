@@ -1,0 +1,7 @@
+/* eslint-disable civup-copy/plain-language */
+/* oxlint-disable civup-copy/plain-language */
+export function report() {
+  // eslint-disable-next-line civup-copy/plain-language
+  // oxlint-disable-next-line civup-copy/plain-language
+  return 'Season correction failed safely.'
+}

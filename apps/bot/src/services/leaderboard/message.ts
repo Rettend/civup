@@ -195,7 +195,7 @@ export async function refreshDirtyLeaderboards(
 
   const scopesToClear = new Set<string>()
   let leaderboardStates: LeaderboardMessageState[] = []
-  let civLeaderboardStates: LeaderboardMessageState[] = []
+  const civLeaderboardStates: LeaderboardMessageState[] = []
   let civLeaderboardsProcessed = false
   let civSnapshotReady = false
   let playerLeaderboardsProcessed = false

@@ -1,0 +1,34 @@
+{
+  "ppl": {
+    "accountId": "YOUR_PPL_ACCOUNT_ID",
+    "workers": { "bot": "civup-bot", "activity": "civup-activity" },
+    "discord": {
+      "applicationId": "YOUR_PPL_DISCORD_APPLICATION_ID",
+      "publicKey": "YOUR_PPL_DISCORD_PUBLIC_KEY",
+      "guildId": "YOUR_PPL_DISCORD_GUILD_ID",
+      "guildIds": "YOUR_PPL_DISCORD_GUILD_ID"
+    },
+    "activityOrigin": "https://YOUR_PPL_ACTIVITY_HOST",
+    "d1": {
+      "binding": "DB",
+      "name": "civup",
+      "id": "YOUR_PPL_D1_DATABASE_ID",
+      "migrationsDirectory": "packages/db/migrations",
+      "migrationsTable": "d1_migrations",
+      "migrationsPattern": "*.sql"
+    },
+    "kv": { "binding": "KV", "id": "YOUR_PPL_KV_NAMESPACE_ID" },
+    "r2": { "binding": "AUTOSAVE_UPLOADS", "name": "YOUR_PPL_R2_BUCKET_NAME" },
+    "bot": {
+      "compatibilityDate": "2025-02-19",
+      "compatibilityFlags": ["nodejs_compat", "global_fetch_strictly_public"],
+      "keepVars": true,
+      "variables": {},
+      "fontGlobs": ["**/*.woff2", "**/*.ttf"]
+    },
+    "activity": {
+      "compatibilityDate": "2025-01-01",
+      "compatibilityFlags": ["global_fetch_strictly_public"]
+    }
+  }
+}

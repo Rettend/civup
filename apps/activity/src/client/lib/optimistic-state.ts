@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createEffect, createSignal } from 'solid-js'
+import { createEffect, createSignal, latest, onCleanup } from 'solid-js'
 
 type OptimisticStatus = 'idle' | 'pending' | 'error'
 
@@ -36,21 +36,40 @@ export function createOptimisticState<T>(
   const [status, setStatus] = createSignal<OptimisticStatus>('idle')
   const [error, setError] = createSignal<string | null>(null)
   let commitVersion = 0
+  let disposed = false
+  let syncTimeout: ReturnType<typeof setTimeout> | null = null
+
+  const clearSyncTimeout = () => {
+    if (syncTimeout == null) return
+    clearTimeout(syncTimeout)
+    syncTimeout = null
+  }
+
+  // Primitive-owned cleanup also invalidates persist promises still in flight.
+  onCleanup(() => {
+    disposed = true
+    commitVersion++
+    clearSyncTimeout()
+  })
 
   const value = () => pending() ?? source()
 
-  createEffect(() => {
-    const pendingValue = pending()
-    if (pendingValue == null) return
-    if (!equals(source(), pendingValue)) return
-
-    setPending(null)
-    setStatus('idle')
-    setError(null)
-  })
+  createEffect(
+    () => {
+      const pendingValue = pending()
+      return pendingValue != null && equals(source(), pendingValue)
+    },
+    synced => {
+      if (!synced) return
+      clearSyncTimeout()
+      setPending(null)
+      setStatus('idle')
+      setError(null)
+    },
+  )
 
   const clearError = () => {
-    if (status() === 'error') setStatus('idle')
+    setStatus(prev => prev === 'error' ? 'idle' : prev)
     setError(null)
   }
 
@@ -59,8 +78,10 @@ export function createOptimisticState<T>(
     persist: () => Promise<void>,
     commitOptions: OptimisticCommitOptions = {},
   ): Promise<boolean> => {
+    if (disposed) return false
     const thisCommit = ++commitVersion
     const timeoutMs = commitOptions.syncTimeoutMs ?? 9000
+    clearSyncTimeout()
 
     setPending(() => nextValue)
     setStatus('pending')
@@ -78,20 +99,21 @@ export function createOptimisticState<T>(
     }
 
     if (thisCommit !== commitVersion) return false
-    if (equals(source(), nextValue)) {
+    if (latest(() => equals(source(), nextValue))) {
       setPending(null)
       setStatus('idle')
       setError(null)
       return true
     }
 
-    setTimeout(() => {
+    syncTimeout = setTimeout(() => {
+      syncTimeout = null
       if (thisCommit !== commitVersion) return
 
-      const pendingValue = pending()
+      const pendingValue = latest(pending)
       if (pendingValue == null) return
       if (!equals(pendingValue, nextValue)) return
-      if (equals(source(), nextValue)) return
+      if (latest(() => equals(source(), nextValue))) return
 
       setPending(null)
       setStatus('error')

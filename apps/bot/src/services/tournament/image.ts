@@ -1,9 +1,10 @@
 import type { TournamentLeaderboardImageData, TournamentOpponentCardData, TournamentOpponentCardPlayer, TournamentResultImageData } from './index.ts'
+import type { TournamentEmojiIcon } from '../../constants/tournament-emoji-icons.ts'
 import { getLeader } from '@civup/game'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { LEADER_EMOJI_IDS } from '../../constants/leader-emojis.ts'
-import { TOURNAMENT_EMOJI_ICONS, type TournamentEmojiIcon } from '../../constants/tournament-emoji-icons.ts'
+import { TOURNAMENT_EMOJI_ICONS } from '../../constants/tournament-emoji-icons.ts'
 import { avatarKey, fetchDiscordImageDataUri, loadAvatarDataUris as loadAvatarData } from '../image/avatar.ts'
 
 const IMAGE_WIDTH = 1200

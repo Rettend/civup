@@ -1,6 +1,6 @@
 import type { MiniSeatItem } from './MiniLayout'
 import { formatModeLabel, inferGameMode } from '@civup/game'
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
 import { draftNow, draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
@@ -10,19 +10,21 @@ export function MiniView() {
   const accent = () => phaseAccent()
 
   const [remaining, setRemaining] = createSignal(0)
-  createEffect(() => {
-    const endsAt = isMapVotePhase()
-      ? (mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt())
-      : draftStore.timerEndsAt
+  createEffect(() => ({
+    endsAt: isMapVotePhase()
+       ? (mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt())
+       : draftStore.timerEndsAt,
+    now: draftNow(),
+  }), ({ endsAt, now }) => {
     if (endsAt == null) {
       setRemaining(0)
       return
     }
 
     const tick = () => setRemaining(Math.max(0, endsAt - draftNow()))
-    tick()
+    setRemaining(Math.max(0, endsAt - now))
     const interval = setInterval(tick, 100)
-    onCleanup(() => clearInterval(interval))
+    return () => clearInterval(interval)
   })
 
   const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', {
