@@ -1,15 +1,30 @@
 import type { AdminCommandContext, AdminComponentContext } from './types.ts'
-import { createDb } from '@civup/db'
 import { Button, Components } from 'discord-hono'
+import { createDb } from '@civup/db'
 import { getKvStore } from '../../services/kv/batch.ts'
 import { archiveSeasonLeaderboards, refreshConfiguredLeaderboards } from '../../services/leaderboard/message.ts'
 import { hasAdminPermission } from '../../services/permissions/index.ts'
 import { syncRankedRoles } from '../../services/ranked/role-sync.ts'
-import { clearSeasonConfirmation, createSeasonConfirmation, getSeasonConfirmation } from '../../services/season/confirmation.ts'
-import { endSeason, formatSeasonName, getActiveSeason, getNextSeasonNumber, startSeason } from '../../services/season/index.ts'
+import {
+  clearSeasonConfirmation,
+  createSeasonConfirmation,
+  getSeasonConfirmation,
+} from '../../services/season/confirmation.ts'
+import {
+  endSeason,
+  formatSeasonName,
+  getActiveSeason,
+  getNextSeasonNumber,
+  startSeason,
+} from '../../services/season/index.ts'
 import { ensureSeasonSnapshotRoles, finalizeSeasonSnapshotRoles } from '../../services/season/snapshot-roles.ts'
 import { factory } from '../../setup.ts'
-import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse, updateSeasonActionPrompt } from './shared.ts'
+import {
+  getInteractionUserId,
+  sendEphemeralResponse,
+  sendTransientEphemeralResponse,
+  updateSeasonActionPrompt,
+} from './shared.ts'
 
 export function handleSeasonStart(c: AdminCommandContext) {
   const guildId = c.interaction.guild_id
@@ -36,7 +51,11 @@ export function handleSeasonStart(c: AdminCommandContext) {
 
     const activeSeason = await getActiveSeason(db)
     if (activeSeason) {
-      await sendTransientEphemeralResponse(c, `Cannot start a new season while **${activeSeason.name}** is still active.`, 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        `Cannot start a new season while **${activeSeason.name}** is still active.`,
+        'error',
+      )
       return
     }
 
@@ -117,7 +136,7 @@ export function handleSeasonEnd(c: AdminCommandContext) {
 
 export const component_admin_season_confirm = factory.component(
   new Button('admin-season-confirm', 'Confirm', 'Primary'),
-  async (c) => {
+  async c => {
     const token = c.var.custom_id
     if (!token) {
       return c.flags('EPHEMERAL').resDefer(async (c: AdminComponentContext) => {
@@ -127,7 +146,11 @@ export const component_admin_season_confirm = factory.component(
 
     if (!hasAdminPermission({ permissions: c.interaction.member?.permissions })) {
       return c.flags('EPHEMERAL').resDefer(async (c: AdminComponentContext) => {
-        await sendTransientEphemeralResponse(c, 'You need Administrator or Manage Server permission for this action.', 'error')
+        await sendTransientEphemeralResponse(
+          c,
+          'You need Administrator or Manage Server permission for this action.',
+          'error',
+        )
       })
     }
 
@@ -173,8 +196,7 @@ export const component_admin_season_confirm = factory.component(
               : `Started **${season.name}** without a soft reset. Existing ratings and roles were preserved.`,
             'success',
           )
-        }
-        catch (error) {
+        } catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to start the season.'
           await updateSeasonActionPrompt(c, message, 'error')
         }
@@ -188,8 +210,7 @@ export const component_admin_season_confirm = factory.component(
         await archiveSeasonLeaderboards(db, kv, c.env.DISCORD_TOKEN, season.name)
         await finalizeSeasonSnapshotRoles(db, kv, guildId, c.env.DISCORD_TOKEN, season)
         await updateSeasonActionPrompt(c, `Ended **${season.name}**. Season data is now archived.`, 'success')
-      }
-      catch (error) {
+      } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to end the season.'
         await updateSeasonActionPrompt(c, message, 'error')
       }
@@ -197,18 +218,19 @@ export const component_admin_season_confirm = factory.component(
   },
 )
 
-function parseSeasonNumberOption(raw?: string): { value: number | null, error: string | null } {
+function parseSeasonNumberOption(raw?: string): { value: number | null; error: string | null } {
   if (!raw) return { value: null, error: null }
 
   const trimmed = raw.trim()
   if (!/^\d+$/.test(trimmed)) return { value: null, error: 'Season number must be a positive integer.' }
 
   const value = Number.parseInt(trimmed, 10)
-  if (!Number.isSafeInteger(value) || value < 1) return { value: null, error: 'Season number must be a positive integer.' }
+  if (!Number.isSafeInteger(value) || value < 1)
+    return { value: null, error: 'Season number must be a positive integer.' }
   return { value, error: null }
 }
 
-function parseSoftResetOption(raw?: string): { value: boolean | null, error: string | null } {
+function parseSoftResetOption(raw?: string): { value: boolean | null; error: string | null } {
   if (!raw) return { value: null, error: null }
 
   const normalized = raw.trim().toLowerCase()
@@ -219,7 +241,7 @@ function parseSoftResetOption(raw?: string): { value: boolean | null, error: str
 
 export const component_admin_season_cancel = factory.component(
   new Button('admin-season-cancel', 'Cancel', 'Secondary'),
-  async (c) => {
+  async c => {
     const token = c.var.custom_id
     if (!token) {
       return c.flags('EPHEMERAL').resDefer(async (c: AdminComponentContext) => {
@@ -244,7 +266,11 @@ export const component_admin_season_cancel = factory.component(
 
     if (pending.actorId !== actorId || pending.guildId !== guildId) {
       return c.flags('EPHEMERAL').resDefer(async (c: AdminComponentContext) => {
-        await sendTransientEphemeralResponse(c, 'Only the original command author can cancel this confirmation.', 'error')
+        await sendTransientEphemeralResponse(
+          c,
+          'Only the original command author can cancel this confirmation.',
+          'error',
+        )
       })
     }
 

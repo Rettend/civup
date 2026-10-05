@@ -1,4 +1,9 @@
-import type { CloudflareProvisioningTarget, CloudflareStorageLocation, CloudflareTarget, CloudflareTargetName } from '../config/cloudflare-targets.ts'
+import type {
+  CloudflareProvisioningTarget,
+  CloudflareStorageLocation,
+  CloudflareTarget,
+  CloudflareTargetName,
+} from '../config/cloudflare-targets.ts'
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -21,17 +26,21 @@ function withLocalTargetsFile(contents: string, run: (file: string) => void) {
   try {
     writeFileSync(file, contents)
     run(file)
-  }
-  finally {
+  } finally {
     rmSync(directory, { recursive: true, force: true })
   }
 }
 
 describe('Cloudflare target selection', () => {
-  test.each([undefined, '', 'production', 'dev', 'PPL', ' ppl', 'ppl ', '__proto__'])('rejects an implicit or invalid target: %s', value => {
-    expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET to standard or ppl explicitly.')
-    expect(() => resolveCloudflareProvisioningTarget(value)).toThrow('Set CIVUP_TARGET to standard or ppl explicitly.')
-  })
+  test.each([undefined, '', 'production', 'dev', 'PPL', ' ppl', 'ppl ', '__proto__'])(
+    'rejects an implicit or invalid target: %s',
+    value => {
+      expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET to standard or ppl explicitly.')
+      expect(() => resolveCloudflareProvisioningTarget(value)).toThrow(
+        'Set CIVUP_TARGET to standard or ppl explicitly.',
+      )
+    },
+  )
 
   test('the same Worker and database names do not choose the same account or resources', () => {
     const standard = resolveCloudflareTarget('standard')
@@ -60,20 +69,24 @@ describe('Cloudflare target selection', () => {
   }
 
   test('storage also requires an explicit transport at runtime', () => {
-    expect(() => resolveCloudflareStorage('ppl', undefined as unknown as CloudflareStorageLocation))
-      .toThrow('Choose local or remote storage explicitly.')
+    expect(() => resolveCloudflareStorage('ppl', undefined as unknown as CloudflareStorageLocation)).toThrow(
+      'Choose local or remote storage explicitly.',
+    )
   })
 
   test('production browser and bot IDs come from the same public target', () => {
     for (const name of ['standard', 'ppl'] as const) {
       const target = resolveCloudflareTarget(name, fixtureTargetOptions)
-      expect(cloudflarePublicVariables(target, 'activity').DISCORD_CLIENT_ID)
-        .toBe(cloudflarePublicVariables(target, 'bot').DISCORD_APPLICATION_ID!)
+      expect(cloudflarePublicVariables(target, 'activity').DISCORD_CLIENT_ID).toBe(
+        cloudflarePublicVariables(target, 'bot').DISCORD_APPLICATION_ID!,
+      )
     }
     expect(cloudflarePublicVariables(cloudflareTargets.standard, 'bot').ENABLE_DEBUG_LOBBY_FILL).toBe('1')
     expect(cloudflarePublicVariables(fixturePplTarget, 'bot').ENABLE_DEBUG_LOBBY_FILL).toBeUndefined()
     expect(cloudflarePublicVariables(cloudflareTargets.standard, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBeUndefined()
-    expect(cloudflarePublicVariables(fixturePplTarget, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBe(fixturePplTarget.discord.guildId)
+    expect(cloudflarePublicVariables(fixturePplTarget, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBe(
+      fixturePplTarget.discord.guildId,
+    )
     expect(cloudflarePublicVariables(fixturePplTarget, 'activity')).not.toHaveProperty('ALLOWED_DISCORD_GUILD_IDS')
   })
 
@@ -86,9 +99,19 @@ describe('Cloudflare target selection', () => {
   })
 
   test('local metadata validation rejects placeholders, changed Worker names, and secret values', () => {
-    expect(() => parseCloudflareLocalTargets({ ppl: { ...fixturePplTarget, accountId: 'YOUR_PPL_ACCOUNT_ID' } })).toThrow('invalid accountId')
-    expect(() => parseCloudflareLocalTargets({ ppl: { ...fixturePplTarget, workers: { ...fixturePplTarget.workers, bot: 'civup-bot-ppl' } } })).toThrow('invalid workers.bot')
-    expect(() => parseCloudflareLocalTargets({ ppl: { ...fixturePplTarget, bot: { ...fixturePplTarget.bot, variables: { DISCORD_TOKEN: 'fixture-value' } } } })).toThrow('Keep secret values out')
+    expect(() =>
+      parseCloudflareLocalTargets({ ppl: { ...fixturePplTarget, accountId: 'YOUR_PPL_ACCOUNT_ID' } }),
+    ).toThrow('invalid accountId')
+    expect(() =>
+      parseCloudflareLocalTargets({
+        ppl: { ...fixturePplTarget, workers: { ...fixturePplTarget.workers, bot: 'civup-bot-ppl' } },
+      }),
+    ).toThrow('invalid workers.bot')
+    expect(() =>
+      parseCloudflareLocalTargets({
+        ppl: { ...fixturePplTarget, bot: { ...fixturePplTarget.bot, variables: { DISCORD_TOKEN: 'fixture-value' } } },
+      }),
+    ).toThrow('Keep secret values out')
     expect(parseCloudflareLocalTargets(fixtureLocalTargets)).toEqual(fixtureLocalTargets)
   })
 
@@ -140,7 +163,9 @@ describe('Cloudflare resource creation target selection', () => {
   })
 
   test('PPL can use the local example before storage IDs or deployment settings are filled in', () => {
-    const example: { ppl: CloudflareTarget } = JSON.parse(readFileSync(new URL('../config/cloudflare-targets.local.example.json', import.meta.url), 'utf8'))
+    const example: { ppl: CloudflareTarget } = JSON.parse(
+      readFileSync(new URL('../config/cloudflare-targets.local.example.json', import.meta.url), 'utf8'),
+    )
     const localTargets = { ppl: { ...example.ppl, accountId: fixturePplTarget.accountId, r2: fixturePplTarget.r2 } }
     withLocalTargetsFile(JSON.stringify(localTargets), localTargetsFile => {
       expect(resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toEqual({
@@ -175,19 +200,30 @@ describe('Cloudflare resource creation target selection', () => {
     })
   })
 
-  test.each(['', ' ', 'YOUR_PPL_ACCOUNT_ID', '1'.repeat(31), 'g'.repeat(32)])('rejects an invalid creation account: %s', accountId => {
-    expect(() => resolveCloudflareProvisioningTarget('ppl', {
-      localTargets: { ppl: { accountId, d1: { name: 'fixture-database' } } },
-    })).toThrow('invalid accountId')
-  })
+  test.each(['', ' ', 'YOUR_PPL_ACCOUNT_ID', '1'.repeat(31), 'g'.repeat(32)])(
+    'rejects an invalid creation account: %s',
+    accountId => {
+      expect(() =>
+        resolveCloudflareProvisioningTarget('ppl', {
+          localTargets: { ppl: { accountId, d1: { name: 'fixture-database' } } },
+        }),
+      ).toThrow('invalid accountId')
+    },
+  )
 
   test.each(['', '   '])('rejects empty resource names: %s', name => {
-    expect(() => resolveCloudflareProvisioningTarget('ppl', {
-      localTargets: { ppl: { accountId: fixturePplTarget.accountId, d1: { name } } },
-    })).toThrow('invalid d1.name')
-    expect(() => resolveCloudflareProvisioningTarget('ppl', {
-      localTargets: { ppl: { accountId: fixturePplTarget.accountId, d1: { name: 'fixture-database' }, r2: { name } } },
-    })).toThrow('invalid r2.name')
+    expect(() =>
+      resolveCloudflareProvisioningTarget('ppl', {
+        localTargets: { ppl: { accountId: fixturePplTarget.accountId, d1: { name } } },
+      }),
+    ).toThrow('invalid d1.name')
+    expect(() =>
+      resolveCloudflareProvisioningTarget('ppl', {
+        localTargets: {
+          ppl: { accountId: fixturePplTarget.accountId, d1: { name: 'fixture-database' }, r2: { name } },
+        },
+      }),
+    ).toThrow('invalid r2.name')
   })
 
   test('validates the required field types and optional R2 structure', () => {
@@ -208,20 +244,34 @@ describe('Cloudflare resource creation target selection', () => {
   })
 
   test('missing PPL settings never fall back to standard and share the existing file errors', () => {
-    expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargets: {} })).toThrow('PPL target settings are missing')
-    expect(() => resolveCloudflareProvisioningTarget('ppl', {
-      localTargetsFile: new URL('./missing-targets.local.json', import.meta.url),
-    })).toThrow('PPL target settings were not found')
-    expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile: 'targets.yaml' })).toThrow('must be a JSON file')
+    expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargets: {} })).toThrow(
+      'PPL target settings are missing',
+    )
+    expect(() =>
+      resolveCloudflareProvisioningTarget('ppl', {
+        localTargetsFile: new URL('./missing-targets.local.json', import.meta.url),
+      }),
+    ).toThrow('PPL target settings were not found')
+    expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile: 'targets.yaml' })).toThrow(
+      'must be a JSON file',
+    )
     withLocalTargetsFile('{', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow('PPL target settings are not valid JSON')
-      expect(() => resolveCloudflareTarget('ppl', { localTargetsFile })).toThrow('PPL target settings are not valid JSON')
+      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow(
+        'PPL target settings are not valid JSON',
+      )
+      expect(() => resolveCloudflareTarget('ppl', { localTargetsFile })).toThrow(
+        'PPL target settings are not valid JSON',
+      )
     })
     withLocalTargetsFile('{}', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow('PPL target settings are missing')
+      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow(
+        'PPL target settings are missing',
+      )
     })
     withLocalTargetsFile('[]', localTargetsFile => {
-      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow('need an object for targets')
+      expect(() => resolveCloudflareProvisioningTarget('ppl', { localTargetsFile })).toThrow(
+        'need an object for targets',
+      )
     })
   })
 })

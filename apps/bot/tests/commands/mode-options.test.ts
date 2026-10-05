@@ -9,7 +9,7 @@ import { factory } from '../../src/setup.ts'
 interface CommandOptionJson {
   name?: string
   autocomplete?: boolean
-  choices?: Array<{ name?: string, value?: string }>
+  choices?: Array<{ name?: string; value?: string }>
   options?: CommandOptionJson[]
 }
 
@@ -22,9 +22,15 @@ describe('command mode options', () => {
   test('all season selectors expose autocomplete while stats keeps leader suggestions', () => {
     const commands = registeredCommands()
     for (const name of ['stats', 'leaders', 'rank']) {
-      expect(commands.find(command => command.name === name)?.options?.find(option => option.name === 'season')?.autocomplete).toBe(true)
+      expect(
+        commands.find(command => command.name === name)?.options?.find(option => option.name === 'season')
+          ?.autocomplete,
+      ).toBe(true)
     }
-    expect(commands.find(command => command.name === 'stats')?.options?.find(option => option.name === 'leader')?.autocomplete).toBe(true)
+    expect(
+      commands.find(command => command.name === 'stats')?.options?.find(option => option.name === 'leader')
+        ?.autocomplete,
+    ).toBe(true)
   })
   test('omits explicit all choices where omitted mode is the default', () => {
     const commands = registeredCommands()
@@ -41,11 +47,13 @@ describe('command mode options', () => {
 })
 
 function registeredCommands(): CommandJson[] {
-  return JSON.parse(JSON.stringify(factory.getCommands([command_stats, command_history, command_leaders, command_tiers, command_rank]))) as CommandJson[]
+  return JSON.parse(
+    JSON.stringify(factory.getCommands([command_stats, command_history, command_leaders, command_tiers, command_rank])),
+  ) as CommandJson[]
 }
 
 function choiceValues(commands: readonly CommandJson[], commandName: string, optionName: string): string[] {
   const command = commands.find(command => command.name === commandName)
   const option = command?.options?.find(option => option.name === optionName)
-  return option?.choices?.flatMap(choice => typeof choice.value === 'string' ? [choice.value] : []) ?? []
+  return option?.choices?.flatMap(choice => (typeof choice.value === 'string' ? [choice.value] : [])) ?? []
 }

@@ -1,10 +1,16 @@
 /** @jsxImportSource @solidjs/web */
 
 import type { CivBlitzCategoryOptions, DraftStep } from '@civup/game'
-import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
 import { cleanup, screen, waitFor } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { createActiveDraftState, createCompleteDraftState, fireUiEvent as fireEvent, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import { CIV_BLITZ_CATEGORIES, getCivBlitzRegistry, getLeader } from '@civup/game'
+import {
+  createActiveDraftState,
+  createCompleteDraftState,
+  fireUiEvent as fireEvent,
+  renderUi as render,
+  TEST_LEADER_IDS,
+} from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState, updateUiMocks } from './ui-mocks'
 
 const { LeaderGridOverlay } = await import('../src/client/components/draft/LeaderGridOverlay')
@@ -28,7 +34,9 @@ function setViewportWidth(width: number) {
 
 function createCivBlitzOptions(): CivBlitzCategoryOptions {
   const pools = getCivBlitzRegistry().componentPools
-  return Object.fromEntries(CIV_BLITZ_CATEGORIES.map(category => [category, pools[category].slice(0, 4)])) as CivBlitzCategoryOptions
+  return Object.fromEntries(
+    CIV_BLITZ_CATEGORIES.map(category => [category, pools[category].slice(0, 4)]),
+  ) as CivBlitzCategoryOptions
 }
 
 describe('LeaderGridOverlay UI', () => {
@@ -97,7 +105,7 @@ describe('LeaderGridOverlay UI', () => {
     expect(uiMockState.pickSelections).toEqual([])
   })
 
-  test.each(['ban', 'pick'] as const)('hydrates the %s preview before sending a selection', async (action) => {
+  test.each(['ban', 'pick'] as const)('hydrates the %s preview before sending a selection', async action => {
     vi.useFakeTimers()
     updateUiMocks(draft => {
       draft.canSendPickPreview = true
@@ -111,9 +119,13 @@ describe('LeaderGridOverlay UI', () => {
     render(() => <LeaderGridOverlay />)
     await vi.advanceTimersByTimeAsync(60)
 
-    expect(action === 'ban' ? uiMockState.banSelections : uiMockState.pickSelections).toEqual([TEST_LEADER_IDS.abrahamLincoln])
+    expect(action === 'ban' ? uiMockState.banSelections : uiMockState.pickSelections).toEqual([
+      TEST_LEADER_IDS.abrahamLincoln,
+    ])
     expect(storeSpies.sendPreview).toHaveBeenCalledWith(action, [TEST_LEADER_IDS.abrahamLincoln])
-    expect(storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === action).every(([, ids]) => ids.length > 0)).toBe(true)
+    expect(
+      storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === action).every(([, ids]) => ids.length > 0),
+    ).toBe(true)
   })
 
   test('cancels queued previews when the overlay is disposed', async () => {
@@ -131,11 +143,13 @@ describe('LeaderGridOverlay UI', () => {
   })
 
   test('observes connected list columns and disconnects when the view changes', () => {
-    const observed: Array<{ element: Element, connected: boolean }> = []
+    const observed: Array<{ element: Element; connected: boolean }> = []
     const disconnect = vi.fn()
     class TestResizeObserver implements ResizeObserver {
       constructor(_callback: ResizeObserverCallback) {}
-      observe(element: Element) { observed.push({ element, connected: element.isConnected }) }
+      observe(element: Element) {
+        observed.push({ element, connected: element.isConnected })
+      }
       unobserve(_element: Element) {}
       disconnect = disconnect
     }
@@ -150,21 +164,22 @@ describe('LeaderGridOverlay UI', () => {
 
       expect(disconnect).toHaveBeenCalledTimes(1)
       expect(observed[0]!.element.isConnected).toBe(false)
-    }
-    finally {
+    } finally {
       observer.mockRestore()
     }
   })
 
   test('keeps pointer tooltip stable through click focus churn', () => {
-    const hoverPoints: Array<{ x: number, y: number }> = []
+    const hoverPoints: Array<{ x: number; y: number }> = []
     let hoverLeaveCount = 0
 
     render(() => (
       <LeaderCard
         leader={getLeader(TEST_LEADER_IDS.abrahamLincoln)}
         onHoverMove={(_leader, x, y) => hoverPoints.push({ x, y })}
-        onHoverLeave={() => { hoverLeaveCount += 1 }}
+        onHoverLeave={() => {
+          hoverLeaveCount += 1
+        }}
       />
     ))
 
@@ -222,7 +237,10 @@ describe('LeaderGridOverlay UI', () => {
     vi.useFakeTimers()
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
-      steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+      steps: [
+        { action: 'ban', count: 2, timer: 60, seats: 'all' },
+        { action: 'pick', count: 1, timer: 90, seats: [0] },
+      ],
     })
 
     const mount = createMount()
@@ -243,7 +261,11 @@ describe('LeaderGridOverlay UI', () => {
     await vi.advanceTimersByTimeAsync(60)
 
     expect(storeSpies.sendBan).toHaveBeenCalledWith([TEST_LEADER_IDS.abrahamLincoln, TEST_LEADER_IDS.johnCurtin])
-    expect(storeSpies.sendPreview.mock.calls.some(call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0)).toBe(false)
+    expect(
+      storeSpies.sendPreview.mock.calls.some(
+        call => call[0] === 'ban' && Array.isArray(call[1]) && call[1].length === 0,
+      ),
+    ).toBe(false)
     expect(uiMockState.gridOpen).toBe(false)
     expect(uiMockState.banSelections).toEqual([])
   })
@@ -292,7 +314,10 @@ describe('LeaderGridOverlay UI', () => {
     uiMockState.draftState = createActiveDraftState({
       formatId: '2v2',
       currentStepIndex: 1,
-      steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [2] }],
+      steps: [
+        { action: 'ban', count: 1, timer: 60, seats: [0] },
+        { action: 'pick', count: 1, timer: 90, seats: [2] },
+      ],
     })
 
     render(() => <LeaderGridOverlay />)
@@ -310,11 +335,24 @@ describe('LeaderGridOverlay UI', () => {
     const options = createCivBlitzOptions()
     const previewIds = CIV_BLITZ_CATEGORIES.map(category => options[category][0]!)
     uiMockState.isCivBlitzDraft = true
-    updateUiMocks(draft => { draft.draftPreviewPicks[0] = previewIds })
+    updateUiMocks(draft => {
+      draft.draftPreviewPicks[0] = previewIds
+    })
     uiMockState.draftState = createActiveDraftState({
       formatId: 'civblitz-2v2',
       currentStepIndex: 0,
-      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+      steps: [
+        {
+          action: 'pick',
+          seats: 'all',
+          count: 1,
+          timer: 60,
+          blind: true,
+          blindPickRound: 0,
+          civBlitz: true,
+          civBlitzCategories: [...CIV_BLITZ_CATEGORIES],
+        },
+      ],
       civBlitz: {
         optionCount: 4,
         excludeBbgExpanded: true,
@@ -332,7 +370,9 @@ describe('LeaderGridOverlay UI', () => {
     await vi.advanceTimersByTimeAsync(60)
 
     expect(storeSpies.sendPreview).toHaveBeenCalledWith('pick', previewIds)
-    expect(storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === 'pick').every(([, ids]) => ids.length > 0)).toBe(true)
+    expect(
+      storeSpies.sendPreview.mock.calls.filter(([kind]) => kind === 'pick').every(([, ids]) => ids.length > 0),
+    ).toBe(true)
 
     await waitFor(() => {
       const confirmButton = screen.getByRole('button', { name: /Confirm/ })
@@ -370,7 +410,18 @@ describe('LeaderGridOverlay UI', () => {
     uiMockState.draftState = createActiveDraftState({
       formatId: 'civblitz-2v2',
       currentStepIndex: 0,
-      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['civilizationAbility', 'leaderAbility'] }],
+      steps: [
+        {
+          action: 'pick',
+          seats: 'all',
+          count: 1,
+          timer: 60,
+          blind: true,
+          blindPickRound: 0,
+          civBlitz: true,
+          civBlitzCategories: ['civilizationAbility', 'leaderAbility'],
+        },
+      ],
       civBlitz: {
         optionCount: 3,
         excludeBbgExpanded: true,
@@ -401,7 +452,9 @@ describe('LeaderGridOverlay UI', () => {
   test('shows locked CivBlitz picks in the completed review grid', () => {
     const registry = getCivBlitzRegistry()
     const options = createCivBlitzOptions()
-    const extraLeaderAbilityId = registry.componentPools.leaderAbility.find(componentId => !options.leaderAbility.includes(componentId))!
+    const extraLeaderAbilityId = registry.componentPools.leaderAbility.find(
+      componentId => !options.leaderAbility.includes(componentId),
+    )!
     const extraLeaderAbility = registry.componentMap.get(extraLeaderAbilityId)!
 
     uiMockState.isCivBlitzDraft = true
@@ -516,13 +569,18 @@ describe('LeaderGridOverlay UI', () => {
       picks: [{ seatIndex: 1, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
     })
     mount()
-    await waitFor(() => expect((document.querySelector('[data-leader-detail-panel]') as HTMLElement).scrollTop).toBe(96))
+    await waitFor(() =>
+      expect((document.querySelector('[data-leader-detail-panel]') as HTMLElement).scrollTop).toBe(96),
+    )
   })
 
   test('supports random ban confirmation through the shared overlay flow', () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
-      steps: [{ action: 'ban', count: 2, timer: 60, seats: 'all' }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+      steps: [
+        { action: 'ban', count: 2, timer: 60, seats: 'all' },
+        { action: 'pick', count: 1, timer: 90, seats: [0] },
+      ],
     })
 
     const mount = createMount()
@@ -599,7 +657,10 @@ describe('LeaderGridOverlay UI', () => {
   test('keeps local bans when the overlay remounts during the same ban step', () => {
     uiMockState.draftState = createActiveDraftState({
       currentStepIndex: 0,
-      steps: [{ action: 'ban', count: 1, timer: 60, seats: [0] }, { action: 'pick', count: 1, timer: 90, seats: [0] }],
+      steps: [
+        { action: 'ban', count: 1, timer: 60, seats: [0] },
+        { action: 'pick', count: 1, timer: 90, seats: [0] },
+      ],
     })
 
     const mount = createMount()
@@ -666,5 +727,7 @@ describe('LeaderGridOverlay UI', () => {
 function getCivBlitzSectionLabels(sectionLabel: string): Array<string | undefined> {
   const section = screen.getByText(sectionLabel).closest('section')
   expect(section).toBeTruthy()
-  return Array.from(section!.querySelectorAll('button')).map(button => button.querySelector('span span')?.textContent ?? undefined)
+  return Array.from(section!.querySelectorAll('button')).map(
+    button => button.querySelector('span span')?.textContent ?? undefined,
+  )
 }

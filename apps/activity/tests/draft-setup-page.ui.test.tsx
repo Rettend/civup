@@ -3,11 +3,18 @@
 import { cleanup, fireEvent as nativeFireEvent, screen, waitFor } from '@solidjs/testing-library'
 import { createSignal, flush } from 'solid-js'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { createJoinEligibility, createLobbySnapshot, createWaitingDraftState, fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
+import {
+  createJoinEligibility,
+  createLobbySnapshot,
+  createWaitingDraftState,
+  fireUiEvent as fireEvent,
+  renderUi as render,
+} from './ui-fixtures'
 import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
 
 const { DraftSetupPage } = await import('../src/client/pages/draft-setup')
-const { formatRating, formatRecord, formatWinRate, formatRankedRole } = await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
+const { formatRating, formatRecord, formatWinRate, formatRankedRole } =
+  await import('../src/client/pages/draft-setup/DraftSetupPlayersPanel')
 
 const onLobbyStarted = vi.fn(() => {})
 
@@ -26,7 +33,9 @@ async function selectDropdownOption(label: string, optionLabel: string) {
   fireEvent.focus(trigger)
   fireEvent.keyDown(trigger.parentElement as HTMLElement, { key: 'Enter' })
   const dropdown = trigger.parentElement as HTMLElement
-  const option = Array.from(dropdown.querySelectorAll('button')).find(candidate => candidate.textContent?.includes(optionLabel))
+  const option = Array.from(dropdown.querySelectorAll('button')).find(candidate =>
+    candidate.textContent?.includes(optionLabel),
+  )
   if (!option) throw new Error(`Missing dropdown option: ${optionLabel}`)
   fireEvent.click(option)
 }
@@ -52,23 +61,47 @@ function createLobbySnapshotFromConfigPatch(mode: string, revision: number, patc
     targetSize: typeof patch.targetSize === 'number' ? patch.targetSize : lobby.targetSize,
     draftConfig: {
       ...lobby.draftConfig,
-      banTimerSeconds: typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null ? patch.banTimerSeconds : lobby.draftConfig.banTimerSeconds,
-      pickTimerSeconds: typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null ? patch.pickTimerSeconds : lobby.draftConfig.pickTimerSeconds,
-      leaderPoolSize: typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null ? patch.leaderPoolSize : lobby.draftConfig.leaderPoolSize,
-      leaderDataVersion: patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live' ? patch.leaderDataVersion : lobby.draftConfig.leaderDataVersion,
-      mapVoteEnabled: typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
+      banTimerSeconds:
+        typeof patch.banTimerSeconds === 'number' || patch.banTimerSeconds === null
+          ? patch.banTimerSeconds
+          : lobby.draftConfig.banTimerSeconds,
+      pickTimerSeconds:
+        typeof patch.pickTimerSeconds === 'number' || patch.pickTimerSeconds === null
+          ? patch.pickTimerSeconds
+          : lobby.draftConfig.pickTimerSeconds,
+      leaderPoolSize:
+        typeof patch.leaderPoolSize === 'number' || patch.leaderPoolSize === null
+          ? patch.leaderPoolSize
+          : lobby.draftConfig.leaderPoolSize,
+      leaderDataVersion:
+        patch.leaderDataVersion === 'beta' || patch.leaderDataVersion === 'live'
+          ? patch.leaderDataVersion
+          : lobby.draftConfig.leaderDataVersion,
+      mapVoteEnabled:
+        typeof patch.mapVoteEnabled === 'boolean' ? patch.mapVoteEnabled : lobby.draftConfig.mapVoteEnabled,
       blindBans: typeof patch.blindBans === 'boolean' ? patch.blindBans : lobby.draftConfig.blindBans,
       blindPicks: typeof patch.blindPicks === 'boolean' ? patch.blindPicks : lobby.draftConfig.blindPicks,
-      simultaneousPick: typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
+      simultaneousPick:
+        typeof patch.simultaneousPick === 'boolean' ? patch.simultaneousPick : lobby.draftConfig.simultaneousPick,
       permanentAlly: typeof patch.permanentAlly === 'boolean' ? patch.permanentAlly : lobby.draftConfig.permanentAlly,
       redDeath: typeof patch.redDeath === 'boolean' ? patch.redDeath : lobby.draftConfig.redDeath,
-      dealOptionsSize: typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null ? patch.dealOptionsSize : lobby.draftConfig.dealOptionsSize,
+      dealOptionsSize:
+        typeof patch.dealOptionsSize === 'number' || patch.dealOptionsSize === null
+          ? patch.dealOptionsSize
+          : lobby.draftConfig.dealOptionsSize,
       civBlitz: typeof patch.civBlitz === 'boolean' ? patch.civBlitz : lobby.draftConfig.civBlitz,
-      civBlitzOptionCount: typeof patch.civBlitzOptionCount === 'number' || patch.civBlitzOptionCount === null ? patch.civBlitzOptionCount : lobby.draftConfig.civBlitzOptionCount,
-      civBlitzExcludeBbgExpanded: typeof patch.civBlitzExcludeBbgExpanded === 'boolean' ? patch.civBlitzExcludeBbgExpanded : lobby.draftConfig.civBlitzExcludeBbgExpanded,
+      civBlitzOptionCount:
+        typeof patch.civBlitzOptionCount === 'number' || patch.civBlitzOptionCount === null
+          ? patch.civBlitzOptionCount
+          : lobby.draftConfig.civBlitzOptionCount,
+      civBlitzExcludeBbgExpanded:
+        typeof patch.civBlitzExcludeBbgExpanded === 'boolean'
+          ? patch.civBlitzExcludeBbgExpanded
+          : lobby.draftConfig.civBlitzExcludeBbgExpanded,
       randomDraft: typeof patch.randomDraft === 'boolean' ? patch.randomDraft : lobby.draftConfig.randomDraft,
       hiddenDraft: typeof patch.hiddenDraft === 'boolean' ? patch.hiddenDraft : lobby.draftConfig.hiddenDraft,
-      duplicateFactions: typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : lobby.draftConfig.duplicateFactions,
+      duplicateFactions:
+        typeof patch.duplicateFactions === 'boolean' ? patch.duplicateFactions : lobby.draftConfig.duplicateFactions,
       closed: typeof patch.closed === 'boolean' ? patch.closed : lobby.draftConfig.closed,
     },
   }
@@ -87,16 +120,17 @@ describe('DraftSetupPage UI', () => {
 
   test('shows the host open-lobby flow with start and cancel affordances', () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
@@ -110,16 +144,17 @@ describe('DraftSetupPage UI', () => {
 
   test('shows lobby access as an open-by-default config switch', async () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
@@ -132,17 +167,26 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.click(accessSwitch)
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === '2v2' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === true)).toBe(true))
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([mode, lobbyId, userId, patch]) =>
+            mode === '2v2' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === true,
+        ),
+      ).toBe(true),
+    )
 
     cleanup()
     storeSpies.updateLobbyConfig.mockClear()
 
     const closedLobby = createLobbySnapshot()
     render(() => (
-      <DraftSetupPage lobby={{
-        ...closedLobby,
-        draftConfig: { ...closedLobby.draftConfig, closed: true },
-      }} />
+      <DraftSetupPage
+        lobby={{
+          ...closedLobby,
+          draftConfig: { ...closedLobby.draftConfig, closed: true },
+        }}
+      />
     ))
 
     const closedSwitch = screen.getByRole('switch', { name: 'Lobby Closed' })
@@ -153,19 +197,27 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.click(closedSwitch)
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([mode, lobbyId, userId, patch]) => mode === 'ffa' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === false)).toBe(true))
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([mode, lobbyId, userId, patch]) =>
+            mode === 'ffa' && lobbyId === 'lobby-1' && userId === 'host-1' && patch.closed === false,
+        ),
+      ).toBe(true),
+    )
   })
 
   test('does not show a manual first-pick control in 1v1 lobbies', () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '1v1',
-        targetSize: 2,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '1v1',
+          targetSize: 2,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
@@ -204,17 +256,13 @@ describe('DraftSetupPage UI', () => {
 
   test('shows host not-ready team lobby state when more players are required', () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        minPlayers: 4,
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          null,
-          null,
-          null,
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          minPlayers: 4,
+          targetSize: 4,
+          entries: [{ playerId: 'host-1', displayName: 'Host Player', avatarUrl: null }, null, null, null],
+        })}
       />
     ))
 
@@ -225,10 +273,11 @@ describe('DraftSetupPage UI', () => {
 
   test('shows the last used arrange action with the matching icon', () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        lastArrange: { strategy: 'shuffle-teams', at: 123 },
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          lastArrange: { strategy: 'shuffle-teams', at: 123 },
+        })}
       />
     ))
 
@@ -240,10 +289,11 @@ describe('DraftSetupPage UI', () => {
 
     cleanup()
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        lastArrange: { strategy: 'balance', at: 124 },
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          lastArrange: { strategy: 'balance', at: 124 },
+        })}
       />
     ))
 
@@ -286,7 +336,11 @@ describe('DraftSetupPage UI', () => {
     render(() => (
       <DraftSetupPage
         lobby={createLobbySnapshot()}
-        joinEligibility={createJoinEligibility({ canJoin: false, blockedReason: 'You are already in another open lobby.', pendingSlot: null })}
+        joinEligibility={createJoinEligibility({
+          canJoin: false,
+          blockedReason: 'You are already in another open lobby.',
+          pendingSlot: null,
+        })}
       />
     ))
 
@@ -317,16 +371,17 @@ describe('DraftSetupPage UI', () => {
 
   test('lets the host update real config toggles and numeric fields in a 2v2 lobby', async () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
@@ -361,7 +416,13 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: 'Red Death' }))
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10)).toBe(true))
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([, , , patch]) => (patch as Record<string, unknown>).redDeath === true && patch.targetSize === 10,
+        ),
+      ).toBe(true),
+    )
   })
 
   test('hides invalid ban and pick config while hidden draft is on', () => {
@@ -403,10 +464,12 @@ describe('DraftSetupPage UI', () => {
   test('renders CivBlitz setup options without the BBG Beta row', async () => {
     const lobby = createLobbySnapshot({ mode: '2v2', targetSize: 4 })
     render(() => (
-      <DraftSetupPage lobby={{
-        ...lobby,
-        draftConfig: { ...lobby.draftConfig, civBlitz: true },
-      }} />
+      <DraftSetupPage
+        lobby={{
+          ...lobby,
+          draftConfig: { ...lobby.draftConfig, civBlitz: true },
+        }}
+      />
     ))
 
     const configCard = screen.getByText('Config').closest('.bg-bg-subtle') as HTMLElement
@@ -428,13 +491,20 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.click(bbgExpandedSwitch)
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => (patch as Record<string, unknown>).civBlitzExcludeBbgExpanded === false)).toBe(true))
-
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([, , , patch]) => (patch as Record<string, unknown>).civBlitzExcludeBbgExpanded === false,
+        ),
+      ).toBe(true),
+    )
   })
 
   test('queues overlapping optimistic config saves with the latest switch state', async () => {
     let resolveFirstSave: () => void = () => {}
-    const firstSave = new Promise<void>((resolve) => { resolveFirstSave = resolve })
+    const firstSave = new Promise<void>(resolve => {
+      resolveFirstSave = resolve
+    })
     let callIndex = 0
 
     storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
@@ -444,16 +514,17 @@ describe('DraftSetupPage UI', () => {
     })
 
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
@@ -495,15 +566,26 @@ describe('DraftSetupPage UI', () => {
 
   test('keeps a valid roles request pending across newer snapshots of the same lobby', async () => {
     let resolveRoles: (value: Awaited<ReturnType<typeof storeSpies.fetchLobbyRankedRoles>>) => void = () => {}
-    storeSpies.fetchLobbyRankedRoles.mockImplementationOnce(() => new Promise(resolve => { resolveRoles = resolve }))
+    storeSpies.fetchLobbyRankedRoles.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveRoles = resolve
+        }),
+    )
     const { setLobby } = renderLobby(createLobbySnapshot({ minRole: 'gold' }))
     await waitFor(() => expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1))
 
     setLobby(createLobbySnapshot({ revision: 2, minRole: 'gold' }))
     flush()
-    resolveRoles({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'Current lobby rank', color: '#facc15' }] })
+    resolveRoles({
+      options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'Current lobby rank', color: '#facc15' }],
+    })
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('Current lobby rank'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain(
+        'Current lobby rank',
+      ),
+    )
     expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1)
   })
 
@@ -511,20 +593,37 @@ describe('DraftSetupPage UI', () => {
     let resolveRoles: (value: Awaited<ReturnType<typeof storeSpies.fetchLobbyRankedRoles>>) => void = () => {}
     let resolveAvailability: (value: boolean) => void = () => {}
     storeSpies.fetchLobbyRankedRoles
-      .mockImplementationOnce(() => new Promise(resolve => { resolveRoles = resolve }))
-      .mockResolvedValue({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'New lobby rank', color: '#facc15' }] })
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveRoles = resolve
+          }),
+      )
+      .mockResolvedValue({
+        options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'New lobby rank', color: '#facc15' }],
+      })
     storeSpies.canFillLobbyWithTestPlayers
-      .mockImplementationOnce(() => new Promise(resolve => { resolveAvailability = resolve }))
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            resolveAvailability = resolve
+          }),
+      )
       .mockResolvedValue(false)
     const { setLobby } = renderLobby(createLobbySnapshot({ minRole: 'gold' }))
     await waitFor(() => expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledTimes(1))
 
     setLobby(createLobbySnapshot({ id: 'lobby-2', minRole: 'gold' }))
     flush()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('New lobby rank'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('New lobby rank'),
+    )
     resolveRoles({ options: [{ tier: 'gold', rank: 2, roleId: 'gold', label: 'Old lobby rank', color: '#facc15' }] })
     resolveAvailability(true)
-    await Promise.all([storeSpies.fetchLobbyRankedRoles.mock.results[0]!.value, storeSpies.canFillLobbyWithTestPlayers.mock.results[0]!.value])
+    await Promise.all([
+      storeSpies.fetchLobbyRankedRoles.mock.results[0]!.value,
+      storeSpies.canFillLobbyWithTestPlayers.mock.results[0]!.value,
+    ])
     flush()
 
     expect(screen.getByRole('button', { name: 'Minimum matchmaking rank' }).textContent).toContain('New lobby rank')
@@ -534,7 +633,9 @@ describe('DraftSetupPage UI', () => {
 
   test('does not replace a newer config snapshot with an older save response', async () => {
     let resolveSave = () => {}
-    const save = new Promise<void>(resolve => { resolveSave = resolve })
+    const save = new Promise<void>(resolve => {
+      resolveSave = resolve
+    })
     storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
       await save
       return { ok: true, lobby: createLobbySnapshotFromConfigPatch(mode, 2, { ...patch, banTimerSeconds: 120 }) }
@@ -554,7 +655,9 @@ describe('DraftSetupPage UI', () => {
 
   test('keeps a refocused timer input active when an older blur save finishes', async () => {
     let resolveSave: () => void = () => {}
-    const save = new Promise<void>((resolve) => { resolveSave = resolve })
+    const save = new Promise<void>(resolve => {
+      resolveSave = resolve
+    })
 
     storeSpies.updateLobbyConfig.mockImplementation(async (mode, _lobbyId, _userId, patch) => {
       await save
@@ -584,46 +687,52 @@ describe('DraftSetupPage UI', () => {
 
   test('covers the host 2v2 extra-team toggle flow', async () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 4,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 4,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+          ],
+        })}
       />
     ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Add two extra teams' }))
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 8)).toBe(true))
+    await waitFor(() =>
+      expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 8)).toBe(true),
+    )
   })
 
   test('covers the host FFA extra-seat toggle flow', async () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: 'ffa',
-        targetSize: 8,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          null,
-          null,
-          null,
-          null,
-          null,
-          null,
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: 'ffa',
+          targetSize: 8,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+          ],
+        })}
       />
     ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Add more seats' }))
 
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 12)).toBe(true))
+    await waitFor(() =>
+      expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.targetSize === 12)).toBe(true),
+    )
   })
 
   test('covers ranked host dropdown flows with fetched matchmaking roles', async () => {
@@ -641,18 +750,40 @@ describe('DraftSetupPage UI', () => {
     await waitFor(() => expect(storeSpies.updateLobbyMode).toHaveBeenCalledWith('ffa', 'lobby-1', 'host-1', '3v3'))
 
     cleanup()
-    render(() => <DraftSetupPage lobby={createLobbySnapshot()} prefetchedRankedRoleOptions={uiMockState.fetchLobbyRankedRolesResult?.options ?? []} />)
+    render(() => (
+      <DraftSetupPage
+        lobby={createLobbySnapshot()}
+        prefetchedRankedRoleOptions={uiMockState.fetchLobbyRankedRolesResult?.options ?? []}
+      />
+    ))
 
     await selectDropdownOption('Minimum matchmaking rank', 'Gold')
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.minRole === 'gold' && patch.maxRole === null)).toBe(true))
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([, , , patch]) => patch.minRole === 'gold' && patch.maxRole === null,
+        ),
+      ).toBe(true),
+    )
     await waitFor(() => expect(storeSpies.fetchLobbyRankedRoles).toHaveBeenCalledWith('ffa', 'lobby-1'))
     expect(screen.getAllByText('Gold').length).toBeGreaterThan(0)
 
     cleanup()
-    render(() => <DraftSetupPage lobby={createLobbySnapshot()} prefetchedRankedRoleOptions={uiMockState.fetchLobbyRankedRolesResult?.options ?? []} />)
+    render(() => (
+      <DraftSetupPage
+        lobby={createLobbySnapshot()}
+        prefetchedRankedRoleOptions={uiMockState.fetchLobbyRankedRolesResult?.options ?? []}
+      />
+    ))
 
     await selectDropdownOption('Maximum matchmaking rank', 'Bronze')
-    await waitFor(() => expect(storeSpies.updateLobbyConfig.mock.calls.some(([, , , patch]) => patch.minRole === null && patch.maxRole === 'bronze')).toBe(true))
+    await waitFor(() =>
+      expect(
+        storeSpies.updateLobbyConfig.mock.calls.some(
+          ([, , , patch]) => patch.minRole === null && patch.maxRole === 'bronze',
+        ),
+      ).toBe(true),
+    )
   })
 
   test('shows fill-test-players availability and action feedback for hosts', async () => {
@@ -671,16 +802,20 @@ describe('DraftSetupPage UI', () => {
     uiMockState.userId = 'spectator-1'
     uiMockState.displayName = 'Spectator'
 
-    render(() => <DraftSetupPage lobby={createLobbySnapshot()} joinEligibility={createJoinEligibility({ pendingSlot: 2 })} />)
+    render(() => (
+      <DraftSetupPage lobby={createLobbySnapshot()} joinEligibility={createJoinEligibility({ pendingSlot: 2 })} />
+    ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Join Lobby' }))
-    await waitFor(() => expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
-      lobbyId: 'lobby-1',
-      userId: 'spectator-1',
-      targetSlot: 2,
-      displayName: 'Spectator',
-      avatarUrl: null,
-    }))
+    await waitFor(() =>
+      expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
+        lobbyId: 'lobby-1',
+        userId: 'spectator-1',
+        targetSlot: 2,
+        displayName: 'Spectator',
+        avatarUrl: null,
+      }),
+    )
 
     cleanup()
     uiMockState.userId = 'player-2'
@@ -689,11 +824,13 @@ describe('DraftSetupPage UI', () => {
     render(() => <DraftSetupPage lobby={createLobbySnapshot()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Leave Lobby' }))
-    await waitFor(() => expect(storeSpies.removeLobbySlot).toHaveBeenCalledWith('ffa', {
-      lobbyId: 'lobby-1',
-      userId: 'player-2',
-      slot: 1,
-    }))
+    await waitFor(() =>
+      expect(storeSpies.removeLobbySlot).toHaveBeenCalledWith('ffa', {
+        lobbyId: 'lobby-1',
+        userId: 'player-2',
+        slot: 1,
+      }),
+    )
   })
 
   test('drops a dragged player when hovering the realistic chip surface', async () => {
@@ -714,14 +851,16 @@ describe('DraftSetupPage UI', () => {
 
     fireEvent.drop(emptyLabel, { dataTransfer })
 
-    await waitFor(() => expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
-      lobbyId: 'lobby-1',
-      userId: 'host-1',
-      targetSlot: 2,
-      playerId: 'player-2',
-      displayName: 'Host Player',
-      avatarUrl: null,
-    }))
+    await waitFor(() =>
+      expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
+        lobbyId: 'lobby-1',
+        userId: 'host-1',
+        targetSlot: 2,
+        playerId: 'player-2',
+        displayName: 'Host Player',
+        avatarUrl: null,
+      }),
+    )
   })
 
   test('keeps occupied-seat dragging on the row while leaving nested content interactive', async () => {
@@ -743,14 +882,16 @@ describe('DraftSetupPage UI', () => {
     fireEvent.dragOver(hostChip, { dataTransfer })
     fireEvent.drop(hostBadge, { dataTransfer })
 
-    await waitFor(() => expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
-      lobbyId: 'lobby-1',
-      userId: 'host-1',
-      targetSlot: 0,
-      playerId: 'player-2',
-      displayName: 'Host Player',
-      avatarUrl: null,
-    }))
+    await waitFor(() =>
+      expect(storeSpies.placeLobbySlot).toHaveBeenCalledWith('ffa', {
+        lobbyId: 'lobby-1',
+        userId: 'host-1',
+        targetSlot: 0,
+        playerId: 'player-2',
+        displayName: 'Host Player',
+        avatarUrl: null,
+      }),
+    )
 
     expect(hostBadge.className).toContain('text-[10px]')
     expect(arrangeOverlay.className).toContain('pointer-events-none')
@@ -761,7 +902,16 @@ describe('DraftSetupPage UI', () => {
     expect(formatRating(null, true)).toBe('Unranked')
     expect(formatRecord(null)).toBe('0-0')
     expect(formatWinRate(null)).toBe('0%')
-    const rp = { mu: 30, sigma: 3, gamesPlayed: 100, wins: 70, ratingSystem: 'rp' as const, publicRating: 1300, seasonGames: 4, seasonWins: 1 }
+    const rp = {
+      mu: 30,
+      sigma: 3,
+      gamesPlayed: 100,
+      wins: 70,
+      ratingSystem: 'rp' as const,
+      publicRating: 1300,
+      seasonGames: 4,
+      seasonWins: 1,
+    }
     expect(formatRecord(rp)).toBe('1-3')
     expect(formatWinRate(rp)).toBe('25%')
     expect(formatRecord({ ...rp, seasonGames: 0, seasonWins: 0 })).toBe('0-0')
@@ -769,27 +919,33 @@ describe('DraftSetupPage UI', () => {
 
   test('division badges use configured role names and colors while honoring saved historical labels', () => {
     const roles = [{ tier: 'tier2' as const, rank: 2, roleId: 'role', label: 'Captain', color: '#123456' }]
-    expect(formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2 }, roles)).toEqual({ label: 'Captain II', color: '#123456' })
+    expect(formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2 }, roles)).toEqual({
+      label: 'Captain II',
+      color: '#123456',
+    })
     expect(formatRankedRole({ tier: 'tier2', sourceMode: null }, roles).label).toBe('Captain')
-    expect(formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2, label: 'Archived Officer II' }, roles).label).toBe('Archived Officer II')
+    expect(
+      formatRankedRole({ tier: 'tier2', sourceMode: null, division: 2, label: 'Archived Officer II' }, roles).label,
+    ).toBe('Archived Officer II')
   })
 
   test('blocks removing extra 2v2 teams while Teams C and D are occupied', () => {
     render(() => (
-      <DraftSetupPage lobby={createLobbySnapshot({
-        mode: '2v2',
-        targetSize: 8,
-        entries: [
-          { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
-          { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
-          { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
-          { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
-          { playerId: 'player-5', displayName: 'Player 5', avatarUrl: null },
-          { playerId: 'player-6', displayName: 'Player 6', avatarUrl: null },
-          null,
-          null,
-        ],
-      })}
+      <DraftSetupPage
+        lobby={createLobbySnapshot({
+          mode: '2v2',
+          targetSize: 8,
+          entries: [
+            { playerId: 'host-1', displayName: 'Host Player', avatarUrl: null },
+            { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null },
+            { playerId: 'player-3', displayName: 'Player 3', avatarUrl: null },
+            { playerId: 'player-4', displayName: 'Player 4', avatarUrl: null },
+            { playerId: 'player-5', displayName: 'Player 5', avatarUrl: null },
+            { playerId: 'player-6', displayName: 'Player 6', avatarUrl: null },
+            null,
+            null,
+          ],
+        })}
       />
     ))
 
@@ -816,18 +972,28 @@ describe('DraftSetupPage UI', () => {
     ))
 
     fireEvent.click(screen.getByRole('button', { name: 'Shuffle players' }))
-    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'randomize'))
+    await waitFor(() =>
+      expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'randomize'),
+    )
 
     expect(screen.queryByRole('button', { name: 'Shuffle teams' })).toBeNull()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Auto-balance teams' }).hasAttribute('disabled')).toBe(false))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Auto-balance teams' }).hasAttribute('disabled')).toBe(false),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Auto-balance teams' }))
-    await waitFor(() => expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'balance'))
+    await waitFor(() =>
+      expect(storeSpies.arrangeLobbySlots).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1', 'balance'),
+    )
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Start Draft' }).hasAttribute('disabled')).toBe(false),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Start Draft' }))
     await waitFor(() => expect(storeSpies.startLobbyDraft).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))
-    await waitFor(() => expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'session-token'))
+    await waitFor(() =>
+      expect(onLobbyStarted).toHaveBeenCalledWith('match-1', 'steam://joinlobby/289070/example', 'session-token'),
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Lobby' }))
     await waitFor(() => expect(storeSpies.cancelLobby).toHaveBeenCalledWith('2v2', 'lobby-1', 'host-1'))

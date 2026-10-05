@@ -1,15 +1,23 @@
-import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
 import type { TestSessionNamespace } from '../helpers/session-runtime.ts'
+import type { GameMode, ResolvedMapVoteResult } from '@civup/game'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 import { matches } from '@civup/db'
 import { formatMapVoteResultLabel, swapSeatPicks } from '@civup/game'
 import { verifySessionAccessToken } from '@civup/utils'
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
 import { setSystemChannel } from '../../src/services/system/channels.ts'
-import { createTournament, createTournamentMatchLink, importTournamentPlayersCsv } from '../../src/services/tournament/index.ts'
+import {
+  createTournament,
+  createTournamentMatchLink,
+  importTournamentPlayersCsv,
+} from '../../src/services/tournament/index.ts'
 import { getSessionRecord, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
 import { createFakeSessionWebSocket } from '../helpers/session-runtime.ts'
-import { countDiscordChannelRequests as countDiscordMessageUpdates, expectDraftAndLobbyState, expectQueuePlayers } from './helpers/assertions.ts'
+import {
+  countDiscordChannelRequests as countDiscordMessageUpdates,
+  expectDraftAndLobbyState,
+  expectQueuePlayers,
+} from './helpers/assertions.ts'
 import { createSystemWorld } from './helpers/world.ts'
 
 const worlds: Array<Awaited<ReturnType<typeof createSystemWorld>>> = []
@@ -35,7 +43,7 @@ const CORE_MODE_CASES = [
   { mode: '2v2', playerCount: 4 },
   { mode: '3v3', playerCount: 6 },
   { mode: 'ffa', playerCount: 8 },
-] as const satisfies readonly { mode: GameMode, playerCount: number }[]
+] as const satisfies readonly { mode: GameMode; playerCount: number }[]
 
 const MAP_VOTE_RESULT: ResolvedMapVoteResult = {
   mapType: 'standard',
@@ -97,10 +105,18 @@ describe('system scenarios', () => {
       if (mode === 'ffa') {
         expect(result.activeParticipants.every(participant => participant.team == null)).toBe(true)
         expect(result.reportedParticipants.every(participant => participant.team == null)).toBe(true)
-        expectAdjacentPairPlacements(result.reportedParticipants, result.activeParticipants.map(participant => participant.playerId))
-      }
-      else {
-        expectTeamPlacements(result.reportedParticipants, new Map([[0, 1], [1, 2]]))
+        expectAdjacentPairPlacements(
+          result.reportedParticipants,
+          result.activeParticipants.map(participant => participant.playerId),
+        )
+      } else {
+        expectTeamPlacements(
+          result.reportedParticipants,
+          new Map([
+            [0, 1],
+            [1, 2],
+          ]),
+        )
       }
 
       if (mode === '1v1') {
@@ -120,7 +136,10 @@ describe('system scenarios', () => {
     expect(findDraftRuntimeConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
     expect(parseDraftData(simultaneous.reportedMatch)?.state).toMatchObject({ formatId: 'default-ffa-simultaneous' })
     expect(simultaneous.reportedParticipants.every(participant => participant.team == null)).toBe(true)
-    expectAdjacentPairPlacements(simultaneous.reportedParticipants, [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId))
+    expectAdjacentPairPlacements(
+      simultaneous.reportedParticipants,
+      [...simultaneous.activeParticipants].reverse().map(participant => participant.playerId),
+    )
 
     const redDeathWorld = await createTrackedWorld()
     const redDeath = await runReportedLifecycle(redDeathWorld, {
@@ -161,13 +180,25 @@ describe('system scenarios', () => {
       config: { mapVoteEnabled: true },
       completeDraftOptions: { mapVoteResult: MAP_VOTE_RESULT },
     })
-    const mapVotePayloads = (await Promise.all(
-      (await mapVoteWorld.match.getMessageIds(mapVote.matchId)).map(async messageId => mapVoteWorld.discord.message(messageId)?.payload ?? null),
-    )).filter((payload): payload is Record<string, unknown> => payload != null && typeof payload === 'object')
+    const mapVotePayloads = (
+      await Promise.all(
+        (await mapVoteWorld.match.getMessageIds(mapVote.matchId)).map(
+          async messageId => mapVoteWorld.discord.message(messageId)?.payload ?? null,
+        ),
+      )
+    ).filter((payload): payload is Record<string, unknown> => payload != null && typeof payload === 'object')
 
     expect(findDraftRuntimeConfig(mapVoteWorld, mapVote.matchId)?.mapVoteEnabled).toBe(true)
     expect(parseDraftData(mapVote.reportedMatch)?.mapVoteResult).toEqual(MAP_VOTE_RESULT)
-    expect(mapVotePayloads.some(payload => payloadHasEmbedField(payload, 'Map', formatMapVoteResultLabel(MAP_VOTE_RESULT.mapType, MAP_VOTE_RESULT.mapScript)))).toBe(true)
+    expect(
+      mapVotePayloads.some(payload =>
+        payloadHasEmbedField(
+          payload,
+          'Map',
+          formatMapVoteResultLabel(MAP_VOTE_RESULT.mapType, MAP_VOTE_RESULT.mapScript),
+        ),
+      ),
+    ).toBe(true)
   })
 
   test('starting a valid 1v1 lobby creates exactly one draft runtime and one drafting match', async () => {
@@ -297,7 +328,9 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const finalLobby = await world.lobby.getById(lobby.id)
-    const liveMatches = (await world.db.select().from(matches)).filter(match => match.status === 'drafting' || match.status === 'active')
+    const liveMatches = (await world.db.select().from(matches)).filter(
+      match => match.status === 'drafting' || match.status === 'active',
+    )
 
     expect(new Set([first.matchId, second.matchId])).toEqual(new Set([finalLobby?.matchId]))
     expect(world.party.rooms()).toHaveLength(1)
@@ -342,10 +375,14 @@ describe('system scenarios', () => {
       participants[4]!.playerId,
     ]
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'ffa-order1',
-      placements: buildOrderedMentions(orderedIds.map(playerId => ({ playerId }))),
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'ffa-order1',
+          placements: buildOrderedMentions(orderedIds.map(playerId => ({ playerId }))),
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     const reportedMatch = await world.match.get(started.matchId)
@@ -360,7 +397,7 @@ describe('system scenarios', () => {
       mode: '2v2',
       players: createPlayers(8, 'team'),
       config: { targetSize: 8 },
-      placements: (participants) => {
+      placements: participants => {
         const teams = groupParticipantsByTeam(participants)
         const thirdTeamPlayer = teams.get(2)?.[0]?.playerId
         const firstTeamPlayer = teams.get(0)?.[0]?.playerId
@@ -386,7 +423,12 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    const beforeFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const beforeFinalized = new Map(
+      (await world.match.getParticipants(started.matchId)).map(participant => [
+        participant.playerId,
+        participant.civId,
+      ]),
+    )
     const bansBeforeFinalized = await world.match.getBans(started.matchId)
     const firstPatchCount = countDiscordMessageUpdates(world, 'PATCH')
     const firstPostCount = countDiscordMessageUpdates(world, 'POST')
@@ -395,18 +437,27 @@ describe('system scenarios', () => {
     const replayPatchCount = countDiscordMessageUpdates(world, 'PATCH')
     const replayPostCount = countDiscordMessageUpdates(world, 'POST')
 
-    expect((await world.party.completeDraft(started.matchId, {
-      finalized: true,
-      transformState: (state) => {
-        const swappedPicks = swapSeatPicks(state, 0, 2)
-        if ('error' in swappedPicks) throw new Error(swappedPicks.error)
-        return { ...state, picks: swappedPicks }
-      },
-    })).status).toBe(200)
+    expect(
+      (
+        await world.party.completeDraft(started.matchId, {
+          finalized: true,
+          transformState: state => {
+            const swappedPicks = swapSeatPicks(state, 0, 2)
+            if ('error' in swappedPicks) throw new Error(swappedPicks.error)
+            return { ...state, picks: swappedPicks }
+          },
+        })
+      ).status,
+    ).toBe(200)
     const finalizedPatchCount = countDiscordMessageUpdates(world, 'PATCH')
     const finalizedPostCount = countDiscordMessageUpdates(world, 'POST')
     const messageIds = await world.match.getMessageIds(started.matchId)
-    const afterFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const afterFinalized = new Map(
+      (await world.match.getParticipants(started.matchId)).map(participant => [
+        participant.playerId,
+        participant.civId,
+      ]),
+    )
     const bansAfterFinalized = await world.match.getBans(started.matchId)
 
     expect(replayPatchCount).toBe(firstPatchCount)
@@ -451,7 +502,10 @@ describe('system scenarios', () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
-      players: [{ id: 'host', displayName: 'Host Player' }, { id: 'potato', displayName: 'Potato' }],
+      players: [
+        { id: 'host', displayName: 'Host Player' },
+        { id: 'potato', displayName: 'Potato' },
+      ],
       hostId: 'host',
     })
 
@@ -468,7 +522,16 @@ describe('system scenarios', () => {
     expect(scrubbed.status).toBe(200)
 
     const message = world.discord.message(lobby.messageId)
-    const payload = message?.payload as { embeds?: Array<{ title?: string, footer?: { text?: string, icon_url?: string }, fields?: Array<{ name: string, value: string, inline: boolean }> }> } | null | undefined
+    const payload = message?.payload as
+      | {
+          embeds?: Array<{
+            title?: string
+            footer?: { text?: string; icon_url?: string }
+            fields?: Array<{ name: string; value: string; inline: boolean }>
+          }>
+        }
+      | null
+      | undefined
     const embed = payload?.embeds?.[0]
     expect(embed?.title).toContain('MATCH SCRUBBED')
     expect(embed?.fields?.some(field => field.name === 'Note')).toBe(false)
@@ -492,7 +555,7 @@ describe('system scenarios', () => {
     world.party.draftComplete(started.matchId)
     world.party.draftComplete(started.matchId, {
       finalized: true,
-      transformState: (state) => {
+      transformState: state => {
         const swappedPicks = swapSeatPicks(state, 0, 2)
         if ('error' in swappedPicks) throw new Error(swappedPicks.error)
         return { ...state, picks: swappedPicks }
@@ -512,7 +575,12 @@ describe('system scenarios', () => {
     expect((await world.party.replayDraftComplete(started.matchId, { index: 0 })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    const beforeFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const beforeFinalized = new Map(
+      (await world.match.getParticipants(started.matchId)).map(participant => [
+        participant.playerId,
+        participant.civId,
+      ]),
+    )
     const requestsAfterActivation = world.discord.requests().length
 
     await expectDraftAndLobbyState(world, {
@@ -529,7 +597,12 @@ describe('system scenarios', () => {
     expect((await world.party.replayDraftComplete(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    const afterFinalized = new Map((await world.match.getParticipants(started.matchId)).map(participant => [participant.playerId, participant.civId]))
+    const afterFinalized = new Map(
+      (await world.match.getParticipants(started.matchId)).map(participant => [
+        participant.playerId,
+        participant.civId,
+      ]),
+    )
 
     expectOnlySeatPickSwap(beforeFinalized, afterFinalized, findDraftRuntimeConfig(world, started.matchId)?.seats, 0, 2)
     expect(world.discord.requests().length).toBeGreaterThan(requestsAfterActivation)
@@ -562,8 +635,14 @@ describe('system scenarios', () => {
     expect(reboundMessage?.id).toBe(activeLobby?.messageId)
     expect(world.discord.message(staleMessageId)).toBeNull()
     expect(messageIds).toContain(activeLobby?.messageId)
-    expect(completeRequests.some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(true)
-    expect(completeRequests.some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`))).toBe(true)
+    expect(completeRequests.some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(
+      true,
+    )
+    expect(
+      completeRequests.some(
+        request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`),
+      ),
+    ).toBe(true)
   })
 
   test('timeout draft reopens lobby with the frozen roster', async () => {
@@ -605,7 +684,9 @@ describe('system scenarios', () => {
     expect(await world.inspect.currentHostedLobby('p1')).toBeNull()
     expect(await world.inspect.lobbyMapping('p1')).toBeNull()
     expect(await world.inspect.lobbyMapping('p2')).toBeNull()
-    expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(lobby.messageId))).toBe(true)
+    expect(
+      world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(lobby.messageId)),
+    ).toBe(true)
 
     const freshLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -647,7 +728,11 @@ describe('system scenarios', () => {
 
     expect(await world.lobby.get('1v1')).toBeNull()
     expect((await world.match.get(started.matchId))?.status).toBe('cancelled')
-    expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes('seed-message-p1-1v1'))).toBe(true)
+    expect(
+      world.discord
+        .requests()
+        .some(request => request.method === 'PATCH' && request.url.includes('seed-message-p1-1v1')),
+    ).toBe(true)
   })
 
   test('join after report clears stale live residue and joins a fresh lobby cleanly', async () => {
@@ -660,10 +745,14 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: initialLobby.id })
     await world.flushBackgroundTasks()
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
 
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.matchMapping('p2')).toBeNull()
@@ -726,17 +815,19 @@ describe('system scenarios', () => {
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
       selection: null,
-      options: [
-        expect.objectContaining({ id: targetLobby.id, kind: 'lobby' }),
-      ],
+      options: [expect.objectContaining({ id: targetLobby.id, kind: 'lobby' })],
     })
     expect(await world.inspect.lobbiesForPlayer('p1')).toEqual([])
-    expect((await world.lobby.place('1v1', {
-      userId: 'p1',
-      lobbyId: targetLobby.id,
-      targetSlot: 1,
-      displayName: 'p1',
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('1v1', {
+          userId: 'p1',
+          lobbyId: targetLobby.id,
+          targetSlot: 1,
+          displayName: 'p1',
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
     expect(await world.inspect.lobbyMapping('p1')).toBe(targetLobby.id)
   })
@@ -829,17 +920,17 @@ describe('system scenarios', () => {
     expect(canonicalLaunch.status).toBe(200)
     expect(canonicalLaunch.body).toMatchObject({
       selection: null,
-      options: [
-        expect.objectContaining({ id: canonicalLobby.id, kind: 'lobby' }),
-      ],
+      options: [expect.objectContaining({ id: canonicalLobby.id, kind: 'lobby' })],
     })
     expect(otherLaunch.status).toBe(200)
     expect(otherLaunch.body).toMatchObject({
-      options: [
-        expect.objectContaining({ id: otherLobby.id, kind: 'lobby' }),
-      ],
+      options: [expect.objectContaining({ id: otherLobby.id, kind: 'lobby' })],
     })
-    expect((otherLaunch.body as { options?: Array<{ id: string }> }).options?.some(option => option.id === canonicalLobby.id)).toBe(false)
+    expect(
+      (otherLaunch.body as { options?: Array<{ id: string }> }).options?.some(
+        option => option.id === canonicalLobby.id,
+      ),
+    ).toBe(false)
 
     const joinResponse = await world.lobby.place('1v1', {
       userId: 'spectator',
@@ -886,12 +977,16 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const reopenedLobby = await world.lobby.getById(lobby.id)
-    expect((await world.lobby.place('1v1', {
-      userId: 'p1',
-      lobbyId: reopenedLobby!.id,
-      targetSlot: 0,
-      displayName: 'p1',
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('1v1', {
+          userId: 'p1',
+          lobbyId: reopenedLobby!.id,
+          targetSlot: 0,
+          displayName: 'p1',
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
 
     const liveMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: reopenedLobby!.id })
@@ -961,20 +1056,28 @@ describe('system scenarios', () => {
       },
     })
 
-    const sessionAccessToken = (target.body as { snapshot?: { selection?: { sessionAccessToken?: string | null } | null } }).snapshot?.selection?.sessionAccessToken ?? null
+    const sessionAccessToken =
+      (target.body as { snapshot?: { selection?: { sessionAccessToken?: string | null } | null } }).snapshot?.selection
+        ?.sessionAccessToken ?? null
     expect(sessionAccessToken).not.toBeNull()
-    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
-      sessionId: started.matchId,
-      userId: 'spectator-1',
-    })).resolves.not.toBeNull()
-    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
-      sessionId: started.matchId,
-      userId: 'wrong-user',
-    })).resolves.toBeNull()
-    await expect(verifySessionAccessToken('secret', sessionAccessToken, {
-      sessionId: 'wrong-session',
-      userId: 'spectator-1',
-    })).resolves.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', sessionAccessToken, {
+        sessionId: started.matchId,
+        userId: 'spectator-1',
+      }),
+    ).resolves.not.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', sessionAccessToken, {
+        sessionId: started.matchId,
+        userId: 'wrong-user',
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', sessionAccessToken, {
+        sessionId: 'wrong-session',
+        userId: 'spectator-1',
+      }),
+    ).resolves.toBeNull()
   })
 
   test('spectator retargeting persists the latest selected follow target', async () => {
@@ -1182,7 +1285,11 @@ describe('system scenarios', () => {
     expect(reopenedLobby?.matchId).toBeNull()
     expect(reopenedLobby?.memberPlayerIds).toEqual(players.map(player => player.id))
     expect(reopenedLobby?.slots).toEqual(['revert3', 'revert4', 'revert1', 'revert2'])
-    await expectQueuePlayers(world, '2v2', players.map(player => player.id))
+    await expectQueuePlayers(
+      world,
+      '2v2',
+      players.map(player => player.id),
+    )
     expect(await world.inspect.matchMapping('revert1')).toBeNull()
     expect(await world.inspect.lobbyMapping('revert1')).toBe(lobby.id)
     expect(await world.inspect.lobbyMapping('revert2')).toBe(lobby.id)
@@ -1291,7 +1398,11 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1345,7 +1456,11 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1366,14 +1481,18 @@ describe('system scenarios', () => {
     expect(repeated.kind).toBe('complete')
     const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
     const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
-    const repeatedCivByPlayer = new Map(repeatedParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedCivByPlayer = new Map(
+      repeatedParticipants.map(participant => [participant.playerId, participant.civId]),
+    )
     for (const player of players) expect(repeatedCivByPlayer.get(player.id)).toBe(civByPlayer.get(player.id))
-    expect(new Map(repeatedParticipants.map(participant => [participant.playerId, participant.team]))).toEqual(new Map([
-      [players[0]!.id, 0],
-      [players[1]!.id, 0],
-      [players[2]!.id, 1],
-      [players[3]!.id, 1],
-    ]))
+    expect(new Map(repeatedParticipants.map(participant => [participant.playerId, participant.team]))).toEqual(
+      new Map([
+        [players[0]!.id, 0],
+        [players[1]!.id, 0],
+        [players[2]!.id, 1],
+        [players[3]!.id, 1],
+      ]),
+    )
   })
 
   test('repeat draft keeps player leaders when teams swap sides', async () => {
@@ -1398,7 +1517,11 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1419,14 +1542,18 @@ describe('system scenarios', () => {
     expect(repeated.kind).toBe('complete')
     const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
     const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
-    const repeatedCivByPlayer = new Map(repeatedParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedCivByPlayer = new Map(
+      repeatedParticipants.map(participant => [participant.playerId, participant.civId]),
+    )
     for (const player of players) expect(repeatedCivByPlayer.get(player.id)).toBe(civByPlayer.get(player.id))
-    expect(new Map(repeatedParticipants.map(participant => [participant.playerId, participant.team]))).toEqual(new Map([
-      [players[2]!.id, 0],
-      [players[3]!.id, 0],
-      [players[0]!.id, 1],
-      [players[1]!.id, 1],
-    ]))
+    expect(new Map(repeatedParticipants.map(participant => [participant.playerId, participant.team]))).toEqual(
+      new Map([
+        [players[2]!.id, 0],
+        [players[3]!.id, 0],
+        [players[0]!.id, 1],
+        [players[1]!.id, 1],
+      ]),
+    )
   })
 
   test('repeat draft keeps player leaders when 1v1 seats are reordered', async () => {
@@ -1450,7 +1577,11 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1470,7 +1601,9 @@ describe('system scenarios', () => {
 
     const civByPlayer = new Map(sourceParticipants.map(participant => [participant.playerId, participant.civId]))
     const repeatedParticipants = await world.match.getParticipants(repeated.matchId)
-    const repeatedCivByPlayer = new Map(repeatedParticipants.map(participant => [participant.playerId, participant.civId]))
+    const repeatedCivByPlayer = new Map(
+      repeatedParticipants.map(participant => [participant.playerId, participant.civId]),
+    )
     for (const player of players) expect(repeatedCivByPlayer.get(player.id)).toBe(civByPlayer.get(player.id))
   })
 
@@ -1489,8 +1622,26 @@ describe('system scenarios', () => {
     expect((await world.party.cancelDraft(started.matchId, { reason: 'revert' })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[1]!.id, targetSlot: 0 })).status).toBe(200)
-    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[3]!.id, targetSlot: 2 })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('2v2', {
+          userId: players[0]!.id,
+          lobbyId: lobby.id,
+          playerId: players[1]!.id,
+          targetSlot: 0,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await world.lobby.place('2v2', {
+          userId: players[0]!.id,
+          lobbyId: lobby.id,
+          playerId: players[3]!.id,
+          targetSlot: 2,
+        })
+      ).status,
+    ).toBe(200)
 
     const launch = await world.activity.launch({ channelId: lobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
@@ -1529,8 +1680,26 @@ describe('system scenarios', () => {
     expect((await world.party.cancelDraft(started.matchId, { reason: 'revert' })).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[2]!.id, targetSlot: 0 })).status).toBe(200)
-    expect((await world.lobby.place('2v2', { userId: players[0]!.id, lobbyId: lobby.id, playerId: players[3]!.id, targetSlot: 1 })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('2v2', {
+          userId: players[0]!.id,
+          lobbyId: lobby.id,
+          playerId: players[2]!.id,
+          targetSlot: 0,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await world.lobby.place('2v2', {
+          userId: players[0]!.id,
+          lobbyId: lobby.id,
+          playerId: players[3]!.id,
+          targetSlot: 1,
+        })
+      ).status,
+    ).toBe(200)
 
     const launch = await world.activity.launch({ channelId: lobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
@@ -1575,7 +1744,11 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1586,7 +1759,9 @@ describe('system scenarios', () => {
       },
     })
     expect((launch.body as any).selection.lobby.repeatDraft).toBeUndefined()
-    await expect(world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow('No repeatable draft matches the current players and teams.')
+    await expect(world.lobby.repeat('2v2', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow(
+      'No repeatable draft matches the current players and teams.',
+    )
   })
 
   test('repeat draft requires the host to be slotted', async () => {
@@ -1609,7 +1784,9 @@ describe('system scenarios', () => {
       channelId: firstLobby.channelId,
     })
 
-    await expect(world.lobby.repeat('1v1', { hostId: 'repeat-host-seat-host', lobbyId: secondLobby.id })).rejects.toThrow('Host must be in a lobby slot before repeating.')
+    await expect(
+      world.lobby.repeat('1v1', { hostId: 'repeat-host-seat-host', lobbyId: secondLobby.id }),
+    ).rejects.toThrow('Host must be in a lobby slot before repeating.')
   })
 
   test('repeat draft rejects completed FFA drafts with a different Permanent Ally setting', async () => {
@@ -1630,9 +1807,16 @@ describe('system scenarios', () => {
       players,
       channelId: firstLobby.channelId,
     })
-    expect((await world.lobby.config('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id, permanentAlly: false })).status).toBe(200)
+    expect(
+      (await world.lobby.config('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id, permanentAlly: false }))
+        .status,
+    ).toBe(200)
 
-    await world.activity.targetLobby({ channelId: secondLobby.channelId, userId: players[0]!.id, lobbyId: secondLobby.id })
+    await world.activity.targetLobby({
+      channelId: secondLobby.channelId,
+      userId: players[0]!.id,
+      lobbyId: secondLobby.id,
+    })
     const launch = await world.activity.launch({ channelId: secondLobby.channelId, userId: players[0]!.id })
     expect(launch.body).toMatchObject({
       selection: {
@@ -1643,7 +1827,9 @@ describe('system scenarios', () => {
       },
     })
     expect((launch.body as any).selection.lobby.repeatDraft).toBeUndefined()
-    await expect(world.lobby.repeat('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow('No repeatable draft matches the current players and teams.')
+    await expect(world.lobby.repeat('ffa', { hostId: players[0]!.id, lobbyId: secondLobby.id })).rejects.toThrow(
+      'No repeatable draft matches the current players and teams.',
+    )
   })
 
   test('report sync recreates a deleted lobby message and rebinds the stored message id', async () => {
@@ -1661,10 +1847,14 @@ describe('system scenarios', () => {
     await world.discord.deleteCurrentLobbyMessage(lobby.id)
     const requestsBeforeReport = world.discord.requests().length
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     const messageIds = await world.match.getMessageIds(started.matchId)
@@ -1674,8 +1864,14 @@ describe('system scenarios', () => {
     expect(world.discord.message(staleMessageId)).toBeNull()
     expect(reboundMessageId).not.toBeNull()
     expect(world.discord.message(reboundMessageId!)).not.toBeNull()
-    expect(reportRequests.some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(true)
-    expect(reportRequests.some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`))).toBe(true)
+    expect(reportRequests.some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(
+      true,
+    )
+    expect(
+      reportRequests.some(
+        request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`),
+      ),
+    ).toBe(true)
   })
 
   test('report cleanup clears live state but leaves message context usable for later sync', async () => {
@@ -1688,10 +1884,14 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     const messageIds = await world.match.getMessageIds(started.matchId)
@@ -1702,13 +1902,19 @@ describe('system scenarios', () => {
 
     world.discord.deleteMessage(messageIds[0]!)
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
     expect(await world.inspect.matchMapping('p1')).toBeNull()
-    expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(messageIds[1]!))).toBe(true)
+    expect(
+      world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(messageIds[1]!)),
+    ).toBe(true)
   })
 
   test('duplicate report submission is idempotent and does not recreate archive or cleanup side effects', async () => {
@@ -1723,19 +1929,29 @@ describe('system scenarios', () => {
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
-    const archivePostsAfterFirstReport = world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')).length
+    const archivePostsAfterFirstReport = world.discord
+      .requests()
+      .filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')).length
     const messageIdsAfterFirstReport = await world.match.getMessageIds(started.matchId)
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -1743,7 +1959,11 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyByMatch(started.matchId)).toBeNull()
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.matchMapping('p2')).toBeNull()
-    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(archivePostsAfterFirstReport)
+    expect(
+      world.discord
+        .requests()
+        .filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')),
+    ).toHaveLength(archivePostsAfterFirstReport)
     expect(await world.match.getMessageIds(started.matchId)).toEqual(messageIdsAfterFirstReport)
   })
 
@@ -1773,7 +1993,11 @@ describe('system scenarios', () => {
 
     expect(reports.every(report => report.ok)).toBe(true)
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
-    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(1)
+    expect(
+      world.discord
+        .requests()
+        .filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')),
+    ).toHaveLength(1)
     expect((await world.match.getMessageIds(started.matchId)).length).toBeGreaterThanOrEqual(2)
   })
 
@@ -1785,14 +2009,19 @@ describe('system scenarios', () => {
 
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
-      players: [{ id: playerOneId, displayName: 'Alice' }, { id: playerTwoId, displayName: 'Bob' }],
+      players: [
+        { id: playerOneId, displayName: 'Alice' },
+        { id: playerTwoId, displayName: 'Bob' },
+      ],
     })
     const tournament = await createTournament(world.db, { name: 'Concurrent Cup', createdById: 'admin', minGames: 1 })
-    const imported = await importTournamentPlayersCsv(world.db, tournament.id, [
-      'seed,display_name,confirmed,discord_user_id',
-      `1,Alice,true,${playerOneId}`,
-      `2,Bob,true,${playerTwoId}`,
-    ].join('\n'))
+    const imported = await importTournamentPlayersCsv(
+      world.db,
+      tournament.id,
+      ['seed,display_name,confirmed,discord_user_id', `1,Alice,true,${playerOneId}`, `2,Bob,true,${playerTwoId}`].join(
+        '\n',
+      ),
+    )
     expect('error' in imported).toBe(false)
     await createTournamentMatchLink(world.db, {
       tournamentId: tournament.id,
@@ -1821,8 +2050,18 @@ describe('system scenarios', () => {
 
     expect(reports.every(report => report.ok)).toBe(true)
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
-    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-tournament-archive/messages'))).toHaveLength(1)
-    expect(world.discord.requests().filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toHaveLength(0)
+    expect(
+      world.discord
+        .requests()
+        .filter(
+          request => request.method === 'POST' && request.url.includes('/channels/channel-tournament-archive/messages'),
+        ),
+    ).toHaveLength(1)
+    expect(
+      world.discord
+        .requests()
+        .filter(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')),
+    ).toHaveLength(0)
   })
 
   test('stale cancellation redelivery after players move on does not clear the newer lobby bindings or message', async () => {
@@ -1880,9 +2119,7 @@ describe('system scenarios', () => {
           isMember: false,
         },
       },
-      options: expect.arrayContaining([
-        expect.objectContaining({ id: newLobby.id, kind: 'lobby' }),
-      ]),
+      options: expect.arrayContaining([expect.objectContaining({ id: newLobby.id, kind: 'lobby' })]),
     })
     expect((await world.discord.currentLobbyMessage(newLobby.id))?.id).toBe(messageBeforeReplay?.id)
     expect(replayRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
@@ -1900,10 +2137,14 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
     expect((await world.party.completeDraft(oldMatch.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
-    expect((await world.match.report(oldMatch.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(oldMatch.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     const newLobby = await world.lobby.createOpen({
@@ -1922,10 +2163,14 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const requestsBeforeDuplicateReport = world.discord.requests().length
-    expect((await world.match.report(oldMatch.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(oldMatch.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     const duplicateReportRequests = world.discord.requests().slice(requestsBeforeDuplicateReport)
@@ -1941,9 +2186,7 @@ describe('system scenarios', () => {
           isMember: false,
         },
       },
-      options: expect.arrayContaining([
-        expect.objectContaining({ id: newMatch.matchId, kind: 'match' }),
-      ]),
+      options: expect.arrayContaining([expect.objectContaining({ id: newMatch.matchId, kind: 'match' })]),
     })
     expect(duplicateReportRequests.some(request => request.url.includes(newLobby.messageId))).toBe(false)
   })
@@ -1958,10 +2201,14 @@ describe('system scenarios', () => {
     const started = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: initialLobby.id })
     await world.flushBackgroundTasks()
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
 
     const freshLobby = await world.lobby.createOpen({
       mode: '1v1',
@@ -1975,16 +2222,18 @@ describe('system scenarios', () => {
     expect(launch.status).toBe(200)
     expect(launch.body).toMatchObject({
       selection: null,
-      options: [
-        expect.objectContaining({ id: freshLobby.id, kind: 'lobby' }),
-      ],
+      options: [expect.objectContaining({ id: freshLobby.id, kind: 'lobby' })],
     })
-    expect((await world.lobby.place('1v1', {
-      userId: 'p1',
-      lobbyId: freshLobby.id,
-      targetSlot: 1,
-      displayName: 'p1',
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('1v1', {
+          userId: 'p1',
+          lobbyId: freshLobby.id,
+          targetSlot: 1,
+          displayName: 'p1',
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
     expect(await world.inspect.matchMapping('p1')).toBeNull()
     expect(await world.inspect.lobbyByMatch(started.matchId)).toBeNull()
@@ -2068,7 +2317,11 @@ describe('system scenarios', () => {
 
     expect(stillBlockedJoin.status).toBe(400)
 
-    await runSessionTerminalLifecycleCommand(world.env.SessionDO, liveLobby.id, { type: 'mark-reported', matchId: started.matchId, at: Date.now() })
+    await runSessionTerminalLifecycleCommand(world.env.SessionDO, liveLobby.id, {
+      type: 'mark-reported',
+      matchId: started.matchId,
+      at: Date.now(),
+    })
 
     const recoveredJoin = await world.lobby.place('1v1', {
       userId: 'p1',
@@ -2144,18 +2397,26 @@ describe('system scenarios', () => {
       channelId: 'channel-steam-link',
     })
 
-    expect((await world.lobby.config('1v1', {
-      hostId: 'p1',
-      lobbyId: lobby.id,
-      steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'p1',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/123456789/987654321',
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect((await world.activity.targetLobby({
-      channelId: lobby.channelId,
-      userId: 'spectator',
-      lobbyId: lobby.id,
-    })).body).toMatchObject({
+    expect(
+      (
+        await world.activity.targetLobby({
+          channelId: lobby.channelId,
+          userId: 'spectator',
+          lobbyId: lobby.id,
+        })
+      ).body,
+    ).toMatchObject({
       snapshot: {
         selection: {
           kind: 'lobby',
@@ -2168,7 +2429,11 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
 
     const participantInitialLaunch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
-    const spectatorInitialTarget = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
+    const spectatorInitialTarget = await world.activity.targetMatch({
+      channelId: lobby.channelId,
+      userId: 'spectator',
+      matchId: started.matchId,
+    })
 
     expect(participantInitialLaunch.body).toMatchObject({
       selection: {
@@ -2187,25 +2452,41 @@ describe('system scenarios', () => {
       },
     })
 
-    expect((await world.lobby.config('1v1', {
-      hostId: 'p2',
-      lobbyId: lobby.id,
-      steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
-    })).status).toBe(200)
-    expect((await world.lobby.config('1v1', {
-      hostId: 'spectator',
-      lobbyId: lobby.id,
-      steamLobbyLink: 'steam://joinlobby/289070/333333333/111111111',
-    })).status).toBe(403)
-    expect((await world.lobby.config('1v1', {
-      hostId: 'p1',
-      lobbyId: lobby.id,
-      pickTimerSeconds: 45,
-    })).status).toBe(409)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'p2',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/222222222/111111111',
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'spectator',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/333333333/111111111',
+        })
+      ).status,
+    ).toBe(403)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'p1',
+          lobbyId: lobby.id,
+          pickTimerSeconds: 45,
+        })
+      ).status,
+    ).toBe(409)
     await world.flushBackgroundTasks()
 
     const participantLaunch = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
-    const spectatorTarget = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
+    const spectatorTarget = await world.activity.targetMatch({
+      channelId: lobby.channelId,
+      userId: 'spectator',
+      matchId: started.matchId,
+    })
 
     expect(participantLaunch.body).toMatchObject({
       selection: {
@@ -2227,15 +2508,23 @@ describe('system scenarios', () => {
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
 
-    expect((await world.lobby.config('1v1', {
-      hostId: 'p2',
-      lobbyId: lobby.id,
-      steamLobbyLink: null,
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'p2',
+          lobbyId: lobby.id,
+          steamLobbyLink: null,
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
 
     const participantAfterClear = await world.activity.launch({ channelId: lobby.channelId, userId: 'p1' })
-    const spectatorAfterClear = await world.activity.targetMatch({ channelId: lobby.channelId, userId: 'spectator', matchId: started.matchId })
+    const spectatorAfterClear = await world.activity.targetMatch({
+      channelId: lobby.channelId,
+      userId: 'spectator',
+      matchId: started.matchId,
+    })
 
     expect((await world.lobby.getById(lobby.id))?.status).toBe('active')
     expect((await world.lobby.getById(lobby.id))?.steamLobbyLink).toBeNull()
@@ -2280,8 +2569,14 @@ describe('system scenarios', () => {
     expect(reboundLobby?.messageId).not.toBe(staleMessageId)
     expect(world.discord.message(staleMessageId)).toBeNull()
     expect(world.discord.message(reboundLobby!.messageId)).not.toBeNull()
-    expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(staleMessageId))).toBe(true)
-    expect(world.discord.requests().some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`))).toBe(true)
+    expect(
+      world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes(staleMessageId)),
+    ).toBe(true)
+    expect(
+      world.discord
+        .requests()
+        .some(request => request.method === 'POST' && request.url.includes(`/channels/${lobby.channelId}/messages`)),
+    ).toBe(true)
 
     const removeResponse = await world.lobby.remove('1v1', {
       userId: 'p2',
@@ -2327,10 +2622,14 @@ describe('system scenarios', () => {
 
     expect((await world.party.completeDraft(started.matchId)).status).toBe(200)
     await world.flushBackgroundTasks()
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -2358,10 +2657,14 @@ describe('system scenarios', () => {
     expect(activeLobby?.messageId).not.toBe(lobby.messageId)
     expect(world.discord.message(activeLobby!.messageId)).not.toBeNull()
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -2404,10 +2707,14 @@ describe('system scenarios', () => {
     await world.flushBackgroundTasks()
     world.discord.failNextPost('channel-archive')
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'p1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'p1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -2506,18 +2813,24 @@ describe('system scenarios', () => {
       channelId: 'channel-direct-1v1',
     })
 
-    expect((await oneVOneWorld.lobby.place('1v1', {
-      userId: 'duel-join',
-      lobbyId: oneVOneLobby.id,
-      targetSlot: 1,
-      displayName: 'duel-join',
-    })).status).toBe(200)
+    expect(
+      (
+        await oneVOneWorld.lobby.place('1v1', {
+          userId: 'duel-join',
+          lobbyId: oneVOneLobby.id,
+          targetSlot: 1,
+          displayName: 'duel-join',
+        })
+      ).status,
+    ).toBe(200)
     await oneVOneWorld.flushBackgroundTasks()
 
     expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.memberPlayerIds).toEqual(['duel-host', 'duel-join'])
     expect((await oneVOneWorld.lobby.getById(oneVOneLobby.id))?.slots).toEqual(['duel-host', 'duel-join'])
     await expectQueuePlayers(oneVOneWorld, '1v1', ['duel-host', 'duel-join'])
-    expect((await oneVOneWorld.activity.launch({ channelId: oneVOneLobby.channelId, userId: 'duel-join' })).body).toMatchObject({
+    expect(
+      (await oneVOneWorld.activity.launch({ channelId: oneVOneLobby.channelId, userId: 'duel-join' })).body,
+    ).toMatchObject({
       selection: {
         kind: 'lobby',
         option: { id: oneVOneLobby.id, isMember: true },
@@ -2532,17 +2845,30 @@ describe('system scenarios', () => {
       channelId: 'channel-direct-team',
     })
 
-    for (const [userId, targetSlot] of [['team-2', 1], ['team-3', 2], ['team-4', 3]] as const) {
-      expect((await teamWorld.lobby.place('2v2', {
-        userId,
-        lobbyId: teamLobby.id,
-        targetSlot,
-        displayName: userId,
-      })).status).toBe(200)
+    for (const [userId, targetSlot] of [
+      ['team-2', 1],
+      ['team-3', 2],
+      ['team-4', 3],
+    ] as const) {
+      expect(
+        (
+          await teamWorld.lobby.place('2v2', {
+            userId,
+            lobbyId: teamLobby.id,
+            targetSlot,
+            displayName: userId,
+          })
+        ).status,
+      ).toBe(200)
     }
     await teamWorld.flushBackgroundTasks()
 
-    expect((await teamWorld.lobby.getById(teamLobby.id))?.memberPlayerIds).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
+    expect((await teamWorld.lobby.getById(teamLobby.id))?.memberPlayerIds).toEqual([
+      'team-host',
+      'team-2',
+      'team-3',
+      'team-4',
+    ])
     expect((await teamWorld.lobby.getById(teamLobby.id))?.slots).toEqual(['team-host', 'team-2', 'team-3', 'team-4'])
     await expectQueuePlayers(teamWorld, '2v2', ['team-host', 'team-2', 'team-3', 'team-4'])
     expect((await teamWorld.activity.launch({ channelId: teamLobby.channelId, userId: 'team-4' })).body).toMatchObject({
@@ -2560,18 +2886,40 @@ describe('system scenarios', () => {
       channelId: 'channel-direct-ffa',
     })
 
-    for (const [userId, targetSlot] of [['ffa-2', 4], ['ffa-3', 1], ['ffa-4', 7]] as const) {
-      expect((await ffaWorld.lobby.place('ffa', {
-        userId,
-        lobbyId: ffaLobby.id,
-        targetSlot,
-        displayName: userId,
-      })).status).toBe(200)
+    for (const [userId, targetSlot] of [
+      ['ffa-2', 4],
+      ['ffa-3', 1],
+      ['ffa-4', 7],
+    ] as const) {
+      expect(
+        (
+          await ffaWorld.lobby.place('ffa', {
+            userId,
+            lobbyId: ffaLobby.id,
+            targetSlot,
+            displayName: userId,
+          })
+        ).status,
+      ).toBe(200)
     }
     await ffaWorld.flushBackgroundTasks()
 
-    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.memberPlayerIds).toEqual(['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
-    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual(['ffa-host', 'ffa-3', null, null, 'ffa-2', null, null, 'ffa-4'])
+    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.memberPlayerIds).toEqual([
+      'ffa-host',
+      'ffa-2',
+      'ffa-3',
+      'ffa-4',
+    ])
+    expect((await ffaWorld.lobby.getById(ffaLobby.id))?.slots).toEqual([
+      'ffa-host',
+      'ffa-3',
+      null,
+      null,
+      'ffa-2',
+      null,
+      null,
+      'ffa-4',
+    ])
     await expectQueuePlayers(ffaWorld, 'ffa', ['ffa-host', 'ffa-2', 'ffa-3', 'ffa-4'])
     expect((await ffaWorld.activity.launch({ channelId: ffaLobby.channelId, userId: 'ffa-4' })).body).toMatchObject({
       selection: {
@@ -2588,12 +2936,16 @@ describe('system scenarios', () => {
       players: [{ id: 'host' }],
     })
 
-    expect((await world.lobby.place('1v1', {
-      userId: 'guest',
-      lobbyId: lobby.id,
-      targetSlot: 1,
-      displayName: 'guest',
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.place('1v1', {
+          userId: 'guest',
+          lobbyId: lobby.id,
+          targetSlot: 1,
+          displayName: 'guest',
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
 
     expect(await world.inspect.lobbyMapping('guest')).toBe(lobby.id)
@@ -2618,9 +2970,7 @@ describe('system scenarios', () => {
     expect(await world.inspect.lobbyMapping('guest')).toBeNull()
     expect((await world.activity.launch({ channelId: lobby.channelId, userId: 'guest' })).body).toMatchObject({
       selection: null,
-      options: expect.arrayContaining([
-        expect.objectContaining({ id: lobby.id, kind: 'lobby' }),
-      ]),
+      options: expect.arrayContaining([expect.objectContaining({ id: lobby.id, kind: 'lobby' })]),
     })
 
     const rejoinResponse = await world.lobby.place('1v1', {
@@ -2729,15 +3079,26 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-host-order',
     })
 
-    expect((await hostOrderWorld.lobby.changeMode('4v4', {
-      hostId: 'host',
-      lobbyId: hostOrderLobby.id,
-      nextMode: '3v3',
-    })).status).toBe(200)
+    expect(
+      (
+        await hostOrderWorld.lobby.changeMode('4v4', {
+          hostId: 'host',
+          lobbyId: hostOrderLobby.id,
+          nextMode: '3v3',
+        })
+      ).status,
+    ).toBe(200)
     await hostOrderWorld.flushBackgroundTasks()
 
     expect((await hostOrderWorld.lobby.getById(hostOrderLobby.id))?.mode).toBe('3v3')
-    expect((await hostOrderWorld.lobby.getById(hostOrderLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', 'host', 'p5', 'p6'])
+    expect((await hostOrderWorld.lobby.getById(hostOrderLobby.id))?.slots).toEqual([
+      'p1',
+      'p2',
+      'p3',
+      'host',
+      'p5',
+      'p6',
+    ])
     await expectQueuePlayers(hostOrderWorld, '4v4', [])
     await expectQueuePlayers(hostOrderWorld, '3v3', ['host', 'p1', 'p2', 'p3', 'p5', 'p6'])
 
@@ -2750,15 +3111,28 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-expand',
     })
 
-    expect((await expandWorld.lobby.changeMode('3v3', {
-      hostId: 'p1',
-      lobbyId: expandLobby.id,
-      nextMode: '4v4',
-    })).status).toBe(200)
+    expect(
+      (
+        await expandWorld.lobby.changeMode('3v3', {
+          hostId: 'p1',
+          lobbyId: expandLobby.id,
+          nextMode: '4v4',
+        })
+      ).status,
+    ).toBe(200)
     await expandWorld.flushBackgroundTasks()
 
     expect((await expandWorld.lobby.getById(expandLobby.id))?.mode).toBe('4v4')
-    expect((await expandWorld.lobby.getById(expandLobby.id))?.slots).toEqual(['p1', 'p2', 'p3', null, 'p4', 'p5', 'p6', null])
+    expect((await expandWorld.lobby.getById(expandLobby.id))?.slots).toEqual([
+      'p1',
+      'p2',
+      'p3',
+      null,
+      'p4',
+      'p5',
+      'p6',
+      null,
+    ])
     await expectQueuePlayers(expandWorld, '3v3', [])
     await expectQueuePlayers(expandWorld, '4v4', ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'])
 
@@ -2772,16 +3146,24 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-compact',
     })
 
-    expect((await compactWorld.lobby.changeMode('3v3', {
-      hostId: 'p1',
-      lobbyId: compactLobby.id,
-      nextMode: '2v2',
-    })).status).toBe(200)
+    expect(
+      (
+        await compactWorld.lobby.changeMode('3v3', {
+          hostId: 'p1',
+          lobbyId: compactLobby.id,
+          nextMode: '2v2',
+        })
+      ).status,
+    ).toBe(200)
     await compactWorld.flushBackgroundTasks()
 
     expect((await compactWorld.lobby.getById(compactLobby.id))?.mode).toBe('2v2')
     expect((await compactWorld.lobby.getById(compactLobby.id))?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect((await compactWorld.lobby.getById(compactLobby.id))?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(
+      (await compactWorld.lobby.getById(compactLobby.id))?.slots.filter(
+        (playerId): playerId is string => playerId != null,
+      ),
+    ).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
     expect((await compactWorld.lobby.getById(compactLobby.id))?.slots).not.toContain('p6')
     await expectQueuePlayers(compactWorld, '3v3', [])
     await expectQueuePlayers(compactWorld, '2v2', ['p1', 'p2', 'p3', 'p4', 'p5'])
@@ -2796,19 +3178,27 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-red-death',
     })
 
-    expect((await redDeathWorld.lobby.config('2v2', {
-      hostId: 'host',
-      lobbyId: redDeathLobby.id,
-      redDeath: true,
-      dealOptionsSize: 4,
-      randomDraft: true,
-      duplicateFactions: false,
-    })).status).toBe(200)
-    expect((await redDeathWorld.lobby.changeMode('2v2', {
-      hostId: 'host',
-      lobbyId: redDeathLobby.id,
-      nextMode: '1v1',
-    })).status).toBe(200)
+    expect(
+      (
+        await redDeathWorld.lobby.config('2v2', {
+          hostId: 'host',
+          lobbyId: redDeathLobby.id,
+          redDeath: true,
+          dealOptionsSize: 4,
+          randomDraft: true,
+          duplicateFactions: false,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await redDeathWorld.lobby.changeMode('2v2', {
+          hostId: 'host',
+          lobbyId: redDeathLobby.id,
+          nextMode: '1v1',
+        })
+      ).status,
+    ).toBe(200)
     await redDeathWorld.flushBackgroundTasks()
 
     expect((await redDeathWorld.lobby.getById(redDeathLobby.id))?.draftConfig).toMatchObject({
@@ -2825,18 +3215,26 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-duplicate',
     })
 
-    expect((await duplicateWorld.lobby.config('5v5', {
-      hostId: 'host',
-      lobbyId: duplicateLobby.id,
-      redDeath: true,
-      dealOptionsSize: 4,
-      duplicateFactions: false,
-    })).status).toBe(200)
-    expect((await duplicateWorld.lobby.changeMode('5v5', {
-      hostId: 'host',
-      lobbyId: duplicateLobby.id,
-      nextMode: '6v6',
-    })).status).toBe(200)
+    expect(
+      (
+        await duplicateWorld.lobby.config('5v5', {
+          hostId: 'host',
+          lobbyId: duplicateLobby.id,
+          redDeath: true,
+          dealOptionsSize: 4,
+          duplicateFactions: false,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await duplicateWorld.lobby.changeMode('5v5', {
+          hostId: 'host',
+          lobbyId: duplicateLobby.id,
+          nextMode: '6v6',
+        })
+      ).status,
+    ).toBe(200)
     await duplicateWorld.flushBackgroundTasks()
 
     expect((await duplicateWorld.lobby.getById(duplicateLobby.id))?.draftConfig).toMatchObject({
@@ -2852,16 +3250,24 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-simultaneous',
     })
 
-    expect((await simultaneousWorld.lobby.config('ffa', {
-      hostId: 'host',
-      lobbyId: simultaneousLobby.id,
-      simultaneousPick: true,
-    })).status).toBe(200)
-    expect((await simultaneousWorld.lobby.changeMode('ffa', {
-      hostId: 'host',
-      lobbyId: simultaneousLobby.id,
-      nextMode: '1v1',
-    })).status).toBe(200)
+    expect(
+      (
+        await simultaneousWorld.lobby.config('ffa', {
+          hostId: 'host',
+          lobbyId: simultaneousLobby.id,
+          simultaneousPick: true,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await simultaneousWorld.lobby.changeMode('ffa', {
+          hostId: 'host',
+          lobbyId: simultaneousLobby.id,
+          nextMode: '1v1',
+        })
+      ).status,
+    ).toBe(200)
     await simultaneousWorld.flushBackgroundTasks()
 
     expect((await simultaneousWorld.lobby.getById(simultaneousLobby.id))?.draftConfig.simultaneousPick).toBe(false)
@@ -2874,16 +3280,24 @@ describe('system scenarios', () => {
       channelId: 'channel-mode-blind-bans',
     })
 
-    expect((await blindBansWorld.lobby.config('3v3', {
-      hostId: 'host',
-      lobbyId: blindBansLobby.id,
-      blindBans: false,
-    })).status).toBe(200)
-    expect((await blindBansWorld.lobby.changeMode('3v3', {
-      hostId: 'host',
-      lobbyId: blindBansLobby.id,
-      nextMode: 'ffa',
-    })).status).toBe(200)
+    expect(
+      (
+        await blindBansWorld.lobby.config('3v3', {
+          hostId: 'host',
+          lobbyId: blindBansLobby.id,
+          blindBans: false,
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await blindBansWorld.lobby.changeMode('3v3', {
+          hostId: 'host',
+          lobbyId: blindBansLobby.id,
+          nextMode: 'ffa',
+        })
+      ).status,
+    ).toBe(200)
     await blindBansWorld.flushBackgroundTasks()
 
     expect((await blindBansWorld.lobby.getById(blindBansLobby.id))?.draftConfig.blindBans).toBe(false)
@@ -2913,8 +3327,7 @@ describe('system scenarios', () => {
         lobbyId: lobby.id,
         strategy: 'shuffle-teams',
       })
-    }
-    finally {
+    } finally {
       Math.random = originalRandom
     }
     await world.flushBackgroundTasks()
@@ -2928,7 +3341,9 @@ describe('system scenarios', () => {
     await expectQueuePlayers(world, '2v2', ['p1', 'p2', 'p3', 'p4'])
     expect(arrangedLobby?.lastArrange).toMatchObject({ strategy: 'shuffle-teams' })
     expect(arrangedSlots).not.toEqual(['p1', 'p3', 'p2', 'p4'])
-    expect(new Set(arrangedSlots.filter((playerId): playerId is string => playerId != null))).toEqual(new Set(['p1', 'p2', 'p3', 'p4']))
+    expect(new Set(arrangedSlots.filter((playerId): playerId is string => playerId != null))).toEqual(
+      new Set(['p1', 'p2', 'p3', 'p4']),
+    )
     expect(launch.body).toMatchObject({
       selection: {
         kind: 'lobby',
@@ -2967,9 +3382,7 @@ describe('system scenarios', () => {
           isMember: false,
         },
       },
-      options: expect.arrayContaining([
-        expect.objectContaining({ id: first.lobby.id, kind: 'lobby' }),
-      ]),
+      options: expect.arrayContaining([expect.objectContaining({ id: first.lobby.id, kind: 'lobby' })]),
     })
   })
 
@@ -3153,7 +3566,7 @@ describe('system scenarios', () => {
     const bans = await world.match.getBans(started.matchId)
     const draftState = parseDraftData(activeMatch)?.state as {
       formatId?: string
-      steps?: Array<{ action?: string, seats?: 'all' | number[], count?: number }>
+      steps?: Array<{ action?: string; seats?: 'all' | number[]; count?: number }>
       bans?: Array<{ stepIndex?: number }>
     } | null
     const bansByPlayer = new Map<string, number>()
@@ -3165,14 +3578,23 @@ describe('system scenarios', () => {
     expect(draftState?.formatId).toBe('default-1v1')
     expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
     expect(bans).toHaveLength(6)
-    expect(bansByPlayer).toEqual(new Map([['blind1', 3], ['blind2', 3]]))
+    expect(bansByPlayer).toEqual(
+      new Map([
+        ['blind1', 3],
+        ['blind2', 3],
+      ]),
+    )
     expect(draftState?.steps?.[0]).toMatchObject({ action: 'ban', seats: 'all', count: 3 })
     expect(new Set((draftState?.bans ?? []).map(ban => ban.stepIndex))).toEqual(new Set([0]))
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'blind1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'blind1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -3184,11 +3606,15 @@ describe('system scenarios', () => {
       mode: '1v1',
       players: createPlayers(2, 'visible'),
     })
-    expect((await world.lobby.config('1v1', {
-      hostId: 'visible1',
-      lobbyId: lobby.id,
-      blindBans: false,
-    })).status).toBe(200)
+    expect(
+      (
+        await world.lobby.config('1v1', {
+          hostId: 'visible1',
+          lobbyId: lobby.id,
+          blindBans: false,
+        })
+      ).status,
+    ).toBe(200)
     await world.flushBackgroundTasks()
 
     const started = await world.lobby.start('1v1', { hostId: 'visible1', lobbyId: lobby.id })
@@ -3202,7 +3628,7 @@ describe('system scenarios', () => {
     const bans = await world.match.getBans(started.matchId)
     const draftState = parseDraftData(activeMatch)?.state as {
       formatId?: string
-      steps?: Array<{ action?: string, seats?: 'all' | number[], count?: number }>
+      steps?: Array<{ action?: string; seats?: 'all' | number[]; count?: number }>
       bans?: Array<{ stepIndex?: number }>
     } | null
     const bansByPlayer = new Map<string, number>()
@@ -3214,15 +3640,24 @@ describe('system scenarios', () => {
     expect(draftState?.formatId).toBe('default-1v1-visible-bans')
     expect(activeParticipants.every(participant => participant.civId != null)).toBe(true)
     expect(bans).toHaveLength(6)
-    expect(bansByPlayer).toEqual(new Map([['visible1', 3], ['visible2', 3]]))
+    expect(bansByPlayer).toEqual(
+      new Map([
+        ['visible1', 3],
+        ['visible2', 3],
+      ]),
+    )
     expect(draftState?.steps?.[0]).toMatchObject({ action: 'ban', seats: [0], count: 1 })
     expect(draftState?.steps?.[1]).toMatchObject({ action: 'ban', seats: [1], count: 1 })
     expect(new Set((draftState?.bans ?? []).map(ban => ban.stepIndex))).toEqual(new Set([0, 1, 2, 3, 4, 5]))
 
-    expect((await world.match.report(started.matchId, {
-      reporterId: 'visible1',
-      placements: 'A',
-    })).ok).toBe(true)
+    expect(
+      (
+        await world.match.report(started.matchId, {
+          reporterId: 'visible1',
+          placements: 'A',
+        })
+      ).ok,
+    ).toBe(true)
     await world.flushBackgroundTasks()
 
     expect((await world.match.get(started.matchId))?.status).toBe('completed')
@@ -3289,7 +3724,11 @@ async function runSeededArrangeScenario(seed: string, channelId: string) {
   })
 
   world.runtime.clock.freeze(1_700_000_000_000)
-  const selectedTarget = await world.activity.targetLobby({ channelId: lobby.channelId, userId: 'spectator', lobbyId: lobby.id })
+  const selectedTarget = await world.activity.targetLobby({
+    channelId: lobby.channelId,
+    userId: 'spectator',
+    lobbyId: lobby.id,
+  })
 
   world.runtime.clock.advance(5_000)
   world.runtime.random.seed(seed)
@@ -3357,14 +3796,19 @@ async function runReportedLifecycle(
   const activeParticipants = await world.match.getParticipants(started.matchId)
   expect(activeMatch?.status).toBe('active')
 
-  const placements = typeof input.placements === 'function'
-    ? input.placements(activeParticipants)
-    : (input.placements ?? defaultPlacementsForMode(input.mode, activeParticipants))
+  const placements =
+    typeof input.placements === 'function'
+      ? input.placements(activeParticipants)
+      : (input.placements ?? defaultPlacementsForMode(input.mode, activeParticipants))
 
-  expect((await world.match.report(started.matchId, {
-    reporterId: input.reporterId ?? hostId,
-    placements,
-  })).ok).toBe(true)
+  expect(
+    (
+      await world.match.report(started.matchId, {
+        reporterId: input.reporterId ?? hostId,
+        placements,
+      })
+    ).ok,
+  ).toBe(true)
   await world.flushBackgroundTasks()
 
   const reportedMatch = await world.match.get(started.matchId)
@@ -3374,8 +3818,14 @@ async function runReportedLifecycle(
   expect(reportedMatch?.status).toBe('completed')
   await expectQueuePlayers(world, input.mode, [])
   expect(messageIds.length).toBeGreaterThanOrEqual(2)
-  expect(world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes('/channels/'))).toBe(true)
-  expect(world.discord.requests().some(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages'))).toBe(true)
+  expect(
+    world.discord.requests().some(request => request.method === 'PATCH' && request.url.includes('/channels/')),
+  ).toBe(true)
+  expect(
+    world.discord
+      .requests()
+      .some(request => request.method === 'POST' && request.url.includes('/channels/channel-archive/messages')),
+  ).toBe(true)
 
   return {
     lobby,
@@ -3387,7 +3837,7 @@ async function runReportedLifecycle(
   }
 }
 
-function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string, team?: number | null }>) {
+function defaultPlacementsForMode(mode: GameMode, participants: Array<{ playerId: string; team?: number | null }>) {
   if (mode !== 'ffa') return 'A'
   return buildOrderedMentions(participants)
 }
@@ -3396,21 +3846,30 @@ function buildOrderedMentions(participants: Array<{ playerId: string }>) {
   return participants.map(participant => `<@${participant.playerId}>`).join('\n')
 }
 
-function expectOrderedPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {
+function expectOrderedPlacements(
+  participants: Array<{ playerId: string; placement: number | null }>,
+  orderedIds: string[],
+) {
   const placements = new Map(participants.map(participant => [participant.playerId, participant.placement]))
   orderedIds.forEach((playerId, index) => {
     expect(placements.get(playerId)).toBe(index + 1)
   })
 }
 
-function expectAdjacentPairPlacements(participants: Array<{ playerId: string, placement: number | null }>, orderedIds: string[]) {
+function expectAdjacentPairPlacements(
+  participants: Array<{ playerId: string; placement: number | null }>,
+  orderedIds: string[],
+) {
   const placements = new Map(participants.map(participant => [participant.playerId, participant.placement]))
   orderedIds.forEach((playerId, index) => {
     expect(placements.get(playerId)).toBe(Math.floor(index / 2) + 1)
   })
 }
 
-function expectTeamPlacements(participants: Array<{ team: number | null, placement: number | null }>, expectedByTeam: Map<number, number>) {
+function expectTeamPlacements(
+  participants: Array<{ team: number | null; placement: number | null }>,
+  expectedByTeam: Map<number, number>,
+) {
   for (const participant of participants) {
     expect(participant.team).not.toBeNull()
     expect(participant.placement).toBe(expectedByTeam.get(participant.team!))
@@ -3428,14 +3887,17 @@ function groupParticipantsByTeam<T extends { team: number | null }>(participants
   return grouped
 }
 
-function placementsByTeamIndex(participants: Array<{ team: number | null, placement: number | null }>) {
+function placementsByTeamIndex(participants: Array<{ team: number | null; placement: number | null }>) {
   return new Map(
-    [...groupParticipantsByTeam(participants)].map(([team, teamParticipants]) => [team, teamParticipants[0]?.placement ?? null]),
+    [...groupParticipantsByTeam(participants)].map(([team, teamParticipants]) => [
+      team,
+      teamParticipants[0]?.placement ?? null,
+    ]),
   )
 }
 
 function parseDraftData(match: { draftData: string | null } | null) {
-  return match?.draftData ? JSON.parse(match.draftData) as Record<string, any> : null
+  return match?.draftData ? (JSON.parse(match.draftData) as Record<string, any>) : null
 }
 
 function findDraftRuntimeConfig(world: Awaited<ReturnType<typeof createSystemWorld>>, matchId: string) {
@@ -3446,14 +3908,14 @@ function payloadHasEmbedField(payload: Record<string, unknown>, name: string, va
   const embeds = payload.embeds
   if (!Array.isArray(embeds)) return false
 
-  return embeds.some((embed) => {
+  return embeds.some(embed => {
     if (!embed || typeof embed !== 'object') return false
     const fields = (embed as { fields?: unknown }).fields
     if (!Array.isArray(fields)) return false
 
-    return fields.some((field) => {
+    return fields.some(field => {
       if (!field || typeof field !== 'object') return false
-      const candidate = field as { name?: unknown, value?: unknown }
+      const candidate = field as { name?: unknown; value?: unknown }
       return candidate.name === name && candidate.value === value
     })
   })

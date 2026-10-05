@@ -1,9 +1,22 @@
-import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { applyPendingRankedRoleDiscordChanges, getCurrentRankAssignments, getRankedRoleDemotionCandidates, listRankedRoleConfigGuildIds, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, rankedRoleMembershipNeedsRepair, repairCurrentRankedRoleMembership, repairRankedRoleMembership, resetCurrentRankedRoleState, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import { playerRatings, players } from '@civup/db'
+import {
+  applyPendingRankedRoleDiscordChanges,
+  getCurrentRankAssignments,
+  getRankedRoleDemotionCandidates,
+  listRankedRoleConfigGuildIds,
+  listRankedRoleMatchUpdateLines,
+  markRankedRolesDirty,
+  previewRankedRoles,
+  rankedRoleMembershipNeedsRepair,
+  repairCurrentRankedRoleMembership,
+  repairRankedRoleMembership,
+  resetCurrentRankedRoleState,
+  syncRankedRoles,
+} from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
+import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const DAY_MS = 86_400_000
 const NOW = 1_700_000_000_000
@@ -28,7 +41,16 @@ describe('ranked role sync service', () => {
     await seedPlayerIdentity(db, heroId)
     await seedRating(db, { playerId: heroId, mode: 'ffa', mu: 25, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
     await seedRating(db, { playerId: heroId, mode: 'duel', mu: 40, sigma: 6, gamesPlayed: 10, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: heroId, mode: 'global', mu: 40, sigma: 6, gamesPlayed: 25, winsVsTier1: 1, winsVsTier2Plus: 4, lastPlayedAt: NOW })
+    await seedRating(db, {
+      playerId: heroId,
+      mode: 'global',
+      mu: 40,
+      sigma: 6,
+      gamesPlayed: 25,
+      winsVsTier1: 1,
+      winsVsTier2Plus: 4,
+      lastPlayedAt: NOW,
+    })
 
     const preview = await previewRankedRoles({ db, kv, guildId: 'guild-1', now: NOW })
     const hero = preview.playerPreviews.find(player => player.playerId === heroId)
@@ -525,8 +547,22 @@ describe('ranked role sync service', () => {
     await seedPlayers(db, 'ffa', 8, { prefix: 'ffa' })
     const demotionTargetId = playerIdFor('old-tier-3', 1)
     await seedPlayerIdentity(db, demotionTargetId)
-    await seedRating(db, { playerId: demotionTargetId, mode: 'ffa', mu: 26, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
-    await seedRating(db, { playerId: demotionTargetId, mode: 'global', mu: 10, sigma: 8.333, gamesPlayed: 10, lastPlayedAt: NOW })
+    await seedRating(db, {
+      playerId: demotionTargetId,
+      mode: 'ffa',
+      mu: 26,
+      sigma: 8.333,
+      gamesPlayed: 10,
+      lastPlayedAt: NOW,
+    })
+    await seedRating(db, {
+      playerId: demotionTargetId,
+      mode: 'global',
+      mu: 10,
+      sigma: 8.333,
+      gamesPlayed: 10,
+      lastPlayedAt: NOW,
+    })
 
     await setRankedRoleCurrentRoles(kv, 'guild-1', {
       tier5: '11111111111111111',
@@ -581,7 +617,7 @@ describe('ranked role sync service', () => {
       tier1: '55555555555555555',
     })
 
-    const roleCalls: Array<{ method: 'PUT' | 'DELETE', userId: string, roleId: string }> = []
+    const roleCalls: Array<{ method: 'PUT' | 'DELETE'; userId: string; roleId: string }> = []
     const topPlayerId = playerIdFor('ffa', 1)
     const bottomPlayerId = playerIdFor('ffa', 8)
     globalThis.fetch = (async (input, init) => {
@@ -673,43 +709,59 @@ describe('ranked role sync service', () => {
     const input = {
       currentRoleIds: ['44444444444444444', '77777777777777777'],
       desiredRoleId: '44444444444444444',
-      managedRoleIds: ['11111111111111111', '22222222222222222', '33333333333333333', '44444444444444444', '55555555555555555'],
+      managedRoleIds: [
+        '11111111111111111',
+        '22222222222222222',
+        '33333333333333333',
+        '44444444444444444',
+        '55555555555555555',
+      ],
     }
 
     expect(rankedRoleMembershipNeedsRepair(input)).toBe(false)
-    expect(await repairRankedRoleMembership({
-      token: 'token',
-      guildId: 'guild-1',
-      playerId: playerIdFor('self-heal', 1),
-      ...input,
-    })).toBe(false)
+    expect(
+      await repairRankedRoleMembership({
+        token: 'token',
+        guildId: 'guild-1',
+        playerId: playerIdFor('self-heal', 1),
+        ...input,
+      }),
+    ).toBe(false)
   })
 
   test('known member roles replace a stale ranked role without fetching the member', async () => {
     const playerId = playerIdFor('self-heal', 2)
-    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
-      [playerId, new Set(['11111111111111111'])],
-    ]))
+    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(
+      new Map([[playerId, new Set(['11111111111111111'])]]),
+    )
     const input = {
       currentRoleIds: ['11111111111111111'],
       desiredRoleId: '44444444444444444',
-      managedRoleIds: ['11111111111111111', '22222222222222222', '33333333333333333', '44444444444444444', '55555555555555555'],
+      managedRoleIds: [
+        '11111111111111111',
+        '22222222222222222',
+        '33333333333333333',
+        '44444444444444444',
+        '55555555555555555',
+      ],
     }
 
     expect(rankedRoleMembershipNeedsRepair(input)).toBe(true)
-    expect(await repairRankedRoleMembership({
-      token: 'token',
-      guildId: 'guild-1',
-      playerId,
-      ...input,
-    })).toBe(true)
+    expect(
+      await repairRankedRoleMembership({
+        token: 'token',
+        guildId: 'guild-1',
+        playerId,
+        ...input,
+      }),
+    ).toBe(true)
     expect(getCalls).toHaveLength(0)
     expect(deleteCalls).toEqual([{ userId: playerId, roleId: '11111111111111111' }])
     expect(putCalls).toEqual([{ userId: playerId, roleId: '44444444444444444' }])
   })
 
   test('known member role repair keeps the existing role when adding the desired role fails', async () => {
-    const calls: Array<{ method: string, roleId: string }> = []
+    const calls: Array<{ method: string; roleId: string }> = []
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const method = init?.method ?? 'GET'
@@ -717,14 +769,16 @@ describe('ranked role sync service', () => {
       return new Response('missing permissions', { status: 403 })
     }) as typeof fetch
 
-    await expect(repairRankedRoleMembership({
-      token: 'token',
-      guildId: 'guild-1',
-      playerId: playerIdFor('self-heal', 3),
-      currentRoleIds: ['11111111111111111'],
-      desiredRoleId: '44444444444444444',
-      managedRoleIds: ['11111111111111111', '44444444444444444'],
-    })).rejects.toThrow('Discord add guild member role failed: 403')
+    await expect(
+      repairRankedRoleMembership({
+        token: 'token',
+        guildId: 'guild-1',
+        playerId: playerIdFor('self-heal', 3),
+        currentRoleIds: ['11111111111111111'],
+        desiredRoleId: '44444444444444444',
+        managedRoleIds: ['11111111111111111', '44444444444444444'],
+      }),
+    ).rejects.toThrow('Discord add guild member role failed: 403')
     expect(calls).toEqual([{ method: 'PUT', roleId: '44444444444444444' }])
   })
 
@@ -740,22 +794,27 @@ describe('ranked role sync service', () => {
     })
     await seedPreviousAssignment(kv, 'guild-1', playerId, { tier: TIER_2, sourceMode: null })
     await getCurrentRankAssignments(kv, 'guild-1')
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-      byPlayerId: {
-        [playerId]: { tier: TIER_3, sourceMode: null },
-      },
-    }))
+    await kv.put(
+      'ranked-roles:current-assignments:guild-1',
+      JSON.stringify({
+        byPlayerId: {
+          [playerId]: { tier: TIER_3, sourceMode: null },
+        },
+      }),
+    )
 
-    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
-      [playerId, new Set(['11111111111111111'])],
-    ]))
-    expect(await repairCurrentRankedRoleMembership({
-      kv,
-      token: 'token',
-      guildId: 'guild-1',
-      playerId,
-      currentRoleIds: ['11111111111111111'],
-    })).toBe(true)
+    const { getCalls, deleteCalls, putCalls } = installMemberRoleFetchMock(
+      new Map([[playerId, new Set(['11111111111111111'])]]),
+    )
+    expect(
+      await repairCurrentRankedRoleMembership({
+        kv,
+        token: 'token',
+        guildId: 'guild-1',
+        playerId,
+        currentRoleIds: ['11111111111111111'],
+      }),
+    ).toBe(true)
     expect(getCalls).toHaveLength(0)
     expect(putCalls).toEqual([{ userId: playerId, roleId: '33333333333333333' }])
     expect(deleteCalls).toEqual([{ userId: playerId, roleId: '11111111111111111' }])
@@ -853,15 +912,18 @@ describe('ranked role sync service', () => {
       tier2: '44444444444444444',
       tier1: '55555555555555555',
     })
-    await kv.put('ranked-roles:current-assignments:guild-1', JSON.stringify({
-      byPlayerId: {
-        [unknownAppliedRoleId]: { tier: TIER_3, sourceMode: null },
-        [staleAppliedRoleId]: { tier: TIER_3, sourceMode: null, appliedRoleId: '22222222222222222' },
-      },
-    }))
-    const { deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
-      [staleAppliedRoleId, new Set(['22222222222222222'])],
-    ]))
+    await kv.put(
+      'ranked-roles:current-assignments:guild-1',
+      JSON.stringify({
+        byPlayerId: {
+          [unknownAppliedRoleId]: { tier: TIER_3, sourceMode: null },
+          [staleAppliedRoleId]: { tier: TIER_3, sourceMode: null, appliedRoleId: '22222222222222222' },
+        },
+      }),
+    )
+    const { deleteCalls, putCalls } = installMemberRoleFetchMock(
+      new Map([[staleAppliedRoleId, new Set(['22222222222222222'])]]),
+    )
 
     const result = await applyPendingRankedRoleDiscordChanges({
       kv,
@@ -933,9 +995,9 @@ describe('ranked role sync service', () => {
 
     const playerId = playerIdFor('ffa', 1)
     await seedPreviousAssignment(kv, 'guild-1', playerId, { tier: TIER_3, sourceMode: null })
-    const { memberRoles, deleteCalls, putCalls } = installMemberRoleFetchMock(new Map([
-      [playerId, new Set(['22222222222222222'])],
-    ]))
+    const { memberRoles, deleteCalls, putCalls } = installMemberRoleFetchMock(
+      new Map([[playerId, new Set(['22222222222222222'])]]),
+    )
 
     const result = await syncRankedRoles({
       db,
@@ -1113,7 +1175,7 @@ describe('ranked role sync service', () => {
     })
     await seedPreviousAssignment(kv, 'guild-1', heroId, { tier: TIER_4, sourceMode: 'ffa' })
 
-    const roleCalls: Array<{ method: 'PUT' | 'DELETE', userId: string, roleId: string }> = []
+    const roleCalls: Array<{ method: 'PUT' | 'DELETE'; userId: string; roleId: string }> = []
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const method = init?.method
@@ -1189,13 +1251,19 @@ async function seedPlayers(
   }
 }
 
-async function seedPlayerIdentity(db: Awaited<ReturnType<typeof createTestDatabase>>['db'], playerId: string): Promise<void> {
-  await db.insert(players).values({
-    id: playerId,
-    displayName: playerId,
-    avatarUrl: null,
-    createdAt: NOW,
-  }).onConflictDoNothing()
+async function seedPlayerIdentity(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  playerId: string,
+): Promise<void> {
+  await db
+    .insert(players)
+    .values({
+      id: playerId,
+      displayName: playerId,
+      avatarUrl: null,
+      createdAt: NOW,
+    })
+    .onConflictDoNothing()
 }
 
 async function seedRating(
@@ -1215,17 +1283,9 @@ async function seedRating(
     effectiveWinsVsTier2Plus?: number
   },
 ): Promise<void> {
-  await db.insert(playerRatings).values({
-    ...row,
-    wins: row.wins ?? 0,
-    effectiveGames: row.effectiveGames ?? row.gamesPlayed,
-    winsVsTier1: row.winsVsTier1 ?? 0,
-    winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
-    effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
-    effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
-  }).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
-    set: {
+  await db
+    .insert(playerRatings)
+    .values({
       ...row,
       wins: row.wins ?? 0,
       effectiveGames: row.effectiveGames ?? row.gamesPlayed,
@@ -1233,32 +1293,50 @@ async function seedRating(
       winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
       effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
       effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
-    },
-  })
+    })
+    .onConflictDoUpdate({
+      target: [playerRatings.playerId, playerRatings.mode],
+      set: {
+        ...row,
+        wins: row.wins ?? 0,
+        effectiveGames: row.effectiveGames ?? row.gamesPlayed,
+        winsVsTier1: row.winsVsTier1 ?? 0,
+        winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
+        effectiveWinsVsTier1: row.effectiveWinsVsTier1 ?? 0,
+        effectiveWinsVsTier2Plus: row.effectiveWinsVsTier2Plus ?? 0,
+      },
+    })
 }
 
 async function seedPreviousAssignment(
   kv: KVNamespace,
   guildId: string,
   playerId: string,
-  assignment: { tier: string, sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null, appliedRoleId?: string },
+  assignment: {
+    tier: string
+    sourceMode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death' | null
+    appliedRoleId?: string
+  },
 ): Promise<void> {
-  await kv.put(`ranked-roles:current-assignments:${guildId}`, JSON.stringify({
-    byPlayerId: {
-      [playerId]: assignment,
-    },
-  }))
+  await kv.put(
+    `ranked-roles:current-assignments:${guildId}`,
+    JSON.stringify({
+      byPlayerId: {
+        [playerId]: assignment,
+      },
+    }),
+  )
 }
 
 function installMemberRoleFetchMock(memberRoles = new Map<string, Set<string>>()): {
   memberRoles: Map<string, Set<string>>
   getCalls: Array<{ userId: string }>
-  deleteCalls: Array<{ userId: string, roleId: string }>
-  putCalls: Array<{ userId: string, roleId: string }>
+  deleteCalls: Array<{ userId: string; roleId: string }>
+  putCalls: Array<{ userId: string; roleId: string }>
 } {
   const getCalls: Array<{ userId: string }> = []
-  const deleteCalls: Array<{ userId: string, roleId: string }> = []
-  const putCalls: Array<{ userId: string, roleId: string }> = []
+  const deleteCalls: Array<{ userId: string; roleId: string }> = []
+  const putCalls: Array<{ userId: string; roleId: string }> = []
 
   globalThis.fetch = (async (input, init) => {
     const url = new URL(String(input))

@@ -62,15 +62,10 @@ export interface MetricBreakpoint {
 
 export type OverageRatesPerMillion = Partial<Record<keyof UsageLimits, number>>
 
-export function estimateDailyUsage(
-  model: CapacityModel,
-  playsPerDay: number,
-  playersPerDraft: number,
-): DailyUsage {
+export function estimateDailyUsage(model: CapacityModel, playsPerDay: number, playersPerDraft: number): DailyUsage {
   const draftsPerDay = playsPerDay / playersPerDraft
   const d1RowsRead = Math.ceil(
-    draftsPerDay * model.perDraft.d1RowsReadBase
-    + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay,
+    draftsPerDay * model.perDraft.d1RowsReadBase + model.perDraft.d1RowsReadPerLeaderboardPlayer * playsPerDay,
   )
   const botWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.botWorkerRequests)
   const activityWorkerRequests = Math.ceil(draftsPerDay * model.perDraft.activityWorkerRequests)
@@ -151,8 +146,7 @@ export function findMaxPlaysPerDay(input: {
 
     if (fitsLimits(usage, input.limits)) {
       low = mid
-    }
-    else {
+    } else {
       high = mid - 1
     }
   }
@@ -169,7 +163,7 @@ export function findMetricBreakpoints(input: {
   const metrics = Object.keys(input.limits) as (keyof UsageLimits)[]
 
   return metrics
-    .flatMap((metric) => {
+    .flatMap(metric => {
       const limit = input.limits[metric]
       if (typeof limit !== 'number' || !Number.isFinite(limit)) return []
 
@@ -183,13 +177,15 @@ export function findMetricBreakpoints(input: {
       const daily = estimateDailyUsage(input.model, playsPerDay, input.playersPerDraft)
       const usage = input.periodDays === 1 ? daily : multiplyUsage(daily, input.periodDays)
 
-      return [{
-        metric,
-        playsPerDay,
-        draftsPerDay1v1: playsPerDay / input.playersPerDraft,
-        limit,
-        usageAtBreakpoint: usage[metric],
-      }]
+      return [
+        {
+          metric,
+          playsPerDay,
+          draftsPerDay1v1: playsPerDay / input.playersPerDraft,
+          limit,
+          usageAtBreakpoint: usage[metric],
+        },
+      ]
     })
     .sort((a, b) => {
       if (a.playsPerDay === b.playsPerDay) return a.metric.localeCompare(b.metric)
@@ -261,8 +257,7 @@ function findMaxPlaysPerDayByMetric(input: {
 
     if (usage[input.metric] <= input.limit) {
       low = mid
-    }
-    else {
+    } else {
       high = mid - 1
     }
   }
@@ -272,17 +267,17 @@ function findMaxPlaysPerDayByMetric(input: {
 
 function fitsLimits(usage: DailyUsage, limits: UsageLimits): boolean {
   return (
-    isWithinLimit(usage.workersRequests, limits.workersRequests)
-    && isWithinLimit(usage.d1RowsRead, limits.d1RowsRead)
-    && isWithinLimit(usage.d1RowsWritten, limits.d1RowsWritten)
-    && isWithinLimit(usage.doSqliteRowsRead, limits.doSqliteRowsRead)
-    && isWithinLimit(usage.doSqliteRowsWritten, limits.doSqliteRowsWritten)
-    && isWithinLimit(usage.kvReads, limits.kvReads)
-    && isWithinLimit(usage.kvWrites, limits.kvWrites)
-    && isWithinLimit(usage.kvDeletes, limits.kvDeletes)
-    && isWithinLimit(usage.kvLists, limits.kvLists)
-    && isWithinLimit(usage.doRequests, limits.doRequests)
-    && isWithinLimit(usage.doDurationGbSeconds, limits.doDurationGbSeconds)
+    isWithinLimit(usage.workersRequests, limits.workersRequests) &&
+    isWithinLimit(usage.d1RowsRead, limits.d1RowsRead) &&
+    isWithinLimit(usage.d1RowsWritten, limits.d1RowsWritten) &&
+    isWithinLimit(usage.doSqliteRowsRead, limits.doSqliteRowsRead) &&
+    isWithinLimit(usage.doSqliteRowsWritten, limits.doSqliteRowsWritten) &&
+    isWithinLimit(usage.kvReads, limits.kvReads) &&
+    isWithinLimit(usage.kvWrites, limits.kvWrites) &&
+    isWithinLimit(usage.kvDeletes, limits.kvDeletes) &&
+    isWithinLimit(usage.kvLists, limits.kvLists) &&
+    isWithinLimit(usage.doRequests, limits.doRequests) &&
+    isWithinLimit(usage.doDurationGbSeconds, limits.doDurationGbSeconds)
   )
 }
 

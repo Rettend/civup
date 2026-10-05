@@ -1,5 +1,5 @@
-import type { ActivityTargetOption } from '~/client/stores'
 import type { PlayerDataExportState } from '~/client/lib/player-data-export'
+import type { ActivityTargetOption } from '~/client/stores'
 import { Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { isMiniView, isMobileLayout } from '~/client/stores'
@@ -35,14 +35,15 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
     const state = props.playerDataExportState
     if (state?.status === 'ready') return 'Download data again'
     if (state?.status === 'estimate') return 'Confirm data export'
-    if (state?.status === 'error') return state.retry === 'estimate' ? 'Retry data export estimate' : 'Retry data export'
+    if (state?.status === 'error')
+      return state.retry === 'estimate' ? 'Retry data export estimate' : 'Retry data export'
     return 'Export data'
   }
 
   return (
     <Show
       when={isMiniView()}
-      fallback={(
+      fallback={
         <main class="text-text-primary bg-bg-primary font-sans min-h-screen relative overflow-y-auto">
           <Show when={props.onResume}>
             <button
@@ -62,7 +63,10 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
             <TargetPickerPanel {...props} />
           </div>
           <Show when={props.onPractice || props.onCatalog || props.onExportData}>
-            <div class="px-4 flex flex-wrap justify-center gap-3 bottom-4 left-0 right-0 absolute z-20" data-overview-actions>
+            <div
+              class="px-4 flex flex-wrap justify-center gap-3 bottom-4 left-0 right-0 absolute z-20"
+              data-overview-actions
+            >
               <Show when={props.onCatalog}>
                 <button
                   type="button"
@@ -87,11 +91,21 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
                 <button
                   type="button"
                   class="text-sm text-emerald-200 font-bold px-4 py-2 border border-emerald-400/35 rounded-full bg-emerald-500/14 inline-flex gap-2 whitespace-nowrap shadow-[0_0_28px_rgba(52,211,153,0.16)] transition items-center hover:text-emerald-100 hover:border-emerald-400/60 hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-70"
-                  disabled={props.playerDataExportState?.status === 'loading' || props.playerDataExportState?.status === 'estimating'}
+                  disabled={
+                    props.playerDataExportState?.status === 'loading' ||
+                    props.playerDataExportState?.status === 'estimating'
+                  }
                   aria-label={exportButtonAriaLabel()}
                   onClick={() => props.onExportData?.()}
                 >
-                  <span class={props.playerDataExportState?.status === 'loading' || props.playerDataExportState?.status === 'estimating' ? 'i-gg:spinner text-lg' : 'i-ph-file-xls-bold text-lg'} />
+                  <span
+                    class={
+                      props.playerDataExportState?.status === 'loading' ||
+                      props.playerDataExportState?.status === 'estimating'
+                        ? 'i-gg:spinner text-lg'
+                        : 'i-ph-file-xls-bold text-lg'
+                    }
+                  />
                   {exportButtonLabel()}
                 </button>
               </Show>
@@ -99,7 +113,7 @@ export function LobbyOverviewPage(props: LobbyOverviewPageProps) {
             </div>
           </Show>
         </main>
-      )}
+      }
     >
       <TargetPickerPanel {...props} mini />
     </Show>
@@ -139,8 +153,8 @@ function exportEstimateMessage(estimate: Extract<PlayerDataExportState, { status
 }
 
 function formatAllowanceRange(low: number, high: number, allowance: number): string {
-  const lowPercentage = low / allowance * 100
-  const highPercentage = high / allowance * 100
+  const lowPercentage = (low / allowance) * 100
+  const highPercentage = (high / allowance) * 100
   if (highPercentage > 0 && highPercentage < 0.1) return 'under 0.1%'
   const roundedLow = Math.round(lowPercentage * 10) / 10
   const roundedHigh = Math.round(highPercentage * 10) / 10
@@ -160,9 +174,7 @@ function TargetPickerPanel(props: LobbyOverviewPageProps & { mini?: boolean }) {
       />
 
       <Show when={!props.mini && props.error}>
-        <div class="text-sm text-danger px-4 py-3 border border-danger/25 rounded-xl bg-danger/10">
-          {props.error}
-        </div>
+        <div class="text-sm text-danger px-4 py-3 border border-danger/25 rounded-xl bg-danger/10">{props.error}</div>
       </Show>
     </div>
   )

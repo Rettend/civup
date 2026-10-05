@@ -14,11 +14,13 @@ describe('autosave multipart migration', () => {
 
       await applyMigration(sqlite, '0022_autosave_multipart_upload_id.sql')
 
-      const rows = sqlite.prepare(`
+      const rows = sqlite
+        .prepare(`
         SELECT id, status, file_size_bytes AS fileSizeBytes
         FROM autosave_uploads
         ORDER BY id
-      `).all() as Array<{ id: string, status: string, fileSizeBytes: number }>
+      `)
+        .all() as Array<{ id: string; status: string; fileSizeBytes: number }>
       expect(rows).toEqual([
         { id: 'uploaded-a', status: 'uploaded', fileSizeBytes: 101 },
         { id: 'uploaded-b', status: 'uploaded', fileSizeBytes: 202 },
@@ -26,8 +28,7 @@ describe('autosave multipart migration', () => {
 
       insertCurrentUpload(sqlite, 'active-a', 'owner-1', 'pending_upload')
       expect(() => insertCurrentUpload(sqlite, 'active-b', 'owner-1', 'initializing')).toThrow(/unique constraint/i)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -42,17 +43,21 @@ async function applyMigration(sqlite: Database, fileName: string): Promise<void>
 }
 
 function insertLegacyUpload(sqlite: Database, id: string, userId: string, status: string, size: number): void {
-  sqlite.prepare(`
+  sqlite
+    .prepare(`
     INSERT INTO autosave_uploads (
       id, uploaded_at, uploader_user_id, file_name, file_size_bytes, r2_key, status
     ) VALUES (?, 1, ?, ?, ?, ?, ?)
-  `).run(id, userId, `${id}.zip`, size, `legacy/${id}`, status)
+  `)
+    .run(id, userId, `${id}.zip`, size, `legacy/${id}`, status)
 }
 
 function insertCurrentUpload(sqlite: Database, id: string, userId: string, status: string): void {
-  sqlite.prepare(`
+  sqlite
+    .prepare(`
     INSERT INTO autosave_uploads (
       id, uploaded_at, uploader_user_id, file_name, file_size_bytes, r2_key, status
     ) VALUES (?, 1, ?, ?, 1, ?, ?)
-  `).run(id, userId, `${id}.zip`, `current/${id}`, status)
+  `)
+    .run(id, userId, `${id}.zip`, `current/${id}`, status)
 }

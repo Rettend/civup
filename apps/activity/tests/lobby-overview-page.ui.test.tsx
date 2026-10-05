@@ -46,8 +46,28 @@ describe('LobbyOverviewPage UI', () => {
       ],
       updatedAt: 10,
     })
-    const joinedDraft = createActivityTargetOption({ kind: 'match', id: 'match-joined', lobbyId: 'lobby-joined', matchId: 'match-joined', status: 'drafting', isMember: true, participantCount: 8, targetSize: 8, updatedAt: 9 })
-    const activeMatch = createActivityTargetOption({ kind: 'match', id: 'match-live', lobbyId: 'lobby-live', matchId: 'match-live', status: 'completed', participantCount: 6, targetSize: 6, redDeath: true, updatedAt: 8 })
+    const joinedDraft = createActivityTargetOption({
+      kind: 'match',
+      id: 'match-joined',
+      lobbyId: 'lobby-joined',
+      matchId: 'match-joined',
+      status: 'drafting',
+      isMember: true,
+      participantCount: 8,
+      targetSize: 8,
+      updatedAt: 9,
+    })
+    const activeMatch = createActivityTargetOption({
+      kind: 'match',
+      id: 'match-live',
+      lobbyId: 'lobby-live',
+      matchId: 'match-live',
+      status: 'completed',
+      participantCount: 6,
+      targetSize: 6,
+      redDeath: true,
+      updatedAt: 8,
+    })
 
     render(() => (
       <LobbyOverviewPage
@@ -101,7 +121,15 @@ describe('LobbyOverviewPage UI', () => {
         options={[]}
         onSelect={onSelect}
         onExportData={onExportData}
-        playerDataExportState={{ status: 'loading', phase: 'matches', players: 53, ratings: 53, matches: 12, participants: 12, bans: 3 }}
+        playerDataExportState={{
+          status: 'loading',
+          phase: 'matches',
+          players: 53,
+          ratings: 53,
+          matches: 12,
+          participants: 12,
+          bans: 3,
+        }}
       />
     ))
     expect(screen.getByText('Loading matches: 12')).toBeTruthy()
@@ -126,7 +154,13 @@ describe('LobbyOverviewPage UI', () => {
         options={[]}
         onSelect={onSelect}
         onExportData={onExportData}
-        playerDataExportState={{ status: 'ready', filename: 'export-2026-07-15.xlsx', url: 'https://example.com/export', players: 10, matches: 5 }}
+        playerDataExportState={{
+          status: 'ready',
+          filename: 'export-2026-07-15.xlsx',
+          url: 'https://example.com/export',
+          players: 10,
+          matches: 5,
+        }}
       />
     ))
 
@@ -164,7 +198,11 @@ describe('LobbyOverviewPage UI', () => {
 
   test('shows closed lobby cards under the open filter', () => {
     const openLobby = createActivityTargetOption({ id: 'open-lobby', status: 'open' })
-    const closedLobby = createActivityTargetOption({ id: 'closed-lobby', status: 'closed', players: [{ playerId: 'host-closed', displayName: 'Closed Host', avatarUrl: null }] })
+    const closedLobby = createActivityTargetOption({
+      id: 'closed-lobby',
+      status: 'closed',
+      players: [{ playerId: 'host-closed', displayName: 'Closed Host', avatarUrl: null }],
+    })
 
     render(() => <LobbyOverviewPage options={[openLobby, closedLobby]} onSelect={onSelect} />)
 
@@ -175,10 +213,7 @@ describe('LobbyOverviewPage UI', () => {
 
   test('labels CivBlitz lobby cards like other mode variants', () => {
     render(() => (
-      <LobbyOverviewPage
-        options={[createActivityTargetOption({ mode: '2v2', civBlitz: true })]}
-        onSelect={onSelect}
-      />
+      <LobbyOverviewPage options={[createActivityTargetOption({ mode: '2v2', civBlitz: true })]} onSelect={onSelect} />
     ))
 
     expect(screen.getByText('CivBlitz 2v2')).toBeTruthy()
@@ -193,7 +228,12 @@ describe('LobbyOverviewPage UI', () => {
       team: index < 3 ? 0 : 1,
     }))
 
-    let rendered = render(() => <LobbyOverviewPage options={[createActivityTargetOption({ mode: '3v3', participantCount: 6, targetSize: 6, players: sixPlayers })]} onSelect={onSelect} />)
+    let rendered = render(() => (
+      <LobbyOverviewPage
+        options={[createActivityTargetOption({ mode: '3v3', participantCount: 6, targetSize: 6, players: sixPlayers })]}
+        onSelect={onSelect}
+      />
+    ))
 
     expect(screen.getByText('Player 6')).toBeTruthy()
     expect(rendered.container.querySelector('[data-overview-name-grid]')?.className).toContain('grid-cols-3')
@@ -206,7 +246,14 @@ describe('LobbyOverviewPage UI', () => {
       avatarUrl: null,
       team: index < 4 ? 0 : 1,
     }))
-    rendered = render(() => <LobbyOverviewPage options={[createActivityTargetOption({ mode: '4v4', participantCount: 8, targetSize: 8, players: eightPlayers })]} onSelect={onSelect} />)
+    rendered = render(() => (
+      <LobbyOverviewPage
+        options={[
+          createActivityTargetOption({ mode: '4v4', participantCount: 8, targetSize: 8, players: eightPlayers }),
+        ]}
+        onSelect={onSelect}
+      />
+    ))
 
     expect(rendered.container.querySelector('[data-overview-avatar-grid]')).toBeTruthy()
     expect(rendered.container.querySelectorAll('[data-overview-player-avatar]')).toHaveLength(8)
@@ -229,8 +276,9 @@ describe('LobbyOverviewPage UI', () => {
       />
     ))
 
-    const names = [...rendered.container.querySelectorAll('[data-overview-name-grid] > div > span:last-child')]
-      .map(element => element.textContent)
+    const names = [...rendered.container.querySelectorAll('[data-overview-name-grid] > div > span:last-child')].map(
+      element => element.textContent,
+    )
     expect(names).toEqual(['Team A 1', 'Team B 1', 'Team A 2', 'Team B 2'])
   })
 

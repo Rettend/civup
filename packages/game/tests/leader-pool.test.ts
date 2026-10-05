@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { formatLeaderPoolRankLabel, getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, MAX_LEADER_POOL_SIZE, resolveAverageLeaderPoolRankTier, resolveLeaderPoolSize, sampleLeaderPool } from '../src/leader-pool.ts'
+import {
+  formatLeaderPoolRankLabel,
+  getDefaultLeaderPoolSize,
+  getMaxLeaderPoolSize,
+  getMinimumLeaderPoolSize,
+  MAX_LEADER_POOL_SIZE,
+  resolveAverageLeaderPoolRankTier,
+  resolveLeaderPoolSize,
+  sampleLeaderPool,
+} from '../src/leader-pool.ts'
 import { getLeaderIds } from '../src/leader-registry.ts'
 
 describe('leader pool helpers', () => {

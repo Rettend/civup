@@ -1,4 +1,8 @@
-import type { CivBlitzModCivilizationMetadata, CivBlitzModComponentMetadata, CivBlitzModLeaderMetadata } from './catalog-types.ts'
+import type {
+  CivBlitzModCivilizationMetadata,
+  CivBlitzModComponentMetadata,
+  CivBlitzModLeaderMetadata,
+} from './catalog-types.ts'
 import type { CivBlitzModSeatInput } from './types.ts'
 
 export interface ResolvedCivBlitzModSeat {

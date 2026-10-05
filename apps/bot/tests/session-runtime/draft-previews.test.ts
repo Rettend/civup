@@ -1,6 +1,6 @@
 import type { DraftState } from '@civup/game'
-import { allLeaderIds, CIV_BLITZ_CATEGORIES } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import { allLeaderIds, CIV_BLITZ_CATEGORIES } from '@civup/game'
 import { applyDraftPreview, censorDraftPreviews } from '../../src/session-runtime/draft-previews.ts'
 
 describe('draft previews', () => {
@@ -101,7 +101,17 @@ function createBlindPickState(submissions: DraftState['submissions'] = {}): Draf
     ...createTeamBanState(),
     matchId: 'match-blind-pick-preview',
     formatId: 'default-2v2-blind-pick',
-    steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+    steps: [
+      {
+        action: 'pick',
+        seats: 'all',
+        count: 1,
+        timer: 60,
+        blind: true,
+        blindPickRound: 0,
+        fallbackPickOrder: [0, 1, 2, 3],
+      },
+    ],
     submissions,
   }
 }
@@ -117,7 +127,18 @@ function createCivBlitzPreviewState(): DraftState {
     ...createTeamBanState(),
     matchId: 'match-civblitz-preview',
     formatId: 'civblitz-2v2',
-    steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: [...CIV_BLITZ_CATEGORIES] }],
+    steps: [
+      {
+        action: 'pick',
+        seats: 'all',
+        count: 1,
+        timer: 60,
+        blind: true,
+        blindPickRound: 0,
+        civBlitz: true,
+        civBlitzCategories: [...CIV_BLITZ_CATEGORIES],
+      },
+    ],
     civBlitz: {
       optionCount: 2,
       excludeBbgExpanded: true,

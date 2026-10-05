@@ -1,6 +1,16 @@
-import type { CivBlitzModCivilizationMetadata, CivBlitzModComponentMetadata, CivBlitzModLeaderMetadata } from './catalog-types.ts'
+import type {
+  CivBlitzModCivilizationMetadata,
+  CivBlitzModComponentMetadata,
+  CivBlitzModLeaderMetadata,
+} from './catalog-types.ts'
 import type { ResolvedCivBlitzModSeat } from './internal-types.ts'
-import type { CivBlitzModFile, CivBlitzModInput, CivBlitzModSeatInput, GeneratedCivBlitzModFiles, LeaderDataVersion } from './types.ts'
+import type {
+  CivBlitzModFile,
+  CivBlitzModInput,
+  CivBlitzModSeatInput,
+  GeneratedCivBlitzModFiles,
+  LeaderDataVersion,
+} from './types.ts'
 import {
   generateArtDep,
   generateCivilizationsArtDef,
@@ -9,11 +19,23 @@ import {
   generateLandmarksArtDef,
   generateLeadersArtDef,
 } from './art.ts'
-import { civilizationCatalog, componentCatalog, componentIdsByVersion, leaderCatalog } from './generated/catalog.generated.ts'
+import {
+  civilizationCatalog,
+  componentCatalog,
+  componentIdsByVersion,
+  leaderCatalog,
+} from './generated/catalog.generated.ts'
 import { leaderSceneLua, upstreamLicenseText } from './generated/static.generated.ts'
 import { civBlitzModUuid, sha1Hex } from './hash.ts'
 import { generateModInfo } from './modinfo.ts'
-import { generateColorsSql, generateCompatibilitySql, generateFrontendSql, generateGameplaySql, generateIconsSql, generateLocaleSql } from './sql.ts'
+import {
+  generateColorsSql,
+  generateCompatibilitySql,
+  generateFrontendSql,
+  generateGameplaySql,
+  generateIconsSql,
+  generateLocaleSql,
+} from './sql.ts'
 import { CivBlitzModError } from './types.ts'
 import { createStoredZip } from './zip.ts'
 
@@ -72,7 +94,8 @@ export function generateCivBlitzModArchive(input: CivBlitzModInput): GeneratedCi
 function validateInput(value: CivBlitzModInput): CivBlitzModInput {
   if (!value || typeof value !== 'object') invalid('The CivBlitz mod request must be an object.')
   const matchId = validText(value.matchId, 'matchId', 256)
-  if (value.leaderDataVersion !== 'live' && value.leaderDataVersion !== 'beta') invalid('leaderDataVersion must be live or beta.')
+  if (value.leaderDataVersion !== 'live' && value.leaderDataVersion !== 'beta')
+    invalid('leaderDataVersion must be live or beta.')
   if (typeof value.excludeBbgExpanded !== 'boolean') invalid('excludeBbgExpanded must be a boolean.')
   if (!value.excludeBbgExpanded) {
     throw new CivBlitzModError(
@@ -85,25 +108,33 @@ function validateInput(value: CivBlitzModInput): CivBlitzModInput {
   }
 
   const allowedIds = COMPONENT_IDS[value.leaderDataVersion]
-  const selectedTraits = new Map<string, { componentId: string, seatIndex: number }>()
+  const selectedTraits = new Map<string, { componentId: string; seatIndex: number }>()
   const seats: CivBlitzModSeatInput[] = value.seats.map((seat, position) => {
     if (!seat || typeof seat !== 'object') invalid(`Seat ${position} must be an object.`)
-    if (seat.seatIndex !== position) invalid(`Seat entries must be ordered contiguously from seatIndex 0; expected ${position}.`)
+    if (seat.seatIndex !== position)
+      invalid(`Seat entries must be ordered contiguously from seatIndex 0; expected ${position}.`)
     const displayName = validText(seat.displayName, `seats[${position}].displayName`, 100)
     if (!seat.kit || typeof seat.kit !== 'object') kitError(`Seat ${position} must contain a complete CivBlitz kit.`)
     const kit = {} as CivBlitzModSeatInput['kit']
     for (const category of CATEGORIES) {
       const componentId = seat.kit[category]
-      if (typeof componentId !== 'string' || !componentId) kitError(`Seat ${position} is missing its ${category} component.`)
+      if (typeof componentId !== 'string' || !componentId)
+        kitError(`Seat ${position} is missing its ${category} component.`)
       if (!allowedIds.includes(componentId)) {
-        throw new CivBlitzModError('COMPONENT_NOT_FOUND', `CivBlitz component ${componentId} is not available in ${value.leaderDataVersion} data.`)
+        throw new CivBlitzModError(
+          'COMPONENT_NOT_FOUND',
+          `CivBlitz component ${componentId} is not available in ${value.leaderDataVersion} data.`,
+        )
       }
       const metadata = COMPONENT_CATALOG[componentId]
       if (!metadata || metadata.category !== category) {
         kitError(`CivBlitz component ${componentId} is not a ${category} component.`)
       }
       if (metadata.unsupportedReason) {
-        throw new CivBlitzModError('COMPONENT_UNSUPPORTED', `${metadata.displayName} cannot be generated safely. ${metadata.unsupportedReason}`)
+        throw new CivBlitzModError(
+          'COMPONENT_UNSUPPORTED',
+          `${metadata.displayName} cannot be generated safely. ${metadata.unsupportedReason}`,
+        )
       }
       for (const traitType of new Set([metadata.traitType, ...metadata.grantTraitTypes])) {
         const previous = selectedTraits.get(traitType)
@@ -123,7 +154,7 @@ function validateInput(value: CivBlitzModInput): CivBlitzModInput {
 }
 
 function resolveSeats(seats: readonly CivBlitzModSeatInput[], identity: string): ResolvedCivBlitzModSeat[] {
-  return seats.map((input) => {
+  return seats.map(input => {
     const civilizationAbility = requiredComponent(input.kit.civilizationAbility)
     const leaderAbility = requiredComponent(input.kit.leaderAbility)
     const infrastructure = requiredComponent(input.kit.infrastructure)
@@ -131,7 +162,10 @@ function resolveSeats(seats: readonly CivBlitzModSeatInput[], identity: string):
     const sourceCivilization = CIVILIZATION_CATALOG[civilizationAbility.civilizationType]
     const sourceLeader = leaderAbility.leaderType ? LEADER_CATALOG[leaderAbility.leaderType] : undefined
     if (!sourceCivilization || !sourceLeader) {
-      throw new CivBlitzModError('COMPONENT_NOT_FOUND', 'The selected CivBlitz kit is missing bundled generator metadata.')
+      throw new CivBlitzModError(
+        'COMPONENT_NOT_FOUND',
+        'The selected CivBlitz kit is missing bundled generator metadata.',
+      )
     }
     const token = `CIVUP_S${input.seatIndex}_${sha1Hex(`${identity}\0seat:${input.seatIndex}`).slice(0, 24).toUpperCase()}`
     return {
@@ -152,7 +186,8 @@ function resolveSeats(seats: readonly CivBlitzModSeatInput[], identity: string):
 
 function requiredComponent(id: string): CivBlitzModComponentMetadata {
   const component = COMPONENT_CATALOG[id]
-  if (!component) throw new CivBlitzModError('COMPONENT_NOT_FOUND', `CivBlitz component ${id} has no bundled generator metadata.`)
+  if (!component)
+    throw new CivBlitzModError('COMPONENT_NOT_FOUND', `CivBlitz component ${id} has no bundled generator metadata.`)
   return component
 }
 
@@ -203,7 +238,7 @@ function compareText(left: string, right: string): number {
 function hasInvalidXmlText(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index)
-    if (code < 0x20 || code === 0x7F) return true
+    if (code < 0x20 || code === 0x7f) return true
   }
   return false
 }

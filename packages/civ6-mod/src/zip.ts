@@ -1,13 +1,13 @@
 import type { CivBlitzModFile } from './types.ts'
 import { CivBlitzModError } from './types.ts'
 
-const LOCAL_FILE_HEADER_SIGNATURE = 0x04034B50
-const CENTRAL_DIRECTORY_SIGNATURE = 0x02014B50
-const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054B50
+const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50
+const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50
+const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50
 const UTF8_FLAG = 0x0800
 const STORED_METHOD = 0
 const DOS_DATE_1980_01_01 = 0x0021
-const MAX_ZIP_32 = 0xFFFF_FFFF
+const MAX_ZIP_32 = 0xffff_ffff
 
 interface EncodedEntry {
   name: Uint8Array
@@ -17,7 +17,8 @@ interface EncodedEntry {
 }
 
 export function createStoredZip(files: readonly CivBlitzModFile[]): Uint8Array {
-  if (files.length > 0xFFFF) throw new CivBlitzModError('GENERATION_LIMIT', 'The generated mod contains too many files.', 413)
+  if (files.length > 0xffff)
+    throw new CivBlitzModError('GENERATION_LIMIT', 'The generated mod contains too many files.', 413)
   const encoder = new TextEncoder()
   const entries: EncodedEntry[] = []
   let localSize = 0
@@ -25,7 +26,7 @@ export function createStoredZip(files: readonly CivBlitzModFile[]): Uint8Array {
   for (const file of files) {
     const name = encoder.encode(file.path)
     const content = typeof file.content === 'string' ? encoder.encode(file.content) : file.content
-    if (name.length > 0xFFFF || content.length > MAX_ZIP_32) {
+    if (name.length > 0xffff || content.length > MAX_ZIP_32) {
       throw new CivBlitzModError('GENERATION_LIMIT', 'A generated mod file exceeds the ZIP format limit.', 413)
     }
     entries.push({ name, content, crc: crc32(content), localOffset: localSize })
@@ -93,10 +94,10 @@ export function createStoredZip(files: readonly CivBlitzModFile[]): Uint8Array {
 }
 
 function crc32(bytes: Uint8Array): number {
-  let crc = 0xFFFF_FFFF
+  let crc = 0xffff_ffff
   for (const byte of bytes) {
     crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0)
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
   }
-  return (crc ^ 0xFFFF_FFFF) >>> 0
+  return (crc ^ 0xffff_ffff) >>> 0
 }

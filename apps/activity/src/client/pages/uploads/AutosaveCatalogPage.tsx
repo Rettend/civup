@@ -1,7 +1,7 @@
-import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import type { Leader } from '@civup/game'
-import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
+import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } from '@civup/game'
+import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import { useActivityController } from '~/client/activity/activity-context'
 import { Dropdown } from '~/client/components/ui/Dropdown'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '~/client/lib/activity-session'
@@ -93,7 +93,7 @@ export default function AutosaveCatalogPage() {
   const [mapFilter, setMapFilter] = createSignal('')
   const [bbgFilter, setBbgFilter] = createSignal('')
   const [downloadingId, setDownloadingId] = createSignal<string | null>(null)
-  const [pendingAction, setPendingAction] = createSignal<{ id: string, action: CatalogAction } | null>(null)
+  const [pendingAction, setPendingAction] = createSignal<{ id: string; action: CatalogAction } | null>(null)
   const [pollingReparseIds, setPollingReparseIds] = createSignal<Set<string>>(new Set())
   let loaded = false
   let disposed = false
@@ -102,7 +102,7 @@ export default function AutosaveCatalogPage() {
     disposed = true
   })
 
-  const loadUploads = async (options: { showLoading?: boolean, showError?: boolean } = {}) => {
+  const loadUploads = async (options: { showLoading?: boolean; showError?: boolean } = {}) => {
     const showLoading = options.showLoading ?? true
     const showError = options.showError ?? true
     if (showLoading) setLoading(true)
@@ -111,15 +111,14 @@ export default function AutosaveCatalogPage() {
       const response = await fetch('/api/uploads/autosaves', {
         headers: buildActivitySessionHeaders(),
       })
-      const payload = await response.json().catch(() => null) as AutosaveUploadCatalogResponse | null
+      const payload = (await response.json().catch(() => null)) as AutosaveUploadCatalogResponse | null
       if (!response.ok) throw new Error(payload?.error ?? 'Failed')
       if (disposed) return
       setUploads(payload?.uploads ?? [])
-    }
-    catch (err) {
-      if (showError && !disposed) setError(err instanceof Error && err.message.trim().length > 0 ? err.message : 'Failed')
-    }
-    finally {
+    } catch (err) {
+      if (showError && !disposed)
+        setError(err instanceof Error && err.message.trim().length > 0 ? err.message : 'Failed')
+    } finally {
       if (!disposed) {
         if (showLoading) setLoading(false)
         setHasLoaded(true)
@@ -127,15 +126,18 @@ export default function AutosaveCatalogPage() {
     }
   }
 
-  createEffect(() => ({ status: activity.state().status, allowed: activity.canViewAutosaveCatalog() }), ({ status, allowed }) => {
-    if (loaded || status === 'loading') return
-    loaded = true
-    if (!allowed) {
-      setError('Forbidden')
-      return
-    }
-    void loadUploads()
-  })
+  createEffect(
+    () => ({ status: activity.state().status, allowed: activity.canViewAutosaveCatalog() }),
+    ({ status, allowed }) => {
+      if (loaded || status === 'loading') return
+      loaded = true
+      if (!allowed) {
+        setError('Forbidden')
+        return
+      }
+      void loadUploads()
+    },
+  )
 
   const decoratedUploads = createMemo(() => uploads().map(row => decorateUpload(row)))
   const modeOptions = createMemo(() => uniqueSorted(decoratedUploads().map(item => item.row.gameMode)))
@@ -146,7 +148,7 @@ export default function AutosaveCatalogPage() {
     const mode = modeFilter()
     const map = mapFilter()
     const bbg = bbgFilter()
-    return decoratedUploads().filter((item) => {
+    return decoratedUploads().filter(item => {
       const row = item.row
       if (mode && row.gameMode !== mode) return false
       if (map && item.mapLabel !== map) return false
@@ -164,17 +166,17 @@ export default function AutosaveCatalogPage() {
       console.debug('[autosave-catalog] download open', { id: row.id, fileName: row.fileName, url })
       const opened = await openExternalLink(url)
       if (!opened) window.open(url, '_blank', 'noopener')
-      setUploads(current => current.map(candidate => candidate.id === row.id
-        ? { ...candidate, downloadCount: candidate.downloadCount + 1 }
-        : candidate))
+      setUploads(current =>
+        current.map(candidate =>
+          candidate.id === row.id ? { ...candidate, downloadCount: candidate.downloadCount + 1 } : candidate,
+        ),
+      )
       console.debug('[autosave-catalog] download opened', { id: row.id, opened })
-    }
-    catch (err) {
+    } catch (err) {
       console.error('[autosave-catalog] download failed', { id: row.id, fileName: row.fileName }, err)
       const url = buildExternalDownloadUrl(row)
       window.open(url, '_blank', 'noopener')
-    }
-    finally {
+    } finally {
       setDownloadingId(null)
     }
   }
@@ -190,7 +192,7 @@ export default function AutosaveCatalogPage() {
   const isReparsePolling = (id: string) => pollingReparseIds().has(id)
 
   const setReparsePolling = (id: string, enabled: boolean) => {
-    setPollingReparseIds((current) => {
+    setPollingReparseIds(current => {
       const next = new Set(current)
       if (enabled) next.add(id)
       else next.delete(id)
@@ -210,8 +212,7 @@ export default function AutosaveCatalogPage() {
         const row = uploads().find(candidate => candidate.id === id)
         if (!row || row.parseStatus !== 'pending') return
       }
-    }
-    finally {
+    } finally {
       if (!disposed) setReparsePolling(id, false)
     }
   }
@@ -221,27 +222,29 @@ export default function AutosaveCatalogPage() {
     setPendingAction({ id: row.id, action })
     setError(null)
     try {
-      const response = await fetch(`/api/uploads/autosaves/${encodeURIComponent(row.id)}${action === 'reparse' ? '/reparse' : ''}`, {
-        method: action === 'reparse' ? 'POST' : 'DELETE',
-        headers: buildActivitySessionHeaders(),
-      })
-      const payload = await response.json().catch(() => null) as { error?: string } | null
+      const response = await fetch(
+        `/api/uploads/autosaves/${encodeURIComponent(row.id)}${action === 'reparse' ? '/reparse' : ''}`,
+        {
+          method: action === 'reparse' ? 'POST' : 'DELETE',
+          headers: buildActivitySessionHeaders(),
+        },
+      )
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
       if (!response.ok) throw new Error(payload?.error ?? 'Failed')
 
       if (action === 'delete') {
         setUploads(current => current.filter(candidate => candidate.id !== row.id))
-      }
-      else {
-        setUploads(current => current.map(candidate => candidate.id === row.id
-          ? { ...candidate, parseStatus: 'pending', parseError: null }
-          : candidate))
+      } else {
+        setUploads(current =>
+          current.map(candidate =>
+            candidate.id === row.id ? { ...candidate, parseStatus: 'pending', parseError: null } : candidate,
+          ),
+        )
         void pollReparseStatus(row.id)
       }
-    }
-    catch (err) {
+    } catch (err) {
       setError(err instanceof Error && err.message.trim().length > 0 ? err.message : 'Failed')
-    }
-    finally {
+    } finally {
       setPendingAction(null)
     }
   }
@@ -311,7 +314,9 @@ export default function AutosaveCatalogPage() {
             onChange={setBbgFilter}
           />
           <div class="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-muted">
-            <span>{filteredUploads().length} / {uploads().length}</span>
+            <span>
+              {filteredUploads().length} / {uploads().length}
+            </span>
             <span class="i-ph-archive-bold text-sm" />
           </div>
         </div>
@@ -329,79 +334,105 @@ export default function AutosaveCatalogPage() {
               const row = () => item().row
               const action = () => pendingAction()
               return (
-              <article class="rounded-xl border border-border-subtle bg-bg-subtle/45 p-3">
-                <div class="flex items-center gap-3">
-                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <Show when={row().gameMode}>
-                      <span class="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-bold text-accent">{row().gameMode}</span>
-                    </Show>
-                    <Show when={row().maxTurn != null}>
-                      <span class="rounded-full border border-fg-muted/25 bg-fg-muted/10 px-2 py-0.5 text-xs font-bold text-fg-muted">T{row().maxTurn}</span>
-                    </Show>
+                <article class="rounded-xl border border-border-subtle bg-bg-subtle/45 p-3">
+                  <div class="flex items-center gap-3">
+                    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                      <Show when={row().gameMode}>
+                        <span class="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-bold text-accent">
+                          {row().gameMode}
+                        </span>
+                      </Show>
+                      <Show when={row().maxTurn != null}>
+                        <span class="rounded-full border border-fg-muted/25 bg-fg-muted/10 px-2 py-0.5 text-xs font-bold text-fg-muted">
+                          T{row().maxTurn}
+                        </span>
+                      </Show>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        class="grid size-8 cursor-pointer place-items-center rounded-md text-fg-muted opacity-75 transition hover:bg-bg-muted hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
+                        title="Reparse metadata"
+                        aria-label="Reparse metadata"
+                        disabled={action() != null || isReparsePolling(row().id)}
+                        onClick={() => void reparseUpload(row())}
+                      >
+                        <span
+                          class={
+                            (action()?.id === row().id && action()?.action === 'reparse') || isReparsePolling(row().id)
+                              ? 'i-gg:spinner text-base animate-spin'
+                              : 'i-ph-arrow-clockwise-bold text-base'
+                          }
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        class="grid size-8 cursor-pointer place-items-center rounded-md text-danger opacity-75 transition hover:bg-danger/10 hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
+                        title="Delete upload"
+                        aria-label="Delete upload"
+                        disabled={action() != null}
+                        onClick={() => void deleteUpload(row())}
+                      >
+                        <span
+                          class={
+                            action()?.id === row().id && action()?.action === 'delete'
+                              ? 'i-gg:spinner text-base animate-spin'
+                              : 'i-ph-trash-bold text-base'
+                          }
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        class="grid size-8 cursor-pointer place-items-center rounded-md text-accent opacity-75 transition hover:bg-accent/10 hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
+                        title="Download autosave zip"
+                        aria-label="Download autosave zip"
+                        disabled={downloadingId() != null}
+                        onClick={() => void downloadUpload(row())}
+                      >
+                        <span
+                          class={
+                            downloadingId() === row().id
+                              ? 'i-gg:spinner text-base animate-spin'
+                              : 'i-ph-download-simple-bold text-base'
+                          }
+                        />
+                      </button>
+                    </div>
                   </div>
-                  <div class="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      class="grid size-8 cursor-pointer place-items-center rounded-md text-fg-muted opacity-75 transition hover:bg-bg-muted hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
-                      title="Reparse metadata"
-                      aria-label="Reparse metadata"
-                      disabled={action() != null || isReparsePolling(row().id)}
-                      onClick={() => void reparseUpload(row())}
-                    >
-                      <span class={(action()?.id === row().id && action()?.action === 'reparse') || isReparsePolling(row().id) ? 'i-gg:spinner text-base animate-spin' : 'i-ph-arrow-clockwise-bold text-base'} />
-                    </button>
-                    <button
-                      type="button"
-                      class="grid size-8 cursor-pointer place-items-center rounded-md text-danger opacity-75 transition hover:bg-danger/10 hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
-                      title="Delete upload"
-                      aria-label="Delete upload"
-                      disabled={action() != null}
-                      onClick={() => void deleteUpload(row())}
-                    >
-                      <span class={action()?.id === row().id && action()?.action === 'delete' ? 'i-gg:spinner text-base animate-spin' : 'i-ph-trash-bold text-base'} />
-                    </button>
-                    <button
-                      type="button"
-                      class="grid size-8 cursor-pointer place-items-center rounded-md text-accent opacity-75 transition hover:bg-accent/10 hover:opacity-100 disabled:pointer-events-none disabled:cursor-default disabled:opacity-40"
-                      title="Download autosave zip"
-                      aria-label="Download autosave zip"
-                      disabled={downloadingId() != null}
-                      onClick={() => void downloadUpload(row())}
-                    >
-                      <span class={downloadingId() === row().id ? 'i-gg:spinner text-base animate-spin' : 'i-ph-download-simple-bold text-base'} />
-                    </button>
-                  </div>
-                </div>
 
-                <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
-                  <For each={buildMetaItems(item())}>
-                    {(meta, index) => (
-                      <>
-                        <Show when={index() > 0}>
-                          <span class="text-fg-muted/40">·</span>
-                        </Show>
-                        <span class="text-fg-muted" title={meta.title}>{meta.value}</span>
-                      </>
-                    )}
-                  </For>
-                </div>
-
-                <Show when={item().leaders.length > 0}>
-                  <div class="mt-3">
-                    <PlayerColumns leaders={item().leaders} />
+                  <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                    <For each={buildMetaItems(item())}>
+                      {(meta, index) => (
+                        <>
+                          <Show when={index() > 0}>
+                            <span class="text-fg-muted/40">·</span>
+                          </Show>
+                          <span class="text-fg-muted" title={meta.title}>
+                            {meta.value}
+                          </span>
+                        </>
+                      )}
+                    </For>
                   </div>
-                </Show>
-                <div class="mt-3 truncate text-xs text-fg-muted/75">
-                  {formatDate(row().uploadedAt)} by {row().uploaderDisplayName ?? row().uploaderUserId}
-                </div>
-              </article>
+
+                  <Show when={item().leaders.length > 0}>
+                    <div class="mt-3">
+                      <PlayerColumns leaders={item().leaders} />
+                    </div>
+                  </Show>
+                  <div class="mt-3 truncate text-xs text-fg-muted/75">
+                    {formatDate(row().uploadedAt)} by {row().uploaderDisplayName ?? row().uploaderUserId}
+                  </div>
+                </article>
               )
             }}
           </For>
         </div>
 
         <Show when={!loading() && !error() && filteredUploads().length === 0}>
-          <div class="rounded-xl border border-border-subtle bg-bg-subtle/40 px-4 py-3 text-sm text-fg-muted">Empty</div>
+          <div class="rounded-xl border border-border-subtle bg-bg-subtle/40 px-4 py-3 text-sm text-fg-muted">
+            Empty
+          </div>
         </Show>
       </div>
     </main>
@@ -415,7 +446,9 @@ export default function AutosaveCatalogPage() {
             Saved Games
           </span>
           <span class="text-sm text-fg-muted font-mono text-right right-0 top-1/2 absolute tabular-nums -translate-y-1/2 inline-flex items-center gap-1">
-            <span>{filteredUploads().length}/{uploads().length}</span>
+            <span>
+              {filteredUploads().length}/{uploads().length}
+            </span>
             <span class="i-ph-archive-bold text-sm" />
           </span>
         </div>
@@ -440,15 +473,17 @@ function CatalogCardSkeleton() {
       </div>
       <div class="mt-3 h-3 w-3/4 animate-pulse rounded bg-bg-muted" />
       <div class="mt-4 grid grid-cols-2 gap-x-3 gap-y-2">
-        <For each={[0, 1, 2, 3]}>{() => (
-          <div class="flex items-center gap-2">
-            <div class="size-8 shrink-0 animate-pulse rounded-full bg-bg-muted" />
-            <div class="min-w-0 flex-1 space-y-1.5">
-              <div class="h-3 w-4/5 animate-pulse rounded bg-bg-muted" />
-              <div class="h-2.5 w-2/3 animate-pulse rounded bg-bg-muted" />
+        <For each={[0, 1, 2, 3]}>
+          {() => (
+            <div class="flex items-center gap-2">
+              <div class="size-8 shrink-0 animate-pulse rounded-full bg-bg-muted" />
+              <div class="min-w-0 flex-1 space-y-1.5">
+                <div class="h-3 w-4/5 animate-pulse rounded bg-bg-muted" />
+                <div class="h-2.5 w-2/3 animate-pulse rounded bg-bg-muted" />
+              </div>
             </div>
-          </div>
-        )}</For>
+          )}
+        </For>
       </div>
       <div class="mt-4 h-3 w-1/2 animate-pulse rounded bg-bg-muted" />
     </article>
@@ -459,16 +494,23 @@ function PlayerColumns(props: { leaders: CatalogLeaderCard[] }) {
   const columns = createMemo(() => splitPlayerColumns(props.leaders))
 
   return (
-    <Show when={columns()} fallback={<div class="grid gap-1"><For each={props.leaders}>{leader => <PlayerRow leader={leader} />}</For></div>}>
+    <Show
+      when={columns()}
+      fallback={
+        <div class="grid gap-1">
+          <For each={props.leaders}>{leader => <PlayerRow leader={leader} />}</For>
+        </div>
+      }
+    >
       {resolved => (
-      <div class="grid grid-cols-2 gap-x-3 gap-y-1">
-      <div class="grid min-w-0 gap-1">
-        <For each={resolved().left}>{leader => <PlayerRow leader={leader} />}</For>
-      </div>
-      <div class="grid min-w-0 gap-1">
-        <For each={resolved().right}>{leader => <PlayerRow leader={leader} />}</For>
-      </div>
-      </div>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+          <div class="grid min-w-0 gap-1">
+            <For each={resolved().left}>{leader => <PlayerRow leader={leader} />}</For>
+          </div>
+          <div class="grid min-w-0 gap-1">
+            <For each={resolved().right}>{leader => <PlayerRow leader={leader} />}</For>
+          </div>
+        </div>
       )}
     </Show>
   )
@@ -477,15 +519,18 @@ function PlayerColumns(props: { leaders: CatalogLeaderCard[] }) {
 function PlayerRow(props: { leader: CatalogLeaderCard }) {
   const initial = () => props.leader.leaderName.slice(0, 1).toUpperCase() || '?'
   const playerName = () => formatCatalogPlayerName(props.leader)
-  const playerClass = () => props.leader.isHuman === false
-    ? 'truncate text-xs text-fg-muted'
-    : 'truncate text-xs font-bold text-fg'
+  const playerClass = () =>
+    props.leader.isHuman === false ? 'truncate text-xs text-fg-muted' : 'truncate text-xs font-bold text-fg'
 
   return (
     <div class="flex min-w-0 items-center gap-2 py-0.5">
       <Show
         when={props.leader.portraitUrl}
-        fallback={<div class="grid size-8 shrink-0 place-items-center rounded-full border border-border-subtle bg-bg-muted text-xs font-bold text-fg-muted">{initial()}</div>}
+        fallback={
+          <div class="grid size-8 shrink-0 place-items-center rounded-full border border-border-subtle bg-bg-muted text-xs font-bold text-fg-muted">
+            {initial()}
+          </div>
+        }
       >
         <img
           src={props.leader.portraitUrl ?? ''}
@@ -502,11 +547,17 @@ function PlayerRow(props: { leader: CatalogLeaderCard }) {
   )
 }
 
-function splitPlayerColumns(leaders: CatalogLeaderCard[]): { left: CatalogLeaderCard[], right: CatalogLeaderCard[] } | null {
+function splitPlayerColumns(
+  leaders: CatalogLeaderCard[],
+): { left: CatalogLeaderCard[]; right: CatalogLeaderCard[] } | null {
   if (leaders.length < 2 || leaders.length % 2 !== 0) return null
 
-  const sorted = normalizeCatalogTeamDisplayOrder([...leaders].sort((left, right) => (left.slot ?? Number.MAX_SAFE_INTEGER) - (right.slot ?? Number.MAX_SAFE_INTEGER)))
-  const columns: { left: CatalogLeaderCard[], right: CatalogLeaderCard[] } = { left: [], right: [] }
+  const sorted = normalizeCatalogTeamDisplayOrder(
+    [...leaders].sort(
+      (left, right) => (left.slot ?? Number.MAX_SAFE_INTEGER) - (right.slot ?? Number.MAX_SAFE_INTEGER),
+    ),
+  )
+  const columns: { left: CatalogLeaderCard[]; right: CatalogLeaderCard[] } = { left: [], right: [] }
   sorted.forEach((leader, index) => {
     const team = TEAM_SLOT_PATTERN[index % TEAM_SLOT_PATTERN.length]
     if (team === 0) columns.left.push(leader)
@@ -527,8 +578,9 @@ function formatCatalogPlayerName(leader: CatalogLeaderCard): string {
 }
 
 function uniqueSorted(values: (string | null)[]): string[] {
-  return [...new Set(values.filter((value): value is string => value != null && value.length > 0))]
-    .sort((left, right) => left.localeCompare(right))
+  return [...new Set(values.filter((value): value is string => value != null && value.length > 0))].sort(
+    (left, right) => left.localeCompare(right),
+  )
 }
 
 function buildExternalDownloadUrl(row: AutosaveUploadCatalogRow): string {
@@ -570,7 +622,8 @@ function buildMetaItems(item: DecoratedAutosaveUpload): CatalogMetaItem[] {
   if (item.bbgLabel) items.push({ value: item.bbgLabel, title: 'BBG version' })
   items.push({ value: `Size ${formatBytes(row.fileSizeBytes)}`, title: 'Uploaded zip size' })
   if (row.saveCount != null) items.push({ value: formatSaveCount(row.saveCount), title: 'Autosave files found' })
-  if (row.downloadCount > 0) items.push({ value: formatDownloadCount(row.downloadCount), title: 'Times this game has been downloaded' })
+  if (row.downloadCount > 0)
+    items.push({ value: formatDownloadCount(row.downloadCount), title: 'Times this game has been downloaded' })
   return items
 }
 
@@ -579,14 +632,18 @@ function decorateUpload(row: AutosaveUploadCatalogRow): DecoratedAutosaveUpload 
   const bbgLabel = bbgVersion ? `BBG ${bbgVersion}` : null
   const mapLabel = formatMapFile(row.mapFile)
   const leaders = resolveLeaderCards(row)
-  const searchText = normalizeSearchText([
-    row.uploaderDisplayName,
-    row.uploaderUserId,
-    row.gameMode,
-    mapLabel,
-    bbgVersion,
-    ...leaders.map(leader => leader.searchText),
-  ].filter((value): value is string => value != null && value.length > 0).join(' '))
+  const searchText = normalizeSearchText(
+    [
+      row.uploaderDisplayName,
+      row.uploaderUserId,
+      row.gameMode,
+      mapLabel,
+      bbgVersion,
+      ...leaders.map(leader => leader.searchText),
+    ]
+      .filter((value): value is string => value != null && value.length > 0)
+      .join(' '),
+  )
 
   return { row, bbgVersion, bbgLabel, mapLabel, leaders, searchText }
 }
@@ -597,14 +654,19 @@ function resolveLeaderCards(row: AutosaveUploadCatalogRow): CatalogLeaderCard[] 
     return players.map((player, index) => buildLeaderCard(player, index))
   }
 
-  return parseLeaderCodes(row.leadersJson).map((leaderCode, index) => buildLeaderCard({
-    slot: index,
-    playerName: null,
-    leader: leaderCode,
-    civilization: null,
-    isHuman: null,
-    alive: null,
-  }, index))
+  return parseLeaderCodes(row.leadersJson).map((leaderCode, index) =>
+    buildLeaderCard(
+      {
+        slot: index,
+        playerName: null,
+        leader: leaderCode,
+        civilization: null,
+        isHuman: null,
+        alive: null,
+      },
+      index,
+    ),
+  )
 }
 
 function buildLeaderCard(player: AutosaveParsedPlayer, index: number): CatalogLeaderCard {
@@ -612,13 +674,11 @@ function buildLeaderCard(player: AutosaveParsedPlayer, index: number): CatalogLe
   const leaderName = leader?.name ?? formatLeaderCode(player.leader)
   const civilizationName = leader?.civilization ?? formatCivilizationCode(player.civilization)
   const playerName = normalizeDisplayValue(player.playerName)
-  const searchText = normalizeSearchText([
-    playerName,
-    leaderName,
-    civilizationName,
-    player.leader,
-    player.civilization,
-  ].filter((value): value is string => value != null && value.length > 0).join(' '))
+  const searchText = normalizeSearchText(
+    [playerName, leaderName, civilizationName, player.leader, player.civilization]
+      .filter((value): value is string => value != null && value.length > 0)
+      .join(' '),
+  )
 
   return {
     key: `${player.slot ?? index}:${player.leader ?? leaderName}`,
@@ -651,7 +711,7 @@ function parsePlayers(value: string | null): AutosaveParsedPlayer[] {
 
 function parseLeaderCodes(value: string | null): string[] {
   return parseJsonArray(value)
-    .map(item => typeof item === 'string' ? normalizeDisplayValue(item) : null)
+    .map(item => (typeof item === 'string' ? normalizeDisplayValue(item) : null))
     .filter((item): item is string => item != null)
 }
 
@@ -660,8 +720,7 @@ function parseJsonArray(value: string | null): unknown[] {
   try {
     const parsed = JSON.parse(value) as unknown
     return Array.isArray(parsed) ? parsed : []
-  }
-  catch {
+  } catch {
     return []
   }
 }
@@ -677,9 +736,11 @@ function resolveCatalogLeader(leaderCode: string | null, civilizationCode: strin
     ? CATALOG_LEADERS.filter(leader => normalizeSearchText(leader.civilization) === civilizationText)
     : CATALOG_LEADERS
 
-  return candidates.find(leader => leaderNameMatchesCode(leader, codeText, codeTokens))
-    ?? CATALOG_LEADERS.find(leader => leaderNameMatchesCode(leader, codeText, codeTokens))
-    ?? null
+  return (
+    candidates.find(leader => leaderNameMatchesCode(leader, codeText, codeTokens)) ??
+    CATALOG_LEADERS.find(leader => leaderNameMatchesCode(leader, codeText, codeTokens)) ??
+    null
+  )
 }
 
 function leaderNameMatchesCode(leader: Leader, codeText: string, codeTokens: Set<string>): boolean {
@@ -742,7 +803,9 @@ function titleCaseWords(value: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map(word => word.length <= 2 ? word.toUpperCase() : `${word[0]?.toUpperCase() ?? ''}${word.slice(1).toLowerCase()}`)
+    .map(word =>
+      word.length <= 2 ? word.toUpperCase() : `${word[0]?.toUpperCase() ?? ''}${word.slice(1).toLowerCase()}`,
+    )
     .join(' ')
 }
 
@@ -756,11 +819,18 @@ function stringValue(value: unknown): string | null {
 }
 
 function normalizeSearchText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 function tokenizeSearchText(value: string): Set<string> {
-  return new Set(normalizeSearchText(value).split(/\s+/).filter(token => token.length > 0))
+  return new Set(
+    normalizeSearchText(value)
+      .split(/\s+/)
+      .filter(token => token.length > 0),
+  )
 }
 
 function delay(ms: number): Promise<void> {

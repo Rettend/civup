@@ -1,11 +1,11 @@
-import type { Database as SqliteDatabase } from 'bun:sqlite'
 import type { Env } from '../../src/env.ts'
-import { matches, matchParticipants, players, sessionDirectory } from '@civup/db'
-import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
+import type { Database as SqliteDatabase } from 'bun:sqlite'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { registerMatchRoutes } from '../../src/routes/match.ts'
+import { matches, matchParticipants, players, sessionDirectory } from '@civup/db'
+import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER } from '@civup/utils'
 import { generateCivBlitzModResponse } from '../../src/maintenance/civblitz-maintenance.ts'
+import { registerMatchRoutes } from '../../src/routes/match.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -34,14 +34,16 @@ describe('CivBlitz match mod download', () => {
 
     expect(first.status).toBe(200)
     expect(first.headers.get('Content-Type')).toBe('application/zip')
-    expect(first.headers.get('Content-Disposition')).toMatch(/^attachment; filename="civblitz-match-[a-f0-9]{12}\.zip"$/)
+    expect(first.headers.get('Content-Disposition')).toMatch(
+      /^attachment; filename="civblitz-match-[a-f0-9]{12}\.zip"$/,
+    )
     expect(first.headers.get('Cache-Control')).toBe('private, no-store')
     expect(first.headers.get('ETag')).toMatch(/^"[a-f0-9-]+"$/)
 
     const firstBytes = new Uint8Array(await first.arrayBuffer())
     const secondBytes = new Uint8Array(await second.arrayBuffer())
     expect(firstBytes).toEqual(secondBytes)
-    expect(firstBytes.slice(0, 4)).toEqual(new Uint8Array([0x50, 0x4B, 0x03, 0x04]))
+    expect(firstBytes.slice(0, 4)).toEqual(new Uint8Array([0x50, 0x4b, 0x03, 0x04]))
     expect(Number(first.headers.get('Content-Length'))).toBe(firstBytes.byteLength)
     expect(new TextDecoder().decode(firstBytes)).toContain('CivBlitz-')
   })
@@ -74,7 +76,9 @@ describe('CivBlitz match mod download', () => {
   })
 })
 
-async function createHarness(options: { phase?: 'active' | 'swap', excludeBbgExpanded?: boolean, malformedDraft?: boolean } = {}) {
+async function createHarness(
+  options: { phase?: 'active' | 'swap'; excludeBbgExpanded?: boolean; malformedDraft?: boolean } = {},
+) {
   const { db, sqlite } = await createTestDatabase()
   openDatabases.push(sqlite)
   await db.insert(players).values([

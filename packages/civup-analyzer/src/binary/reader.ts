@@ -1,7 +1,10 @@
 export class BinaryReader {
   private offsetValue = 0
 
-  constructor(private readonly bytes: Uint8Array, private readonly label = 'buffer') {}
+  constructor(
+    private readonly bytes: Uint8Array,
+    private readonly label = 'buffer',
+  ) {}
 
   get offset(): number {
     return this.offsetValue

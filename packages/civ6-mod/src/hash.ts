@@ -11,8 +11,8 @@ export function civBlitzModUuid(value: string): string {
   bytes.set(namespace)
   bytes.set(name, namespace.length)
   const digest = sha1(bytes).slice(0, 16)
-  digest[6] = (digest[6]! & 0x0F) | 0x50
-  digest[8] = (digest[8]! & 0x3F) | 0x80
+  digest[6] = (digest[6]! & 0x0f) | 0x50
+  digest[8] = (digest[8]! & 0x3f) | 0x80
   const hex = [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
@@ -28,10 +28,10 @@ function sha1(input: Uint8Array): Uint8Array {
   view.setUint32(paddedLength - 4, bitLength >>> 0, false)
 
   let h0 = 0x67452301
-  let h1 = 0xEFCDAB89
-  let h2 = 0x98BADCFE
+  let h1 = 0xefcdab89
+  let h2 = 0x98badcfe
   let h3 = 0x10325476
-  let h4 = 0xC3D2E1F0
+  let h4 = 0xc3d2e1f0
   const words = new Uint32Array(80)
 
   for (let offset = 0; offset < bytes.length; offset += 64) {
@@ -46,14 +46,9 @@ function sha1(input: Uint8Array): Uint8Array {
     let d = h3
     let e = h4
     for (let index = 0; index < 80; index += 1) {
-      const f = index < 20
-        ? (b & c) | (~b & d)
-        : index < 40
-          ? b ^ c ^ d
-          : index < 60
-            ? (b & c) | (b & d) | (c & d)
-            : b ^ c ^ d
-      const k = index < 20 ? 0x5A827999 : index < 40 ? 0x6ED9EBA1 : index < 60 ? 0x8F1BBCDC : 0xCA62C1D6
+      const f =
+        index < 20 ? (b & c) | (~b & d) : index < 40 ? b ^ c ^ d : index < 60 ? (b & c) | (b & d) | (c & d) : b ^ c ^ d
+      const k = index < 20 ? 0x5a827999 : index < 40 ? 0x6ed9eba1 : index < 60 ? 0x8f1bbcdc : 0xca62c1d6
       const temporary = (rotateLeft(a, 5) + f + e + k + words[index]!) >>> 0
       e = d
       d = c
@@ -81,6 +76,7 @@ function rotateLeft(value: number, bits: number): number {
 function uuidBytes(uuid: string): Uint8Array {
   const hex = uuid.replaceAll('-', '')
   const output = new Uint8Array(16)
-  for (let index = 0; index < output.length; index += 1) output[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
+  for (let index = 0; index < output.length; index += 1)
+    output[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
   return output
 }

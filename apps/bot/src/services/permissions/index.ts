@@ -64,7 +64,7 @@ export async function addModRole(
   kv: KVNamespace,
   guildId: string,
   roleId: string,
-): Promise<{ added: boolean, roles: string[] }> {
+): Promise<{ added: boolean; roles: string[] }> {
   const roles = await getModRoleIds(kv, guildId)
   if (roles.includes(roleId)) return { added: false, roles }
 
@@ -77,15 +77,14 @@ export async function removeModRole(
   kv: KVNamespace,
   guildId: string,
   roleId: string,
-): Promise<{ removed: boolean, roles: string[] }> {
+): Promise<{ removed: boolean; roles: string[] }> {
   const roles = await getModRoleIds(kv, guildId)
   if (!roles.includes(roleId)) return { removed: false, roles }
 
   const updatedRoles = roles.filter(id => id !== roleId)
   if (updatedRoles.length === 0) {
     await kv.delete(modRoleKey(guildId))
-  }
-  else {
+  } else {
     await kv.put(modRoleKey(guildId), JSON.stringify(updatedRoles))
   }
 

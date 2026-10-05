@@ -3,7 +3,14 @@
 import type { DraftState } from '@civup/game'
 import { cleanup, screen } from '@solidjs/testing-library'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import {
+  createActiveDraftState,
+  createCancelledDraftState,
+  createCompleteDraftState,
+  createWaitingDraftState,
+  renderUi as render,
+  TEST_LEADER_IDS,
+} from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const { DraftPage } = await import('../src/client/pages/draft')
@@ -21,7 +28,9 @@ describe('MiniView UI', () => {
     const mount = (draftState: DraftState) => {
       uiMockState.draftState = draftState
       unmount()
-      ;({ unmount } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />))
+      ;({ unmount } = render(() => (
+        <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+      )))
     }
 
     mount(createWaitingDraftState())
@@ -58,7 +67,9 @@ describe('MiniView UI', () => {
       },
     })
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Pick Phase')).toBeTruthy()
     expect(screen.getByText(/\d+:\d{2}/)).toBeTruthy()
@@ -66,15 +77,15 @@ describe('MiniView UI', () => {
 
   test('renders locked picks and preview picks through the minimized draft view', () => {
     uiMockState.draftState = createWaitingDraftState({
-      picks: [
-        { seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 },
-      ],
+      picks: [{ seatIndex: 0, civId: TEST_LEADER_IDS.abrahamLincoln, stepIndex: 1 }],
     })
     uiMockState.draftPreviewPicks = {
       1: [TEST_LEADER_IDS.saladinVizier],
     }
 
-    const { container } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    const { container } = render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(screen.getByText('Host Player')).toBeTruthy()
     expect(screen.getByText('Player 2')).toBeTruthy()
@@ -92,7 +103,9 @@ describe('MiniView UI', () => {
       ]),
     })
 
-    const { container } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />)
+    const { container } = render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="ffa" />
+    ))
 
     expect(readColumnNames(container, ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'])).toEqual([
       ['Alpha', 'Bravo', 'Charlie'],
@@ -111,7 +124,9 @@ describe('MiniView UI', () => {
       ]),
     })
 
-    const { container } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    const { container } = render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(readColumnNames(container, ['Alpha', 'Bravo', 'Charlie', 'Delta'])).toEqual([
       ['Alpha', 'Charlie'],
@@ -132,7 +147,9 @@ describe('MiniView UI', () => {
       ]),
     })
 
-    const { container } = render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    const { container } = render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(readColumnNames(container, ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'])).toEqual([
       ['Alpha', 'Delta', 'Bravo', 'Echo'],
@@ -151,17 +168,23 @@ function createSeats(definitions: Array<[playerId: string, displayName: string, 
 }
 
 function readColumnNames(container: HTMLElement, expectedNames: string[]) {
-  const grid = Array.from(container.querySelectorAll<HTMLElement>('div')).reverse().find((element) => {
-    const childElements = Array.from(element.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
-    if (childElements.length < 2) return false
+  const grid = Array.from(container.querySelectorAll<HTMLElement>('div'))
+    .reverse()
+    .find(element => {
+      const childElements = Array.from(element.children).filter(
+        (child): child is HTMLElement => child instanceof HTMLElement,
+      )
+      if (childElements.length < 2) return false
 
-    return expectedNames.every(name => element.textContent?.includes(name))
-      && childElements.every(child => expectedNames.some(name => child.textContent?.includes(name)))
-  })
+      return (
+        expectedNames.every(name => element.textContent?.includes(name)) &&
+        childElements.every(child => expectedNames.some(name => child.textContent?.includes(name)))
+      )
+    })
 
   if (!grid) throw new Error('Missing minimized seat grid')
 
-  return Array.from(grid.children).map((column) => {
+  return Array.from(grid.children).map(column => {
     const names: string[] = []
     const walker = document.createTreeWalker(column, NodeFilter.SHOW_TEXT)
 

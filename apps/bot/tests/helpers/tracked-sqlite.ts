@@ -50,8 +50,7 @@ export function trackSqlite(sqlite: Database): {
       trackingEnabled = false
       try {
         return await callback()
-      }
-      finally {
+      } finally {
         trackingEnabled = previous
       }
     },
@@ -65,10 +64,10 @@ function classifyStatement(sql: string): StatementKind {
   const normalized = sql.trimStart().toLowerCase()
   if (normalized.startsWith('select') || normalized.startsWith('with')) return 'read'
   if (
-    normalized.startsWith('insert')
-    || normalized.startsWith('update')
-    || normalized.startsWith('delete')
-    || normalized.startsWith('replace')
+    normalized.startsWith('insert') ||
+    normalized.startsWith('update') ||
+    normalized.startsWith('delete') ||
+    normalized.startsWith('replace')
   ) {
     return 'write'
   }

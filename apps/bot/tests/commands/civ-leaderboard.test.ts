@@ -1,42 +1,106 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import { matchCivStatContributions, matches, matchParticipants, players, tournamentMatches, tournaments } from '@civup/db'
-import { allLeaderIds, getLeader, liveLeaderDataVersionLabel } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import {
+  matchCivStatContributions,
+  matches,
+  matchParticipants,
+  players,
+  tournamentMatches,
+  tournaments,
+} from '@civup/db'
+import { allLeaderIds, getLeader, liveLeaderDataVersionLabel } from '@civup/game'
 import { buildCivLeaderboardCommandPayload } from '../../src/commands/civ-leaderboard.ts'
-import { CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT, CIV_LEADERBOARD_PAGE_SIZE, CIV_LEADERBOARD_TOP_LIMIT, civLeaderboardEmbedGroups, civLeaderboardRowsForBoard } from '../../src/embeds/civ-leaderboard.ts'
-import { backfillCivLeaderboardStatsFromHistory, buildCivLeaderboardSnapshotFromD1, civLeaderboardSnapshotKey, rebuildCivLeaderboardSnapshot, rebuildCivLeaderboardSnapshots, reconcileCivLeaderboardMatchContribution, repairCivLeaderboardStatsFromContributions, setCivLeaderboardDisplayConfig } from '../../src/services/leaderboard/civ-snapshot.ts'
+import {
+  CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT,
+  CIV_LEADERBOARD_PAGE_SIZE,
+  CIV_LEADERBOARD_TOP_LIMIT,
+  civLeaderboardEmbedGroups,
+  civLeaderboardRowsForBoard,
+} from '../../src/embeds/civ-leaderboard.ts'
+import {
+  backfillCivLeaderboardStatsFromHistory,
+  buildCivLeaderboardSnapshotFromD1,
+  civLeaderboardSnapshotKey,
+  rebuildCivLeaderboardSnapshot,
+  rebuildCivLeaderboardSnapshots,
+  reconcileCivLeaderboardMatchContribution,
+  repairCivLeaderboardStatsFromContributions,
+  setCivLeaderboardDisplayConfig,
+} from '../../src/services/leaderboard/civ-snapshot.ts'
 import { parsePaginationCustomId } from '../../src/services/response/pagination.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('civ leaderboard command payload', () => {
   test('win-rate eligibility uses the selected sample and ban order uses frequency with exposure as the tie-breaker', () => {
-    const row = (civId: string, picks: number, bans: number, poolGames: number) => ({ civId, leaderName: civId, picks, bans, poolGames,
-      wins: picks, pickRatePct: picks / poolGames * 100, winRatePct: 100, banRatePct: bans / poolGames * 100 })
-    const rows = [row('small', 29, 8, 10), row('large', 30, 80, 100), row('frequent', 1, 9, 10), row('popular', 60, 100, 200)]
+    const row = (civId: string, picks: number, bans: number, poolGames: number) => ({
+      civId,
+      leaderName: civId,
+      picks,
+      bans,
+      poolGames,
+      wins: picks,
+      pickRatePct: (picks / poolGames) * 100,
+      winRatePct: 100,
+      banRatePct: (bans / poolGames) * 100,
+    })
+    const rows = [
+      row('small', 29, 8, 10),
+      row('large', 30, 80, 100),
+      row('frequent', 1, 9, 10),
+      row('popular', 60, 100, 200),
+    ]
     expect(civLeaderboardRowsForBoard('winrate', rows).map(row => row.civId)).toEqual(['popular', 'large'])
-    expect(civLeaderboardRowsForBoard('banned', rows).map(row => row.civId)).toEqual(['frequent', 'large', 'small', 'popular'])
+    expect(civLeaderboardRowsForBoard('banned', rows).map(row => row.civId)).toEqual([
+      'frequent',
+      'large',
+      'small',
+      'popular',
+    ])
     expect(civLeaderboardRowsForBoard('picked', rows)).toHaveLength(4)
   })
 
   test('blind bans count once per match and historical migration preserves aggregate reversals', async () => {
     const { db, sqlite } = await createTestDatabase()
     try {
-      await db.insert(matches).values({ id: 'blind', gameMode: '4v4', status: 'completed', createdAt: 1, completedAt: 2,
-        draftData: JSON.stringify({ state: { availableCivIds: ['rome-trajan'], bans: [{ civId: 'russia-peter', seatIndex: 0 }, { civId: 'russia-peter', seatIndex: 1 }] } }) })
+      await db.insert(matches).values({
+        id: 'blind',
+        gameMode: '4v4',
+        status: 'completed',
+        createdAt: 1,
+        completedAt: 2,
+        draftData: JSON.stringify({
+          state: {
+            availableCivIds: ['rome-trajan'],
+            bans: [
+              { civId: 'russia-peter', seatIndex: 0 },
+              { civId: 'russia-peter', seatIndex: 1 },
+            ],
+          },
+        }),
+      })
       const snapshot = await buildCivLeaderboardSnapshotFromD1(db)
-      expect(snapshot.rows.find(row => row.civId === 'russia-peter')).toMatchObject({ bans: 1, poolGames: 1, banRatePct: 100 })
+      expect(snapshot.rows.find(row => row.civId === 'russia-peter')).toMatchObject({
+        bans: 1,
+        poolGames: 1,
+        banRatePct: 100,
+      })
       await backfillCivLeaderboardStatsFromHistory(db)
       // Recreate a pre-fix persisted contribution and aggregate, then apply the data correction.
       sqlite.exec(`update match_civ_stat_contributions set contributions_json=json_set(contributions_json,'$.entries[0].bans',2) where match_id='blind';
         update civ_stats set bans=2 where civ_id='russia-peter';`)
-      sqlite.exec(await Bun.file(new URL('../../../../packages/db/migrations/0031_distinct_civ_bans.sql', import.meta.url)).text())
+      sqlite.exec(
+        await Bun.file(
+          new URL('../../../../packages/db/migrations/0031_distinct_civ_bans.sql', import.meta.url),
+        ).text(),
+      )
       expect(sqlite.query("select bans from civ_stats where civ_id='russia-peter'").get()).toEqual({ bans: 1 })
       sqlite.exec("update matches set status='cancelled' where id='blind'")
       await reconcileCivLeaderboardMatchContribution(db, 'blind')
       expect(sqlite.query("select bans from civ_stats where civ_id='russia-peter'").get()).toBeNull()
+    } finally {
+      sqlite.close()
     }
-    finally { sqlite.close() }
   })
 
   test('shows the selected civ leaderboard mode', async () => {
@@ -77,15 +141,10 @@ describe('civ leaderboard command payload', () => {
       const pickedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
       const winratePayload = await buildCivLeaderboardCommandPayload(db, kv, 'winrate')
       const bannedPayload = await buildCivLeaderboardCommandPayload(db, kv, 'banned')
-      const embeds = [pickedPayload, winratePayload, bannedPayload]
-        .map(firstEmbedJson)
+      const embeds = [pickedPayload, winratePayload, bannedPayload].map(firstEmbedJson)
 
       expect(pickedPayload.content).toBeUndefined()
-      expect(embeds.map(embed => embed.title)).toEqual([
-        'Picked Leaders',
-        'Win Rate Leaders',
-        'Banned Leaders',
-      ])
+      expect(embeds.map(embed => embed.title)).toEqual(['Picked Leaders', 'Win Rate Leaders', 'Banned Leaders'])
       expect(embeds).toHaveLength(3)
       expect(embeds[0]?.description).toContain('`#1 `')
       expect(embeds[0]?.description).toContain('🖱️ `50%  ` 🏆 `50%  ` 🚫 `16.7%`')
@@ -96,8 +155,7 @@ describe('civ leaderboard command payload', () => {
       expect(embeds.map(embed => embed.description).join('\n')).not.toContain('Aliens')
       expect(embeds[0]?.footer?.text).toBe(`BBG ${liveLeaderDataVersionLabel} - 24 Games | Page 1/1 - 1-2 of 2`)
       expect(pickedPayload.components).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
 
@@ -152,17 +210,24 @@ describe('civ leaderboard command payload', () => {
       await db.insert(players).values({ id: 'p1', displayName: 'P1', avatarUrl: null, createdAt: 1 })
       await seedCompletedMatch(db, 'cached-miss-match', 'rome-trajan', 'p1', 1)
       await backfillCivLeaderboardStatsFromHistory(db, 10)
-      await kv.put(civLeaderboardSnapshotKey(), JSON.stringify({
-        updatedAt: 9,
-        historyInitialized: true,
-        label: 'Old Snapshot',
-        completedMatchCount: 999,
-        rows: [{ civId: 'stale-leader', leaderName: 'Stale Leader', picks: 999, wins: 999, bans: 999 }],
-      }))
+      await kv.put(
+        civLeaderboardSnapshotKey(),
+        JSON.stringify({
+          updatedAt: 9,
+          historyInitialized: true,
+          label: 'Old Snapshot',
+          completedMatchCount: 999,
+          rows: [{ civId: 'stale-leader', leaderName: 'Stale Leader', picks: 999, wins: 999, bans: 999 }],
+        }),
+      )
 
       const payload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
       const embed = firstEmbedJson(payload)
-      const cachedSnapshot = await kv.get(civLeaderboardSnapshotKey(), 'json') as { historyInitialized?: unknown, completedMatchCount?: unknown, rows?: Array<{ poolGames?: unknown }> } | null
+      const cachedSnapshot = (await kv.get(civLeaderboardSnapshotKey(), 'json')) as {
+        historyInitialized?: unknown
+        completedMatchCount?: unknown
+        rows?: Array<{ poolGames?: unknown }>
+      } | null
 
       expect(payload.content).toBeUndefined()
       expect(embed.title).toBe('Picked Leaders')
@@ -171,8 +236,7 @@ describe('civ leaderboard command payload', () => {
       expect(cachedSnapshot?.historyInitialized).toBe(true)
       expect(cachedSnapshot?.completedMatchCount).toBe(1)
       expect(cachedSnapshot?.rows?.[0]?.poolGames).toBe(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -188,8 +252,7 @@ describe('civ leaderboard command payload', () => {
       expect(payload.embeds).toEqual([])
       expect(payload.content).toBe('Civ leaderboard history is not initialized yet.')
       expect(cachedSnapshot).toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -208,8 +271,7 @@ describe('civ leaderboard command payload', () => {
 
       expect(payload.embeds).toEqual([])
       expect(payload.content).toBe('Civ leaderboard history is not initialized yet.')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -276,18 +338,23 @@ describe('civ leaderboard command payload', () => {
       }
     })
     try {
-      await kv.put(civLeaderboardSnapshotKey(), JSON.stringify({
-        updatedAt: 1,
-        historyInitialized: true,
-        label: 'BBG Test',
-        modeScope: 'all',
-        completedMatchCount: 100,
-        rows,
-      }))
+      await kv.put(
+        civLeaderboardSnapshotKey(),
+        JSON.stringify({
+          updatedAt: 1,
+          historyInitialized: true,
+          label: 'BBG Test',
+          modeScope: 'all',
+          completedMatchCount: 100,
+          rows,
+        }),
+      )
 
       const topPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked')
       const topEmbed = firstEmbedJson(topPayload)
-      const controls = topPayload.components as Array<{ components: Array<{ label: string, style: number, custom_id: string, disabled?: boolean }> }>
+      const controls = topPayload.components as Array<{
+        components: Array<{ label: string; style: number; custom_id: string; disabled?: boolean }>
+      }>
 
       expect(topEmbed?.title).toBe('Picked Leaders')
       expect(lineCount(topEmbed?.description)).toBe(CIV_LEADERBOARD_PAGE_SIZE)
@@ -301,11 +368,17 @@ describe('civ leaderboard command payload', () => {
       expect(controls[0]?.components[1]?.disabled).toBe(true)
       expect(controls[0]?.components[2]?.custom_id).toBe('pagination;civleaderboard:1:next:picked')
       expect(controls[0]?.components[3]?.custom_id).toBe('pagination;civleaderboard:2:bottom:picked')
-      expect(parsePaginationCustomId(controls[0]?.components[2]?.custom_id)).toEqual({ namespace: 'civleaderboard', pageIndex: 1, args: ['picked'] })
+      expect(parsePaginationCustomId(controls[0]?.components[2]?.custom_id)).toEqual({
+        namespace: 'civleaderboard',
+        pageIndex: 1,
+        args: ['picked'],
+      })
 
       const bottomPayload = await buildCivLeaderboardCommandPayload(db, kv, 'picked', { pageIndex: 99 })
       const bottomEmbed = firstEmbedJson(bottomPayload)
-      const bottomControls = bottomPayload.components as Array<{ components: Array<{ label: string, style: number, custom_id: string, disabled?: boolean }> }>
+      const bottomControls = bottomPayload.components as Array<{
+        components: Array<{ label: string; style: number; custom_id: string; disabled?: boolean }>
+      }>
 
       expect(lineCount(bottomEmbed?.description)).toBe(CIV_LEADERBOARD_PAGE_SIZE)
       expect(bottomEmbed?.description).toContain('`#26`')
@@ -314,8 +387,7 @@ describe('civ leaderboard command payload', () => {
       expect(customIds(bottomControls)).toHaveLength(new Set(customIds(bottomControls)).size)
       expect(bottomControls[0]?.components[2]?.disabled).toBe(true)
       expect(bottomControls[0]?.components[3]?.disabled).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -366,8 +438,7 @@ describe('civ leaderboard command payload', () => {
       snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 60)
       expect(snapshot.completedMatchCount).toBe(0)
       expect(snapshot.rows).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -383,11 +454,15 @@ describe('civ leaderboard command payload', () => {
       await reconcileCivLeaderboardMatchContribution(db, 'target-match', 10)
 
       const contributionRows = await db
-        .select({ matchId: matchCivStatContributions.matchId, source: matchCivStatContributions.source, modeScope: matchCivStatContributions.modeScope, completedAt: matchCivStatContributions.completedAt })
+        .select({
+          matchId: matchCivStatContributions.matchId,
+          source: matchCivStatContributions.source,
+          modeScope: matchCivStatContributions.modeScope,
+          completedAt: matchCivStatContributions.completedAt,
+        })
         .from(matchCivStatContributions)
       expect(contributionRows).toEqual([{ matchId: 'target-match', source: 'live', modeScope: 'all', completedAt: 2 }])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
 
@@ -426,14 +501,15 @@ describe('civ leaderboard command payload', () => {
 
       await reconcileCivLeaderboardMatchContribution(db, 'civblitz-match', 10)
 
-      const contributionRows = await db.select({ matchId: matchCivStatContributions.matchId }).from(matchCivStatContributions)
+      const contributionRows = await db
+        .select({ matchId: matchCivStatContributions.matchId })
+        .from(matchCivStatContributions)
       const snapshot = await rebuildCivLeaderboardSnapshot(db, kv, 20)
 
       expect(contributionRows).toEqual([])
       expect(snapshot.completedMatchCount).toBe(0)
       expect(snapshot.rows).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -460,14 +536,15 @@ describe('civ leaderboard command payload', () => {
       expect(second.contributionRowCount).toBe(2)
       expect(snapshot.historyInitialized).toBe(true)
       expect(snapshot.completedMatchCount).toBe(historical.completedMatchCount)
-      expect(snapshot.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans }))).toEqual(
-        historical.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans })),
-      )
+      expect(
+        snapshot.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans })),
+      ).toEqual(historical.rows.map(row => ({ civId: row.civId, picks: row.picks, wins: row.wins, bans: row.bans })))
 
-      const contributionRows = await db.select({ matchId: matchCivStatContributions.matchId }).from(matchCivStatContributions)
+      const contributionRows = await db
+        .select({ matchId: matchCivStatContributions.matchId })
+        .from(matchCivStatContributions)
       expect(contributionRows.map(row => row.matchId).sort()).toEqual(['rome-match', 'russia-match'])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -503,8 +580,7 @@ describe('civ leaderboard command payload', () => {
       expect(firstEmbedJson(duoPayload).description).toContain('Peter')
       expect(firstEmbedJson(squadPayload).title).toBe('Picked Leaders (Squad)')
       expect(firstEmbedJson(squadPayload).description).toBe('No completed matches with picked leaders yet.')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -536,8 +612,7 @@ describe('civ leaderboard command payload', () => {
       expect(snapshot.completedMatchCount).toBe(2)
       expect(snapshot.rows.map(row => row.civId).sort()).toEqual(['rome-trajan', 'russia-peter'])
       expect(snapshot.rows.find(row => row.civId === 'greece-pericles')).toBeUndefined()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -577,12 +652,14 @@ describe('civ leaderboard command payload', () => {
         createdAt: 1,
         updatedAt: 1,
       })
-      await db.insert(matchCivStatContributions).values([
-        storedContribution('valid-match', 'rome-trajan', 10),
-        storedContribution('red-death-match', 'greece-pericles', 20),
-        storedContribution('civblitz-match', 'russia-peter', 30),
-        storedContribution('tournament-match', 'russia-peter', 40),
-      ])
+      await db
+        .insert(matchCivStatContributions)
+        .values([
+          storedContribution('valid-match', 'rome-trajan', 10),
+          storedContribution('red-death-match', 'greece-pericles', 20),
+          storedContribution('civblitz-match', 'russia-peter', 30),
+          storedContribution('tournament-match', 'russia-peter', 40),
+        ])
 
       const config = {
         version: 1,
@@ -604,8 +681,7 @@ describe('civ leaderboard command payload', () => {
         'civblitz-match': false,
         'tournament-match': false,
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -617,7 +693,13 @@ async function seedCompletedMatch(
   civId: string,
   playerId: string,
   createdAt: number,
-  options: { redDeath?: boolean, civBlitz?: boolean, gameMode?: GameMode, leaderDataVersion?: 'live' | 'beta', poolCivIds?: string[] } = {},
+  options: {
+    redDeath?: boolean
+    civBlitz?: boolean
+    gameMode?: GameMode
+    leaderDataVersion?: 'live' | 'beta'
+    poolCivIds?: string[]
+  } = {},
 ): Promise<void> {
   await db.insert(matches).values({
     id: matchId,
@@ -647,7 +729,11 @@ async function seedCompletedMatch(
   })
 }
 
-function storedContribution(matchId: string, civId: string, completedAt: number): typeof matchCivStatContributions.$inferInsert {
+function storedContribution(
+  matchId: string,
+  civId: string,
+  completedAt: number,
+): typeof matchCivStatContributions.$inferInsert {
   return {
     matchId,
     completedMatchCount: 1,
@@ -664,7 +750,9 @@ function storedContribution(matchId: string, civId: string, completedAt: number)
   }
 }
 
-function embedGroupTextLength(embeds: Array<{ toJSON: () => { title?: unknown, description?: unknown, footer?: { text?: unknown } } }>): number {
+function embedGroupTextLength(
+  embeds: Array<{ toJSON: () => { title?: unknown; description?: unknown; footer?: { text?: unknown } } }>,
+): number {
   return embeds.reduce((total, embed) => {
     const json = embed.toJSON()
     return total + stringLength(json.title) + stringLength(json.description) + stringLength(json.footer?.text)
@@ -683,7 +771,13 @@ function customIds(rows: Array<{ components: Array<{ custom_id: string }> }>): s
   return rows.flatMap(row => row.components.map(component => component.custom_id))
 }
 
-function firstEmbedJson(payload: { embeds?: unknown[] }): { title?: string, description?: string, footer?: { text?: string } } {
-  const embed = payload.embeds?.[0] as { toJSON?: () => { title?: string, description?: string, footer?: { text?: string } } } | undefined
+function firstEmbedJson(payload: { embeds?: unknown[] }): {
+  title?: string
+  description?: string
+  footer?: { text?: string }
+} {
+  const embed = payload.embeds?.[0] as
+    | { toJSON?: () => { title?: string; description?: string; footer?: { text?: string } } }
+    | undefined
   return embed?.toJSON?.() ?? {}
 }

@@ -30,11 +30,13 @@ export async function requestCivBlitzModArchive(
   if (!namespace) throw new Error('MaintenanceDO binding is required')
 
   const stub = namespace.get(namespace.idFromName(`civblitz:${input.matchId}`))
-  return stub.fetch(new Request('https://maintenance.local/civblitz/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  }))
+  return stub.fetch(
+    new Request('https://maintenance.local/civblitz/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  )
 }
 
 export async function requestRankedRoleMaintenance(
@@ -50,7 +52,11 @@ export async function requestRankedRoleMaintenance(
   }
 
   const result = await response.json<RankedRoleMaintenanceResult>()
-  if (result.action !== action || typeof result.guilds !== 'number' || typeof result.pendingDiscordChanges !== 'number') {
+  if (
+    result.action !== action ||
+    typeof result.guilds !== 'number' ||
+    typeof result.pendingDiscordChanges !== 'number'
+  ) {
     throw new Error(`Ranked role maintenance ${action} returned an invalid response`)
   }
   return result

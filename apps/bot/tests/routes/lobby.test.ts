@@ -1,15 +1,27 @@
-import { matches } from '@civup/db'
-import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { matches } from '@civup/db'
+import { getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize } from '@civup/game'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
 import { registerLobbyRoutes } from '../../src/routes/lobby/index.ts'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { buildActivityOverviewSnapshotFromDirectory } from '../../src/services/activity/session-state.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createExecutionContextHarness } from '../helpers/app-harness.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  buildTestLobbyEnv,
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  setLobbyDraftConfig,
+  setLobbyMaxRole,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
+  setLobbySlots,
+  setLobbyStatus,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -35,8 +47,7 @@ afterEach(async () => {
     // Background message updates must finish while this test's fetch mock is installed.
     await flushBackgroundTasks()
     expect(unexpectedNetworkRequests).toEqual([])
-  }
-  finally {
+  } finally {
     globalThis.fetch = originalFetch
     Math.random = originalMathRandom
   }
@@ -82,7 +93,7 @@ describe('lobby routes', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async (input) => {
+    globalThis.fetch = (async input => {
       const url = String(input)
       const match = url.match(/\/guilds\/[^/]+\/members\/([^/?]+)/)
       const userId = match?.[1]
@@ -100,27 +111,37 @@ describe('lobby routes', () => {
       })
     }) as typeof fetch
 
-    const removeResponse = await app.request('/api/lobby/2v2/remove', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv), executionCtx)
+    const removeResponse = await app.request(
+      '/api/lobby/2v2/remove',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', slot: 1, lobbyId: lobby.id }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(removeResponse.status).toBe(200)
 
     const storedLobby = await getLobbyById(kv, lobby.id)
     expect(storedLobby?.memberPlayerIds).toEqual(['host'])
 
-    const configResponse = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        minRole: 'tier2',
-        banTimerSeconds: null,
-        pickTimerSeconds: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const configResponse = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          minRole: 'tier2',
+          banTimerSeconds: null,
+          pickTimerSeconds: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(configResponse.status).toBe(200)
 
     const configuredLobby = await configResponse.json()
@@ -155,22 +176,28 @@ describe('lobby routes', () => {
     expect(gatedLobby).not.toBeNull()
     await setLobbyMinRole(kv, lobby.id, 'tier2', gatedLobby!)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({
-        userId: 'guest',
-        lobbyId: lobby.id,
-        targetSlot: 1,
-        displayName: 'Guest',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/2v2/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({
+          userId: 'guest',
+          lobbyId: lobby.id,
+          targetSlot: 1,
+          displayName: 'Guest',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -209,17 +236,22 @@ describe('lobby routes', () => {
     })
     await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: openLobby.id,
-        targetSlot: 1,
-        displayName: 'Player 1',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/2v2/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('player-1', 'Player 1'),
+        body: JSON.stringify({
+          userId: 'player-1',
+          lobbyId: openLobby.id,
+          targetSlot: 1,
+          displayName: 'Player 1',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({ error: 'That player is already in a live match.' })
@@ -258,24 +290,33 @@ describe('lobby routes', () => {
     })
     const draftingLobby = await startTestSessionDraft(kv, liveLobby.id, liveLobby)
     await setLobbyStatus(kv, liveLobby.id, 'active', draftingLobby ?? liveLobby)
-    await getExistingTestLobbyRuntime(kv).db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) }).where(eq(matches.id, liveLobby.id))
+    await getExistingTestLobbyRuntime(kv)
+      .db.update(matches)
+      .set({ status: 'active', draftData: JSON.stringify({ completedAt: Date.now() }) })
+      .where(eq(matches.id, liveLobby.id))
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({
-        userId: 'player-1',
-        lobbyId: openLobby.id,
-        targetSlot: 1,
-        displayName: 'Player 1',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/2v2/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('player-1', 'Player 1'),
+        body: JSON.stringify({
+          userId: 'player-1',
+          lobbyId: openLobby.id,
+          targetSlot: 1,
+          displayName: 'Player 1',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(200)
     expect((await getLobbyById(kv, openLobby.id))?.memberPlayerIds).toEqual(['host', 'player-1'])
@@ -320,22 +361,28 @@ describe('lobby routes', () => {
 
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest'], populatedSource ?? sourceLobby)
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const joinResponse = await app.request('/api/lobby/1v1/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({
-        userId: 'guest',
-        lobbyId: targetLobby.id,
-        targetSlot: 1,
-        displayName: 'Guest',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/1v1/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({
+          userId: 'guest',
+          lobbyId: targetLobby.id,
+          targetSlot: 1,
+          displayName: 'Guest',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(200)
     await expect(joinResponse.json()).resolves.toMatchObject({
@@ -386,17 +433,22 @@ describe('lobby routes', () => {
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['guest', 'ally'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['guest', 'ally'], populatedSource ?? sourceLobby)
 
-    const joinResponse = await app.request('/api/lobby/1v1/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({
-        userId: 'guest',
-        lobbyId: targetLobby.id,
-        targetSlot: 1,
-        displayName: 'Guest',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/1v1/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({
+          userId: 'guest',
+          lobbyId: targetLobby.id,
+          targetSlot: 1,
+          displayName: 'Guest',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(400)
     await expect(joinResponse.json()).resolves.toEqual({
@@ -440,16 +492,22 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-1', 'player-2'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'player-1', 'player-2', null], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/remove', {
-      method: 'POST',
-      headers: buildAuthHeaders('player-1', 'Player 1'),
-      body: JSON.stringify({ userId: 'player-1', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/remove',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('player-1', 'Player 1'),
+        body: JSON.stringify({ userId: 'player-1', slot: 1, lobbyId: lobby.id }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     expect((await getLobbyById(kv, lobby.id))?.slots).toEqual(['host', null, 'player-2', null])
@@ -483,16 +541,22 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/transfer-host', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'guest' }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/transfer-host',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'guest' }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -501,18 +565,28 @@ describe('lobby routes', () => {
     })
     expect((await getLobbyById(kv, lobby.id))?.hostId).toBe('guest')
 
-    const nonHostResponse = await app.request('/api/lobby/2v2/transfer-host', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'host' }),
-    }, buildEnv(kv), executionCtx)
+    const nonHostResponse = await app.request(
+      '/api/lobby/2v2/transfer-host',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, targetPlayerId: 'host' }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(nonHostResponse.status).toBe(403)
 
-    const unslottedResponse = await app.request('/api/lobby/2v2/transfer-host', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, targetPlayerId: 'missing' }),
-    }, buildEnv(kv), executionCtx)
+    const unslottedResponse = await app.request(
+      '/api/lobby/2v2/transfer-host',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({ userId: 'guest', lobbyId: lobby.id, targetPlayerId: 'missing' }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(unslottedResponse.status).toBe(400)
     await expect(unslottedResponse.json()).resolves.toEqual({ error: 'New host must be in a lobby slot.' })
   })
@@ -541,17 +615,23 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'p2', 'p3', 'p4'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'p2', 'p3', 'p4'], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
     Math.random = () => 0
 
-    const response = await app.request('/api/lobby/2v2/arrange', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/arrange',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -578,16 +658,22 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/ffa/arrange', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/ffa/arrange',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, strategy: 'shuffle-teams' }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'Shuffle teams is only available in team lobbies.' })
@@ -623,17 +709,23 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, [hostId, opponentId], lobby)
     await setLobbySlots(kv, lobby.id, [hostId, opponentId], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
     Math.random = () => 0
 
-    const response = await app.request('/api/lobby/1v1/start', {
-      method: 'POST',
-      headers: buildAuthHeaders(hostId, 'Host'),
-      body: JSON.stringify({ userId: hostId, lobbyId: lobby.id }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/start',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders(hostId, 'Host'),
+        body: JSON.stringify({ userId: hostId, lobbyId: lobby.id }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -671,22 +763,28 @@ describe('lobby routes', () => {
     expect(gatedLobby).not.toBeNull()
     await setLobbyMaxRole(kv, lobby.id, 'tier2', gatedLobby!)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const joinResponse = await app.request('/api/lobby/2v2/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('titan', 'Titan'),
-      body: JSON.stringify({
-        userId: 'titan',
-        lobbyId: lobby.id,
-        targetSlot: 1,
-        displayName: 'Titan',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const joinResponse = await app.request(
+      '/api/lobby/2v2/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('titan', 'Titan'),
+        body: JSON.stringify({
+          userId: 'titan',
+          lobbyId: lobby.id,
+          targetSlot: 1,
+          displayName: 'Titan',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(joinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -717,22 +815,28 @@ describe('lobby routes', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        maxRole: 'tier2',
-        banTimerSeconds: null,
-        pickTimerSeconds: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          maxRole: 'tier2',
+          banTimerSeconds: null,
+          pickTimerSeconds: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -764,23 +868,29 @@ describe('lobby routes', () => {
       tier3: '22222222222222222',
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        minRole: 'tier2',
-        maxRole: 'tier3',
-        banTimerSeconds: null,
-        pickTimerSeconds: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          minRole: 'tier2',
+          maxRole: 'tier3',
+          banTimerSeconds: null,
+          pickTimerSeconds: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -804,20 +914,26 @@ describe('lobby routes', () => {
     const withMaxRole = await setLobbyMaxRole(kv, lobby.id, 'tier2', withMinRole ?? lobby)
     expect(withMaxRole).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        civBlitz: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          civBlitz: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -840,23 +956,29 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        leaderDataVersion: 'beta',
-        civBlitz: true,
-        civBlitzExcludeBbgExpanded: false,
-        civBlitzOptionCount: expandedMax,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          leaderDataVersion: 'beta',
+          civBlitz: true,
+          civBlitzExcludeBbgExpanded: false,
+          civBlitzOptionCount: expandedMax,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const configuredLobby = await response.json()
@@ -886,28 +1008,43 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const closeResponse = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: true }),
-    }, buildEnv(kv), executionCtx)
+    const closeResponse = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: true }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(closeResponse.status).toBe(200)
     await expect(closeResponse.json()).resolves.toMatchObject({ draftConfig: { closed: true } })
-    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'closed' }))
+    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(
+      expect.objectContaining({ id: lobby.id, status: 'closed' }),
+    )
 
-    const openResponse = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: false }),
-    }, buildEnv(kv), executionCtx)
+    const openResponse = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, closed: false }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(openResponse.status).toBe(200)
     await expect(openResponse.json()).resolves.toMatchObject({ draftConfig: { closed: false } })
-    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(expect.objectContaining({ id: lobby.id, status: 'open' }))
+    expect((await buildActivityOverviewSnapshotFromDirectory(runtime.db, 'channel-1'))?.options).toContainEqual(
+      expect.objectContaining({ id: lobby.id, status: 'open' }),
+    )
   })
 
   test('config route rejects spoofed activity user IDs', async () => {
@@ -922,16 +1059,21 @@ describe('lobby routes', () => {
       messageId: 'message-1',
     })
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('attacker', 'Attacker'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        banTimerSeconds: null,
-        pickTimerSeconds: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('attacker', 'Attacker'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          banTimerSeconds: null,
+          pickTimerSeconds: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(403)
   })
@@ -955,22 +1097,28 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        banTimerSeconds: null,
-        pickTimerSeconds: null,
-        steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          banTimerSeconds: null,
+          pickTimerSeconds: null,
+          steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -991,20 +1139,26 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({
-        userId: 'guest',
-        lobbyId: lobby.id,
-        steamLobbyLink: 'steam://joinlobby/289070/22222222222222222/76561198000000000',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({
+          userId: 'guest',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/22222222222222222/76561198000000000',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1025,15 +1179,20 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'guest'], lobby)
     await setLobbySlots(kv, lobby.id, ['host', 'guest', null, null], withMembers ?? lobby)
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('spectator', 'Spectator'),
-      body: JSON.stringify({
-        userId: 'spectator',
-        lobbyId: lobby.id,
-        steamLobbyLink: 'steam://joinlobby/289070/33333333333333333/76561198000000000',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('spectator', 'Spectator'),
+        body: JSON.stringify({
+          userId: 'spectator',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/33333333333333333/76561198000000000',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(403)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1059,33 +1218,44 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: 45,
-      pickTimerSeconds: 60,
-      leaderPoolSize: 12,
-      leaderDataVersion: 'live',
-      simultaneousPick: false,
-      redDeath: false,
-      dealOptionsSize: 2,
-      randomDraft: false,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: 45,
+        pickTimerSeconds: 60,
+        leaderPoolSize: 12,
+        leaderDataVersion: 'live',
+        simultaneousPick: false,
+        redDeath: false,
+        dealOptionsSize: 2,
+        randomDraft: false,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1134,34 +1304,50 @@ describe('lobby routes', () => {
     const liveMax = getMaxLeaderPoolSize('live')
     const oversizedPool = liveMax + 10
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      ...lobby.draftConfig,
-      leaderPoolSize: oversizedPool,
-      leaderDataVersion: 'beta',
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        ...lobby.draftConfig,
+        leaderPoolSize: oversizedPool,
+        leaderDataVersion: 'beta',
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const invalid = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        leaderDataVersion: 'live',
-        leaderPoolSize: oversizedPool,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const invalid = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          leaderDataVersion: 'live',
+          leaderPoolSize: oversizedPool,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(invalid.status).toBe(400)
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'live', leaderPoolSize: liveMax }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({ userId: 'host', lobbyId: lobby.id, leaderDataVersion: 'live', leaderPoolSize: liveMax }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -1194,33 +1380,44 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: null,
-      pickTimerSeconds: null,
-      leaderPoolSize: null,
-      leaderDataVersion: 'live',
-      simultaneousPick: false,
-      redDeath: true,
-      dealOptionsSize: 4,
-      randomDraft: false,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        simultaneousPick: false,
+        redDeath: true,
+        dealOptionsSize: 4,
+        randomDraft: false,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        dealOptionsSize: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          dealOptionsSize: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1246,21 +1443,27 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/ffa/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        mapVoteEnabled: true,
-        simultaneousPick: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/ffa/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          mapVoteEnabled: true,
+          simultaneousPick: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1288,7 +1491,7 @@ describe('lobby routes', () => {
     })
 
     let discordMessageEdits = 0
-    globalThis.fetch = (async (input) => {
+    globalThis.fetch = (async input => {
       if (String(input).includes('/channels/channel-1/messages/message-1')) discordMessageEdits += 1
       return new Response(JSON.stringify({ id: 'message-1' }), {
         status: 200,
@@ -1296,19 +1499,24 @@ describe('lobby routes', () => {
       })
     }) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        ...lobby.draftConfig,
-        blindBans: false,
-        blindPicks: true,
-        minRole: null,
-        maxRole: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          ...lobby.draftConfig,
+          blindBans: false,
+          blindPicks: true,
+          minRole: null,
+          maxRole: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1339,7 +1547,7 @@ describe('lobby routes', () => {
     })
 
     let discordMessageEdits = 0
-    globalThis.fetch = (async (input) => {
+    globalThis.fetch = (async input => {
       if (String(input).includes('/channels/channel-1/messages/message-1')) discordMessageEdits += 1
       return new Response(JSON.stringify({ id: 'message-1' }), {
         status: 200,
@@ -1347,15 +1555,20 @@ describe('lobby routes', () => {
       })
     }) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        closed: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          closed: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1397,15 +1610,20 @@ describe('lobby routes', () => {
       })
     }) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        civBlitz: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          civBlitz: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await flushBackgroundTasks()
@@ -1435,34 +1653,45 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const expandResponse = await app.request('/api/lobby/ffa/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        targetSize: 12,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const expandResponse = await app.request(
+      '/api/lobby/ffa/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          targetSize: 12,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(expandResponse.status).toBe(200)
     await expect(expandResponse.json()).resolves.toMatchObject({ targetSize: 12 })
     expect((await getLobbyById(kv, lobby.id))?.slots).toHaveLength(12)
 
-    const configResponse = await app.request('/api/lobby/ffa/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        mapVoteEnabled: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const configResponse = await app.request(
+      '/api/lobby/ffa/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          mapVoteEnabled: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(configResponse.status).toBe(200)
     await expect(configResponse.json()).resolves.toMatchObject({ targetSize: 12 })
@@ -1488,20 +1717,26 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/1v1/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        randomDraft: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          randomDraft: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1528,20 +1763,26 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/1v1/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        duplicateFactions: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          duplicateFactions: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1566,15 +1807,20 @@ describe('lobby routes', () => {
     const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
     expect(activeLobby).not.toBeNull()
 
-    const response = await app.request('/api/lobby/1v1/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          steamLobbyLink: 'steam://joinlobby/289070/12345678901234567/76561198000000000',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1597,15 +1843,20 @@ describe('lobby routes', () => {
     const draftingLobby = await startTestSessionDraft(kv, lobby.id, lobby)
     expect(draftingLobby).not.toBeNull()
 
-    const response = await app.request('/api/lobby/1v1/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        banTimerSeconds: 45,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          banTimerSeconds: 45,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'Only the Steam lobby link can be updated after the draft starts.' })
@@ -1640,31 +1891,42 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const removeResponse = await app.request('/api/lobby/1v1/remove', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv), executionCtx)
+    const removeResponse = await app.request(
+      '/api/lobby/1v1/remove',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(removeResponse.status).toBe(200)
 
     expect(await getLobbyForUser(getExistingTestLobbyRuntime(kv).db, 'guest')).toBeNull()
 
-    const rejoinResponse = await app.request('/api/lobby/1v1/place', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({
-        userId: 'guest',
-        lobbyId: lobby.id,
-        targetSlot: 1,
-        displayName: 'Guest',
-        avatarUrl: null,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const rejoinResponse = await app.request(
+      '/api/lobby/1v1/place',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({
+          userId: 'guest',
+          lobbyId: lobby.id,
+          targetSlot: 1,
+          displayName: 'Guest',
+          avatarUrl: null,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(rejoinResponse.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
@@ -1700,19 +1962,32 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'guest'], withMember ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const removeResponse = await app.request('/api/lobby/1v1/remove', {
-      method: 'POST',
-      headers: buildAuthHeaders('guest', 'Guest'),
-      body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
-    }, buildEnv(kv), executionCtx)
+    const removeResponse = await app.request(
+      '/api/lobby/1v1/remove',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('guest', 'Guest'),
+        body: JSON.stringify({ userId: 'guest', slot: 1, lobbyId: lobby.id }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
     expect(removeResponse.status).toBe(200)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, lobby.channelId, 'guest', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      'token',
+      'secret',
+      kv,
+      lobby.channelId,
+      'guest',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toContainEqual(expect.objectContaining({ kind: 'lobby', id: lobby.id }))
   })
@@ -1748,23 +2023,34 @@ describe('lobby routes', () => {
     }
 
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', ...otherPlayers], lobby)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'host', 'p5', 'p6', null, null], withMembers ?? lobby)
+    const withSlots = await setLobbySlots(
+      kv,
+      lobby.id,
+      ['p1', 'p2', 'p3', 'host', 'p5', 'p6', null, null],
+      withMembers ?? lobby,
+    )
     expect(withSlots).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/4v4/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: '3v3',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/4v4/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: '3v3',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -1792,33 +2078,44 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: null,
-      pickTimerSeconds: null,
-      leaderPoolSize: null,
-      leaderDataVersion: 'live',
-      simultaneousPick: false,
-      redDeath: true,
-      dealOptionsSize: 4,
-      randomDraft: true,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        simultaneousPick: false,
+        redDeath: true,
+        dealOptionsSize: 4,
+        randomDraft: true,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: '1v1',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: '1v1',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -1851,20 +2148,26 @@ describe('lobby routes', () => {
     const closedLobby = await setLobbyDraftConfig(kv, lobby.id, { ...lobby.draftConfig, closed: true }, lobby)
     expect(closedLobby?.draftConfig.closed).toBe(true)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/2v2/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: '3v3',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: '3v3',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -1893,33 +2196,44 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: null,
-      pickTimerSeconds: null,
-      leaderPoolSize: null,
-      leaderDataVersion: 'live',
-      simultaneousPick: false,
-      redDeath: true,
-      dealOptionsSize: 4,
-      randomDraft: false,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        simultaneousPick: false,
+        redDeath: true,
+        dealOptionsSize: 4,
+        randomDraft: false,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/5v5/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: '6v6',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/5v5/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: '6v6',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -1948,33 +2262,44 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: null,
-      pickTimerSeconds: null,
-      leaderPoolSize: null,
-      leaderDataVersion: 'live',
-      redDeath: false,
-      simultaneousPick: true,
-      dealOptionsSize: null,
-      randomDraft: false,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        redDeath: false,
+        simultaneousPick: true,
+        dealOptionsSize: null,
+        randomDraft: false,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/ffa/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: '1v1',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/ffa/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: '1v1',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -2002,34 +2327,45 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const configuredLobby = await setLobbyDraftConfig(kv, lobby.id, {
-      banTimerSeconds: null,
-      pickTimerSeconds: null,
-      leaderPoolSize: null,
-      leaderDataVersion: 'live',
-      blindBans: false,
-      simultaneousPick: false,
-      redDeath: false,
-      dealOptionsSize: null,
-      randomDraft: false,
-      duplicateFactions: false,
-    }, lobby)
+    const configuredLobby = await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        banTimerSeconds: null,
+        pickTimerSeconds: null,
+        leaderPoolSize: null,
+        leaderDataVersion: 'live',
+        blindBans: false,
+        simultaneousPick: false,
+        redDeath: false,
+        dealOptionsSize: null,
+        randomDraft: false,
+        duplicateFactions: false,
+      },
+      lobby,
+    )
     expect(configuredLobby).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/3v3/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        nextMode: 'ffa',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/3v3/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          nextMode: 'ffa',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2066,20 +2402,26 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/3v3/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('p1', 'P1'),
-      body: JSON.stringify({
-        userId: 'p1',
-        lobbyId: lobby.id,
-        nextMode: '4v4',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/3v3/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('p1', 'P1'),
+        body: JSON.stringify({
+          userId: 'p1',
+          lobbyId: lobby.id,
+          nextMode: '4v4',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -2115,20 +2457,26 @@ describe('lobby routes', () => {
     const withSlots = await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
     expect(withSlots).not.toBeNull()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/3v3/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('p1', 'P1'),
-      body: JSON.stringify({
-        userId: 'p1',
-        lobbyId: lobby.id,
-        nextMode: '2v2',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/3v3/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('p1', 'P1'),
+        body: JSON.stringify({
+          userId: 'p1',
+          lobbyId: lobby.id,
+          nextMode: '2v2',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
 
@@ -2164,25 +2512,37 @@ describe('lobby routes', () => {
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5'], lobby)
     await setLobbySlots(kv, lobby.id, ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'], withMembers ?? lobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/3v3/mode', {
-      method: 'POST',
-      headers: buildAuthHeaders('p1', 'P1'),
-      body: JSON.stringify({
-        userId: 'p1',
-        lobbyId: lobby.id,
-        nextMode: '2v2',
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/3v3/mode',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('p1', 'P1'),
+        body: JSON.stringify({
+          userId: 'p1',
+          lobbyId: lobby.id,
+          nextMode: '2v2',
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     const updatedLobby = await getLobbyById(kv, lobby.id)
     expect(updatedLobby?.memberPlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
-    expect(updatedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    expect(updatedLobby?.slots.filter((playerId): playerId is string => playerId != null)).toEqual([
+      'p1',
+      'p2',
+      'p3',
+      'p4',
+      'p5',
+    ])
     expect(updatedLobby?.slots).not.toContain('p6')
   })
 
@@ -2205,22 +2565,28 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
     expect((await getLobbyById(kv, lobby.id))?.draftConfig.blindBans).toBe(true)
 
-    const response = await app.request('/api/lobby/3v3/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        blindBans: false,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/3v3/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          blindBans: false,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2248,20 +2614,26 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const response = await app.request('/api/lobby/1v1/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        blindBans: false,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/1v1/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          blindBans: false,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
@@ -2275,10 +2647,11 @@ describe('lobby routes', () => {
     const app = new Hono()
     registerLobbyRoutes(app as any)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
     const ffaLobby = await createLobby(kv, {
       mode: 'ffa',
@@ -2293,15 +2666,20 @@ describe('lobby routes', () => {
       joinedAt: Date.now(),
     })
 
-    const ffaResponse = await app.request('/api/lobby/ffa/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('ffa-host', 'FFA Host'),
-      body: JSON.stringify({
-        userId: 'ffa-host',
-        lobbyId: ffaLobby.id,
-        blindBans: false,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const ffaResponse = await app.request(
+      '/api/lobby/ffa/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('ffa-host', 'FFA Host'),
+        body: JSON.stringify({
+          userId: 'ffa-host',
+          lobbyId: ffaLobby.id,
+          blindBans: false,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(ffaResponse.status).toBe(200)
     await expect(ffaResponse.json()).resolves.toMatchObject({
@@ -2322,16 +2700,21 @@ describe('lobby routes', () => {
       joinedAt: Date.now() + 1,
     })
 
-    const redDeathResponse = await app.request('/api/lobby/3v3/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('red-death-host', 'Red Death Host'),
-      body: JSON.stringify({
-        userId: 'red-death-host',
-        lobbyId: redDeathLobby.id,
-        blindBans: false,
-        redDeath: true,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const redDeathResponse = await app.request(
+      '/api/lobby/3v3/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('red-death-host', 'Red Death Host'),
+        body: JSON.stringify({
+          userId: 'red-death-host',
+          lobbyId: redDeathLobby.id,
+          blindBans: false,
+          redDeath: true,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(redDeathResponse.status).toBe(200)
     await expect(redDeathResponse.json()).resolves.toMatchObject({
@@ -2352,16 +2735,21 @@ describe('lobby routes', () => {
       joinedAt: Date.now() + 2,
     })
 
-    const oversizedResponse = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('oversized-host', 'Oversized Host'),
-      body: JSON.stringify({
-        userId: 'oversized-host',
-        lobbyId: oversizedLobby.id,
-        blindBans: false,
-        targetSize: 8,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const oversizedResponse = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('oversized-host', 'Oversized Host'),
+        body: JSON.stringify({
+          userId: 'oversized-host',
+          lobbyId: oversizedLobby.id,
+          blindBans: false,
+          targetSize: 8,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(oversizedResponse.status).toBe(200)
     await expect(oversizedResponse.json()).resolves.toMatchObject({
@@ -2378,10 +2766,11 @@ describe('lobby routes', () => {
     const app = new Hono()
     registerLobbyRoutes(app as any)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
     const lobby = await createLobby(kv, {
       mode: '2v2',
@@ -2399,16 +2788,21 @@ describe('lobby routes', () => {
     const expandedLobby = await setLobbySlots(kv, lobby.id, ['host', null, null, null, null, null, null, null], lobby)
     expect(expandedLobby?.draftConfig.blindBans).toBe(true)
 
-    const response = await app.request('/api/lobby/2v2/config', {
-      method: 'POST',
-      headers: buildAuthHeaders('host', 'Host'),
-      body: JSON.stringify({
-        userId: 'host',
-        lobbyId: lobby.id,
-        targetSize: 4,
-        blindBans: false,
-      }),
-    }, buildEnv(kv), executionCtx)
+    const response = await app.request(
+      '/api/lobby/2v2/config',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('host', 'Host'),
+        body: JSON.stringify({
+          userId: 'host',
+          lobbyId: lobby.id,
+          targetSize: 4,
+          blindBans: false,
+        }),
+      },
+      buildEnv(kv),
+      executionCtx,
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({

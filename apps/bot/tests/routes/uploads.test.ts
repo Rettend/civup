@@ -1,4 +1,6 @@
 import type { Env } from '../../src/env.ts'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { Hono } from 'hono'
 import { MAX_CIV6_SAVE_UNCOMPRESSED_BYTES } from '@civup/civ6-save-metadata'
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
@@ -6,11 +8,13 @@ import {
   CIVUP_ACTIVITY_USER_ID_HEADER,
   CIVUP_INTERNAL_SECRET_HEADER,
 } from '@civup/utils'
-import { afterEach, describe, expect, test } from 'bun:test'
-import { Hono } from 'hono'
 import { registerUploadRoutes } from '../../src/routes/uploads.ts'
 import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipart.ts'
-import { MAX_AUTOSAVE_OBJECTS_PER_USER, MAX_AUTOSAVE_STORAGE_BYTES_PER_USER, MAX_AUTOSAVE_UPLOAD_BYTES } from '../../src/services/uploads/policy.ts'
+import {
+  MAX_AUTOSAVE_OBJECTS_PER_USER,
+  MAX_AUTOSAVE_STORAGE_BYTES_PER_USER,
+  MAX_AUTOSAVE_UPLOAD_BYTES,
+} from '../../src/services/uploads/policy.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -30,9 +34,14 @@ describe('autosave upload routes', () => {
   test('rejects unauthenticated initialization before touching R2', async () => {
     const bucket = new MultipartBucketMock(1)
     const harness = await createHarness(bucket)
-    const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
-    }, { authenticated: false })
+    const response = await harness.request(
+      '/api/uploads/autosaves/init',
+      {
+        method: 'POST',
+        body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      },
+      { authenticated: false },
+    )
     expect(response.status).toBe(401)
     expect(bucket.createdKeys).toEqual([])
   })
@@ -40,10 +49,11 @@ describe('autosave upload routes', () => {
   test('returns a friendly 503 when optional R2 is absent', async () => {
     const harness = await createHarness()
     const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      method: 'POST',
+      body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
     })
     expect(response.status).toBe(503)
-    expect(await response.json() as unknown).toEqual({ error: 'Saved game uploads are not configured' })
+    expect((await response.json()) as unknown).toEqual({ error: 'Saved game uploads are not configured' })
   })
 
   test('allows only one sequential active multipart upload per uploader', async () => {
@@ -81,12 +91,16 @@ describe('autosave upload routes', () => {
     for (let index = 0; index < 4; index++) {
       harness.insertUpload(`quota-${index}`, 'bypass-quota', MAX_AUTOSAVE_UPLOAD_BYTES, 'uploaded')
     }
-    expect(() => harness.insertUpload('quota-over', 'bypass-quota', 1, 'uploaded')).toThrow(/autosave_upload_quota_exceeded/i)
+    expect(() => harness.insertUpload('quota-over', 'bypass-quota', 1, 'uploaded')).toThrow(
+      /autosave_upload_quota_exceeded/i,
+    )
 
     for (let index = 0; index < MAX_AUTOSAVE_OBJECTS_PER_USER; index++) {
       harness.insertUpload(`count-${index}`, 'bypass-count', 1, 'uploaded')
     }
-    expect(() => harness.insertUpload('count-over', 'bypass-count', 1, 'uploaded')).toThrow(/autosave_upload_count_quota_exceeded/i)
+    expect(() => harness.insertUpload('count-over', 'bypass-count', 1, 'uploaded')).toThrow(
+      /autosave_upload_count_quota_exceeded/i,
+    )
   })
 
   test('enforces the 2 GiB permanent quota and admin deletion frees it', async () => {
@@ -103,10 +117,14 @@ describe('autosave upload routes', () => {
       error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload',
     })
 
-    const deleted = await harness.request('/api/uploads/autosaves/stored-0', { method: 'DELETE' }, {
-      userId: 'catalog-admin',
-      permissions: '8',
-    })
+    const deleted = await harness.request(
+      '/api/uploads/autosaves/stored-0',
+      { method: 'DELETE' },
+      {
+        userId: 'catalog-admin',
+        permissions: '8',
+      },
+    )
     expect(deleted.status).toBe(200)
     expect((await initializeResponse(harness, 1, 'after-delete.zip')).status).toBe(200)
   })
@@ -164,7 +182,8 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1)
     const harness = await createHarness(bucket, { failCatalogInsert: true })
     const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      method: 'POST',
+      body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
     })
     expect(response.status).toBe(500)
     expect(bucket.createdKeys).toEqual([])
@@ -176,7 +195,8 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1, { createFailures: 1 })
     const harness = await createHarness(bucket)
     const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      method: 'POST',
+      body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
     })
     expect(response.status).toBe(502)
     expect(harness.rowCount()).toBe(0)
@@ -186,7 +206,8 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1, { abortFailures: 2 })
     const harness = await createHarness(bucket, { failMultipartRecordUpdates: 3 })
     const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      method: 'POST',
+      body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
     })
     expect(response.status).toBe(502)
     const row = harness.onlyRow()
@@ -201,7 +222,8 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1, { abortFailures: 4 })
     const harness = await createHarness(bucket, { failMultipartRecordUpdates: 20 })
     const response = await harness.request('/api/uploads/autosaves/init', {
-      method: 'POST', body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
+      method: 'POST',
+      body: JSON.stringify({ fileName: 'save.zip', fileSizeBytes: 1 }),
     })
     expect(response.status).toBe(502)
     expect(harness.onlyRow()).toMatchObject({ status: 'initializing', multipart_upload_id: null })
@@ -218,9 +240,14 @@ describe('autosave upload routes', () => {
     expect(init).toEqual({ ok: true, id: expect.any(String), partSizeBytes: PART_SIZE })
     expect(bucket.createdKeys).toHaveLength(1)
 
-    const forbidden = await harness.request(`/api/uploads/autosaves/${init.id}/parts/1`, {
-      method: 'PUT', body: new Uint8Array([1]),
-    }, { userId: 'other-user' })
+    const forbidden = await harness.request(
+      `/api/uploads/autosaves/${init.id}/parts/1`,
+      {
+        method: 'PUT',
+        body: new Uint8Array([1]),
+      },
+      { userId: 'other-user' },
+    )
     expect(forbidden.status).toBe(403)
     expect(bucket.uploadedParts).toHaveLength(0)
     expect(harness.row(init.id)?.status).toBe('pending_upload')
@@ -232,7 +259,8 @@ describe('autosave upload routes', () => {
     const { id } = await initialize(harness, 1, 'part-number.zip')
 
     const response = await harness.request(`/api/uploads/autosaves/${id}/parts/2`, {
-      method: 'PUT', body: new Uint8Array([1]),
+      method: 'PUT',
+      body: new Uint8Array([1]),
     })
     expect(response.status).toBe(400)
     expect(bucket.uploadedParts).toEqual([])
@@ -290,7 +318,8 @@ describe('autosave upload routes', () => {
     const harness = await createHarness(bucket)
     const { id } = await initialize(harness, 1, 'part-failure.zip')
     const response = await harness.request(`/api/uploads/autosaves/${id}/parts/1`, {
-      method: 'PUT', body: new Uint8Array([1]),
+      method: 'PUT',
+      body: new Uint8Array([1]),
     })
     expect(response.status).toBe(502)
     expect(bucket.abortAttempts).toBe(1)
@@ -310,9 +339,15 @@ describe('autosave upload routes', () => {
     const complete = await completeUpload(harness, id, 2)
 
     expect(complete.status).toBe(200)
-    expect(bucket.completedParts).toEqual([{ partNumber: 1, etag: 'etag-1' }, { partNumber: 2, etag: 'etag-2' }])
+    expect(bucket.completedParts).toEqual([
+      { partNumber: 1, etag: 'etag-1' },
+      { partNumber: 2, etag: 'etag-2' },
+    ])
     expect(harness.row(id)).toMatchObject({
-      status: 'uploaded', multipart_upload_id: null, multipart_operation_id: null, file_size_bytes: size,
+      status: 'uploaded',
+      multipart_upload_id: null,
+      multipart_operation_id: null,
+      file_size_bytes: size,
     })
   })
 
@@ -338,7 +373,9 @@ describe('autosave upload routes', () => {
     const complete = await completeUpload(harness, id)
     expect(complete.status).toBe(502)
     expect(harness.row(id)).toMatchObject({
-      status: 'cleanup_pending', multipart_upload_id: null, multipart_operation_id: null,
+      status: 'cleanup_pending',
+      multipart_upload_id: null,
+      multipart_operation_id: null,
     })
     expect(bucket.object).not.toBeNull()
 
@@ -501,7 +538,9 @@ describe('autosave upload routes', () => {
     const failed = await harness.request(`/api/uploads/autosaves/${id}/abort`, { method: 'POST' })
     expect(failed.status).toBe(502)
     expect(harness.row(id)).toMatchObject({
-      status: 'cleanup_pending', multipart_upload_id: null, multipart_operation_id: null,
+      status: 'cleanup_pending',
+      multipart_upload_id: null,
+      multipart_operation_id: null,
     })
 
     await harness.drainBackground()
@@ -614,7 +653,11 @@ describe('autosave upload routes', () => {
     const bucket = new MultipartBucketMock(1)
     const harness = await createHarness(bucket)
     const { id } = await initialize(harness, 1, 'abort-owner.zip')
-    const forbidden = await harness.request(`/api/uploads/autosaves/${id}/abort`, { method: 'POST' }, { userId: 'other-user' })
+    const forbidden = await harness.request(
+      `/api/uploads/autosaves/${id}/abort`,
+      { method: 'POST' },
+      { userId: 'other-user' },
+    )
     expect(forbidden.status).toBe(403)
     expect(harness.row(id)).not.toBeNull()
   })
@@ -624,10 +667,14 @@ describe('autosave upload routes', () => {
     const harness = await createHarness(bucket)
     const { id } = await initialize(harness, 1, 'active-delete.zip')
 
-    const response = await harness.request(`/api/uploads/autosaves/${id}`, { method: 'DELETE' }, {
-      userId: 'catalog-admin',
-      permissions: '8',
-    })
+    const response = await harness.request(
+      `/api/uploads/autosaves/${id}`,
+      { method: 'DELETE' },
+      {
+        userId: 'catalog-admin',
+        permissions: '8',
+      },
+    )
     expect(response.status).toBe(409)
     expect(harness.row(id)).toMatchObject({ status: 'pending_upload', multipart_upload_id: 'r2-upload-1' })
     expect(bucket.abortAttempts).toBe(0)
@@ -636,7 +683,11 @@ describe('autosave upload routes', () => {
 })
 
 interface Harness {
-  request: (path: string, init: RequestInit, options?: { userId?: string, permissions?: string, authenticated?: boolean }) => Promise<Response>
+  request: (
+    path: string,
+    init: RequestInit,
+    options?: { userId?: string; permissions?: string; authenticated?: boolean },
+  ) => Promise<Response>
   row: (id: string) => Record<string, unknown> | null
   onlyRow: () => Record<string, unknown> | null
   rowCount: () => number
@@ -648,7 +699,7 @@ interface Harness {
 
 async function createHarness(
   bucket?: MultipartBucketMock,
-  options: { failCatalogInsert?: boolean, failCatalogDeletes?: number, failMultipartRecordUpdates?: number } = {},
+  options: { failCatalogInsert?: boolean; failCatalogDeletes?: number; failMultipartRecordUpdates?: number } = {},
 ): Promise<Harness> {
   const { sqlite } = await createTestDatabase()
   openDatabases.push(sqlite)
@@ -657,27 +708,30 @@ async function createHarness(
   const baseD1 = createSqliteD1Database(sqlite)
   let remainingCatalogDeleteFailures = options.failCatalogDeletes ?? 0
   let remainingMultipartRecordFailures = options.failMultipartRecordUpdates ?? 0
-  const d1 = options.failCatalogInsert || remainingCatalogDeleteFailures > 0 || remainingMultipartRecordFailures > 0
-    ? {
-        ...baseD1,
-        prepare(query: string) {
-          if (options.failCatalogInsert && /insert\s+into\s+["`]autosave_uploads["`]/i.test(query)) {
-            throw new Error('catalog insert failed')
-          }
-          if (remainingCatalogDeleteFailures > 0 && /delete\s+from\s+["`]autosave_uploads["`]/i.test(query)) {
-            remainingCatalogDeleteFailures -= 1
-            throw new Error('catalog delete failed')
-          }
-          if (remainingMultipartRecordFailures > 0
-            && /update\s+["`]autosave_uploads["`]/i.test(query)
-            && /["`]multipart_upload_id["`]/i.test(query)) {
-            remainingMultipartRecordFailures -= 1
-            throw new Error('multipart record update failed')
-          }
-          return baseD1.prepare(query)
-        },
-      } as D1Database
-    : baseD1
+  const d1 =
+    options.failCatalogInsert || remainingCatalogDeleteFailures > 0 || remainingMultipartRecordFailures > 0
+      ? ({
+          ...baseD1,
+          prepare(query: string) {
+            if (options.failCatalogInsert && /insert\s+into\s+["`]autosave_uploads["`]/i.test(query)) {
+              throw new Error('catalog insert failed')
+            }
+            if (remainingCatalogDeleteFailures > 0 && /delete\s+from\s+["`]autosave_uploads["`]/i.test(query)) {
+              remainingCatalogDeleteFailures -= 1
+              throw new Error('catalog delete failed')
+            }
+            if (
+              remainingMultipartRecordFailures > 0 &&
+              /update\s+["`]autosave_uploads["`]/i.test(query) &&
+              /["`]multipart_upload_id["`]/i.test(query)
+            ) {
+              remainingMultipartRecordFailures -= 1
+              throw new Error('multipart record update failed')
+            }
+            return baseD1.prepare(query)
+          },
+        } as D1Database)
+      : baseD1
   const env = {
     DB: d1,
     KV: createTestKv(),
@@ -699,7 +753,9 @@ async function createHarness(
         headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, requestOptions.permissions ?? '0')
       }
       return app.fetch(new Request(`https://bot.test${path}`, { ...init, headers }), env, {
-        waitUntil(task) { backgroundTasks.push(task) },
+        waitUntil(task) {
+          backgroundTasks.push(task)
+        },
         passThroughOnException() {},
       })
     },
@@ -719,23 +775,31 @@ async function createHarness(
       return recoverStaleAutosaveUploads(env)
     },
     setState(id, status, operationId, updatedAt) {
-      sqlite.prepare(`
+      sqlite
+        .prepare(`
         UPDATE autosave_uploads
         SET status = ?, multipart_operation_id = ?, multipart_state_updated_at = ?
         WHERE id = ?
-      `).run(status, operationId, updatedAt, id)
+      `)
+        .run(status, operationId, updatedAt, id)
     },
     insertUpload(id, userId, size, status, parseStatus = 'pending') {
-      sqlite.prepare(`
+      sqlite
+        .prepare(`
         INSERT INTO autosave_uploads (
           id, uploaded_at, uploader_user_id, file_name, file_size_bytes, r2_key, status, parse_status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, Date.now(), userId, `${id}.zip`, size, `autosaves/test/${id}.zip`, status, parseStatus)
+      `)
+        .run(id, Date.now(), userId, `${id}.zip`, size, `autosaves/test/${id}.zip`, status, parseStatus)
     },
   }
 }
 
-async function initialize(harness: Harness, size: number, fileName: string): Promise<{ ok: true, id: string, partSizeBytes: number }> {
+async function initialize(
+  harness: Harness,
+  size: number,
+  fileName: string,
+): Promise<{ ok: true; id: string; partSizeBytes: number }> {
   const response = await initializeResponse(harness, size, fileName)
   expect(response.status).toBe(200)
   return response.json<any>()
@@ -743,7 +807,8 @@ async function initialize(harness: Harness, size: number, fileName: string): Pro
 
 function initializeResponse(harness: Harness, size: number, fileName: string): Promise<Response> {
   return harness.request('/api/uploads/autosaves/init', {
-    method: 'POST', body: JSON.stringify({ fileName, fileSizeBytes: size }),
+    method: 'POST',
+    body: JSON.stringify({ fileName, fileSizeBytes: size }),
   })
 }
 
@@ -819,9 +884,12 @@ class MultipartBucketMock {
   private multipartActive = false
   private abortGate: Deferred | null = null
   private completeGate: Deferred | null = null
-  private objectOnHead: { attempt: number, size: number } | null = null
+  private objectOnHead: { attempt: number; size: number } | null = null
 
-  constructor(private readonly completedSize: number, failures: MockFailures = {}) {
+  constructor(
+    private readonly completedSize: number,
+    failures: MockFailures = {},
+  ) {
     this.abortFailures = failures.abortFailures ?? 0
     this.completeFailures = failures.completeFailures ?? 0
     this.completeResponseLosses = failures.completeResponseLosses ?? 0
@@ -882,7 +950,7 @@ class MultipartBucketMock {
     return this.object
   }
 
-  async get(_key: string, options?: { range?: { offset?: number, length?: number } }): Promise<R2ObjectBody | null> {
+  async get(_key: string, options?: { range?: { offset?: number; length?: number } }): Promise<R2ObjectBody | null> {
     this.getAttempts += 1
     if (!this.object || !this.metadataBytes) return null
     const range = options?.range
@@ -891,8 +959,15 @@ class MultipartBucketMock {
     const bytes = this.metadataBytes.slice(offset, offset + length)
     return {
       ...this.object,
-      body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
-      async arrayBuffer() { return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes)
+          controller.close()
+        },
+      }),
+      async arrayBuffer() {
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      },
     } as R2ObjectBody
   }
 
@@ -967,7 +1042,7 @@ function buildZipWithDeclaredSaveSize(uncompressedSize: number): Uint8Array {
   const centralSize = 46 + name.length
   const bytes = new Uint8Array(localSize + centralSize + 22)
 
-  writeTestUint32(bytes, 0, 0x04034B50)
+  writeTestUint32(bytes, 0, 0x04034b50)
   writeTestUint16(bytes, 8, 0)
   writeTestUint32(bytes, 18, 1)
   writeTestUint32(bytes, 22, uncompressedSize)
@@ -976,7 +1051,7 @@ function buildZipWithDeclaredSaveSize(uncompressedSize: number): Uint8Array {
   bytes[30 + name.length] = 0
 
   const centralOffset = localSize
-  writeTestUint32(bytes, centralOffset, 0x02014B50)
+  writeTestUint32(bytes, centralOffset, 0x02014b50)
   writeTestUint16(bytes, centralOffset + 10, 0)
   writeTestUint32(bytes, centralOffset + 20, 1)
   writeTestUint32(bytes, centralOffset + 24, uncompressedSize)
@@ -985,7 +1060,7 @@ function buildZipWithDeclaredSaveSize(uncompressedSize: number): Uint8Array {
   bytes.set(name, centralOffset + 46)
 
   const eocdOffset = centralOffset + centralSize
-  writeTestUint32(bytes, eocdOffset, 0x06054B50)
+  writeTestUint32(bytes, eocdOffset, 0x06054b50)
   writeTestUint16(bytes, eocdOffset + 8, 1)
   writeTestUint16(bytes, eocdOffset + 10, 1)
   writeTestUint32(bytes, eocdOffset + 12, centralSize)
@@ -994,15 +1069,15 @@ function buildZipWithDeclaredSaveSize(uncompressedSize: number): Uint8Array {
 }
 
 function writeTestUint16(bytes: Uint8Array, offset: number, value: number): void {
-  bytes[offset] = value & 0xFF
-  bytes[offset + 1] = (value >>> 8) & 0xFF
+  bytes[offset] = value & 0xff
+  bytes[offset + 1] = (value >>> 8) & 0xff
 }
 
 function writeTestUint32(bytes: Uint8Array, offset: number, value: number): void {
-  bytes[offset] = value & 0xFF
-  bytes[offset + 1] = (value >>> 8) & 0xFF
-  bytes[offset + 2] = (value >>> 16) & 0xFF
-  bytes[offset + 3] = (value >>> 24) & 0xFF
+  bytes[offset] = value & 0xff
+  bytes[offset + 1] = (value >>> 8) & 0xff
+  bytes[offset + 2] = (value >>> 16) & 0xff
+  bytes[offset + 3] = (value >>> 24) & 0xff
 }
 
 interface Deferred {
@@ -1016,8 +1091,12 @@ function createDeferred(): Deferred {
   let markStarted = () => {}
   let release = () => {}
   return {
-    started: new Promise<void>((resolve) => { markStarted = resolve }),
-    wait: new Promise<void>((resolve) => { release = resolve }),
+    started: new Promise<void>(resolve => {
+      markStarted = resolve
+    }),
+    wait: new Promise<void>(resolve => {
+      release = resolve
+    }),
     markStarted: () => markStarted(),
     release: () => release(),
   }

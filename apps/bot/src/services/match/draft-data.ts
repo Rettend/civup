@@ -1,5 +1,12 @@
-import type { DraftDoublePickMetrics, DraftState, GameMode, LeaderboardMode, LeaderDataVersion, ResolvedMapVoteResult } from '@civup/game'
 import type { MatchReporterIdentity } from './types.ts'
+import type {
+  DraftDoublePickMetrics,
+  DraftState,
+  GameMode,
+  LeaderboardMode,
+  LeaderDataVersion,
+  ResolvedMapVoteResult,
+} from '@civup/game'
 import { formatModeLabel, parseGameMode, toLeaderboardMode } from '@civup/game'
 
 interface ParsedDraftData {
@@ -15,7 +22,7 @@ interface ParsedDraftData {
   leaderDataVersion?: unknown
   doublePickMetrics?: unknown
   state?: {
-    seats?: Array<{ playerId?: unknown, displayName?: unknown, avatarUrl?: unknown, team?: unknown }>
+    seats?: Array<{ playerId?: unknown; displayName?: unknown; avatarUrl?: unknown; team?: unknown }>
   }
 }
 
@@ -34,8 +41,7 @@ function parseDraftData(draftData: string | null): ParsedDraftData | null {
   if (!draftData) return null
   try {
     return JSON.parse(draftData) as ParsedDraftData
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -62,18 +68,17 @@ export function getCompletedAtFromDraftData(draftData: string | null): number | 
 
 export function getReporterIdentityFromDraftData(draftData: string | null): MatchReporterIdentity | null {
   const parsed = parseDraftData(draftData)
-  const userId = typeof parsed?.reportedById === 'string' && parsed.reportedById.trim().length > 0
-    ? parsed.reportedById.trim()
-    : null
+  const userId =
+    typeof parsed?.reportedById === 'string' && parsed.reportedById.trim().length > 0
+      ? parsed.reportedById.trim()
+      : null
   if (!userId) return null
 
   const seat = parsed?.state?.seats?.find(candidate => candidate?.playerId === userId)
-  const displayName = typeof seat?.displayName === 'string' && seat.displayName.trim().length > 0
-    ? seat.displayName.trim()
-    : null
-  const avatarUrl = typeof seat?.avatarUrl === 'string' && seat.avatarUrl.trim().length > 0
-    ? seat.avatarUrl.trim()
-    : null
+  const displayName =
+    typeof seat?.displayName === 'string' && seat.displayName.trim().length > 0 ? seat.displayName.trim() : null
+  const avatarUrl =
+    typeof seat?.avatarUrl === 'string' && seat.avatarUrl.trim().length > 0 ? seat.avatarUrl.trim() : null
 
   return {
     userId,
@@ -97,7 +102,10 @@ export function getHiddenDraftFromDraftData(draftData: string | null): boolean {
   return parsed?.hiddenDraft === true
 }
 
-export function getLeaderDataVersionFromDraftData(draftData: string | null, fallback: LeaderDataVersion = 'live'): LeaderDataVersion {
+export function getLeaderDataVersionFromDraftData(
+  draftData: string | null,
+  fallback: LeaderDataVersion = 'live',
+): LeaderDataVersion {
   const parsed = parseDraftData(draftData)
   return normalizeStoredLeaderDataVersion(parsed?.leaderDataVersion, fallback)
 }
@@ -123,9 +131,7 @@ export function isManualReportDraftData(draftData: string | null): boolean {
 
 export function getDraftStateFromDraftData(draftData: string | null): DraftState | null {
   const parsed = parseDraftData(draftData)
-  return parsed?.state && typeof parsed.state === 'object'
-    ? parsed.state as DraftState
-    : null
+  return parsed?.state && typeof parsed.state === 'object' ? (parsed.state as DraftState) : null
 }
 
 export function getDoublePickMetricsFromDraftData(draftData: string | null): DraftDoublePickMetrics | undefined {

@@ -1,7 +1,9 @@
 import type { LobbyState } from '../lobby/types.ts'
 
-const BLOCKING_DRAFT_MATCH_SQL = '(matches.status = \'drafting\' OR (matches.status = \'active\' AND json_extract(matches.draft_data, \'$.completedAt\') IS NULL))'
-const REPORTABLE_MATCH_SQL = '(matches.status = \'active\' AND json_extract(matches.draft_data, \'$.completedAt\') IS NOT NULL)'
+const BLOCKING_DRAFT_MATCH_SQL =
+  "(matches.status = 'drafting' OR (matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NULL))"
+const REPORTABLE_MATCH_SQL =
+  "(matches.status = 'active' AND json_extract(matches.draft_data, '$.completedAt') IS NOT NULL)"
 
 function canQueryLiveMatches(db: D1Database | null | undefined): boolean {
   return db != null && typeof (db as { prepare?: unknown }).prepare === 'function'
@@ -18,7 +20,8 @@ export async function findPersistedLiveMatchIdsForPlayers(
   const placeholders = uniquePlayerIds.map(() => '?').join(', ')
 
   try {
-    const response = await db.prepare(`
+    const response = await db
+      .prepare(`
       SELECT match_participants.player_id AS playerId, match_participants.match_id AS matchId
       FROM match_participants
       INNER JOIN matches ON match_participants.match_id = matches.id
@@ -27,7 +30,7 @@ export async function findPersistedLiveMatchIdsForPlayers(
       ORDER BY matches.created_at DESC
     `)
       .bind(...uniquePlayerIds)
-      .all<{ playerId?: unknown, matchId?: unknown }>()
+      .all<{ playerId?: unknown; matchId?: unknown }>()
 
     const liveMatchIdByPlayerId = new Map<string, string>()
     for (const row of response.results ?? []) {
@@ -38,8 +41,7 @@ export async function findPersistedLiveMatchIdsForPlayers(
     }
 
     return liveMatchIdByPlayerId
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to verify live matches from D1:', error)
     return null
   }
@@ -56,7 +58,8 @@ export async function findPersistedBlockingDraftMatchIdsForPlayers(
   const placeholders = uniquePlayerIds.map(() => '?').join(', ')
 
   try {
-    const response = await db.prepare(`
+    const response = await db
+      .prepare(`
       SELECT match_participants.player_id AS playerId, match_participants.match_id AS matchId
       FROM match_participants
       INNER JOIN matches ON match_participants.match_id = matches.id
@@ -65,7 +68,7 @@ export async function findPersistedBlockingDraftMatchIdsForPlayers(
       ORDER BY matches.created_at DESC
     `)
       .bind(...uniquePlayerIds)
-      .all<{ playerId?: unknown, matchId?: unknown }>()
+      .all<{ playerId?: unknown; matchId?: unknown }>()
 
     const blockingMatchIdByPlayerId = new Map<string, string>()
     for (const row of response.results ?? []) {
@@ -76,8 +79,7 @@ export async function findPersistedBlockingDraftMatchIdsForPlayers(
     }
 
     return blockingMatchIdByPlayerId
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to verify blocking draft matches from D1:', error)
     return null
   }
@@ -94,7 +96,8 @@ export async function findPersistedLiveMatchIds(
   const placeholders = uniqueMatchIds.map(() => '?').join(', ')
 
   try {
-    const response = await db.prepare(`
+    const response = await db
+      .prepare(`
       SELECT id
       FROM matches
       WHERE id IN (${placeholders})
@@ -110,8 +113,7 @@ export async function findPersistedLiveMatchIds(
     }
 
     return liveMatchIds
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to verify live match ids from D1:', error)
     return null
   }
@@ -128,7 +130,8 @@ export async function findPersistedReportableMatchIdsForPlayers(
   const placeholders = uniquePlayerIds.map(() => '?').join(', ')
 
   try {
-    const response = await db.prepare(`
+    const response = await db
+      .prepare(`
       SELECT match_participants.player_id AS playerId, match_participants.match_id AS matchId
       FROM match_participants
       INNER JOIN matches ON match_participants.match_id = matches.id
@@ -137,7 +140,7 @@ export async function findPersistedReportableMatchIdsForPlayers(
       ORDER BY matches.created_at DESC
     `)
       .bind(...uniquePlayerIds)
-      .all<{ playerId?: unknown, matchId?: unknown }>()
+      .all<{ playerId?: unknown; matchId?: unknown }>()
 
     const reportableMatchIdsByPlayerId = new Map<string, string[]>()
     for (const row of response.results ?? []) {
@@ -152,8 +155,7 @@ export async function findPersistedReportableMatchIdsForPlayers(
     }
 
     return reportableMatchIdsByPlayerId
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to verify reportable matches from D1:', error)
     return null
   }
@@ -170,7 +172,8 @@ export async function findPersistedTerminalMatchIds(
   const placeholders = uniqueMatchIds.map(() => '?').join(', ')
 
   try {
-    const response = await db.prepare(`
+    const response = await db
+      .prepare(`
       SELECT id
       FROM matches
       WHERE id IN (${placeholders})
@@ -186,8 +189,7 @@ export async function findPersistedTerminalMatchIds(
     }
 
     return terminalMatchIds
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Failed to verify terminal match ids from D1:', error)
     return null
   }
@@ -196,12 +198,13 @@ export async function findPersistedTerminalMatchIds(
 export async function filterPersistedLiveLobbies(
   db: D1Database | null | undefined,
   lobbies: LobbyState[],
-): Promise<{ lobbies: LobbyState[], staleLobbyIds: Set<string> } | null> {
-  const liveLobbies = lobbies.filter((lobby): lobby is LobbyState & { matchId: string } => (
-    (lobby.status === 'drafting' || lobby.status === 'active')
-    && typeof lobby.matchId === 'string'
-    && lobby.matchId.length > 0
-  ))
+): Promise<{ lobbies: LobbyState[]; staleLobbyIds: Set<string> } | null> {
+  const liveLobbies = lobbies.filter(
+    (lobby): lobby is LobbyState & { matchId: string } =>
+      (lobby.status === 'drafting' || lobby.status === 'active') &&
+      typeof lobby.matchId === 'string' &&
+      lobby.matchId.length > 0,
+  )
   if (liveLobbies.length === 0) {
     return {
       lobbies,
@@ -209,7 +212,10 @@ export async function filterPersistedLiveLobbies(
     }
   }
 
-  const persistedLiveMatchIds = await findPersistedLiveMatchIds(db, liveLobbies.map(lobby => lobby.matchId))
+  const persistedLiveMatchIds = await findPersistedLiveMatchIds(
+    db,
+    liveLobbies.map(lobby => lobby.matchId),
+  )
   if (persistedLiveMatchIds == null) return null
 
   const staleLobbyIds = new Set<string>()
@@ -219,9 +225,7 @@ export async function filterPersistedLiveLobbies(
   }
 
   return {
-    lobbies: staleLobbyIds.size === 0
-      ? lobbies
-      : lobbies.filter(lobby => !staleLobbyIds.has(lobby.id)),
+    lobbies: staleLobbyIds.size === 0 ? lobbies : lobbies.filter(lobby => !staleLobbyIds.has(lobby.id)),
     staleLobbyIds,
   }
 }
@@ -234,14 +238,16 @@ export async function clearStalePersistedLiveLobbies(
   const filtered = await filterPersistedLiveLobbies(db, lobbies)
   if (filtered == null) return null
 
-  const staleLiveLobbies = lobbies.filter((lobby): lobby is LobbyState & { matchId: string } => (
-    filtered.staleLobbyIds.has(lobby.id)
-    && typeof lobby.matchId === 'string'
-    && lobby.matchId.length > 0
-  ))
+  const staleLiveLobbies = lobbies.filter(
+    (lobby): lobby is LobbyState & { matchId: string } =>
+      filtered.staleLobbyIds.has(lobby.id) && typeof lobby.matchId === 'string' && lobby.matchId.length > 0,
+  )
   if (staleLiveLobbies.length === 0) return new Set()
 
-  const terminalMatchIds = await findPersistedTerminalMatchIds(db, staleLiveLobbies.map(lobby => lobby.matchId))
+  const terminalMatchIds = await findPersistedTerminalMatchIds(
+    db,
+    staleLiveLobbies.map(lobby => lobby.matchId),
+  )
   if (terminalMatchIds == null) return null
 
   const clearedLobbyIds = new Set<string>()

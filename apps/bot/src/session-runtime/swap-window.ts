@@ -6,11 +6,13 @@ export function canOpenSwapWindowForState(state: DraftState): boolean {
   if (state.civBlitz) {
     return state.seats.every((_, seatIndex) => {
       const kit = state.civBlitz?.lockedKits[seatIndex]
-      return !!kit
-        && typeof kit.civilizationAbility === 'string'
-        && typeof kit.leaderAbility === 'string'
-        && typeof kit.infrastructure === 'string'
-        && typeof kit.unit === 'string'
+      return (
+        !!kit &&
+        typeof kit.civilizationAbility === 'string' &&
+        typeof kit.leaderAbility === 'string' &&
+        typeof kit.infrastructure === 'string' &&
+        typeof kit.unit === 'string'
+      )
     })
   }
   const pickedSeats = new Set(state.picks.map(pick => pick.seatIndex))
@@ -19,7 +21,7 @@ export function canOpenSwapWindowForState(state: DraftState): boolean {
 
 export function countConnectedDraftParticipants<TConnection>(
   participantIds: readonly string[],
-  connections: readonly { connection: TConnection, playerId: string | null | undefined }[],
+  connections: readonly { connection: TConnection; playerId: string | null | undefined }[],
   excludedConnection?: TConnection,
 ): number {
   const connectedParticipantIds = new Set(participantIds)
@@ -49,9 +51,11 @@ export function getNextSwapLifecycleAlarmAt(input: {
   disconnectFinalizeAt: number | null
   safetyEndsAt: number | null
 }): number | null {
-  return [input.disconnectFinalizeAt, input.safetyEndsAt]
-    .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
-    .sort((left, right) => left - right)[0] ?? null
+  return (
+    [input.disconnectFinalizeAt, input.safetyEndsAt]
+      .filter((timestamp): timestamp is number => typeof timestamp === 'number' && Number.isFinite(timestamp))
+      .sort((left, right) => left - right)[0] ?? null
+  )
 }
 
 export function getSwapWindowAlarmAction(input: {

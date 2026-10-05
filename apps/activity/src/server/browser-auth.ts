@@ -33,7 +33,10 @@ interface OAuthTransaction {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-export async function handleBrowserOAuthRequest(request: Request, env: BrowserAuthEnvironment): Promise<Response | null> {
+export async function handleBrowserOAuthRequest(
+  request: Request,
+  env: BrowserAuthEnvironment,
+): Promise<Response | null> {
   const url = new URL(request.url)
   if (url.pathname === '/api/auth/discord' && request.method === 'GET') return startBrowserOAuth(request, env)
   if (url.pathname === '/api/auth/discord/callback' && request.method === 'GET') return finishBrowserOAuth(request, env)
@@ -79,8 +82,7 @@ export function validateBrowserReturnPath(value: string | null): string | null {
     const url = new URL(value, 'https://civup.invalid')
     if (url.origin !== 'https://civup.invalid' || !url.pathname.startsWith('/web/')) return null
     return `${url.pathname}${url.search}${url.hash}`
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -135,7 +137,8 @@ async function finishBrowserOAuth(request: Request, env: BrowserAuthEnvironment)
   const transaction = await verifyTransaction(config.secret, readCookie(request, OAUTH_TRANSACTION_COOKIE))
   const returnTo = transaction?.returnTo ?? '/web/'
   if (!transaction) return oauthError('This sign-in request is missing, expired, or invalid.', returnTo)
-  if (!safeEqual(transaction.state, url.searchParams.get('state') ?? '')) return oauthError('Discord sign-in state did not match.', returnTo)
+  if (!safeEqual(transaction.state, url.searchParams.get('state') ?? ''))
+    return oauthError('Discord sign-in state did not match.', returnTo)
   if (url.searchParams.has('error')) return oauthError('Discord sign-in was cancelled.', returnTo)
   const code = url.searchParams.get('code')?.trim() ?? ''
   if (!code) return oauthError('Discord did not return an authorization code.', returnTo)
@@ -151,15 +154,20 @@ async function finishBrowserOAuth(request: Request, env: BrowserAuthEnvironment)
       return oauthError('Discord sign-in could not be completed.', returnTo)
     }
     const identity = await loadDiscordIdentity(token.accessToken, config.guildId)
-    if (!identity.ok) return oauthError(identity.status === 403 ? 'You must be a member of the configured Discord server.' : 'Discord membership could not be verified.', returnTo)
+    if (!identity.ok)
+      return oauthError(
+        identity.status === 403
+          ? 'You must be a member of the configured Discord server.'
+          : 'Discord membership could not be verified.',
+        returnTo,
+      )
 
     const session = await createActivitySession(config.secret, identity)
     const headers = new Headers({ 'Location': returnTo, 'Cache-Control': 'no-store' })
     headers.append('Set-Cookie', browserSessionCookie(session))
     headers.append('Set-Cookie', clearTransactionCookie())
     return new Response(null, { status: 303, headers })
-  }
-  catch (error) {
+  } catch (error) {
     console.error('[browser-auth] callback failed', error)
     return oauthError('Discord sign-in could not be completed.', returnTo)
   }
@@ -168,10 +176,14 @@ async function finishBrowserOAuth(request: Request, env: BrowserAuthEnvironment)
 function canonicalRedirect(request: Request, config: BrowserAccessConfiguration): Response | null {
   const url = new URL(request.url)
   const canonical = new URL(config.origin)
-  if (url.origin === config.origin || (url.host === canonical.host && canonical.protocol === 'https:' && isForwardedHttps(request))) return null
+  if (
+    url.origin === config.origin ||
+    (url.host === canonical.host && canonical.protocol === 'https:' && isForwardedHttps(request))
+  )
+    return null
   return new Response(null, {
     status: 307,
-    headers: { Location: `${config.origin}${url.pathname}${url.search}`, 'Cache-Control': 'no-store' },
+    headers: { 'Location': `${config.origin}${url.pathname}${url.search}`, 'Cache-Control': 'no-store' },
   })
 }
 
@@ -183,8 +195,7 @@ function isForwardedHttps(request: Request): boolean {
   if (!visitor) return false
   try {
     return (JSON.parse(visitor) as { scheme?: unknown }).scheme === 'https'
-  }
-  catch {
+  } catch {
     return false
   }
 }
@@ -210,7 +221,10 @@ function unavailableResponse(): Response {
 }
 
 function json(value: unknown, status: number): Response {
-  return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  })
 }
 
 function transactionCookie(value: string): string {
@@ -232,18 +246,20 @@ async function verifyTransaction(secret: string, value: string | null): Promise<
   if (!payload || !signature || extra || !safeEqual(signature, await hmac(secret, payload))) return null
   try {
     const parsed = JSON.parse(decoder.decode(fromBase64Url(payload))) as Partial<OAuthTransaction>
-    if (typeof parsed.state !== 'string' || typeof parsed.verifier !== 'string' || typeof parsed.exp !== 'number') return null
+    if (typeof parsed.state !== 'string' || typeof parsed.verifier !== 'string' || typeof parsed.exp !== 'number')
+      return null
     const returnTo = validateBrowserReturnPath(typeof parsed.returnTo === 'string' ? parsed.returnTo : null)
     if (!returnTo || parsed.exp <= Date.now()) return null
     return { state: parsed.state, verifier: parsed.verifier, returnTo, exp: parsed.exp }
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 async function hmac(secret: string, value: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ])
   return base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value))))
 }
 
@@ -265,7 +281,7 @@ function base64Url(bytes: Uint8Array): string {
 
 function fromBase64Url(value: string): Uint8Array {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4)
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
   return Uint8Array.from(atob(padded), char => char.charCodeAt(0))
 }
 
@@ -281,10 +297,10 @@ function safeEqual(left: string, right: string): boolean {
 function normalizeOrigin(value: string | undefined): string | null {
   try {
     const url = new URL(value?.trim() ?? '')
-    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
+      return null
     return url.origin
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -295,5 +311,8 @@ function normalizeDiscordId(value: string | undefined): string | null {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char)
+  return value.replace(
+    /[&<>"']/g,
+    char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] ?? char,
+  )
 }

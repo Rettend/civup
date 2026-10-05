@@ -1,9 +1,24 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, DraftSeat, DraftTimerConfig, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
-import { matches, matchParticipants, sessionDirectory } from '@civup/db'
-import { allFactionIds, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getDraftFormat, getLeaderIds, isTeamMode, normalizeCivBlitzOptionCount, normalizeMapVoteEnabled, requiresRedDeathDuplicateFactions, resolveLeaderPoolSize, sampleLeaderPool, slotToTeamIndex, teamCount, teamSize } from '@civup/game'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
+import { matches, matchParticipants, sessionDirectory } from '@civup/db'
+import {
+  allFactionIds,
+  getCivBlitzComponentIds,
+  getCivBlitzOptionCountMaximum,
+  getDraftFormat,
+  getLeaderIds,
+  isTeamMode,
+  normalizeCivBlitzOptionCount,
+  normalizeMapVoteEnabled,
+  requiresRedDeathDuplicateFactions,
+  resolveLeaderPoolSize,
+  sampleLeaderPool,
+  slotToTeamIndex,
+  teamCount,
+  teamSize,
+} from '@civup/game'
 import { getActivitySessionsByChannel, getOpenActivitySessionsForUser } from './session-state.ts'
 
 // ── Types ───────────────────────────────────────────────────
@@ -59,10 +74,18 @@ export function buildDraftRuntimeConfig(
   const randomDraft = !civBlitz && !hiddenDraft && options.randomDraft === true
   // Duplicate picks are a general draft-engine capability; only Red Death forces them on.
   const duplicateFactions = redDeathMode
-    ? (requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true)
-    : (!civBlitz && options.duplicateFactions === true)
+    ? requiresRedDeathDuplicateFactions(mode) || options.duplicateFactions === true
+    : !civBlitz && options.duplicateFactions === true
   const mapVoteEnabled = normalizeMapVoteEnabled(mode, options.mapVoteEnabled === true, { redDeath: redDeathMode })
-  const format = getDraftFormat(mode, { simultaneousPick, randomDraft, redDeath: redDeathMode, civBlitz, blindBans: options.blindBans, blindPicks, seatCount: seats.length })
+  const format = getDraftFormat(mode, {
+    simultaneousPick,
+    randomDraft,
+    redDeath: redDeathMode,
+    civBlitz,
+    blindBans: options.blindBans,
+    blindPicks,
+    seatCount: seats.length,
+  })
   const leaderDataVersion = options.leaderDataVersion ?? 'live'
   const civBlitzExcludeBbgExpanded = options.civBlitzExcludeBbgExpanded !== false
   const civBlitzOptionCount = civBlitz
@@ -74,17 +97,27 @@ export function buildDraftRuntimeConfig(
   const civPool = civBlitz
     ? getCivBlitzComponentIds(leaderDataVersion, { excludeBbgExpanded: civBlitzExcludeBbgExpanded })
     : redDeathMode
-    ? [...allFactionIds]
-    : hiddenDraft
-      ? getLeaderIds(leaderDataVersion)
-      : sampleLeaderPool(resolveLeaderPoolSize(mode, seats.length, options.leaderPoolSize, leaderDataVersion, options.leaderPoolRankTier), Math.random, leaderDataVersion)
+      ? [...allFactionIds]
+      : hiddenDraft
+        ? getLeaderIds(leaderDataVersion)
+        : sampleLeaderPool(
+            resolveLeaderPoolSize(
+              mode,
+              seats.length,
+              options.leaderPoolSize,
+              leaderDataVersion,
+              options.leaderPoolRankTier,
+            ),
+            Math.random,
+            leaderDataVersion,
+          )
   const config: DraftRuntimeConfig = {
     matchId,
     hostId: options.hostId,
     formatId: format.id,
     seats,
     civPool,
-    dealOptionsSize: redDeathMode ? options.dealOptionsSize ?? undefined : undefined,
+    dealOptionsSize: redDeathMode ? (options.dealOptionsSize ?? undefined) : undefined,
     civBlitz,
     civBlitzOptionCount,
     civBlitzExcludeBbgExpanded: civBlitz ? civBlitzExcludeBbgExpanded : undefined,
@@ -143,20 +176,12 @@ export function buildDraftSeats(mode: GameMode, entries: QueueEntry[]): DraftSea
 }
 
 /** Get the open-lobby ID for a user from the session directory. */
-export async function getLobbyForUser(
-  db: Database,
-  userId: string,
-): Promise<string | null> {
-  return (await getOpenActivitySessionsForUser(db, userId))
-    .find(session => session.phase === 'open')
-    ?.sessionId ?? null
+export async function getLobbyForUser(db: Database, userId: string): Promise<string | null> {
+  return (await getOpenActivitySessionsForUser(db, userId)).find(session => session.phase === 'open')?.sessionId ?? null
 }
 
 /** Get a unique active match ID for a channel from the session directory. */
-export async function getMatchForChannel(
-  db: Database,
-  channelId: string,
-): Promise<string | null> {
+export async function getMatchForChannel(db: Database, channelId: string): Promise<string | null> {
   const matchIds = new Set<string>()
 
   const sessions = await getActivitySessionsByChannel(db, channelId)
@@ -170,42 +195,35 @@ export async function getMatchForChannel(
 }
 
 /** Get match ID for a user from persisted match membership and the session directory. */
-export async function getMatchForUser(
-  db: Database,
-  userId: string,
-): Promise<string | null> {
+export async function getMatchForUser(db: Database, userId: string): Promise<string | null> {
   const [active] = await db
     .select({ matchId: matchParticipants.matchId })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .where(and(
-      eq(matchParticipants.playerId, userId),
-      inArray(matches.status, ['drafting', 'active']),
-    ))
+    .where(and(eq(matchParticipants.playerId, userId), inArray(matches.status, ['drafting', 'active'])))
     .orderBy(desc(matches.createdAt))
     .limit(1)
 
   if (active?.matchId) return active.matchId
 
-  const session = (await getOpenActivitySessionsForUser(db, userId))
-    .find(session => session.phase === 'draft' || session.phase === 'swap') ?? null
-  return session ? session.matchId ?? session.sessionId : null
+  const session =
+    (await getOpenActivitySessionsForUser(db, userId)).find(
+      session => session.phase === 'draft' || session.phase === 'swap',
+    ) ?? null
+  return session ? (session.matchId ?? session.sessionId) : null
 }
 
 /** Get channel ID by match ID from the live session directory. */
-export async function getChannelForMatch(
-  db: Database,
-  matchId: string,
-): Promise<string | null> {
-  const [row] = await db.select({ channelId: sessionDirectory.channelId })
+export async function getChannelForMatch(db: Database, matchId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ channelId: sessionDirectory.channelId })
     .from(sessionDirectory)
-    .where(and(
-      or(
-        eq(sessionDirectory.matchId, matchId),
-        eq(sessionDirectory.sessionId, matchId),
+    .where(
+      and(
+        or(eq(sessionDirectory.matchId, matchId), eq(sessionDirectory.sessionId, matchId)),
+        inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
       ),
-      inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
-    ))
+    )
     .orderBy(desc(sessionDirectory.updatedAt))
     .limit(1)
 

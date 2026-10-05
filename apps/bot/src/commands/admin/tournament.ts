@@ -1,12 +1,29 @@
-import type { AdminCommandContext } from './types.ts'
 import type { TournamentPlayerImportRow } from '../../services/tournament/index.ts'
+import type { AdminCommandContext } from './types.ts'
+import { Modal, TextInput } from 'discord-hono'
 import { createDb } from '@civup/db'
 import { buildDiscordAvatarUrl } from '@civup/utils'
-import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { fetchGuildMember, isDiscordApiError } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
+import {
+  buildTournamentStandings,
+  createTournament,
+  createTournamentCut,
+  DEFAULT_TOURNAMENT_MIN_GAMES,
+  DEFAULT_TOURNAMENT_REMATCH_POLICY,
+  DEFAULT_TOURNAMENT_TOP_CUT,
+  getCurrentTournament,
+  importTournamentPlayers,
+  isSupportedTournamentTopCut,
+  normalizeTournamentPositiveInteger,
+  normalizeTournamentRematchPolicy,
+  parseTournamentPlayersCsv,
+  refreshTournamentLeaderboard,
+  startTournament,
+  SUPPORTED_TOURNAMENT_TOP_CUTS,
+  updateTournament,
+} from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 
@@ -42,7 +59,11 @@ export function handleTournamentImport(c: AdminCommandContext) {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      await sendTransientEphemeralResponse(c, 'No current tournament. Create one first with `/admin tournament create`.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'No current tournament. Create one first with `/admin tournament create`.',
+        'error',
+      )
       return
     }
 
@@ -69,15 +90,22 @@ export function handleTournamentImport(c: AdminCommandContext) {
       return
     }
 
-    const resolvedRows = await resolveTournamentImportRows(c.env.DISCORD_TOKEN, c.interaction.guild_id ?? null, parsedRows)
+    const resolvedRows = await resolveTournamentImportRows(
+      c.env.DISCORD_TOKEN,
+      c.interaction.guild_id ?? null,
+      parsedRows,
+    )
     if ('error' in resolvedRows) {
       await sendTransientEphemeralResponse(c, resolvedRows.error, 'error')
       return
     }
 
-    const result = await importTournamentPlayers(db, tournament.id, resolvedRows).catch((error) => {
+    const result = await importTournamentPlayers(db, tournament.id, resolvedRows).catch(error => {
       console.error('[admin:tournament:import] failed to import tournament players', error)
-      return { error: 'Failed to import players. Check the CSV for duplicate seeds, duplicate display names, or duplicate Discord user IDs.' }
+      return {
+        error:
+          'Failed to import players. Check the CSV for duplicate seeds, duplicate display names, or duplicate Discord user IDs.',
+      }
     })
     if ('error' in result) {
       await sendTransientEphemeralResponse(c, result.error, 'error')
@@ -85,7 +113,7 @@ export function handleTournamentImport(c: AdminCommandContext) {
     }
 
     if (tournament.status !== 'setup') {
-      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch(error => {
         console.error('[admin:tournament:import] failed to refresh tournament leaderboard', error)
       })
     }
@@ -105,18 +133,17 @@ async function resolveTournamentImportRows(
 ): Promise<TournamentPlayerImportRow[] | { error: string }> {
   const linkedRows = rows.filter(row => row.playerId)
   if (linkedRows.length === 0) return rows
-  if (!guildId) return { error: 'Tournament import with Discord IDs must be run from a server so nicknames can be resolved.' }
+  if (!guildId)
+    return { error: 'Tournament import with Discord IDs must be run from a server so nicknames can be resolved.' }
 
-  const resolvedByPlayerId = new Map<string, { displayName: string, avatarUrl: string | null }>()
+  const resolvedByPlayerId = new Map<string, { displayName: string; avatarUrl: string | null }>()
   const failures: string[] = []
   for (const row of linkedRows) {
     const playerId = row.playerId!
     if (resolvedByPlayerId.has(playerId)) continue
     try {
       const member = await fetchGuildMember(token, guildId, playerId)
-      const displayName = member.nick?.trim()
-        || member.user?.global_name?.trim()
-        || member.user?.username?.trim()
+      const displayName = member.nick?.trim() || member.user?.global_name?.trim() || member.user?.username?.trim()
       if (!displayName) {
         failures.push(playerId)
         continue
@@ -124,24 +151,29 @@ async function resolveTournamentImportRows(
 
       resolvedByPlayerId.set(playerId, {
         displayName,
-        avatarUrl: buildGuildMemberAvatarUrl(guildId, playerId, member.avatar) ?? buildDiscordAvatarUrl(playerId, member.user?.avatar ?? null),
+        avatarUrl:
+          buildGuildMemberAvatarUrl(guildId, playerId, member.avatar) ??
+          buildDiscordAvatarUrl(playerId, member.user?.avatar ?? null),
       })
-    }
-    catch (error) {
+    } catch (error) {
       failures.push(isDiscordApiError(error) ? `${playerId} (${error.status})` : playerId)
     }
   }
 
   if (failures.length > 0) return { error: `Could not resolve Discord member names for: ${failures.join(', ')}` }
 
-  return rows.map((row) => {
+  return rows.map(row => {
     if (!row.playerId) return row
     const resolved = resolvedByPlayerId.get(row.playerId)
     return resolved ? { ...row, displayName: resolved.displayName, avatarUrl: resolved.avatarUrl } : row
   })
 }
 
-function buildGuildMemberAvatarUrl(guildId: string, userId: string, avatarHash: string | null | undefined): string | null {
+function buildGuildMemberAvatarUrl(
+  guildId: string,
+  userId: string,
+  avatarHash: string | null | undefined,
+): string | null {
   if (!avatarHash) return null
   const ext = avatarHash.startsWith('a_') ? 'gif' : 'png'
   return `https://cdn.discordapp.com/guilds/${guildId}/users/${userId}/avatars/${avatarHash}.${ext}?size=128`
@@ -198,14 +230,18 @@ export function handleTournamentCut(c: AdminCommandContext) {
       return
     }
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch(error => {
       console.error('[admin:tournament:cut] failed to refresh tournament leaderboard', error)
     })
 
-    const cutSizeNote = result.actualTopCut === result.requestedTopCut
-      ? `Playoffs: **${result.actualTopCut}**`
-      : `Playoffs: **${result.actualTopCut}** eligible players (configured for ${result.requestedTopCut})`
-    const pairingLines = result.pairings.map(pairing => `#${pairing.seedOne} ${pairing.playerOneDisplayName} vs #${pairing.seedTwo} ${pairing.playerTwoDisplayName}`)
+    const cutSizeNote =
+      result.actualTopCut === result.requestedTopCut
+        ? `Playoffs: **${result.actualTopCut}**`
+        : `Playoffs: **${result.actualTopCut}** eligible players (configured for ${result.requestedTopCut})`
+    const pairingLines = result.pairings.map(
+      pairing =>
+        `#${pairing.seedOne} ${pairing.playerOneDisplayName} vs #${pairing.seedTwo} ${pairing.playerTwoDisplayName}`,
+    )
     await sendEphemeralResponse(
       c,
       `Created **${result.round}** pairings for **${result.tournamentName}**.\n${cutSizeNote}\n${pairingLines.join('\n')}`,
@@ -219,7 +255,11 @@ export function handleTournamentStart(c: AdminCommandContext) {
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
     if (!tournament) {
-      await sendTransientEphemeralResponse(c, 'No current tournament. Create one first with `/admin tournament create`.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'No current tournament. Create one first with `/admin tournament create`.',
+        'error',
+      )
       return
     }
 
@@ -229,19 +269,24 @@ export function handleTournamentStart(c: AdminCommandContext) {
       return
     }
 
-    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+    await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch(error => {
       console.error('[admin:tournament:start] failed to refresh tournament leaderboard', error)
     })
 
-    await sendEphemeralResponse(c, `Started tournament **${tournament.name}**. Players can now use \`/tournament create\`.`, 'success')
+    await sendEphemeralResponse(
+      c,
+      `Started tournament **${tournament.name}**. Players can now use \`/tournament create\`.`,
+      'success',
+    )
   })
 }
 
 export const modal_admin_tournament_create = factory.modal(
   new Modal(ADMIN_TOURNAMENT_CREATE_MODAL_ID, 'Create Tournament'),
-  async (c) => {
+  async c => {
     const actorId = getInteractionUserId(c)
-    if (!actorId) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
+    if (!actorId)
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
 
     const vars = c.var as Readonly<{
       name?: string
@@ -250,17 +295,29 @@ export const modal_admin_tournament_create = factory.modal(
       rematch_policy?: string
     }>
     const name = vars.name?.trim() ?? ''
-    if (!name) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
+    if (!name)
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
 
     const rematchPolicy = normalizeTournamentRematchPolicy(vars.rematch_policy) ?? DEFAULT_TOURNAMENT_REMATCH_POLICY
     const topCut = normalizeTournamentPositiveInteger(vars.top_cut, 0)
     if (!isSupportedTournamentTopCut(topCut)) {
-      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
+      return c.flags('EPHEMERAL').res({
+        embeds: [
+          ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error'),
+        ],
+      })
     }
     const db = createDb(c.env.DB)
     const existing = await getCurrentTournament(db)
     if (existing) {
-      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Tournament **${existing.name}** already exists with status **${existing.status}**.`, 'error')] })
+      return c.flags('EPHEMERAL').res({
+        embeds: [
+          ephemeralResponseEmbed(
+            `Tournament **${existing.name}** already exists with status **${existing.status}**.`,
+            'error',
+          ),
+        ],
+      })
     }
 
     const tournament = await createTournament(db, {
@@ -272,16 +329,22 @@ export const modal_admin_tournament_create = factory.modal(
     })
 
     return c.flags('EPHEMERAL').res({
-      embeds: [ephemeralResponseEmbed(`Created tournament **${tournament.name}** in setup. Import players with \`/admin tournament import\`, then start it with \`/admin tournament start\`.`, 'success')],
+      embeds: [
+        ephemeralResponseEmbed(
+          `Created tournament **${tournament.name}** in setup. Import players with \`/admin tournament import\`, then start it with \`/admin tournament start\`.`,
+          'success',
+        ),
+      ],
     })
   },
 )
 
 export const modal_admin_tournament_edit = factory.modal(
   new Modal(ADMIN_TOURNAMENT_EDIT_MODAL_ID, 'Edit Tournament'),
-  async (c) => {
+  async c => {
     const actorId = getInteractionUserId(c)
-    if (!actorId) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
+    if (!actorId)
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Could not identify you.', 'error')] })
 
     const vars = c.var as Readonly<{
       name?: string
@@ -290,12 +353,17 @@ export const modal_admin_tournament_edit = factory.modal(
       rematch_policy?: string
     }>
     const name = vars.name?.trim() ?? ''
-    if (!name) return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
+    if (!name)
+      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed('Tournament name is required.', 'error')] })
 
     const rematchPolicy = normalizeTournamentRematchPolicy(vars.rematch_policy) ?? DEFAULT_TOURNAMENT_REMATCH_POLICY
     const topCut = normalizeTournamentPositiveInteger(vars.top_cut, 0)
     if (!isSupportedTournamentTopCut(topCut)) {
-      return c.flags('EPHEMERAL').res({ embeds: [ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error')] })
+      return c.flags('EPHEMERAL').res({
+        embeds: [
+          ephemeralResponseEmbed(`Top cut must be one of: ${SUPPORTED_TOURNAMENT_TOP_CUTS.join(', ')}.`, 'error'),
+        ],
+      })
     }
     const db = createDb(c.env.DB)
     const tournament = await getCurrentTournament(db)
@@ -311,7 +379,7 @@ export const modal_admin_tournament_edit = factory.modal(
     })
 
     if (tournament.status !== 'setup') {
-      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch((error) => {
+      await refreshTournamentLeaderboard(db, getKvStore(c.env), c.env.DISCORD_TOKEN).catch(error => {
         console.error('[admin:tournament:edit] failed to refresh tournament leaderboard', error)
       })
     }

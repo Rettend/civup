@@ -1,5 +1,5 @@
-import type { Context } from 'hono'
 import type { Env } from '../env.ts'
+import type { Context } from 'hono'
 import { readAuthorizedActivityIdentity } from '@civup/utils'
 import { hasAdminPermission } from '../services/permissions/index.ts'
 
@@ -13,7 +13,7 @@ export interface AuthenticatedActivityIdentity {
 
 export function requireAuthenticatedActivity(
   c: Context<Env>,
-): { ok: true, identity: AuthenticatedActivityIdentity } | { ok: false, response: Response } {
+): { ok: true; identity: AuthenticatedActivityIdentity } | { ok: false; response: Response } {
   const configuredSecret = c.env.CIVUP_SECRET?.trim() ?? ''
   if (configuredSecret.length === 0) {
     return {
@@ -47,12 +47,18 @@ export function hasAuthenticatedActivityAdminPermission(
   identity: AuthenticatedActivityIdentity,
 ): boolean {
   const allowedGuildId = env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
-  return allowedGuildId.length > 0
-    && identity.guildId === allowedGuildId
-    && hasAdminPermission({ permissions: identity.guildPermissions ?? undefined })
+  return (
+    allowedGuildId.length > 0 &&
+    identity.guildId === allowedGuildId &&
+    hasAdminPermission({ permissions: identity.guildPermissions ?? undefined })
+  )
 }
 
-export function rejectMismatchedActivityUser(c: Context<Env>, providedUserId: unknown, actualUserId: string): Response | null {
+export function rejectMismatchedActivityUser(
+  c: Context<Env>,
+  providedUserId: unknown,
+  actualUserId: string,
+): Response | null {
   if (providedUserId == null) return null
   if (typeof providedUserId !== 'string' || providedUserId.length === 0) {
     return c.json({ error: 'userId is required' }, 400)
@@ -63,7 +69,11 @@ export function rejectMismatchedActivityUser(c: Context<Env>, providedUserId: un
   return null
 }
 
-export function rejectMismatchedActivityParam(c: Context<Env>, actualUserId: string, paramName = 'userId'): Response | null {
+export function rejectMismatchedActivityParam(
+  c: Context<Env>,
+  actualUserId: string,
+  paramName = 'userId',
+): Response | null {
   const providedUserId = c.req.param(paramName)
   if (!providedUserId || providedUserId === actualUserId) return null
   return c.json({ error: 'Authenticated activity user mismatch' }, 403)

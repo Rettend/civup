@@ -1,4 +1,3 @@
-import { Database } from 'bun:sqlite'
 import type { CivReplayMapTileSnapshot } from './civreplay/map.ts'
 import type {
   CivReplayCitySnapshot,
@@ -7,13 +6,14 @@ import type {
   CivReplayProgressionSnapshot,
 } from './civreplay/players.ts'
 import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
-import type { HashResolver } from './hash.ts'
 import type {
   CivReplayTradeRouteDistrictYieldRule,
   CivReplayTradeRoutePolicyYieldRule,
   CivReplayTradeRoutePolicyYieldScope,
   CivReplayTradeRouteUnsupportedPolicyModifier,
 } from './civreplay/trade-routes.ts'
+import type { HashResolver } from './hash.ts'
+import { Database } from 'bun:sqlite'
 import { createCivReplayCityAttributionContext, inferTileOwningCity } from './civreplay/city-attribution.ts'
 import { civHash, formatHash } from './hash.ts'
 
@@ -218,7 +218,11 @@ export function loadOpeningMapAnalysisData(hashResolver: HashResolver): OpeningM
       const tradeRoutePolicyYields = loadTradeRoutePolicyYields(db)
       return {
         adjacencyRules: loadDistrictAdjacencyRules(db),
-        luxuryResourceHashes: new Set([...resourceClasses].filter(([, resourceClass]) => resourceClass === 'RESOURCECLASS_LUXURY').map(([hash]) => hash)),
+        luxuryResourceHashes: new Set(
+          [...resourceClasses]
+            .filter(([, resourceClass]) => resourceClass === 'RESOURCECLASS_LUXURY')
+            .map(([hash]) => hash),
+        ),
         resourceClasses,
         districtDefinitions: loadDistrictDefinitions(db),
         districtReplacements: loadDistrictReplacements(db),
@@ -228,12 +232,10 @@ export function loadOpeningMapAnalysisData(hashResolver: HashResolver): OpeningM
         tradeRoutePolicyYields: tradeRoutePolicyYields.supported,
         unsupportedTradeRoutePolicyModifiers: tradeRoutePolicyYields.unsupported,
       }
-    }
-    finally {
+    } finally {
       db.close()
     }
-  }
-  catch {
+  } catch {
     return createEmptyOpeningMapAnalysisData()
   }
 }
@@ -263,7 +265,16 @@ export function buildDistrictAdjacencyChanges(
       const rules = rulesByDistrict.get(districtType)
       if (!rules?.length) continue
 
-      const adjacency = computeDistrictAdjacency(snapshot, player, district, rules, hashResolver, data, tileByCoordinate, districtByCoordinate)
+      const adjacency = computeDistrictAdjacency(
+        snapshot,
+        player,
+        district,
+        rules,
+        hashResolver,
+        data,
+        tileByCoordinate,
+        districtByCoordinate,
+      )
       const city = cityById.get(district.cityId) ?? null
       const change: CivupOpeningDistrictAdjacencyChange = {
         turn: snapshot.turnFromName,
@@ -322,10 +333,10 @@ export function buildDistrictCostChanges(
       const estimatedFullCost = estimateFullDistrictCost(player, definition, data.progressionTotals, costMultiplier)
       if (estimatedFullCost == null || district.cost <= 0) continue
 
-
-      const discountPercent = estimatedFullCost > 0 ? Math.max(0, 1 - (district.cost / estimatedFullCost)) : null
-      const likelyDiscounted = estimatedFullCost - district.cost >= LIKELY_DISTRICT_DISCOUNT_MIN_DELTA
-        && district.cost <= estimatedFullCost * LIKELY_DISTRICT_DISCOUNT_RATIO
+      const discountPercent = estimatedFullCost > 0 ? Math.max(0, 1 - district.cost / estimatedFullCost) : null
+      const likelyDiscounted =
+        estimatedFullCost - district.cost >= LIKELY_DISTRICT_DISCOUNT_MIN_DELTA &&
+        district.cost <= estimatedFullCost * LIKELY_DISTRICT_DISCOUNT_RATIO
       const city = cityById.get(district.cityId) ?? null
       changes.push({
         turn: snapshot.turnFromName,
@@ -402,57 +413,69 @@ export function buildLuxuryOwnershipChanges(
 }
 
 function loadDistrictAdjacencyRules(db: Database): OpeningDistrictAdjacencyRule[] {
-  const rows = db.query<AdjacencyRow, []>(`
+  const rows = db
+    .query<AdjacencyRow, []>(`
     select da.DistrictType as DistrictType, ayc.*
     from District_Adjacencies da
     join Adjacency_YieldChanges ayc on ayc.ID = da.YieldChangeId
     where da.DistrictType is not null
       and ayc.ID is not null
       and ayc.YieldType is not null
-  `).all()
+  `)
+    .all()
 
-  return rows.map(row => ({
-    id: readString(row, 'ID') ?? readString(row, 'Description') ?? 'UNKNOWN_ADJACENCY',
-    districtType: readString(row, 'DistrictType') ?? '',
-    yieldType: readString(row, 'YieldType') ?? '',
-    yieldChange: readNumber(row, 'YieldChange', 0),
-    tilesRequired: Math.max(1, readNumber(row, 'TilesRequired', 1)),
-    adjacentDistrict: readString(row, 'AdjacentDistrict'),
-    otherDistrictAdjacent: readBoolean(row, 'OtherDistrictAdjacent'),
-    adjacentTerrain: readString(row, 'AdjacentTerrain'),
-    adjacentFeature: readString(row, 'AdjacentFeature'),
-    adjacentResource: readString(row, 'AdjacentResource'),
-    adjacentResourceClass: normalizeResourceClass(readString(row, 'AdjacentResourceClass')),
-    adjacentImprovement: readString(row, 'AdjacentImprovement'),
-    adjacentSeaResource: readBoolean(row, 'AdjacentSeaResource'),
-    adjacentWonder: readBoolean(row, 'AdjacentWonder'),
-    adjacentNaturalWonder: readBoolean(row, 'AdjacentNaturalWonder'),
-    adjacentRiver: readBoolean(row, 'AdjacentRiver'),
-    prereqTech: readString(row, 'PrereqTech'),
-    prereqCivic: readString(row, 'PrereqCivic'),
-    obsoleteTech: readString(row, 'ObsoleteTech'),
-    self: readBoolean(row, 'Self'),
-  })).filter(rule => rule.districtType && rule.yieldType)
+  return rows
+    .map(row => ({
+      id: readString(row, 'ID') ?? readString(row, 'Description') ?? 'UNKNOWN_ADJACENCY',
+      districtType: readString(row, 'DistrictType') ?? '',
+      yieldType: readString(row, 'YieldType') ?? '',
+      yieldChange: readNumber(row, 'YieldChange', 0),
+      tilesRequired: Math.max(1, readNumber(row, 'TilesRequired', 1)),
+      adjacentDistrict: readString(row, 'AdjacentDistrict'),
+      otherDistrictAdjacent: readBoolean(row, 'OtherDistrictAdjacent'),
+      adjacentTerrain: readString(row, 'AdjacentTerrain'),
+      adjacentFeature: readString(row, 'AdjacentFeature'),
+      adjacentResource: readString(row, 'AdjacentResource'),
+      adjacentResourceClass: normalizeResourceClass(readString(row, 'AdjacentResourceClass')),
+      adjacentImprovement: readString(row, 'AdjacentImprovement'),
+      adjacentSeaResource: readBoolean(row, 'AdjacentSeaResource'),
+      adjacentWonder: readBoolean(row, 'AdjacentWonder'),
+      adjacentNaturalWonder: readBoolean(row, 'AdjacentNaturalWonder'),
+      adjacentRiver: readBoolean(row, 'AdjacentRiver'),
+      prereqTech: readString(row, 'PrereqTech'),
+      prereqCivic: readString(row, 'PrereqCivic'),
+      obsoleteTech: readString(row, 'ObsoleteTech'),
+      self: readBoolean(row, 'Self'),
+    }))
+    .filter(rule => rule.districtType && rule.yieldType)
 }
 
 function loadResourceClasses(db: Database): Map<number, string> {
-  const rows = db.query<ResourceRow, []>(`
+  const rows = db
+    .query<ResourceRow, []>(`
     select ResourceType, ResourceClassType
     from Resources
     where ResourceType is not null and ResourceClassType is not null
-  `).all()
-  return new Map(rows
-    .filter((row): row is { ResourceType: string, ResourceClassType: string } => Boolean(row.ResourceType && row.ResourceClassType))
-    .map(row => [civHash(row.ResourceType), row.ResourceClassType]))
+  `)
+    .all()
+  return new Map(
+    rows
+      .filter((row): row is { ResourceType: string; ResourceClassType: string } =>
+        Boolean(row.ResourceType && row.ResourceClassType),
+      )
+      .map(row => [civHash(row.ResourceType), row.ResourceClassType]),
+  )
 }
 
 function loadDistrictDefinitions(db: Database): Map<string, OpeningDistrictDefinition> {
-  const rows = db.query<DistrictRow, []>(`
+  const rows = db
+    .query<DistrictRow, []>(`
     select DistrictType, Cost, PrereqTech, PrereqCivic, RequiresPlacement, RequiresPopulation,
            CityCenter, Aqueduct, InternalOnly, CostProgressionModel, CostProgressionParam1, MaxPerPlayer
     from Districts
     where DistrictType is not null
-  `).all()
+  `)
+    .all()
 
   const definitions = new Map<string, OpeningDistrictDefinition>()
   for (const row of rows) {
@@ -477,25 +500,37 @@ function loadDistrictDefinitions(db: Database): Map<string, OpeningDistrictDefin
 }
 
 function loadDistrictReplacements(db: Database): Map<string, string> {
-  const rows = db.query<DistrictReplacementRow, []>(`
+  const rows = db
+    .query<DistrictReplacementRow, []>(`
     select CivUniqueDistrictType, ReplacesDistrictType
     from DistrictReplaces
     where CivUniqueDistrictType is not null and ReplacesDistrictType is not null
-  `).all()
-  return new Map(rows
-    .filter((row): row is { CivUniqueDistrictType: string, ReplacesDistrictType: string } => Boolean(row.CivUniqueDistrictType && row.ReplacesDistrictType))
-    .map(row => [row.CivUniqueDistrictType, row.ReplacesDistrictType]))
+  `)
+    .all()
+  return new Map(
+    rows
+      .filter((row): row is { CivUniqueDistrictType: string; ReplacesDistrictType: string } =>
+        Boolean(row.CivUniqueDistrictType && row.ReplacesDistrictType),
+      )
+      .map(row => [row.CivUniqueDistrictType, row.ReplacesDistrictType]),
+  )
 }
 
 function loadGameSpeeds(db: Database): Map<string, OpeningGameSpeedDefinition> {
-  const rows = db.query<GameSpeedRow, []>(`
+  const rows = db
+    .query<GameSpeedRow, []>(`
     select GameSpeedType, CostMultiplier
     from GameSpeeds
     where GameSpeedType is not null and CostMultiplier is not null
-  `).all()
-  return new Map(rows
-    .filter((row): row is { GameSpeedType: string, CostMultiplier: number } => Boolean(row.GameSpeedType && typeof row.CostMultiplier === 'number'))
-    .map(row => [row.GameSpeedType, { gameSpeedType: row.GameSpeedType, costMultiplier: row.CostMultiplier }]))
+  `)
+    .all()
+  return new Map(
+    rows
+      .filter((row): row is { GameSpeedType: string; CostMultiplier: number } =>
+        Boolean(row.GameSpeedType && typeof row.CostMultiplier === 'number'),
+      )
+      .map(row => [row.GameSpeedType, { gameSpeedType: row.GameSpeedType, costMultiplier: row.CostMultiplier }]),
+  )
 }
 
 function loadProgressionTotals(db: Database): OpeningProgressionTotals {
@@ -506,11 +541,13 @@ function loadProgressionTotals(db: Database): OpeningProgressionTotals {
 }
 
 function loadTradeRouteDistrictYields(db: Database): CivReplayTradeRouteDistrictYieldRule[] {
-  const rows = db.query<TradeRouteDistrictYieldRow, []>(`
+  const rows = db
+    .query<TradeRouteDistrictYieldRow, []>(`
     select DistrictType, YieldType, YieldChangeAsOrigin, YieldChangeAsDomesticDestination, YieldChangeAsInternationalDestination
     from District_TradeRouteYields
     where DistrictType is not null and YieldType is not null
-  `).all()
+  `)
+    .all()
 
   return rows.flatMap(row => {
     if (!row.DistrictType || !row.YieldType) return []
@@ -525,15 +562,20 @@ function loadTradeRouteDistrictYields(db: Database): CivReplayTradeRouteDistrict
   })
 }
 
-function loadTradeRoutePolicyYields(db: Database): { supported: CivReplayTradeRoutePolicyYieldRule[], unsupported: CivReplayTradeRouteUnsupportedPolicyModifier[] } {
-  const rows = db.query<PolicyModifierRow, []>(`
+function loadTradeRoutePolicyYields(db: Database): {
+  supported: CivReplayTradeRoutePolicyYieldRule[]
+  unsupported: CivReplayTradeRouteUnsupportedPolicyModifier[]
+} {
+  const rows = db
+    .query<PolicyModifierRow, []>(`
     select pm.PolicyType, pm.ModifierId, m.ModifierType, yieldArg.Value as YieldType, amountArg.Value as Amount
     from PolicyModifiers pm
     join Modifiers m on m.ModifierId = pm.ModifierId
     left join ModifierArguments yieldArg on yieldArg.ModifierId = pm.ModifierId and yieldArg.Name = 'YieldType'
     left join ModifierArguments amountArg on amountArg.ModifierId = pm.ModifierId and amountArg.Name = 'Amount'
     where m.ModifierType like '%TRADE_ROUTE%YIELD%'
-  `).all()
+  `)
+    .all()
 
   const supported: CivReplayTradeRoutePolicyYieldRule[] = []
   const unsupported: CivReplayTradeRouteUnsupportedPolicyModifier[] = []
@@ -542,9 +584,14 @@ function loadTradeRoutePolicyYields(db: Database): { supported: CivReplayTradeRo
     const scope = tradeRoutePolicyYieldScope(row.ModifierType)
     const amount = readPolicyModifierAmount(row.Amount)
     if (scope && row.YieldType && amount != null) {
-      supported.push({ policyType: row.PolicyType, modifierId: row.ModifierId, yieldType: row.YieldType, amount, scope })
-    }
-    else {
+      supported.push({
+        policyType: row.PolicyType,
+        modifierId: row.ModifierId,
+        yieldType: row.YieldType,
+        amount,
+        scope,
+      })
+    } else {
       unsupported.push({ policyType: row.PolicyType, modifierId: row.ModifierId, modifierType: row.ModifierType })
     }
   }
@@ -574,7 +621,7 @@ function computeDistrictAdjacency(
   data: OpeningMapAnalysisData,
   tileByCoordinate: ReadonlyMap<string, CivReplayMapTileSnapshot>,
   districtByCoordinate: ReadonlyMap<string, DistrictRef>,
-): { totals: Record<string, number>, parts: CivupOpeningDistrictAdjacencyPart[], unsupported: string[] } {
+): { totals: Record<string, number>; parts: CivupOpeningDistrictAdjacencyPart[]; unsupported: string[] } {
   const totals = new Map<string, number>()
   const parts: CivupOpeningDistrictAdjacencyPart[] = []
   const unsupported = new Set<string>()
@@ -601,7 +648,7 @@ function computeDistrictAdjacency(
 
 function countAdjacencyRuleMatches(
   rule: OpeningDistrictAdjacencyRule,
-  coordinates: ReadonlyArray<{ x: number, y: number }>,
+  coordinates: ReadonlyArray<{ x: number; y: number }>,
   hashResolver: HashResolver,
   data: OpeningMapAnalysisData,
   tileByCoordinate: ReadonlyMap<string, CivReplayMapTileSnapshot>,
@@ -677,7 +724,9 @@ function inferOwnedTiles(snapshot: CivReplayTurnSnapshot, playerId: number): Own
   return owned
 }
 
-function groupRulesByDistrict(rules: readonly OpeningDistrictAdjacencyRule[]): Map<string, OpeningDistrictAdjacencyRule[]> {
+function groupRulesByDistrict(
+  rules: readonly OpeningDistrictAdjacencyRule[],
+): Map<string, OpeningDistrictAdjacencyRule[]> {
   const grouped = new Map<string, OpeningDistrictAdjacencyRule[]>()
   for (const rule of rules) {
     const items = grouped.get(rule.districtType) ?? []
@@ -687,7 +736,10 @@ function groupRulesByDistrict(rules: readonly OpeningDistrictAdjacencyRule[]): M
   return grouped
 }
 
-function buildDistrictCoordinateMap(snapshot: CivReplayTurnSnapshot, hashResolver: HashResolver): Map<string, DistrictRef> {
+function buildDistrictCoordinateMap(
+  snapshot: CivReplayTurnSnapshot,
+  hashResolver: HashResolver,
+): Map<string, DistrictRef> {
   const districts = new Map<string, DistrictRef>()
   for (const player of snapshot.players.players) {
     for (const district of player.districts) {
@@ -716,7 +768,8 @@ function estimateFullDistrictCost(
 ): number | null {
   if (definition.cost <= 0) return null
   const baseCost = definition.cost * (costMultiplier / 100)
-  if (definition.costProgressionModel !== 'COST_PROGRESSION_NUM_UNDER_AVG_PLUS_TECH') return Math.max(1, Math.floor(baseCost))
+  if (definition.costProgressionModel !== 'COST_PROGRESSION_NUM_UNDER_AVG_PLUS_TECH')
+    return Math.max(1, Math.floor(baseCost))
 
   const techRatio = totals.tech > 0 ? countCompletedProgression(player.techs) / totals.tech : 0
   const civicRatio = totals.civic > 0 ? countCompletedProgression(player.civics) / totals.civic : 0
@@ -749,7 +802,12 @@ function unsupportedFeatures(rule: OpeningDistrictAdjacencyRule): string[] {
   return unsupported
 }
 
-function neighborCoordinates(x: number, y: number, width: number, height: number | null): Array<{ x: number, y: number }> {
+function neighborCoordinates(
+  x: number,
+  y: number,
+  width: number,
+  height: number | null,
+): Array<{ x: number; y: number }> {
   const odd = y % 2 !== 0
   const candidates = odd
     ? [
@@ -768,7 +826,13 @@ function neighborCoordinates(x: number, y: number, width: number, height: number
         { x: x - 1, y: y + 1 },
         { x, y: y + 1 },
       ]
-  return candidates.filter(candidate => candidate.x >= 0 && candidate.y >= 0 && (width <= 0 || candidate.x < width) && (height == null || candidate.y < height))
+  return candidates.filter(
+    candidate =>
+      candidate.x >= 0 &&
+      candidate.y >= 0 &&
+      (width <= 0 || candidate.x < width) &&
+      (height == null || candidate.y < height),
+  )
 }
 
 function coordinateKey(x: number, y: number): string {
@@ -784,19 +848,42 @@ function districtKey(district: CivReplayDistrictSnapshot): string {
 }
 
 function compareDistricts(left: CivReplayDistrictSnapshot, right: CivReplayDistrictSnapshot): number {
-  return left.cityId - right.cityId || left.globalId - right.globalId || left.id - right.id || left.x - right.x || left.y - right.y
+  return (
+    left.cityId - right.cityId ||
+    left.globalId - right.globalId ||
+    left.id - right.id ||
+    left.x - right.x ||
+    left.y - right.y
+  )
 }
 
-function compareAdjacencyParts(left: CivupOpeningDistrictAdjacencyPart, right: CivupOpeningDistrictAdjacencyPart): number {
+function compareAdjacencyParts(
+  left: CivupOpeningDistrictAdjacencyPart,
+  right: CivupOpeningDistrictAdjacencyPart,
+): number {
   return left.yieldType.localeCompare(right.yieldType) || left.id.localeCompare(right.id)
 }
 
 function compareLuxuryResources(left: CivupOpeningLuxuryResource, right: CivupOpeningLuxuryResource): number {
-  return left.resourceType.localeCompare(right.resourceType) || left.x - right.x || left.y - right.y || left.cityId - right.cityId || String(left.improvementType ?? '').localeCompare(String(right.improvementType ?? ''))
+  return (
+    left.resourceType.localeCompare(right.resourceType) ||
+    left.x - right.x ||
+    left.y - right.y ||
+    left.cityId - right.cityId ||
+    String(left.improvementType ?? '').localeCompare(String(right.improvementType ?? ''))
+  )
 }
 
-function compareDistrictCostChanges(left: CivupOpeningDistrictCostChange, right: CivupOpeningDistrictCostChange): number {
-  return compareNullableNumbers(left.turn, right.turn) || left.cityId - right.cityId || left.districtGlobalId - right.districtGlobalId || left.districtId - right.districtId
+function compareDistrictCostChanges(
+  left: CivupOpeningDistrictCostChange,
+  right: CivupOpeningDistrictCostChange,
+): number {
+  return (
+    compareNullableNumbers(left.turn, right.turn) ||
+    left.cityId - right.cityId ||
+    left.districtGlobalId - right.districtGlobalId ||
+    left.districtId - right.districtId
+  )
 }
 
 function findPlayer(snapshot: CivReplayTurnSnapshot, playerId: number): CivReplayPlayerSnapshot | null {
@@ -808,7 +895,7 @@ function resolveTypeName(hash: number, hashResolver: HashResolver): string {
 }
 
 function isHashPresent(hash: number): boolean {
-  return hash !== 0 && hash !== 0xFFFFFFFF
+  return hash !== 0 && hash !== 0xffffffff
 }
 
 function isWaterTerrain(terrain: string | null): boolean {

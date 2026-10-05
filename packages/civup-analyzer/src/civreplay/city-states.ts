@@ -1,8 +1,14 @@
+import { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
 
-export type CivReplayCityStateCategory = 'scientific' | 'religious' | 'trade' | 'cultural' | 'militaristic' | 'industrial'
+export type CivReplayCityStateCategory =
+  | 'scientific'
+  | 'religious'
+  | 'trade'
+  | 'cultural'
+  | 'militaristic'
+  | 'industrial'
 export type CivReplayCityStateStatus = 'alive' | 'captured'
 export type CivReplayCityStateOwnerKind = 'major' | 'minor' | 'unknown'
 export type CivReplayCityStateSuzerainStatus = 'suzerained' | 'tied' | 'none' | 'unknown'
@@ -115,54 +121,300 @@ const STATIC_CITY_STATES: Array<{
   description?: string
   displayName?: string
 }> = [
-  { civilizationType: 'CIVILIZATION_AKKAD', leaderType: 'LEADER_MINOR_CIV_AKKAD', category: 'militaristic', capitalName: 'LOC_CITY_NAME_AKKAD' },
-  { civilizationType: 'CIVILIZATION_ANTANANARIVO', leaderType: 'LEADER_MINOR_CIV_ANTANANARIVO', category: 'cultural', capitalName: 'LOC_CITY_NAME_ANTANANARIVO' },
-  { civilizationType: 'CIVILIZATION_ANTIOCH', leaderType: 'LEADER_MINOR_CIV_ANTIOCH', category: 'trade', capitalName: 'LOC_CITY_NAME_ANTIOCH' },
-  { civilizationType: 'CIVILIZATION_ARMAGH', leaderType: 'LEADER_MINOR_CIV_ARMAGH', category: 'religious', capitalName: 'LOC_CITY_NAME_ARMAGH' },
-  { civilizationType: 'CIVILIZATION_AUCKLAND', leaderType: 'LEADER_MINOR_CIV_AUCKLAND', category: 'industrial', capitalName: 'LOC_CITY_NAME_AUCKLAND' },
-  { civilizationType: 'CIVILIZATION_AYUTTHAYA', leaderType: 'LEADER_MINOR_CIV_AYUTTHAYA', category: 'cultural', capitalName: 'LOC_CITY_NAME_AYUTTHAYA' },
-  { civilizationType: 'CIVILIZATION_BABYLON', leaderType: 'LEADER_MINOR_CIV_BABYLON', category: 'scientific', capitalName: 'LOC_CITY_NAME_BABYLON' },
-  { civilizationType: 'CIVILIZATION_BOLOGNA', leaderType: 'LEADER_MINOR_CIV_BOLOGNA', category: 'scientific', capitalName: 'LOC_CITY_NAME_BOLOGNA' },
-  { civilizationType: 'CIVILIZATION_BRUSSELS', leaderType: 'LEADER_MINOR_CIV_BRUSSELS', category: 'industrial', capitalName: 'LOC_CITY_NAME_BRUSSELS' },
-  { civilizationType: 'CIVILIZATION_BUENOS_AIRES', leaderType: 'LEADER_MINOR_CIV_BUENOS_AIRES', category: 'industrial', capitalName: 'LOC_CITY_NAME_BUENOS_AIRES' },
-  { civilizationType: 'CIVILIZATION_CAGUANA', leaderType: 'LEADER_MINOR_CIV_CAGUANA', category: 'cultural', capitalName: 'LOC_CITY_NAME_CAGUANA' },
-  { civilizationType: 'CIVILIZATION_CAHOKIA', leaderType: 'LEADER_MINOR_CIV_CAHOKIA', category: 'trade', capitalName: 'LOC_CITY_NAME_CAHOKIA' },
-  { civilizationType: 'CIVILIZATION_CARDIFF', leaderType: 'LEADER_MINOR_CIV_CARDIFF', category: 'industrial', capitalName: 'LOC_CITY_NAME_CARDIFF' },
-  { civilizationType: 'CIVILIZATION_CHINGUETTI', leaderType: 'LEADER_MINOR_CIV_CHINGUETTI', category: 'religious', capitalName: 'LOC_CITY_NAME_CHINGUETTI' },
-  { civilizationType: 'CIVILIZATION_FEZ', leaderType: 'LEADER_MINOR_CIV_FEZ', category: 'scientific', capitalName: 'LOC_CITY_NAME_FEZ' },
-  { civilizationType: 'CIVILIZATION_GENEVA', leaderType: 'LEADER_MINOR_CIV_GENEVA', category: 'scientific', capitalName: 'LOC_CITY_NAME_GENEVA' },
-  { civilizationType: 'CIVILIZATION_GRANADA', leaderType: 'LEADER_MINOR_CIV_GRANADA', category: 'militaristic', capitalName: 'LOC_CITY_NAME_GRANADA' },
-  { civilizationType: 'CIVILIZATION_HATTUSA', leaderType: 'LEADER_MINOR_CIV_HATTUSA', category: 'scientific', capitalName: 'LOC_CITY_NAME_HATTUSA' },
-  { civilizationType: 'CIVILIZATION_HONG_KONG', leaderType: 'LEADER_MINOR_CIV_HONG_KONG', category: 'industrial', capitalName: 'LOC_CITY_NAME_HONG_KONG' },
-  { civilizationType: 'CIVILIZATION_HUNZA', leaderType: 'LEADER_MINOR_CIV_HUNZA', category: 'trade', capitalName: 'LOC_CITY_NAME_HUNZA' },
-  { civilizationType: 'CIVILIZATION_JAKARTA', leaderType: 'LEADER_MINOR_CIV_JAKARTA', category: 'trade', capitalName: 'LOC_CITY_NAME_BANDAR_BRUNEI', name: 'LOC_CIVILIZATION_BANDAR_BRUNEI_NAME', description: 'LOC_CIVILIZATION_BANDAR_BRUNEI_DESCRIPTION', displayName: 'Bandar Brunei' },
-  { civilizationType: 'CIVILIZATION_JERUSALEM', leaderType: 'LEADER_MINOR_CIV_JERUSALEM', category: 'religious', capitalName: 'LOC_CITY_NAME_JERUSALEM' },
-  { civilizationType: 'CIVILIZATION_JOHANNESBURG', leaderType: 'LEADER_MINOR_CIV_JOHANNESBURG', category: 'industrial', capitalName: 'LOC_CITY_NAME_JOHANNESBURG' },
-  { civilizationType: 'CIVILIZATION_KABUL', leaderType: 'LEADER_MINOR_CIV_KABUL', category: 'militaristic', capitalName: 'LOC_CITY_NAME_KABUL' },
-  { civilizationType: 'CIVILIZATION_KANDY', leaderType: 'LEADER_MINOR_CIV_KANDY', category: 'religious', capitalName: 'LOC_CITY_NAME_KANDY' },
-  { civilizationType: 'CIVILIZATION_KUMASI', leaderType: 'LEADER_MINOR_CIV_KUMASI', category: 'cultural', capitalName: 'LOC_CITY_NAME_KUMASI' },
-  { civilizationType: 'CIVILIZATION_LAHORE', leaderType: 'LEADER_MINOR_CIV_LAHORE', category: 'militaristic', capitalName: 'LOC_CITY_NAME_LAHORE' },
-  { civilizationType: 'CIVILIZATION_LA_VENTA', leaderType: 'LEADER_MINOR_CIV_LA_VENTA', category: 'religious', capitalName: 'LOC_CITY_NAME_LA_VENTA' },
-  { civilizationType: 'CIVILIZATION_LISBON', leaderType: 'LEADER_MINOR_CIV_LISBON', category: 'trade', capitalName: 'LOC_CITY_NAME_LISBON' },
-  { civilizationType: 'CIVILIZATION_MEXICO_CITY', leaderType: 'LEADER_MINOR_CIV_MEXICO_CITY', category: 'industrial', capitalName: 'LOC_CITY_NAME_MEXICO_CITY' },
-  { civilizationType: 'CIVILIZATION_MOHENJO_DARO', leaderType: 'LEADER_MINOR_CIV_MOHENJO_DARO', category: 'cultural', capitalName: 'LOC_CITY_NAME_MOHENJO_DARO' },
-  { civilizationType: 'CIVILIZATION_MUSCAT', leaderType: 'LEADER_MINOR_CIV_MUSCAT', category: 'trade', capitalName: 'LOC_CITY_NAME_MUSCAT' },
-  { civilizationType: 'CIVILIZATION_NALANDA', leaderType: 'LEADER_MINOR_CIV_NALANDA', category: 'scientific', capitalName: 'LOC_CITY_NAME_NALANDA' },
-  { civilizationType: 'CIVILIZATION_NAN_MADOL', leaderType: 'LEADER_MINOR_CIV_NAN_MADOL', category: 'cultural', capitalName: 'LOC_CITY_NAME_NAN_MADOL' },
-  { civilizationType: 'CIVILIZATION_NAZCA', leaderType: 'LEADER_MINOR_CIV_NAZCA', category: 'religious', capitalName: 'LOC_CITY_NAME_NAZCA' },
-  { civilizationType: 'CIVILIZATION_NGAZARGAMU', leaderType: 'LEADER_MINOR_CIV_NGAZARGAMU', category: 'militaristic', capitalName: 'LOC_CITY_NAME_NGAZARGAMU' },
-  { civilizationType: 'CIVILIZATION_PALENQUE', leaderType: 'LEADER_MINOR_CIV_PALENQUE', category: 'scientific', capitalName: 'LOC_CITY_NAME_PALENQUE', name: 'LOC_CIVILIZATION_MITLA_NAME', description: 'LOC_CIVILIZATION_MITLA_DESCRIPTION', displayName: 'Mitla' },
-  { civilizationType: 'CIVILIZATION_PRESLAV', leaderType: 'LEADER_MINOR_CIV_PRESLAV', category: 'militaristic', capitalName: 'LOC_CITY_NAME_PRESLAV' },
-  { civilizationType: 'CIVILIZATION_RAPA_NUI', leaderType: 'LEADER_MINOR_CIV_RAPA_NUI', category: 'cultural', capitalName: 'LOC_CITY_NAME_RAPA_NUI' },
-  { civilizationType: 'CIVILIZATION_SAMARKAND', leaderType: 'LEADER_MINOR_CIV_SAMARKAND', category: 'trade', capitalName: 'LOC_CITY_NAME_SAMARKAND' },
-  { civilizationType: 'CIVILIZATION_SINGAPORE', leaderType: 'LEADER_MINOR_CIV_SINGAPORE', category: 'industrial', capitalName: 'LOC_CITY_NAME_SINGAPORE' },
-  { civilizationType: 'CIVILIZATION_TARUGA', leaderType: 'LEADER_MINOR_CIV_TARUGA', category: 'scientific', capitalName: 'LOC_CITY_NAME_TARUGA' },
-  { civilizationType: 'CIVILIZATION_VALLETTA', leaderType: 'LEADER_MINOR_CIV_VALLETTA', category: 'militaristic', capitalName: 'LOC_CITY_NAME_VALLETTA' },
-  { civilizationType: 'CIVILIZATION_VATICAN_CITY', leaderType: 'LEADER_MINOR_CIV_VATICAN_CITY', category: 'religious', capitalName: 'LOC_CITY_NAME_VATICAN_CITY' },
-  { civilizationType: 'CIVILIZATION_VILNIUS', leaderType: 'LEADER_MINOR_CIV_VILNIUS', category: 'cultural', capitalName: 'LOC_CITY_NAME_VILNIUS' },
-  { civilizationType: 'CIVILIZATION_WOLIN', leaderType: 'LEADER_MINOR_CIV_WOLIN', category: 'militaristic', capitalName: 'LOC_CITY_NAME_WOLIN' },
-  { civilizationType: 'CIVILIZATION_YEREVAN', leaderType: 'LEADER_MINOR_CIV_YEREVAN', category: 'religious', capitalName: 'LOC_CITY_NAME_YEREVAN' },
-  { civilizationType: 'CIVILIZATION_ZANZIBAR', leaderType: 'LEADER_MINOR_CIV_ZANZIBAR', category: 'trade', capitalName: 'LOC_CITY_NAME_ZANZIBAR' },
+  {
+    civilizationType: 'CIVILIZATION_AKKAD',
+    leaderType: 'LEADER_MINOR_CIV_AKKAD',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_AKKAD',
+  },
+  {
+    civilizationType: 'CIVILIZATION_ANTANANARIVO',
+    leaderType: 'LEADER_MINOR_CIV_ANTANANARIVO',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_ANTANANARIVO',
+  },
+  {
+    civilizationType: 'CIVILIZATION_ANTIOCH',
+    leaderType: 'LEADER_MINOR_CIV_ANTIOCH',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_ANTIOCH',
+  },
+  {
+    civilizationType: 'CIVILIZATION_ARMAGH',
+    leaderType: 'LEADER_MINOR_CIV_ARMAGH',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_ARMAGH',
+  },
+  {
+    civilizationType: 'CIVILIZATION_AUCKLAND',
+    leaderType: 'LEADER_MINOR_CIV_AUCKLAND',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_AUCKLAND',
+  },
+  {
+    civilizationType: 'CIVILIZATION_AYUTTHAYA',
+    leaderType: 'LEADER_MINOR_CIV_AYUTTHAYA',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_AYUTTHAYA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_BABYLON',
+    leaderType: 'LEADER_MINOR_CIV_BABYLON',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_BABYLON',
+  },
+  {
+    civilizationType: 'CIVILIZATION_BOLOGNA',
+    leaderType: 'LEADER_MINOR_CIV_BOLOGNA',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_BOLOGNA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_BRUSSELS',
+    leaderType: 'LEADER_MINOR_CIV_BRUSSELS',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_BRUSSELS',
+  },
+  {
+    civilizationType: 'CIVILIZATION_BUENOS_AIRES',
+    leaderType: 'LEADER_MINOR_CIV_BUENOS_AIRES',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_BUENOS_AIRES',
+  },
+  {
+    civilizationType: 'CIVILIZATION_CAGUANA',
+    leaderType: 'LEADER_MINOR_CIV_CAGUANA',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_CAGUANA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_CAHOKIA',
+    leaderType: 'LEADER_MINOR_CIV_CAHOKIA',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_CAHOKIA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_CARDIFF',
+    leaderType: 'LEADER_MINOR_CIV_CARDIFF',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_CARDIFF',
+  },
+  {
+    civilizationType: 'CIVILIZATION_CHINGUETTI',
+    leaderType: 'LEADER_MINOR_CIV_CHINGUETTI',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_CHINGUETTI',
+  },
+  {
+    civilizationType: 'CIVILIZATION_FEZ',
+    leaderType: 'LEADER_MINOR_CIV_FEZ',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_FEZ',
+  },
+  {
+    civilizationType: 'CIVILIZATION_GENEVA',
+    leaderType: 'LEADER_MINOR_CIV_GENEVA',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_GENEVA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_GRANADA',
+    leaderType: 'LEADER_MINOR_CIV_GRANADA',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_GRANADA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_HATTUSA',
+    leaderType: 'LEADER_MINOR_CIV_HATTUSA',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_HATTUSA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_HONG_KONG',
+    leaderType: 'LEADER_MINOR_CIV_HONG_KONG',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_HONG_KONG',
+  },
+  {
+    civilizationType: 'CIVILIZATION_HUNZA',
+    leaderType: 'LEADER_MINOR_CIV_HUNZA',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_HUNZA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_JAKARTA',
+    leaderType: 'LEADER_MINOR_CIV_JAKARTA',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_BANDAR_BRUNEI',
+    name: 'LOC_CIVILIZATION_BANDAR_BRUNEI_NAME',
+    description: 'LOC_CIVILIZATION_BANDAR_BRUNEI_DESCRIPTION',
+    displayName: 'Bandar Brunei',
+  },
+  {
+    civilizationType: 'CIVILIZATION_JERUSALEM',
+    leaderType: 'LEADER_MINOR_CIV_JERUSALEM',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_JERUSALEM',
+  },
+  {
+    civilizationType: 'CIVILIZATION_JOHANNESBURG',
+    leaderType: 'LEADER_MINOR_CIV_JOHANNESBURG',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_JOHANNESBURG',
+  },
+  {
+    civilizationType: 'CIVILIZATION_KABUL',
+    leaderType: 'LEADER_MINOR_CIV_KABUL',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_KABUL',
+  },
+  {
+    civilizationType: 'CIVILIZATION_KANDY',
+    leaderType: 'LEADER_MINOR_CIV_KANDY',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_KANDY',
+  },
+  {
+    civilizationType: 'CIVILIZATION_KUMASI',
+    leaderType: 'LEADER_MINOR_CIV_KUMASI',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_KUMASI',
+  },
+  {
+    civilizationType: 'CIVILIZATION_LAHORE',
+    leaderType: 'LEADER_MINOR_CIV_LAHORE',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_LAHORE',
+  },
+  {
+    civilizationType: 'CIVILIZATION_LA_VENTA',
+    leaderType: 'LEADER_MINOR_CIV_LA_VENTA',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_LA_VENTA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_LISBON',
+    leaderType: 'LEADER_MINOR_CIV_LISBON',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_LISBON',
+  },
+  {
+    civilizationType: 'CIVILIZATION_MEXICO_CITY',
+    leaderType: 'LEADER_MINOR_CIV_MEXICO_CITY',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_MEXICO_CITY',
+  },
+  {
+    civilizationType: 'CIVILIZATION_MOHENJO_DARO',
+    leaderType: 'LEADER_MINOR_CIV_MOHENJO_DARO',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_MOHENJO_DARO',
+  },
+  {
+    civilizationType: 'CIVILIZATION_MUSCAT',
+    leaderType: 'LEADER_MINOR_CIV_MUSCAT',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_MUSCAT',
+  },
+  {
+    civilizationType: 'CIVILIZATION_NALANDA',
+    leaderType: 'LEADER_MINOR_CIV_NALANDA',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_NALANDA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_NAN_MADOL',
+    leaderType: 'LEADER_MINOR_CIV_NAN_MADOL',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_NAN_MADOL',
+  },
+  {
+    civilizationType: 'CIVILIZATION_NAZCA',
+    leaderType: 'LEADER_MINOR_CIV_NAZCA',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_NAZCA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_NGAZARGAMU',
+    leaderType: 'LEADER_MINOR_CIV_NGAZARGAMU',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_NGAZARGAMU',
+  },
+  {
+    civilizationType: 'CIVILIZATION_PALENQUE',
+    leaderType: 'LEADER_MINOR_CIV_PALENQUE',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_PALENQUE',
+    name: 'LOC_CIVILIZATION_MITLA_NAME',
+    description: 'LOC_CIVILIZATION_MITLA_DESCRIPTION',
+    displayName: 'Mitla',
+  },
+  {
+    civilizationType: 'CIVILIZATION_PRESLAV',
+    leaderType: 'LEADER_MINOR_CIV_PRESLAV',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_PRESLAV',
+  },
+  {
+    civilizationType: 'CIVILIZATION_RAPA_NUI',
+    leaderType: 'LEADER_MINOR_CIV_RAPA_NUI',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_RAPA_NUI',
+  },
+  {
+    civilizationType: 'CIVILIZATION_SAMARKAND',
+    leaderType: 'LEADER_MINOR_CIV_SAMARKAND',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_SAMARKAND',
+  },
+  {
+    civilizationType: 'CIVILIZATION_SINGAPORE',
+    leaderType: 'LEADER_MINOR_CIV_SINGAPORE',
+    category: 'industrial',
+    capitalName: 'LOC_CITY_NAME_SINGAPORE',
+  },
+  {
+    civilizationType: 'CIVILIZATION_TARUGA',
+    leaderType: 'LEADER_MINOR_CIV_TARUGA',
+    category: 'scientific',
+    capitalName: 'LOC_CITY_NAME_TARUGA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_VALLETTA',
+    leaderType: 'LEADER_MINOR_CIV_VALLETTA',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_VALLETTA',
+  },
+  {
+    civilizationType: 'CIVILIZATION_VATICAN_CITY',
+    leaderType: 'LEADER_MINOR_CIV_VATICAN_CITY',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_VATICAN_CITY',
+  },
+  {
+    civilizationType: 'CIVILIZATION_VILNIUS',
+    leaderType: 'LEADER_MINOR_CIV_VILNIUS',
+    category: 'cultural',
+    capitalName: 'LOC_CITY_NAME_VILNIUS',
+  },
+  {
+    civilizationType: 'CIVILIZATION_WOLIN',
+    leaderType: 'LEADER_MINOR_CIV_WOLIN',
+    category: 'militaristic',
+    capitalName: 'LOC_CITY_NAME_WOLIN',
+  },
+  {
+    civilizationType: 'CIVILIZATION_YEREVAN',
+    leaderType: 'LEADER_MINOR_CIV_YEREVAN',
+    category: 'religious',
+    capitalName: 'LOC_CITY_NAME_YEREVAN',
+  },
+  {
+    civilizationType: 'CIVILIZATION_ZANZIBAR',
+    leaderType: 'LEADER_MINOR_CIV_ZANZIBAR',
+    category: 'trade',
+    capitalName: 'LOC_CITY_NAME_ZANZIBAR',
+  },
 ]
 
 export function createCityStateResolver(options: CreateCityStateResolverOptions = {}): CivReplayCityStateResolver {
@@ -175,10 +427,10 @@ export function createCityStateResolver(options: CreateCityStateResolverOptions 
   const dbPath = options.typesDbPath ?? (options.loadDefaultTypesDb === false ? null : findDefaultTypesDbPath())
   if (dbPath && existsSync(dbPath)) {
     try {
-      for (const definition of loadCityStatesFromSqlite(dbPath)) definitions.set(definition.civilizationType, definition)
+      for (const definition of loadCityStatesFromSqlite(dbPath))
+        definitions.set(definition.civilizationType, definition)
       sources.push(dbPath)
-    }
-    catch {
+    } catch {
       sources.push(`${dbPath} (failed)`)
     }
   }
@@ -214,7 +466,14 @@ export function buildCivReplayCityStateRoster(
       const ownerKind = isKnownMajor ? 'major' : ownsOneCity ? 'minor' : 'unknown'
       const alive = ownerKind === 'minor'
       if (!alive && !includeCapturedCapitalCities) continue
-      const snapshot = buildCityStateSnapshot(definition, city, player.id, ownerKind, alive, readCityStateInfluence(playerById.get(player.id) ?? null, majorPlayerIds, alive))
+      const snapshot = buildCityStateSnapshot(
+        definition,
+        city,
+        player.id,
+        ownerKind,
+        alive,
+        readCityStateInfluence(playerById.get(player.id) ?? null, majorPlayerIds, alive),
+      )
       const previous = byCityState.get(snapshot.cityStateId)
       if (!previous || compareCityStatePriority(snapshot, previous) < 0) byCityState.set(snapshot.cityStateId, snapshot)
     }
@@ -223,7 +482,9 @@ export function buildCivReplayCityStateRoster(
   const cityStates = [...byCityState.values()].sort(compareCityStateSnapshots)
   const aliveCount = cityStates.filter(cityState => cityState.alive).length
   const scientificCount = cityStates.filter(cityState => cityState.category === 'scientific').length
-  const scientificAliveCount = cityStates.filter(cityState => cityState.category === 'scientific' && cityState.alive).length
+  const scientificAliveCount = cityStates.filter(
+    cityState => cityState.category === 'scientific' && cityState.alive,
+  ).length
   return {
     count: cityStates.length,
     aliveCount,
@@ -235,7 +496,10 @@ export function buildCivReplayCityStateRoster(
   }
 }
 
-export function cityStateCategoryFromLeader(leaderType: string | null | undefined, inheritFrom?: string | null): CivReplayCityStateCategory | null {
+export function cityStateCategoryFromLeader(
+  leaderType: string | null | undefined,
+  inheritFrom?: string | null,
+): CivReplayCityStateCategory | null {
   const value = inheritFrom ?? leaderType
   if (leaderType === 'LEADER_MINOR_CIV_SCIENTIFIC' || value === 'LEADER_MINOR_CIV_SCIENTIFIC') return 'scientific'
   if (leaderType === 'LEADER_MINOR_CIV_RELIGIOUS' || value === 'LEADER_MINOR_CIV_RELIGIOUS') return 'religious'
@@ -296,7 +560,8 @@ function readCityStateInfluence(
     .sort((left, right) => right.envoys - left.envoys || left.playerId - right.playerId)
 
   const best = envoys[0] ?? null
-  if (!best || best.envoys < 3) return { envoys, suzerainPlayerId: null, suzerainEnvoys: best?.envoys ?? 0, suzerainStatus: 'none' }
+  if (!best || best.envoys < 3)
+    return { envoys, suzerainPlayerId: null, suzerainEnvoys: best?.envoys ?? 0, suzerainStatus: 'none' }
   const tied = envoys.filter(item => item.envoys === best.envoys)
   if (tied.length > 1) return { envoys, suzerainPlayerId: null, suzerainEnvoys: best.envoys, suzerainStatus: 'tied' }
   return { envoys, suzerainPlayerId: best.playerId, suzerainEnvoys: best.envoys, suzerainStatus: 'suzerained' }
@@ -318,7 +583,8 @@ function buildStaticCityStateDefinitions(): CivReplayCityStateDefinition[] {
 function loadCityStatesFromSqlite(dbPath: string): CivReplayCityStateDefinition[] {
   const db = new Database(dbPath, { readonly: true })
   try {
-    const rows = db.query<CityStateDbRow, []>(`
+    const rows = db
+      .query<CityStateDbRow, []>(`
       select
         c.CivilizationType,
         c.Name,
@@ -333,10 +599,10 @@ function loadCityStatesFromSqlite(dbPath: string): CivReplayCityStateDefinition[
       left join CityNames cn on cn.CivilizationType = c.CivilizationType
       where c.StartingCivilizationLevelType = 'CIVILIZATION_LEVEL_CITY_STATE'
       order by c.CivilizationType, cn.SortIndex
-    `).all()
+    `)
+      .all()
     return buildCityStateDefinitionsFromRows(rows)
-  }
-  finally {
+  } finally {
     db.close()
   }
 }
@@ -369,7 +635,9 @@ function buildCityStateDefinitionsFromRows(rows: readonly CityStateDbRow[]): Civ
   return [...byCivilization.values()]
 }
 
-function buildCityNameIndex(definitions: Iterable<CivReplayCityStateDefinition>): Map<string, CivReplayCityStateDefinition> {
+function buildCityNameIndex(
+  definitions: Iterable<CivReplayCityStateDefinition>,
+): Map<string, CivReplayCityStateDefinition> {
   const byCityName = new Map<string, CivReplayCityStateDefinition>()
   for (const definition of definitions) {
     byCityName.set(definition.capitalName, definition)
@@ -384,26 +652,36 @@ function compareCityStatePriority(left: CivReplayCityStateSnapshot, right: CivRe
 }
 
 function compareCityStateSnapshots(left: CivReplayCityStateSnapshot, right: CivReplayCityStateSnapshot): number {
-  return categoryRank(left.category) - categoryRank(right.category)
-    || left.displayName.localeCompare(right.displayName)
-    || left.ownerPlayerId - right.ownerPlayerId
-    || left.cityId - right.cityId
+  return (
+    categoryRank(left.category) - categoryRank(right.category) ||
+    left.displayName.localeCompare(right.displayName) ||
+    left.ownerPlayerId - right.ownerPlayerId ||
+    left.cityId - right.cityId
+  )
 }
 
 function compareDefinitions(left: CivReplayCityStateDefinition, right: CivReplayCityStateDefinition): number {
-  return categoryRank(left.category) - categoryRank(right.category)
-    || left.displayName.localeCompare(right.displayName)
-    || left.civilizationType.localeCompare(right.civilizationType)
+  return (
+    categoryRank(left.category) - categoryRank(right.category) ||
+    left.displayName.localeCompare(right.displayName) ||
+    left.civilizationType.localeCompare(right.civilizationType)
+  )
 }
 
 function categoryRank(category: CivReplayCityStateCategory): number {
   switch (category) {
-    case 'scientific': return 0
-    case 'cultural': return 1
-    case 'religious': return 2
-    case 'trade': return 3
-    case 'industrial': return 4
-    case 'militaristic': return 5
+    case 'scientific':
+      return 0
+    case 'cultural':
+      return 1
+    case 'religious':
+      return 2
+    case 'trade':
+      return 3
+    case 'industrial':
+      return 4
+    case 'militaristic':
+      return 5
   }
 }
 
@@ -419,7 +697,8 @@ function displayNameFromLocOrType(name: string | null, civilizationType: string)
   if (!name) return displayNameFromType(civilizationType, 'CIVILIZATION_')
   const locPrefix = 'LOC_CIVILIZATION_'
   const locSuffix = '_NAME'
-  if (name.startsWith(locPrefix) && name.endsWith(locSuffix)) return formatTitleName(name.slice(locPrefix.length, -locSuffix.length))
+  if (name.startsWith(locPrefix) && name.endsWith(locSuffix))
+    return formatTitleName(name.slice(locPrefix.length, -locSuffix.length))
   return displayNameFromType(civilizationType, 'CIVILIZATION_')
 }
 
@@ -446,5 +725,5 @@ function addUnique(values: string[], value: string) {
 function findDefaultTypesDbPath(): string | null {
   const localAppData = process.env.LOCALAPPDATA
   if (!localAppData) return null
-  return join(localAppData, 'Firaxis Games', 'Sid Meier\'s Civilization VI', 'Cache', 'DebugGameplay.sqlite')
+  return join(localAppData, 'Firaxis Games', "Sid Meier's Civilization VI", 'Cache', 'DebugGameplay.sqlite')
 }

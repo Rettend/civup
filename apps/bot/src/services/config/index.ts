@@ -81,10 +81,7 @@ export function parseServerConfigKey(key: string | undefined): ServerConfigKey |
   return null
 }
 
-export async function getServerConfigDisplayValue(
-  kv: KVNamespace,
-  key: ServerConfigKey,
-): Promise<string> {
+export async function getServerConfigDisplayValue(kv: KVNamespace, key: ServerConfigKey): Promise<string> {
   const values = await getServerConfigValues(kv)
 
   if (key === 'ban_timer') return String(values.banTimerSeconds)
@@ -93,7 +90,7 @@ export async function getServerConfigDisplayValue(
 
 export async function getServerConfigRows(
   kv: KVNamespace,
-): Promise<Array<{ key: ServerConfigKey, value: string, description: string }>> {
+): Promise<Array<{ key: ServerConfigKey; value: string; description: string }>> {
   const values = await getServerConfigValues(kv)
   return [
     {

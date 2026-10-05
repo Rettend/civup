@@ -1,7 +1,7 @@
-import type { CloudflareTargetName } from '../config/cloudflare-targets.ts'
-import type { InferEnv, UnwrapConfig } from 'cf/config'
 import type activityCloudflareConfig from '../apps/activity/cloudflare.config.ts'
 import type botCloudflareConfig from '../apps/bot/cloudflare.config.ts'
+import type { CloudflareTargetName } from '../config/cloudflare-targets.ts'
+import type { InferEnv, UnwrapConfig } from 'cf/config'
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -24,10 +24,21 @@ type KnownBindingName<T> = string extends keyof T ? never : keyof T
 type BotEnvironment = InferEnv<UnwrapConfig<typeof botCloudflareConfig>['worker']>
 type ActivityEnvironment = InferEnv<UnwrapConfig<typeof activityCloudflareConfig>['worker']>
 const botBindingNames = [
-  'DB', 'KV', 'Activity', 'SessionDO', 'MaintenanceDO', 'DISCORD_TOKEN', 'CIVUP_SECRET', 'DISCORD_APPLICATION_ID',
+  'DB',
+  'KV',
+  'Activity',
+  'SessionDO',
+  'MaintenanceDO',
+  'DISCORD_TOKEN',
+  'CIVUP_SECRET',
+  'DISCORD_APPLICATION_ID',
 ] as const satisfies readonly KnownBindingName<BotEnvironment>[]
 const activityBindingNames = [
-  'BOT', 'ASSETS', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'CIVUP_SECRET',
+  'BOT',
+  'ASSETS',
+  'DISCORD_CLIENT_ID',
+  'DISCORD_CLIENT_SECRET',
+  'CIVUP_SECRET',
 ] as const satisfies readonly KnownBindingName<ActivityEnvironment>[]
 
 interface LegacyConfig {
@@ -38,16 +49,16 @@ interface LegacyConfig {
   compatibility_flags?: string[]
   keep_vars?: boolean
   vars: Record<string, string>
-  observability: { logs: { enabled: boolean, invocation_logs: boolean } }
-  d1_databases?: { binding: string, database_name: string, database_id: string, migrations_dir?: string }[]
-  kv_namespaces?: { binding: string, id: string }[]
-  r2_buckets?: { binding: string, bucket_name: string }[]
-  durable_objects?: { bindings: { name: string, class_name: string, script_name?: string }[] }
-  migrations?: { tag: string, new_sqlite_classes: string[] }[]
-  rules?: { type: string, globs: string[], fallthrough: boolean }[]
+  observability: { logs: { enabled: boolean; invocation_logs: boolean } }
+  d1_databases?: { binding: string; database_name: string; database_id: string; migrations_dir?: string }[]
+  kv_namespaces?: { binding: string; id: string }[]
+  r2_buckets?: { binding: string; bucket_name: string }[]
+  durable_objects?: { bindings: { name: string; class_name: string; script_name?: string }[] }
+  migrations?: { tag: string; new_sqlite_classes: string[] }[]
+  rules?: { type: string; globs: string[]; fallthrough: boolean }[]
   triggers?: { crons: string[] }
-  services?: { binding: string, service: string }[]
-  assets?: { binding: string, directory?: string, not_found_handling: string }
+  services?: { binding: string; service: string }[]
+  assets?: { binding: string; directory?: string; not_found_handling: string }
 }
 
 function legacyConfig(worker: 'bot' | 'activity', target: CloudflareTargetName): LegacyConfig {
@@ -59,12 +70,13 @@ function legacyConfig(worker: 'bot' | 'activity', target: CloudflareTargetName):
       ACTIVITY_PUBLIC_ORIGIN: fixture.activityOrigin,
       ALLOWED_DISCORD_GUILD_ID: fixture.discord.guildId,
     }
-    if (worker === 'activity') return {
-      ...base,
-      account_id: fixture.accountId,
-      compatibility_flags: [...fixture.activity.compatibilityFlags],
-      vars: { ...vars, DISCORD_CLIENT_ID: fixture.discord.applicationId },
-    }
+    if (worker === 'activity')
+      return {
+        ...base,
+        account_id: fixture.accountId,
+        compatibility_flags: [...fixture.activity.compatibilityFlags],
+        vars: { ...vars, DISCORD_CLIENT_ID: fixture.discord.applicationId },
+      }
     return {
       ...base,
       account_id: fixture.accountId,
@@ -85,7 +97,9 @@ function legacyConfig(worker: 'bot' | 'activity', target: CloudflareTargetName):
   const filename = `${worker}.legacy.${extension}`
   const content = readFileSync(resolve(repoRoot, `tests/fixtures/cloudflare/${filename}`), 'utf8')
   // Strip comments, not URL slashes or escaped quotes in JSON strings.
-  const parsed: LegacyConfig & { $schema?: string } = JSON.parse(content.replace(/("(?:\\.|[^"\\])*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g, (_match, string) => string ?? ''))
+  const parsed: LegacyConfig & { $schema?: string } = JSON.parse(
+    content.replace(/("(?:\\.|[^"\\])*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g, (_match, string) => string ?? ''),
+  )
   const { $schema: _schema, ...config } = parsed
   return config
 }
@@ -94,7 +108,7 @@ interface LoadedConfig {
   target: CloudflareTargetName
   worker: 'bot' | 'activity'
   wrangler: LegacyConfig
-  exports?: Record<string, { type: string, storage: string }>
+  exports?: Record<string, { type: string; storage: string }>
   secrets: string[]
   bindingNames: string[]
   tooling?: { rules: LegacyConfig['rules'] }
@@ -177,10 +191,14 @@ describe('Node-loaded Cloudflare config parity', () => {
       expect(converted.compatibility_flags ?? []).toEqual(legacy.compatibility_flags ?? [])
       expect(converted.vars).toEqual(legacy.vars)
       expect(current.secrets).toEqual([...cloudflareSecretKeys[current.worker]])
-      expect(current.bindingNames).toEqual(expect.arrayContaining(current.worker === 'bot' ? botBindingNames : activityBindingNames))
+      expect(current.bindingNames).toEqual(
+        expect.arrayContaining(current.worker === 'bot' ? botBindingNames : activityBindingNames),
+      )
       expect(converted.observability).toEqual(legacy.observability)
       expect(current.dependencies.some(path => /[\\/]config[\\/]cloudflare-targets\.ts$/.test(path))).toBe(true)
-      expect(current.dependencies.every(path => !path.endsWith('src/index.ts') && !path.endsWith('src/server/index.ts'))).toBe(true)
+      expect(
+        current.dependencies.every(path => !path.endsWith('src/index.ts') && !path.endsWith('src/server/index.ts')),
+      ).toBe(true)
 
       if (current.worker === 'activity') {
         expect(converted.services).toEqual(legacy.services)
@@ -189,19 +207,26 @@ describe('Node-loaded Cloudflare config parity', () => {
         continue
       }
 
-      expect(converted.d1_databases).toEqual(legacy.d1_databases!.map(({ migrations_dir: _directory, ...binding }) => binding))
+      expect(converted.d1_databases).toEqual(
+        legacy.d1_databases!.map(({ migrations_dir: _directory, ...binding }) => binding),
+      )
       expect(converted.kv_namespaces).toEqual(legacy.kv_namespaces!)
       expect(converted.r2_buckets).toEqual(legacy.r2_buckets!)
       expect(converted.triggers).toEqual(legacy.triggers!)
       expect(converted.keep_vars).toBeUndefined()
       expect(converted.migrations).toBeUndefined()
       expect(current.tooling?.rules).toEqual(legacy.rules!)
-      expect(converted.durable_objects?.bindings.map(({ script_name, ...binding }) => {
-        expect(script_name).toBe(legacy.name)
-        return binding
-      }).sort((a, b) => a.name.localeCompare(b.name)))
-        .toEqual(legacy.durable_objects!.bindings.toSorted((a, b) => a.name.localeCompare(b.name)))
-      expect(Object.keys(current.exports ?? {}).sort()).toEqual(legacy.durable_objects!.bindings.map(binding => binding.class_name).sort())
+      expect(
+        converted.durable_objects?.bindings
+          .map(({ script_name, ...binding }) => {
+            expect(script_name).toBe(legacy.name)
+            return binding
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ).toEqual(legacy.durable_objects!.bindings.toSorted((a, b) => a.name.localeCompare(b.name)))
+      expect(Object.keys(current.exports ?? {}).sort()).toEqual(
+        legacy.durable_objects!.bindings.map(binding => binding.class_name).sort(),
+      )
       for (const declaration of Object.values(current.exports ?? {})) {
         expect(declaration).toEqual({ type: 'durable-object', storage: 'sqlite' })
       }
@@ -213,12 +238,14 @@ describe('Node-loaded Cloudflare config parity', () => {
       const legacy = legacyConfig('bot', name)
       const target = resolveCloudflareTarget(name, fixtureTargetOptions)
       expect<boolean>(target.bot.keepVars).toBe(legacy.keep_vars!)
-      const history: NonNullable<LegacyConfig['migrations']> = botDurableObjectMigrations
-        .map(({ tag, newSqliteClasses }) => ({ tag, new_sqlite_classes: [...newSqliteClasses] }))
+      const history: NonNullable<LegacyConfig['migrations']> = botDurableObjectMigrations.map(
+        ({ tag, newSqliteClasses }) => ({ tag, new_sqlite_classes: [...newSqliteClasses] }),
+      )
       expect(history).toEqual(legacy.migrations!)
       const storage = resolveCloudflareStorage(name, 'local', fixtureTargetOptions)
-      expect(resolve(repoRoot, storage.d1.migrationsDirectory))
-        .toBe(resolve(repoRoot, 'apps/bot', legacy.d1_databases![0]!.migrations_dir!))
+      expect(resolve(repoRoot, storage.d1.migrationsDirectory)).toBe(
+        resolve(repoRoot, 'apps/bot', legacy.d1_databases![0]!.migrations_dir!),
+      )
       expect(storage.d1.migrationsTable).toBe('d1_migrations')
       expect(storage.d1.migrationsPattern).toBe('*.sql')
     }

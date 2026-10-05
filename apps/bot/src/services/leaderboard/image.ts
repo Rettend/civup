@@ -1,12 +1,12 @@
+import type { LeaderboardSnapshotRow } from './snapshot.ts'
 import type { Database } from '@civup/db'
 import type { LeaderboardMode } from '@civup/game'
-import type { LeaderboardSnapshotRow } from './snapshot.ts'
-import { players as playerRows, seasonRatingStates } from '@civup/db'
-import { formatLeaderboardModeLabel } from '@civup/game'
-import { buildLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, eq, inArray } from 'drizzle-orm'
+import { players as playerRows, seasonRatingStates } from '@civup/db'
+import { formatLeaderboardModeLabel } from '@civup/game'
+import { buildLeaderboard, getLeaderboardMinGames } from '@civup/rating'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
 import { getDisplaySeason } from '../season/index.ts'
 import { SeasonSelectionError } from '../season/selection.ts'
@@ -21,7 +21,7 @@ const ROW_HEIGHT = 50
 const ROW_STEP = 56
 const BOTTOM_PAD = 40
 const COLUMN_GAP = 24
-const COLUMN_WIDTH = (IMAGE_WIDTH - (SIDE_PAD * 2) - COLUMN_GAP) / 2
+const COLUMN_WIDTH = (IMAGE_WIDTH - SIDE_PAD * 2 - COLUMN_GAP) / 2
 const FONT_ASSET_SPECIFIERS = [
   '@fontsource/inter/files/inter-latin-400-normal.woff2',
   '@fontsource/inter/files/inter-latin-700-normal.woff2',
@@ -105,27 +105,57 @@ export async function buildPlayerLeaderboardImageDataBatch(
   inputs: readonly PlayerLeaderboardImageDataInput[],
 ): Promise<PlayerLeaderboardImageData[]> {
   const season = await getDisplaySeason(db)
-  if (season?.ratingSystem === 'rp' && !season.publicReadsEnabled && inputs.some(input => input.options?.ratingSystem !== 'legacy')) throw new SeasonSelectionError('Ratings for this season are not ready to display yet.')
-  const prepared = inputs.map((input) => {
+  if (
+    season?.ratingSystem === 'rp' &&
+    !season.publicReadsEnabled &&
+    inputs.some(input => input.options?.ratingSystem !== 'legacy')
+  )
+    throw new SeasonSelectionError('Ratings for this season are not ready to display yet.')
+  const prepared = inputs.map(input => {
     const limit = Math.max(0, Math.round(input.options?.rowLimit ?? ROW_LIMIT))
     const publicEra = (input.options?.ratingSystem ?? season?.ratingSystem) === 'rp'
-    if (publicEra && input.rows.some(row => row.publicRating == null)) throw new SeasonSelectionError('Public leaderboard ratings are incomplete.')
+    if (publicEra && input.rows.some(row => row.publicRating == null))
+      throw new SeasonSelectionError('Public leaderboard ratings are incomplete.')
     return {
       input,
       publicEra,
-      entries: publicEra ? input.rows.filter(row => row.gamesPlayed >= getLeaderboardMinGames(input.mode))
-        .map(row => ({ ...row, displayRating: row.publicRating!, winRate: row.gamesPlayed > 0 ? row.wins / row.gamesPlayed : 0 }))
-        .sort((a, b) => b.displayRating - a.displayRating || a.playerId.localeCompare(b.playerId)).slice(0, limit)
+      entries: publicEra
+        ? input.rows
+            .filter(row => row.gamesPlayed >= getLeaderboardMinGames(input.mode))
+            .map(row => ({
+              ...row,
+              displayRating: row.publicRating!,
+              winRate: row.gamesPlayed > 0 ? row.wins / row.gamesPlayed : 0,
+            }))
+            .sort((a, b) => b.displayRating - a.displayRating || a.playerId.localeCompare(b.playerId))
+            .slice(0, limit)
         : buildLeaderboard([...input.rows], getLeaderboardMinGames(input.mode)).slice(0, limit),
     }
   })
-  const profiles = await getLeaderboardPlayerProfiles(db, prepared.flatMap(item => item.entries.map(entry => entry.playerId)))
-  const publicPlayerIds = [...new Set(prepared.filter(item => item.publicEra).flatMap(item => item.entries.map(entry => entry.playerId)))]
-  const seasonCounts = new Map<string, { seasonGames: number, seasonWins: number }>()
+  const profiles = await getLeaderboardPlayerProfiles(
+    db,
+    prepared.flatMap(item => item.entries.map(entry => entry.playerId)),
+  )
+  const publicPlayerIds = [
+    ...new Set(prepared.filter(item => item.publicEra).flatMap(item => item.entries.map(entry => entry.playerId))),
+  ]
+  const seasonCounts = new Map<string, { seasonGames: number; seasonWins: number }>()
   if (season && publicPlayerIds.length > 0) {
     for (let offset = 0; offset < publicPlayerIds.length; offset += 80) {
-      const rows = await db.select({ playerId: seasonRatingStates.playerId, mode: seasonRatingStates.mode, seasonGames: seasonRatingStates.seasonGames, seasonWins: seasonRatingStates.seasonWins })
-        .from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, publicPlayerIds.slice(offset, offset + 80))))
+      const rows = await db
+        .select({
+          playerId: seasonRatingStates.playerId,
+          mode: seasonRatingStates.mode,
+          seasonGames: seasonRatingStates.seasonGames,
+          seasonWins: seasonRatingStates.seasonWins,
+        })
+        .from(seasonRatingStates)
+        .where(
+          and(
+            eq(seasonRatingStates.seasonId, season.id),
+            inArray(seasonRatingStates.playerId, publicPlayerIds.slice(offset, offset + 80)),
+          ),
+        )
       for (const row of rows) seasonCounts.set(`${row.playerId}:${row.mode}`, row)
     }
   }
@@ -137,8 +167,8 @@ export async function buildPlayerLeaderboardImageDataBatch(
     rows: entries.map((entry, index) => {
       const profile = profiles.get(entry.playerId)
       const counts = publicEra ? seasonCounts.get(`${entry.playerId}:${input.mode}`) : null
-      const gamesPlayed = publicEra ? counts?.seasonGames ?? 0 : entry.gamesPlayed
-      const wins = publicEra ? counts?.seasonWins ?? 0 : entry.wins
+      const gamesPlayed = publicEra ? (counts?.seasonGames ?? 0) : entry.gamesPlayed
+      const wins = publicEra ? (counts?.seasonWins ?? 0) : entry.wins
       return {
         playerId: entry.playerId,
         displayName: profile?.displayName?.trim() || entry.playerId,
@@ -153,12 +183,18 @@ export async function buildPlayerLeaderboardImageDataBatch(
   }))
 }
 
-export async function renderPlayerLeaderboardPng(data: PlayerLeaderboardImageData, options: RenderPlayerLeaderboardOptions = {}): Promise<Uint8Array> {
+export async function renderPlayerLeaderboardPng(
+  data: PlayerLeaderboardImageData,
+  options: RenderPlayerLeaderboardOptions = {},
+): Promise<Uint8Array> {
   return renderSvgToPng(await renderPlayerLeaderboardSvg(data, options))
 }
 
-export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageData, options: RenderPlayerLeaderboardOptions = {}): Promise<string> {
-  const avatarData = options.avatarData ?? await loadAvatarDataUris(data.rows)
+export async function renderPlayerLeaderboardSvg(
+  data: PlayerLeaderboardImageData,
+  options: RenderPlayerLeaderboardOptions = {},
+): Promise<string> {
+  const avatarData = options.avatarData ?? (await loadAvatarDataUris(data.rows))
   const height = getImageHeight(data.rows.length)
   const accent = MODE_ACCENTS[data.mode]
 
@@ -183,7 +219,10 @@ export async function renderPlayerLeaderboardSvg(data: PlayerLeaderboardImageDat
 </svg>`
 }
 
-async function getLeaderboardPlayerProfiles(db: Database, playerIds: readonly string[]): Promise<Map<string, { displayName: string, avatarUrl: string | null }>> {
+async function getLeaderboardPlayerProfiles(
+  db: Database,
+  playerIds: readonly string[],
+): Promise<Map<string, { displayName: string; avatarUrl: string | null }>> {
   const ids = [...new Set(playerIds.filter(playerId => playerId.length > 0))]
   if (ids.length === 0) return new Map()
 
@@ -196,32 +235,38 @@ async function getLeaderboardPlayerProfiles(db: Database, playerIds: readonly st
 
 function renderTableHeader(rowCount: number, ratingSystem?: 'legacy' | 'rp'): string {
   const columns = rowCount > Math.ceil(rowCount / 2) ? [0, 1] : [0]
-  return columns.map((column) => {
-    const x = SIDE_PAD + (column * (COLUMN_WIDTH + COLUMN_GAP))
-    const positions = getColumnTextPositions(x)
-    return `
+  return columns
+    .map(column => {
+      const x = SIDE_PAD + column * (COLUMN_WIDTH + COLUMN_GAP)
+      const positions = getColumnTextPositions(x)
+      return `
       <text x="${positions.nameX}" y="${TABLE_HEADER_Y}" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">PLAYER</text>
       <text x="${positions.ratingX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">${ratingSystem === 'rp' ? 'RP' : 'RATING'}</text>
       <text x="${positions.gamesX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">GAMES</text>
       <text x="${positions.winRateX}" y="${TABLE_HEADER_Y}" text-anchor="end" fill="${COLORS.subtle}" font-size="15" font-weight="900" letter-spacing="1.4">WIN%</text>
     `
-  }).join('')
+    })
+    .join('')
 }
 
-function renderRows(rows: readonly PlayerLeaderboardImageRow[], avatarData: Map<string, string>, accent: string): string {
+function renderRows(
+  rows: readonly PlayerLeaderboardImageRow[],
+  avatarData: Map<string, string>,
+  accent: string,
+): string {
   const rowCountPerColumn = Math.ceil(rows.length / 2)
-  return rows.map((row, index) => {
-    const column = index >= rowCountPerColumn ? 1 : 0
-    const rowIndex = index % rowCountPerColumn
-    const x = SIDE_PAD + (column * (COLUMN_WIDTH + COLUMN_GAP))
-    const y = ROW_START_Y + (rowIndex * ROW_STEP)
-    const positions = getColumnTextPositions(x)
-    const rankColor = getRankColor(row.rank, accent)
-    const rowFill = row.rank <= 3
-      ? `${rankColor}22`
-      : index % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)'
-    const name = stripUnsupportedEmoji(row.displayName)
-    return `
+  return rows
+    .map((row, index) => {
+      const column = index >= rowCountPerColumn ? 1 : 0
+      const rowIndex = index % rowCountPerColumn
+      const x = SIDE_PAD + column * (COLUMN_WIDTH + COLUMN_GAP)
+      const y = ROW_START_Y + rowIndex * ROW_STEP
+      const positions = getColumnTextPositions(x)
+      const rankColor = getRankColor(row.rank, accent)
+      const rowFill =
+        row.rank <= 3 ? `${rankColor}22` : index % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)'
+      const name = stripUnsupportedEmoji(row.displayName)
+      return `
       <rect x="${x}" y="${y}" width="${COLUMN_WIDTH}" height="${ROW_HEIGHT}" rx="15" fill="${rowFill}" />
       <rect x="${x}" y="${y}" width="${COLUMN_WIDTH}" height="${ROW_HEIGHT}" rx="15" fill="none" stroke="${row.rank <= 3 ? rankColor : COLORS.borderSubtle}" stroke-width="1" />
       <text x="${x + 36}" y="${y + 33}" text-anchor="middle" fill="${row.rank <= 3 ? rankColor : COLORS.muted}" font-size="23" font-weight="900">#${row.rank}</text>
@@ -231,7 +276,8 @@ function renderRows(rows: readonly PlayerLeaderboardImageRow[], avatarData: Map<
       <text x="${positions.gamesX}" y="${y + 33}" text-anchor="end" fill="${COLORS.fg}" font-size="20" font-weight="800">${row.wins}/${row.gamesPlayed}</text>
       <text x="${positions.winRateX}" y="${y + 33}" text-anchor="end" fill="${COLORS.muted}" font-size="20" font-weight="900">${Math.round(row.winRate * 100)}%</text>
     `
-  }).join('')
+    })
+    .join('')
 }
 
 function renderEmptyState(): string {
@@ -241,10 +287,16 @@ function renderEmptyState(): string {
 function getImageHeight(rowCount: number): number {
   if (rowCount === 0) return 360
   const rowsPerColumn = Math.ceil(rowCount / 2)
-  return Math.max(rowCount <= 2 ? 360 : 630, ROW_START_Y + ((rowsPerColumn - 1) * ROW_STEP) + ROW_HEIGHT + BOTTOM_PAD)
+  return Math.max(rowCount <= 2 ? 360 : 630, ROW_START_Y + (rowsPerColumn - 1) * ROW_STEP + ROW_HEIGHT + BOTTOM_PAD)
 }
 
-function getColumnTextPositions(columnX: number): { nameX: number, ratingX: number, gamesX: number, winRateX: number, nameMaxWidth: number } {
+function getColumnTextPositions(columnX: number): {
+  nameX: number
+  ratingX: number
+  gamesX: number
+  winRateX: number
+  nameMaxWidth: number
+} {
   const nameX = columnX + 116
   const ratingX = columnX + COLUMN_WIDTH - 174
   const gamesX = columnX + COLUMN_WIDTH - 84
@@ -265,17 +317,32 @@ function getRankColor(rank: number, accent: string): string {
   return accent
 }
 
-function renderAvatar(player: AvatarPlayer, x: number, y: number, size: number, clipId: string, avatarDataUri: string | undefined): string {
+function renderAvatar(
+  player: AvatarPlayer,
+  x: number,
+  y: number,
+  size: number,
+  clipId: string,
+  avatarDataUri: string | undefined,
+): string {
   const center = size / 2
   const initials = getInitials(stripUnsupportedEmoji(player.displayName))
   return `
     <circle cx="${x + center}" cy="${y + center}" r="${center}" fill="${COLORS.bg}" />
     ${avatarDataUri ? `<image href="${avatarDataUri}" x="${x}" y="${y}" width="${size}" height="${size}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />` : ''}
-    ${avatarDataUri ? '' : `<text x="${x + center}" y="${y + center + (size * 0.13)}" text-anchor="middle" fill="${COLORS.muted}" font-size="${Math.round(size * 0.34)}" font-weight="900">${escapeXml(initials)}</text>`}
+    ${avatarDataUri ? '' : `<text x="${x + center}" y="${y + center + size * 0.13}" text-anchor="middle" fill="${COLORS.muted}" font-size="${Math.round(size * 0.34)}" font-weight="900">${escapeXml(initials)}</text>`}
   `
 }
 
-function renderText(value: string, x: number, y: number, maxWidth: number, fontSize: number, fontWeight: number, fill: string): string {
+function renderText(
+  value: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  fontSize: number,
+  fontWeight: number,
+  fill: string,
+): string {
   return `<text x="${x}" y="${y}" fill="${fill}" font-size="${fontSize}" font-weight="${fontWeight}">${escapeXml(truncateToWidth(value, maxWidth, fontSize, fontWeight))}</text>`
 }
 
@@ -290,10 +357,13 @@ async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   const fontBuffers = await ensureFontBuffersReady()
   return new Resvg(svg, {
     fitTo: { mode: 'width', value: IMAGE_WIDTH },
-    font: fontBuffers.length > 0
-      ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
-      : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
-  }).render().asPng()
+    font:
+      fontBuffers.length > 0
+        ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
+        : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
+  })
+    .render()
+    .asPng()
 }
 
 async function ensureResvgReady(): Promise<unknown> {
@@ -304,27 +374,29 @@ async function ensureResvgReady(): Promise<unknown> {
 async function initializeResvgWasm(): Promise<unknown> {
   try {
     return await initWasm(await resolveWasmInput(resvgWasm))
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof Error && error.message.includes('Already initialized')) return null
     throw error
   }
 }
 
 async function ensureFontBuffersReady(): Promise<Uint8Array[]> {
-  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes))
-    .then(values => values.filter((value): value is Uint8Array => value != null && value.length > 0))
+  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes)).then(values =>
+    values.filter((value): value is Uint8Array => value != null && value.length > 0),
+  )
   return fontBuffersReady
 }
 
-async function resolveFontAssetBytes(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<Uint8Array | null> {
+async function resolveFontAssetBytes(specifier: (typeof FONT_ASSET_SPECIFIERS)[number]): Promise<Uint8Array | null> {
   if (getBunFileApi()) return resolveAssetBytes(resolveImportAsset(specifier))
 
   const bundled = await resolveBundledFontAsset(specifier).catch(() => null)
   return resolveAssetBytes(bundled ?? resolveImportAsset(specifier))
 }
 
-async function resolveBundledFontAsset(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<string | URL | ArrayBuffer | Uint8Array> {
+async function resolveBundledFontAsset(
+  specifier: (typeof FONT_ASSET_SPECIFIERS)[number],
+): Promise<string | URL | ArrayBuffer | Uint8Array> {
   switch (specifier) {
     case '@fontsource/inter/files/inter-latin-400-normal.woff2':
       return (await import('@fontsource/inter/files/inter-latin-400-normal.woff2')).default
@@ -342,13 +414,14 @@ function resolveImportAsset(specifier: string): string | URL {
   try {
     const resolved = meta.resolve(specifier)
     return /^(https?:|file:)/.test(resolved) ? new URL(resolved) : resolved
-  }
-  catch {
+  } catch {
     return specifier
   }
 }
 
-async function resolveWasmInput(input: string | URL | WebAssembly.Module | ArrayBuffer): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
+async function resolveWasmInput(
+  input: string | URL | WebAssembly.Module | ArrayBuffer,
+): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
   if (typeof input !== 'string') return input
   if (/^(https?:|file:)/.test(input)) return input
 
@@ -365,8 +438,7 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   if (bun) {
     try {
       return new Uint8Array(await bun.file(input).arrayBuffer())
-    }
-    catch {
+    } catch {
       return null
     }
   }
@@ -374,14 +446,19 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   try {
     const response = await fetch(input)
     return response.ok ? new Uint8Array(await response.arrayBuffer()) : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 function getBunFileApi(): { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } | null {
-  return (globalThis as typeof globalThis & { Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } }).Bun ?? null
+  return (
+    (
+      globalThis as typeof globalThis & {
+        Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } }
+      }
+    ).Bun ?? null
+  )
 }
 
 function avatarClipId(player: AvatarPlayer): string {
@@ -430,17 +507,15 @@ function getApproxCharWidth(char: string): number {
 }
 
 function stripUnsupportedEmoji(value: string): string {
-  return value
-    .replace(/[\uFE0E\uFE0F]/g, '')
-    .replace(/\p{Extended_Pictographic}/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim() || value
+  return (
+    value
+      .replace(/[\uFE0E\uFE0F]/g, '')
+      .replace(/\p{Extended_Pictographic}/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim() || value
+  )
 }
 
 function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

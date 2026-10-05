@@ -4,8 +4,7 @@ export async function copyTextToClipboard(value: string): Promise<boolean> {
       await navigator.clipboard.writeText(value)
       return true
     }
-  }
-  catch {}
+  } catch {}
 
   if (typeof document === 'undefined') return false
 
@@ -21,11 +20,9 @@ export async function copyTextToClipboard(value: string): Promise<boolean> {
 
   try {
     return document.execCommand('copy')
-  }
-  catch {
+  } catch {
     return false
-  }
-  finally {
+  } finally {
     textarea.remove()
   }
 }

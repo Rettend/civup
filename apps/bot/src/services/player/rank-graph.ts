@@ -1,21 +1,39 @@
+import type { RankedRoleConfig } from '../ranked/roles.ts'
+import type { SeasonSelection } from '../season/selection.ts'
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import type { RankedRoleConfig } from '../ranked/roles.ts'
-import { matches, playerRatingEvents, playerRatings, players as playerRows, publicRatingSeeds, seasonRatingStates } from '@civup/db'
-import { formatLeaderboardModeLabel } from '@civup/game'
-import { displayRating, getLeaderboardMinGames, PUBLIC_RATING_BANDS, RANKED_ROLE_MIN_EFFECTIVE_GAMES, roleRating, visiblePublicRating } from '@civup/rating'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
 import { and, desc, eq } from 'drizzle-orm'
+import {
+  matches,
+  playerRatingEvents,
+  playerRatings,
+  players as playerRows,
+  publicRatingSeeds,
+  seasonRatingStates,
+} from '@civup/db'
+import { formatLeaderboardModeLabel } from '@civup/game'
+import {
+  displayRating,
+  getLeaderboardMinGames,
+  PUBLIC_RATING_BANDS,
+  RANKED_ROLE_MIN_EFFECTIVE_GAMES,
+  roleRating,
+  visiblePublicRating,
+} from '@civup/rating'
 import { avatarKey, loadAvatarDataUris } from '../image/avatar.ts'
-import { getConfiguredDivisionLabel, getConfiguredRankedRoleLabel, getRankedRoleDisplayConfig } from '../ranked/roles.ts'
-import type { SeasonSelection } from '../season/selection.ts'
-import { resolveSeasonSelection } from '../season/selection.ts'
+import {
+  getConfiguredDivisionLabel,
+  getConfiguredRankedRoleLabel,
+  getRankedRoleDisplayConfig,
+} from '../ranked/roles.ts'
 import { projectPublicRatingDecay } from '../season/decay.ts'
+import { resolveSeasonSelection } from '../season/selection.ts'
 import { loadSeasonStandings } from '../season/standings.ts'
 
 export const RANK_GRAPH_SCOPES = ['overall', 'duel', 'duo', 'squad', 'ffa'] as const
-export type RankGraphScope = typeof RANK_GRAPH_SCOPES[number]
+export type RankGraphScope = (typeof RANK_GRAPH_SCOPES)[number]
 
 export interface RankGraphPoint {
   x: number
@@ -116,7 +134,7 @@ const COLORS = {
 
 const BAND_FALLBACK_COLORS = ['#f5c542', '#d4d4d8', '#c08457', '#22c55e', '#71717a', '#52525b'] as const
 const MODE_RANK_GRAPH_BAND_MIN_GAMES = 10
-const RANK_GRAPH_EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.20, 0.40, 0.90] as const
+const RANK_GRAPH_EARN_CUMULATIVE_PERCENT_ANCHORS = [0.05, 0.2, 0.4, 0.9] as const
 
 let wasmReady: Promise<unknown> | null = null
 let fontBuffersReady: Promise<Uint8Array[]> | null = null
@@ -124,7 +142,7 @@ let fontBuffersReady: Promise<Uint8Array[]> | null = null
 export function parseRankGraphScope(value: string | null | undefined): RankGraphScope | null {
   const normalized = value?.trim().toLowerCase()
   if (!normalized) return null
-  return RANK_GRAPH_SCOPES.includes(normalized as RankGraphScope) ? normalized as RankGraphScope : null
+  return RANK_GRAPH_SCOPES.includes(normalized as RankGraphScope) ? (normalized as RankGraphScope) : null
 }
 
 export async function buildRankGraphImageData(
@@ -148,24 +166,72 @@ export async function buildRankGraphImageData(
   const [profile, eventRows, bands] = await Promise.all([
     loadPlayerProfile(db, playerId),
     loadRankGraphEvents(db, playerId, scope, gameLimit, season?.id, publicEra),
-    publicEra ? getRankedRoleDisplayConfig(kv, guildId).then(buildPublicRankGraphBands) : loadRankGraphBands(db, kv, guildId, scope, season && !season.active ? season.id : undefined),
+    publicEra
+      ? getRankedRoleDisplayConfig(kv, guildId).then(buildPublicRankGraphBands)
+      : loadRankGraphBands(db, kv, guildId, scope, season && !season.active ? season.id : undefined),
   ])
   let points = buildRankGraphPoints(eventRows, scope)
   if (publicEra) {
-    const [seed] = await db.select({ rating: publicRatingSeeds.rating }).from(publicRatingSeeds).where(and(
-      eq(publicRatingSeeds.seasonId, season.id), eq(publicRatingSeeds.playerId, playerId), eq(publicRatingSeeds.mode, toRatingEventScope(scope)),
-    )).limit(1)
-    if (eventRows.some((event, index) => event.publicRatingBefore == null || event.publicRatingAfter == null
-      || event.seasonId !== season.id || !event.publicFormulaVersion || !event.publicCalibrationVersion
-      || !Number.isSafeInteger(event.publicSequence) || event.publicSequence! <= 0
-      || (index > 0 && (event.publicSequence! <= eventRows[index - 1]!.publicSequence! || Math.abs(event.publicRatingBefore - eventRows[index - 1]!.publicRatingAfter! - event.publicDecayDelta) > 1e-8)))) throw new Error('Rating history is incomplete; no hidden-rating substitute is shown.')
+    const [seed] = await db
+      .select({ rating: publicRatingSeeds.rating })
+      .from(publicRatingSeeds)
+      .where(
+        and(
+          eq(publicRatingSeeds.seasonId, season.id),
+          eq(publicRatingSeeds.playerId, playerId),
+          eq(publicRatingSeeds.mode, toRatingEventScope(scope)),
+        ),
+      )
+      .limit(1)
+    if (
+      eventRows.some(
+        (event, index) =>
+          event.publicRatingBefore == null ||
+          event.publicRatingAfter == null ||
+          event.seasonId !== season.id ||
+          !event.publicFormulaVersion ||
+          !event.publicCalibrationVersion ||
+          !Number.isSafeInteger(event.publicSequence) ||
+          event.publicSequence! <= 0 ||
+          (index > 0 &&
+            (event.publicSequence! <= eventRows[index - 1]!.publicSequence! ||
+              Math.abs(event.publicRatingBefore - eventRows[index - 1]!.publicRatingAfter! - event.publicDecayDelta) >
+                1e-8)),
+      )
+    )
+      throw new Error('Rating history is incomplete; no hidden-rating substitute is shown.')
     if (eventRows.length && !seed) throw new Error('The opening rating is missing for this season.')
     points = eventRows.length
-      ? [{ x: 0, rating: visiblePublicRating(eventRows[0]!.publicRatingBefore! - eventRows[0]!.publicDecayDelta) }, ...eventRows.flatMap((event, index) => [...(event.publicDecayDelta < 0 ? [{ x: index, rating: visiblePublicRating(event.publicRatingBefore!) }] : []), { x: index + 1, rating: visiblePublicRating(event.publicRatingAfter!) }])]
-      : seed ? [{ x: 0, rating: visiblePublicRating(seed.rating) }] : []
-    const states = await db.select().from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), eq(seasonRatingStates.playerId, playerId), eq(seasonRatingStates.mode, toRatingEventScope(scope)))).limit(1)
+      ? [
+          { x: 0, rating: visiblePublicRating(eventRows[0]!.publicRatingBefore! - eventRows[0]!.publicDecayDelta) },
+          ...eventRows.flatMap((event, index) => [
+            ...(event.publicDecayDelta < 0
+              ? [{ x: index, rating: visiblePublicRating(event.publicRatingBefore!) }]
+              : []),
+            { x: index + 1, rating: visiblePublicRating(event.publicRatingAfter!) },
+          ]),
+        ]
+      : seed
+        ? [{ x: 0, rating: visiblePublicRating(seed.rating) }]
+        : []
+    const states = await db
+      .select()
+      .from(seasonRatingStates)
+      .where(
+        and(
+          eq(seasonRatingStates.seasonId, season.id),
+          eq(seasonRatingStates.playerId, playerId),
+          eq(seasonRatingStates.mode, toRatingEventScope(scope)),
+        ),
+      )
+      .limit(1)
     const [current] = await projectPublicRatingDecay(db, states, Date.now(), season)
-    if (current?.publicRating != null && points.length && visiblePublicRating(current.publicRating) !== points.at(-1)!.rating) points.push({ x: eventRows.length, rating: visiblePublicRating(current.publicRating) })
+    if (
+      current?.publicRating != null &&
+      points.length &&
+      visiblePublicRating(current.publicRating) !== points.at(-1)!.rating
+    )
+      points.push({ x: eventRows.length, rating: visiblePublicRating(current.publicRating) })
   }
 
   return {
@@ -191,12 +257,19 @@ export async function renderRankGraphPng(data: RankGraphImageData): Promise<Uint
 
 export async function renderRankGraphSvg(data: RankGraphImageData): Promise<string> {
   const scale = buildRatingScale(data)
-  const bandSegments = buildRankBandSegments(data.bands.length ? data.bands : [{ tier: 'legacy', label: '', color: COLORS.accent, cutoffScore: null }], scale)
+  const bandSegments = buildRankBandSegments(
+    data.bands.length ? data.bands : [{ tier: 'legacy', label: '', color: COLORS.accent, cutoffScore: null }],
+    scale,
+  )
   const xMax = Math.max(1, data.player.games)
   const xTicks = data.player.games === 0 ? [0] : buildGameTicks(xMax)
-  const plottedPoints = data.player.points.length === 1
-    ? [{ x: 0, rating: data.player.points[0]!.rating }, { x: xMax, rating: data.player.points[0]!.rating }]
-    : data.player.points
+  const plottedPoints =
+    data.player.points.length === 1
+      ? [
+          { x: 0, rating: data.player.points[0]!.rating },
+          { x: xMax, rating: data.player.points[0]!.rating },
+        ]
+      : data.player.points
   const title = 'Rank History'
   const subtitle = [formatRankGraphSubtitle(data.scope), data.seasonLabel].filter(Boolean).join(' · ')
   const subtitleX = SIDE_PAD + measurePlainTextWidth(title, 52, 900) + 24
@@ -257,13 +330,18 @@ async function loadRankGraphEvents(
     })
     .from(playerRatingEvents)
     .innerJoin(matches, eq(matches.id, playerRatingEvents.matchId))
-    .where(and(
-      eq(playerRatingEvents.playerId, playerId),
-      eq(playerRatingEvents.mode, ratingScope),
-      eq(matches.status, 'completed'),
-      seasonId ? eq(matches.seasonId, seasonId) : undefined,
-    ))
-    .orderBy(desc(publicEra ? playerRatingEvents.publicSequence : playerRatingEvents.matchCreatedAt), desc(playerRatingEvents.matchId))
+    .where(
+      and(
+        eq(playerRatingEvents.playerId, playerId),
+        eq(playerRatingEvents.mode, ratingScope),
+        eq(matches.status, 'completed'),
+        seasonId ? eq(matches.seasonId, seasonId) : undefined,
+      ),
+    )
+    .orderBy(
+      desc(publicEra ? playerRatingEvents.publicSequence : playerRatingEvents.matchCreatedAt),
+      desc(playerRatingEvents.matchId),
+    )
     .limit(gameLimit)
 
   return rows.reverse()
@@ -278,7 +356,10 @@ function buildPublicRankGraphBands(config: Awaited<ReturnType<typeof getRankedRo
   }))
 }
 
-async function loadPlayerProfile(db: Database, playerId: string): Promise<{ displayName: string, avatarUrl: string | null } | null> {
+async function loadPlayerProfile(
+  db: Database,
+  playerId: string,
+): Promise<{ displayName: string; avatarUrl: string | null } | null> {
   const [row] = await db
     .select({ displayName: playerRows.displayName, avatarUrl: playerRows.avatarUrl })
     .from(playerRows)
@@ -287,23 +368,48 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<{ disp
   return row ?? null
 }
 
-async function loadRankGraphBands(db: Database, kv: KVNamespace, guildId: string, scope: RankGraphScope, historicalSeasonId?: string): Promise<RankGraphBand[]> {
+async function loadRankGraphBands(
+  db: Database,
+  kv: KVNamespace,
+  guildId: string,
+  scope: RankGraphScope,
+  historicalSeasonId?: string,
+): Promise<RankGraphBand[]> {
   const [config, scores] = await Promise.all([
     getRankedRoleDisplayConfig(kv, guildId),
-    historicalSeasonId ? loadHistoricalRankGraphScores(db, kv, historicalSeasonId, scope) : scope === 'overall' ? loadOverallRankGraphScores(db) : loadModeRankGraphScores(db, scope),
+    historicalSeasonId
+      ? loadHistoricalRankGraphScores(db, kv, historicalSeasonId, scope)
+      : scope === 'overall'
+        ? loadOverallRankGraphScores(db)
+        : loadModeRankGraphScores(db, scope),
   ])
   if (historicalSeasonId && scores.length === 0) return []
   const bands = buildRankGraphBands(config, scores)
-  return historicalSeasonId ? bands.filter((band, index) => band.cutoffScore != null || index === bands.length - 1)
-    .map(band => ({ ...band, label: band.label.replace(/ (III|II|I)$/, '') })) : bands
+  return historicalSeasonId
+    ? bands
+        .filter((band, index) => band.cutoffScore != null || index === bands.length - 1)
+        .map(band => ({ ...band, label: band.label.replace(/ (III|II|I)$/, '') }))
+    : bands
 }
 
-async function loadHistoricalRankGraphScores(db: Database, kv: KVNamespace, seasonId: string, scope: RankGraphScope): Promise<RankGraphScoreRow[]> {
+async function loadHistoricalRankGraphScores(
+  db: Database,
+  kv: KVNamespace,
+  seasonId: string,
+  scope: RankGraphScope,
+): Promise<RankGraphScoreRow[]> {
   const saved = await loadSeasonStandings(db, kv, seasonId)
-  return saved?.graphScores.filter(row => row.mode === toRatingEventScope(scope)).map(row => ({ ...row, qualified: row.qualified === 1 })) ?? []
+  return (
+    saved?.graphScores
+      .filter(row => row.mode === toRatingEventScope(scope))
+      .map(row => ({ ...row, qualified: row.qualified === 1 })) ?? []
+  )
 }
 
-async function loadModeRankGraphScores(db: Database, scope: Exclude<RankGraphScope, 'overall'>): Promise<RankGraphScoreRow[]> {
+async function loadModeRankGraphScores(
+  db: Database,
+  scope: Exclude<RankGraphScope, 'overall'>,
+): Promise<RankGraphScoreRow[]> {
   const rows = await db
     .select({
       playerId: playerRatings.playerId,
@@ -359,12 +465,15 @@ function buildRankGraphBands(config: RankedRoleConfig, sortedScores: readonly Ra
       tier,
       label: getConfiguredRankedRoleLabel(config, tier) ?? shortTierLabel(tier),
       color: getTierColor(config, tier, index),
-      cutoffScore: fallback ? null : cutoffByTier.get(tier) ?? null,
+      cutoffScore: fallback ? null : (cutoffByTier.get(tier) ?? null),
     }
   })
 }
 
-function buildRankGraphCutoffs(config: RankedRoleConfig, sortedScores: readonly RankGraphScoreRow[]): Map<CompetitiveTier, number> {
+function buildRankGraphCutoffs(
+  config: RankedRoleConfig,
+  sortedScores: readonly RankGraphScoreRow[],
+): Map<CompetitiveTier, number> {
   const cutoffByTier = new Map<CompetitiveTier, number>()
   const rankedCount = sortedScores.length
   let start = 0
@@ -382,7 +491,11 @@ function buildRankGraphCutoffs(config: RankedRoleConfig, sortedScores: readonly 
   return cutoffByTier
 }
 
-function findLastQualifiedScore(sortedScores: readonly RankGraphScoreRow[], start: number, size: number): number | null {
+function findLastQualifiedScore(
+  sortedScores: readonly RankGraphScoreRow[],
+  start: number,
+  size: number,
+): number | null {
   for (let offset = size - 1; offset >= 0; offset--) {
     const row = sortedScores[start + offset]
     if (row?.qualified) return row.score
@@ -425,7 +538,8 @@ function interpolatePositiveAnchors(values: readonly number[], progress: number)
 
 function compareRankGraphScoreRows(left: RankGraphScoreRow, right: RankGraphScoreRow): number {
   if (right.score !== left.score) return right.score - left.score
-  if ((right.lastPlayedAt ?? 0) !== (left.lastPlayedAt ?? 0)) return (right.lastPlayedAt ?? 0) - (left.lastPlayedAt ?? 0)
+  if ((right.lastPlayedAt ?? 0) !== (left.lastPlayedAt ?? 0))
+    return (right.lastPlayedAt ?? 0) - (left.lastPlayedAt ?? 0)
   return left.playerId.localeCompare(right.playerId)
 }
 
@@ -434,10 +548,12 @@ function buildRankGraphPoints(rows: readonly RankGraphEventRow[], scope: RankGra
   if (!first) return []
 
   const score = scope === 'overall' ? roleRating : displayRating
-  const points: RankGraphPoint[] = [{
-    x: 0,
-    rating: Math.round(score(first.ratingBeforeMu, first.ratingBeforeSigma)),
-  }]
+  const points: RankGraphPoint[] = [
+    {
+      x: 0,
+      rating: Math.round(score(first.ratingBeforeMu, first.ratingBeforeSigma)),
+    },
+  ]
 
   rows.forEach((row, index) => {
     points.push({
@@ -463,7 +579,10 @@ function buildRankBandSegments(bands: readonly RankGraphBand[], scale: RatingSca
       const y = ratingToY(boundedUpper, scale)
       const bottom = ratingToY(boundedLower, scale)
       const height = Math.max(1, bottom - y)
-      const color = normalizeSvgColor(band.color, BAND_FALLBACK_COLORS[index % BAND_FALLBACK_COLORS.length] ?? COLORS.accent)
+      const color = normalizeSvgColor(
+        band.color,
+        BAND_FALLBACK_COLORS[index % BAND_FALLBACK_COLORS.length] ?? COLORS.accent,
+      )
       segments.push({
         index,
         label: band.label,
@@ -481,19 +600,25 @@ function buildRankBandSegments(bands: readonly RankGraphBand[], scale: RatingSca
 }
 
 function renderRankBandClipDefs(segments: readonly RankGraphBandSegment[]): string {
-  return segments.map((segment) => {
-    const y = Math.max(CHART_Y, segment.y - 0.5)
-    const bottom = Math.min(CHART_BOTTOM, segment.bottom + 0.5)
-    return `<clipPath id="${rankBandClipId(segment)}" clipPathUnits="userSpaceOnUse"><rect x="${CHART_X}" y="${y}" width="${CHART_W}" height="${Math.max(1, bottom - y)}" /></clipPath>`
-  }).join('')
+  return segments
+    .map(segment => {
+      const y = Math.max(CHART_Y, segment.y - 0.5)
+      const bottom = Math.min(CHART_BOTTOM, segment.bottom + 0.5)
+      return `<clipPath id="${rankBandClipId(segment)}" clipPathUnits="userSpaceOnUse"><rect x="${CHART_X}" y="${y}" width="${CHART_W}" height="${Math.max(1, bottom - y)}" /></clipPath>`
+    })
+    .join('')
 }
 
 function renderRankBands(segments: readonly RankGraphBandSegment[]): string {
-  return segments.map(segment => `
+  return segments
+    .map(
+      segment => `
     <rect x="${CHART_X}" y="${segment.y}" width="${CHART_W}" height="${segment.height}" fill="${segment.color}" opacity="0.025" />
     <line x1="${CHART_X}" y1="${segment.y}" x2="${CHART_X + CHART_W}" y2="${segment.y}" stroke="${COLORS.grid}" stroke-width="1" />
     ${segment.label && segment.height >= 30 ? `<text x="${CHART_X + CHART_W - 18}" y="${Math.min(segment.bottom - 13, segment.y + 29)}" text-anchor="end" fill="${segment.color}" opacity="0.72" font-size="18" font-weight="900" letter-spacing="1.2">${escapeXml(formatBandLabel(segment.label))}</text>` : ''}
-  `).join('')
+  `,
+    )
+    .join('')
 }
 
 function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | undefined, unit: 'ELO' | 'RP'): string {
@@ -508,51 +633,72 @@ function renderPlayerIdentity(player: RankGraphPlayer, avatarDataUri: string | u
   return `
     <circle cx="${avatarX + center}" cy="${avatarY + center}" r="${center}" fill="${COLORS.bg}" />
     ${avatarDataUri ? `<image href="${avatarDataUri}" x="${avatarX}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" clip-path="url(#rankGraphPlayerAvatar)" preserveAspectRatio="xMidYMid slice" />` : ''}
-    ${avatarDataUri ? '' : `<text x="${avatarX + center}" y="${avatarY + center + (avatarSize * 0.13)}" text-anchor="middle" fill="${COLORS.muted}" font-size="${Math.round(avatarSize * 0.36)}" font-weight="900">${escapeXml(initials)}</text>`}
+    ${avatarDataUri ? '' : `<text x="${avatarX + center}" y="${avatarY + center + avatarSize * 0.13}" text-anchor="middle" fill="${COLORS.muted}" font-size="${Math.round(avatarSize * 0.36)}" font-weight="900">${escapeXml(initials)}</text>`}
     <text x="${nameX}" y="${avatarY + 18}" text-anchor="end" fill="${COLORS.fg}" font-size="22" font-weight="900">${escapeXml(name)}</text>
     <text x="${nameX}" y="${avatarY + 42}" text-anchor="end" fill="${COLORS.muted}" font-size="17" font-weight="900" letter-spacing="1.1">${ratingLabel}</text>
   `
 }
 
 function renderXGridLines(ticks: readonly number[], xMax: number): string {
-  return ticks.map((tick) => {
-    if (tick === 0 || tick === xMax) return ''
-    const x = xToChart(tick, xMax)
-    return `<line x1="${x}" y1="${CHART_Y}" x2="${x}" y2="${CHART_BOTTOM}" stroke="${COLORS.grid}" stroke-width="1" />`
-  }).join('')
+  return ticks
+    .map(tick => {
+      if (tick === 0 || tick === xMax) return ''
+      const x = xToChart(tick, xMax)
+      return `<line x1="${x}" y1="${CHART_Y}" x2="${x}" y2="${CHART_BOTTOM}" stroke="${COLORS.grid}" stroke-width="1" />`
+    })
+    .join('')
 }
 
-function renderGraphArea(points: readonly RankGraphPoint[], scale: RatingScale, xMax: number, segments: readonly RankGraphBandSegment[]): string {
+function renderGraphArea(
+  points: readonly RankGraphPoint[],
+  scale: RatingScale,
+  xMax: number,
+  segments: readonly RankGraphBandSegment[],
+): string {
   const chartPoints = points.map(point => ({ x: xToChart(point.x, xMax), y: ratingToY(point.rating, scale) }))
   const first = chartPoints[0]
   const last = chartPoints.at(-1)
   if (!first || !last) return ''
 
   const linePoints = chartPoints.map(point => `${point.x},${point.y}`).join(' ')
-  const reversePoints = [...chartPoints].reverse().map(point => `${point.x},${point.y}`).join(' ')
+  const reversePoints = [...chartPoints]
+    .reverse()
+    .map(point => `${point.x},${point.y}`)
+    .join(' ')
   const topPath = `M${first.x},${CHART_Y} H${last.x} L${reversePoints} Z`
   const bottomPath = `M${linePoints} L${last.x},${CHART_BOTTOM} H${first.x} Z`
 
-  return segments.map(segment => `
+  return segments
+    .map(
+      segment => `
     <g clip-path="url(#${rankBandClipId(segment)})">
       <path d="${topPath}" fill="${segment.color}" opacity="0.018" />
       <path d="${bottomPath}" fill="${segment.color}" opacity="0.13" />
     </g>
-  `).join('')
+  `,
+    )
+    .join('')
 }
 
-function renderSeriesLine(pointsInput: readonly RankGraphPoint[], scale: RatingScale, xMax: number, segments: readonly RankGraphBandSegment[]): string {
-  const points = pointsInput
-    .map(point => `${xToChart(point.x, xMax)},${ratingToY(point.rating, scale)}`)
-    .join(' ')
+function renderSeriesLine(
+  pointsInput: readonly RankGraphPoint[],
+  scale: RatingScale,
+  xMax: number,
+  segments: readonly RankGraphBandSegment[],
+): string {
+  const points = pointsInput.map(point => `${xToChart(point.x, xMax)},${ratingToY(point.rating, scale)}`).join(' ')
 
-  return segments.map(segment => `
+  return segments
+    .map(
+      segment => `
     <g clip-path="url(#${rankBandClipId(segment)})">
       <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-opacity="0.16" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
       <polyline points="${points}" fill="none" stroke="${segment.color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
       ${pointsInput.length === 1 ? `<circle cx="${xToChart(pointsInput[0]!.x, xMax)}" cy="${ratingToY(pointsInput[0]!.rating, scale)}" r="7" fill="${segment.color}" />` : ''}
     </g>
-  `).join('')
+  `,
+    )
+    .join('')
 }
 
 function rankBandClipId(segment: RankGraphBandSegment): string {
@@ -568,24 +714,30 @@ function renderBandAxisLabels(segments: readonly RankGraphBandSegment[], scale: 
     if (y < CHART_Y + 10 || y > CHART_BOTTOM - 5) continue
     if (y - previousY < 30) continue
     previousY = y
-    labels.push(`<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${segment.color}" opacity="0.9" font-size="16" font-weight="900">${Math.round(segment.cutoffScore)}</text>`)
+    labels.push(
+      `<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${segment.color}" opacity="0.9" font-size="16" font-weight="900">${Math.round(segment.cutoffScore)}</text>`,
+    )
   }
   if (labels.length === 0) {
     const step = Math.max(50, Math.ceil((scale.max - scale.min) / 5 / 50) * 50)
     for (let rating = Math.ceil(scale.min / step) * step; rating < scale.max; rating += step) {
       const y = ratingToY(rating, scale) + 5
       if (y < CHART_Y + 10 || y > CHART_BOTTOM - 5) continue
-      labels.push(`<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${COLORS.muted}" font-size="16" font-weight="900">${rating}</text>`)
+      labels.push(
+        `<text x="${CHART_X - 14}" y="${y}" text-anchor="end" fill="${COLORS.muted}" font-size="16" font-weight="900">${rating}</text>`,
+      )
     }
   }
   return labels.join('')
 }
 
 function renderXAxisLabels(xTicks: readonly number[], xMax: number): string {
-  return xTicks.map((tick) => {
-    const x = xToChart(tick, xMax)
-    return `<text x="${x}" y="${CHART_BOTTOM + 34}" text-anchor="middle" fill="${COLORS.subtle}" font-size="15" font-weight="900">${tick}</text>`
-  }).join('')
+  return xTicks
+    .map(tick => {
+      const x = xToChart(tick, xMax)
+      return `<text x="${x}" y="${CHART_BOTTOM + 34}" text-anchor="middle" fill="${COLORS.subtle}" font-size="15" font-weight="900">${tick}</text>`
+    })
+    .join('')
 }
 
 function renderEmptyState(): string {
@@ -600,7 +752,9 @@ interface RatingScale {
 function buildRatingScale(data: RankGraphImageData): RatingScale {
   const values = [
     ...data.player.points.map(point => point.rating),
-    ...(data.ratingSystem === 'rp' ? [] : data.bands.flatMap(band => band.cutoffScore == null ? [] : [band.cutoffScore])),
+    ...(data.ratingSystem === 'rp'
+      ? []
+      : data.bands.flatMap(band => (band.cutoffScore == null ? [] : [band.cutoffScore]))),
   ].filter(value => Number.isFinite(value))
 
   if (values.length === 0) return { min: 800, max: 1200 }
@@ -637,11 +791,12 @@ function pickGameTickStep(xMax: number): number {
   for (const step of buildGameTickStepCandidates(xMax)) {
     const labels = buildGameTickLabelsForStep(xMax, step)
     const count = labels.length
-    const countPenalty = count < desired.min
-      ? (desired.min - count) * 8
-      : count > desired.max
-        ? (count - desired.max) * 5
-        : Math.abs(count - desired.target)
+    const countPenalty =
+      count < desired.min
+        ? (desired.min - count) * 8
+        : count > desired.max
+          ? (count - desired.max) * 5
+          : Math.abs(count - desired.target)
     const divisorBonus = xMax % step === 0 ? -1.6 : 0
     const niceBonus = isPreferredGameTickStep(step) ? -1 : 0
     const crowdPenalty = hasCrowdedEndTick(xMax, step) ? 3 : 0
@@ -655,7 +810,7 @@ function pickGameTickStep(xMax: number): number {
   return bestStep
 }
 
-function getGameTickDensity(xMax: number): { min: number, max: number, target: number } {
+function getGameTickDensity(xMax: number): { min: number; max: number; target: number } {
   if (xMax <= 15) return { min: 4, max: 6, target: 5 }
   if (xMax <= 60) return { min: 5, max: 8, target: 6 }
   if (xMax <= 120) return { min: 5, max: 8, target: 6 }
@@ -698,12 +853,12 @@ function isPreferredGameTickStep(step: number): boolean {
 
 function ratingToY(rating: number, scale: RatingScale): number {
   const ratio = (scale.max - rating) / Math.max(1, scale.max - scale.min)
-  return CHART_Y + (Math.max(0, Math.min(1, ratio)) * CHART_H)
+  return CHART_Y + Math.max(0, Math.min(1, ratio)) * CHART_H
 }
 
 function xToChart(x: number, xMax: number): number {
   const ratio = Math.max(0, Math.min(1, x / Math.max(1, xMax)))
-  return CHART_X + (ratio * CHART_W)
+  return CHART_X + ratio * CHART_W
 }
 
 function formatRankGraphSubtitle(scope: RankGraphScope): string {
@@ -722,7 +877,10 @@ function normalizeGameLimit(value: number): number {
 function getTierColor(config: RankedRoleConfig, tier: CompetitiveTier, fallbackIndex: number): string {
   const index = getTierIndex(tier)
   const configured = index == null ? null : config.tiers[index]?.color
-  return normalizeSvgColor(configured, BAND_FALLBACK_COLORS[fallbackIndex % BAND_FALLBACK_COLORS.length] ?? COLORS.accent)
+  return normalizeSvgColor(
+    configured,
+    BAND_FALLBACK_COLORS[fallbackIndex % BAND_FALLBACK_COLORS.length] ?? COLORS.accent,
+  )
 }
 
 function getTierIndex(tier: CompetitiveTier): number | null {
@@ -764,10 +922,13 @@ async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   const fontBuffers = await ensureFontBuffersReady()
   return new Resvg(svg, {
     fitTo: { mode: 'width', value: IMAGE_WIDTH },
-    font: fontBuffers.length > 0
-      ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
-      : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
-  }).render().asPng()
+    font:
+      fontBuffers.length > 0
+        ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
+        : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
+  })
+    .render()
+    .asPng()
 }
 
 async function ensureResvgReady(): Promise<unknown> {
@@ -778,27 +939,29 @@ async function ensureResvgReady(): Promise<unknown> {
 async function initializeResvgWasm(): Promise<unknown> {
   try {
     return await initWasm(await resolveWasmInput(resvgWasm))
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof Error && error.message.includes('Already initialized')) return null
     throw error
   }
 }
 
 async function ensureFontBuffersReady(): Promise<Uint8Array[]> {
-  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes))
-    .then(values => values.filter((value): value is Uint8Array => value != null && value.length > 0))
+  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes)).then(values =>
+    values.filter((value): value is Uint8Array => value != null && value.length > 0),
+  )
   return fontBuffersReady
 }
 
-async function resolveFontAssetBytes(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<Uint8Array | null> {
+async function resolveFontAssetBytes(specifier: (typeof FONT_ASSET_SPECIFIERS)[number]): Promise<Uint8Array | null> {
   if (getBunFileApi()) return resolveAssetBytes(resolveImportAsset(specifier))
 
   const bundled = await resolveBundledFontAsset(specifier).catch(() => null)
   return resolveAssetBytes(bundled ?? resolveImportAsset(specifier))
 }
 
-async function resolveBundledFontAsset(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<string | URL | ArrayBuffer | Uint8Array> {
+async function resolveBundledFontAsset(
+  specifier: (typeof FONT_ASSET_SPECIFIERS)[number],
+): Promise<string | URL | ArrayBuffer | Uint8Array> {
   switch (specifier) {
     case '@fontsource/inter/files/inter-latin-400-normal.woff2':
       return (await import('@fontsource/inter/files/inter-latin-400-normal.woff2')).default
@@ -816,13 +979,14 @@ function resolveImportAsset(specifier: string): string | URL {
   try {
     const resolved = meta.resolve(specifier)
     return /^(https?:|file:)/.test(resolved) ? new URL(resolved) : resolved
-  }
-  catch {
+  } catch {
     return specifier
   }
 }
 
-async function resolveWasmInput(input: string | URL | WebAssembly.Module | ArrayBuffer): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
+async function resolveWasmInput(
+  input: string | URL | WebAssembly.Module | ArrayBuffer,
+): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
   if (typeof input !== 'string') return input
   if (/^(https?:|file:)/.test(input)) return input
 
@@ -839,8 +1003,7 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   if (bun) {
     try {
       return new Uint8Array(await bun.file(input).arrayBuffer())
-    }
-    catch {
+    } catch {
       return null
     }
   }
@@ -848,14 +1011,19 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   try {
     const response = await fetch(input)
     return response.ok ? new Uint8Array(await response.arrayBuffer()) : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 function getBunFileApi(): { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } | null {
-  return (globalThis as typeof globalThis & { Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } }).Bun ?? null
+  return (
+    (
+      globalThis as typeof globalThis & {
+        Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } }
+      }
+    ).Bun ?? null
+  )
 }
 
 function truncateToWidth(value: string, maxWidth: number, fontSize: number, fontWeight: number): string {
@@ -889,17 +1057,15 @@ function getApproxCharWidth(char: string): number {
 }
 
 function stripUnsupportedEmoji(value: string): string {
-  return value
-    .replace(/[\uFE0E\uFE0F]/g, '')
-    .replace(/\p{Extended_Pictographic}/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim() || value
+  return (
+    value
+      .replace(/[\uFE0E\uFE0F]/g, '')
+      .replace(/\p{Extended_Pictographic}/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim() || value
+  )
 }
 
 function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

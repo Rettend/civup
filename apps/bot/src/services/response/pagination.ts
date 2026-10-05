@@ -7,7 +7,7 @@ const DISCORD_HONO_CUSTOM_ID_SEPARATOR = ';'
 const PAGINATION_PAYLOAD_SEPARATOR = ':'
 const PAGINATION_ACTIONS = ['top', 'prev', 'next', 'bottom'] as const
 
-type PaginationAction = typeof PAGINATION_ACTIONS[number]
+type PaginationAction = (typeof PAGINATION_ACTIONS)[number]
 
 export interface PaginationRequest {
   namespace: string
@@ -49,15 +49,17 @@ export function paginationComponents(options: PaginationControlsOptions): Discor
   const lastPageIndex = pageCount - 1
   const args = options.args ?? []
 
-  return [{
-    type: DISCORD_ACTION_ROW_COMPONENT_TYPE,
-    components: [
-      paginationButton('Top', 'top', options.namespace, 0, args, pageIndex === 0),
-      paginationButton('Prev', 'prev', options.namespace, pageIndex - 1, args, pageIndex === 0),
-      paginationButton('Next', 'next', options.namespace, pageIndex + 1, args, pageIndex === lastPageIndex),
-      paginationButton('Bottom', 'bottom', options.namespace, lastPageIndex, args, pageIndex === lastPageIndex),
-    ],
-  }]
+  return [
+    {
+      type: DISCORD_ACTION_ROW_COMPONENT_TYPE,
+      components: [
+        paginationButton('Top', 'top', options.namespace, 0, args, pageIndex === 0),
+        paginationButton('Prev', 'prev', options.namespace, pageIndex - 1, args, pageIndex === 0),
+        paginationButton('Next', 'next', options.namespace, pageIndex + 1, args, pageIndex === lastPageIndex),
+        paginationButton('Bottom', 'bottom', options.namespace, lastPageIndex, args, pageIndex === lastPageIndex),
+      ],
+    },
+  ]
 }
 
 export function parsePaginationCustomId(value: string | undefined): PaginationRequest | null {
@@ -123,8 +125,7 @@ function decodePaginationPart(value: string | undefined): string | null {
   if (value == null) return null
   try {
     return decodeURIComponent(value)
-  }
-  catch {
+  } catch {
     return null
   }
 }

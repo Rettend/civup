@@ -95,10 +95,20 @@ describe('leader registry', () => {
     const registry = getCivBlitzRegistry()
     const expandedRegistry = getCivBlitzRegistry('beta', { excludeBbgExpanded: false })
 
-    expect(registry.componentMap.get('civblitz:civilizationAbility:america')?.iconUrl).toBe('/assets/bbg/civilizations/American.png')
-    expect(registry.componentMap.get('civblitz:civilizationAbility:netherlands')?.iconUrl).toBe('/assets/bbg/civilizations/Dutch.png')
-    expect(expandedRegistry.componentMap.get('civblitz:civilizationAbility:austria')?.iconUrl).toBe('/assets/bbg/civilizations/Austria.webp')
-    expect(expandedRegistry.components.find(component => component.category === 'civilizationAbility' && component.civilization === 'Teotihuacán')?.iconUrl).toBe('/assets/bbg/civilizations/Teotihuacan.webp')
+    expect(registry.componentMap.get('civblitz:civilizationAbility:america')?.iconUrl).toBe(
+      '/assets/bbg/civilizations/American.png',
+    )
+    expect(registry.componentMap.get('civblitz:civilizationAbility:netherlands')?.iconUrl).toBe(
+      '/assets/bbg/civilizations/Dutch.png',
+    )
+    expect(expandedRegistry.componentMap.get('civblitz:civilizationAbility:austria')?.iconUrl).toBe(
+      '/assets/bbg/civilizations/Austria.webp',
+    )
+    expect(
+      expandedRegistry.components.find(
+        component => component.category === 'civilizationAbility' && component.civilization === 'Teotihuacán',
+      )?.iconUrl,
+    ).toBe('/assets/bbg/civilizations/Teotihuacan.webp')
   })
 
   test('CivBlitz excludes BBG Expanded source leaders by default', () => {
@@ -185,14 +195,19 @@ describe('leader registry', () => {
 
       for (const leader of leaderSet) {
         if (!leader.civilizationAbility.name) failures.push(`${label}:${leader.id}: missing civilization ability name`)
-        if (!leader.civilizationAbility.description) failures.push(`${label}:${leader.id}: missing civilization ability description`)
+        if (!leader.civilizationAbility.description)
+          failures.push(`${label}:${leader.id}: missing civilization ability description`)
         if (!leader.ability.name) failures.push(`${label}:${leader.id}: missing leader ability name`)
         if (!leader.ability.description) failures.push(`${label}:${leader.id}: missing leader ability description`)
 
-        if (leader.civilizationAbility.name.startsWith('LOC_')) failures.push(`${label}:${leader.id}: unresolved civilization ability name`)
-        if (leader.civilizationAbility.description.startsWith('LOC_')) failures.push(`${label}:${leader.id}: unresolved civilization ability description`)
-        if (leader.ability.name.startsWith('LOC_')) failures.push(`${label}:${leader.id}: unresolved leader ability name`)
-        if (leader.ability.description.startsWith('LOC_')) failures.push(`${label}:${leader.id}: unresolved leader ability description`)
+        if (leader.civilizationAbility.name.startsWith('LOC_'))
+          failures.push(`${label}:${leader.id}: unresolved civilization ability name`)
+        if (leader.civilizationAbility.description.startsWith('LOC_'))
+          failures.push(`${label}:${leader.id}: unresolved civilization ability description`)
+        if (leader.ability.name.startsWith('LOC_'))
+          failures.push(`${label}:${leader.id}: unresolved leader ability name`)
+        if (leader.ability.description.startsWith('LOC_'))
+          failures.push(`${label}:${leader.id}: unresolved leader ability description`)
       }
 
       expect(failures).toEqual([])

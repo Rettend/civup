@@ -1,17 +1,13 @@
-import type { GameMode } from '@civup/game'
 import type { LobbyState } from '../../../src/services/lobby/index.ts'
 import type { SystemWorld } from './world.ts'
-import { matches } from '@civup/db'
+import type { GameMode } from '@civup/game'
 import { expect } from 'bun:test'
+import { matches } from '@civup/db'
 import { getLiveSessionLobbyProjections } from '../../../src/services/session/index.ts'
 
 const SUPPORTED_GAME_MODES = ['1v1', '2v2', '3v3', '4v4', 'ffa'] as const satisfies readonly GameMode[]
 
-export async function expectQueuePlayers(
-  world: SystemWorld,
-  mode: GameMode,
-  playerIds: string[],
-): Promise<void> {
+export async function expectQueuePlayers(world: SystemWorld, mode: GameMode, playerIds: string[]): Promise<void> {
   const lobby = await world.lobby.get(mode)
   const openLobbyPlayerIds = lobby?.status === 'open' ? lobby.memberPlayerIds : []
   expect(openLobbyPlayerIds).toEqual(playerIds)
@@ -77,11 +73,9 @@ export async function expectMatchState(
   return match
 }
 
-export function countDiscordChannelRequests(
-  world: SystemWorld,
-  method: 'PATCH' | 'POST' | 'DELETE',
-): number {
-  return world.discord.requests().filter(request => request.method === method && request.url.includes('/channels/')).length
+export function countDiscordChannelRequests(world: SystemWorld, method: 'PATCH' | 'POST' | 'DELETE'): number {
+  return world.discord.requests().filter(request => request.method === method && request.url.includes('/channels/'))
+    .length
 }
 
 export async function expectDraftAndLobbyState(
@@ -123,10 +117,17 @@ export async function assertSystemWorldInvariants(
     const lobbies = await getLiveSessionLobbyProjections(world.db, { mode })
 
     for (const lobby of lobbies) {
-      const projection = options.checkProjectionIndexes === true ? await world.inspect.lobbyByMatch(lobby.matchId ?? lobby.id) : undefined
+      const projection =
+        options.checkProjectionIndexes === true
+          ? await world.inspect.lobbyByMatch(lobby.matchId ?? lobby.id)
+          : undefined
 
       expect(new Set(lobby.memberPlayerIds).size).toBe(lobby.memberPlayerIds.length)
-      expect(lobby.slots.filter((slot): slot is string => slot != null).every(playerId => lobby.memberPlayerIds.includes(playerId))).toBe(true)
+      expect(
+        lobby.slots
+          .filter((slot): slot is string => slot != null)
+          .every(playerId => lobby.memberPlayerIds.includes(playerId)),
+      ).toBe(true)
 
       if (options.checkProjectionIndexes === true) {
         expect(projection).not.toBeNull()

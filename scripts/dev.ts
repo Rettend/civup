@@ -11,7 +11,16 @@ import { verifyWorkerArtifact } from './cloudflare-worker/artifacts.ts'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const botRoot = resolve(repoRoot, 'apps', 'bot')
 const activityRoot = resolve(repoRoot, 'apps', 'activity')
-const activityPreviewEntry = resolve(activityRoot, '.cloudflare', 'output', 'v0', 'workers', 'default', 'assets', 'index.html')
+const activityPreviewEntry = resolve(
+  activityRoot,
+  '.cloudflare',
+  'output',
+  'v0',
+  'workers',
+  'default',
+  'assets',
+  'index.html',
+)
 const workerAdapter = resolve(repoRoot, 'scripts/cloudflare-worker.ts')
 
 interface Service {
@@ -20,7 +29,7 @@ interface Service {
   cwd: string
 }
 
-const processes: Array<{ name: string, proc: ReturnType<typeof spawn> }> = []
+const processes: Array<{ name: string; proc: ReturnType<typeof spawn> }> = []
 
 const rebuildActivity = process.argv.includes('--rebuild-activity')
 const activityLive = process.argv.includes('--activity-live')
@@ -42,7 +51,15 @@ const services: Service[] = [
     cwd: activityRoot,
     cmd: activityCommand,
   },
-  ...(noTunnel ? [] : [{ name: 'tunnel', cwd: repoRoot, cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'] }]),
+  ...(noTunnel
+    ? []
+    : [
+        {
+          name: 'tunnel',
+          cwd: repoRoot,
+          cmd: ['cloudflared', '--config', 'cloudflared.dev.yml', 'tunnel', 'run', 'civup-dev'],
+        },
+      ]),
 ]
 
 if (printCommands) {
@@ -53,9 +70,12 @@ if (printCommands) {
 let shuttingDown = false
 
 if (rebuildActivity) {
-  runCommand('activity build', ['bun', workerAdapter, 'build', 'activity', '--target', 'standard', '--mode', 'development'], activityRoot)
-}
-else if (!activityLive && !existsSync(activityPreviewEntry)) {
+  runCommand(
+    'activity build',
+    ['bun', workerAdapter, 'build', 'activity', '--target', 'standard', '--mode', 'development'],
+    activityRoot,
+  )
+} else if (!activityLive && !existsSync(activityPreviewEntry)) {
   console.error('[dev] Activity preview bundle is missing. Run `bun run dev:new` or `bun run a:dev:new` first.')
   process.exit(1)
 }
@@ -64,10 +84,16 @@ else if (!activityLive && !existsSync(activityPreviewEntry)) {
 // a partial failed build is not a usable development preview.
 if (!activityLive) {
   try {
-    verifyWorkerArtifact(activityRoot, { targetName: 'standard', target: resolveCloudflareTarget('standard'), worker: 'activity', mode: 'development' })
-  }
-  catch (error) {
-    console.error(`[dev] ${error instanceof Error ? error.message : 'Activity preview build could not be checked.'} Run \`bun run dev:new\` to rebuild it.`)
+    verifyWorkerArtifact(activityRoot, {
+      targetName: 'standard',
+      target: resolveCloudflareTarget('standard'),
+      worker: 'activity',
+      mode: 'development',
+    })
+  } catch (error) {
+    console.error(
+      `[dev] ${error instanceof Error ? error.message : 'Activity preview build could not be checked.'} Run \`bun run dev:new\` to rebuild it.`,
+    )
     process.exit(1)
   }
 }
@@ -84,16 +110,14 @@ function killProcessTree(pid: number) {
 
   try {
     process.kill(pid, 'SIGTERM')
-  }
-  catch {}
+  } catch {}
 }
 
 function shutdown(code: number) {
   if (shuttingDown) return
   shuttingDown = true
 
-  for (const { proc } of processes)
-    if (proc.pid) killProcessTree(proc.pid)
+  for (const { proc } of processes) if (proc.pid) killProcessTree(proc.pid)
 
   process.exit(code)
 }
@@ -111,7 +135,7 @@ for (const svc of services) {
   pipeProcessOutput(svc.name, proc.stdout, false)
   pipeProcessOutput(svc.name, proc.stderr, true)
 
-  void proc.exited.then((exitCode) => {
+  void proc.exited.then(exitCode => {
     if (shuttingDown) return
 
     if (exitCode !== 0) {
@@ -155,11 +179,7 @@ function runCommand(name: string, cmd: string[], cwd: string) {
   }
 }
 
-function pipeProcessOutput(
-  name: string,
-  stream: ReadableStream<Uint8Array> | null | undefined,
-  isError: boolean,
-) {
+function pipeProcessOutput(name: string, stream: ReadableStream<Uint8Array> | null | undefined, isError: boolean) {
   if (!stream) return
 
   const reader = stream.getReader()
@@ -181,7 +201,7 @@ function pipeProcessOutput(
 
 function flushOutputBuffer(name: string, buffer: string, isError: boolean, flushRemainder: boolean): string {
   const lines = buffer.split('\n')
-  const pending = flushRemainder ? '' : lines.pop() ?? ''
+  const pending = flushRemainder ? '' : (lines.pop() ?? '')
 
   for (const rawLine of lines) {
     const line = rawLine.trimEnd()
@@ -194,8 +214,10 @@ function flushOutputBuffer(name: string, buffer: string, isError: boolean, flush
 }
 
 function sanitizeOutput(text: string): string {
-  return text
-    // eslint-disable-next-line no-control-regex
-    .replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/\r/g, '\n')
+  return (
+    text
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
+      .replace(/\r/g, '\n')
+  )
 }

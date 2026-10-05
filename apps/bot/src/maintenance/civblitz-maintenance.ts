@@ -10,12 +10,12 @@ export function generateCivBlitzModResponse(input: unknown): Response {
         'Content-Disposition': `attachment; filename="${generated.archiveFilename}"`,
         'Content-Length': String(generated.data.byteLength),
         'Content-Type': 'application/zip',
-        ETag: `"${generated.modId}"`,
+        'ETag': `"${generated.modId}"`,
       },
     })
-  }
-  catch (error) {
-    if (isCivBlitzModError(error)) return Response.json({ error: error.safeMessage, code: error.code }, { status: error.status })
+  } catch (error) {
+    if (isCivBlitzModError(error))
+      return Response.json({ error: error.safeMessage, code: error.code }, { status: error.status })
     console.error('[maintenance-do] Failed to generate CivBlitz mod:', error)
     return Response.json({ error: 'Failed to generate the match mod.' }, { status: 500 })
   }

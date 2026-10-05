@@ -1,8 +1,8 @@
 import type { DraftState } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
-import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT } from '@civup/game'
 import { createEffect, createRoot, DEV, flush, OBSERVE, snapshot } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT } from '@civup/game'
 import { cacheActivitySessionToken, clearActivitySessionToken } from '../src/client/lib/activity-session'
 import { configureClientPlatform } from '../src/client/platform/runtime'
 import {
@@ -17,24 +17,39 @@ import {
   sendStart,
   watchLobbyState,
 } from '../src/client/stores/connection-store'
-import { draftNow, draftStore, getOptimisticSeatPick, resetDraft, syncDraftServerTime } from '../src/client/stores/draft-store'
+import {
+  draftNow,
+  draftStore,
+  getOptimisticSeatPick,
+  resetDraft,
+  syncDraftServerTime,
+} from '../src/client/stores/draft-store'
 import { clearSelections, selectedLeader, setSelectedLeader } from '../src/client/stores/ui-store'
 
 const { sockets, FakePartySocket } = vi.hoisted(() => {
-  interface SocketEvent { type: string, data: string, code: number, reason: string }
+  interface SocketEvent {
+    type: string
+    data: string
+    code: number
+    reason: string
+  }
   const instances: Socket[] = []
   class Socket {
     readonly listeners = new Map<string, ((event: SocketEvent) => void)[]>()
     readonly sent: string[] = []
-    readonly closeCalls: { code: number, reason: string }[] = []
+    readonly closeCalls: { code: number; reason: string }[] = []
     retryCount = 0
     readyState = 0
     shouldReconnect = true
-    constructor(readonly options: Record<string, unknown>) { instances.push(this) }
+    constructor(readonly options: Record<string, unknown>) {
+      instances.push(this)
+    }
     addEventListener(type: string, listener: (event: SocketEvent) => void) {
       this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
     }
-    send(data: string) { this.sent.push(data) }
+    send(data: string) {
+      this.sent.push(data)
+    }
     close(code = 1000, reason = '') {
       this.shouldReconnect = false
       this.closeCalls.push({ code, reason })
@@ -45,7 +60,9 @@ const { sockets, FakePartySocket } = vi.hoisted(() => {
       if (type === 'close') this.readyState = 3
       for (const listener of this.listeners.get(type) ?? []) listener({ type, data: '', code: 0, reason: '', ...event })
     }
-    message(message: SessionServerMessage) { this.emit('message', { data: JSON.stringify(message) }) }
+    message(message: SessionServerMessage) {
+      this.emit('message', { data: JSON.stringify(message) })
+    }
   }
   return { sockets: instances, FakePartySocket: Socket }
 })
@@ -57,12 +74,17 @@ type InitMessage = Extract<SessionServerMessage, { type: 'init' }>
 
 function activeState(): DraftState {
   return {
-    ...createDraft('match-1', default2v2, [
-      { playerId: 'a1', displayName: 'A1', team: 0 },
-      { playerId: 'b1', displayName: 'B1', team: 1 },
-      { playerId: 'a2', displayName: 'A2', team: 0 },
-      { playerId: 'b2', displayName: 'B2', team: 1 },
-    ], Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`)),
+    ...createDraft(
+      'match-1',
+      default2v2,
+      [
+        { playerId: 'a1', displayName: 'A1', team: 0 },
+        { playerId: 'b1', displayName: 'B1', team: 1 },
+        { playerId: 'a2', displayName: 'A2', team: 0 },
+        { playerId: 'b2', displayName: 'B2', team: 1 },
+      ],
+      Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`),
+    ),
     status: 'active',
     currentStepIndex: 0,
     steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60 }],
@@ -71,9 +93,16 @@ function activeState(): DraftState {
 
 function initMessage(overrides: Partial<InitMessage> = {}): InitMessage {
   return {
-    type: 'init', state: activeState(), seatIndex: 0, hostId: 'a1',
-    serverNow: Date.now(), timerEndsAt: Date.now() + 60_000, completedAt: null,
-    mapVote: EMPTY_MAP_VOTE_SNAPSHOT, previews: { bans: {}, picks: {} }, swapState: null,
+    type: 'init',
+    state: activeState(),
+    seatIndex: 0,
+    hostId: 'a1',
+    serverNow: Date.now(),
+    timerEndsAt: Date.now() + 60_000,
+    completedAt: null,
+    mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
+    previews: { bans: {}, picks: {} },
+    swapState: null,
     ...overrides,
   }
 }
@@ -123,11 +152,14 @@ describe('selected session transport', () => {
     const capture = OBSERVE?.diagnostics.capture()
     if (!capture) throw new Error('Expected Solid development diagnostics')
     const dispose = createRoot(stop => {
-      createEffect(() => 'session-1', sessionId => {
-        // ActivityShell transitions reset the draft immediately before connecting.
-        resetDraft()
-        connectToSession(target, sessionId, null)
-      })
+      createEffect(
+        () => 'session-1',
+        sessionId => {
+          // ActivityShell transitions reset the draft immediately before connecting.
+          resetDraft()
+          connectToSession(target, sessionId, null)
+        },
+      )
       return stop
     })
     try {
@@ -142,8 +174,7 @@ describe('selected session transport', () => {
       // falsely make this connection's activity newer than the expired deadline.
       expect(sockets).toHaveLength(2)
       expect(socket.shouldReconnect).toBe(false)
-    }
-    finally {
+    } finally {
       dispose()
       capture.stop()
     }
@@ -156,7 +187,9 @@ describe('selected session transport', () => {
     expect(sendPreview('pick', ['civ-2'])).toBe(true)
     expect(socket.sent).toEqual([])
     expect(sendPreview('pick', ['civ-3'])).toBe(true)
-    expect(socket.sent.map(value => JSON.parse(value))).toEqual([{ type: 'preview', action: 'pick', civIds: ['civ-3'] }])
+    expect(socket.sent.map(value => JSON.parse(value))).toEqual([
+      { type: 'preview', action: 'pick', civIds: ['civ-3'] },
+    ])
     flush()
     expect(connectionStatus()).toBe('connected')
     expect(snapshot(draftStore.previews.picks)).toEqual({ 2: ['civ-2'] })
@@ -202,7 +235,14 @@ describe('selected session transport', () => {
     const second = latestSocket()
     second.emit('open')
     second.message(initMessage({ serverNow: 10_000, timerEndsAt: 11_000 }))
-    second.message({ type: 'session-started', lobbyId: 'lobby-1', matchId: 'match-2', steamLobbyLink: null, sessionAccessToken: null, mode: '2v2' })
+    second.message({
+      type: 'session-started',
+      lobbyId: 'lobby-1',
+      matchId: 'match-2',
+      steamLobbyLink: null,
+      sessionAccessToken: null,
+      mode: '2v2',
+    })
     flush()
     expect(onStateChanged).toHaveBeenCalledWith(expect.objectContaining({ matchId: 'match-2' }))
     await vi.advanceTimersByTimeAsync(20_000)
@@ -224,43 +264,60 @@ describe('selected session transport', () => {
     expect(connectionStatus()).toBe('connected')
   })
 
-  test.each([11_000, null])('deduplicates reconnects with map vote deadline %s and the active-step fallback', async endsAt => {
-    const message = initMessage({ timerEndsAt: endsAt == null ? 11_000 : null, mapVote: { ...EMPTY_MAP_VOTE_SNAPSHOT, enabled: true, phase: 'voting', endsAt } })
-    const first = connect(message)
-    flush()
-    await vi.advanceTimersByTimeAsync(7_000)
-    expect(sockets).toHaveLength(2)
-    expect(first.shouldReconnect).toBe(false)
-    const second = latestSocket()
-    second.emit('open')
-    second.message({ ...message, serverNow: 10_000 })
-    flush()
-    await vi.advanceTimersByTimeAsync(20_000)
-    expect(sockets).toHaveLength(2)
-  })
+  test.each([11_000, null])(
+    'deduplicates reconnects with map vote deadline %s and the active-step fallback',
+    async endsAt => {
+      const message = initMessage({
+        timerEndsAt: endsAt == null ? 11_000 : null,
+        mapVote: { ...EMPTY_MAP_VOTE_SNAPSHOT, enabled: true, phase: 'voting', endsAt },
+      })
+      const first = connect(message)
+      flush()
+      await vi.advanceTimersByTimeAsync(7_000)
+      expect(sockets).toHaveLength(2)
+      expect(first.shouldReconnect).toBe(false)
+      const second = latestSocket()
+      second.emit('open')
+      second.message({ ...message, serverNow: 10_000 })
+      flush()
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(sockets).toHaveLength(2)
+    },
+  )
 
-  test.each(['complete', 'cancelled'] as const)('a %s update disconnects immediately and leaves the final snapshot', status => {
-    const socket = connect()
-    flush()
-    setSelectedLeader('civ-2')
-    socket.message({ ...initMessage({ state: { ...activeState(), status }, completedAt: 12_000 }), type: 'update', events: [] })
-    expect(socket.shouldReconnect).toBe(false)
-    expect(sendStart()).toBe(false)
-    socket.message(initMessage())
-    socket.emit('open')
-    flush()
-    expect(draftStore.state?.status).toBe(status)
-    expect(connectionStatus()).toBe('disconnected')
-    expect(selectedLeader()).toBeNull()
-    expect(vi.getTimerCount()).toBe(0)
-  })
+  test.each(['complete', 'cancelled'] as const)(
+    'a %s update disconnects immediately and leaves the final snapshot',
+    status => {
+      const socket = connect()
+      flush()
+      setSelectedLeader('civ-2')
+      socket.message({
+        ...initMessage({ state: { ...activeState(), status }, completedAt: 12_000 }),
+        type: 'update',
+        events: [],
+      })
+      expect(socket.shouldReconnect).toBe(false)
+      expect(sendStart()).toBe(false)
+      socket.message(initMessage())
+      socket.emit('open')
+      flush()
+      expect(draftStore.state?.status).toBe(status)
+      expect(connectionStatus()).toBe('disconnected')
+      expect(selectedLeader()).toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
 
   test('keeps the socket during the swap window and disconnects at finalization', () => {
     const socket = connect({ state: { ...activeState(), status: 'complete' }, swapState: { completedSwaps: [] } })
     flush()
     expect(connectionStatus()).toBe('connected')
     expect(socket.closeCalls).toEqual([])
-    socket.message({ ...initMessage({ state: { ...activeState(), status: 'complete' }, swapState: null }), type: 'update', events: [] })
+    socket.message({
+      ...initMessage({ state: { ...activeState(), status: 'complete' }, swapState: null }),
+      type: 'update',
+      events: [],
+    })
     flush()
     expect(socket.shouldReconnect).toBe(false)
     expect(connectionStatus()).toBe('disconnected')
@@ -291,7 +348,10 @@ describe('selected session transport', () => {
   test('rejects pending config work on replacement and cannot acknowledge it from the old socket', async () => {
     const first = connect()
     flush()
-    const pending = sendConfig(120, 150).then(() => 'saved', error => (error as Error).message)
+    const pending = sendConfig(120, 150).then(
+      () => 'saved',
+      error => (error as Error).message,
+    )
     connectToSession(target, 'session-2', null)
     first.message({ ...initMessage(), type: 'update', events: [] })
     expect(await pending).toBe('The lobby disconnected before the change was confirmed.')
@@ -304,7 +364,10 @@ describe('selected session transport', () => {
   test('fatal close stops retries and preserves its error through a synchronous close callback', async () => {
     const socket = connect()
     flush()
-    const pending = sendConfig(120, 150).then(() => 'saved', error => (error as Error).message)
+    const pending = sendConfig(120, 150).then(
+      () => 'saved',
+      error => (error as Error).message,
+    )
     socket.emit('close', { code: 4401, reason: 'expired' })
     flush()
     expect(socket.shouldReconnect).toBe(false)
@@ -320,10 +383,19 @@ describe('selected session transport', () => {
     const onStateChanged = vi.fn()
     const onDisconnected = vi.fn()
     const onError = vi.fn()
-    const watcher = watchLobbyState(target, { channelId: 'channel-1', userId: 'a1', onConnected, onStateChanged, onDisconnected, onError })
+    const watcher = watchLobbyState(target, {
+      channelId: 'channel-1',
+      userId: 'a1',
+      onConnected,
+      onStateChanged,
+      onDisconnected,
+      onError,
+    })
     const socket = latestSocket()
     socket.emit('open')
-    socket.emit('message', { data: JSON.stringify({ type: 'overview', snapshot: { channelId: 'channel-1', options: [] } }) })
+    socket.emit('message', {
+      data: JSON.stringify({ type: 'overview', snapshot: { channelId: 'channel-1', options: [] } }),
+    })
     expect(onStateChanged).toHaveBeenCalledTimes(1)
     watcher.close()
     watcher.close()

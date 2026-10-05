@@ -1,11 +1,11 @@
-import type { Database } from '@civup/db'
-import type { LeaderboardMode } from '@civup/game'
 import type { PlayerRankModeSummary, PlayerRankProfile } from '../services/player/rank.ts'
 import type { SeasonRankHistoryEntry, SeasonRankHistoryModeSummary } from '../services/season/snapshot-roles.ts'
-import { players } from '@civup/db'
-import { formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
+import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { eq } from 'drizzle-orm'
+import { players } from '@civup/db'
+import { formatLeaderboardModeLabel, LEADERBOARD_MODES } from '@civup/game'
 import { formatSeasonShortName } from '../services/season/index.ts'
 import { buildPlayerCardDescription } from './player-card.ts'
 
@@ -14,16 +14,12 @@ export async function rankEmbed(
   playerId: string,
   rankProfile: PlayerRankProfile,
   options: {
-    activeSeason: { id: string, seasonNumber: number, name: string } | null
+    activeSeason: { id: string; seasonNumber: number; name: string } | null
     seasonHistory: SeasonRankHistoryEntry[]
     visibleModes?: readonly LeaderboardMode[]
   },
 ): Promise<Embed> {
-  const [player] = await db
-    .select()
-    .from(players)
-    .where(eq(players.id, playerId))
-    .limit(1)
+  const [player] = await db.select().from(players).where(eq(players.id, playerId)).limit(1)
 
   const displayName = player?.displayName ?? `<@${playerId}>`
   const activeSeason = options.activeSeason
@@ -33,14 +29,20 @@ export async function rankEmbed(
     ? options.seasonHistory.filter(entry => entry.seasonId !== activeSeason.id)
     : options.seasonHistory
 
-  const fields: Array<{ name: string, value: string, inline?: boolean }> = []
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = []
   if (activeSeason) {
-    pushSeasonFields(fields, formatSeasonShortName(activeSeason.seasonNumber), {
-      duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
-      duo: rankProfile.modes.duo.gamesPlayed > 0 ? rankProfile.modes.duo : undefined,
-      squad: rankProfile.modes.squad.gamesPlayed > 0 ? rankProfile.modes.squad : undefined,
-      ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
-    }, visibleModes, { emptyValue: 'No ranked games yet.' })
+    pushSeasonFields(
+      fields,
+      formatSeasonShortName(activeSeason.seasonNumber),
+      {
+        duel: rankProfile.modes.duel.gamesPlayed > 0 ? rankProfile.modes.duel : undefined,
+        duo: rankProfile.modes.duo.gamesPlayed > 0 ? rankProfile.modes.duo : undefined,
+        squad: rankProfile.modes.squad.gamesPlayed > 0 ? rankProfile.modes.squad : undefined,
+        ffa: rankProfile.modes.ffa.gamesPlayed > 0 ? rankProfile.modes.ffa : undefined,
+      },
+      visibleModes,
+      { emptyValue: 'No ranked games yet.' },
+    )
   }
 
   for (const season of pastSeasons) {
@@ -55,10 +57,7 @@ export async function rankEmbed(
     })
   }
 
-  const embed = new Embed()
-    .title('Rank')
-    .description(buildRankDescription(playerId, rankProfile))
-    .color(0xC8AA6E)
+  const embed = new Embed().title('Rank').description(buildRankDescription(playerId, rankProfile)).color(0xc8aa6e)
 
   embed.footer({ text: displayName, icon_url: player?.avatarUrl ?? undefined })
   embed.fields(...fields)
@@ -72,9 +71,7 @@ function buildRankDescription(playerId: string, rankProfile: PlayerRankProfile):
 function formatModeSummary(mode: PlayerRankModeSummary | SeasonRankHistoryModeSummary): string {
   if (mode.rating == null) return 'No ranked games yet.'
 
-  const winRate = mode.gamesPlayed > 0
-    ? Math.round((mode.wins / mode.gamesPlayed) * 100)
-    : 0
+  const winRate = mode.gamesPlayed > 0 ? Math.round((mode.wins / mode.gamesPlayed) * 100) : 0
 
   return [
     `Rating: ${formatModeRole(mode)} (${mode.rating})`,
@@ -89,7 +86,7 @@ function formatModeRole(mode: PlayerRankModeSummary | SeasonRankHistoryModeSumma
 }
 
 function pushSeasonFields(
-  fields: Array<{ name: string, value: string, inline?: boolean }>,
+  fields: Array<{ name: string; value: string; inline?: boolean }>,
   seasonLabel: string,
   modes: Partial<Record<LeaderboardMode, PlayerRankModeSummary | SeasonRankHistoryModeSummary | undefined>>,
   visibleModeOrder: readonly LeaderboardMode[],
@@ -97,9 +94,11 @@ function pushSeasonFields(
 ): boolean {
   const visibleModes = visibleModeOrder
     .map(mode => ({ mode, summary: modes[mode] }))
-    .filter((entry): entry is { mode: LeaderboardMode, summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
-      return !!entry.summary && entry.summary.rating != null
-    })
+    .filter(
+      (entry): entry is { mode: LeaderboardMode; summary: PlayerRankModeSummary | SeasonRankHistoryModeSummary } => {
+        return !!entry.summary && entry.summary.rating != null
+      },
+    )
 
   if (visibleModes.length === 0) {
     if (!options.emptyValue) return false
@@ -109,20 +108,24 @@ function pushSeasonFields(
 
   for (let index = 0; index < visibleModes.length; index += 2) {
     const chunk = visibleModes.slice(index, index + 2)
-    pushInlineSeasonRow(fields, seasonLabel, chunk.map(entry => ({
-      name: formatLeaderboardModeLabel(entry.mode, entry.mode),
-      value: formatModeSummary(entry.summary),
-      inline: true,
-    })))
+    pushInlineSeasonRow(
+      fields,
+      seasonLabel,
+      chunk.map(entry => ({
+        name: formatLeaderboardModeLabel(entry.mode, entry.mode),
+        value: formatModeSummary(entry.summary),
+        inline: true,
+      })),
+    )
   }
 
   return true
 }
 
 function pushInlineSeasonRow(
-  fields: Array<{ name: string, value: string, inline?: boolean }>,
+  fields: Array<{ name: string; value: string; inline?: boolean }>,
   seasonLabel: string,
-  rowFields: Array<{ name: string, value: string, inline?: boolean }>,
+  rowFields: Array<{ name: string; value: string; inline?: boolean }>,
 ): void {
   fields.push({ name: seasonLabel, value: '\u200B', inline: true })
   fields.push(...rowFields)

@@ -44,24 +44,27 @@ export async function uploadAutosaveMultipart(options: {
   fetch?: typeof globalThis.fetch
 }): Promise<void> {
   const fetchImpl = options.fetch ?? globalThis.fetch
-  const uploadedParts: Array<{ partNumber: number, etag: string }> = []
+  const uploadedParts: Array<{ partNumber: number; etag: string }> = []
 
   try {
     for (const part of planAutosaveMultipartParts(options.file.size, options.partSizeBytes)) {
-      const response = await fetchImpl(`/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/parts/${part.partNumber}`, {
-        method: 'PUT',
-        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/octet-stream' }),
-        body: options.file.slice(part.start, part.end),
-      })
-      const payload = await response.json().catch(() => null) as MultipartPartResponse | null
+      const response = await fetchImpl(
+        `/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/parts/${part.partNumber}`,
+        {
+          method: 'PUT',
+          headers: buildActivitySessionHeaders({ 'Content-Type': 'application/octet-stream' }),
+          body: options.file.slice(part.start, part.end),
+        },
+      )
+      const payload = (await response.json().catch(() => null)) as MultipartPartResponse | null
       if (!response.ok) throw new Error(getAutosaveUploadErrorMessage(response.status, payload?.error))
-      if (payload?.partNumber !== part.partNumber || !payload.etag) throw new Error('Upload part returned an invalid response')
+      if (payload?.partNumber !== part.partNumber || !payload.etag)
+        throw new Error('Upload part returned an invalid response')
       uploadedParts.push({ partNumber: part.partNumber, etag: payload.etag })
     }
 
     await completeAutosaveMultipart(fetchImpl, options.uploadId, uploadedParts)
-  }
-  catch (error) {
+  } catch (error) {
     await fetchImpl(`/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/abort`, {
       method: 'POST',
       headers: buildActivitySessionHeaders(),
@@ -73,7 +76,7 @@ export async function uploadAutosaveMultipart(options: {
 async function completeAutosaveMultipart(
   fetchImpl: typeof globalThis.fetch,
   uploadId: string,
-  parts: Array<{ partNumber: number, etag: string }>,
+  parts: Array<{ partNumber: number; etag: string }>,
 ): Promise<void> {
   let lastError: Error | null = null
   for (let attempt = 0; attempt < COMPLETE_ATTEMPTS; attempt++) {
@@ -84,14 +87,13 @@ async function completeAutosaveMultipart(
         headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ parts }),
       })
-    }
-    catch (error) {
+    } catch (error) {
       lastError = error instanceof Error ? error : new Error('Upload completion failed')
       if (attempt + 1 < COMPLETE_ATTEMPTS) await delay(COMPLETE_RETRY_DELAY_MS)
       continue
     }
 
-    const payload = await response.json().catch(() => null) as UploadErrorResponse | null
+    const payload = (await response.json().catch(() => null)) as UploadErrorResponse | null
     if (response.ok) return
     lastError = new Error(getAutosaveUploadErrorMessage(response.status, payload?.error))
     if (response.status !== 409 && response.status < 500) throw lastError

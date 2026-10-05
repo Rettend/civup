@@ -82,7 +82,7 @@ function buildTeamSlots(teamSize: number, teamIdsByTeam: string[][], slotCount: 
   for (let team = 0; team < teamIdsByTeam.length; team++) {
     const teamIds = teamIdsByTeam[team] ?? []
     for (let index = 0; index < teamSize; index++) {
-      slots[(team * teamSize) + index] = teamIds[index] ?? null
+      slots[team * teamSize + index] = teamIds[index] ?? null
     }
   }
   return slots

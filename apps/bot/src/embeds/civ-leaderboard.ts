@@ -13,9 +13,9 @@ export const CIV_LEADERBOARD_DESCRIPTION_CHAR_LIMIT = 2100
 const DISCORD_EMBEDS_TOTAL_CHAR_LIMIT = 6000
 
 const BOARD_COLORS: Record<CivLeaderboardBoard, number> = {
-  picked: 0x2563EB,
-  winrate: 0x16A34A,
-  banned: 0xDC2626,
+  picked: 0x2563eb,
+  winrate: 0x16a34a,
+  banned: 0xdc2626,
 }
 
 const BOARD_TITLES: Record<CivLeaderboardBoard, string> = {
@@ -132,7 +132,7 @@ export function civLeaderboardPageEmbed(
     pageSize?: number
     titlePrefix?: string
   } = {},
-): { embed: Embed, pageIndex: number, pageCount: number, totalRows: number } {
+): { embed: Embed; pageIndex: number; pageCount: number; totalRows: number } {
   const pageSize = normalizePageSize(options.pageSize)
   const allRows = civLeaderboardRowsForBoard(board, snapshot.rows)
   const pageCount = Math.max(1, Math.ceil(allRows.length / pageSize))
@@ -157,7 +157,9 @@ export function civLeaderboardPageEmbed(
     .title(title)
     .description(description)
     .color(BOARD_COLORS[board])
-    .footer({ text: `${formatFooter(snapshot)} | Page ${pageIndex + 1}/${pageCount} - ${startRank}-${endRank} of ${allRows.length}` })
+    .footer({
+      text: `${formatFooter(snapshot)} | Page ${pageIndex + 1}/${pageCount} - ${startRank}-${endRank} of ${allRows.length}`,
+    })
 
   return { embed, pageIndex, pageCount, totalRows: allRows.length }
 }
@@ -189,18 +191,30 @@ export function civLeaderboardRowsForBoard(
   if (board === 'picked') {
     return [...rows]
       .filter(row => row.picks > 0)
-      .sort((left, right) => right.picks - left.picks || right.wins - left.wins || left.civId.localeCompare(right.civId))
+      .sort(
+        (left, right) => right.picks - left.picks || right.wins - left.wins || left.civId.localeCompare(right.civId),
+      )
   }
 
   if (board === 'winrate') {
     return [...rows]
       .filter(row => row.picks >= MIN_WIN_RATE_PICKS && row.winRatePct != null)
-      .sort((left, right) => (right.winRatePct ?? 0) - (left.winRatePct ?? 0) || right.picks - left.picks || left.civId.localeCompare(right.civId))
+      .sort(
+        (left, right) =>
+          (right.winRatePct ?? 0) - (left.winRatePct ?? 0) ||
+          right.picks - left.picks ||
+          left.civId.localeCompare(right.civId),
+      )
   }
 
   return [...rows]
     .filter(row => row.bans > 0 && row.poolGames > 0)
-    .sort((left, right) => right.bans / right.poolGames - left.bans / left.poolGames || right.poolGames - left.poolGames || left.civId.localeCompare(right.civId))
+    .sort(
+      (left, right) =>
+        right.bans / right.poolGames - left.bans / left.poolGames ||
+        right.poolGames - left.poolGames ||
+        left.civId.localeCompare(right.civId),
+    )
 }
 
 function formatRow(board: CivLeaderboardBoard, row: CivLeaderboardSnapshotRow, rank: number): string {

@@ -55,20 +55,22 @@ export function HorizontalScroller(local: HorizontalScrollerProps) {
 
   return (
     <div
-      ref={(element) => {
+      ref={element => {
         viewport = element
         local.viewportRef?.(element)
       }}
-      class={cn('civup-h-scroll overflow-x-auto overflow-y-hidden overscroll-x-contain', isDragging() && 'is-dragging', local.class)}
+      class={cn(
+        'civup-h-scroll overflow-x-auto overflow-y-hidden overscroll-x-contain',
+        isDragging() && 'is-dragging',
+        local.class,
+      )}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
       {...rest}
     >
-      <div class={cn('min-w-max', local.contentClass)}>
-        {local.children}
-      </div>
+      <div class={cn('min-w-max', local.contentClass)}>{local.children}</div>
     </div>
   )
 }

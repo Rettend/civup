@@ -1,10 +1,25 @@
-import type { Database } from '@civup/db'
 import type { DbBatchItem } from '../db/batch.ts'
-import { civStatPoolTotals, civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants, tournamentMatches } from '@civup/db'
-import { getLeader, getLeaderIds, liveLeaderDataVersionLabel, parseGameMode, redDeathLeaderMap, toLeaderboardMode } from '@civup/game'
+import type { Database } from '@civup/db'
 import { and, eq, inArray, not, or, sql } from 'drizzle-orm'
-import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
+import {
+  civStatPoolTotals,
+  civStats,
+  civStatTotals,
+  matchCivStatContributions,
+  matches,
+  matchParticipants,
+  tournamentMatches,
+} from '@civup/db'
+import {
+  getLeader,
+  getLeaderIds,
+  liveLeaderDataVersionLabel,
+  parseGameMode,
+  redDeathLeaderMap,
+  toLeaderboardMode,
+} from '@civup/game'
 import { runDbBatch } from '../db/batch.ts'
+import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
 import { readCivReleaseSnapshots } from './civ-release.ts'
 
 export type CivLeaderboardSource = 'live' | 'beta'
@@ -171,7 +186,10 @@ export async function getStoredCivLeaderboardDisplayConfig(kv: KVNamespace): Pro
   return normalizeCivLeaderboardDisplayConfig(raw)
 }
 
-export async function setCivLeaderboardDisplayConfig(kv: KVNamespace, config: CivLeaderboardDisplayConfig): Promise<void> {
+export async function setCivLeaderboardDisplayConfig(
+  kv: KVNamespace,
+  config: CivLeaderboardDisplayConfig,
+): Promise<void> {
   await kvMput(kv, [{ key: CIV_LEADERBOARD_CONFIG_KEY, value: JSON.stringify(config) }])
 }
 
@@ -197,7 +215,10 @@ export async function getStoredCivLeaderboardSnapshots(
   kv: KVNamespace,
   modeScopes: readonly CivLeaderboardModeScope[] = CIV_LEADERBOARD_MODE_SCOPES,
 ): Promise<Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>> {
-  const values = await kvMget(kv, modeScopes.map(modeScope => ({ key: civLeaderboardSnapshotKey(modeScope), type: 'json' })))
+  const values = await kvMget(
+    kv,
+    modeScopes.map(modeScope => ({ key: civLeaderboardSnapshotKey(modeScope), type: 'json' })),
+  )
   const snapshots = new Map<CivLeaderboardModeScope, CivLeaderboardSnapshot>()
   for (let index = 0; index < modeScopes.length; index++) {
     const modeScope = modeScopes[index]!
@@ -214,7 +235,15 @@ export async function rebuildCivLeaderboardSnapshot(
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot> {
   const snapshots = await rebuildCivLeaderboardSnapshots(db, kv, [modeScope], updatedAt)
-  return snapshots.get(modeScope) ?? emptySnapshot(modeScope, defaultCivLeaderboardDisplayConfig().label, updatedAt, await isCivLeaderboardStatsInitialized(db))
+  return (
+    snapshots.get(modeScope) ??
+    emptySnapshot(
+      modeScope,
+      defaultCivLeaderboardDisplayConfig().label,
+      updatedAt,
+      await isCivLeaderboardStatsInitialized(db),
+    )
+  )
 }
 
 export async function rebuildCivLeaderboardSnapshots(
@@ -238,7 +267,13 @@ export async function buildCivLeaderboardSnapshotFromStats(
   modeScope: CivLeaderboardModeScope = 'all',
 ): Promise<CivLeaderboardSnapshot> {
   const config = defaultCivLeaderboardDisplayConfig()
-  const snapshots = await buildCivLeaderboardSnapshotsFromStats(db, config, [modeScope], updatedAt, await isCivLeaderboardStatsInitialized(db))
+  const snapshots = await buildCivLeaderboardSnapshotsFromStats(
+    db,
+    config,
+    [modeScope],
+    updatedAt,
+    await isCivLeaderboardStatsInitialized(db),
+  )
   return snapshots.get(modeScope) ?? emptySnapshot(modeScope, config.label, updatedAt, false)
 }
 
@@ -277,7 +312,13 @@ export async function repairCivLeaderboardStatsFromContributions(
   await setStoredContributionVisibilityFromConfig(db, config, updatedAt)
   await replaceVisibleCivStatsFromContributionRows(db, rows, updatedAt)
   await markCivLeaderboardStatsInitialized(db, updatedAt)
-  const snapshot = snapshotFromContributionRows(rows.filter(row => row.visible), 'all', config.label, updatedAt, true)
+  const snapshot = snapshotFromContributionRows(
+    rows.filter(row => row.visible),
+    'all',
+    config.label,
+    updatedAt,
+    true,
+  )
   return {
     snapshot,
     status: await getCivLeaderboardStatsStatus(db),
@@ -321,7 +362,7 @@ export async function backfillCivLeaderboardStatsFromHistory(
       .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
   ])
 
-  const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
+  const participantsByMatchId = new Map<string, Array<{ civId: string | null; placement: number | null }>>()
   for (const row of participantRows) {
     const rows = participantsByMatchId.get(row.matchId) ?? []
     rows.push({ civId: row.civId, placement: row.placement })
@@ -363,7 +404,13 @@ export async function backfillCivLeaderboardStatsFromHistory(
   await replaceVisibleCivStatsFromContributionRows(db, snapshotRows, updatedAt)
   await markCivLeaderboardStatsInitialized(db, updatedAt)
 
-  const snapshot = snapshotFromContributionRows(snapshotRows.filter(row => isContributionVisible(row, config)), 'all', config.label, updatedAt, true)
+  const snapshot = snapshotFromContributionRows(
+    snapshotRows.filter(row => isContributionVisible(row, config)),
+    'all',
+    config.label,
+    updatedAt,
+    true,
+  )
   return {
     snapshot,
     status: await getCivLeaderboardStatsStatus(db),
@@ -383,25 +430,16 @@ export async function isCivLeaderboardStatsInitialized(db: Database): Promise<bo
   return Boolean(row)
 }
 
-export async function getCivLeaderboardStatsStatus(
-  db: Database,
-  kv?: KVNamespace,
-): Promise<CivLeaderboardStatsStatus> {
+export async function getCivLeaderboardStatsStatus(db: Database, kv?: KVNamespace): Promise<CivLeaderboardStatsStatus> {
   const [initializedRows, totalRows, contributionCounts, civCounts, snapshot] = await Promise.all([
     db
       .select({ updatedAt: civStatTotals.updatedAt })
       .from(civStatTotals)
       .where(eq(civStatTotals.scope, CIV_STAT_INITIALIZED_SCOPE))
       .limit(1),
-    db
-      .select({ completedMatchCount: civStatPoolTotals.completedMatchCount })
-      .from(civStatPoolTotals),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(matchCivStatContributions),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(civStats),
+    db.select({ completedMatchCount: civStatPoolTotals.completedMatchCount }).from(civStatPoolTotals),
+    db.select({ count: sql<number>`count(*)` }).from(matchCivStatContributions),
+    db.select({ count: sql<number>`count(*)` }).from(civStats),
     kv ? getStoredCivLeaderboardSnapshot(kv) : Promise.resolve(null),
   ])
 
@@ -428,7 +466,13 @@ export async function reconcileCivLeaderboardMatchContribution(
   }
 
   const [match] = await db
-    .select({ id: matches.id, status: matches.status, draftData: matches.draftData, gameMode: matches.gameMode, completedAt: matches.completedAt })
+    .select({
+      id: matches.id,
+      status: matches.status,
+      draftData: matches.draftData,
+      gameMode: matches.gameMode,
+      completedAt: matches.completedAt,
+    })
     .from(matches)
     .where(eq(matches.id, matchId))
     .limit(1)
@@ -451,10 +495,7 @@ export async function reconcileCivLeaderboardMatchContribution(
   )
 }
 
-export async function removeCivLeaderboardMatchContribution(
-  db: Database,
-  matchId: string,
-): Promise<void> {
+export async function removeCivLeaderboardMatchContribution(db: Database, matchId: string): Promise<void> {
   await replaceCivLeaderboardMatchContribution(db, matchId, null)
 }
 
@@ -483,7 +524,7 @@ export async function buildCivLeaderboardSnapshotFromD1(
       .where(and(eq(matches.status, 'completed'), excludeTournamentMatchesCondition())),
   ])
 
-  const participantsByMatchId = new Map<string, Array<{ civId: string | null, placement: number | null }>>()
+  const participantsByMatchId = new Map<string, Array<{ civId: string | null; placement: number | null }>>()
   for (const row of participantRows) {
     const rows = participantsByMatchId.get(row.matchId) ?? []
     rows.push({ civId: row.civId, placement: row.placement })
@@ -494,17 +535,25 @@ export async function buildCivLeaderboardSnapshotFromD1(
   const rows = matchRows.flatMap((match): ContributionRow[] => {
     const contribution = buildMatchCivStatContribution(match, participantsByMatchId.get(match.id) ?? [])
     if (contribution.completedMatchCount <= 0) return []
-    return [{
-      completedMatchCount: contribution.completedMatchCount,
-      contributionsJson: serializeContributionPayload(contribution),
-      source: contribution.source,
-      modeScope: contribution.modeScope,
-      completedAt: contribution.completedAt,
-      visible: isContributionVisible(contribution, config),
-    }]
+    return [
+      {
+        completedMatchCount: contribution.completedMatchCount,
+        contributionsJson: serializeContributionPayload(contribution),
+        source: contribution.source,
+        modeScope: contribution.modeScope,
+        completedAt: contribution.completedAt,
+        visible: isContributionVisible(contribution, config),
+      },
+    ]
   })
 
-  return snapshotFromContributionRows(rows.filter(row => isContributionVisible(row, config)), 'all', config.label, updatedAt, true)
+  return snapshotFromContributionRows(
+    rows.filter(row => isContributionVisible(row, config)),
+    'all',
+    config.label,
+    updatedAt,
+    true,
+  )
 }
 
 async function buildCivLeaderboardSnapshotsFromStats(
@@ -574,20 +623,30 @@ async function buildCivLeaderboardSnapshotsFromStats(
     const sourceModeScopes = modeScope === 'all' ? CIV_LEADERBOARD_MODE_SCOPES : [modeScope]
     const aggregates = combineAggregateScopes(aggregatesByScope, sourceModeScopes)
     const poolGames = combinePoolGamesScopes(poolGamesByScope, sourceModeScopes)
-    const completedMatchCount = sourceModeScopes.reduce((total, sourceModeScope) => total + (completedMatchCountByScope.get(sourceModeScope) ?? 0), 0)
+    const completedMatchCount = sourceModeScopes.reduce(
+      (total, sourceModeScope) => total + (completedMatchCountByScope.get(sourceModeScope) ?? 0),
+      0,
+    )
     for (const aggregate of aggregates.values()) {
       aggregate.poolGames = poolGames.get(aggregate.civId) ?? (completedMatchCount > 0 ? completedMatchCount : 0)
     }
-    snapshots.set(modeScope, snapshotFromAggregates(aggregates, modeScope, config.label, completedMatchCount, updatedAt, historyInitialized))
+    snapshots.set(
+      modeScope,
+      snapshotFromAggregates(aggregates, modeScope, config.label, completedMatchCount, updatedAt, historyInitialized),
+    )
   }
   return snapshots
 }
 
 /** New live games replace the oldest games from the latest 1,000-game beta sample. */
-export function selectReleaseContributions<T extends { matchId: string, source: string, modeScope: string, completedAt: number }>(rows: readonly T[]): T[] {
+export function selectReleaseContributions<
+  T extends { matchId: string; source: string; modeScope: string; completedAt: number },
+>(rows: readonly T[]): T[] {
   const selected = rows.filter(row => row.source === 'live')
-  const beta = rows.filter(row => row.source === 'beta')
-    .sort((left, right) => right.completedAt - left.completedAt || left.matchId.localeCompare(right.matchId)).slice(0, 1000)
+  const beta = rows
+    .filter(row => row.source === 'beta')
+    .sort((left, right) => right.completedAt - left.completedAt || left.matchId.localeCompare(right.matchId))
+    .slice(0, 1000)
   selected.push(...beta.slice(0, Math.max(0, beta.length - selected.length)))
   return selected
 }
@@ -613,16 +672,17 @@ export function contributionVisibleCondition(config: CivLeaderboardDisplayConfig
     eq(matchCivStatContributions.source, 'live'),
     sql`${matchCivStatContributions.completedAt} >= ${config.liveFrom}`,
   )
-  const betaCondition = config.betaFrom == null
-    ? undefined
-    : and(
-        eq(matchCivStatContributions.source, 'beta'),
-        sql`${matchCivStatContributions.completedAt} >= ${config.betaFrom}`,
-        config.betaUntil == null
-          ? sql`1 = 1`
-          : sql`${matchCivStatContributions.completedAt} < ${config.betaUntil}`,
-        config.betaSeedMatchIds ? sql`${matchCivStatContributions.matchId} IN (SELECT value FROM json_each(${JSON.stringify(config.betaSeedMatchIds)}))` : undefined,
-      )
+  const betaCondition =
+    config.betaFrom == null
+      ? undefined
+      : and(
+          eq(matchCivStatContributions.source, 'beta'),
+          sql`${matchCivStatContributions.completedAt} >= ${config.betaFrom}`,
+          config.betaUntil == null ? sql`1 = 1` : sql`${matchCivStatContributions.completedAt} < ${config.betaUntil}`,
+          config.betaSeedMatchIds
+            ? sql`${matchCivStatContributions.matchId} IN (SELECT value FROM json_each(${JSON.stringify(config.betaSeedMatchIds)}))`
+            : undefined,
+        )
   return betaCondition ? or(liveCondition, betaCondition) : liveCondition
 }
 
@@ -634,7 +694,11 @@ async function replaceCivLeaderboardMatchContribution(
 ): Promise<void> {
   const saved = await getCivLeaderboardMatchContribution(db, matchId)
   const previous = saved?.contribution ?? null
-  if (JSON.stringify(previous && toContributionInsertRow(matchId, previous, 0)) === JSON.stringify(next && toContributionInsertRow(matchId, next, 0))) return
+  if (
+    JSON.stringify(previous && toContributionInsertRow(matchId, previous, 0)) ===
+    JSON.stringify(next && toContributionInsertRow(matchId, next, 0))
+  )
+    return
   const source = saved
     ? sql`exists(select 1 from ${matchCivStatContributions} where ${matchCivStatContributions.matchId} = ${matchId}
         and ${matchCivStatContributions.contributionsJson} = ${saved.row.contributionsJson}
@@ -642,35 +706,37 @@ async function replaceCivLeaderboardMatchContribution(
         and ${matchCivStatContributions.source} is ${saved.row.source} and ${matchCivStatContributions.modeScope} is ${saved.row.modeScope}
         and ${matchCivStatContributions.completedAt} is ${saved.row.completedAt} and ${matchCivStatContributions.visible} = ${Number(saved.row.visible)})`
     : sql`not exists(select 1 from ${matchCivStatContributions} where ${matchCivStatContributions.matchId} = ${matchId})`
-  const queries: DbBatchItem[] = [db.select({ valid: sql`case when ${source} then 1 else json_extract('Stale leaderboard contribution', '$') end` }).from(sql`(select 1) as contribution_guard`)]
+  const queries: DbBatchItem[] = [
+    db
+      .select({ valid: sql`case when ${source} then 1 else json_extract('Stale leaderboard contribution', '$') end` })
+      .from(sql`(select 1) as contribution_guard`),
+  ]
 
   if (next && next.completedMatchCount > 0) {
     const values = toContributionInsertRow(matchId, next, updatedAt)
-    queries.push(db
-      .insert(matchCivStatContributions)
-      .values(values)
-      .onConflictDoUpdate({
-        target: matchCivStatContributions.matchId,
-        set: {
-          completedMatchCount: values.completedMatchCount,
-          contributionsJson: values.contributionsJson,
-          source: values.source,
-          modeScope: values.modeScope,
-          completedAt: values.completedAt,
-          visible: values.visible,
-          updatedAt,
-        },
-      }))
-  }
-  else queries.push(db.delete(matchCivStatContributions).where(eq(matchCivStatContributions.matchId, matchId)))
+    queries.push(
+      db
+        .insert(matchCivStatContributions)
+        .values(values)
+        .onConflictDoUpdate({
+          target: matchCivStatContributions.matchId,
+          set: {
+            completedMatchCount: values.completedMatchCount,
+            contributionsJson: values.contributionsJson,
+            source: values.source,
+            modeScope: values.modeScope,
+            completedAt: values.completedAt,
+            visible: values.visible,
+            updatedAt,
+          },
+        }),
+    )
+  } else queries.push(db.delete(matchCivStatContributions).where(eq(matchCivStatContributions.matchId, matchId)))
   queries.push(...buildCivLeaderboardAggregateDelta(db, previous, next, updatedAt))
   await runDbBatch(db, queries)
 }
 
-async function getCivLeaderboardMatchContribution(
-  db: Database,
-  matchId: string,
-) {
+async function getCivLeaderboardMatchContribution(db: Database, matchId: string) {
   const [row] = await db
     .select({
       completedMatchCount: matchCivStatContributions.completedMatchCount,
@@ -705,8 +771,14 @@ function buildCivLeaderboardAggregateDelta(
   next: MatchCivStatContribution | null,
   updatedAt: number,
 ): DbBatchItem[] {
-  const statDeltas = new Map<string, { modeScope: CivLeaderboardModeScope, civId: string, picks: number, wins: number, bans: number }>()
-  const poolDeltas = new Map<string, { modeScope: CivLeaderboardModeScope, poolKey: string, poolCivIds: string[], completedMatchCount: number }>()
+  const statDeltas = new Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; civId: string; picks: number; wins: number; bans: number }
+  >()
+  const poolDeltas = new Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; poolKey: string; poolCivIds: string[]; completedMatchCount: number }
+  >()
 
   addAggregateContributionDelta(statDeltas, poolDeltas, previous, -1)
   addAggregateContributionDelta(statDeltas, poolDeltas, next, 1)
@@ -714,80 +786,100 @@ function buildCivLeaderboardAggregateDelta(
 
   for (const delta of statDeltas.values()) {
     if (delta.picks === 0 && delta.wins === 0 && delta.bans === 0) continue
-    queries.push(db
-      .insert(civStats)
-      .values({
-        modeScope: delta.modeScope,
-        civId: delta.civId,
-        picks: Math.max(0, delta.picks),
-        wins: Math.max(0, delta.wins),
-        bans: Math.max(0, delta.bans),
-        updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: [civStats.modeScope, civStats.civId],
-        set: {
-          picks: sql<number>`max(0, ${civStats.picks} + ${delta.picks})`,
-          wins: sql<number>`max(0, ${civStats.wins} + ${delta.wins})`,
-          bans: sql<number>`max(0, ${civStats.bans} + ${delta.bans})`,
+    queries.push(
+      db
+        .insert(civStats)
+        .values({
+          modeScope: delta.modeScope,
+          civId: delta.civId,
+          picks: Math.max(0, delta.picks),
+          wins: Math.max(0, delta.wins),
+          bans: Math.max(0, delta.bans),
           updatedAt,
-        },
-      }))
+        })
+        .onConflictDoUpdate({
+          target: [civStats.modeScope, civStats.civId],
+          set: {
+            picks: sql<number>`max(0, ${civStats.picks} + ${delta.picks})`,
+            wins: sql<number>`max(0, ${civStats.wins} + ${delta.wins})`,
+            bans: sql<number>`max(0, ${civStats.bans} + ${delta.bans})`,
+            updatedAt,
+          },
+        }),
+    )
 
     if (delta.picks < 0 || delta.wins < 0 || delta.bans < 0) {
-      queries.push(db
-        .delete(civStats)
-        .where(and(
-          eq(civStats.modeScope, delta.modeScope),
-          eq(civStats.civId, delta.civId),
-          sql`${civStats.picks} <= 0 and ${civStats.wins} <= 0 and ${civStats.bans} <= 0`,
-        )))
+      queries.push(
+        db
+          .delete(civStats)
+          .where(
+            and(
+              eq(civStats.modeScope, delta.modeScope),
+              eq(civStats.civId, delta.civId),
+              sql`${civStats.picks} <= 0 and ${civStats.wins} <= 0 and ${civStats.bans} <= 0`,
+            ),
+          ),
+      )
     }
   }
 
   for (const delta of poolDeltas.values()) {
     if (delta.completedMatchCount === 0) continue
-    queries.push(db
-      .insert(civStatPoolTotals)
-      .values({
-        modeScope: delta.modeScope,
-        poolKey: delta.poolKey,
-        poolCivIdsJson: JSON.stringify(delta.poolCivIds),
-        completedMatchCount: Math.max(0, delta.completedMatchCount),
-        updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: [civStatPoolTotals.modeScope, civStatPoolTotals.poolKey],
-        set: {
+    queries.push(
+      db
+        .insert(civStatPoolTotals)
+        .values({
+          modeScope: delta.modeScope,
+          poolKey: delta.poolKey,
           poolCivIdsJson: JSON.stringify(delta.poolCivIds),
-          completedMatchCount: sql<number>`max(0, ${civStatPoolTotals.completedMatchCount} + ${delta.completedMatchCount})`,
+          completedMatchCount: Math.max(0, delta.completedMatchCount),
           updatedAt,
-        },
-      }))
+        })
+        .onConflictDoUpdate({
+          target: [civStatPoolTotals.modeScope, civStatPoolTotals.poolKey],
+          set: {
+            poolCivIdsJson: JSON.stringify(delta.poolCivIds),
+            completedMatchCount: sql<number>`max(0, ${civStatPoolTotals.completedMatchCount} + ${delta.completedMatchCount})`,
+            updatedAt,
+          },
+        }),
+    )
 
     if (delta.completedMatchCount < 0) {
-      queries.push(db
-        .delete(civStatPoolTotals)
-        .where(and(
-          eq(civStatPoolTotals.modeScope, delta.modeScope),
-          eq(civStatPoolTotals.poolKey, delta.poolKey),
-          sql`${civStatPoolTotals.completedMatchCount} <= 0`,
-        )))
+      queries.push(
+        db
+          .delete(civStatPoolTotals)
+          .where(
+            and(
+              eq(civStatPoolTotals.modeScope, delta.modeScope),
+              eq(civStatPoolTotals.poolKey, delta.poolKey),
+              sql`${civStatPoolTotals.completedMatchCount} <= 0`,
+            ),
+          ),
+      )
     }
   }
   return queries
 }
 
 function addAggregateContributionDelta(
-  statDeltas: Map<string, { modeScope: CivLeaderboardModeScope, civId: string, picks: number, wins: number, bans: number }>,
-  poolDeltas: Map<string, { modeScope: CivLeaderboardModeScope, poolKey: string, poolCivIds: string[], completedMatchCount: number }>,
+  statDeltas: Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; civId: string; picks: number; wins: number; bans: number }
+  >,
+  poolDeltas: Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; poolKey: string; poolCivIds: string[]; completedMatchCount: number }
+  >,
   contribution: MatchCivStatContribution | null,
   direction: 1 | -1,
 ): void {
   if (!contribution?.visible || contribution.completedMatchCount <= 0) return
   const modeScopes = aggregateModeScopes(contribution.modeScope)
   const completedMatchCountDelta = direction * normalizeCount(contribution.completedMatchCount)
-  const poolCivIds = uniqueStrings(contribution.poolCivIds).filter(civId => civId.length > 0 && !isRedDeathFaction(civId)).sort((left, right) => left.localeCompare(right))
+  const poolCivIds = uniqueStrings(contribution.poolCivIds)
+    .filter(civId => civId.length > 0 && !isRedDeathFaction(civId))
+    .sort((left, right) => left.localeCompare(right))
   const poolKey = poolCivIds.join('|')
 
   for (const modeScope of modeScopes) {
@@ -815,48 +907,67 @@ async function replaceVisibleCivStatsFromContributionRows(
   rows: readonly ContributionRow[],
   updatedAt: number,
 ): Promise<void> {
-  const statDeltas = new Map<string, { modeScope: CivLeaderboardModeScope, civId: string, picks: number, wins: number, bans: number }>()
-  const poolDeltas = new Map<string, { modeScope: CivLeaderboardModeScope, poolKey: string, poolCivIds: string[], completedMatchCount: number }>()
+  const statDeltas = new Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; civId: string; picks: number; wins: number; bans: number }
+  >()
+  const poolDeltas = new Map<
+    string,
+    { modeScope: CivLeaderboardModeScope; poolKey: string; poolCivIds: string[]; completedMatchCount: number }
+  >()
 
   for (const row of rows) {
     if (!row.visible) continue
     const source = normalizeContributionSource(row.source)
     const payload = parseContributionPayload(row.contributionsJson, source)
-    addAggregateContributionDelta(statDeltas, poolDeltas, {
-      completedMatchCount: normalizeCount(row.completedMatchCount),
-      source,
-      modeScope: normalizeModeScope(row.modeScope) ?? 'all',
-      completedAt: normalizeCompletedAt(row.completedAt),
-      visible: true,
-      poolCivIds: payload.poolCivIds,
-      entries: payload.entries,
-    }, 1)
+    addAggregateContributionDelta(
+      statDeltas,
+      poolDeltas,
+      {
+        completedMatchCount: normalizeCount(row.completedMatchCount),
+        source,
+        modeScope: normalizeModeScope(row.modeScope) ?? 'all',
+        completedAt: normalizeCompletedAt(row.completedAt),
+        visible: true,
+        poolCivIds: payload.poolCivIds,
+        entries: payload.entries,
+      },
+      1,
+    )
   }
 
-  const statRows = [...statDeltas.values()].flatMap(delta => delta.picks > 0 || delta.wins > 0 || delta.bans > 0
-    ? [{
-        modeScope: delta.modeScope,
-        civId: delta.civId,
-        picks: Math.max(0, delta.picks),
-        wins: Math.max(0, delta.wins),
-        bans: Math.max(0, delta.bans),
-        updatedAt,
-      }]
-    : [])
+  const statRows = [...statDeltas.values()].flatMap(delta =>
+    delta.picks > 0 || delta.wins > 0 || delta.bans > 0
+      ? [
+          {
+            modeScope: delta.modeScope,
+            civId: delta.civId,
+            picks: Math.max(0, delta.picks),
+            wins: Math.max(0, delta.wins),
+            bans: Math.max(0, delta.bans),
+            updatedAt,
+          },
+        ]
+      : [],
+  )
   for (let index = 0; index < statRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = statRows.slice(index, index + INSERT_CHUNK_SIZE)
     if (chunk.length > 0) await db.insert(civStats).values(chunk)
   }
 
-  const poolRows = [...poolDeltas.values()].flatMap(delta => delta.completedMatchCount > 0
-    ? [{
-        modeScope: delta.modeScope,
-        poolKey: delta.poolKey,
-        poolCivIdsJson: JSON.stringify(delta.poolCivIds),
-        completedMatchCount: delta.completedMatchCount,
-        updatedAt,
-      }]
-    : [])
+  const poolRows = [...poolDeltas.values()].flatMap(delta =>
+    delta.completedMatchCount > 0
+      ? [
+          {
+            modeScope: delta.modeScope,
+            poolKey: delta.poolKey,
+            poolCivIdsJson: JSON.stringify(delta.poolCivIds),
+            completedMatchCount: delta.completedMatchCount,
+            updatedAt,
+          },
+        ]
+      : [],
+  )
   for (let index = 0; index < poolRows.length; index += INSERT_CHUNK_SIZE) {
     const chunk = poolRows.slice(index, index + INSERT_CHUNK_SIZE)
     if (chunk.length > 0) await db.insert(civStatPoolTotals).values(chunk)
@@ -936,7 +1047,9 @@ export function snapshotFromContributionRows(
       .filter(row => includePoolOnly || row.picks > 0 || row.wins > 0 || row.bans > 0)
       .filter(row => !isRedDeathFaction(row.civId))
       .map(toSnapshotRow)
-      .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
+      .sort(
+        (left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId),
+      ),
   }
 }
 
@@ -958,13 +1071,15 @@ export function snapshotFromAggregates(
       .filter(row => row.picks > 0 || row.wins > 0 || row.bans > 0)
       .filter(row => !isRedDeathFaction(row.civId))
       .map(toSnapshotRow)
-      .sort((left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId)),
+      .sort(
+        (left, right) => right.picks - left.picks || right.bans - left.bans || left.civId.localeCompare(right.civId),
+      ),
   }
 }
 
 function buildMatchCivStatContribution(
-  match: { draftData: string | null, gameMode: string, completedAt: number | null },
-  participants: readonly { civId: string | null, placement: number | null }[],
+  match: { draftData: string | null; gameMode: string; completedAt: number | null },
+  participants: readonly { civId: string | null; placement: number | null }[],
 ): MatchCivStatContribution {
   if (isRedDeathMatch(match.draftData)) return emptyMatchContribution(match)
 
@@ -1007,7 +1122,10 @@ function buildMatchCivStatContribution(
   }
 }
 
-function emptyMatchContribution(match: { draftData: string | null, completedAt: number | null }): MatchCivStatContribution {
+function emptyMatchContribution(match: {
+  draftData: string | null
+  completedAt: number | null
+}): MatchCivStatContribution {
   return {
     completedMatchCount: 0,
     source: getContributionSourceFromDraftData(match.draftData),
@@ -1073,12 +1191,17 @@ function addContributionToAggregates(
 function serializeContributionPayload(contribution: MatchCivStatContribution): string {
   return JSON.stringify({
     version: 2,
-    poolCivIds: uniqueStrings(contribution.poolCivIds).filter(civId => !isRedDeathFaction(civId)).sort((left, right) => left.localeCompare(right)),
+    poolCivIds: uniqueStrings(contribution.poolCivIds)
+      .filter(civId => !isRedDeathFaction(civId))
+      .sort((left, right) => left.localeCompare(right)),
     entries: normalizeContributionEntries(contribution.entries),
   })
 }
 
-function parseContributionPayload(raw: string, source: CivLeaderboardSource): { poolCivIds: string[], entries: CivStatContributionEntry[] } {
+function parseContributionPayload(
+  raw: string,
+  source: CivLeaderboardSource,
+): { poolCivIds: string[]; entries: CivStatContributionEntry[] } {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (Array.isArray(parsed)) {
@@ -1087,32 +1210,41 @@ function parseContributionPayload(raw: string, source: CivLeaderboardSource): { 
     }
 
     if (!parsed || typeof parsed !== 'object') return { entries: [], poolCivIds: fallbackPoolCivIds(source, []) }
-    const record = parsed as { poolCivIds?: unknown, entries?: unknown }
+    const record = parsed as { poolCivIds?: unknown; entries?: unknown }
     const entries = parseContributionEntries(record.entries)
     const poolCivIds = Array.isArray(record.poolCivIds)
-      ? uniqueStrings(record.poolCivIds.flatMap(value => typeof value === 'string' && value.length > 0 ? [value] : []))
+      ? uniqueStrings(
+          record.poolCivIds.flatMap(value => (typeof value === 'string' && value.length > 0 ? [value] : [])),
+        )
       : fallbackPoolCivIds(source, entries)
-    return { entries, poolCivIds: ensurePoolIncludesEntries(poolCivIds.length > 0 ? poolCivIds : fallbackPoolCivIds(source, entries), entries) }
-  }
-  catch {
+    return {
+      entries,
+      poolCivIds: ensurePoolIncludesEntries(
+        poolCivIds.length > 0 ? poolCivIds : fallbackPoolCivIds(source, entries),
+        entries,
+      ),
+    }
+  } catch {
     return { entries: [], poolCivIds: fallbackPoolCivIds(source, []) }
   }
 }
 
 function parseContributionEntries(value: unknown): CivStatContributionEntry[] {
   if (!Array.isArray(value)) return []
-  return normalizeContributionEntries(value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return []
-    const candidate = entry as Partial<CivStatContributionEntry>
-    if (typeof candidate.civId !== 'string' || candidate.civId.length === 0) return []
-    const normalized = {
-      civId: candidate.civId,
-      picks: normalizeCount(candidate.picks),
-      wins: normalizeCount(candidate.wins),
-      bans: normalizeCount(candidate.bans),
-    }
-    return normalized.picks === 0 && normalized.wins === 0 && normalized.bans === 0 ? [] : [normalized]
-  }))
+  return normalizeContributionEntries(
+    value.flatMap(entry => {
+      if (!entry || typeof entry !== 'object') return []
+      const candidate = entry as Partial<CivStatContributionEntry>
+      if (typeof candidate.civId !== 'string' || candidate.civId.length === 0) return []
+      const normalized = {
+        civId: candidate.civId,
+        picks: normalizeCount(candidate.picks),
+        wins: normalizeCount(candidate.wins),
+        bans: normalizeCount(candidate.bans),
+      }
+      return normalized.picks === 0 && normalized.wins === 0 && normalized.bans === 0 ? [] : [normalized]
+    }),
+  )
 }
 
 function normalizeContributionEntries(entries: readonly CivStatContributionEntry[]): CivStatContributionEntry[] {
@@ -1151,12 +1283,10 @@ function getCivAggregate(aggregates: Map<string, CivAggregate>, civId: string): 
 function resolveLeaderName(civId: string): string {
   try {
     return getLeader(civId).name
-  }
-  catch {
+  } catch {
     try {
       return getLeader(civId, 'beta').name
-    }
-    catch {
+    } catch {
       return ''
     }
   }
@@ -1180,21 +1310,27 @@ async function setCivLeaderboardSnapshots(
   kv: KVNamespace,
   snapshots: ReadonlyMap<CivLeaderboardModeScope, CivLeaderboardSnapshot>,
 ): Promise<void> {
-  await kvMput(kv, [...snapshots.entries()].map(([modeScope, snapshot]) => ({
-    key: civLeaderboardSnapshotKey(modeScope),
-    value: JSON.stringify({
-      updatedAt: snapshot.updatedAt,
-      ...(snapshot.periodId ? { periodId: snapshot.periodId } : {}),
-      historyInitialized: snapshot.historyInitialized,
-      label: snapshot.label,
-      modeScope: snapshot.modeScope,
-      completedMatchCount: snapshot.completedMatchCount,
-      rows: snapshot.rows,
-    } satisfies StoredCivLeaderboardSnapshot),
-  })))
+  await kvMput(
+    kv,
+    [...snapshots.entries()].map(([modeScope, snapshot]) => ({
+      key: civLeaderboardSnapshotKey(modeScope),
+      value: JSON.stringify({
+        updatedAt: snapshot.updatedAt,
+        ...(snapshot.periodId ? { periodId: snapshot.periodId } : {}),
+        historyInitialized: snapshot.historyInitialized,
+        label: snapshot.label,
+        modeScope: snapshot.modeScope,
+        completedMatchCount: snapshot.completedMatchCount,
+        rows: snapshot.rows,
+      } satisfies StoredCivLeaderboardSnapshot),
+    })),
+  )
 }
 
-export function normalizeCivLeaderboardSnapshot(value: unknown, fallbackModeScope: CivLeaderboardModeScope = 'all'): CivLeaderboardSnapshot | null {
+export function normalizeCivLeaderboardSnapshot(
+  value: unknown,
+  fallbackModeScope: CivLeaderboardModeScope = 'all',
+): CivLeaderboardSnapshot | null {
   if (!value || typeof value !== 'object') return null
 
   const raw = value as StoredCivLeaderboardSnapshot
@@ -1206,7 +1342,10 @@ export function normalizeCivLeaderboardSnapshot(value: unknown, fallbackModeScop
     updatedAt: normalizeNonNegativeInteger(raw.updatedAt) ?? 0,
     ...(typeof raw.periodId === 'string' ? { periodId: raw.periodId } : {}),
     historyInitialized: raw.historyInitialized === true,
-    label: typeof raw.label === 'string' && raw.label.trim().length > 0 ? raw.label.trim() : defaultCivLeaderboardDisplayConfig().label,
+    label:
+      typeof raw.label === 'string' && raw.label.trim().length > 0
+        ? raw.label.trim()
+        : defaultCivLeaderboardDisplayConfig().label,
     modeScope,
     completedMatchCount: normalizeNonNegativeInteger(raw.completedMatchCount) ?? 0,
     rows: raw.rows
@@ -1234,15 +1373,23 @@ export function normalizeCivLeaderboardDisplayConfig(value: unknown): CivLeaderb
     version: 1,
     label,
     ...(raw.betaReplacement === 'one-for-one' ? { betaReplacement: 'one-for-one' as const } : {}),
-    ...(Array.isArray(raw.betaSeedMatchIds) && raw.betaSeedMatchIds.length <= 1000 && raw.betaSeedMatchIds.every(id => typeof id === 'string') ? { betaSeedMatchIds: raw.betaSeedMatchIds as string[] } : {}),
+    ...(Array.isArray(raw.betaSeedMatchIds) &&
+    raw.betaSeedMatchIds.length <= 1000 &&
+    raw.betaSeedMatchIds.every(id => typeof id === 'string')
+      ? { betaSeedMatchIds: raw.betaSeedMatchIds as string[] }
+      : {}),
     liveFrom,
     betaFrom,
     betaUntil,
-    pendingBetaFrom: normalizeNonNegativeInteger(raw.pendingBetaFrom) ?? betaUntil ?? betaFrom ?? fallback.pendingBetaFrom,
+    pendingBetaFrom:
+      normalizeNonNegativeInteger(raw.pendingBetaFrom) ?? betaUntil ?? betaFrom ?? fallback.pendingBetaFrom,
   }
 }
 
-function isContributionVisible(row: { source: unknown, completedAt: unknown }, config: CivLeaderboardDisplayConfig): boolean {
+function isContributionVisible(
+  row: { source: unknown; completedAt: unknown },
+  config: CivLeaderboardDisplayConfig,
+): boolean {
   const source = normalizeContributionSource(row.source)
   const completedAt = normalizeCompletedAt(row.completedAt)
   if (source === 'live') return completedAt >= config.liveFrom
@@ -1279,7 +1426,10 @@ function getContributionModeScope(gameMode: string, draftData: string | null): C
   if (parsed?.redDeath === true || parsed?.civBlitz === true) return null
   const mode = parseGameMode(gameMode)
   if (!mode) return null
-  const leaderboardMode = toLeaderboardMode(mode, { redDeath: parsed?.redDeath === true, civBlitz: parsed?.civBlitz === true })
+  const leaderboardMode = toLeaderboardMode(mode, {
+    redDeath: parsed?.redDeath === true,
+    civBlitz: parsed?.civBlitz === true,
+  })
   if (leaderboardMode === 'duel' || leaderboardMode === 'duo' || leaderboardMode === 'squad') return leaderboardMode
   if (leaderboardMode === 'ffa') return 'all'
   return null
@@ -1300,17 +1450,26 @@ function normalizeModeScope(value: unknown): CivLeaderboardModeScope | null {
 }
 
 function fallbackPoolCivIds(source: CivLeaderboardSource, entries: readonly CivStatContributionEntry[]): string[] {
-  return ensurePoolIncludesEntries(getLeaderIds(source).filter(civId => !isRedDeathFaction(civId)), entries)
+  return ensurePoolIncludesEntries(
+    getLeaderIds(source).filter(civId => !isRedDeathFaction(civId)),
+    entries,
+  )
 }
 
-function ensurePoolIncludesEntries(poolCivIds: readonly string[], entries: readonly CivStatContributionEntry[]): string[] {
-  return uniqueStrings([
-    ...poolCivIds,
-    ...entries.map(entry => entry.civId),
-  ]).filter(civId => civId.length > 0 && !isRedDeathFaction(civId))
+function ensurePoolIncludesEntries(
+  poolCivIds: readonly string[],
+  entries: readonly CivStatContributionEntry[],
+): string[] {
+  return uniqueStrings([...poolCivIds, ...entries.map(entry => entry.civId)]).filter(
+    civId => civId.length > 0 && !isRedDeathFaction(civId),
+  )
 }
 
-function resolveDraftPoolCivIds(draftData: string | null, source: CivLeaderboardSource, entries: readonly CivStatContributionEntry[]): string[] {
+function resolveDraftPoolCivIds(
+  draftData: string | null,
+  source: CivLeaderboardSource,
+  entries: readonly CivStatContributionEntry[],
+): string[] {
   const parsed = parseDraftData(draftData)
   if (parsed?.manualReport === true) return fallbackPoolCivIds(source, entries)
 
@@ -1351,15 +1510,14 @@ function parseDraftData(draftData: string | null): ParsedDraftData | null {
     const parsed: unknown = JSON.parse(draftData)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
     return parsed as ParsedDraftData
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 function normalizeDraftSelectionCivIds(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return value.flatMap((selection) => {
+  return value.flatMap(selection => {
     if (!selection || typeof selection !== 'object') return []
     const civId = (selection as { civId?: unknown }).civId
     return typeof civId === 'string' && civId.length > 0 ? [civId] : []
@@ -1373,7 +1531,7 @@ function normalizeSubmissionsCivIds(value: unknown): string[] {
 
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return value.flatMap(candidate => typeof candidate === 'string' && candidate.length > 0 ? [candidate] : [])
+  return value.flatMap(candidate => (typeof candidate === 'string' && candidate.length > 0 ? [candidate] : []))
 }
 
 function aggregateModeScopes(modeScope: CivLeaderboardModeScope): CivLeaderboardModeScope[] {
@@ -1381,7 +1539,9 @@ function aggregateModeScopes(modeScope: CivLeaderboardModeScope): CivLeaderboard
 }
 
 function expandCivStatReadModeScopes(modeScopes: readonly CivLeaderboardModeScope[]): CivLeaderboardModeScope[] {
-  return [...new Set(modeScopes.flatMap(modeScope => modeScope === 'all' ? CIV_LEADERBOARD_MODE_SCOPES : [modeScope]))]
+  return [
+    ...new Set(modeScopes.flatMap(modeScope => (modeScope === 'all' ? CIV_LEADERBOARD_MODE_SCOPES : [modeScope]))),
+  ]
 }
 
 function combineAggregateScopes(
@@ -1420,8 +1580,7 @@ function combinePoolGamesScopes(
 function parsePoolCivIds(raw: string): string[] {
   try {
     return normalizeStringArray(JSON.parse(raw)).filter(civId => !isRedDeathFaction(civId))
-  }
-  catch {
+  } catch {
     return []
   }
 }
@@ -1448,7 +1607,12 @@ function getAggregatesMap(
   return created
 }
 
-function emptySnapshot(modeScope: CivLeaderboardModeScope, label: string, updatedAt: number, historyInitialized: boolean): CivLeaderboardSnapshot {
+function emptySnapshot(
+  modeScope: CivLeaderboardModeScope,
+  label: string,
+  updatedAt: number,
+  historyInitialized: boolean,
+): CivLeaderboardSnapshot {
   return { updatedAt, historyInitialized, label, modeScope, completedMatchCount: 0, rows: [] }
 }
 

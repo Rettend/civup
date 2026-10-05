@@ -3,7 +3,12 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { calculateFfaRatings, createRating, displayRating, predictWinProbabilities } from '../packages/rating/src/index.ts'
+import {
+  calculateFfaRatings,
+  createRating,
+  displayRating,
+  predictWinProbabilities,
+} from '../packages/rating/src/index.ts'
 
 interface CliOptions {
   command: 'summary' | 'help'
@@ -122,8 +127,7 @@ await Bun.write(resolve(args.outDir, 'summary.json'), `${JSON.stringify(payload,
 
 if (args.json) {
   console.log(JSON.stringify(payload, null, 2))
-}
-else {
+} else {
   console.log(markdown)
 }
 
@@ -132,12 +136,8 @@ console.log(`[sim] wrote ${resolve(args.outDir, 'summary.json')}`)
 
 function parseCli(values: string[]): CliOptions {
   const first = values[0]
-  const command = first === 'help'
-    ? 'help'
-    : 'summary'
-  const rest = first === 'summary' || first === 'help'
-    ? values.slice(1)
-    : values
+  const command = first === 'help' ? 'help' : 'summary'
+  const rest = first === 'summary' || first === 'help' ? values.slice(1) : values
   const options = new Map<string, string>()
   let json = false
 
@@ -166,16 +166,18 @@ function parseCli(values: string[]): CliOptions {
 }
 
 function printUsage(): void {
-  console.log([
-    'Usage:',
-    '  bun scripts/rating-ffa-sim.ts summary [--games 100] [--replicates 12] [--seed 20260408] [--out-dir tmp/rating-ffa-sim] [--json]',
-    '  bun scripts/rating-ffa-sim.ts help',
-    '',
-    'Notes:',
-    '  - Simulates fixed 8-player FFA lobbies with repeated circles and some mixed lobbies.',
-    '  - Results are generated from hidden skill plus per-game performance variance.',
-    '  - Default summaries use a 100-game cap per player.',
-  ].join('\n'))
+  console.log(
+    [
+      'Usage:',
+      '  bun scripts/rating-ffa-sim.ts summary [--games 100] [--replicates 12] [--seed 20260408] [--out-dir tmp/rating-ffa-sim] [--json]',
+      '  bun scripts/rating-ffa-sim.ts help',
+      '',
+      'Notes:',
+      '  - Simulates fixed 8-player FFA lobbies with repeated circles and some mixed lobbies.',
+      '  - Results are generated from hidden skill plus per-game performance variance.',
+      '  - Default summaries use a 100-game cap per player.',
+    ].join('\n'),
+  )
 }
 
 function normalizePositiveInteger(value: string | undefined, fallback: number): number {
@@ -185,7 +187,7 @@ function normalizePositiveInteger(value: string | undefined, fallback: number): 
 }
 
 function mixSeed(baseSeed: number, replicate: number): number {
-  return (baseSeed + (replicate * 65537)) >>> 0
+  return (baseSeed + replicate * 65537) >>> 0
 }
 
 function simulateRun(gamesPerPlayer: number, seed: number): FfaSimulationResult {
@@ -196,7 +198,7 @@ function simulateRun(gamesPerPlayer: number, seed: number): FfaSimulationResult 
 
   for (let playerIndex = 0; playerIndex < POPULATION_SIZE; playerIndex++) {
     const circleId = Math.floor(playerIndex / CIRCLE_SIZE)
-    const circleBaseSkill = circleSkillById.get(circleId) ?? (1000 + sampleNormal(random, 0, CIRCLE_SKILL_STD_DEV))
+    const circleBaseSkill = circleSkillById.get(circleId) ?? 1000 + sampleNormal(random, 0, CIRCLE_SKILL_STD_DEV)
     circleSkillById.set(circleId, circleBaseSkill)
     const hiddenDisplay = clamp(Math.round(circleBaseSkill + sampleNormal(random, 0, PLAYER_SKILL_STD_DEV)), 650, 1650)
     const playerId = `ffa-p${String(playerIndex + 1).padStart(4, '0')}`
@@ -289,7 +291,14 @@ function buildLobby(
 
   const playersPerCircle = LOBBY_SIZE / 2
   const firstCircleId = pickCircleId(circlePlayerIds, playerById, gamesPerPlayer, playersPerCircle, random)
-  const secondCircleId = pickSecondCircleId(circlePlayerIds, playerById, gamesPerPlayer, playersPerCircle, firstCircleId, random)
+  const secondCircleId = pickSecondCircleId(
+    circlePlayerIds,
+    playerById,
+    gamesPerPlayer,
+    playersPerCircle,
+    firstCircleId,
+    random,
+  )
 
   if (firstCircleId != null && secondCircleId != null) {
     return [
@@ -342,7 +351,7 @@ function pickCircleId(
         if (!player || player.gamesPlayed >= gamesPerPlayer) return total
         return total + Math.max(1, gamesPerPlayer - player.gamesPlayed)
       }, 0),
-      available: playerIds.filter((playerId) => {
+      available: playerIds.filter(playerId => {
         const player = playerById.get(playerId)
         return player != null && player.gamesPlayed < gamesPerPlayer
       }).length,
@@ -370,7 +379,7 @@ function pickSecondCircleId(
         if (!player || player.gamesPlayed >= gamesPerPlayer) return total
         return total + Math.max(1, gamesPerPlayer - player.gamesPlayed)
       }, 0),
-      available: playerIds.filter((playerId) => {
+      available: playerIds.filter(playerId => {
         const player = playerById.get(playerId)
         return player != null && player.gamesPlayed < gamesPerPlayer
       }).length,
@@ -386,26 +395,25 @@ function summarizeRuns(results: FfaSimulationResult[]): Summary {
   const matchStats = results.flatMap(result => result.matches)
 
   return {
-    assumptions: 'Fixed 8-player FFA open lobbies with repeated circles, some mixed-circle games, and hidden-skill performance variance',
+    assumptions:
+      'Fixed 8-player FFA open lobbies with repeated circles, some mixed-circle games, and hidden-skill performance variance',
     samples: playerSamples.length,
-    gamesP10: percentile(playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right), 0.1),
-    gamesP90: percentile(playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right), 0.9),
+    gamesP10: percentile(
+      playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right),
+      0.1,
+    ),
+    gamesP90: percentile(
+      playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right),
+      0.9,
+    ),
     favorite20PlusShare: share(matchStats, stat => stat.favoriteProbability >= 0.2),
     favorite30PlusShare: share(matchStats, stat => stat.favoriteProbability >= 0.3),
-    averagePlacementBands: AVERAGE_PLACEMENT_BANDS.map(({ label, low, high }) => summarizeBand(
-      label,
-      playerSamples,
-      sample => sample.observedAveragePlacement,
-      low,
-      high,
-    )),
-    hiddenSkillBands: HIDDEN_SKILL_BANDS.map(({ label, low, high }) => summarizeBand(
-      label,
-      playerSamples,
-      sample => sample.hiddenDisplay,
-      low,
-      high,
-    )),
+    averagePlacementBands: AVERAGE_PLACEMENT_BANDS.map(({ label, low, high }) =>
+      summarizeBand(label, playerSamples, sample => sample.observedAveragePlacement, low, high),
+    ),
+    hiddenSkillBands: HIDDEN_SKILL_BANDS.map(({ label, low, high }) =>
+      summarizeBand(label, playerSamples, sample => sample.hiddenDisplay, low, high),
+    ),
   }
 }
 
@@ -452,19 +460,25 @@ function renderMarkdown(summary: Summary, options: CliOptions): string {
   ]
 
   for (const band of summary.averagePlacementBands) {
-    lines.push(`| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`)
+    lines.push(
+      `| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`,
+    )
   }
 
   lines.push('')
   lines.push('## Hidden Skill Bands')
   lines.push('')
-  lines.push('Simulation-only diagnostic: hidden skill is not visible to players, but it shows whether ratings separate the field cleanly.')
+  lines.push(
+    'Simulation-only diagnostic: hidden skill is not visible to players, but it shows whether ratings separate the field cleanly.',
+  )
   lines.push('')
   lines.push('| Hidden skill band | Median rating | P10-P90 | Samples |')
   lines.push('| ----------------- | ------------- | ------- | ------- |')
 
   for (const band of summary.hiddenSkillBands) {
-    lines.push(`| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`)
+    lines.push(
+      `| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`,
+    )
   }
 
   return `${lines.join('\n')}\n`
@@ -506,13 +520,13 @@ function percentile(values: number[], ratio: number): number | null {
   const mix = index - leftIndex
   const left = values[leftIndex] ?? values[0]!
   const right = values[rightIndex] ?? left
-  return left + ((right - left) * mix)
+  return left + (right - left) * mix
 }
 
 function createLcg(seed: number): () => number {
   let state = seed >>> 0
   return () => {
-    state = ((state * 1664525) + 1013904223) >>> 0
+    state = (state * 1664525 + 1013904223) >>> 0
     return state / 4294967296
   }
 }
@@ -522,18 +536,14 @@ function sampleNormal(random: () => number, mean: number, stdDev: number): numbe
   const u2 = Math.max(1e-12, random())
   const magnitude = Math.sqrt(-2 * Math.log(u1))
   const z0 = magnitude * Math.cos(2 * Math.PI * u2)
-  return mean + (z0 * stdDev)
+  return mean + z0 * stdDev
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function pickWeighted<T>(
-  values: T[],
-  getWeight: (value: T) => number,
-  random: () => number,
-): T | null {
+function pickWeighted<T>(values: T[], getWeight: (value: T) => number, random: () => number): T | null {
   let totalWeight = 0
   for (const value of values) {
     totalWeight += Math.max(0, getWeight(value))
@@ -549,12 +559,7 @@ function pickWeighted<T>(
   return values.at(-1) ?? null
 }
 
-function pickManyWeighted<T>(
-  values: T[],
-  count: number,
-  getWeight: (value: T) => number,
-  random: () => number,
-): T[] {
+function pickManyWeighted<T>(values: T[], count: number, getWeight: (value: T) => number, random: () => number): T[] {
   const pool = [...values]
   const picked: T[] = []
 

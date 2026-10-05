@@ -1,18 +1,54 @@
-import { matchBans, matchPlayerCivStatContributions, matches, matchParticipants, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, seasonMatchReports, seasonRatingConfigurations, seasons, tournamentMatches, tournaments } from '@civup/db'
-import { allLeaderIds, getLeaders } from '@civup/game'
-import { buildLeaderboard, calibratePublicRatings, displayRating, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
+import {
+  matchBans,
+  matchPlayerCivStatContributions,
+  matches,
+  matchParticipants,
+  playerCivStats,
+  playerRatingEvents,
+  playerRatings,
+  players,
+  publicRatingCalibrations,
+  seasonMatchReports,
+  seasonRatingConfigurations,
+  seasons,
+  tournamentMatches,
+  tournaments,
+} from '@civup/db'
+import { allLeaderIds, getLeaders } from '@civup/game'
+import { buildLeaderboard, calibratePublicRatings, displayRating, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
-import { cancelMatchByModerator, correctMatchLeadersByModerator, createManualReportedMatch, recalculateLeaderboardMode, reportMatch, resolveMatchByModerator, substituteMatchPlayerByModerator } from '../../src/services/match/index.ts'
-import { getSessionRecord, runSessionDraftLifecycleCommand, runSessionTerminalLifecycleCommand } from '../../src/session-runtime/session-do-client.ts'
-import { createLobby, getTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  cancelMatchByModerator,
+  correctMatchLeadersByModerator,
+  createManualReportedMatch,
+  recalculateLeaderboardMode,
+  reportMatch,
+  resolveMatchByModerator,
+  substituteMatchPlayerByModerator,
+} from '../../src/services/match/index.ts'
+import {
+  getSessionRecord,
+  runSessionDraftLifecycleCommand,
+  runSessionTerminalLifecycleCommand,
+} from '../../src/session-runtime/session-do-client.ts'
+import {
+  createLobby,
+  getTestLobbyRuntime,
+  setLobbyMemberPlayerIds,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 describe('match moderation recalculation', () => {
   let clock: ReturnType<typeof spyOn>
-  beforeEach(() => { clock = spyOn(Date, 'now').mockReturnValue(20_000) })
-  afterEach(() => { clock.mockRestore() })
+  beforeEach(() => {
+    clock = spyOn(Date, 'now').mockReturnValue(20_000)
+  })
+  afterEach(() => {
+    clock.mockRestore()
+  })
   const directTerminalOptions = { allowDirectTerminalWriteForTests: true }
 
   test('creates a manual completed team match with leaders and ratings', async () => {
@@ -25,7 +61,11 @@ describe('match moderation recalculation', () => {
         mode: '2v2',
         reporterId: 'mod',
         reportedAt: 10_000,
-        players: buildManualPlayers(getLeaders('live').slice(0, 4).map(leader => leader.id)),
+        players: buildManualPlayers(
+          getLeaders('live')
+            .slice(0, 4)
+            .map(leader => leader.id),
+        ),
       })
 
       expect('error' in result).toBe(false)
@@ -41,7 +81,11 @@ describe('match moderation recalculation', () => {
       expect(secondTeam).toHaveLength(2)
       expect(firstTeam.every(participant => participant.placement === 1)).toBe(true)
       expect(secondTeam.every(participant => participant.placement === 2)).toBe(true)
-      expect(result.participants.every(participant => participant.civId && participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+      expect(
+        result.participants.every(
+          participant => participant.civId && participant.ratingBeforeMu != null && participant.ratingAfterMu != null,
+        ),
+      ).toBe(true)
 
       const ratingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duo'))
       expect(ratingRows).toHaveLength(4)
@@ -49,8 +93,7 @@ describe('match moderation recalculation', () => {
       const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
       expect(globalRatingRows).toHaveLength(4)
       expect(globalRatingRows.every(row => row.gamesPlayed === 1)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -61,7 +104,9 @@ describe('match moderation recalculation', () => {
 
     try {
       const leaderId = 'taino-anacaona'
-      const liveLeaderIdsForMatch = getLeaders('live').slice(0, 3).map(leader => leader.id)
+      const liveLeaderIdsForMatch = getLeaders('live')
+        .slice(0, 3)
+        .map(leader => leader.id)
       const result = await createManualReportedMatch(db, kv, {
         matchId: 'manual-beta-leader',
         mode: '2v2',
@@ -75,8 +120,7 @@ describe('match moderation recalculation', () => {
 
       expect(JSON.parse(result.match.draftData ?? '{}').leaderDataVersion).toBe('live')
       expect(result.participants.map(participant => participant.civId)).toContain(leaderId)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -91,7 +135,11 @@ describe('match moderation recalculation', () => {
         mode: 'ffa',
         reporterId: 'mod',
         reportedAt: 10_000,
-        players: buildManualPlayers(getLeaders('live').slice(0, 9).map(leader => leader.id)),
+        players: buildManualPlayers(
+          getLeaders('live')
+            .slice(0, 9)
+            .map(leader => leader.id),
+        ),
       })
 
       expect('error' in result).toBe(false)
@@ -104,8 +152,7 @@ describe('match moderation recalculation', () => {
       expect(result.participants.every(participant => participant.team == null)).toBe(true)
       const globalRatingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
       expect(globalRatingRows).toHaveLength(9)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -121,7 +168,11 @@ describe('match moderation recalculation', () => {
         permanentAlly: true,
         reporterId: 'mod',
         reportedAt: 10_000,
-        players: buildManualPlayers(getLeaders('live').slice(0, 8).map(leader => leader.id)),
+        players: buildManualPlayers(
+          getLeaders('live')
+            .slice(0, 8)
+            .map(leader => leader.id),
+        ),
       })
 
       expect('error' in result).toBe(false)
@@ -131,8 +182,7 @@ describe('match moderation recalculation', () => {
       expect(result.participants).toHaveLength(8)
       expect(result.participants.map(participant => participant.placement)).toEqual([1, 1, 2, 2, 3, 3, 4, 4])
       expect(result.participants.every(participant => participant.team == null)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -147,7 +197,11 @@ describe('match moderation recalculation', () => {
         mode: '2v2',
         reporterId: 'mod',
         reportedAt: 10_000,
-        players: buildManualPlayers(getLeaders('live').slice(0, 4).map(leader => leader.id)),
+        players: buildManualPlayers(
+          getLeaders('live')
+            .slice(0, 4)
+            .map(leader => leader.id),
+        ),
       })
       expect('error' in created).toBe(false)
       if ('error' in created) return
@@ -166,8 +220,7 @@ describe('match moderation recalculation', () => {
       const p3 = resolved.participants.find(participant => participant.playerId === 'p3')
       expect(p1?.placement).toBe(2)
       expect(p3?.placement).toBe(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -196,8 +249,7 @@ describe('match moderation recalculation', () => {
       expect(p1?.placement).toBe(1)
       expect(p2?.civId).toBe('greece')
       expect(result.recalculatedMatchIds).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -228,8 +280,7 @@ describe('match moderation recalculation', () => {
       expect(p2?.civId).toBe('rome')
       expect(p1?.ratingAfterMu).toBe(27)
       expect(p2?.ratingAfterMu).toBe(23)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -251,7 +302,9 @@ describe('match moderation recalculation', () => {
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.recalculatedMatchIds).toEqual(['sub-duel'])
-      expect(result.substitutions).toEqual([{ seatIndex: 0, previousPlayerId: 'p1', nextPlayerId: 'p3', team: 0, civId: 'rome', placement: 1 }])
+      expect(result.substitutions).toEqual([
+        { seatIndex: 0, previousPlayerId: 'p1', nextPlayerId: 'p3', team: 0, civId: 'rome', placement: 1 },
+      ])
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'sub-duel'))
       expect(participants.find(participant => participant.playerId === 'p1')).toBeUndefined()
@@ -276,8 +329,7 @@ describe('match moderation recalculation', () => {
 
       const p1Events = await db.select().from(playerRatingEvents).where(eq(playerRatingEvents.playerId, 'p1'))
       expect(p1Events).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -322,8 +374,7 @@ describe('match moderation recalculation', () => {
         ['p2', 0],
         ['p4', 1],
       ])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -335,12 +386,17 @@ describe('match moderation recalculation', () => {
     try {
       await seedActiveDraftCompleteDuelForSub(db)
 
-      const result = await substituteMatchPlayerByModerator(db, kv, {
-        matchId: 'sub-active',
-        playerId: 'p1',
-        subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
-        correctedAt: 3_000,
-      }, directTerminalOptions)
+      const result = await substituteMatchPlayerByModerator(
+        db,
+        kv,
+        {
+          matchId: 'sub-active',
+          playerId: 'p1',
+          subPlayer: { playerId: 'p3', displayName: 'P3', avatarUrl: null },
+          correctedAt: 3_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -356,8 +412,7 @@ describe('match moderation recalculation', () => {
 
       const ratings = await db.select().from(playerRatings)
       expect(ratings).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -405,8 +460,7 @@ describe('match moderation recalculation', () => {
       expect('error' in result).toBe(false)
       expect(await db.select().from(playerCivStats)).toEqual([])
       expect(await db.select().from(matchPlayerCivStatContributions)).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -417,12 +471,14 @@ describe('match moderation recalculation', () => {
 
     try {
       const playerIds = Array.from({ length: 10 }, (_, index) => `p${index + 1}`)
-      await db.insert(players).values(playerIds.map(playerId => ({
-        id: playerId,
-        displayName: playerId,
-        avatarUrl: null,
-        createdAt: 1,
-      })))
+      await db.insert(players).values(
+        playerIds.map(playerId => ({
+          id: playerId,
+          displayName: playerId,
+          avatarUrl: null,
+          createdAt: 1,
+        })),
+      )
       await db.insert(matches).values({
         id: '5v5-1',
         gameMode: '5v5',
@@ -440,40 +496,51 @@ describe('match moderation recalculation', () => {
           },
         }),
       })
-      await db.insert(matchParticipants).values(playerIds.map((playerId, index) => ({
-        matchId: '5v5-1',
-        playerId,
-        team: index < 5 ? 0 : 1,
-        civId: null,
-        placement: null,
-        ratingBeforeMu: null,
-        ratingBeforeSigma: null,
-        ratingAfterMu: null,
-        ratingAfterSigma: null,
-      })))
+      await db.insert(matchParticipants).values(
+        playerIds.map((playerId, index) => ({
+          matchId: '5v5-1',
+          playerId,
+          team: index < 5 ? 0 : 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        })),
+      )
 
-      const result = await reportMatch(db, kv, {
-        matchId: '5v5-1',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: '5v5-1',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.match.status).toBe('completed')
-      expect(result.participants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
-      expect(result.participants.every(participant => participant.leaderboardBeforeRank == null && participant.leaderboardAfterRank == null)).toBe(true)
+      expect(
+        result.participants.every(
+          participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null,
+        ),
+      ).toBe(true)
+      expect(
+        result.participants.every(
+          participant => participant.leaderboardBeforeRank == null && participant.leaderboardAfterRank == null,
+        ),
+      ).toBe(true)
 
-      const ratingRows = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'squad'))
+      const ratingRows = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'squad'))
 
       expect(ratingRows).toHaveLength(10)
       expect(ratingRows.every(row => row.gamesPlayed === 1)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -485,21 +552,23 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1',
-        placements: 'B',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          placements: 'B',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.recalculatedMatchIds).toEqual(['m1', 'm2', 'm3'])
 
-      const duelRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'duel'))
+      const duelRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
 
       expect(duelRatings).toHaveLength(2)
       expect(duelRatings.every(row => row.gamesPlayed === 3)).toBe(true)
@@ -526,10 +595,7 @@ describe('match moderation recalculation', () => {
           ratingBeforeMu: matchParticipants.ratingBeforeMu,
         })
         .from(matchParticipants)
-        .where(and(
-          eq(matchParticipants.matchId, 'm2'),
-          eq(matchParticipants.playerId, 'p1'),
-        ))
+        .where(and(eq(matchParticipants.matchId, 'm2'), eq(matchParticipants.playerId, 'p1')))
         .limit(1)
 
       expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
@@ -543,8 +609,7 @@ describe('match moderation recalculation', () => {
       const m1P2 = resolvedM1.find(row => row.playerId === 'p2')
       expect(m1P1?.placement).toBe(2)
       expect(m1P2?.placement).toBe(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -556,21 +621,82 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
       await db.insert(matches).values([
-        { id: 'civ-blitz-before', gameMode: '1v1', status: 'completed', createdAt: 500, completedAt: 600, seasonId: null, draftData: JSON.stringify({ civBlitz: true }) },
-        { id: 'civ-blitz-after', gameMode: '1v1', status: 'completed', createdAt: 2500, completedAt: 2600, seasonId: null, draftData: JSON.stringify({ civBlitz: true }) },
+        {
+          id: 'civ-blitz-before',
+          gameMode: '1v1',
+          status: 'completed',
+          createdAt: 500,
+          completedAt: 600,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+        },
+        {
+          id: 'civ-blitz-after',
+          gameMode: '1v1',
+          status: 'completed',
+          createdAt: 2500,
+          completedAt: 2600,
+          seasonId: null,
+          draftData: JSON.stringify({ civBlitz: true }),
+        },
       ])
       await db.insert(matchParticipants).values([
-        { matchId: 'civ-blitz-before', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'civ-blitz-before', playerId: 'p2', team: 1, civId: 'greece', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'civ-blitz-after', playerId: 'p1', team: 0, civId: 'rome', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'civ-blitz-after', playerId: 'p2', team: 1, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'civ-blitz-before',
+          playerId: 'p1',
+          team: 0,
+          civId: 'rome',
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'civ-blitz-before',
+          playerId: 'p2',
+          team: 1,
+          civId: 'greece',
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'civ-blitz-after',
+          playerId: 'p1',
+          team: 0,
+          civId: 'rome',
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'civ-blitz-after',
+          playerId: 'p2',
+          team: 1,
+          civId: 'greece',
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1',
-        placements: 'B',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          placements: 'B',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -581,8 +707,7 @@ describe('match moderation recalculation', () => {
         .from(matchParticipants)
         .where(eq(matchParticipants.matchId, 'civ-blitz-after'))
       expect(civBlitzParticipants.every(participant => participant.ratingAfterMu == null)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -603,50 +728,64 @@ describe('match moderation recalculation', () => {
         draftData: null,
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'invalid-history', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'invalid-history', playerId: 'p2', team: 1, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'invalid-history',
+          playerId: 'p1',
+          team: 0,
+          civId: 'rome',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'invalid-history',
+          playerId: 'p2',
+          team: 1,
+          civId: 'greece',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
-      await db.insert(playerRatingEvents).values([
-        ratingEvent('m1', 'p1', 'duel', 1),
-        ratingEvent('m1', 'p2', 'duel', 0),
-      ])
+      await db
+        .insert(playerRatingEvents)
+        .values([ratingEvent('m1', 'p1', 'duel', 1), ratingEvent('m1', 'p2', 'duel', 0)])
       const originalEvents = await db
         .select()
         .from(playerRatingEvents)
-        .where(and(
-          eq(playerRatingEvents.matchId, 'm1'),
-          eq(playerRatingEvents.mode, 'duel'),
-        ))
+        .where(and(eq(playerRatingEvents.matchId, 'm1'), eq(playerRatingEvents.mode, 'duel')))
       const originalRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1',
-        placements: 'B',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          placements: 'B',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect(result).toEqual({ error: 'Completed match **invalid-history** has missing placements.' })
 
-      const restoredParticipants = await db
-        .select()
-        .from(matchParticipants)
-        .where(eq(matchParticipants.matchId, 'm1'))
+      const restoredParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, 'm1'))
       expect(restoredParticipants.find(participant => participant.playerId === 'p1')?.placement).toBe(1)
       expect(restoredParticipants.find(participant => participant.playerId === 'p2')?.placement).toBe(2)
 
       const preservedEvents = await db
         .select()
         .from(playerRatingEvents)
-        .where(and(
-          eq(playerRatingEvents.matchId, 'm1'),
-          eq(playerRatingEvents.mode, 'duel'),
-        ))
+        .where(and(eq(playerRatingEvents.matchId, 'm1'), eq(playerRatingEvents.mode, 'duel')))
       expect(preservedEvents).toEqual(originalEvents)
 
       const preservedRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
       expect(preservedRatings).toEqual(originalRatings)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -667,25 +806,47 @@ describe('match moderation recalculation', () => {
         draftData: null,
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'm1a', playerId: 'p1', team: 0, civId: 'aztec', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'm1a', playerId: 'p2', team: 1, civId: 'egypt', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'm1a',
+          playerId: 'p1',
+          team: 0,
+          civId: 'aztec',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'm1a',
+          playerId: 'p2',
+          team: 1,
+          civId: 'egypt',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1a',
-        placements: 'B',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1a',
+          placements: 'B',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.recalculatedMatchIds).toEqual(['m1a', 'm2', 'm3'])
 
-      const duelRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'duel'))
+      const duelRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
 
       expect(duelRatings).toHaveLength(2)
       expect(duelRatings.every(row => row.gamesPlayed === 4)).toBe(true)
@@ -696,16 +857,12 @@ describe('match moderation recalculation', () => {
           ratingAfterMu: matchParticipants.ratingAfterMu,
         })
         .from(matchParticipants)
-        .where(and(
-          eq(matchParticipants.matchId, 'm1a'),
-          eq(matchParticipants.playerId, 'p1'),
-        ))
+        .where(and(eq(matchParticipants.matchId, 'm1a'), eq(matchParticipants.playerId, 'p1')))
         .limit(1)
 
       expect(m1aP1?.ratingBeforeMu).not.toBeNull()
       expect(m1aP1?.ratingAfterMu).not.toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -726,15 +883,40 @@ describe('match moderation recalculation', () => {
         draftData: JSON.stringify({ completedAt: 2100 }),
       })
       await db.insert(matchParticipants).values([
-        { matchId: 'm1a', playerId: 'p1', team: 0, civId: 'aztec', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'm1a', playerId: 'p2', team: 1, civId: 'egypt', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'm1a',
+          playerId: 'p1',
+          team: 0,
+          civId: 'aztec',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'm1a',
+          playerId: 'p2',
+          team: 1,
+          civId: 'egypt',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1a',
-        placements: 'B',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1a',
+          placements: 'B',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -746,15 +928,11 @@ describe('match moderation recalculation', () => {
       const [m2p1] = await db
         .select({ ratingBeforeMu: matchParticipants.ratingBeforeMu })
         .from(matchParticipants)
-        .where(and(
-          eq(matchParticipants.matchId, 'm2'),
-          eq(matchParticipants.playerId, 'p1'),
-        ))
+        .where(and(eq(matchParticipants.matchId, 'm2'), eq(matchParticipants.playerId, 'p1')))
         .limit(1)
 
       expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -765,50 +943,194 @@ describe('match moderation recalculation', () => {
 
     try {
       const playerIds = Array.from({ length: 11 }, (_, index) => `p${index + 1}`)
-      await db.insert(players).values(playerIds.map(playerId => ({
-        id: playerId,
-        displayName: playerId,
-        avatarUrl: null,
-        createdAt: 1,
-      })))
+      await db.insert(players).values(
+        playerIds.map(playerId => ({
+          id: playerId,
+          displayName: playerId,
+          avatarUrl: null,
+          createdAt: 1,
+        })),
+      )
       await db.insert(matches).values([
-        { id: 'corrupt-squad', gameMode: '3v3', status: 'completed', createdAt: 1000, completedAt: 1500, seasonId: null, draftData: null },
-        { id: 'later-squad', gameMode: '3v3', status: 'active', createdAt: 2000, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2100 }) },
+        {
+          id: 'corrupt-squad',
+          gameMode: '3v3',
+          status: 'completed',
+          createdAt: 1000,
+          completedAt: 1500,
+          seasonId: null,
+          draftData: null,
+        },
+        {
+          id: 'later-squad',
+          gameMode: '3v3',
+          status: 'active',
+          createdAt: 2000,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 2100 }),
+        },
       ])
       await db.insert(matchParticipants).values([
-        { matchId: 'corrupt-squad', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'corrupt-squad', playerId: 'p2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'corrupt-squad', playerId: 'p3', team: 0, civId: 'india', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'corrupt-squad', playerId: 'p4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'corrupt-squad', playerId: 'p5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'corrupt-squad', playerId: 'p6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p7', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p8', team: 0, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p9', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p10', team: 1, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'later-squad', playerId: 'p11', team: 1, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p1',
+          team: 0,
+          civId: 'rome',
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p2',
+          team: 0,
+          civId: 'greece',
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p3',
+          team: 0,
+          civId: 'india',
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p4',
+          team: 1,
+          civId: 'china',
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p5',
+          team: 1,
+          civId: 'japan',
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'corrupt-squad',
+          playerId: 'p6',
+          team: 1,
+          civId: 'france',
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p1',
+          team: 0,
+          civId: 'rome',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p7',
+          team: 0,
+          civId: 'greece',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p8',
+          team: 0,
+          civId: 'india',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p9',
+          team: 1,
+          civId: 'china',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p10',
+          team: 1,
+          civId: 'japan',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'later-squad',
+          playerId: 'p11',
+          team: 1,
+          civId: 'france',
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'later-squad',
-        placements: '<@p1>',
-        resolvedAt: 3000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'later-squad',
+          placements: '<@p1>',
+          resolvedAt: 3000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.recalculatedMatchIds).toEqual(['corrupt-squad', 'later-squad'])
 
-      const repairedParticipants = await db
-        .select()
-        .from(matchParticipants)
-      expect(repairedParticipants.every(participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null)).toBe(true)
+      const repairedParticipants = await db.select().from(matchParticipants)
+      expect(
+        repairedParticipants.every(
+          participant => participant.ratingBeforeMu != null && participant.ratingAfterMu != null,
+        ),
+      ).toBe(true)
 
       const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'squad'))
       expect(ratings.find(row => row.playerId === 'p1')?.gamesPlayed).toBe(2)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -820,18 +1142,22 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm3',
-        placements: 'A',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm3',
+          placements: 'A',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.recalculatedMatchIds).toEqual(['m3'])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -843,28 +1169,26 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
 
-      const result = await cancelMatchByModerator(db, kv, {
-        matchId: 'm1',
-        cancelledAt: 10_000,
-      }, directTerminalOptions)
+      const result = await cancelMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          cancelledAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.recalculatedMatchIds).toEqual(['m2', 'm3'])
 
-      const [matchRow] = await db
-        .select({ status: matches.status })
-        .from(matches)
-        .where(eq(matches.id, 'm1'))
-        .limit(1)
+      const [matchRow] = await db.select({ status: matches.status }).from(matches).where(eq(matches.id, 'm1')).limit(1)
 
       expect(matchRow?.status).toBe('cancelled')
 
-      const duelRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'duel'))
+      const duelRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
 
       const p1 = duelRatings.find(row => row.playerId === 'p1')
       const p2 = duelRatings.find(row => row.playerId === 'p2')
@@ -878,15 +1202,11 @@ describe('match moderation recalculation', () => {
           ratingBeforeMu: matchParticipants.ratingBeforeMu,
         })
         .from(matchParticipants)
-        .where(and(
-          eq(matchParticipants.matchId, 'm2'),
-          eq(matchParticipants.playerId, 'p1'),
-        ))
+        .where(and(eq(matchParticipants.matchId, 'm2'), eq(matchParticipants.playerId, 'p1')))
         .limit(1)
 
       expect(m2p1?.ratingBeforeMu).not.toBeCloseTo(27, 5)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -900,21 +1220,72 @@ describe('match moderation recalculation', () => {
       await db.update(matches).set({ status: 'cancelled', completedAt: 10_000 }).where(eq(matches.id, 'm1'))
       await db
         .update(matchParticipants)
-        .set({ placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null })
+        .set({
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        })
         .where(eq(matchParticipants.matchId, 'm1'))
       await db.insert(playerRatings).values([
         { playerId: 'p1', mode: 'global', mu: 26, sigma: 7.2, gamesPlayed: 3, wins: 2, lastPlayedAt: 6000 },
         { playerId: 'p2', mode: 'global', mu: 24, sigma: 7.2, gamesPlayed: 3, wins: 1, lastPlayedAt: 6000 },
       ])
       await db.insert(playerRatingEvents).values([
-        { matchId: 'm1', playerId: 'p1', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 1, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
-        { matchId: 'm1', playerId: 'p2', mode: 'global', gameMode: '1v1', ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9, gamesDelta: 1, winsDelta: 0, importedGamesDelta: 0, effectiveGamesDelta: 1, winsVsTier1Delta: 0, winsVsTier2PlusDelta: 0, effectiveWinsVsTier1Delta: 0, effectiveWinsVsTier2PlusDelta: 0, matchCreatedAt: 1000, matchCompletedAt: 2000, updatedAt: 2000 },
+        {
+          matchId: 'm1',
+          playerId: 'p1',
+          mode: 'global',
+          gameMode: '1v1',
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 27,
+          ratingAfterSigma: 7.9,
+          gamesDelta: 1,
+          winsDelta: 1,
+          importedGamesDelta: 0,
+          effectiveGamesDelta: 1,
+          winsVsTier1Delta: 0,
+          winsVsTier2PlusDelta: 0,
+          effectiveWinsVsTier1Delta: 0,
+          effectiveWinsVsTier2PlusDelta: 0,
+          matchCreatedAt: 1000,
+          matchCompletedAt: 2000,
+          updatedAt: 2000,
+        },
+        {
+          matchId: 'm1',
+          playerId: 'p2',
+          mode: 'global',
+          gameMode: '1v1',
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 23,
+          ratingAfterSigma: 7.9,
+          gamesDelta: 1,
+          winsDelta: 0,
+          importedGamesDelta: 0,
+          effectiveGamesDelta: 1,
+          winsVsTier1Delta: 0,
+          winsVsTier2PlusDelta: 0,
+          effectiveWinsVsTier1Delta: 0,
+          effectiveWinsVsTier2PlusDelta: 0,
+          matchCreatedAt: 1000,
+          matchCompletedAt: 2000,
+          updatedAt: 2000,
+        },
       ])
 
-      const result = await cancelMatchByModerator(db, kv, {
-        matchId: 'm1',
-        cancelledAt: 11_000,
-      }, directTerminalOptions)
+      const result = await cancelMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          cancelledAt: 11_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -927,8 +1298,7 @@ describe('match moderation recalculation', () => {
       const globalRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'global'))
       expect(globalRatings).toHaveLength(2)
       expect(globalRatings.every(row => row.gamesPlayed === 2)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -940,25 +1310,26 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
 
-      const result = await cancelMatchByModerator(db, kv, {
-        matchId: 'm3',
-        cancelledAt: 10_000,
-      }, directTerminalOptions)
+      const result = await cancelMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm3',
+          cancelledAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
       expect(result.recalculatedMatchIds).toEqual([])
 
-      const duelRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'duel'))
+      const duelRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
 
       expect(duelRatings).toHaveLength(2)
       expect(duelRatings.every(row => row.gamesPlayed === 2)).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -989,18 +1360,36 @@ describe('match moderation recalculation', () => {
           { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
-      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'mark-reported', matchId: lobby.id, at: 3 })
-      await db.update(matchParticipants).set({ placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8, ratingAfterMu: 27, ratingAfterSigma: 7 }).where(eq(matchParticipants.matchId, lobby.id))
-
-      const result = await cancelMatchByModerator(db, kv, {
-        matchId: lobby.id,
-        cancelledAt: 4,
-      }, {
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
         sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) })
+        .where(eq(matches.id, lobby.id))
+      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, {
+        type: 'mark-reported',
+        matchId: lobby.id,
+        at: 3,
+      })
+      await db
+        .update(matchParticipants)
+        .set({ placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8, ratingAfterMu: 27, ratingAfterSigma: 7 })
+        .where(eq(matchParticipants.matchId, lobby.id))
+
+      const result = await cancelMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          cancelledAt: 4,
+        },
+        {
+          sessionNamespace: runtime.sessionNamespace,
+        },
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1011,19 +1400,22 @@ describe('match moderation recalculation', () => {
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
       expect(participants.every(participant => participant.placement == null)).toBe(true)
-      expect(participants.every(participant => participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
-    }
-    finally {
+      expect(
+        participants.every(participant => participant.ratingBeforeMu == null && participant.ratingAfterMu == null),
+      ).toBe(true)
+    } finally {
       sqlite.close()
     }
   })
 
-  test.each(['legacy', 'rp'] as const)('resolve reports a cancelled SessionDO match (%s)', async (ratingSystem) => {
+  test.each(['legacy', 'rp'] as const)('resolve reports a cancelled SessionDO match (%s)', async ratingSystem => {
     const fixture = await createTestDatabase()
     const { sqlite } = fixture
     const db = new Proxy(fixture.db, {
       get(target, property) {
-        if (property === 'batch') return async (queries: Array<{ run(): unknown }>) => sqlite.transaction(() => queries.map(query => query.run()))()
+        if (property === 'batch')
+          return async (queries: Array<{ run(): unknown }>) =>
+            sqlite.transaction(() => queries.map(query => query.run()))()
         const value = Reflect.get(target, property)
         return typeof value === 'function' ? value.bind(target) : value
       },
@@ -1036,11 +1428,29 @@ describe('match moderation recalculation', () => {
         { id: 'p2', displayName: 'P2', avatarUrl: null, createdAt: 1 },
       ])
       if (ratingSystem === 'rp') {
-        await db.insert(seasons).values({ id: 's9', name: 'Season 9', seasonNumber: 9, startsAt: 0, active: true, ratingSystem: 'rp', isolatedRatingsEnabled: true })
+        await db.insert(seasons).values({
+          id: 's9',
+          name: 'Season 9',
+          seasonNumber: 9,
+          startsAt: 0,
+          active: true,
+          ratingSystem: 'rp',
+          isolatedRatingsEnabled: true,
+        })
         for (const scope of ['duel', 'global']) {
-          const calibration = calibratePublicRatings({ version: `resolve-${scope}`, scope, sourceDigest: 'fixture', qualifiedHiddenScores: Array.from({ length: 101 }, (_, i) => i) })
+          const calibration = calibratePublicRatings({
+            version: `resolve-${scope}`,
+            scope,
+            sourceDigest: 'fixture',
+            qualifiedHiddenScores: Array.from({ length: 101 }, (_, i) => i),
+          })
           await db.insert(publicRatingCalibrations).values({ ...calibration, calibration, createdAt: 0 })
-          await db.insert(seasonRatingConfigurations).values({ seasonId: 's9', mode: scope, formulaVersion: PUBLIC_RATING_FORMULA_VERSION, calibrationVersion: calibration.version })
+          await db.insert(seasonRatingConfigurations).values({
+            seasonId: 's9',
+            mode: scope,
+            formulaVersion: PUBLIC_RATING_FORMULA_VERSION,
+            calibrationVersion: calibration.version,
+          })
         }
       }
       const lobby = await createLobby(kv, {
@@ -1060,28 +1470,44 @@ describe('match moderation recalculation', () => {
           { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
-
-      const cancelled = await cancelMatchByModerator(db, kv, {
-        matchId: lobby.id,
-        cancelledAt: 3,
-      }, {
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
         sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) })
+        .where(eq(matches.id, lobby.id))
+
+      const cancelled = await cancelMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          cancelledAt: 3,
+        },
+        {
+          sessionNamespace: runtime.sessionNamespace,
+        },
+      )
       expect('error' in cancelled).toBe(false)
       if ('error' in cancelled) return
       expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('cancelled')
       expect(cancelled.match.status).toBe('cancelled')
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: lobby.id,
-        placements: '<@p2>',
-        resolvedAt: 4,
-      }, {
-        sessionNamespace: runtime.sessionNamespace,
-      })
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          placements: '<@p2>',
+          resolvedAt: 4,
+        },
+        {
+          sessionNamespace: runtime.sessionNamespace,
+        },
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1102,22 +1528,38 @@ describe('match moderation recalculation', () => {
         expect(reports[0]!.cancelledAt).toBeNull()
         expect(await db.select().from(playerRatingEvents)).toHaveLength(4)
         const ratings = await db.select().from(playerRatings)
-        const retry = await resolveMatchByModerator(db, kv, { matchId: lobby.id, placements: '<@p2>', resolvedAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        const retry = await resolveMatchByModerator(
+          db,
+          kv,
+          { matchId: lobby.id, placements: '<@p2>', resolvedAt: Date.now() },
+          { sessionNamespace: runtime.sessionNamespace },
+        )
         expect('error' in retry).toBe(false)
         expect(await db.select().from(seasonMatchReports)).toEqual(reports)
         expect(await db.select().from(playerRatings)).toEqual(ratings)
-        const cancelledAgain = await cancelMatchByModerator(db, kv, { matchId: lobby.id, cancelledAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        const cancelledAgain = await cancelMatchByModerator(
+          db,
+          kv,
+          { matchId: lobby.id, cancelledAt: Date.now() },
+          { sessionNamespace: runtime.sessionNamespace },
+        )
         expect(cancelledAgain).toMatchObject({ match: { status: 'cancelled' } })
         expect(await db.select().from(playerRatingEvents)).toHaveLength(0)
-        const restored = await resolveMatchByModerator(db, kv, { matchId: lobby.id, placements: '<@p1>', resolvedAt: Date.now() }, { sessionNamespace: runtime.sessionNamespace })
+        const restored = await resolveMatchByModerator(
+          db,
+          kv,
+          { matchId: lobby.id, placements: '<@p1>', resolvedAt: Date.now() },
+          { sessionNamespace: runtime.sessionNamespace },
+        )
         expect(restored).toMatchObject({ match: { status: 'completed' }, previousStatus: 'cancelled' })
         expect((await getSessionRecord(runtime.sessionNamespace, lobby.id))?.phase).toBe('reported')
         expect(await db.select().from(seasonMatchReports)).toEqual(reports)
         expect(await db.select().from(playerRatingEvents)).toHaveLength(4)
-        expect((await db.select().from(matchParticipants).where(eq(matchParticipants.playerId, 'p1')))[0]!.placement).toBe(1)
+        expect(
+          (await db.select().from(matchParticipants).where(eq(matchParticipants.playerId, 'p1')))[0]!.placement,
+        ).toBe(1)
       }
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1148,18 +1590,33 @@ describe('match moderation recalculation', () => {
           { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
-      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'mark-reported', matchId: lobby.id, at: 3 })
-
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: lobby.id,
-        placements: '<@p2>',
-        resolvedAt: 4,
-      }, {
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
         sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) })
+        .where(eq(matches.id, lobby.id))
+      await runSessionTerminalLifecycleCommand(runtime.sessionNamespace, lobby.id, {
+        type: 'mark-reported',
+        matchId: lobby.id,
+        at: 3,
+      })
+
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          placements: '<@p2>',
+          resolvedAt: 4,
+        },
+        {
+          sessionNamespace: runtime.sessionNamespace,
+        },
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1173,8 +1630,7 @@ describe('match moderation recalculation', () => {
       expect(p2?.placement).toBe(1)
       expect(p1?.ratingBeforeMu).not.toBeNull()
       expect(p2?.ratingAfterMu).not.toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1205,17 +1661,28 @@ describe('match moderation recalculation', () => {
           { playerId: 'p2', displayName: 'P2', avatarUrl: null, joinedAt: 1 },
         ],
       })
-      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, { db, sessionNamespace: runtime.sessionNamespace })
-      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
-      await db.update(matches).set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) }).where(eq(matches.id, lobby.id))
-
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: lobby.id,
-        placements: '<@p2>',
-        resolvedAt: 4,
-      }, {
-        sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+      await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby, {
+        db,
+        sessionNamespace: runtime.sessionNamespace,
       })
+      await runSessionDraftLifecycleCommand(runtime.sessionNamespace, lobby.id, { type: 'draft-completed', at: 2 })
+      await db
+        .update(matches)
+        .set({ status: 'active', draftData: JSON.stringify({ completedAt: 2 }) })
+        .where(eq(matches.id, lobby.id))
+
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: lobby.id,
+          placements: '<@p2>',
+          resolvedAt: 4,
+        },
+        {
+          sessionNamespace: failTerminalLifecycleForSession(runtime.sessionNamespace, lobby.id),
+        },
+      )
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
@@ -1227,12 +1694,16 @@ describe('match moderation recalculation', () => {
       expect(rolledBackMatch?.completedAt).toBeNull()
 
       const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, lobby.id))
-      expect(participants.every(participant => participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null)).toBe(true)
+      expect(
+        participants.every(
+          participant =>
+            participant.placement == null && participant.ratingBeforeMu == null && participant.ratingAfterMu == null,
+        ),
+      ).toBe(true)
 
       const ratings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duel'))
       expect(ratings).toHaveLength(0)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1244,11 +1715,16 @@ describe('match moderation recalculation', () => {
     try {
       await seedThreeCompletedDuels(db)
 
-      const result = await resolveMatchByModerator(db, kv, {
-        matchId: 'm1',
-        placements: '<@p2>',
-        resolvedAt: 10_000,
-      }, directTerminalOptions)
+      const result = await resolveMatchByModerator(
+        db,
+        kv,
+        {
+          matchId: 'm1',
+          placements: '<@p2>',
+          resolvedAt: 10_000,
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1262,8 +1738,7 @@ describe('match moderation recalculation', () => {
       const m1P2 = resolvedM1.find(row => row.playerId === 'p2')
       expect(m1P1?.placement).toBe(2)
       expect(m1P2?.placement).toBe(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1275,17 +1750,21 @@ describe('match moderation recalculation', () => {
     try {
       await seedActiveFfaMatch(db)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'ffa1',
-        reporterId: 'p1',
-        placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>\n<@outsider>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'ffa1',
+          reporterId: 'p1',
+          placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>\n<@outsider>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
       expect(result.error).toContain('is not part of match')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1297,17 +1776,21 @@ describe('match moderation recalculation', () => {
     try {
       await seedActiveFfaMatch(db)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'ffa1',
-        reporterId: 'p2',
-        placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'ffa1',
+          reporterId: 'p2',
+          placements: '<@p1>\n<@p2>\n<@p3>\n<@p4>\n<@p5>\n<@p6>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
       expect(result.match.status).toBe('completed')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1319,16 +1802,23 @@ describe('match moderation recalculation', () => {
     try {
       await seedActivePermanentAllyFfaMatch(db)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'ffa-pa',
-        reporterId: 'p2',
-        placements: '<@p3>\n<@p4>\n<@p1>\n<@p2>\n<@p5>\n<@p6>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'ffa-pa',
+          reporterId: 'p2',
+          placements: '<@p3>\n<@p4>\n<@p1>\n<@p2>\n<@p5>\n<@p6>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      const placementByPlayer = new Map(result.participants.map(participant => [participant.playerId, participant.placement]))
+      const placementByPlayer = new Map(
+        result.participants.map(participant => [participant.playerId, participant.placement]),
+      )
       expect(placementByPlayer.get('p3')).toBe(1)
       expect(placementByPlayer.get('p4')).toBe(1)
       expect(placementByPlayer.get('p1')).toBe(2)
@@ -1340,8 +1830,7 @@ describe('match moderation recalculation', () => {
       expect(displayDelta(result.participants, 'p1')).toBeCloseTo(displayDelta(result.participants, 'p2'), 10)
       expect(displayDelta(result.participants, 'p3')).toBeCloseTo(displayDelta(result.participants, 'p4'), 10)
       expect(displayDelta(result.participants, 'p5')).toBeCloseTo(displayDelta(result.participants, 'p6'), 10)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1353,17 +1842,21 @@ describe('match moderation recalculation', () => {
     try {
       await seedActivePermanentAllyFfaMatch(db)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'ffa-pa',
-        reporterId: 'p2',
-        placements: '<@p3>\n<@p1>\n<@p5>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'ffa-pa',
+          reporterId: 'p2',
+          placements: '<@p3>\n<@p1>\n<@p5>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(true)
       if (!('error' in result)) return
       expect(result.error).toContain('include every player exactly once')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1375,11 +1868,16 @@ describe('match moderation recalculation', () => {
     try {
       await seedActiveMultiTeamDuoMatch(db)
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'duo-multi-active',
-        reporterId: 'p1',
-        placements: '<@p5>\n<@p1>\n<@p3>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'duo-multi-active',
+          reporterId: 'p1',
+          placements: '<@p5>\n<@p1>\n<@p3>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1396,8 +1894,7 @@ describe('match moderation recalculation', () => {
       expect(resolved.find(row => row.playerId === 'p2')?.placement).toBe(2)
       expect(resolved.find(row => row.playerId === 'p3')?.placement).toBe(3)
       expect(resolved.find(row => row.playerId === 'p4')?.placement).toBe(3)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1408,22 +1905,30 @@ describe('match moderation recalculation', () => {
 
     try {
       await seedActiveSquadMatch(db)
-      await kv.put(leaderboardModeSnapshotKey('squad'), JSON.stringify({
-        updatedAt: 1,
-        rows: [
-          { playerId: 'p1', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
-          { playerId: 'p2', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
-          { playerId: 'p3', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
-          { playerId: 'p4', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
-          { playerId: 'p5', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
-        ],
-      }))
+      await kv.put(
+        leaderboardModeSnapshotKey('squad'),
+        JSON.stringify({
+          updatedAt: 1,
+          rows: [
+            { playerId: 'p1', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+            { playerId: 'p2', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+            { playerId: 'p3', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 1, lastPlayedAt: 1000 },
+            { playerId: 'p4', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+            { playerId: 'p5', mu: 25, sigma: 8.333, gamesPlayed: 1, wins: 0, lastPlayedAt: 1000 },
+          ],
+        }),
+      )
 
-      const result = await reportMatch(db, kv, {
-        matchId: 'squad-active',
-        reporterId: 'p1',
-        placements: '<@p1>',
-      }, directTerminalOptions)
+      const result = await reportMatch(
+        db,
+        kv,
+        {
+          matchId: 'squad-active',
+          reporterId: 'p1',
+          placements: '<@p1>',
+        },
+        directTerminalOptions,
+      )
 
       expect('error' in result).toBe(false)
       if ('error' in result) return
@@ -1432,15 +1937,11 @@ describe('match moderation recalculation', () => {
       const [p6Rating] = await db
         .select()
         .from(playerRatings)
-        .where(and(
-          eq(playerRatings.playerId, 'p6'),
-          eq(playerRatings.mode, 'squad'),
-        ))
+        .where(and(eq(playerRatings.playerId, 'p6'), eq(playerRatings.mode, 'squad')))
         .limit(1)
 
       expect(p6Rating?.gamesPlayed).toBe(2)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1461,15 +1962,9 @@ describe('match moderation recalculation', () => {
       expect(duoResult.matchIds).toEqual(['duo-1'])
       expect(squadResult.matchIds).toEqual(['squad-1'])
 
-      const duoRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'duo'))
+      const duoRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'duo'))
 
-      const squadRatings = await db
-        .select()
-        .from(playerRatings)
-        .where(eq(playerRatings.mode, 'squad'))
+      const squadRatings = await db.select().from(playerRatings).where(eq(playerRatings.mode, 'squad'))
 
       expect(duoRatings).toHaveLength(4)
       expect(squadRatings).toHaveLength(6)
@@ -1477,8 +1972,7 @@ describe('match moderation recalculation', () => {
       expect(squadRatings.every(row => row.gamesPlayed === 1)).toBe(true)
       expect(duoRatings.some(row => row.playerId.startsWith('s'))).toBe(false)
       expect(squadRatings.some(row => row.playerId.startsWith('d'))).toBe(false)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -1491,23 +1985,107 @@ async function seedThreeCompletedDuels(db: any): Promise<void> {
   ])
 
   await db.insert(matches).values([
-    { id: 'm1', gameMode: '1v1', status: 'completed', createdAt: 1000, completedAt: 2000, seasonId: null, draftData: null },
-    { id: 'm2', gameMode: '1v1', status: 'completed', createdAt: 3000, completedAt: 4000, seasonId: null, draftData: null },
-    { id: 'm3', gameMode: '1v1', status: 'completed', createdAt: 5000, completedAt: 6000, seasonId: null, draftData: null },
+    {
+      id: 'm1',
+      gameMode: '1v1',
+      status: 'completed',
+      createdAt: 1000,
+      completedAt: 2000,
+      seasonId: null,
+      draftData: null,
+    },
+    {
+      id: 'm2',
+      gameMode: '1v1',
+      status: 'completed',
+      createdAt: 3000,
+      completedAt: 4000,
+      seasonId: null,
+      draftData: null,
+    },
+    {
+      id: 'm3',
+      gameMode: '1v1',
+      status: 'completed',
+      createdAt: 5000,
+      completedAt: 6000,
+      seasonId: null,
+      draftData: null,
+    },
   ])
 
   await db.insert(matchParticipants).values([
     // m1: p1 beats p2
-    { matchId: 'm1', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9 },
-    { matchId: 'm1', playerId: 'p2', team: 1, civId: 'greece', placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9 },
+    {
+      matchId: 'm1',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: 1,
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 27,
+      ratingAfterSigma: 7.9,
+    },
+    {
+      matchId: 'm1',
+      playerId: 'p2',
+      team: 1,
+      civId: 'greece',
+      placement: 2,
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 23,
+      ratingAfterSigma: 7.9,
+    },
 
     // m2: p1 beats p2 again
-    { matchId: 'm2', playerId: 'p1', team: 0, civId: 'india', placement: 1, ratingBeforeMu: 27, ratingBeforeSigma: 7.9, ratingAfterMu: 28, ratingAfterSigma: 7.5 },
-    { matchId: 'm2', playerId: 'p2', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: 23, ratingBeforeSigma: 7.9, ratingAfterMu: 22, ratingAfterSigma: 7.5 },
+    {
+      matchId: 'm2',
+      playerId: 'p1',
+      team: 0,
+      civId: 'india',
+      placement: 1,
+      ratingBeforeMu: 27,
+      ratingBeforeSigma: 7.9,
+      ratingAfterMu: 28,
+      ratingAfterSigma: 7.5,
+    },
+    {
+      matchId: 'm2',
+      playerId: 'p2',
+      team: 1,
+      civId: 'japan',
+      placement: 2,
+      ratingBeforeMu: 23,
+      ratingBeforeSigma: 7.9,
+      ratingAfterMu: 22,
+      ratingAfterSigma: 7.5,
+    },
 
     // m3: p2 beats p1
-    { matchId: 'm3', playerId: 'p1', team: 0, civId: 'france', placement: 2, ratingBeforeMu: 28, ratingBeforeSigma: 7.5, ratingAfterMu: 26, ratingAfterSigma: 7.2 },
-    { matchId: 'm3', playerId: 'p2', team: 1, civId: 'china', placement: 1, ratingBeforeMu: 22, ratingBeforeSigma: 7.5, ratingAfterMu: 24, ratingAfterSigma: 7.2 },
+    {
+      matchId: 'm3',
+      playerId: 'p1',
+      team: 0,
+      civId: 'france',
+      placement: 2,
+      ratingBeforeMu: 28,
+      ratingBeforeSigma: 7.5,
+      ratingAfterMu: 26,
+      ratingAfterSigma: 7.2,
+    },
+    {
+      matchId: 'm3',
+      playerId: 'p2',
+      team: 1,
+      civId: 'china',
+      placement: 1,
+      ratingBeforeMu: 22,
+      ratingBeforeSigma: 7.5,
+      ratingAfterMu: 24,
+      ratingAfterSigma: 7.2,
+    },
   ])
 
   await db.insert(playerRatings).values([
@@ -1532,11 +2110,36 @@ async function seedCompletedDuelWithRatingEvents(db: any): Promise<void> {
     createdAt: 1_000,
     completedAt: 2_000,
     seasonId: null,
-    draftData: buildStoredDraftData('sub-duel', seats, ['rome', 'greece'], [{ civId: 'aztec', seatIndex: 0, stepIndex: 0 }]),
+    draftData: buildStoredDraftData(
+      'sub-duel',
+      seats,
+      ['rome', 'greece'],
+      [{ civId: 'aztec', seatIndex: 0, stepIndex: 0 }],
+    ),
   })
   await db.insert(matchParticipants).values([
-    { matchId: 'sub-duel', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 27, ratingAfterSigma: 7.9 },
-    { matchId: 'sub-duel', playerId: 'p2', team: 1, civId: 'greece', placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 23, ratingAfterSigma: 7.9 },
+    {
+      matchId: 'sub-duel',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: 1,
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 27,
+      ratingAfterSigma: 7.9,
+    },
+    {
+      matchId: 'sub-duel',
+      playerId: 'p2',
+      team: 1,
+      civId: 'greece',
+      placement: 2,
+      ratingBeforeMu: 25,
+      ratingBeforeSigma: 8.333,
+      ratingAfterMu: 23,
+      ratingAfterSigma: 7.9,
+    },
   ])
   await db.insert(matchBans).values({ matchId: 'sub-duel', civId: 'aztec', bannedBy: 'p1', phase: 0 })
   await db.insert(playerRatings).values([
@@ -1545,12 +2148,14 @@ async function seedCompletedDuelWithRatingEvents(db: any): Promise<void> {
     { playerId: 'p1', mode: 'global', mu: 27, sigma: 7.9, gamesPlayed: 1, wins: 1, lastPlayedAt: 2_000 },
     { playerId: 'p2', mode: 'global', mu: 23, sigma: 7.9, gamesPlayed: 1, wins: 0, lastPlayedAt: 2_000 },
   ])
-  await db.insert(playerRatingEvents).values([
-    ratingEvent('sub-duel', 'p1', 'duel', 1),
-    ratingEvent('sub-duel', 'p2', 'duel', 0),
-    ratingEvent('sub-duel', 'p1', 'global', 1),
-    ratingEvent('sub-duel', 'p2', 'global', 0),
-  ])
+  await db
+    .insert(playerRatingEvents)
+    .values([
+      ratingEvent('sub-duel', 'p1', 'duel', 1),
+      ratingEvent('sub-duel', 'p2', 'duel', 0),
+      ratingEvent('sub-duel', 'p1', 'global', 1),
+      ratingEvent('sub-duel', 'p2', 'global', 0),
+    ])
 }
 
 async function seedCompletedDuoForSub(db: any): Promise<void> {
@@ -1560,7 +2165,14 @@ async function seedCompletedDuoForSub(db: any): Promise<void> {
     { playerId: 'p2', displayName: 'P2', avatarUrl: null, team: 0 },
     { playerId: 'p4', displayName: 'P4', avatarUrl: null, team: 1 },
   ]
-  await db.insert(players).values(['p1', 'p2', 'p3', 'p4'].map(playerId => ({ id: playerId, displayName: playerId.toUpperCase(), avatarUrl: null, createdAt: 1 })))
+  await db.insert(players).values(
+    ['p1', 'p2', 'p3', 'p4'].map(playerId => ({
+      id: playerId,
+      displayName: playerId.toUpperCase(),
+      avatarUrl: null,
+      createdAt: 1,
+    })),
+  )
   await db.insert(matches).values({
     id: 'sub-duo',
     gameMode: '2v2',
@@ -1571,10 +2183,50 @@ async function seedCompletedDuoForSub(db: any): Promise<void> {
     draftData: buildStoredDraftData('sub-duo', seats, ['rome', 'india', 'greece', 'china']),
   })
   await db.insert(matchParticipants).values([
-    { matchId: 'sub-duo', playerId: 'p1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'sub-duo', playerId: 'p3', team: 1, civId: 'india', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'sub-duo', playerId: 'p2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'sub-duo', playerId: 'p4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'sub-duo',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'sub-duo',
+      playerId: 'p3',
+      team: 1,
+      civId: 'india',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'sub-duo',
+      playerId: 'p2',
+      team: 0,
+      civId: 'greece',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'sub-duo',
+      playerId: 'p4',
+      team: 1,
+      civId: 'china',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -1597,16 +2249,36 @@ async function seedActiveDraftCompleteDuelForSub(db: any): Promise<void> {
     draftData: buildStoredDraftData('sub-active', seats, ['rome', 'greece']),
   })
   await db.insert(matchParticipants).values([
-    { matchId: 'sub-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'sub-active', playerId: 'p2', team: 1, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'sub-active',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'sub-active',
+      playerId: 'p2',
+      team: 1,
+      civId: 'greece',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
 function buildStoredDraftData(
   matchId: string,
-  seats: Array<{ playerId: string, displayName: string, avatarUrl: string | null, team?: number }>,
+  seats: Array<{ playerId: string; displayName: string; avatarUrl: string | null; team?: number }>,
   civIds: string[],
-  bans: Array<{ civId: string, seatIndex: number, stepIndex: number }> = [],
+  bans: Array<{ civId: string; seatIndex: number; stepIndex: number }> = [],
 ): string {
   return JSON.stringify({
     completedAt: 2_000,
@@ -1668,13 +2340,25 @@ function buildManualPlayers(leaderIds: string[]) {
   }))
 }
 
-function displayDelta(participants: Array<{ playerId: string, ratingBeforeMu: number | null, ratingBeforeSigma: number | null, ratingAfterMu: number | null, ratingAfterSigma: number | null }>, playerId: string): number {
+function displayDelta(
+  participants: Array<{
+    playerId: string
+    ratingBeforeMu: number | null
+    ratingBeforeSigma: number | null
+    ratingAfterMu: number | null
+    ratingAfterSigma: number | null
+  }>,
+  playerId: string,
+): number {
   const participant = participants.find(row => row.playerId === playerId)
   expect(typeof participant?.ratingBeforeMu).toBe('number')
   expect(typeof participant?.ratingBeforeSigma).toBe('number')
   expect(typeof participant?.ratingAfterMu).toBe('number')
   expect(typeof participant?.ratingAfterSigma).toBe('number')
-  return displayRating(participant!.ratingAfterMu!, participant!.ratingAfterSigma!) - displayRating(participant!.ratingBeforeMu!, participant!.ratingBeforeSigma!)
+  return (
+    displayRating(participant!.ratingAfterMu!, participant!.ratingAfterSigma!) -
+    displayRating(participant!.ratingBeforeMu!, participant!.ratingBeforeSigma!)
+  )
 }
 
 async function seedActiveFfaMatch(db: any): Promise<void> {
@@ -1698,12 +2382,72 @@ async function seedActiveFfaMatch(db: any): Promise<void> {
   })
 
   await db.insert(matchParticipants).values([
-    { matchId: 'ffa1', playerId: 'p1', team: null, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa1', playerId: 'p2', team: null, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa1', playerId: 'p3', team: null, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa1', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa1', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa1', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'ffa1',
+      playerId: 'p1',
+      team: null,
+      civId: 'rome',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa1',
+      playerId: 'p2',
+      team: null,
+      civId: 'greece',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa1',
+      playerId: 'p3',
+      team: null,
+      civId: 'india',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa1',
+      playerId: 'p4',
+      team: null,
+      civId: 'china',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa1',
+      playerId: 'p5',
+      team: null,
+      civId: 'japan',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa1',
+      playerId: 'p6',
+      team: null,
+      civId: 'france',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -1728,12 +2472,72 @@ async function seedActivePermanentAllyFfaMatch(db: any): Promise<void> {
   })
 
   await db.insert(matchParticipants).values([
-    { matchId: 'ffa-pa', playerId: 'p1', team: null, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p2', team: null, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p3', team: null, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p4', team: null, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p5', team: null, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'ffa-pa', playerId: 'p6', team: null, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p1',
+      team: null,
+      civId: 'rome',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p2',
+      team: null,
+      civId: 'greece',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p3',
+      team: null,
+      civId: 'india',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p4',
+      team: null,
+      civId: 'china',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p5',
+      team: null,
+      civId: 'japan',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'ffa-pa',
+      playerId: 'p6',
+      team: null,
+      civId: 'france',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 
   await db.insert(playerRatings).values([
@@ -1761,22 +2565,138 @@ async function seedCompletedTeamMatches(db: any): Promise<void> {
   ])
 
   await db.insert(matches).values([
-    { id: 'duo-1', gameMode: '2v2', status: 'completed', createdAt: 1000, completedAt: 2000, seasonId: null, draftData: null },
-    { id: 'squad-1', gameMode: '3v3', status: 'completed', createdAt: 3000, completedAt: 4000, seasonId: null, draftData: null },
+    {
+      id: 'duo-1',
+      gameMode: '2v2',
+      status: 'completed',
+      createdAt: 1000,
+      completedAt: 2000,
+      seasonId: null,
+      draftData: null,
+    },
+    {
+      id: 'squad-1',
+      gameMode: '3v3',
+      status: 'completed',
+      createdAt: 3000,
+      completedAt: 4000,
+      seasonId: null,
+      draftData: null,
+    },
   ])
 
   await db.insert(matchParticipants).values([
-    { matchId: 'duo-1', playerId: 'd1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-1', playerId: 'd2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-1', playerId: 'd3', team: 1, civId: 'india', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-1', playerId: 'd4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'duo-1',
+      playerId: 'd1',
+      team: 0,
+      civId: 'rome',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-1',
+      playerId: 'd2',
+      team: 0,
+      civId: 'greece',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-1',
+      playerId: 'd3',
+      team: 1,
+      civId: 'india',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-1',
+      playerId: 'd4',
+      team: 1,
+      civId: 'china',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
 
-    { matchId: 'squad-1', playerId: 's1', team: 0, civId: 'rome', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-1', playerId: 's2', team: 0, civId: 'greece', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-1', playerId: 's3', team: 0, civId: 'india', placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-1', playerId: 's4', team: 1, civId: 'china', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-1', playerId: 's5', team: 1, civId: 'japan', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-1', playerId: 's6', team: 1, civId: 'france', placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'squad-1',
+      playerId: 's1',
+      team: 0,
+      civId: 'rome',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-1',
+      playerId: 's2',
+      team: 0,
+      civId: 'greece',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-1',
+      playerId: 's3',
+      team: 0,
+      civId: 'india',
+      placement: 1,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-1',
+      playerId: 's4',
+      team: 1,
+      civId: 'china',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-1',
+      playerId: 's5',
+      team: 1,
+      civId: 'japan',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-1',
+      playerId: 's6',
+      team: 1,
+      civId: 'france',
+      placement: 2,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -1801,12 +2721,72 @@ async function seedActiveSquadMatch(db: any): Promise<void> {
   })
 
   await db.insert(matchParticipants).values([
-    { matchId: 'squad-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-active', playerId: 'p2', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-active', playerId: 'p3', team: 0, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-active', playerId: 'p4', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-active', playerId: 'p5', team: 1, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'squad-active', playerId: 'p6', team: 1, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'squad-active',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-active',
+      playerId: 'p2',
+      team: 0,
+      civId: 'greece',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-active',
+      playerId: 'p3',
+      team: 0,
+      civId: 'india',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-active',
+      playerId: 'p4',
+      team: 1,
+      civId: 'china',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-active',
+      playerId: 'p5',
+      team: 1,
+      civId: 'japan',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'squad-active',
+      playerId: 'p6',
+      team: 1,
+      civId: 'france',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 
   await db.insert(playerRatings).values([
@@ -1840,12 +2820,72 @@ async function seedActiveMultiTeamDuoMatch(db: any): Promise<void> {
   })
 
   await db.insert(matchParticipants).values([
-    { matchId: 'duo-multi-active', playerId: 'p1', team: 0, civId: 'rome', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-multi-active', playerId: 'p2', team: 0, civId: 'greece', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-multi-active', playerId: 'p3', team: 1, civId: 'india', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-multi-active', playerId: 'p4', team: 1, civId: 'china', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-multi-active', playerId: 'p5', team: 2, civId: 'japan', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-    { matchId: 'duo-multi-active', playerId: 'p6', team: 2, civId: 'france', placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p1',
+      team: 0,
+      civId: 'rome',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p2',
+      team: 0,
+      civId: 'greece',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p3',
+      team: 1,
+      civId: 'india',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p4',
+      team: 1,
+      civId: 'china',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p5',
+      team: 2,
+      civId: 'japan',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
+    {
+      matchId: 'duo-multi-active',
+      playerId: 'p6',
+      team: 2,
+      civId: 'france',
+      placement: null,
+      ratingBeforeMu: null,
+      ratingBeforeSigma: null,
+      ratingAfterMu: null,
+      ratingAfterSigma: null,
+    },
   ])
 }
 
@@ -1860,10 +2900,12 @@ function failTerminalLifecycleForSession(namespace: DurableObjectNamespace, sess
         fetch(input: RequestInfo | URL, init?: RequestInit) {
           const request = input instanceof Request ? input : new Request(input, init)
           if (String(id) === sessionId && new URL(request.url).pathname === '/commands/session-lifecycle') {
-            return Promise.resolve(new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' },
-            }))
+            return Promise.resolve(
+              new Response(JSON.stringify({ error: 'terminal lifecycle failed' }), {
+                status: 503,
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            )
           }
           return stub.fetch(request)
         },

@@ -145,8 +145,8 @@ export async function verifySessionAccessToken(
 
 export async function createCivBlitzDownloadTicket(
   secret: string,
-  input: { userId: string, matchId: string },
-  options?: { ttlSeconds?: number, nowMs?: number },
+  input: { userId: string; matchId: string },
+  options?: { ttlSeconds?: number; nowMs?: number },
 ): Promise<string> {
   const nowSeconds = Math.floor((options?.nowMs ?? Date.now()) / 1000)
   const ttlSeconds = normalizePositiveInteger(options?.ttlSeconds) ?? DEFAULT_CIVBLITZ_DOWNLOAD_TICKET_TTL_SECONDS
@@ -164,7 +164,7 @@ export async function createCivBlitzDownloadTicket(
 export async function verifyCivBlitzDownloadTicket(
   secret: string | undefined,
   token: string | null,
-  options: { matchId: string, nowMs?: number },
+  options: { matchId: string; nowMs?: number },
 ): Promise<CivBlitzDownloadTicketClaims | null> {
   const claims = await verifySignedClaimsToken(secret, token, CIVBLITZ_DOWNLOAD_TICKET_VERSION)
   if (!claims || !isCivBlitzDownloadTicketClaims(claims)) return null
@@ -182,7 +182,10 @@ export function isAuthorizedInternalRequest(headers: Headers, expectedSecret: st
   return constantTimeEqual(readProvidedInternalSecret(headers) ?? '', normalizedSecret)
 }
 
-export function readAuthorizedActivityIdentity(headers: Headers, expectedSecret: string | undefined): ActivityIdentity | null {
+export function readAuthorizedActivityIdentity(
+  headers: Headers,
+  expectedSecret: string | undefined,
+): ActivityIdentity | null {
   if (!isAuthorizedInternalRequest(headers, expectedSecret)) return null
 
   const userId = headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)?.trim() ?? ''
@@ -227,8 +230,7 @@ async function verifySignedClaimsToken(
 
   try {
     return JSON.parse(fromBase64Url(payload))
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -244,8 +246,7 @@ function decodeOptionalHeaderValue(value: string | null): string | null {
   if (!normalized) return null
   try {
     return decodeURIComponent(normalized)
-  }
-  catch {
+  } catch {
     return normalized
   }
 }
@@ -328,16 +329,11 @@ function toBase64Url(value: string | Uint8Array): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte)
   }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '')
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
 function fromBase64Url(value: string): string {
-  const normalized = value
-    .replace(/-/g, '+')
-    .replace(/_/g, '/')
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
   const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4))
   const binary = atob(`${normalized}${padding}`)
   const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))

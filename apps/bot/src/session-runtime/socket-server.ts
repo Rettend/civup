@@ -58,7 +58,8 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
   getConnections<TState = unknown>(): Iterable<Connection<TState>> {
     const getWebSockets = (this.ctx as Partial<DurableObjectState>).getWebSockets
     if (typeof getWebSockets !== 'function') return []
-    return getWebSockets.call(this.ctx)
+    return getWebSockets
+      .call(this.ctx)
       .map(socket => this.hydrateConnection<TState>(socket))
       .filter(connection => connection.readyState < 2)
   }
@@ -83,8 +84,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
     try {
       connection.send(message)
       return true
-    }
-    catch (error) {
+    } catch (error) {
       if (isClosedWebSocketSendError(error)) return false
       throw error
     }
@@ -94,7 +94,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
     await this.onAlarm()
   }
 
-  private acceptConnection(socket: WebSocket, options: { id: string, sessionId: string | null }): Connection {
+  private acceptConnection(socket: WebSocket, options: { id: string; sessionId: string | null }): Connection {
     this.ctx.acceptWebSocket(socket)
     writeConnectionAttachment(socket, {
       id: options.id,
@@ -110,7 +110,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
     const existingSetState = (socket as Partial<Connection<TState>>).setState
     const attachment = readConnectionAttachment(socket)
     const connection = socket as Connection<TState>
-    let state: TState | null = connectionStateFromAttachment<TState>(attachment) ?? (connection.state ?? null)
+    let state: TState | null = connectionStateFromAttachment<TState>(attachment) ?? connection.state ?? null
 
     Object.defineProperties(connection, {
       id: {
@@ -148,9 +148,7 @@ export class SessionSocketServer<Env extends Cloudflare.Env = Cloudflare.Env> {
 }
 
 function readConnectionAttachment(socket: WebSocket): SessionSocketAttachment | null {
-  const value = typeof socket.deserializeAttachment === 'function'
-    ? socket.deserializeAttachment()
-    : null
+  const value = typeof socket.deserializeAttachment === 'function' ? socket.deserializeAttachment() : null
   if (!value || typeof value !== 'object') return null
 
   const raw = value as Partial<SessionSocketAttachment>
@@ -179,16 +177,20 @@ function connectionStateFromAttachment<TState>(attachment: SessionSocketAttachme
   } as TState
 }
 
-function attachmentFromConnectionState<TState>(connection: Connection<TState>, state: TState | null): SessionSocketAttachment {
+function attachmentFromConnectionState<TState>(
+  connection: Connection<TState>,
+  state: TState | null,
+): SessionSocketAttachment {
   const current = readConnectionAttachment(connection)
-  const stateRecord = state && typeof state === 'object' ? state as Record<string, unknown> : null
-  const playerId = typeof stateRecord?.playerId === 'string' && stateRecord.playerId.length > 0 ? stateRecord.playerId : null
+  const stateRecord = state && typeof state === 'object' ? (state as Record<string, unknown>) : null
+  const playerId =
+    typeof stateRecord?.playerId === 'string' && stateRecord.playerId.length > 0 ? stateRecord.playerId : null
   const openLobby = stateRecord?.openLobby === true
   return {
     id: current?.id ?? connection.id ?? crypto.randomUUID(),
     sessionId: current?.sessionId ?? null,
     playerId,
-    kind: playerId ? openLobby ? 'open-lobby' : 'draft' : null,
+    kind: playerId ? (openLobby ? 'open-lobby' : 'draft') : null,
     connectedAt: current?.connectedAt ?? Date.now(),
   }
 }
@@ -200,8 +202,7 @@ function readSessionIdFromUrl(url: URL): string | null {
   try {
     const sessionId = decodeURIComponent(raw).trim()
     return sessionId.length > 0 ? sessionId : null
-  }
-  catch {
+  } catch {
     return raw
   }
 }

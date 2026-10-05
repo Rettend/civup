@@ -28,9 +28,7 @@ function normalizeMeta(meta: unknown): unknown {
   if (Array.isArray(meta)) return meta.map(normalizeMeta)
 
   if (meta && typeof meta === 'object') {
-    return Object.fromEntries(
-      Object.entries(meta).map(([key, value]) => [key, normalizeMeta(value)]),
-    )
+    return Object.fromEntries(Object.entries(meta).map(([key, value]) => [key, normalizeMeta(value)]))
   }
 
   return meta
@@ -64,8 +62,7 @@ export function relayDevLog(level: DevLogLevel, message: string, meta?: unknown)
       const queued = navigator.sendBeacon('/api/dev-log', new Blob([body], { type: 'application/json' }))
       if (queued) return
     }
-  }
-  catch {}
+  } catch {}
 
   void fetch('/api/dev-log', {
     method: 'POST',

@@ -1,10 +1,10 @@
-import type { JSX } from '@solidjs/web'
-import type { Accessor } from 'solid-js'
 import type { RankRoleSetDetail } from './helpers'
 import type { useDraftSetupState } from './useDraftSetupState'
+import type { JSX } from '@solidjs/web'
+import type { Accessor } from 'solid-js'
 import type { RankedRoleOptionSnapshot } from '~/client/stores'
-import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { hasBetaLeaderData, inferGameMode, normalizeAvailableLeaderDataVersion } from '@civup/game'
 import { Dropdown, Switch, Tabs, TextInput } from '~/client/components/ui'
 import { cn } from '~/client/lib/css'
 import { buildRankDotStyle, buildRolePillStyle, MAX_TIMER_MINUTES } from './helpers'
@@ -30,11 +30,16 @@ interface ConfigRowDefinition {
 const CONFIG_ROWS: ConfigRowDefinition[] = [
   {
     key: 'banMode',
-    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindBans(),
+    when: state =>
+      state.isLobbyMode() &&
+      !hiddenDraftSelected(state) &&
+      !state.derived.isTournamentLobby() &&
+      !state.derived.isCivBlitz() &&
+      state.derived.supportsBlindBans(),
     renderEditable: state => (
       <ModeTabsRow
         label="Ban"
-        value={() => state.derived.optimisticDraftConfig().blindBans ? 'blind' : 'draft'}
+        value={() => (state.derived.optimisticDraftConfig().blindBans ? 'blind' : 'draft')}
         disabled={() => state.lobbyActionPending() || state.pending.blindBans()}
         onChange={value => void state.actions.changeBlindBans(value === 'blind')}
       />
@@ -45,17 +50,26 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
   },
   {
     key: 'pickMode',
-    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz() && state.derived.supportsBlindPicks(),
+    when: state =>
+      state.isLobbyMode() &&
+      !hiddenDraftSelected(state) &&
+      !state.derived.isTournamentLobby() &&
+      !state.derived.isCivBlitz() &&
+      state.derived.supportsBlindPicks(),
     renderEditable: state => (
       <ModeTabsRow
         label="Pick"
-        value={() => state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft'}
+        value={() => (state.derived.optimisticDraftConfig().blindPicks ? 'blind' : 'draft')}
         disabled={() => state.lobbyActionPending() || state.pending.blindPicks()}
         onChange={value => void state.actions.changeBlindPicks(value === 'blind')}
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Pick" value={state.derived.formattedBlindPicks().toUpperCase()} valueClass="text-accent" />
+      <ReadonlyTimerRow
+        label="Pick"
+        value={state.derived.formattedBlindPicks().toUpperCase()}
+        valueClass="text-accent"
+      />
     ),
   },
   {
@@ -70,16 +84,23 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Map Vote" value={state.derived.formattedMapVote()} valueClass={state.derived.draftConfig().mapVoteEnabled ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="Map Vote"
+        value={state.derived.formattedMapVote()}
+        valueClass={state.derived.draftConfig().mapVoteEnabled ? 'text-accent' : undefined}
+      />
     ),
   },
   {
     key: 'leaderDataVersion',
-    when: state => state.isLobbyMode() && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && hasBetaLeaderData,
+    when: state =>
+      state.isLobbyMode() && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && hasBetaLeaderData,
     renderEditable: state => (
       <SwitchRow
         label="BBG Beta"
-        active={() => normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'}
+        active={() =>
+          normalizeAvailableLeaderDataVersion(state.derived.optimisticDraftConfig().leaderDataVersion) === 'beta'
+        }
         disabled={() => state.lobbyActionPending() || state.pending.leaderDataVersion()}
         onChange={checked => void state.actions.changeLeaderDataVersion(checked)}
       />
@@ -88,7 +109,11 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       <ReadonlyTimerRow
         label="BBG"
         value={state.derived.formattedBbgVersion()}
-        valueClass={normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta' ? 'text-accent' : undefined}
+        valueClass={
+          normalizeAvailableLeaderDataVersion(state.derived.draftConfig().leaderDataVersion) === 'beta'
+            ? 'text-accent'
+            : undefined
+        }
       />
     ),
   },
@@ -104,12 +129,23 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="BBG Expanded" value={state.derived.formattedCivBlitzBbgExpanded()} valueClass={!state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="BBG Expanded"
+        value={state.derived.formattedCivBlitzBbgExpanded()}
+        valueClass={!state.derived.draftConfig().civBlitzExcludeBbgExpanded ? 'text-accent' : undefined}
+      />
     ),
   },
   {
     key: 'simultaneousPick',
-    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz() && !state.derived.optimisticDraftConfig().blindPicks,
+    when: state =>
+      state.isLobbyMode() &&
+      !hiddenDraftSelected(state) &&
+      !state.derived.isTournamentLobby() &&
+      state.lobbyMode() === 'ffa' &&
+      !state.derived.isRedDeath() &&
+      !state.derived.isCivBlitz() &&
+      !state.derived.optimisticDraftConfig().blindPicks,
     renderEditable: state => (
       <SwitchRow
         label="Simultaneous pick"
@@ -119,12 +155,21 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Simultaneous pick" value={state.derived.formattedSimultaneousPick()} valueClass={state.derived.draftConfig().simultaneousPick ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="Simultaneous pick"
+        value={state.derived.formattedSimultaneousPick()}
+        valueClass={state.derived.draftConfig().simultaneousPick ? 'text-accent' : undefined}
+      />
     ),
   },
   {
     key: 'permanentAlly',
-    when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && state.lobbyMode() === 'ffa' && !state.derived.isRedDeath() && !state.derived.isCivBlitz(),
+    when: state =>
+      state.isLobbyMode() &&
+      !state.derived.isTournamentLobby() &&
+      state.lobbyMode() === 'ffa' &&
+      !state.derived.isRedDeath() &&
+      !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Permanent Ally"
@@ -134,7 +179,11 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Permanent Ally" value={state.derived.formattedPermanentAlly()} valueClass={state.derived.draftConfig().permanentAlly ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="Permanent Ally"
+        value={state.derived.formattedPermanentAlly()}
+        valueClass={state.derived.draftConfig().permanentAlly ? 'text-accent' : undefined}
+      />
     ),
   },
   {
@@ -155,7 +204,9 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
     when: state => state.isLobbyMode() && !state.derived.isTournamentLobby() && !state.derived.isUnranked(),
     renderEditable: (state, helpers) => (
       <div class="flex flex-col gap-1.5">
-        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">Min and max matchmaking rank</div>
+        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">
+          Min and max matchmaking rank
+        </div>
         <div class="gap-2 grid grid-cols-1 sm:grid-cols-2">
           <Dropdown
             ariaLabel="Minimum matchmaking rank"
@@ -224,9 +275,7 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         onBlur={() => void state.actions.saveOnBlur('ban')}
       />
     ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Ban Timer" value={state.derived.formattedBanTimer()} />
-    ),
+    renderReadonly: state => <ReadonlyTimerRow label="Ban Timer" value={state.derived.formattedBanTimer()} />,
   },
   {
     key: 'pickTimer',
@@ -248,13 +297,15 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
         onBlur={() => void state.actions.saveOnBlur('pick')}
       />
     ),
-    renderReadonly: state => (
-      <ReadonlyTimerRow label="Pick Timer" value={state.derived.formattedPickTimer()} />
-    ),
+    renderReadonly: state => <ReadonlyTimerRow label="Pick Timer" value={state.derived.formattedPickTimer()} />,
   },
   {
     key: 'randomDraft',
-    when: state => state.isLobbyMode() && !hiddenDraftSelected(state) && !state.derived.isTournamentLobby() && !state.derived.isCivBlitz(),
+    when: state =>
+      state.isLobbyMode() &&
+      !hiddenDraftSelected(state) &&
+      !state.derived.isTournamentLobby() &&
+      !state.derived.isCivBlitz(),
     renderEditable: state => (
       <SwitchRow
         label="Random draft"
@@ -264,7 +315,11 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Random draft" value={state.derived.formattedRandomDraft()} valueClass={state.derived.draftConfig().randomDraft ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="Random draft"
+        value={state.derived.formattedRandomDraft()}
+        valueClass={state.derived.draftConfig().randomDraft ? 'text-accent' : undefined}
+      />
     ),
   },
   {
@@ -279,7 +334,11 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label="Hidden draft" value={state.derived.formattedHiddenDraft()} valueClass={state.derived.draftConfig().hiddenDraft ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label="Hidden draft"
+        value={state.derived.formattedHiddenDraft()}
+        valueClass={state.derived.draftConfig().hiddenDraft ? 'text-accent' : undefined}
+      />
     ),
   },
   {
@@ -289,12 +348,18 @@ const CONFIG_ROWS: ConfigRowDefinition[] = [
       <SwitchRow
         label={state.derived.duplicateOptionLabel()}
         active={() => state.derived.optimisticDuplicateFactions()}
-        disabled={() => state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()}
+        disabled={() =>
+          state.lobbyActionPending() || state.pending.duplicateFactions() || state.derived.duplicateFactionsLocked()
+        }
         onChange={checked => void state.actions.changeDuplicateFactions(checked)}
       />
     ),
     renderReadonly: state => (
-      <ReadonlyTimerRow label={state.derived.duplicateOptionLabel()} value={state.derived.formattedDuplicateFactions()} valueClass={state.derived.draftDuplicateFactions() ? 'text-accent' : undefined} />
+      <ReadonlyTimerRow
+        label={state.derived.duplicateOptionLabel()}
+        value={state.derived.formattedDuplicateFactions()}
+        valueClass={state.derived.draftDuplicateFactions() ? 'text-accent' : undefined}
+      />
     ),
   },
   {
@@ -346,16 +411,18 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
         </span>
       ),
     },
-    ...state().options.rankedRoles().map((option: RankedRoleOptionSnapshot) => ({
-      value: option.tier,
-      label: option.label,
-      render: () => (
-        <span class="flex gap-2 items-center">
-          <span class="rounded-full h-2.5 w-2.5" style={buildRankDotStyle(option.color)} />
-          {option.label}
-        </span>
-      ),
-    })),
+    ...state()
+      .options.rankedRoles()
+      .map((option: RankedRoleOptionSnapshot) => ({
+        value: option.tier,
+        label: option.label,
+        render: () => (
+          <span class="flex gap-2 items-center">
+            <span class="rounded-full h-2.5 w-2.5" style={buildRankDotStyle(option.color)} />
+            {option.label}
+          </span>
+        ),
+      })),
   ]
 
   return (
@@ -390,7 +457,10 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
                     : 'i-ph-check-bold text-accent',
               )}
             />
-            <Show when={state().message.tone() === 'info' && state().message.rankRoleSetDetail()} fallback={<span class="leading-relaxed">{state().message.text()}</span>}>
+            <Show
+              when={state().message.tone() === 'info' && state().message.rankRoleSetDetail()}
+              fallback={<span class="leading-relaxed">{state().message.text()}</span>}
+            >
               <RankRoleSetNotice detail={state().message.rankRoleSetDetail()!} />
             </Show>
           </div>
@@ -400,28 +470,29 @@ export function DraftSetupConfigPanel(props: { state: DraftSetupConfigState }) {
   )
 }
 
-function ConfigRows(props: { state: DraftSetupConfigState, mode: ConfigRowMode, buildRoleDropdownOptions: ConfigRowHelpers['buildRoleDropdownOptions'] }) {
+function ConfigRows(props: {
+  state: DraftSetupConfigState
+  mode: ConfigRowMode
+  buildRoleDropdownOptions: ConfigRowHelpers['buildRoleDropdownOptions']
+}) {
   const state = () => props.state
   const helpers = (): ConfigRowHelpers => ({ buildRoleDropdownOptions: props.buildRoleDropdownOptions })
-  const canRenderRow = (row: ConfigRowDefinition) => row.when(state()) && (props.mode === 'editable' ? row.renderEditable != null : row.renderReadonly != null)
-  const renderRow = (row: ConfigRowDefinition) => props.mode === 'editable'
-    ? row.renderEditable?.(state(), helpers())
-    : row.renderReadonly?.(state())
+  const canRenderRow = (row: ConfigRowDefinition) =>
+    row.when(state()) && (props.mode === 'editable' ? row.renderEditable != null : row.renderReadonly != null)
+  const renderRow = (row: ConfigRowDefinition) =>
+    props.mode === 'editable' ? row.renderEditable?.(state(), helpers()) : row.renderReadonly?.(state())
 
   return (
     <div class="flex flex-col gap-2">
       <Show when={state().isLobbyMode()}>
-        <Show when={props.mode === 'editable'} fallback={<ReadonlyLobbyAccessRow closed={state().derived.draftConfig().closed} />}>
+        <Show
+          when={props.mode === 'editable'}
+          fallback={<ReadonlyLobbyAccessRow closed={state().derived.draftConfig().closed} />}
+        >
           <EditableLobbyAccessRow state={state()} />
         </Show>
       </Show>
-      <For each={CONFIG_ROWS}>
-        {row => (
-          <Show when={canRenderRow(row)}>
-            {renderRow(row)}
-          </Show>
-        )}
-      </For>
+      <For each={CONFIG_ROWS}>{row => <Show when={canRenderRow(row)}>{renderRow(row)}</Show>}</For>
     </div>
   )
 }
@@ -441,15 +512,8 @@ function ModeTabsRow(props: {
 
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
-      <span class="text-sm font-medium text-fg-muted">
-        {props.label}
-      </span>
-      <Tabs
-        options={options()}
-        value={value}
-        disabled={disabled}
-        onChange={props.onChange}
-      />
+      <span class="text-sm font-medium text-fg-muted">{props.label}</span>
+      <Tabs options={options()} value={value} disabled={disabled} onChange={props.onChange} />
     </div>
   )
 }
@@ -486,17 +550,18 @@ function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
   const state = () => props.state
   const [localOpen, setLocalOpen] = createSignal<boolean | null>(null)
   const isOpen = () => localOpen() ?? !state().derived.optimisticLobbyClosed()
-  const label = () => isOpen() ? 'Lobby Open' : 'Lobby Closed'
+  const label = () => (isOpen() ? 'Lobby Open' : 'Lobby Closed')
 
-  createEffect(() => localOpen() != null && localOpen() === !state().derived.draftConfig().closed, (confirmed) => {
-    if (confirmed) setLocalOpen(null)
-  })
+  createEffect(
+    () => localOpen() != null && localOpen() === !state().derived.draftConfig().closed,
+    confirmed => {
+      if (confirmed) setLocalOpen(null)
+    },
+  )
 
   return (
     <div class="px-1 flex gap-3 items-center justify-between">
-      <span class={cn('text-sm font-medium', isOpen() ? 'text-note' : 'text-[#a78bfa]')}>
-        {label()}
-      </span>
+      <span class={cn('text-sm font-medium', isOpen() ? 'text-note' : 'text-[#a78bfa]')}>{label()}</span>
       <Switch
         ariaLabel={label}
         checked={isOpen}
@@ -504,11 +569,13 @@ function EditableLobbyAccessRow(props: { state: DraftSetupConfigState }) {
         class="w-auto"
         tone="note"
         inactiveTone="purple"
-        onChange={(checked) => {
+        onChange={checked => {
           setLocalOpen(checked)
-          void state().actions.changeLobbyOpen(checked).then((saved) => {
-            if (!saved) setLocalOpen(null)
-          })
+          void state()
+            .actions.changeLobbyOpen(checked)
+            .then(saved => {
+              if (!saved) setLocalOpen(null)
+            })
         }}
       />
     </div>
@@ -525,7 +592,7 @@ function ReadonlyLobbyAccessRow(props: { closed: boolean }) {
   )
 }
 
-function ReadonlyTimerRow(props: { label: string, value: string, valueClass?: string }) {
+function ReadonlyTimerRow(props: { label: string; value: string; valueClass?: string }) {
   return (
     <div class="text-sm px-3 py-2 rounded-md bg-bg/35 flex items-center justify-between">
       <span class="text-fg-muted">{props.label}</span>
@@ -537,11 +604,11 @@ function ReadonlyTimerRow(props: { label: string, value: string, valueClass?: st
 function RankRoleSetNotice(props: { detail: RankRoleSetDetail }) {
   return (
     <span class="leading-relaxed">
-      {props.detail.boundLabel}
-      {' '}
-      set to
-      {' '}
-      <span class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center" style={buildRolePillStyle(props.detail.roleColor)}>
+      {props.detail.boundLabel} set to{' '}
+      <span
+        class="font-semibold px-1.5 py-0.5 border rounded-sm inline-flex items-center"
+        style={buildRolePillStyle(props.detail.roleColor)}
+      >
         {props.detail.roleLabel}
       </span>
     </span>

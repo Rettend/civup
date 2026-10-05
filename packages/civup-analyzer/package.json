@@ -1,12 +1,11 @@
 {
   "name": "@civup/analyzer",
-  "type": "module",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "bun@1.4.2",
   "bin": {
     "civup": "./src/cli.ts"
   },
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -18,5 +17,6 @@
   },
   "dependencies": {
     "@civup/civ6-save-metadata": "workspace:*"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

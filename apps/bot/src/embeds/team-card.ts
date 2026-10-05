@@ -1,21 +1,38 @@
+import type { SeasonSelection } from '../services/season/selection.ts'
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, GameMode } from '@civup/game'
 import type { PlayerRating, PublicRatingSnapshot } from '@civup/rating'
-import { matches, matchParticipants, players } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader, isTeamMode, teamSize, toLeaderboardMode } from '@civup/game'
-import { createRating, displayRating, formatPublicRankRating, publicRatingRank, visiblePublicRating } from '@civup/rating'
 import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray } from 'drizzle-orm'
+import { matches, matchParticipants, players } from '@civup/db'
+import {
+  formatLeaderboardModeLabel,
+  formatModeLabel,
+  getLeader,
+  isTeamMode,
+  teamSize,
+  toLeaderboardMode,
+} from '@civup/game'
+import {
+  createRating,
+  displayRating,
+  formatPublicRankRating,
+  publicRatingRank,
+  visiblePublicRating,
+} from '@civup/rating'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { projectLineupDisplayRating } from '../services/leaderboard/team-rating.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
 import { projectRankedTierForScore } from '../services/ranked/role-sync.ts'
 import { getConfiguredDivisionLabel, getRankedRoleDisplayConfig } from '../services/ranked/roles.ts'
-import type { SeasonSelection } from '../services/season/selection.ts'
-import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
-import { formatDisplayRatingChange, formatPublicRatingSnapshotChange, formatUnrankedResultMarker } from './rating-change.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
+import {
+  formatDisplayRatingChange,
+  formatPublicRatingSnapshotChange,
+  formatUnrankedResultMarker,
+} from './rating-change.ts'
 
 const TOP_LEADERS_LIMIT = 5
 const RECENT_MATCH_GROUP_LIMIT = 4
@@ -83,71 +100,99 @@ export async function teamCardEmbed(
 
   const playerById = new Map(playerRows.map(player => [player.id, player]))
   const ratingByPlayerId = new Map(ratingRows.map(row => [row.playerId, row]))
-  const lineupRatings: PlayerRating[] = uniquePlayerIds.map((playerId) => {
+  const lineupRatings: PlayerRating[] = uniquePlayerIds.map(playerId => {
     const ratingRow = ratingByPlayerId.get(playerId)
     if (!ratingRow) return createRating(playerId)
     return { playerId, mu: ratingRow.mu, sigma: ratingRow.sigma }
   })
 
-  const publicEra = displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRows.some(row => row.publicRating != null))
+  const publicEra =
+    displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRows.some(row => row.publicRating != null))
   const projectedRating = publicEra
     ? ratingRows.length === uniquePlayerIds.length && ratingRows.every(row => row.publicRating != null)
       ? visiblePublicRating(ratingRows.reduce((sum, row) => sum + row.publicRating!, 0) / ratingRows.length)
       : null
-    : modeContext.leaderboardMode && (!historical || ratingRows.length === uniquePlayerIds.length) ? Math.round(projectLineupDisplayRating(lineupRatings)) : null
-  const visual = publicEra && projectedRating != null
-    ? { tier: publicRatingRank(projectedRating).tier, roleId: null, label: guildId ? getConfiguredDivisionLabel(await getRankedRoleDisplayConfig(kv, guildId), publicRatingRank(projectedRating).minimum) : publicRatingRank(projectedRating).label }
-    : !historical && guildId && projectedRating != null && modeContext.leaderboardMode
-    ? await projectRankedTierForScore({ db, kv, guildId, mode: modeContext.leaderboardMode, score: projectedRating })
-    : { tier: null, roleId: null, label: null }
+    : modeContext.leaderboardMode && (!historical || ratingRows.length === uniquePlayerIds.length)
+      ? Math.round(projectLineupDisplayRating(lineupRatings))
+      : null
+  const visual =
+    publicEra && projectedRating != null
+      ? {
+          tier: publicRatingRank(projectedRating).tier,
+          roleId: null,
+          label: guildId
+            ? getConfiguredDivisionLabel(
+                await getRankedRoleDisplayConfig(kv, guildId),
+                publicRatingRank(projectedRating).minimum,
+              )
+            : publicRatingRank(projectedRating).label,
+        }
+      : !historical && guildId && projectedRating != null && modeContext.leaderboardMode
+        ? await projectRankedTierForScore({
+            db,
+            kv,
+            guildId,
+            mode: modeContext.leaderboardMode,
+            score: projectedRating,
+          })
+        : { tier: null, roleId: null, label: null }
 
-  const conditions = [
-    eq(matches.status, 'completed'),
-    inArray(matchParticipants.playerId, uniquePlayerIds),
-  ]
+  const conditions = [eq(matches.status, 'completed'), inArray(matchParticipants.playerId, uniquePlayerIds)]
   if (modeContext.gameModes.length > 0) conditions.push(inArray(matches.gameMode, [...modeContext.gameModes]))
   if (displaySeason?.id) conditions.push(eq(matches.seasonId, displaySeason.id))
 
-  const participantRowsWithoutEventRatings = modeContext.gameModes.length === 0
-    ? []
-    : await db
-        .select({
-          matchId: matchParticipants.matchId,
-          playerId: matchParticipants.playerId,
-          team: matchParticipants.team,
-          placement: matchParticipants.placement,
-          civId: matchParticipants.civId,
-          ratingBeforeMu: matchParticipants.ratingBeforeMu,
-          ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
-          ratingAfterMu: matchParticipants.ratingAfterMu,
-          ratingAfterSigma: matchParticipants.ratingAfterSigma,
-          gameMode: matches.gameMode,
-          draftData: matches.draftData,
-          completedAt: matches.completedAt,
-          isOld: matches.isOld,
-        })
-        .from(matchParticipants)
-        .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-        .where(and(...conditions))
-        .orderBy(desc(matches.completedAt), desc(matches.id))
+  const participantRowsWithoutEventRatings =
+    modeContext.gameModes.length === 0
+      ? []
+      : await db
+          .select({
+            matchId: matchParticipants.matchId,
+            playerId: matchParticipants.playerId,
+            team: matchParticipants.team,
+            placement: matchParticipants.placement,
+            civId: matchParticipants.civId,
+            ratingBeforeMu: matchParticipants.ratingBeforeMu,
+            ratingBeforeSigma: matchParticipants.ratingBeforeSigma,
+            ratingAfterMu: matchParticipants.ratingAfterMu,
+            ratingAfterSigma: matchParticipants.ratingAfterSigma,
+            gameMode: matches.gameMode,
+            draftData: matches.draftData,
+            completedAt: matches.completedAt,
+            isOld: matches.isOld,
+          })
+          .from(matchParticipants)
+          .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
+          .where(and(...conditions))
+          .orderBy(desc(matches.completedAt), desc(matches.id))
   const participantRows = await hydrateModeRatingSnapshotsFromEvents(db, participantRowsWithoutEventRatings)
 
   const commonMatches = buildCommonMatches(participantRows, uniquePlayerIds)
   const gamesPlayed = commonMatches.length
   const wins = commonMatches.filter(match => (match.rows[0]?.placement ?? null) === 1).length
   const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 100) : 0
-  const topLeaders = summarizeLeaderStats(commonMatches.flatMap(match => match.rows.map(row => ({
-    civId: row.civId,
-    placement: row.placement,
-  })))).slice(0, TOP_LEADERS_LIMIT)
+  const topLeaders = summarizeLeaderStats(
+    commonMatches.flatMap(match =>
+      match.rows.map(row => ({
+        civId: row.civId,
+        placement: row.placement,
+      })),
+    ),
+  ).slice(0, TOP_LEADERS_LIMIT)
   const recentMatchesValue = buildRecentTeamMatchesValue(commonMatches.slice(0, RECENT_MATCH_GROUP_LIMIT))
 
   const embed = new Embed()
     .title(`Stats${displaySeason || selected.allTime ? ` - ${selected.label}` : ''}`)
-    .description(buildTeamDescription(uniquePlayerIds, modeContext.descriptionModeLabel, visual, modeContext.leaderboardMode != null))
-    .color(0xC8AA6E)
+    .description(
+      buildTeamDescription(
+        uniquePlayerIds,
+        modeContext.descriptionModeLabel,
+        visual,
+        modeContext.leaderboardMode != null,
+      ),
+    )
+    .color(0xc8aa6e)
 
-  const fields: Array<{ name: string, value: string, inline?: boolean }> = []
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = []
 
   if (gamesPlayed === 0) {
     fields.push({
@@ -155,12 +200,15 @@ export async function teamCardEmbed(
       value: 'No games played yet.',
       inline: false,
     })
-  }
-  else {
+  } else {
     fields.push({
       name: modeContext.fieldLabel,
       value: [
-        ...(projectedRating != null ? [`${selected.allTime ? 'Current: ' : ''}${formatProjectedRating(visual, projectedRating, publicEra && !historical)}${publicEra ? ' RP' : ''}`] : []),
+        ...(projectedRating != null
+          ? [
+              `${selected.allTime ? 'Current: ' : ''}${formatProjectedRating(visual, projectedRating, publicEra && !historical)}${publicEra ? ' RP' : ''}`,
+            ]
+          : []),
         `Games: ${gamesPlayed}`,
         `Wins: ${wins} (${winRate}%)`,
       ].join('\n'),
@@ -215,17 +263,16 @@ function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all
   if (playerCount < 2 || playerCount > 6) throw new Error('Team stats require 2 to 6 players.')
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
-  const gameModes = modeFilter === 'all'
-    ? TEAM_STATS_GAME_MODES.filter(mode => (teamSize(mode) ?? 0) >= playerCount)
-    : isTeamMode(modeFilter)
-      ? [modeFilter]
-      : []
+  const gameModes =
+    modeFilter === 'all'
+      ? TEAM_STATS_GAME_MODES.filter(mode => (teamSize(mode) ?? 0) >= playerCount)
+      : isTeamMode(modeFilter)
+        ? [modeFilter]
+        : []
   const exactModeOnly = gameModes.length > 0 && gameModes.every(mode => teamSize(mode) === playerCount)
   const firstMode = gameModes[0] ?? null
   const rawLeaderboardMode = exactModeOnly && firstMode ? toLeaderboardMode(firstMode) : null
-  const leaderboardMode = rawLeaderboardMode === 'duo' || rawLeaderboardMode === 'squad'
-    ? rawLeaderboardMode
-    : null
+  const leaderboardMode = rawLeaderboardMode === 'duo' || rawLeaderboardMode === 'squad' ? rawLeaderboardMode : null
 
   return {
     gameModes,
@@ -233,7 +280,7 @@ function resolveTeamModeContext(playerCount: number, modeFilter: GameMode | 'all
     leaderboardMode,
     fieldLabel: leaderboardMode
       ? formatLeaderboardModeLabel(leaderboardMode, leaderboardMode === 'duo' ? 'Duo' : 'Squad')
-      : requestedModeLabel ?? 'Lineup',
+      : (requestedModeLabel ?? 'Lineup'),
   }
 }
 
@@ -264,7 +311,7 @@ function buildCommonMatches(rows: TeamParticipantRow[], playerIds: string[]): Te
   }
 
   return [...grouped.values()]
-    .filter((match) => {
+    .filter(match => {
       if (match.rows.length !== playerIds.length) return false
       const team = match.rows[0]?.team
       if (team == null) return false
@@ -274,7 +321,7 @@ function buildCommonMatches(rows: TeamParticipantRow[], playerIds: string[]): Te
     })
     .map(match => ({
       ...match,
-      rows: playerIds.flatMap((playerId) => {
+      rows: playerIds.flatMap(playerId => {
         const row = match.rows.find(candidate => candidate.playerId === playerId)
         return row ? [row] : []
       }),
@@ -282,8 +329,8 @@ function buildCommonMatches(rows: TeamParticipantRow[], playerIds: string[]): Te
     .sort((left, right) => (right.completedAt ?? 0) - (left.completedAt ?? 0))
 }
 
-function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: number | null }>) {
-  const byLeader = new Map<string, { civId: string, games: number, wins: number }>()
+function summarizeLeaderStats(rows: Array<{ civId: string | null; placement: number | null }>) {
+  const byLeader = new Map<string, { civId: string; games: number; wins: number }>()
 
   for (const row of rows) {
     if (!row.civId) continue
@@ -293,19 +340,18 @@ function summarizeLeaderStats(rows: Array<{ civId: string | null, placement: num
     byLeader.set(row.civId, entry)
   }
 
-  return [...byLeader.values()]
-    .sort((a, b) => {
-      const gamesDiff = b.games - a.games
-      if (gamesDiff !== 0) return gamesDiff
+  return [...byLeader.values()].sort((a, b) => {
+    const gamesDiff = b.games - a.games
+    if (gamesDiff !== 0) return gamesDiff
 
-      const winsDiff = b.wins - a.wins
-      if (winsDiff !== 0) return winsDiff
+    const winsDiff = b.wins - a.wins
+    if (winsDiff !== 0) return winsDiff
 
-      return a.civId.localeCompare(b.civId)
-    })
+    return a.civId.localeCompare(b.civId)
+  })
 }
 
-function formatLeaderStatLine(stat: { civId: string, games: number, wins: number }): string {
+function formatLeaderStatLine(stat: { civId: string; games: number; wins: number }): string {
   const winRate = Math.round((stat.wins / stat.games) * 100)
   const ratio = `${stat.wins}/${stat.games}`.padStart(5, ' ')
   const pct = `${winRate}%`.padStart(4, ' ')
@@ -342,23 +388,26 @@ function formatBlankPlacementCode(): string {
   return `\`${''.padEnd(3, ' ')}\``
 }
 
-function formatRecentRatingChange(match: {
-  placement: number | null
-  ratingBeforeMu: number | null
-  ratingBeforeSigma: number | null
-  ratingAfterMu: number | null
-  ratingAfterSigma: number | null
-  gameMode: string
-  draftData: string | null
-} & PublicRatingSnapshot): string {
-  if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz) return formatUnrankedResultMarker(match.placement)
+function formatRecentRatingChange(
+  match: {
+    placement: number | null
+    ratingBeforeMu: number | null
+    ratingBeforeSigma: number | null
+    ratingAfterMu: number | null
+    ratingAfterSigma: number | null
+    gameMode: string
+    draftData: string | null
+  } & PublicRatingSnapshot,
+): string {
+  if (getStoredGameModeContext(match.gameMode, match.draftData)?.civBlitz)
+    return formatUnrankedResultMarker(match.placement)
   const publicChange = formatPublicRatingSnapshotChange(match)
   if (publicChange != null) return publicChange
   if (
-    match.ratingBeforeMu == null
-    || match.ratingBeforeSigma == null
-    || match.ratingAfterMu == null
-    || match.ratingAfterSigma == null
+    match.ratingBeforeMu == null ||
+    match.ratingBeforeSigma == null ||
+    match.ratingAfterMu == null ||
+    match.ratingAfterSigma == null
   ) {
     return '` ? ` ❔ `(   ?)`'
   }
@@ -386,14 +435,12 @@ function formatLeaderName(civId: string | null): string {
     const leader = getLeader(civId)
     const emoji = leaderEmojiMention(civId)
     return emoji ? `${emoji} ${leader.name}` : leader.name
-  }
-  catch {
+  } catch {
     try {
       const leader = getLeader(civId, 'beta')
       const emoji = leaderEmojiMention(civId)
       return emoji ? `${emoji} ${leader.name}` : leader.name
-    }
-    catch {
+    } catch {
       return civId
     }
   }

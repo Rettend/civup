@@ -3,7 +3,10 @@ import { BinaryReader } from '../binary/reader.ts'
 export class CivReplayStateReader {
   private readonly reader: BinaryReader
 
-  constructor(private readonly bytes: Uint8Array, private readonly section: string) {
+  constructor(
+    private readonly bytes: Uint8Array,
+    private readonly section: string,
+  ) {
     this.reader = new BinaryReader(bytes, `CivReplay ${section}`)
   }
 
@@ -76,8 +79,7 @@ export class CivReplayStateReader {
   private guard<T>(fn: () => T): T {
     try {
       return fn()
-    }
-    catch (error) {
+    } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown reader error'
       throw new Error(`${this.section} at offset ${this.reader.offset}: ${message}`)
     }

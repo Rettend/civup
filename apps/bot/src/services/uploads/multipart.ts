@@ -1,6 +1,6 @@
 import type { Env } from '../../env.ts'
-import { autosaveUploads, createDb } from '@civup/db'
 import { and, asc, eq, isNull, lte, or } from 'drizzle-orm'
+import { autosaveUploads, createDb } from '@civup/db'
 
 export type UploadDb = ReturnType<typeof createDb>
 
@@ -16,11 +16,11 @@ export interface MultipartUploadRow {
   status: string
 }
 
-export type ReconciledMultipartObject
-  = | { kind: 'absent' }
-    | { kind: 'completed', object: R2Object, newlyFinalized: boolean }
-    | { kind: 'mismatch', object: R2Object }
-    | { kind: 'state_changed' }
+export type ReconciledMultipartObject =
+  | { kind: 'absent' }
+  | { kind: 'completed'; object: R2Object; newlyFinalized: boolean }
+  | { kind: 'mismatch'; object: R2Object }
+  | { kind: 'state_changed' }
 
 export interface MultipartCleanupFailure {
   ok: false
@@ -29,15 +29,13 @@ export interface MultipartCleanupFailure {
   recovery?: MultipartCleanupRecovery
 }
 
-export type MultipartCleanupResult
-  = | { ok: true }
-    | MultipartCleanupFailure
+export type MultipartCleanupResult = { ok: true } | MultipartCleanupFailure
 
-export type StaleMultipartCompletionRecovery
-  = | { kind: 'completed', object: R2Object, newlyFinalized: boolean }
-    | { kind: 'cleaned', invalidObject: boolean }
-    | { kind: 'cleanup_failed', cleanup: MultipartCleanupFailure, invalidObject: boolean }
-    | { kind: 'in_progress' | 'pending' | 'state_changed' }
+export type StaleMultipartCompletionRecovery =
+  | { kind: 'completed'; object: R2Object; newlyFinalized: boolean }
+  | { kind: 'cleaned'; invalidObject: boolean }
+  | { kind: 'cleanup_failed'; cleanup: MultipartCleanupFailure; invalidObject: boolean }
+  | { kind: 'in_progress' | 'pending' | 'state_changed' }
 
 export interface MultipartCleanupRecovery {
   operationId: string
@@ -46,7 +44,7 @@ export interface MultipartCleanupRecovery {
 
 export interface UploadCleanupRecoveryResult {
   cleaned: number
-  completed: Array<{ id: string, key: string }>
+  completed: Array<{ id: string; key: string }>
   pending: number
 }
 
@@ -85,11 +83,13 @@ export async function claimMultipartOperation(
   const [claimed] = await db
     .update(autosaveUploads)
     .set({ status, multipartOperationId: operationId, multipartStateUpdatedAt: Date.now() })
-    .where(and(
-      eq(autosaveUploads.id, row.id),
-      eq(autosaveUploads.status, row.status),
-      operationIdPredicate(row.multipartOperationId),
-    ))
+    .where(
+      and(
+        eq(autosaveUploads.id, row.id),
+        eq(autosaveUploads.status, row.status),
+        operationIdPredicate(row.multipartOperationId),
+      ),
+    )
     .returning({ id: autosaveUploads.id })
   return claimed ? operationId : null
 }
@@ -111,25 +111,26 @@ export async function recordInitializedMultipartUpload(
           multipartOperationId: null,
           multipartStateUpdatedAt: Date.now(),
         })
-        .where(and(
-          eq(autosaveUploads.id, id),
-          eq(autosaveUploads.status, 'initializing'),
-          eq(autosaveUploads.multipartOperationId, initializationOperationId),
-        ))
+        .where(
+          and(
+            eq(autosaveUploads.id, id),
+            eq(autosaveUploads.status, 'initializing'),
+            eq(autosaveUploads.multipartOperationId, initializationOperationId),
+          ),
+        )
         .returning({ id: autosaveUploads.id })
       if (updated) return true
-    }
-    catch {}
+    } catch {}
 
     let current: MultipartUploadRow | null
     try {
       current = await getMultipartUploadRow(db, id)
-    }
-    catch {
+    } catch {
       continue
     }
     if (current?.status === status && current.multipartUploadId === multipartUploadId) return true
-    if (!current || current.status !== 'initializing' || current.multipartOperationId !== initializationOperationId) return false
+    if (!current || current.status !== 'initializing' || current.multipartOperationId !== initializationOperationId)
+      return false
   }
   return false
 }
@@ -138,11 +139,13 @@ export async function releaseMultipartCompletionClaim(db: UploadDb, id: string, 
   await db
     .update(autosaveUploads)
     .set({ status: 'pending_upload', multipartOperationId: null, multipartStateUpdatedAt: Date.now() })
-    .where(and(
-      eq(autosaveUploads.id, id),
-      eq(autosaveUploads.status, 'completing'),
-      eq(autosaveUploads.multipartOperationId, operationId),
-    ))
+    .where(
+      and(
+        eq(autosaveUploads.id, id),
+        eq(autosaveUploads.status, 'completing'),
+        eq(autosaveUploads.multipartOperationId, operationId),
+      ),
+    )
 }
 
 export async function finalizeCompletedMultipartRow(
@@ -163,11 +166,13 @@ export async function finalizeCompletedMultipartRow(
       parseStatus: 'pending',
       parseError: null,
     })
-    .where(and(
-      eq(autosaveUploads.id, row.id),
-      eq(autosaveUploads.status, 'completing'),
-      eq(autosaveUploads.multipartOperationId, operationId),
-    ))
+    .where(
+      and(
+        eq(autosaveUploads.id, row.id),
+        eq(autosaveUploads.status, 'completing'),
+        eq(autosaveUploads.multipartOperationId, operationId),
+      ),
+    )
     .returning({ id: autosaveUploads.id })
   return Boolean(updated)
 }
@@ -227,9 +232,8 @@ export async function recoverStaleMultipartCompletion(
     try {
       await bucket.resumeMultipartUpload(row.r2Key, row.multipartUploadId).abort()
       storageAlreadyCleaned = true
-      if (!await recordAbortedStaleCompletion(db, row)) return { kind: 'state_changed' }
-    }
-    catch (error) {
+      if (!(await recordAbortedStaleCompletion(db, row))) return { kind: 'state_changed' }
+    } catch (error) {
       console.warn('[autosave-upload] stale completion abort did not win', { id: row.id, key: row.r2Key }, error)
     }
   }
@@ -255,27 +259,31 @@ async function recordAbortedStaleCompletion(db: UploadDb, row: MultipartUploadRo
       const [updated] = await db
         .update(autosaveUploads)
         .set({ multipartUploadId: null, multipartStateUpdatedAt: Date.now() })
-        .where(and(
-          eq(autosaveUploads.id, row.id),
-          eq(autosaveUploads.status, 'completing'),
-          eq(autosaveUploads.multipartOperationId, row.multipartOperationId!),
-        ))
+        .where(
+          and(
+            eq(autosaveUploads.id, row.id),
+            eq(autosaveUploads.status, 'completing'),
+            eq(autosaveUploads.multipartOperationId, row.multipartOperationId!),
+          ),
+        )
         .returning({ id: autosaveUploads.id })
       if (updated) return true
-    }
-    catch {}
+    } catch {}
 
     let current: MultipartUploadRow | null
     try {
       current = await getMultipartUploadRow(db, row.id)
-    }
-    catch {
+    } catch {
       continue
     }
-    if (current?.status === 'completing'
-      && current.multipartOperationId === row.multipartOperationId
-      && !current.multipartUploadId) return true
-    if (!current || current.status !== 'completing' || current.multipartOperationId !== row.multipartOperationId) return false
+    if (
+      current?.status === 'completing' &&
+      current.multipartOperationId === row.multipartOperationId &&
+      !current.multipartUploadId
+    )
+      return true
+    if (!current || current.status !== 'completing' || current.multipartOperationId !== row.multipartOperationId)
+      return false
   }
   return false
 }
@@ -345,13 +353,15 @@ export async function recoverUnrecordedInitializedMultipartUpload(
   await delay(100)
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (await recordInitializedMultipartUpload(
-      db,
-      id,
-      initializationOperationId,
-      multipartUpload.uploadId,
-      'cleanup_pending',
-    )) {
+    if (
+      await recordInitializedMultipartUpload(
+        db,
+        id,
+        initializationOperationId,
+        multipartUpload.uploadId,
+        'cleanup_pending',
+      )
+    ) {
       const row = await getMultipartUploadRow(db, id)
       if (row) {
         const cleanup = await cleanupAutosaveUpload(bucket, db, row)
@@ -371,8 +381,7 @@ export async function recoverUnrecordedInitializedMultipartUpload(
         if (!cleanup.ok && cleanup.status === 502) await retryAutosaveUploadCleanup(env, id, 3, cleanup.recovery)
       }
       return
-    }
-    catch (error) {
+    } catch (error) {
       console.error('[autosave-upload] background initialization abort failed', { id }, error)
     }
 
@@ -383,7 +392,7 @@ export async function recoverUnrecordedInitializedMultipartUpload(
 
 export async function recoverStaleAutosaveUploads(
   env: Env['Bindings'],
-  options: { now?: number, pendingUploadAgeMs?: number, limit?: number } = {},
+  options: { now?: number; pendingUploadAgeMs?: number; limit?: number } = {},
 ): Promise<UploadCleanupRecoveryResult> {
   const bucket = env.AUTOSAVE_UPLOADS
   if (!bucket) return { cleaned: 0, completed: [], pending: 0 }
@@ -405,13 +414,15 @@ export async function recoverStaleAutosaveUploads(
       status: autosaveUploads.status,
     })
     .from(autosaveUploads)
-    .where(or(
-      eq(autosaveUploads.status, 'cleanup_pending'),
-      staleStatus('cleaning', leaseCutoff),
-      staleStatus('completing', leaseCutoff),
-      staleStatus('initializing', leaseCutoff),
-      staleStatus('pending_upload', pendingCutoff),
-    ))
+    .where(
+      or(
+        eq(autosaveUploads.status, 'cleanup_pending'),
+        staleStatus('cleaning', leaseCutoff),
+        staleStatus('completing', leaseCutoff),
+        staleStatus('initializing', leaseCutoff),
+        staleStatus('pending_upload', pendingCutoff),
+      ),
+    )
     .orderBy(asc(autosaveUploads.multipartStateUpdatedAt))
     .limit(options.limit ?? CLEANUP_BATCH_SIZE)
 
@@ -426,8 +437,7 @@ export async function recoverStaleAutosaveUploads(
         }
         if (recovered.kind === 'cleaned') result.cleaned += 1
         else result.pending += 1
-      }
-      catch {
+      } catch {
         result.pending += 1
       }
       continue
@@ -466,7 +476,7 @@ async function executeClaimedCleanup(
   storageAlreadyCleaned: boolean,
 ): Promise<MultipartCleanupResult> {
   if (storageAlreadyCleaned) {
-    if (row.multipartUploadId && !await recordMultipartStorageEnded(db, row.id, operationId)) {
+    if (row.multipartUploadId && !(await recordMultipartStorageEnded(db, row.id, operationId))) {
       await markCleanupPending(db, row.id, operationId, true)
       return cleanupFailure('Upload catalog cleanup failed; retry scheduled', operationId, true)
     }
@@ -476,8 +486,7 @@ async function executeClaimedCleanup(
   let object: R2Object | null
   try {
     object = await bucket.head(row.r2Key)
-  }
-  catch (error) {
+  } catch (error) {
     console.error('[autosave-upload] failed to inspect R2 during cleanup', { id: row.id, key: row.r2Key }, error)
     await markCleanupPending(db, row.id, operationId)
     return cleanupFailure('Upload cleanup failed; retry scheduled', operationId, false)
@@ -488,14 +497,20 @@ async function executeClaimedCleanup(
   if (row.multipartUploadId) {
     try {
       await bucket.resumeMultipartUpload(row.r2Key, row.multipartUploadId).abort()
-    }
-    catch (error) {
-      console.error('[autosave-upload] failed to abort multipart upload during cleanup', { id: row.id, key: row.r2Key }, error)
+    } catch (error) {
+      console.error(
+        '[autosave-upload] failed to abort multipart upload during cleanup',
+        { id: row.id, key: row.r2Key },
+        error,
+      )
       try {
         object = await bucket.head(row.r2Key)
-      }
-      catch (headError) {
-        console.error('[autosave-upload] failed to reconcile R2 after abort failure', { id: row.id, key: row.r2Key }, headError)
+      } catch (headError) {
+        console.error(
+          '[autosave-upload] failed to reconcile R2 after abort failure',
+          { id: row.id, key: row.r2Key },
+          headError,
+        )
         await markCleanupPending(db, row.id, operationId)
         return cleanupFailure('Upload cleanup failed; retry scheduled', operationId, false)
       }
@@ -504,7 +519,7 @@ async function executeClaimedCleanup(
       return cleanupFailure('Upload cleanup failed; retry scheduled', operationId, false)
     }
 
-    if (!await recordMultipartStorageEnded(db, row.id, operationId)) {
+    if (!(await recordMultipartStorageEnded(db, row.id, operationId))) {
       await markCleanupPending(db, row.id, operationId, true)
       return cleanupFailure('Upload catalog cleanup failed; retry scheduled', operationId, true)
     }
@@ -519,16 +534,19 @@ async function deleteCompletedObjectAndCatalog(
   row: MultipartUploadRow,
   operationId: string,
 ): Promise<MultipartCleanupResult> {
-  if (row.multipartUploadId && !await recordMultipartStorageEnded(db, row.id, operationId)) {
+  if (row.multipartUploadId && !(await recordMultipartStorageEnded(db, row.id, operationId))) {
     await markCleanupPending(db, row.id, operationId)
     return cleanupFailure('Upload catalog cleanup failed; retry scheduled', operationId, false)
   }
 
   try {
     await bucket.delete(row.r2Key)
-  }
-  catch (error) {
-    console.error('[autosave-upload] failed to delete completed R2 object during cleanup', { id: row.id, key: row.r2Key }, error)
+  } catch (error) {
+    console.error(
+      '[autosave-upload] failed to delete completed R2 object during cleanup',
+      { id: row.id, key: row.r2Key },
+      error,
+    )
     await markCleanupPending(db, row.id, operationId, true)
     return cleanupFailure('Upload cleanup failed; retry scheduled', operationId, false)
   }
@@ -540,17 +558,18 @@ async function deleteCleanupCatalogRow(db: UploadDb, id: string, operationId: st
     try {
       const [deleted] = await db
         .delete(autosaveUploads)
-        .where(and(
-          eq(autosaveUploads.id, id),
-          eq(autosaveUploads.status, 'cleaning'),
-          eq(autosaveUploads.multipartOperationId, operationId),
-        ))
+        .where(
+          and(
+            eq(autosaveUploads.id, id),
+            eq(autosaveUploads.status, 'cleaning'),
+            eq(autosaveUploads.multipartOperationId, operationId),
+          ),
+        )
         .returning({ id: autosaveUploads.id })
       if (deleted) return { ok: true }
-      if (!await getMultipartUploadRow(db, id)) return { ok: true }
+      if (!(await getMultipartUploadRow(db, id))) return { ok: true }
       return { ok: false, error: 'Upload state changed; retry cleanup', status: 409 }
-    }
-    catch (error) {
+    } catch (error) {
       if (attempt + 1 === DATABASE_WRITE_ATTEMPTS) {
         console.error('[autosave-upload] failed to delete catalog row after storage cleanup', { id }, error)
       }
@@ -566,18 +585,20 @@ async function recordMultipartStorageEnded(db: UploadDb, id: string, operationId
       const [updated] = await db
         .update(autosaveUploads)
         .set({ multipartUploadId: null, multipartStateUpdatedAt: Date.now() })
-        .where(and(
-          eq(autosaveUploads.id, id),
-          eq(autosaveUploads.status, 'cleaning'),
-          eq(autosaveUploads.multipartOperationId, operationId),
-        ))
+        .where(
+          and(
+            eq(autosaveUploads.id, id),
+            eq(autosaveUploads.status, 'cleaning'),
+            eq(autosaveUploads.multipartOperationId, operationId),
+          ),
+        )
         .returning({ id: autosaveUploads.id })
       if (updated) return true
-    }
-    catch {}
+    } catch {}
 
     const current = await getMultipartUploadRow(db, id).catch(() => null)
-    if (current?.status === 'cleaning' && current.multipartOperationId === operationId && !current.multipartUploadId) return true
+    if (current?.status === 'cleaning' && current.multipartOperationId === operationId && !current.multipartUploadId)
+      return true
   }
   return false
 }
@@ -598,14 +619,15 @@ async function markCleanupPending(
           multipartStateUpdatedAt: Date.now(),
           ...(multipartEnded ? { multipartUploadId: null } : {}),
         })
-        .where(and(
-          eq(autosaveUploads.id, id),
-          eq(autosaveUploads.status, 'cleaning'),
-          eq(autosaveUploads.multipartOperationId, operationId),
-        ))
+        .where(
+          and(
+            eq(autosaveUploads.id, id),
+            eq(autosaveUploads.status, 'cleaning'),
+            eq(autosaveUploads.multipartOperationId, operationId),
+          ),
+        )
       return
-    }
-    catch {}
+    } catch {}
   }
 }
 
@@ -628,13 +650,15 @@ function cleanupClaimError(
       : { ok: false, error: 'Upload cleanup is in progress', status: 409 }
   }
   if (row.status === 'completing') {
-    if (options.forceCompletingOperationId && row.multipartOperationId === options.forceCompletingOperationId) return null
+    if (options.forceCompletingOperationId && row.multipartOperationId === options.forceCompletingOperationId)
+      return null
     return multipartOperationLeaseExpired(row, options.now)
       ? null
       : { ok: false, error: 'Upload completion is in progress', status: 409 }
   }
   if (row.status === 'initializing') {
-    if (options.forceInitializingOperationId && row.multipartOperationId === options.forceInitializingOperationId) return null
+    if (options.forceInitializingOperationId && row.multipartOperationId === options.forceInitializingOperationId)
+      return null
     return multipartOperationLeaseExpired(row, options.now)
       ? null
       : { ok: false, error: 'Upload initialization is in progress', status: 409 }
@@ -652,7 +676,9 @@ function cleanupFailure(error: string, operationId: string, storageAlreadyCleane
 }
 
 function operationIdPredicate(operationId: string | null) {
-  return operationId ? eq(autosaveUploads.multipartOperationId, operationId) : isNull(autosaveUploads.multipartOperationId)
+  return operationId
+    ? eq(autosaveUploads.multipartOperationId, operationId)
+    : isNull(autosaveUploads.multipartOperationId)
 }
 
 function staleStatus(status: string, cutoff: number) {

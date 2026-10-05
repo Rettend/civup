@@ -1,7 +1,18 @@
-import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState, StoredLobbyState } from './types.ts'
-import { CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MAX_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, defaultPlayerCount, getCivBlitzOptionCountMaximum, getMaxLeaderPoolSize, normalizeAvailableLeaderDataVersion, normalizeMapVoteEnabled, playerCountOptions, requiresRedDeathDuplicateFactions } from '@civup/game'
+import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import { nanoid } from 'nanoid'
+import {
+  CIV_BLITZ_DEFAULT_OPTION_COUNT,
+  CIV_BLITZ_MAX_OPTION_COUNT,
+  CIV_BLITZ_MIN_OPTION_COUNT,
+  defaultPlayerCount,
+  getCivBlitzOptionCountMaximum,
+  getMaxLeaderPoolSize,
+  normalizeAvailableLeaderDataVersion,
+  normalizeMapVoteEnabled,
+  playerCountOptions,
+  requiresRedDeathDuplicateFactions,
+} from '@civup/game'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
 import { normalizeSteamLobbyLink } from '../steam-link.ts'
 
@@ -32,12 +43,10 @@ export function parseLobbyState(raw: unknown): LobbyState | null {
 }
 
 export function normalizeLobby(raw: StoredLobbyState | LobbyState): LobbyState {
-  const createdAt = typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt)
-    ? Math.round(raw.createdAt)
-    : Date.now()
-  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
-    ? Math.round(raw.updatedAt)
-    : createdAt
+  const createdAt =
+    typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) ? Math.round(raw.createdAt) : Date.now()
+  const updatedAt =
+    typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? Math.round(raw.updatedAt) : createdAt
   const slots = normalizeStoredSlots(raw.mode, raw.slots)
 
   return {
@@ -81,7 +90,9 @@ export function normalizeStoredSlots(mode: GameMode, value: unknown): (string | 
   return normalized
 }
 
-export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined): LobbyDraftConfig {
+export function normalizeDraftConfig(
+  config: Partial<LobbyDraftConfig> | LobbyDraftConfig | null | undefined,
+): LobbyDraftConfig {
   const civBlitz = normalizeCivBlitz(config?.civBlitz)
   const randomDraft = normalizeRandomDraft(config?.randomDraft)
   const hiddenDraft = normalizeHiddenDraft(config?.hiddenDraft)
@@ -99,7 +110,11 @@ export function normalizeDraftConfig(config: Partial<LobbyDraftConfig> | LobbyDr
     redDeath: civBlitz ? false : normalizeRedDeath(config?.redDeath),
     dealOptionsSize: normalizeDealOptionsSize(config?.dealOptionsSize),
     civBlitz,
-    civBlitzOptionCount: normalizeCivBlitzOptionCount(config?.civBlitzOptionCount, leaderDataVersion, civBlitzExcludeBbgExpanded),
+    civBlitzOptionCount: normalizeCivBlitzOptionCount(
+      config?.civBlitzOptionCount,
+      leaderDataVersion,
+      civBlitzExcludeBbgExpanded,
+    ),
     civBlitzExcludeBbgExpanded,
     blindPicks: normalizeBlindPicks(config?.blindPicks),
     randomDraft: civBlitz || hiddenDraft ? false : randomDraft,
@@ -123,7 +138,8 @@ export function normalizeDraftConfigForMode(
     leaderDataVersion: redDeath ? 'live' : normalized.leaderDataVersion,
     mapVoteEnabled: normalizeMapVoteEnabled(mode, normalized.mapVoteEnabled, { redDeath }),
     blindBans: supportsBlindBans(mode, redDeath, targetSize) && !civBlitz ? normalized.blindBans : true,
-    simultaneousPick: mode === 'ffa' && !redDeath && !civBlitz && !normalized.blindPicks ? normalized.simultaneousPick : false,
+    simultaneousPick:
+      mode === 'ffa' && !redDeath && !civBlitz && !normalized.blindPicks ? normalized.simultaneousPick : false,
     permanentAlly: mode === 'ffa' && !redDeath && !civBlitz ? normalized.permanentAlly : false,
     redDeath,
     dealOptionsSize: redDeath ? normalized.dealOptionsSize : null,
@@ -133,7 +149,11 @@ export function normalizeDraftConfigForMode(
     blindPicks: civBlitz ? false : normalized.blindPicks,
     randomDraft: civBlitz || normalized.hiddenDraft ? false : normalized.randomDraft,
     hiddenDraft: civBlitz ? false : normalized.hiddenDraft,
-    duplicateFactions: civBlitz ? false : redDeath ? (requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions) : normalized.duplicateFactions,
+    duplicateFactions: civBlitz
+      ? false
+      : redDeath
+        ? requiresRedDeathDuplicateFactions(mode) || normalized.duplicateFactions
+        : normalized.duplicateFactions,
     closed: normalized.closed,
   }
 }
@@ -162,11 +182,7 @@ export function normalizeLobbyRevision(value: unknown): number {
   return rounded > 0 ? rounded : 1
 }
 
-export function normalizeLobbyLastActivityAt(
-  value: unknown,
-  updatedAt: number,
-  createdAt: number,
-): number {
+export function normalizeLobbyLastActivityAt(value: unknown, updatedAt: number, createdAt: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const rounded = Math.round(value)
     if (rounded > 0) return rounded
@@ -188,24 +204,26 @@ function normalizeLobbyArrangeMarker(value: unknown): LobbyArrangeMarker | null 
 }
 
 export function sameDraftConfig(a: LobbyDraftConfig, b: LobbyDraftConfig): boolean {
-  return a.banTimerSeconds === b.banTimerSeconds
-    && a.pickTimerSeconds === b.pickTimerSeconds
-    && a.leaderPoolSize === b.leaderPoolSize
-    && a.leaderDataVersion === b.leaderDataVersion
-    && a.mapVoteEnabled === b.mapVoteEnabled
-    && a.blindBans === b.blindBans
-    && a.simultaneousPick === b.simultaneousPick
-    && a.permanentAlly === b.permanentAlly
-    && a.redDeath === b.redDeath
-    && a.dealOptionsSize === b.dealOptionsSize
-    && a.civBlitz === b.civBlitz
-    && a.civBlitzOptionCount === b.civBlitzOptionCount
-    && a.civBlitzExcludeBbgExpanded === b.civBlitzExcludeBbgExpanded
-    && a.blindPicks === b.blindPicks
-    && a.randomDraft === b.randomDraft
-    && a.hiddenDraft === b.hiddenDraft
-    && a.duplicateFactions === b.duplicateFactions
-    && (a.closed ?? false) === (b.closed ?? false)
+  return (
+    a.banTimerSeconds === b.banTimerSeconds &&
+    a.pickTimerSeconds === b.pickTimerSeconds &&
+    a.leaderPoolSize === b.leaderPoolSize &&
+    a.leaderDataVersion === b.leaderDataVersion &&
+    a.mapVoteEnabled === b.mapVoteEnabled &&
+    a.blindBans === b.blindBans &&
+    a.simultaneousPick === b.simultaneousPick &&
+    a.permanentAlly === b.permanentAlly &&
+    a.redDeath === b.redDeath &&
+    a.dealOptionsSize === b.dealOptionsSize &&
+    a.civBlitz === b.civBlitz &&
+    a.civBlitzOptionCount === b.civBlitzOptionCount &&
+    a.civBlitzExcludeBbgExpanded === b.civBlitzExcludeBbgExpanded &&
+    a.blindPicks === b.blindPicks &&
+    a.randomDraft === b.randomDraft &&
+    a.hiddenDraft === b.hiddenDraft &&
+    a.duplicateFactions === b.duplicateFactions &&
+    (a.closed ?? false) === (b.closed ?? false)
+  )
 }
 
 function resolveStoredSlotCount(mode: GameMode, value: unknown): number {
@@ -271,10 +289,15 @@ function normalizeCivBlitz(value: unknown): boolean {
   return value === true
 }
 
-function normalizeCivBlitzOptionCount(value: unknown, version: LeaderDataVersion, excludeBbgExpanded: boolean): number | null {
+function normalizeCivBlitzOptionCount(
+  value: unknown,
+  version: LeaderDataVersion,
+  excludeBbgExpanded: boolean,
+): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return CIV_BLITZ_DEFAULT_OPTION_COUNT
   const rounded = Math.round(value)
-  if (rounded < CIV_BLITZ_MIN_OPTION_COUNT || rounded > CIV_BLITZ_MAX_OPTION_COUNT) return CIV_BLITZ_DEFAULT_OPTION_COUNT
+  if (rounded < CIV_BLITZ_MIN_OPTION_COUNT || rounded > CIV_BLITZ_MAX_OPTION_COUNT)
+    return CIV_BLITZ_DEFAULT_OPTION_COUNT
   return Math.min(rounded, getCivBlitzOptionCountMaximum(version, { excludeBbgExpanded }))
 }
 

@@ -1,6 +1,19 @@
 import type { ActivityTargetOption } from '../src/client/stores'
 import { describe, expect, test } from 'vitest'
-import { activityTargetOptionKey, activityTargetsMatch, didClearResolvedActivityTarget, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../src/client/lib/activity-targets'
+import {
+  activityTargetOptionKey,
+  activityTargetsMatch,
+  didClearResolvedActivityTarget,
+  filterClearedActivityTargetOptions,
+  getBrokenMatchRefreshKey,
+  resolveAutoSelectedActivityTarget,
+  resolveMissingLiveTarget,
+  shouldApplyActivityLaunchSnapshotRefresh,
+  shouldApplyResolvedActivitySelection,
+  shouldHoldAuthenticatedDraftStateForSelection,
+  shouldReconnectVisibleActivityTarget,
+  shouldRequestActivityTargetSelection,
+} from '../src/client/lib/activity-targets'
 
 const joinedMatch: ActivityTargetOption = {
   kind: 'match',
@@ -177,256 +190,306 @@ describe('activity target helpers', () => {
   })
 
   test('re-confirms an already selected lobby so the full lobby snapshot can hydrate', () => {
-    expect(shouldRequestActivityTargetSelection({
-      option: staleLobby,
-      currentTargetKey: activityTargetOptionKey(staleLobby),
-    })).toBe(true)
+    expect(
+      shouldRequestActivityTargetSelection({
+        option: staleLobby,
+        currentTargetKey: activityTargetOptionKey(staleLobby),
+      }),
+    ).toBe(true)
   })
 
   test('re-confirms an already selected joined lobby', () => {
-    expect(shouldRequestActivityTargetSelection({
-      option: joinedLobby,
-      currentTargetKey: activityTargetOptionKey(joinedLobby),
-    })).toBe(true)
+    expect(
+      shouldRequestActivityTargetSelection({
+        option: joinedLobby,
+        currentTargetKey: activityTargetOptionKey(joinedLobby),
+      }),
+    ).toBe(true)
   })
 
   test('does not re-request the same selected match', () => {
-    expect(shouldRequestActivityTargetSelection({
-      option: joinedMatch,
-      currentTargetKey: activityTargetOptionKey(joinedMatch),
-    })).toBe(false)
+    expect(
+      shouldRequestActivityTargetSelection({
+        option: joinedMatch,
+        currentTargetKey: activityTargetOptionKey(joinedMatch),
+      }),
+    ).toBe(false)
   })
 
   test('keeps pinned overview from applying background selections', () => {
-    expect(shouldApplyResolvedActivitySelection({
-      isOverviewVisible: true,
-      allowSelectionWhileOverview: false,
-    })).toBe(false)
+    expect(
+      shouldApplyResolvedActivitySelection({
+        isOverviewVisible: true,
+        allowSelectionWhileOverview: false,
+      }),
+    ).toBe(false)
   })
 
   test('allows user-requested selections while overview is pinned', () => {
-    expect(shouldApplyResolvedActivitySelection({
-      isOverviewVisible: true,
-      allowSelectionWhileOverview: true,
-    })).toBe(true)
+    expect(
+      shouldApplyResolvedActivitySelection({
+        isOverviewVisible: true,
+        allowSelectionWhileOverview: true,
+      }),
+    ).toBe(true)
   })
 
   test('reconnects a visible selected draft after the hidden tab disconnects it', () => {
-    expect(shouldReconnectVisibleActivityTarget({
-      appStatus: 'authenticated',
-      connectionStatus: 'disconnected',
-      draftStatus: 'active',
-    })).toBe(true)
+    expect(
+      shouldReconnectVisibleActivityTarget({
+        appStatus: 'authenticated',
+        connectionStatus: 'disconnected',
+        draftStatus: 'active',
+      }),
+    ).toBe(true)
   })
 
   test('does not duplicate an already in-flight visible reconnect', () => {
-    expect(shouldReconnectVisibleActivityTarget({
-      appStatus: 'authenticated',
-      connectionStatus: 'reconnecting',
-      draftStatus: 'active',
-    })).toBe(false)
+    expect(
+      shouldReconnectVisibleActivityTarget({
+        appStatus: 'authenticated',
+        connectionStatus: 'reconnecting',
+        draftStatus: 'active',
+      }),
+    ).toBe(false)
   })
 
   test('does not reconnect completed selected drafts after the swap window closes', () => {
-    expect(shouldReconnectVisibleActivityTarget({
-      appStatus: 'authenticated',
-      connectionStatus: 'disconnected',
-      draftStatus: 'complete',
-      hasOpenSwapWindow: false,
-    })).toBe(false)
+    expect(
+      shouldReconnectVisibleActivityTarget({
+        appStatus: 'authenticated',
+        connectionStatus: 'disconnected',
+        draftStatus: 'complete',
+        hasOpenSwapWindow: false,
+      }),
+    ).toBe(false)
   })
 
   test('reconnects completed selected drafts while the swap window is still open', () => {
-    expect(shouldReconnectVisibleActivityTarget({
-      appStatus: 'authenticated',
-      connectionStatus: 'disconnected',
-      draftStatus: 'complete',
-      hasOpenSwapWindow: true,
-    })).toBe(true)
+    expect(
+      shouldReconnectVisibleActivityTarget({
+        appStatus: 'authenticated',
+        connectionStatus: 'disconnected',
+        draftStatus: 'complete',
+        hasOpenSwapWindow: true,
+      }),
+    ).toBe(true)
   })
 
   test('reconnects visible lobby targets after the hidden tab disconnects them', () => {
-    expect(shouldReconnectVisibleActivityTarget({
-      appStatus: 'lobby-waiting',
-      connectionStatus: 'disconnected',
-    })).toBe(true)
+    expect(
+      shouldReconnectVisibleActivityTarget({
+        appStatus: 'lobby-waiting',
+        connectionStatus: 'disconnected',
+      }),
+    ).toBe(true)
   })
 
   test('releases a timed-out draft when the target switches back to the lobby', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: 'lobby',
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'cancelled',
-        cancelReason: 'timeout',
-      },
-    })).toBe(false)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: 'lobby',
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'cancelled',
+          cancelReason: 'timeout',
+        },
+      }),
+    ).toBe(false)
   })
 
   test('releases a reverted draft when the target switches back to the lobby', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: 'lobby',
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'cancelled',
-        cancelReason: 'revert',
-      },
-    })).toBe(false)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: 'lobby',
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'cancelled',
+          cancelReason: 'revert',
+        },
+      }),
+    ).toBe(false)
   })
 
   test('releases a completed draft when the target is cleared', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: null,
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'complete',
-        cancelReason: null,
-      },
-    })).toBe(false)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: null,
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'complete',
+          cancelReason: null,
+        },
+      }),
+    ).toBe(false)
   })
 
   test('releases a reverted draft when the target is cleared', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: null,
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'cancelled',
-        cancelReason: 'revert',
-      },
-    })).toBe(false)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: null,
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'cancelled',
+          cancelReason: 'revert',
+        },
+      }),
+    ).toBe(false)
   })
 
   test('keeps manual scrubs on the draft result screen', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: 'lobby',
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'cancelled',
-        cancelReason: 'scrub',
-      },
-    })).toBe(true)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: 'lobby',
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'cancelled',
+          cancelReason: 'scrub',
+        },
+      }),
+    ).toBe(true)
   })
 
   test('keeps scrubbed drafts on screen when the target is cleared', () => {
-    expect(shouldHoldAuthenticatedDraftStateForSelection({
-      nextSelectionKind: null,
-      hasInFlightConnection: false,
-      draftState: {
-        status: 'cancelled',
-        cancelReason: 'scrub',
-      },
-    })).toBe(true)
+    expect(
+      shouldHoldAuthenticatedDraftStateForSelection({
+        nextSelectionKind: null,
+        hasInFlightConnection: false,
+        draftState: {
+          status: 'cancelled',
+          cancelReason: 'scrub',
+        },
+      }),
+    ).toBe(true)
   })
 
   test('applies a refreshed launch snapshot while the live state stays unchanged', () => {
-    expect(shouldApplyActivityLaunchSnapshotRefresh({
-      requestVersion: 2,
-      latestRequestVersion: 2,
-      requestedChannelId: 'channel-1',
-      requestedUserId: 'user-1',
-      activeChannelId: 'channel-1',
-      activeUserId: 'user-1',
-      hydratedLiveState: true,
-      liveStateRevisionAtStart: 4,
-      liveStateRevision: 4,
-    })).toBe(true)
+    expect(
+      shouldApplyActivityLaunchSnapshotRefresh({
+        requestVersion: 2,
+        latestRequestVersion: 2,
+        requestedChannelId: 'channel-1',
+        requestedUserId: 'user-1',
+        activeChannelId: 'channel-1',
+        activeUserId: 'user-1',
+        hydratedLiveState: true,
+        liveStateRevisionAtStart: 4,
+        liveStateRevision: 4,
+      }),
+    ).toBe(true)
   })
 
   test('rejects an outdated launch snapshot refresh result', () => {
-    expect(shouldApplyActivityLaunchSnapshotRefresh({
-      requestVersion: 2,
-      latestRequestVersion: 3,
-      requestedChannelId: 'channel-1',
-      requestedUserId: 'user-1',
-      activeChannelId: 'channel-1',
-      activeUserId: 'user-1',
-      hydratedLiveState: false,
-      liveStateRevisionAtStart: 1,
-      liveStateRevision: 1,
-    })).toBe(false)
+    expect(
+      shouldApplyActivityLaunchSnapshotRefresh({
+        requestVersion: 2,
+        latestRequestVersion: 3,
+        requestedChannelId: 'channel-1',
+        requestedUserId: 'user-1',
+        activeChannelId: 'channel-1',
+        activeUserId: 'user-1',
+        hydratedLiveState: false,
+        liveStateRevisionAtStart: 1,
+        liveStateRevision: 1,
+      }),
+    ).toBe(false)
   })
 
   test('rejects a launch snapshot refresh for a different active session', () => {
-    expect(shouldApplyActivityLaunchSnapshotRefresh({
-      requestVersion: 2,
-      latestRequestVersion: 2,
-      requestedChannelId: 'channel-1',
-      requestedUserId: 'user-1',
-      activeChannelId: 'channel-2',
-      activeUserId: 'user-1',
-      hydratedLiveState: false,
-      liveStateRevisionAtStart: 1,
-      liveStateRevision: 1,
-    })).toBe(false)
+    expect(
+      shouldApplyActivityLaunchSnapshotRefresh({
+        requestVersion: 2,
+        latestRequestVersion: 2,
+        requestedChannelId: 'channel-1',
+        requestedUserId: 'user-1',
+        activeChannelId: 'channel-2',
+        activeUserId: 'user-1',
+        hydratedLiveState: false,
+        liveStateRevisionAtStart: 1,
+        liveStateRevision: 1,
+      }),
+    ).toBe(false)
   })
 
   test('rejects a refreshed launch snapshot after newer live watch state arrives', () => {
-    expect(shouldApplyActivityLaunchSnapshotRefresh({
-      requestVersion: 2,
-      latestRequestVersion: 2,
-      requestedChannelId: 'channel-1',
-      requestedUserId: 'user-1',
-      activeChannelId: 'channel-1',
-      activeUserId: 'user-1',
-      hydratedLiveState: true,
-      liveStateRevisionAtStart: 4,
-      liveStateRevision: 5,
-    })).toBe(false)
+    expect(
+      shouldApplyActivityLaunchSnapshotRefresh({
+        requestVersion: 2,
+        latestRequestVersion: 2,
+        requestedChannelId: 'channel-1',
+        requestedUserId: 'user-1',
+        activeChannelId: 'channel-1',
+        activeUserId: 'user-1',
+        hydratedLiveState: true,
+        liveStateRevisionAtStart: 4,
+        liveStateRevision: 5,
+      }),
+    ).toBe(false)
   })
 
   test('requests a repair refresh for timed out drafts that should reopen the lobby', () => {
-    expect(getBrokenMatchRefreshKey({
-      appStatus: 'authenticated',
-      currentMatchId: 'match-1',
-      connectionStatus: 'connected',
-      draftState: {
-        matchId: 'match-1',
-        status: 'cancelled',
-        cancelReason: 'timeout',
-      },
-    })).toBe('match-1:cancelled:timeout')
+    expect(
+      getBrokenMatchRefreshKey({
+        appStatus: 'authenticated',
+        currentMatchId: 'match-1',
+        connectionStatus: 'connected',
+        draftState: {
+          matchId: 'match-1',
+          status: 'cancelled',
+          cancelReason: 'timeout',
+        },
+      }),
+    ).toBe('match-1:cancelled:timeout')
   })
 
   test('requests a repair refresh when a selected live match fails before state loads', () => {
-    expect(getBrokenMatchRefreshKey({
-      appStatus: 'authenticated',
-      currentMatchId: 'match-1',
-      connectionStatus: 'error',
-      draftState: null,
-    })).toBe('match-1:connection-error')
+    expect(
+      getBrokenMatchRefreshKey({
+        appStatus: 'authenticated',
+        currentMatchId: 'match-1',
+        connectionStatus: 'error',
+        draftState: null,
+      }),
+    ).toBe('match-1:connection-error')
   })
 
   test('requests one repair refresh when the server closes a terminal session socket', () => {
-    expect(getBrokenMatchRefreshKey({
-      appStatus: 'authenticated',
-      currentMatchId: 'match-1',
-      connectionStatus: 'disconnected',
-      connectionCloseReason: 'Session closed',
-      draftState: null,
-    })).toBe('match-1:session-closed')
+    expect(
+      getBrokenMatchRefreshKey({
+        appStatus: 'authenticated',
+        currentMatchId: 'match-1',
+        connectionStatus: 'disconnected',
+        connectionCloseReason: 'Session closed',
+        draftState: null,
+      }),
+    ).toBe('match-1:session-closed')
   })
 
   test('does not request a repair refresh for healthy or manually scrubbed drafts', () => {
-    expect(getBrokenMatchRefreshKey({
-      appStatus: 'authenticated',
-      currentMatchId: 'match-1',
-      connectionStatus: 'connected',
-      draftState: {
-        matchId: 'match-1',
-        status: 'cancelled',
-        cancelReason: 'scrub',
-      },
-    })).toBeNull()
+    expect(
+      getBrokenMatchRefreshKey({
+        appStatus: 'authenticated',
+        currentMatchId: 'match-1',
+        connectionStatus: 'connected',
+        draftState: {
+          matchId: 'match-1',
+          status: 'cancelled',
+          cancelReason: 'scrub',
+        },
+      }),
+    ).toBeNull()
 
-    expect(getBrokenMatchRefreshKey({
-      appStatus: 'authenticated',
-      currentMatchId: 'match-1',
-      connectionStatus: 'connected',
-      draftState: {
-        matchId: 'match-1',
-        status: 'active',
-        cancelReason: null,
-      },
-    })).toBeNull()
+    expect(
+      getBrokenMatchRefreshKey({
+        appStatus: 'authenticated',
+        currentMatchId: 'match-1',
+        connectionStatus: 'connected',
+        draftState: {
+          matchId: 'match-1',
+          status: 'active',
+          cancelReason: null,
+        },
+      }),
+    ).toBeNull()
   })
 })

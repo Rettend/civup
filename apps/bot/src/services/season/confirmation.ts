@@ -23,18 +23,13 @@ export async function createSeasonConfirmation(
   confirmation: PendingSeasonConfirmation,
 ): Promise<string> {
   const token = newSeasonConfirmationToken()
-  await kv.put(
-    seasonConfirmationKey(token),
-    JSON.stringify(confirmation),
-    { expirationTtl: SEASON_CONFIRMATION_TTL_SECONDS },
-  )
+  await kv.put(seasonConfirmationKey(token), JSON.stringify(confirmation), {
+    expirationTtl: SEASON_CONFIRMATION_TTL_SECONDS,
+  })
   return token
 }
 
-export async function getSeasonConfirmation(
-  kv: KVNamespace,
-  token: string,
-): Promise<PendingSeasonConfirmation | null> {
+export async function getSeasonConfirmation(kv: KVNamespace, token: string): Promise<PendingSeasonConfirmation | null> {
   const raw = await kv.get(seasonConfirmationKey(token), 'json')
   if (!raw || typeof raw !== 'object') return null
 
@@ -48,9 +43,10 @@ export async function getSeasonConfirmation(
     actorId: parsed.actorId,
     action: parsed.action,
     seasonName: typeof parsed.seasonName === 'string' ? parsed.seasonName : null,
-    seasonNumber: typeof parsed.seasonNumber === 'number' && Number.isSafeInteger(parsed.seasonNumber) && parsed.seasonNumber > 0
-      ? parsed.seasonNumber
-      : null,
+    seasonNumber:
+      typeof parsed.seasonNumber === 'number' && Number.isSafeInteger(parsed.seasonNumber) && parsed.seasonNumber > 0
+        ? parsed.seasonNumber
+        : null,
     softReset: typeof parsed.softReset === 'boolean' ? parsed.softReset : null,
   }
 }

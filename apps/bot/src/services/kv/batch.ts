@@ -19,12 +19,16 @@ export function getKvStore(env: KvStoreEnv): KVNamespace {
 
 export async function kvMget(kv: KVNamespace, entries: KvBatchGetEntry[]): Promise<unknown[]> {
   if (entries.length === 0) return []
-  return Promise.all(entries.map(entry => entry.type === 'json' ? kv.get(entry.key, 'json') : kv.get(entry.key)))
+  return Promise.all(entries.map(entry => (entry.type === 'json' ? kv.get(entry.key, 'json') : kv.get(entry.key))))
 }
 
 export async function kvMput(kv: KVNamespace, entries: KvBatchPutEntry[]): Promise<void> {
   if (entries.length === 0) return
-  await Promise.all(entries.map(entry => kv.put(entry.key, entry.value, entry.expirationTtl == null ? undefined : { expirationTtl: entry.expirationTtl })))
+  await Promise.all(
+    entries.map(entry =>
+      kv.put(entry.key, entry.value, entry.expirationTtl == null ? undefined : { expirationTtl: entry.expirationTtl }),
+    ),
+  )
 }
 
 export async function kvMdelete(kv: KVNamespace, keys: string[]): Promise<void> {

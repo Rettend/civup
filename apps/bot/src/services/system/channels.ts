@@ -1,4 +1,16 @@
-export type SystemChannelType = 'draft' | 'archive' | 'leaderboard' | 'civ-leaderboard' | 'civ-leaderboard-all' | 'civ-leaderboard-duel' | 'civ-leaderboard-duo' | 'civ-leaderboard-squad' | 'commands' | 'tournament-draft' | 'tournament-archive' | 'tournament-leaderboard'
+export type SystemChannelType =
+  | 'draft'
+  | 'archive'
+  | 'leaderboard'
+  | 'civ-leaderboard'
+  | 'civ-leaderboard-all'
+  | 'civ-leaderboard-duel'
+  | 'civ-leaderboard-duo'
+  | 'civ-leaderboard-squad'
+  | 'commands'
+  | 'tournament-draft'
+  | 'tournament-archive'
+  | 'tournament-leaderboard'
 
 export interface LeaderboardMessageState {
   channelId: string
@@ -43,7 +55,7 @@ export async function clearSystemChannel(kv: KVNamespace, type: SystemChannelTyp
 }
 
 export async function getLeaderboardMessageState(kv: KVNamespace): Promise<LeaderboardMessageState | null> {
-  const raw = await kv.get(LEADERBOARD_MESSAGE_STATE_KEY, 'json') as StoredLeaderboardMessageState | null
+  const raw = (await kv.get(LEADERBOARD_MESSAGE_STATE_KEY, 'json')) as StoredLeaderboardMessageState | null
   if (!raw || typeof raw.channelId !== 'string') return null
   if (typeof raw.messageId !== 'string') return null
 
@@ -54,15 +66,15 @@ export async function getLeaderboardMessageState(kv: KVNamespace): Promise<Leade
   }
 }
 
-export async function setLeaderboardMessageState(
-  kv: KVNamespace,
-  state: LeaderboardMessageState,
-): Promise<void> {
-  await kv.put(LEADERBOARD_MESSAGE_STATE_KEY, JSON.stringify({
-    channelId: state.channelId,
-    messageId: state.messageId,
-    updatedAt: state.updatedAt,
-  }))
+export async function setLeaderboardMessageState(kv: KVNamespace, state: LeaderboardMessageState): Promise<void> {
+  await kv.put(
+    LEADERBOARD_MESSAGE_STATE_KEY,
+    JSON.stringify({
+      channelId: state.channelId,
+      messageId: state.messageId,
+      updatedAt: state.updatedAt,
+    }),
+  )
 }
 
 export async function clearLeaderboardMessageState(kv: KVNamespace): Promise<void> {
@@ -70,7 +82,7 @@ export async function clearLeaderboardMessageState(kv: KVNamespace): Promise<voi
 }
 
 export async function getLeaderboardDirtyState(kv: KVNamespace): Promise<LeaderboardDirtyState | null> {
-  const raw = await kv.get(LEADERBOARD_DIRTY_STATE_KEY, 'json') as StoredLeaderboardDirtyState | null
+  const raw = (await kv.get(LEADERBOARD_DIRTY_STATE_KEY, 'json')) as StoredLeaderboardDirtyState | null
   if (!raw) return null
 
   return {
@@ -79,10 +91,7 @@ export async function getLeaderboardDirtyState(kv: KVNamespace): Promise<Leaderb
   }
 }
 
-export async function markLeaderboardDirty(
-  kv: KVNamespace,
-  reason: string,
-): Promise<LeaderboardDirtyState> {
+export async function markLeaderboardDirty(kv: KVNamespace, reason: string): Promise<LeaderboardDirtyState> {
   const existing = await getLeaderboardDirtyState(kv)
   if (existing) return existing
 

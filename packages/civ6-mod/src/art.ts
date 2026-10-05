@@ -6,100 +6,170 @@ import { landmarkCatalog } from './generated/catalog.generated.ts'
 const WORLD_ART = ['Civilizations.artdef', 'Cultures.artdef', 'Landmarks.artdef'] as const
 
 export function generateCivilizationsArtDef(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  const civilizations = seats.map(seat => civElement(
-    seat.civilizationType,
-    [],
-    [collection('Audio', [civElement('Entry', [stringValue('XrefName', seat.sourceCivilization.audio)])])],
-  ))
+  const civilizations = seats.map(seat =>
+    civElement(
+      seat.civilizationType,
+      [],
+      [collection('Audio', [civElement('Entry', [stringValue('XrefName', seat.sourceCivilization.audio)])])],
+    ),
+  )
   return artDef('Civilizations', [collection('Civilization', civilizations)])
 }
 
 export function generateCulturesArtDef(seats: readonly ResolvedCivBlitzModSeat[]): string {
   return artDef('Cultures', [
-    collection('Culture', cultureElements(seats, seat => seat.sourceCivilization.cultures)),
-    collection('UnitCulture', cultureElements(seats, seat => seat.sourceCivilization.unitCultures)),
+    collection(
+      'Culture',
+      cultureElements(seats, seat => seat.sourceCivilization.cultures),
+    ),
+    collection(
+      'UnitCulture',
+      cultureElements(seats, seat => seat.sourceCivilization.unitCultures),
+    ),
   ])
 }
 
 export function generateLeadersArtDef(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  const leaders = seats.map(seat => civElement(seat.leaderType, [
-    blpValue(seat.sourceLeader.leaderEntry),
-    blpValue(seat.sourceLeader.lightrigEntry),
-    blpValue(seat.sourceLeader.colorKeyEntry),
-    blpValue({ parameterName: 'Leader_Background_BLP_Entry', name: '', xlpClass: 'Leader', xlpPath: '', blpPackage: '', libraryName: 'Leader' }),
-    stringValue('Leader_Background_Animation_State', ''),
-    stringValue('Audio', seat.sourceLeader.audio),
-  ]))
+  const leaders = seats.map(seat =>
+    civElement(seat.leaderType, [
+      blpValue(seat.sourceLeader.leaderEntry),
+      blpValue(seat.sourceLeader.lightrigEntry),
+      blpValue(seat.sourceLeader.colorKeyEntry),
+      blpValue({
+        parameterName: 'Leader_Background_BLP_Entry',
+        name: '',
+        xlpClass: 'Leader',
+        xlpPath: '',
+        blpPackage: '',
+        libraryName: 'Leader',
+      }),
+      stringValue('Leader_Background_Animation_State', ''),
+      stringValue('Audio', seat.sourceLeader.audio),
+    ]),
+  )
   return artDef('Leaders', [collection('Leaders', leaders)])
 }
 
 export function generateFallbackLeadersArtDef(seats: readonly ResolvedCivBlitzModSeat[]): string {
   const leaders = seats
     .filter(seat => seat.sourceLeader.fallbackLeader)
-    .map(seat => civElement(seat.leaderType, [], [
-      collection('Animations', [
-        civElement('DEFAULT', [blpValue({
-          parameterName: 'BLP Entry',
-          name: seat.sourceLeader.fallbackLeader,
-          xlpClass: 'LeaderFallback',
-          xlpPath: 'leaderfallbackimages.xlp',
-          blpPackage: 'LeaderFallbackImages',
-          libraryName: 'LeaderFallback',
-        })]),
-      ]),
-    ]))
+    .map(seat =>
+      civElement(
+        seat.leaderType,
+        [],
+        [
+          collection('Animations', [
+            civElement('DEFAULT', [
+              blpValue({
+                parameterName: 'BLP Entry',
+                name: seat.sourceLeader.fallbackLeader,
+                xlpClass: 'LeaderFallback',
+                xlpPath: 'leaderfallbackimages.xlp',
+                blpPackage: 'LeaderFallbackImages',
+                libraryName: 'LeaderFallback',
+              }),
+            ]),
+          ]),
+        ],
+      ),
+    )
   return artDef('LeaderFallback', [collection('Leaders', leaders)])
 }
 
 export function generateLandmarksArtDef(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  const traits = new Set(seats.flatMap(seat => [
-    seat.civilizationAbility.traitType,
-    seat.leaderAbility.traitType,
-    seat.infrastructure.traitType,
-    seat.unit.traitType,
-  ]))
+  const traits = new Set(
+    seats.flatMap(seat => [
+      seat.civilizationAbility.traitType,
+      seat.leaderAbility.traitType,
+      seat.infrastructure.traitType,
+      seat.unit.traitType,
+    ]),
+  )
   const enabled = landmarkCatalog.filter(landmark => traits.has(landmark.traitType))
   const districtGroups = groupLandmarks(enabled.filter(landmark => landmark.collection !== 'Eras'))
   const eraGroups = groupLandmarks(enabled.filter(landmark => landmark.collection === 'Eras'))
 
-  const districts = [...districtGroups.entries()].sort(([left], [right]) => compareText(left, right)).map(([name, entries]) => {
-    const fields = name === 'DISTRICT_CITY_CENTER' ? cityCenterFields() : districtFields()
-    return civElement(name, fields, [
-      collection('BaseVariants', entries.filter(entry => entry.collection === 'BaseVariants').map(entry => civElement(`${entry.entryName} CIVUP`, [
-        artDefReference('Set_HeroBuildings', entry.subjectName, 'BuildingSets', 'Landmarks.artdef', true, 'Landmarks'),
-        eraReference(entry.era),
-        defaultCultureReference(),
-        anyAppealReference(),
-        blpValue(entry.asset),
-        stringValue('SelectionRule', ''),
-        intValue('Priority', 0),
-        stringValue('Placement', 'INHERIT'),
-      ]))),
-      collection('BuildingVariants', entries.filter(entry => entry.collection === 'BuildingVariants').map(entry => civElement(`${entry.entryName} CIVUP`, [
-        artDefReference('Tag_HeroBuilding', entry.subjectName, 'Building', 'Buildings.artdef', true, 'Buildings'),
-        eraReference(entry.era),
-        defaultCultureReference(),
-        anyAppealReference(),
-        blpValue(entry.asset),
-        stringValue('SelectionRule', ''),
-        intValue('Priority', 0),
-      ]))),
-    ])
-  })
+  const districts = [...districtGroups.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([name, entries]) => {
+      const fields = name === 'DISTRICT_CITY_CENTER' ? cityCenterFields() : districtFields()
+      return civElement(name, fields, [
+        collection(
+          'BaseVariants',
+          entries
+            .filter(entry => entry.collection === 'BaseVariants')
+            .map(entry =>
+              civElement(`${entry.entryName} CIVUP`, [
+                artDefReference(
+                  'Set_HeroBuildings',
+                  entry.subjectName,
+                  'BuildingSets',
+                  'Landmarks.artdef',
+                  true,
+                  'Landmarks',
+                ),
+                eraReference(entry.era),
+                defaultCultureReference(),
+                anyAppealReference(),
+                blpValue(entry.asset),
+                stringValue('SelectionRule', ''),
+                intValue('Priority', 0),
+                stringValue('Placement', 'INHERIT'),
+              ]),
+            ),
+        ),
+        collection(
+          'BuildingVariants',
+          entries
+            .filter(entry => entry.collection === 'BuildingVariants')
+            .map(entry =>
+              civElement(`${entry.entryName} CIVUP`, [
+                artDefReference(
+                  'Tag_HeroBuilding',
+                  entry.subjectName,
+                  'Building',
+                  'Buildings.artdef',
+                  true,
+                  'Buildings',
+                ),
+                eraReference(entry.era),
+                defaultCultureReference(),
+                anyAppealReference(),
+                blpValue(entry.asset),
+                stringValue('SelectionRule', ''),
+                intValue('Priority', 0),
+              ]),
+            ),
+        ),
+      ])
+    })
 
-  const landmarks = [...eraGroups.entries()].sort(([left], [right]) => compareText(left, right)).map(([name, entries]) => civElement(name, [
-    boolValue('FlattenTerrain', entries[0]?.flatten ?? false),
-    stringValue('RotationType', name.includes('POLDER') ? 'COASTAL' : 'ONLY_FIRST_60'),
-  ], [
-    collection('Eras', entries.map(entry => civElement(`${entry.entryName} CIVUP`, [
-      eraReference(entry.era),
-      blpValue(entry.asset),
-      defaultCultureReference(),
-      anyAppealReference(),
-      stringValue('SelectionRule', ''),
-      floatValue('Priority', 0),
-    ]))),
-  ]))
+  const landmarks = [...eraGroups.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([name, entries]) =>
+      civElement(
+        name,
+        [
+          boolValue('FlattenTerrain', entries[0]?.flatten ?? false),
+          stringValue('RotationType', name.includes('POLDER') ? 'COASTAL' : 'ONLY_FIRST_60'),
+        ],
+        [
+          collection(
+            'Eras',
+            entries.map(entry =>
+              civElement(`${entry.entryName} CIVUP`, [
+                eraReference(entry.era),
+                blpValue(entry.asset),
+                defaultCultureReference(),
+                anyAppealReference(),
+                stringValue('SelectionRule', ''),
+                floatValue('Priority', 0),
+              ]),
+            ),
+          ),
+        ],
+      ),
+    )
 
   return artDef('Landmarks', [
     collection('Districts', districts),
@@ -112,12 +182,16 @@ export function generateLandmarksArtDef(seats: readonly ResolvedCivBlitzModSeat[
 
 export function generateArtDep(name: string, uuid: string): string {
   // The immutable dependency table is declared after the XML helpers to keep the generator readable.
-  const systems = artSystems.map(system => `<Element>
+  const systems = artSystems
+    .map(
+      system => `<Element>
 <ConsumerName text="${xmlEscape(system.name)}"/>
 ${textElements('ArtDefDependencyPaths', system.paths)}
 ${textElements('LibraryDependencies', system.libraries)}
 <LoadsLibraries>${String(system.loadsLibraries)}</LoadsLibraries>
-</Element>`).join('\n')
+</Element>`,
+    )
+    .join('\n')
   const artDependencies = [
     ['Civilizations.artdef', []],
     ['Cultures.artdef', []],
@@ -147,16 +221,30 @@ function cultureElements(
       else grouped.set(culture, [seat])
     }
   }
-  return [...grouped.entries()].sort(([left], [right]) => compareText(left, right)).map(([culture, cultureSeats]) => civElement(culture, [
-    collectionValue('Civilizations', cultureSeats.map((seat, index) => artDefReference(
-      `Civilizations${String(index + 1).padStart(3, '0')}`,
-      seat.civilizationType,
-      'Civilization',
-      'Civilizations.artdef',
-      true,
-      'Civilizations',
-    ))),
-  ], [], true))
+  return [...grouped.entries()]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([culture, cultureSeats]) =>
+      civElement(
+        culture,
+        [
+          collectionValue(
+            'Civilizations',
+            cultureSeats.map((seat, index) =>
+              artDefReference(
+                `Civilizations${String(index + 1).padStart(3, '0')}`,
+                seat.civilizationType,
+                'Civilization',
+                'Civilizations.artdef',
+                true,
+                'Civilizations',
+              ),
+            ),
+          ),
+        ],
+        [],
+        true,
+      ),
+    )
 }
 
 function districtFields(): string[] {
@@ -219,7 +307,12 @@ function collection(name: string, elements: readonly string[]): string {
   return `<Element><m_CollectionName text="${xmlEscape(name)}"/><m_ReplaceMergedCollectionElements>false</m_ReplaceMergedCollectionElements>${elements.join('')}</Element>`
 }
 
-function civElement(name: string, fields: readonly string[] = [], children: readonly string[] = [], append = false): string {
+function civElement(
+  name: string,
+  fields: readonly string[] = [],
+  children: readonly string[] = [],
+  append = false,
+): string {
   return `<Element><m_Fields><m_Values>${fields.join('')}</m_Values></m_Fields><m_ChildCollections>${children.join('')}</m_ChildCollections><m_Name text="${xmlEscape(name)}"/><m_AppendMergedParameterCollections>${String(append)}</m_AppendMergedParameterCollections></Element>`
 }
 
@@ -278,7 +371,9 @@ function collectionValue(paramName: string, values: readonly string[]): string {
   return assetObject(
     'CollectionValue',
     paramName,
-    [`<m_eObjectType>INVALID</m_eObjectType><m_eValueType>ARTDEF_REF</m_eValueType><m_Values>${values.join('')}</m_Values>`],
+    [
+      `<m_eObjectType>INVALID</m_eObjectType><m_eValueType>ARTDEF_REF</m_eValueType><m_Values>${values.join('')}</m_Values>`,
+    ],
     '<m_AppendMergedParameterCollections>true</m_AppendMergedParameterCollections>',
   )
 }
@@ -295,19 +390,64 @@ const artSystems = [
   { name: 'Features', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
   { name: 'Improvements', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
   { name: 'IndirectGrid', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
-  { name: 'Landmarks', paths: [...WORLD_ART], libraries: ['CityBuildings', 'TileBase', 'RouteDecalMaterial'], loadsLibraries: true },
+  {
+    name: 'Landmarks',
+    paths: [...WORLD_ART],
+    libraries: ['CityBuildings', 'TileBase', 'RouteDecalMaterial'],
+    loadsLibraries: true,
+  },
   { name: 'LeaderFallback', paths: ['FallbackLeaders.artdef'], libraries: ['LeaderFallback'], loadsLibraries: true },
   { name: 'LeaderLighting', paths: [], libraries: ['LeaderLighting', 'ColorKey'], loadsLibraries: true },
-  { name: 'Leaders', paths: ['Leaders.artdef'], libraries: ['Leader', 'LeaderLighting', 'ColorKey'], loadsLibraries: true },
+  {
+    name: 'Leaders',
+    paths: ['Leaders.artdef'],
+    libraries: ['Leader', 'LeaderLighting', 'ColorKey'],
+    loadsLibraries: true,
+  },
   { name: 'Resources', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
   { name: 'StrategicView_Properties', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
-  { name: 'StrategicView_Route', paths: [...WORLD_ART], libraries: ['StrategicView_Route', 'StrategicView_DirectedAsset'], loadsLibraries: true },
-  { name: 'StrategicView_Sprite', paths: [...WORLD_ART], libraries: ['StrategicView_Sprite', 'StrategicView_DirectedAsset'], loadsLibraries: true },
-  { name: 'StrategicView_TerrainType', paths: [...WORLD_ART], libraries: ['StrategicView_TerrainBlend', 'StrategicView_TerrainBlendCorners', 'StrategicView_TerrainType', 'StrategicView_DirectedAsset'], loadsLibraries: true },
-  { name: 'StrategicView_TerrainBlend', paths: [...WORLD_ART], libraries: ['StrategicView_TerrainBlend', 'StrategicView_DirectedAsset'], loadsLibraries: true },
-  { name: 'StrategicView_TerrainBlendCorners', paths: [...WORLD_ART], libraries: ['StrategicView_TerrainBlendCorners', 'StrategicView_DirectedAsset'], loadsLibraries: true },
+  {
+    name: 'StrategicView_Route',
+    paths: [...WORLD_ART],
+    libraries: ['StrategicView_Route', 'StrategicView_DirectedAsset'],
+    loadsLibraries: true,
+  },
+  {
+    name: 'StrategicView_Sprite',
+    paths: [...WORLD_ART],
+    libraries: ['StrategicView_Sprite', 'StrategicView_DirectedAsset'],
+    loadsLibraries: true,
+  },
+  {
+    name: 'StrategicView_TerrainType',
+    paths: [...WORLD_ART],
+    libraries: [
+      'StrategicView_TerrainBlend',
+      'StrategicView_TerrainBlendCorners',
+      'StrategicView_TerrainType',
+      'StrategicView_DirectedAsset',
+    ],
+    loadsLibraries: true,
+  },
+  {
+    name: 'StrategicView_TerrainBlend',
+    paths: [...WORLD_ART],
+    libraries: ['StrategicView_TerrainBlend', 'StrategicView_DirectedAsset'],
+    loadsLibraries: true,
+  },
+  {
+    name: 'StrategicView_TerrainBlendCorners',
+    paths: [...WORLD_ART],
+    libraries: ['StrategicView_TerrainBlendCorners', 'StrategicView_DirectedAsset'],
+    loadsLibraries: true,
+  },
   { name: 'StrategicView_Translate', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
-  { name: 'Terrain', paths: [...WORLD_ART], libraries: ['TerrainAsset', 'TerrainElement', 'TerrainMaterial'], loadsLibraries: true },
+  {
+    name: 'Terrain',
+    paths: [...WORLD_ART],
+    libraries: ['TerrainAsset', 'TerrainElement', 'TerrainMaterial'],
+    loadsLibraries: true,
+  },
   { name: 'Terrains', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },
   { name: 'Units', paths: [...WORLD_ART], libraries: ['Unit', 'VFX', 'Light'], loadsLibraries: true },
   { name: 'UnitSimulation', paths: [...WORLD_ART], libraries: [], loadsLibraries: false },

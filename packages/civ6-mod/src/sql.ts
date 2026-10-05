@@ -17,17 +17,23 @@ export function generateFrontendSql(seats: readonly ResolvedCivBlitzModSeat[]): 
 }
 
 export function generateColorsSql(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  return `${seats.map(seat => `-- Seat ${seat.input.seatIndex}
+  return `${seats
+    .map(
+      seat => `-- Seat ${seat.input.seatIndex}
 INSERT OR REPLACE INTO PlayerColors
 (Type, Usage, PrimaryColor, SecondaryColor, Alt1PrimaryColor, Alt1SecondaryColor, Alt2PrimaryColor, Alt2SecondaryColor, Alt3PrimaryColor, Alt3SecondaryColor)
 SELECT ${sqlString(seat.leaderType)}, Usage, PrimaryColor, SecondaryColor,
        Alt1PrimaryColor, Alt1SecondaryColor, Alt2PrimaryColor, Alt2SecondaryColor, Alt3PrimaryColor, Alt3SecondaryColor
 FROM PlayerColors
-WHERE Type = ${sqlString(seat.sourceLeader.leaderType)};`).join('\n\n')}\n`
+WHERE Type = ${sqlString(seat.sourceLeader.leaderType)};`,
+    )
+    .join('\n\n')}\n`
 }
 
 export function generateIconsSql(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  return `${seats.map(seat => `-- Seat ${seat.input.seatIndex}
+  return `${seats
+    .map(
+      seat => `-- Seat ${seat.input.seatIndex}
 INSERT OR REPLACE INTO IconDefinitions (Name, Atlas, "Index")
 SELECT ${sqlString(`ICON_${seat.civilizationType}`)}, Atlas, "Index"
 FROM IconDefinitions
@@ -36,34 +42,43 @@ WHERE Name = ${sqlString(seat.sourceCivilization.civilizationIcon)};
 INSERT OR REPLACE INTO IconDefinitions (Name, Atlas, "Index")
 SELECT ${sqlString(`ICON_${seat.leaderType}`)}, Atlas, "Index"
 FROM IconDefinitions
-WHERE Name = ${sqlString(seat.sourceLeader.leaderIcon)};`).join('\n\n')}\n`
+WHERE Name = ${sqlString(seat.sourceLeader.leaderIcon)};`,
+    )
+    .join('\n\n')}\n`
 }
 
 export function generateLocaleSql(seats: readonly ResolvedCivBlitzModSeat[]): string {
-  return `${seats.map((seat) => {
-    const label = `${seat.leaderAbility.displayName} (${seat.civilizationAbility.displayName})`
-    return `INSERT OR REPLACE INTO LocalizedText (Tag, Language, Text)
+  return `${seats
+    .map(seat => {
+      const label = `${seat.leaderAbility.displayName} (${seat.civilizationAbility.displayName})`
+      return `INSERT OR REPLACE INTO LocalizedText (Tag, Language, Text)
 VALUES (${sqlString(seat.leaderNameTag)}, 'en_US', ${sqlString(label)});`
-  }).join('\n')}\n`
+    })
+    .join('\n')}\n`
 }
 
 export function generateCompatibilitySql(seats: readonly ResolvedCivBlitzModSeat[]): string {
   const civilizationExceptions = BBG_ADJACENCIES.filter(entry => entry.civilizationTrait)
   const leaderExceptions = BBG_ADJACENCIES.filter(entry => entry.leaderTrait)
   const allYieldChanges = leaderExceptions.map(entry => entry.yieldChangeId)
-  const perSeat = seats.map((seat) => {
-    const excluded = civilizationExceptions
-      .filter(entry => entry.civilizationTrait !== seat.civilizationAbility.traitType)
-      .map(entry => entry.yieldChangeId)
-    if (excluded.length === 0) return ''
-    return `-- Preserve BBG adjacency exclusions for seat ${seat.input.seatIndex}.
+  const perSeat = seats
+    .map(seat => {
+      const excluded = civilizationExceptions
+        .filter(entry => entry.civilizationTrait !== seat.civilizationAbility.traitType)
+        .map(entry => entry.yieldChangeId)
+      if (excluded.length === 0) return ''
+      return `-- Preserve BBG adjacency exclusions for seat ${seat.input.seatIndex}.
 INSERT OR REPLACE INTO ExcludedAdjacencies (TraitType, YieldChangeId)
 SELECT ${sqlString(seat.civilizationAbility.traitType)}, ID
 FROM Adjacency_YieldChanges
 WHERE ID IN (${excluded.map(sqlString).join(', ')});`
-  }).filter(Boolean).join('\n\n')
+    })
+    .filter(Boolean)
+    .join('\n\n')
 
-  const leaderFixes = leaderExceptions.map(entry => `INSERT OR REPLACE INTO ExcludedAdjacencies (TraitType, YieldChangeId)
+  const leaderFixes = leaderExceptions
+    .map(
+      entry => `INSERT OR REPLACE INTO ExcludedAdjacencies (TraitType, YieldChangeId)
 SELECT candidate.TraitType, adjacency.ID
 FROM (
   SELECT DISTINCT own.TraitType
@@ -72,11 +87,14 @@ FROM (
   GROUP BY own.TraitType, own.LeaderType
   HAVING MAX(sibling.TraitType = ${sqlString(entry.leaderTrait!)}) = 0
 ) candidate
-CROSS JOIN (SELECT ID FROM Adjacency_YieldChanges WHERE ID = ${sqlString(entry.yieldChangeId)}) adjacency;`).join('\n\n')
+CROSS JOIN (SELECT ID FROM Adjacency_YieldChanges WHERE ID = ${sqlString(entry.yieldChangeId)}) adjacency;`,
+    )
+    .join('\n\n')
 
-  const globalLeaderFix = allYieldChanges.length === 0
-    ? ''
-    : `-- Apply BBG leader-based adjacency exclusions once for the combined mod.
+  const globalLeaderFix =
+    allYieldChanges.length === 0
+      ? ''
+      : `-- Apply BBG leader-based adjacency exclusions once for the combined mod.
 DELETE FROM ExcludedAdjacencies
 WHERE TraitType IN (SELECT TraitType FROM CivilizationTraits)
   AND YieldChangeId IN (${allYieldChanges.map(sqlString).join(', ')});
@@ -195,7 +213,9 @@ VALUES (${sqlString(PLAYER_DOMAIN)}, ${sqlString(seat.civilizationType)}, ${sqlS
         ${sqlString(civ.civilizationName)}, ${sqlString(civ.civilizationIcon)}, ${sqlString(civ.civilizationAbilityName)},
         ${sqlString(civ.civilizationAbilityDescription)}, ${sqlString(civ.civilizationAbilityIcon)});
 
-${items.map((item, index) => `INSERT OR REPLACE INTO PlayerItems
+${items
+  .map(
+    (item, index) => `INSERT OR REPLACE INTO PlayerItems
 (Domain, CivilizationType, LeaderType, Type, Icon, Name, Description, SortIndex)
 SELECT ${sqlString(PLAYER_DOMAIN)}, ${sqlString(seat.civilizationType)}, ${sqlString(seat.leaderType)},
        Type, Icon, Name, Description, ${10 + index * 10}
@@ -203,23 +223,30 @@ FROM PlayerItems
 WHERE Domain = ${sqlString(PLAYER_DOMAIN)}
   AND CivilizationType = ${sqlString(item.civilizationType)}
   AND Type = ${sqlString(item.itemType)}
-LIMIT 1;`).join('\n\n')}`
+LIMIT 1;`,
+  )
+  .join('\n\n')}`
 }
 
-function playerItems(seat: ResolvedCivBlitzModSeat): { civilizationType: string, itemType: string }[] {
+function playerItems(seat: ResolvedCivBlitzModSeat): { civilizationType: string; itemType: string }[] {
   const components: CivBlitzModComponentMetadata[] = [
     seat.civilizationAbility,
     seat.leaderAbility,
     seat.unit,
     seat.infrastructure,
   ]
-  const items: { civilizationType: string, itemType: string }[] = []
+  const items: { civilizationType: string; itemType: string }[] = []
   for (const component of components) {
     for (const itemType of [...component.playerItemTypes, ...component.grantPlayerItemTypes]) {
       items.push({ civilizationType: component.civilizationType, itemType })
     }
   }
-  return items.filter((item, index) => items.findIndex(candidate => candidate.civilizationType === item.civilizationType && candidate.itemType === item.itemType) === index)
+  return items.filter(
+    (item, index) =>
+      items.findIndex(
+        candidate => candidate.civilizationType === item.civilizationType && candidate.itemType === item.itemType,
+      ) === index,
+  )
 }
 
 function startBiasSql(table: string, valueColumn: string, seat: ResolvedCivBlitzModSeat): string {
@@ -240,9 +267,13 @@ function geographySql(seat: ResolvedCivBlitzModSeat): string {
     ['NamedLakeCivilizations', 'NamedLakeType'],
     ['NamedSeaCivilizations', 'NamedSeaType'],
   ] as const
-  return tables.map(([table, type]) => `INSERT OR REPLACE INTO ${table} (${type}, CivilizationType)
+  return tables
+    .map(
+      ([table, type]) => `INSERT OR REPLACE INTO ${table} (${type}, CivilizationType)
 SELECT ${type}, ${sqlString(seat.civilizationType)} FROM ${table}
-WHERE CivilizationType = ${sqlString(seat.sourceCivilization.civilizationType)};`).join('\n\n')
+WHERE CivilizationType = ${sqlString(seat.sourceCivilization.civilizationType)};`,
+    )
+    .join('\n\n')
 }
 
 function unique(values: readonly string[]): string[] {

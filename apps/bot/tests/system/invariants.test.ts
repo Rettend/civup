@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
-import { getRankedRoleConfig, resolveRankedRoleVisuals, setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import {
+  getRankedRoleConfig,
+  resolveRankedRoleVisuals,
+  setRankedRoleCurrentRoles,
+} from '../../src/services/ranked/roles.ts'
 import { expectLobbyState } from './helpers/assertions.ts'
 import { runSeededSystemSequence } from './helpers/seeded-runner.ts'
 import { createSystemWorld } from './helpers/world.ts'
@@ -48,19 +52,27 @@ describe('system invariant runners', () => {
 
     world.discord.failNextGuildMemberLookup(guildId, joinerId, 503)
 
-    await expect(joinLobbyAndMaybeStartMatch({
-      env: {
-        DB: world.env.DB,
-        KV: world.kv,
-        SessionDO: world.env.SessionDO,
-        DISCORD_TOKEN: world.env.DISCORD_TOKEN,
-        CIVUP_SECRET: world.env.CIVUP_SECRET,
-      },
-    }, '1v1', [{
-      playerId: joinerId,
-      displayName: joinerId,
-      avatarUrl: '',
-    }])).rejects.toThrow('Discord fetch guild member failed: 503')
+    await expect(
+      joinLobbyAndMaybeStartMatch(
+        {
+          env: {
+            DB: world.env.DB,
+            KV: world.kv,
+            SessionDO: world.env.SessionDO,
+            DISCORD_TOKEN: world.env.DISCORD_TOKEN,
+            CIVUP_SECRET: world.env.CIVUP_SECRET,
+          },
+        },
+        '1v1',
+        [
+          {
+            playerId: joinerId,
+            displayName: joinerId,
+            avatarUrl: '',
+          },
+        ],
+      ),
+    ).rejects.toThrow('Discord fetch guild member failed: 503')
 
     await expectLobbyState(world, {
       lobbyId: lobby.id,
@@ -78,14 +90,16 @@ describe('system invariant runners', () => {
       tier4: '22222222222222222',
     })
     world.discord.setGuildRoles(guildId, [
-      { id: '11111111111111111', name: 'Bronze', color: 0xAA5500 },
-      { id: '22222222222222222', name: 'Silver', color: 0xCCCCCC },
+      { id: '11111111111111111', name: 'Bronze', color: 0xaa5500 },
+      { id: '22222222222222222', name: 'Silver', color: 0xcccccc },
     ])
 
     const config = await getRankedRoleConfig(world.kv, guildId)
     world.discord.failNextGuildRolesLookup(guildId, 502)
 
-    await expect(resolveRankedRoleVisuals(world.env.DISCORD_TOKEN!, guildId, config)).rejects.toThrow('Discord fetch guild roles failed: 502')
+    await expect(resolveRankedRoleVisuals(world.env.DISCORD_TOKEN!, guildId, config)).rejects.toThrow(
+      'Discord fetch guild roles failed: 502',
+    )
 
     const visuals = await resolveRankedRoleVisuals(world.env.DISCORD_TOKEN!, guildId, config)
     expect(visuals).toEqual([

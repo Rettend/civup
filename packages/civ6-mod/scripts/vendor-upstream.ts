@@ -14,7 +14,9 @@ if (!process.argv[2] && !process.env.CIV_BLITZ_UPSTREAM) {
 const git = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd: sourceRoot, stdout: 'pipe', stderr: 'pipe' })
 const [gitExitCode, sourceCommit] = await Promise.all([git.exited, new Response(git.stdout).text()])
 if (gitExitCode !== 0 || sourceCommit.trim() !== EXPECTED_COMMIT) {
-  throw new Error(`Expected Civ Blitz commit ${EXPECTED_COMMIT}; found ${sourceCommit.trim() || 'an unreadable checkout'}.`)
+  throw new Error(
+    `Expected Civ Blitz commit ${EXPECTED_COMMIT}; found ${sourceCommit.trim() || 'an unreadable checkout'}.`,
+  )
 }
 
 const resources = [
@@ -52,14 +54,17 @@ for (const resource of resources) {
   await copyFile(resolve(sourceRoot, 'src/main/resources', resource), destination)
 }
 
-await Bun.write(resolve(vendorRoot, 'UPSTREAM.txt'), [
-  'Civ Blitz',
-  'https://github.com/rossturner/civ-blitz',
-  `Commit: ${EXPECTED_COMMIT}`,
-  '',
-  'These are the minimum source resources used to reproduce @civup/civ6-mod data.',
-  '',
-].join('\n'))
+await Bun.write(
+  resolve(vendorRoot, 'UPSTREAM.txt'),
+  [
+    'Civ Blitz',
+    'https://github.com/rossturner/civ-blitz',
+    `Commit: ${EXPECTED_COMMIT}`,
+    '',
+    'These are the minimum source resources used to reproduce @civup/civ6-mod data.',
+    '',
+  ].join('\n'),
+)
 
 const license = await readFile(resolve(vendorRoot, 'LICENSE.txt'), 'utf8')
 if (!license.includes('Copyright (c) 2021 Rocket Jump Technology')) {
