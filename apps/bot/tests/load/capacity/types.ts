@@ -1,5 +1,5 @@
-import type { GameMode } from '@civup/game'
 import type { CapacityModel, DailyUsage, MetricBreakpoint } from './model.ts'
+import type { GameMode } from '@civup/game'
 
 export type UsageSample = DailyUsage
 

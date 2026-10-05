@@ -1,11 +1,27 @@
-import { matches, matchParticipants, players, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq, isNull } from 'drizzle-orm'
-import { findBlockingDraftMatchIdsForPlayers, findReportableMatchIdsForPlayers, joinLobbyAndMaybeStartMatch, preflightMatchCreateSessionState, resolveReportableMatchIdForPlayer } from '../../src/commands/match/shared.ts'
+import { matches, matchParticipants, players, sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import {
+  findBlockingDraftMatchIdsForPlayers,
+  findReportableMatchIdsForPlayers,
+  joinLobbyAndMaybeStartMatch,
+  preflightMatchCreateSessionState,
+  resolveReportableMatchIdForPlayer,
+} from '../../src/commands/match/shared.ts'
 import { hostKey } from '../../src/services/lobby/keys.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import {
+  buildTestLobbyEnv,
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  setLobbyLastActivityAt,
+  setLobbyMaxRole,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
+  setLobbySlots,
+} from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
@@ -40,18 +56,25 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'guest',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }])
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'guest',
+          displayName: 'Guest',
+          avatarUrl: '',
+        },
+      ],
+    )
 
     expect('error' in result).toBe(true)
     if (!('error' in result)) return
@@ -79,21 +102,29 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'guest',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-      skipMatchmakingRankGate: true,
-    })
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'guest',
+          displayName: 'Guest',
+          avatarUrl: '',
+        },
+      ],
+      {
+        preferredLobbyId: lobby.id,
+        skipMatchmakingRankGate: true,
+      },
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -123,18 +154,25 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'titan',
-      displayName: 'Titan',
-      avatarUrl: '',
-    }])
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'titan',
+          displayName: 'Titan',
+          avatarUrl: '',
+        },
+      ],
+    )
 
     expect('error' in result).toBe(true)
     if (!('error' in result)) return
@@ -163,21 +201,29 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       tier2: GLADIATOR_ROLE_ID,
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'titan',
-      displayName: 'Titan',
-      avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-      skipMatchmakingRankGate: true,
-    })
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'titan',
+          displayName: 'Titan',
+          avatarUrl: '',
+        },
+      ],
+      {
+        preferredLobbyId: lobby.id,
+        skipMatchmakingRankGate: true,
+      },
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -204,13 +250,19 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'guest',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }])
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'guest',
+          displayName: 'Guest',
+          avatarUrl: '',
+        },
+      ],
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -231,19 +283,26 @@ describe('joinLobbyAndMaybeStartMatch', () => {
       messageId: 'message-source',
       queueEntries: sourceEntries,
     })
-    const sourceWithGuest = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby, { queueEntries: sourceEntries })
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest', null, null], sourceWithGuest ?? sourceLobby, { queueEntries: sourceEntries })
+    const sourceWithGuest = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby, {
+      queueEntries: sourceEntries,
+    })
+    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest', null, null], sourceWithGuest ?? sourceLobby, {
+      queueEntries: sourceEntries,
+    })
 
     const targetLobby = await createLobby(kv, {
       mode: '2v2',
       hostId: 'target-host',
       channelId: 'channel-target',
       messageId: 'message-target',
-      queueEntries: [{ playerId: 'target-host', displayName: 'Target Host', avatarUrl: null, joinedAt: Date.now() + 2 }],
+      queueEntries: [
+        { playerId: 'target-host', displayName: 'Target Host', avatarUrl: null, joinedAt: Date.now() + 2 },
+      ],
     })
     const runtime = getExistingTestLobbyRuntime(kv)
     const staleAt = Date.now() - SESSION_DIRECTORY_OPEN_STALE_MS - 1
-    await runtime.db.update(sessionDirectory)
+    await runtime.db
+      .update(sessionDirectory)
       .set({ updatedAt: staleAt, lastActivityAt: staleAt })
       .where(eq(sessionDirectory.sessionId, sourceLobby.id))
 
@@ -251,17 +310,23 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     console.warn = () => {}
     let result: Awaited<ReturnType<typeof joinLobbyAndMaybeStartMatch>>
     try {
-      result = await joinLobbyAndMaybeStartMatch({
-        env: buildTestLobbyEnv(kv),
-      }, '2v2', [{
-        playerId: 'guest',
-        displayName: 'Guest',
-        avatarUrl: '',
-      }], {
-        preferredLobbyId: targetLobby.id,
-      })
-    }
-    finally {
+      result = await joinLobbyAndMaybeStartMatch(
+        {
+          env: buildTestLobbyEnv(kv),
+        },
+        '2v2',
+        [
+          {
+            playerId: 'guest',
+            displayName: 'Guest',
+            avatarUrl: '',
+          },
+        ],
+        {
+          preferredLobbyId: targetLobby.id,
+        },
+      )
+    } finally {
       console.warn = originalConsoleWarn
     }
 
@@ -271,9 +336,15 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     expect(result!.lobby.id).toBe(targetLobby.id)
     expect(result!.lobby.memberPlayerIds).toContain('guest')
 
-    const [sourceDirectory] = await runtime.db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, sourceLobby.id)).limit(1)
+    const [sourceDirectory] = await runtime.db
+      .select()
+      .from(sessionDirectory)
+      .where(eq(sessionDirectory.sessionId, sourceLobby.id))
+      .limit(1)
     expect(sourceDirectory).toMatchObject({ phase: 'cancelled' })
-    expect(await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(2)
+    expect(
+      await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt)),
+    ).toHaveLength(2)
   })
 
   test('joins a queued player into the canonical roster despite old slot residue', async () => {
@@ -302,15 +373,22 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-    })
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'player-1',
+          displayName: 'Player 1',
+          avatarUrl: '',
+        },
+      ],
+      {
+        preferredLobbyId: lobby.id,
+      },
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -351,15 +429,22 @@ describe('joinLobbyAndMaybeStartMatch', () => {
 
     globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: '',
-    }], {
-      preferredLobbyId: lobby.id,
-    })
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'player-2',
+          displayName: 'Player 2',
+          avatarUrl: '',
+        },
+      ],
+      {
+        preferredLobbyId: lobby.id,
+      },
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -405,17 +490,24 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const populatedLobby = await setLobbyMemberPlayerIds(kv, crowdedLobby.id, ['host', 'ally', 'enemy'], crowdedLobby)
     await setLobbySlots(kv, crowdedLobby.id, ['host', 'ally', 'enemy', null], populatedLobby ?? crowdedLobby)
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'player-1',
-      displayName: 'Player 1',
-      avatarUrl: '',
-    }, {
-      playerId: 'player-2',
-      displayName: 'Player 2',
-      avatarUrl: '',
-    }])
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'player-1',
+          displayName: 'Player 1',
+          avatarUrl: '',
+        },
+        {
+          playerId: 'player-2',
+          displayName: 'Player 2',
+          avatarUrl: '',
+        },
+      ],
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -461,20 +553,28 @@ describe('joinLobbyAndMaybeStartMatch', () => {
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'guest'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['source-host', 'guest', null, null], populatedSource ?? sourceLobby)
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ id: 'message-1' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ id: 'message-1' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
-    const result = await joinLobbyAndMaybeStartMatch({
-      env: buildTestLobbyEnv(kv),
-    }, '2v2', [{
-      playerId: 'guest',
-      displayName: 'Guest',
-      avatarUrl: '',
-    }], {
-      preferredLobbyId: targetLobby.id,
-    })
+    const result = await joinLobbyAndMaybeStartMatch(
+      {
+        env: buildTestLobbyEnv(kv),
+      },
+      '2v2',
+      [
+        {
+          playerId: 'guest',
+          displayName: 'Guest',
+          avatarUrl: '',
+        },
+      ],
+      {
+        preferredLobbyId: targetLobby.id,
+      },
+    )
 
     expect('stage' in result).toBe(true)
     if (!('stage' in result)) return
@@ -552,31 +652,144 @@ describe('match blocker/reportable discovery', () => {
       ])
 
       await db.insert(matches).values([
-        { id: 'draft-1', gameMode: '1v1', status: 'drafting', createdAt: 1, completedAt: null, seasonId: null, draftData: null },
-        { id: 'active-complete-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
-        { id: 'completed-1', gameMode: '1v1', status: 'completed', createdAt: 3, completedAt: 4, seasonId: null, draftData: null },
-        { id: 'active-anomalous-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: null },
+        {
+          id: 'draft-1',
+          gameMode: '1v1',
+          status: 'drafting',
+          createdAt: 1,
+          completedAt: null,
+          seasonId: null,
+          draftData: null,
+        },
+        {
+          id: 'active-complete-1',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 2,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 2 }),
+        },
+        {
+          id: 'completed-1',
+          gameMode: '1v1',
+          status: 'completed',
+          createdAt: 3,
+          completedAt: 4,
+          seasonId: null,
+          draftData: null,
+        },
+        {
+          id: 'active-anomalous-2',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 4,
+          completedAt: null,
+          seasonId: null,
+          draftData: null,
+        },
       ])
 
       await db.insert(matchParticipants).values([
-        { matchId: 'draft-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'draft-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-complete-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-complete-1', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'completed-1', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'completed-1', playerId: 'p3', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-anomalous-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'active-anomalous-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'draft-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'draft-1',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'active-complete-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'active-complete-1',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'completed-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'completed-1',
+          playerId: 'p3',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'active-anomalous-2',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'active-anomalous-2',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       const blockingMatchIdsByPlayer = await findBlockingDraftMatchIdsForPlayers(db, ['p1', 'p2', 'p3'])
 
-      expect(blockingMatchIdsByPlayer).toEqual(new Map([
-        ['p1', 'active-anomalous-2'],
-        ['p2', 'active-anomalous-2'],
-      ]))
-    }
-    finally {
+      expect(blockingMatchIdsByPlayer).toEqual(
+        new Map([
+          ['p1', 'active-anomalous-2'],
+          ['p2', 'active-anomalous-2'],
+        ]),
+      )
+    } finally {
       sqlite.close()
     }
   })
@@ -591,26 +804,107 @@ describe('match blocker/reportable discovery', () => {
       ])
 
       await db.insert(matches).values([
-        { id: 'draft-1', gameMode: '1v1', status: 'drafting', createdAt: 1, completedAt: null, seasonId: null, draftData: null },
-        { id: 'reportable-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
-        { id: 'completed-1', gameMode: '1v1', status: 'completed', createdAt: 3, completedAt: 4, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
-        { id: 'reportable-2', gameMode: '1v1', status: 'active', createdAt: 4, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 4 }) },
+        {
+          id: 'draft-1',
+          gameMode: '1v1',
+          status: 'drafting',
+          createdAt: 1,
+          completedAt: null,
+          seasonId: null,
+          draftData: null,
+        },
+        {
+          id: 'reportable-1',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 2,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 2 }),
+        },
+        {
+          id: 'completed-1',
+          gameMode: '1v1',
+          status: 'completed',
+          createdAt: 3,
+          completedAt: 4,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 2 }),
+        },
+        {
+          id: 'reportable-2',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 4,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 4 }),
+        },
       ])
 
       await db.insert(matchParticipants).values([
-        { matchId: 'draft-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'reportable-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'completed-1', playerId: 'p1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'reportable-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'reportable-2', playerId: 'p2', team: 1, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'draft-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'reportable-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'completed-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'reportable-2',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'reportable-2',
+          playerId: 'p2',
+          team: 1,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       const reportableMatchIdsByPlayer = await findReportableMatchIdsForPlayers(db, ['p1', 'p2'])
 
       expect(reportableMatchIdsByPlayer.get('p1')).toEqual(['reportable-2', 'reportable-1'])
       expect(reportableMatchIdsByPlayer.get('p2')).toEqual(['reportable-2'])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -621,12 +915,48 @@ describe('match blocker/reportable discovery', () => {
     try {
       await db.insert(players).values([{ id: 'p1', displayName: 'Player 1', avatarUrl: null, createdAt: 1 }])
       await db.insert(matches).values([
-        { id: 'reportable-1', gameMode: '1v1', status: 'active', createdAt: 2, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 2 }) },
-        { id: 'reportable-2', gameMode: '1v1', status: 'active', createdAt: 3, completedAt: null, seasonId: null, draftData: JSON.stringify({ completedAt: 3 }) },
+        {
+          id: 'reportable-1',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 2,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 2 }),
+        },
+        {
+          id: 'reportable-2',
+          gameMode: '1v1',
+          status: 'active',
+          createdAt: 3,
+          completedAt: null,
+          seasonId: null,
+          draftData: JSON.stringify({ completedAt: 3 }),
+        },
       ])
       await db.insert(matchParticipants).values([
-        { matchId: 'reportable-1', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId: 'reportable-2', playerId: 'p1', team: 0, civId: null, placement: null, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId: 'reportable-1',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId: 'reportable-2',
+          playerId: 'p1',
+          team: 0,
+          civId: null,
+          placement: null,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       await expect(resolveReportableMatchIdForPlayer(db, 'p1')).resolves.toEqual({
@@ -637,8 +967,7 @@ describe('match blocker/reportable discovery', () => {
         matchId: 'reportable-1',
         error: null,
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })

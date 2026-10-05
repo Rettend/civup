@@ -1,7 +1,16 @@
-import type { CivBlitzModCivilizationMetadata, CivBlitzModComponentMetadata, CivBlitzModLeaderMetadata } from '../src/catalog-types.ts'
-import { getCivBlitzRegistry } from '@civup/game'
+import type {
+  CivBlitzModCivilizationMetadata,
+  CivBlitzModComponentMetadata,
+  CivBlitzModLeaderMetadata,
+} from '../src/catalog-types.ts'
 import { describe, expect, test } from 'bun:test'
-import { civilizationCatalog, componentCatalog, componentIdsByVersion, leaderCatalog } from '../src/generated/catalog.generated.ts'
+import { getCivBlitzRegistry } from '@civup/game'
+import {
+  civilizationCatalog,
+  componentCatalog,
+  componentIdsByVersion,
+  leaderCatalog,
+} from '../src/generated/catalog.generated.ts'
 
 const components: Readonly<Record<string, CivBlitzModComponentMetadata>> = componentCatalog
 const civilizations: Readonly<Record<string, CivBlitzModCivilizationMetadata>> = civilizationCatalog
@@ -30,14 +39,18 @@ describe('generated CivBlitz mod catalog', () => {
           continue
         }
         if (metadata.category !== component.category) failures.push(`${component.id}: category mismatch`)
-        if (!metadata.civilizationType || !metadata.traitType) failures.push(`${component.id}: missing game identifiers`)
+        if (!metadata.civilizationType || !metadata.traitType)
+          failures.push(`${component.id}: missing game identifiers`)
         if (!civilizations[metadata.civilizationType]) {
           failures.push(`${component.id}: missing civilization metadata`)
         }
         if (!Array.isArray(metadata.playerItemTypes) || !Array.isArray(metadata.grantPlayerItemTypes)) {
           failures.push(`${component.id}: invalid player item metadata`)
         }
-        if ((component.category === 'infrastructure' || component.category === 'unit') && metadata.playerItemTypes.length === 0) {
+        if (
+          (component.category === 'infrastructure' || component.category === 'unit') &&
+          metadata.playerItemTypes.length === 0
+        ) {
           failures.push(`${component.id}: missing player item metadata`)
         }
         if (metadata.grantTraitTypes.length > 0 && metadata.grantPlayerItemTypes.length === 0) {
@@ -52,8 +65,7 @@ describe('generated CivBlitz mod catalog', () => {
           if (typeof metadata.unsupportedReason !== 'string' || metadata.unsupportedReason.length < 30) {
             failures.push(`${component.id}: undocumented rejection`)
           }
-        }
-        else if ('unsupportedReason' in metadata) {
+        } else if ('unsupportedReason' in metadata) {
           failures.push(`${component.id}: unexpectedly rejected`)
         }
       }

@@ -1,7 +1,16 @@
 import type { DraftState } from '@civup/game'
-import { allFactionIds, createDraft, default2v2, default2v2BlindPick, default4v4, getDraftFormat, isDraftError, processDraftInput } from '@civup/game'
 import { createEffect, createRoot, flush, snapshot } from 'solid-js'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import {
+  allFactionIds,
+  createDraft,
+  default2v2,
+  default2v2BlindPick,
+  default4v4,
+  getDraftFormat,
+  isDraftError,
+  processDraftInput,
+} from '@civup/game'
 import {
   canSendPickPreview,
   canSwapLeadersWith,
@@ -61,7 +70,13 @@ function create4v4WaitingState() {
 }
 
 function createRedDeathWaitingState() {
-  return createDraft('draft-store-rd-test', getDraftFormat('2v2', { redDeath: true }), create2v2Seats(), allFactionIds, { dealOptionsSize: 2 })
+  return createDraft(
+    'draft-store-rd-test',
+    getDraftFormat('2v2', { redDeath: true }),
+    create2v2Seats(),
+    allFactionIds,
+    { dealOptionsSize: 2 },
+  )
 }
 
 function createActiveBanState() {
@@ -151,8 +166,7 @@ describe('draft-store helpers', () => {
       syncDraftServerTime(112_000, 100_000)
       flush()
       expect(draftNow(130_000)).toBe(142_000)
-    }
-    finally {
+    } finally {
       resetDraft()
     }
   })
@@ -217,7 +231,13 @@ describe('draft-store helpers', () => {
   })
 
   test('stores preview picks alongside the draft state', () => {
-    const active = resolveDraftState(processDraftInput(createActiveBanState(), { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] }, true))
+    const active = resolveDraftState(
+      processDraftInput(
+        createActiveBanState(),
+        { type: 'BAN', seatIndex: 0, civIds: ['civ-1', 'civ-2', 'civ-3'] },
+        true,
+      ),
+    )
     initDraft(active, 'live', 'a1', 0, null, null, { bans: {}, picks: { 2: ['civ-9', 'civ-10'] } }, null)
 
     flush()
@@ -264,9 +284,18 @@ describe('draft-store helpers', () => {
 
   test('opens the swap window only for completed team drafts with swap state', () => {
     const complete = createCompleteTeamState()
-    initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-      completedSwaps: [],
-    })
+    initDraft(
+      complete,
+      'live',
+      'a1',
+      0,
+      null,
+      Date.now(),
+      { bans: {}, picks: {} },
+      {
+        completedSwaps: [],
+      },
+    )
 
     flush()
     expect(isSwapWindowOpen()).toBe(true)
@@ -276,9 +305,18 @@ describe('draft-store helpers', () => {
 
   test('opens the swap window for completed red death team drafts with swap state', () => {
     const complete = createCompleteRedDeathTeamState()
-    initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-      completedSwaps: [],
-    })
+    initDraft(
+      complete,
+      'live',
+      'a1',
+      0,
+      null,
+      Date.now(),
+      { bans: {}, picks: {} },
+      {
+        completedSwaps: [],
+      },
+    )
 
     flush()
     expect(isSwapWindowOpen()).toBe(true)
@@ -288,9 +326,18 @@ describe('draft-store helpers', () => {
 
   test('does not allow swapping with yourself or across teams', () => {
     const complete = createCompleteTeamState()
-    initDraft(complete, 'live', 'a1', 2, null, Date.now(), { bans: {}, picks: {} }, {
-      completedSwaps: [],
-    })
+    initDraft(
+      complete,
+      'live',
+      'a1',
+      2,
+      null,
+      Date.now(),
+      { bans: {}, picks: {} },
+      {
+        completedSwaps: [],
+      },
+    )
 
     flush()
     expect(canSwapLeadersWith(2)).toBe(false)
@@ -302,9 +349,18 @@ describe('draft-store helpers', () => {
     const complete = createComplete4v4State()
     const now = Date.now()
 
-    initDraft(complete, 'live', 'a2', 2, null, now, { bans: {}, picks: {} }, {
-      completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
-    })
+    initDraft(
+      complete,
+      'live',
+      'a2',
+      2,
+      null,
+      now,
+      { bans: {}, picks: {} },
+      {
+        completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
+      },
+    )
 
     flush()
     expect(canSwapLeadersWith(4)).toBe(true)
@@ -315,28 +371,47 @@ describe('draft-store helpers', () => {
     const complete = createCompleteTeamState()
     const swapped: DraftState = {
       ...complete,
-      picks: complete.picks.map((pick) => {
-        if (pick.seatIndex === 0) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 2)!.civId }
-        if (pick.seatIndex === 2) return { ...pick, civId: complete.picks.find(current => current.seatIndex === 0)!.civId }
+      picks: complete.picks.map(pick => {
+        if (pick.seatIndex === 0)
+          return { ...pick, civId: complete.picks.find(current => current.seatIndex === 2)!.civId }
+        if (pick.seatIndex === 2)
+          return { ...pick, civId: complete.picks.find(current => current.seatIndex === 0)!.civId }
         return pick
       }),
     }
 
     try {
-      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-        completedSwaps: [],
-      })
+      initDraft(
+        complete,
+        'live',
+        'a1',
+        0,
+        null,
+        Date.now(),
+        { bans: {}, picks: {} },
+        {
+          completedSwaps: [],
+        },
+      )
 
-      updateDraft(swapped, 'live', 'a1', [], null, Date.now(), { bans: {}, picks: {} }, {
-        completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
-      })
+      updateDraft(
+        swapped,
+        'live',
+        'a1',
+        [],
+        null,
+        Date.now(),
+        { bans: {}, picks: {} },
+        {
+          completedSwaps: [{ fromSeat: 0, toSeat: 2 }],
+        },
+      )
 
       flush()
       expect(seatJustSwapped(0)).toBe(true)
       expect(seatJustSwapped(2)).toBe(true)
       expect(canSwapLeadersWith(2)).toBe(true)
-    }
-    finally {
+    } finally {
       resetDraft()
     }
   })
@@ -345,9 +420,18 @@ describe('draft-store helpers', () => {
     const complete = createCompleteTeamState()
 
     try {
-      initDraft(complete, 'live', 'a1', 0, null, Date.now(), { bans: {}, picks: {} }, {
-        completedSwaps: [],
-      })
+      initDraft(
+        complete,
+        'live',
+        'a1',
+        0,
+        null,
+        Date.now(),
+        { bans: {}, picks: {} },
+        {
+          completedSwaps: [],
+        },
+      )
       flush()
       expect(isSwapWindowOpen()).toBe(true)
       expect(canSwapLeadersWith(2)).toBe(true)
@@ -359,14 +443,19 @@ describe('draft-store helpers', () => {
       expect(canSwapLeadersWith(2)).toBe(false)
       expect(seatJustSwapped(0)).toBe(false)
       expect(seatJustSwapped(2)).toBe(false)
-    }
-    finally {
+    } finally {
       resetDraft()
     }
   })
 
   test('applies each server snapshot atomically and replaces optimistic picks', () => {
-    const seen: { status: string | undefined, host: string | null, timer: number | null, previews: string[], optimistic: string | null }[] = []
+    const seen: {
+      status: string | undefined
+      host: string | null
+      timer: number | null
+      previews: string[]
+      optimistic: string | null
+    }[] = []
     const dispose = createRoot(stop => {
       createEffect(
         () => ({
@@ -376,7 +465,9 @@ describe('draft-store helpers', () => {
           previews: [...(draftStore.previews.picks[0] ?? [])],
           optimistic: getOptimisticSeatPick(0),
         }),
-        value => { seen.push(value) },
+        value => {
+          seen.push(value)
+        },
       )
       return stop
     })
@@ -389,18 +480,41 @@ describe('draft-store helpers', () => {
       expect(getOptimisticSeatPick(0)).toBe('__blind__')
       seen.length = 0
 
-      updateDraft({ ...active, status: 'complete', picks: [{ seatIndex: 0, civId: 'civ-3', stepIndex: 1 }] }, 'beta', 'a2', [], null, 2_000, { bans: {}, picks: { 0: ['civ-3'] } }, null)
+      updateDraft(
+        { ...active, status: 'complete', picks: [{ seatIndex: 0, civId: 'civ-3', stepIndex: 1 }] },
+        'beta',
+        'a2',
+        [],
+        null,
+        2_000,
+        { bans: {}, picks: { 0: ['civ-3'] } },
+        null,
+      )
       flush()
       expect(seen).toEqual([{ status: 'complete', host: 'a2', timer: null, previews: ['civ-3'], optimistic: null }])
       expect(draftStore.leaderDataVersion).toBe('beta')
       expect(snapshot(draftStore.state)?.picks).toEqual([{ seatIndex: 0, civId: 'civ-3', stepIndex: 1 }])
+    } finally {
+      dispose()
     }
-    finally { dispose() }
   })
 
   test('counts multiple init payloads before a flush and resets every session field', () => {
     initDraft(createWaitingState(), 'live', 'a1', 0, null, null, { bans: {}, picks: {} }, null)
-    initDraft(createCompleteTeamState(), 'beta', 'a2', 2, 1_000, 500, { bans: { 0: ['civ-1'] }, picks: {} }, { completedSwaps: [] }, undefined, 'steam://example', true, true)
+    initDraft(
+      createCompleteTeamState(),
+      'beta',
+      'a2',
+      2,
+      1_000,
+      500,
+      { bans: { 0: ['civ-1'] }, picks: {} },
+      { completedSwaps: [] },
+      undefined,
+      'steam://example',
+      true,
+      true,
+    )
     flush()
     expect(draftStore.initVersion).toBe(2)
     resetDraft()
@@ -421,7 +535,16 @@ describe('draft-store helpers', () => {
     vi.useFakeTimers()
     const complete = createCompleteTeamState()
     initDraft(complete, 'live', 'a1', 0, null, 1_000, { bans: {}, picks: {} }, { completedSwaps: [] })
-    updateDraft({ ...complete, picks: complete.picks.map(pick => Object.assign({}, pick, { civId: `${pick.civId}-swapped` })) }, 'live', 'a1', [], null, 1_000, { bans: {}, picks: {} }, { completedSwaps: [] })
+    updateDraft(
+      { ...complete, picks: complete.picks.map(pick => Object.assign({}, pick, { civId: `${pick.civId}-swapped` })) },
+      'live',
+      'a1',
+      [],
+      null,
+      1_000,
+      { bans: {}, picks: {} },
+      { completedSwaps: [] },
+    )
     flush()
     expect(seatJustSwapped(0)).toBe(true)
     expect(vi.getTimerCount()).toBe(1)

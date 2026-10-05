@@ -6,10 +6,7 @@ export function activityTargetOptionKey(option: Pick<ActivityTargetOption, 'kind
   return `${option.kind}:${option.id}`
 }
 
-export function activityTargetsMatch(
-  left: ActivityTargetDescriptor,
-  right: ActivityTargetDescriptor,
-): boolean {
+export function activityTargetsMatch(left: ActivityTargetDescriptor, right: ActivityTargetDescriptor): boolean {
   return left?.kind === right?.kind && left?.id === right?.id
 }
 
@@ -46,14 +43,19 @@ export function resolveAutoSelectedActivityTarget(input: {
   overviewPinned: boolean
   suppressAutoSelection: boolean
 }): ActivityTargetOption | null {
-  const hasResolvedTarget = input.target != null
-    && input.options.some(option => option.kind === input.target?.kind && option.id === input.target?.id)
+  const hasResolvedTarget =
+    input.target != null &&
+    input.options.some(option => option.kind === input.target?.kind && option.id === input.target?.id)
 
   if (hasResolvedTarget || input.overviewPinned || input.suppressAutoSelection) return null
 
-  return input.options.find(option => (option.isHost || option.isMember) && option.kind === 'match' && option.status === 'drafting')
-    ?? input.options.find(option => (option.isHost || option.isMember) && option.kind === 'lobby')
-    ?? null
+  return (
+    input.options.find(
+      option => (option.isHost || option.isMember) && option.kind === 'match' && option.status === 'drafting',
+    ) ??
+    input.options.find(option => (option.isHost || option.isMember) && option.kind === 'lobby') ??
+    null
+  )
 }
 
 export function resolveMissingLiveTarget(input: {
@@ -62,10 +64,11 @@ export function resolveMissingLiveTarget(input: {
   currentLobbyId: string | null
   hasCurrentLobbySnapshot: boolean
   failedAutoSelectionKeys: ReadonlySet<string>
-}): { kind: 'promote', option: ActivityTargetOption } | { kind: 'hold' } | { kind: 'clear' } {
+}): { kind: 'promote'; option: ActivityTargetOption } | { kind: 'hold' } | { kind: 'clear' } {
   if (input.target?.kind !== 'lobby') return { kind: 'clear' }
 
-  const promotedMatch = input.options.find(option => option.kind === 'match' && option.lobbyId === input.target?.id) ?? null
+  const promotedMatch =
+    input.options.find(option => option.kind === 'match' && option.lobbyId === input.target?.id) ?? null
   if (promotedMatch && !input.failedAutoSelectionKeys.has(activityTargetOptionKey(promotedMatch))) {
     return { kind: 'promote', option: promotedMatch }
   }
@@ -89,7 +92,12 @@ export function shouldReconnectVisibleActivityTarget(input: {
   draftStatus?: string | null
   hasOpenSwapWindow?: boolean
 }): boolean {
-  if (input.connectionStatus === 'connecting' || input.connectionStatus === 'reconnecting' || input.connectionStatus === 'connected') return false
+  if (
+    input.connectionStatus === 'connecting' ||
+    input.connectionStatus === 'reconnecting' ||
+    input.connectionStatus === 'connected'
+  )
+    return false
   if (input.appStatus === 'lobby-waiting') return true
   if (input.appStatus !== 'authenticated') return false
   if (input.draftStatus === 'complete') return input.hasOpenSwapWindow === true
@@ -100,7 +108,7 @@ export function shouldReconnectVisibleActivityTarget(input: {
 export function shouldHoldAuthenticatedDraftStateForSelection(input: {
   nextSelectionKind: 'lobby' | 'match' | null
   hasInFlightConnection: boolean
-  draftState: { status?: string, cancelReason?: string | null } | null | undefined
+  draftState: { status?: string; cancelReason?: string | null } | null | undefined
 }): boolean {
   if (input.hasInFlightConnection) return true
   if (!input.draftState) return false
@@ -110,17 +118,17 @@ export function shouldHoldAuthenticatedDraftStateForSelection(input: {
   }
 
   if (
-    input.nextSelectionKind == null
-    && input.draftState.status === 'cancelled'
-    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+    input.nextSelectionKind == null &&
+    input.draftState.status === 'cancelled' &&
+    (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
   ) {
     return false
   }
 
   if (
-    input.nextSelectionKind === 'lobby'
-    && input.draftState.status === 'cancelled'
-    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+    input.nextSelectionKind === 'lobby' &&
+    input.draftState.status === 'cancelled' &&
+    (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
   ) {
     return false
   }
@@ -141,10 +149,7 @@ export function shouldApplyActivityLaunchSnapshotRefresh(input: {
 }): boolean {
   if (input.requestVersion !== input.latestRequestVersion) return false
   if (input.requestedChannelId !== input.activeChannelId || input.requestedUserId !== input.activeUserId) return false
-  if (
-    input.hydratedLiveState
-    && input.liveStateRevision !== input.liveStateRevisionAtStart
-  ) {
+  if (input.hydratedLiveState && input.liveStateRevision !== input.liveStateRevisionAtStart) {
     return false
   }
 
@@ -156,14 +161,14 @@ export function getBrokenMatchRefreshKey(input: {
   currentMatchId: string | null
   connectionStatus: string
   connectionCloseReason?: string | null
-  draftState: { matchId?: string, status?: string, cancelReason?: string | null } | null | undefined
+  draftState: { matchId?: string; status?: string; cancelReason?: string | null } | null | undefined
 }): string | null {
   if (input.appStatus !== 'authenticated' || !input.currentMatchId) return null
 
   if (
-    input.draftState?.matchId === input.currentMatchId
-    && input.draftState.status === 'cancelled'
-    && (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
+    input.draftState?.matchId === input.currentMatchId &&
+    input.draftState.status === 'cancelled' &&
+    (input.draftState.cancelReason === 'timeout' || input.draftState.cancelReason === 'revert')
   ) {
     return `${input.currentMatchId}:cancelled:${input.draftState.cancelReason}`
   }

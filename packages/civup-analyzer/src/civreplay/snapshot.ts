@@ -1,14 +1,14 @@
+import type { CivReplayCityStateResolver, CivReplayCityStateRoster } from './city-states.ts'
+import type { CivReplaySnapshotEvent } from './events.ts'
 import type { CivReplayMapSnapshot } from './map.ts'
 import type { CivReplayPlayersSnapshot } from './players.ts'
-import type { CivReplaySnapshotEvent } from './events.ts'
-import type { CivReplayCityStateResolver, CivReplayCityStateRoster } from './city-states.ts'
-import { parseCivReplaySavePackets } from './packet.ts'
-import { parseCivReplayMap } from './map.ts'
-import { parseCivReplayPlayers } from './players.ts'
-import { attachCivReplaySnapshotEvents } from './events.ts'
-import { buildCivReplayCityStateRoster, createCityStateResolver } from './city-states.ts'
 import { parseCiv6SaveMetadata } from '@civup/civ6-save-metadata'
 import { extractSaveFilesFromSourceBytes } from '../save-source.ts'
+import { buildCivReplayCityStateRoster, createCityStateResolver } from './city-states.ts'
+import { attachCivReplaySnapshotEvents } from './events.ts'
+import { parseCivReplayMap } from './map.ts'
+import { parseCivReplaySavePackets } from './packet.ts'
+import { parseCivReplayPlayers } from './players.ts'
 
 export interface AnalyzeCivReplaySnapshotsOptions {
   limit?: number | null
@@ -77,9 +77,14 @@ export interface CivReplaySnapshotSummary {
   mapRandomSeeds: number[]
 }
 
-export function analyzeCivReplaySnapshotsBytes(source: string, bytes: Uint8Array, options: AnalyzeCivReplaySnapshotsOptions = {}): CivReplaySnapshotTimeline {
-  const files = extractSaveFilesFromSourceBytes(source, bytes, { limit: options.limit })
-    .filter(file => options.turn == null || file.turnFromName === options.turn)
+export function analyzeCivReplaySnapshotsBytes(
+  source: string,
+  bytes: Uint8Array,
+  options: AnalyzeCivReplaySnapshotsOptions = {},
+): CivReplaySnapshotTimeline {
+  const files = extractSaveFilesFromSourceBytes(source, bytes, { limit: options.limit }).filter(
+    file => options.turn == null || file.turnFromName === options.turn,
+  )
   const cityStateResolver = options.cityStateResolver ?? createCityStateResolver({ loadDefaultTypesDb: false })
   const snapshots: CivReplayTurnSnapshot[] = []
   const failures: CivReplaySnapshotFailure[] = []
@@ -112,8 +117,7 @@ export function analyzeCivReplaySnapshotsBytes(source: string, bytes: Uint8Array
         events: [],
         timestamp: parsed.timestamp,
       })
-    }
-    catch (error) {
+    } catch (error) {
       const failure = {
         index: file.index,
         saveName: file.saveName,
@@ -139,20 +143,32 @@ export function analyzeCivReplaySnapshotsBytes(source: string, bytes: Uint8Array
   }
 }
 
-function buildSummary(saveCount: number, snapshots: readonly CivReplayTurnSnapshot[], failures: readonly CivReplaySnapshotFailure[]): CivReplaySnapshotSummary {
+function buildSummary(
+  saveCount: number,
+  snapshots: readonly CivReplayTurnSnapshot[],
+  failures: readonly CivReplaySnapshotFailure[],
+): CivReplaySnapshotSummary {
   const turns = snapshots.map(snapshot => snapshot.turnFromName).filter((turn): turn is number => turn != null)
   const sizes = snapshots.map(snapshot => snapshot.stateBlobInflatedSizeBytes)
   const mapWidths = uniqueSorted(snapshots.map(snapshot => snapshot.map.width))
-  const mapHeights = uniqueSorted(snapshots.map(snapshot => snapshot.map.height).filter((height): height is number => height != null))
+  const mapHeights = uniqueSorted(
+    snapshots.map(snapshot => snapshot.map.height).filter((height): height is number => height != null),
+  )
   const tileCounts = uniqueSorted(snapshots.map(snapshot => snapshot.map.tileCount))
   const internalPlayerCounts = uniqueSorted(snapshots.map(snapshot => snapshot.players.internalPlayerCount))
   const cityCounts = uniqueSorted(snapshots.map(snapshot => snapshot.players.cityCount))
   const cityStateCounts = uniqueSorted(snapshots.map(snapshot => snapshot.cityStates.count))
   const cityStateAliveCounts = uniqueSorted(snapshots.map(snapshot => snapshot.cityStates.aliveCount))
   const cityStateScientificCounts = uniqueSorted(snapshots.map(snapshot => snapshot.cityStates.scientificCount))
-  const cityStateScientificAliveCounts = uniqueSorted(snapshots.map(snapshot => snapshot.cityStates.scientificAliveCount))
-  const gameRandomSeeds = uniqueSorted(snapshots.map(snapshot => snapshot.gameRandomSeed).filter((seed): seed is number => seed != null))
-  const mapRandomSeeds = uniqueSorted(snapshots.map(snapshot => snapshot.mapRandomSeed).filter((seed): seed is number => seed != null))
+  const cityStateScientificAliveCounts = uniqueSorted(
+    snapshots.map(snapshot => snapshot.cityStates.scientificAliveCount),
+  )
+  const gameRandomSeeds = uniqueSorted(
+    snapshots.map(snapshot => snapshot.gameRandomSeed).filter((seed): seed is number => seed != null),
+  )
+  const mapRandomSeeds = uniqueSorted(
+    snapshots.map(snapshot => snapshot.mapRandomSeed).filter((seed): seed is number => seed != null),
+  )
   return {
     saveCount,
     parsedCount: snapshots.length,
@@ -177,11 +193,10 @@ function buildSummary(saveCount: number, snapshots: readonly CivReplayTurnSnapsh
 
 function readMajorPlayerIds(bytes: Uint8Array): number[] {
   try {
-    return parseCiv6SaveMetadata(bytes).players
-      .map(player => player.slot)
+    return parseCiv6SaveMetadata(bytes)
+      .players.map(player => player.slot)
       .filter((slot): slot is number => Number.isSafeInteger(slot) && slot >= 0)
-  }
-  catch {
+  } catch {
     return []
   }
 }

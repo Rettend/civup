@@ -41,15 +41,11 @@ function nextRandom() {
 }
 
 function syncClockGlobal() {
-  Date.now = activeClockOwner == null || activeFrozenNow == null
-    ? REAL_DATE_NOW
-    : () => activeFrozenNow!
+  Date.now = activeClockOwner == null || activeFrozenNow == null ? REAL_DATE_NOW : () => activeFrozenNow!
 }
 
 function syncRandomGlobal() {
-  Math.random = activeRandomOwner == null || activeRandomState == null
-    ? REAL_MATH_RANDOM
-    : () => nextRandom()
+  Math.random = activeRandomOwner == null || activeRandomState == null ? REAL_MATH_RANDOM : () => nextRandom()
 }
 
 export function createRuntimeControls(): RuntimeControls {
@@ -64,18 +60,14 @@ export function createRuntimeControls(): RuntimeControls {
         return activeFrozenNow
       },
       advance(ms) {
-        const baseNow = activeClockOwner === owner && activeFrozenNow != null
-          ? activeFrozenNow
-          : REAL_DATE_NOW()
+        const baseNow = activeClockOwner === owner && activeFrozenNow != null ? activeFrozenNow : REAL_DATE_NOW()
         activeClockOwner = owner
         activeFrozenNow = normalizeNow(baseNow + ms)
         syncClockGlobal()
         return activeFrozenNow
       },
       now() {
-        return activeClockOwner === owner && activeFrozenNow != null
-          ? activeFrozenNow
-          : REAL_DATE_NOW()
+        return activeClockOwner === owner && activeFrozenNow != null ? activeFrozenNow : REAL_DATE_NOW()
       },
       reset() {
         if (activeClockOwner !== owner) return
@@ -87,9 +79,7 @@ export function createRuntimeControls(): RuntimeControls {
     random: {
       seed(value) {
         activeRandomOwner = owner
-        activeRandomState = typeof value === 'number'
-          ? (Math.round(value) >>> 0)
-          : hashSeed(value)
+        activeRandomState = typeof value === 'number' ? Math.round(value) >>> 0 : hashSeed(value)
         syncRandomGlobal()
       },
       next() {

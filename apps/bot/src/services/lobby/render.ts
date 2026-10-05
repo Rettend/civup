@@ -1,5 +1,5 @@
-import type { QueueEntry } from '@civup/game'
 import type { LobbyState } from './types.ts'
+import type { QueueEntry } from '@civup/game'
 import { lobbyComponents, lobbyOpenEmbed } from '../../embeds/match.ts'
 import { getConfiguredRankedRoleId, getRankedRoleConfig } from '../ranked/roles.ts'
 
@@ -8,15 +8,26 @@ export async function buildOpenLobbyRenderPayload(
   lobby: LobbyState,
   entries: (QueueEntry | null)[],
   options: { reservedSlotLabels?: (string | null)[] } = {},
-): Promise<{ embeds: [ReturnType<typeof lobbyOpenEmbed>], components: ReturnType<typeof lobbyComponents> }> {
+): Promise<{ embeds: [ReturnType<typeof lobbyOpenEmbed>]; components: ReturnType<typeof lobbyComponents> }> {
   const { minRoleId, maxRoleId } = await resolveLobbyRankRoleIds(kv, lobby)
 
   return {
-    embeds: [lobbyOpenEmbed(lobby.mode, entries, lobby.slots.length, minRoleId, maxRoleId, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, {
-      civBlitz: lobby.draftConfig.civBlitz,
-      closed: lobby.draftConfig.closed === true,
-      reservedSlotLabels: options.reservedSlotLabels,
-    })],
+    embeds: [
+      lobbyOpenEmbed(
+        lobby.mode,
+        entries,
+        lobby.slots.length,
+        minRoleId,
+        maxRoleId,
+        lobby.draftConfig.leaderDataVersion,
+        lobby.draftConfig.redDeath,
+        {
+          civBlitz: lobby.draftConfig.civBlitz,
+          closed: lobby.draftConfig.closed === true,
+          reservedSlotLabels: options.reservedSlotLabels,
+        },
+      ),
+    ],
     components: lobbyComponents(lobby.mode, lobby.id),
   }
 }
@@ -24,7 +35,7 @@ export async function buildOpenLobbyRenderPayload(
 async function resolveLobbyRankRoleIds(
   kv: KVNamespace,
   lobby: LobbyState,
-): Promise<{ minRoleId: string | null, maxRoleId: string | null }> {
+): Promise<{ minRoleId: string | null; maxRoleId: string | null }> {
   if (!lobby.guildId || (!lobby.minRole && !lobby.maxRole)) {
     return { minRoleId: null, maxRoleId: null }
   }

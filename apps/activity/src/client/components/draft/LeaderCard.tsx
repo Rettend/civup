@@ -52,10 +52,7 @@ const TRANSPARENT_SELECTION_SHADOW = [
   '0 0 8px transparent',
 ].join(', ')
 
-export function computeListItemBorderRadius(
-  hasSelection: boolean,
-  ns: LeaderListNeighborState | undefined,
-): string {
+export function computeListItemBorderRadius(hasSelection: boolean, ns: LeaderListNeighborState | undefined): string {
   if (!hasSelection || !ns) return '0.375rem'
 
   const corner = (adjV: boolean, adjH: boolean, hovV: boolean, hovH: boolean) => {
@@ -98,7 +95,10 @@ function useLeaderCardState(props: LeaderCardProps) {
   const isBanned = (): boolean => {
     const current = state()
     if (!current) return false
-    return current.bans.some(ban => ban.civId === props.leader.id) || (current.blindPickBans?.some(ban => ban.civId === props.leader.id) ?? false)
+    return (
+      current.bans.some(ban => ban.civId === props.leader.id) ||
+      (current.blindPickBans?.some(ban => ban.civId === props.leader.id) ?? false)
+    )
   }
   const isPicked = (): boolean => state()?.picks.some(p => p.civId === props.leader.id) ?? false
   const isUnavailable = (): boolean => props.unavailable === true || isDraftCardUnavailable(state(), props.leader.id)
@@ -159,8 +159,7 @@ function useLeaderCardState(props: LeaderCardProps) {
 
     if (s.action === 'ban') {
       toggleBanSelection(props.leader.id, s.count)
-    }
-    else {
+    } else {
       handlePickSelection()
     }
   }
@@ -202,9 +201,11 @@ function useLeaderCardState(props: LeaderCardProps) {
   }
 }
 
-function LeaderCornerBadge(props: { class?: string, children: JSX.Element }) {
+function LeaderCornerBadge(props: { class?: string; children: JSX.Element }) {
   return (
-    <span class={cn('absolute z-10 flex items-center justify-center rounded-full text-center leading-none', props.class)}>
+    <span
+      class={cn('absolute z-10 flex items-center justify-center rounded-full text-center leading-none', props.class)}
+    >
       {props.children}
     </span>
   )
@@ -262,37 +263,34 @@ export function LeaderCard(props: LeaderCardProps) {
 
           // Selected pick
           isSelected() && 'ring-accent shadow-[0_0_10px_var(--accent-muted)]',
-          isSelected() && 'group-hover:ring-accent group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--accent-muted)]',
+          isSelected() &&
+            'group-hover:ring-accent group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--accent-muted)]',
 
           // Selected ban
           isBanSelected() && 'ring-danger shadow-[0_0_10px_var(--danger-muted)]',
-          isBanSelected() && 'group-hover:ring-danger group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--danger-muted)]',
+          isBanSelected() &&
+            'group-hover:ring-danger group-hover:brightness-115 group-hover:shadow-[0_0_14px_var(--danger-muted)]',
         )}
       >
         {/* Portrait */}
         <Show
           when={props.leader.portraitUrl}
-          fallback={(
-            <div class={cn(
-              'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
-              isUnavailable() && 'opacity-25',
-            )}
+          fallback={
+            <div
+              class={cn(
+                'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
+                isUnavailable() && 'opacity-25',
+              )}
             >
-              <span class="text-lg text-accent/40 font-bold">
-                {props.leader.name.slice(0, 1)}
-              </span>
+              <span class="text-lg text-accent/40 font-bold">{props.leader.name.slice(0, 1)}</span>
             </div>
-          )}
+          }
         >
           {url => (
             <img
               src={resolveAssetUrl(url()) ?? url()}
               alt={props.leader.name}
-              class={cn(
-                'h-full w-full object-cover',
-                isBanned() && 'grayscale',
-                isUnavailable() && 'opacity-25',
-              )}
+              class={cn('h-full w-full object-cover', isBanned() && 'grayscale', isUnavailable() && 'opacity-25')}
             />
           )}
         </Show>
@@ -340,7 +338,11 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
       )}
       style={{
         'border-radius': computeListItemBorderRadius(hasSelectionVisual(), props.neighborState),
-        'box-shadow': computeListItemBoxShadow(hasSelectionVisual(), isSelected() ? 'accent' : 'danger', props.neighborState),
+        'box-shadow': computeListItemBoxShadow(
+          hasSelectionVisual(),
+          isSelected() ? 'accent' : 'danger',
+          props.neighborState,
+        ),
       }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
@@ -359,27 +361,22 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
         <div class="rounded-full h-full w-full relative overflow-hidden">
           <Show
             when={props.leader.portraitUrl}
-            fallback={(
-              <div class={cn(
-                'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
-                isUnavailable() && 'opacity-25',
-              )}
+            fallback={
+              <div
+                class={cn(
+                  'bg-bg-subtle flex h-full w-full items-center justify-center rounded-full',
+                  isUnavailable() && 'opacity-25',
+                )}
               >
-                <span class="text-xs text-accent/40 font-bold">
-                  {props.leader.name.slice(0, 1)}
-                </span>
+                <span class="text-xs text-accent/40 font-bold">{props.leader.name.slice(0, 1)}</span>
               </div>
-            )}
+            }
           >
             {url => (
               <img
                 src={resolveAssetUrl(url()) ?? url()}
                 alt={props.leader.name}
-                class={cn(
-                  'h-full w-full object-cover',
-                  isBanned() && 'grayscale',
-                  isUnavailable() && 'opacity-25',
-                )}
+                class={cn('h-full w-full object-cover', isBanned() && 'grayscale', isUnavailable() && 'opacity-25')}
               />
             )}
           </Show>
@@ -392,13 +389,18 @@ export function LeaderListItem(props: LeaderCardProps & { neighborState?: Leader
         </div>
       </div>
 
-      <span class={cn(
-        'text-xs truncate min-w-0 flex-1 transition-colors',
-        isUnavailable() && 'text-fg-subtle/40',
-        isBanSelected() && !isUnavailable() && 'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
-        isSelected() && !isUnavailable() && 'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
-        !hasSelectionVisual() && !isUnavailable() && 'text-fg-muted group-hover:text-fg',
-      )}
+      <span
+        class={cn(
+          'text-xs truncate min-w-0 flex-1 transition-colors',
+          isUnavailable() && 'text-fg-subtle/40',
+          isBanSelected() &&
+            !isUnavailable() &&
+            'text-danger group-hover:text-danger group-hover:drop-shadow-[0_0_4px_var(--danger)]',
+          isSelected() &&
+            !isUnavailable() &&
+            'text-accent group-hover:text-accent group-hover:drop-shadow-[0_0_4px_var(--accent)]',
+          !hasSelectionVisual() && !isUnavailable() && 'text-fg-muted group-hover:text-fg',
+        )}
       >
         {props.leader.name}
       </span>

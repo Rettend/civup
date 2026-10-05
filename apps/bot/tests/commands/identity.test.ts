@@ -27,32 +27,35 @@ describe('command identity', () => {
   })
 
   test('prefers resolved member nickname and guild avatar', () => {
-    const identity = getIdentityByUserId({
-      interaction: {
-        guild_id: 'guild-1',
-        member: {
-          user: { id: 'self', username: 'self', global_name: null, avatar: null },
-        },
-        data: {
-          resolved: {
-            users: {
-              target: {
-                id: 'target',
-                username: 'target-user',
-                global_name: 'Target Global',
-                avatar: 'target-avatar',
+    const identity = getIdentityByUserId(
+      {
+        interaction: {
+          guild_id: 'guild-1',
+          member: {
+            user: { id: 'self', username: 'self', global_name: null, avatar: null },
+          },
+          data: {
+            resolved: {
+              users: {
+                target: {
+                  id: 'target',
+                  username: 'target-user',
+                  global_name: 'Target Global',
+                  avatar: 'target-avatar',
+                },
               },
-            },
-            members: {
-              target: {
-                nick: 'Target Nick',
-                avatar: 'target-member-avatar',
+              members: {
+                target: {
+                  nick: 'Target Nick',
+                  avatar: 'target-member-avatar',
+                },
               },
             },
           },
         },
       },
-    }, 'target')
+      'target',
+    )
 
     expect(identity).toEqual({
       userId: 'target',

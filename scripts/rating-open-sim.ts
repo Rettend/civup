@@ -4,7 +4,15 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { calculateTeamRatings, createRating, DEFAULT_MU, DISPLAY_RATING_BASE, DISPLAY_RATING_SCALE, displayRating, predictWinProbabilities } from '../packages/rating/src/index.ts'
+import {
+  calculateTeamRatings,
+  createRating,
+  DEFAULT_MU,
+  DISPLAY_RATING_BASE,
+  DISPLAY_RATING_SCALE,
+  displayRating,
+  predictWinProbabilities,
+} from '../packages/rating/src/index.ts'
 
 type SimMode = 'duel' | 'duo' | 'squad'
 type SimVariant = 'duel' | 'duo' | 'squad3' | 'squad4'
@@ -35,7 +43,7 @@ interface VariantConfig {
   playerSkillStdDev: number
   hiddenSigma: number
   pairCoordinationBonus: number
-  premadePlan: Array<{ size: 2 | 3 | 4, chance: number }>
+  premadePlan: Array<{ size: 2 | 3 | 4; chance: number }>
 }
 
 interface SimPlayer {
@@ -112,7 +120,7 @@ const DEFAULT_GAMES = 100
 const DEFAULT_REPLICATES = 12
 const DEFAULT_MODES: SimMode[] = ['duel', 'duo', 'squad']
 const LIVE_DISCOUNT_POLICY: ExpectedWinDiscountPolicy = {
-  start: 0.70,
+  start: 0.7,
   floor: 0.05,
   exponent: 1.5,
 }
@@ -168,7 +176,10 @@ const VARIANT_CONFIGS: Record<SimVariant, VariantConfig> = {
     playerSkillStdDev: 135,
     hiddenSigma: 4,
     pairCoordinationBonus: 9,
-    premadePlan: [{ size: 3, chance: 0.12 }, { size: 2, chance: 0.18 }],
+    premadePlan: [
+      { size: 3, chance: 0.12 },
+      { size: 2, chance: 0.18 },
+    ],
   },
   squad4: {
     variant: 'squad4',
@@ -183,7 +194,11 @@ const VARIANT_CONFIGS: Record<SimVariant, VariantConfig> = {
     playerSkillStdDev: 130,
     hiddenSigma: 4,
     pairCoordinationBonus: 8,
-    premadePlan: [{ size: 4, chance: 0.1 }, { size: 3, chance: 0.14 }, { size: 2, chance: 0.18 }],
+    premadePlan: [
+      { size: 4, chance: 0.1 },
+      { size: 3, chance: 0.14 },
+      { size: 2, chance: 0.18 },
+    ],
   },
 }
 
@@ -198,7 +213,9 @@ await mkdir(args.outDir, { recursive: true })
 
 console.log(`[sim] running open-lobby rating population sim`)
 console.log(`[sim] modes=${args.modes.join(', ')} games=${args.games} replicates=${args.replicates} seed=${args.seed}`)
-console.log(`[sim] expected-win taper start=${formatPolicyPercent(args.discountStart)} floor=${formatPolicyPercent(args.discountFloor)} exp=${args.discountExponent}`)
+console.log(
+  `[sim] expected-win taper start=${formatPolicyPercent(args.discountStart)} floor=${formatPolicyPercent(args.discountFloor)} exp=${args.discountExponent}`,
+)
 
 const variantsToRun = expandVariants(args.modes)
 const results: VariantSimulationResult[] = []
@@ -225,8 +242,7 @@ await Bun.write(resolve(args.outDir, 'summary.json'), `${JSON.stringify(payload,
 
 if (args.json) {
   console.log(JSON.stringify(payload, null, 2))
-}
-else {
+} else {
   console.log(markdown)
 }
 
@@ -235,12 +251,8 @@ console.log(`[sim] wrote ${resolve(args.outDir, 'summary.json')}`)
 
 function parseCli(values: string[]): CliOptions {
   const first = values[0]
-  const command = first === 'help'
-    ? 'help'
-    : 'summary'
-  const rest = first === 'summary' || first === 'help'
-    ? values.slice(1)
-    : values
+  const command = first === 'help' ? 'help' : 'summary'
+  const rest = first === 'summary' || first === 'help' ? values.slice(1) : values
   const options = new Map<string, string>()
   let json = false
 
@@ -273,16 +285,18 @@ function parseCli(values: string[]): CliOptions {
 }
 
 function printUsage(): void {
-  console.log([
-    'Usage:',
-    '  bun scripts/rating-open-sim.ts summary [--modes duel,duo,squad] [--games 100] [--replicates 12] [--seed 20260403] [--discount-start 0.70] [--discount-floor 0.05] [--discount-exponent 1.5] [--out-dir tmp/rating-open-sim] [--json]',
-    '  bun scripts/rating-open-sim.ts help',
-    '',
-    'Notes:',
-    '  - Uses open-lobby circles with repeated opponents and optional premades.',
-    '  - Duel, duo, and squad are simulated separately; squad is a 70/30 mix of 3v3 and 4v4 samples.',
-    '  - Default summaries use a 100-game cap per player.',
-  ].join('\n'))
+  console.log(
+    [
+      'Usage:',
+      '  bun scripts/rating-open-sim.ts summary [--modes duel,duo,squad] [--games 100] [--replicates 12] [--seed 20260403] [--discount-start 0.70] [--discount-floor 0.05] [--discount-exponent 1.5] [--out-dir tmp/rating-open-sim] [--json]',
+      '  bun scripts/rating-open-sim.ts help',
+      '',
+      'Notes:',
+      '  - Uses open-lobby circles with repeated opponents and optional premades.',
+      '  - Duel, duo, and squad are simulated separately; squad is a 70/30 mix of 3v3 and 4v4 samples.',
+      '  - Default summaries use a 100-game cap per player.',
+    ].join('\n'),
+  )
 }
 
 function normalizePositiveInteger(value: string | undefined, fallback: number): number {
@@ -314,7 +328,7 @@ function parseModes(value: string | undefined): SimMode[] {
 }
 
 function expandVariants(modes: SimMode[]): SimVariant[] {
-  return modes.flatMap((mode) => {
+  return modes.flatMap(mode => {
     if (mode === 'duel') return ['duel']
     if (mode === 'duo') return ['duo']
     return ['squad3', 'squad4']
@@ -330,7 +344,7 @@ function getReplicateCountForVariant(mode: SimMode, variant: SimVariant, request
 
 function mixSeed(baseSeed: number, variant: SimVariant, replicate: number): number {
   const variantValue = [...variant].reduce((total, char) => total + char.charCodeAt(0), 0)
-  return (baseSeed + (variantValue * 1009) + (replicate * 65537)) >>> 0
+  return (baseSeed + variantValue * 1009 + replicate * 65537) >>> 0
 }
 
 function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: number): VariantSimulationResult {
@@ -342,9 +356,13 @@ function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: nu
 
   for (let playerIndex = 0; playerIndex < config.playerCount; playerIndex++) {
     const circleId = Math.floor(playerIndex / config.circleSize)
-    const circleBaseSkill = circleSkillById.get(circleId) ?? (1000 + sampleNormal(random, 0, config.circleSkillStdDev))
+    const circleBaseSkill = circleSkillById.get(circleId) ?? 1000 + sampleNormal(random, 0, config.circleSkillStdDev)
     circleSkillById.set(circleId, circleBaseSkill)
-    const hiddenDisplay = clamp(Math.round(circleBaseSkill + sampleNormal(random, 0, config.playerSkillStdDev)), 650, 1650)
+    const hiddenDisplay = clamp(
+      Math.round(circleBaseSkill + sampleNormal(random, 0, config.playerSkillStdDev)),
+      650,
+      1650,
+    )
     const playerId = `${config.variant}-p${String(playerIndex + 1).padStart(4, '0')}`
     players.push({
       id: playerId,
@@ -380,15 +398,34 @@ function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: nu
       if (circleId != null) {
         const used = new Set<string>()
         teamA = buildTeam(config, circleId, circlePlayerIds, premades, playerById, used, gamesPerPlayer, random)
-        teamB = teamA ? buildTeam(config, circleId, circlePlayerIds, premades, playerById, used, gamesPerPlayer, random) : null
+        teamB = teamA
+          ? buildTeam(config, circleId, circlePlayerIds, premades, playerById, used, gamesPerPlayer, random)
+          : null
       }
-    }
-    else {
+    } else {
       const circleA = pickCircleId(circlePlayerIds, playerById, gamesPerPlayer, config.teamSize, random)
       const circleB = pickSecondCircleId(circlePlayerIds, playerById, gamesPerPlayer, config.teamSize, circleA, random)
       if (circleA != null && circleB != null) {
-        teamA = buildTeam(config, circleA, circlePlayerIds, premades, playerById, new Set<string>(), gamesPerPlayer, random)
-        teamB = buildTeam(config, circleB, circlePlayerIds, premades, playerById, new Set<string>(), gamesPerPlayer, random)
+        teamA = buildTeam(
+          config,
+          circleA,
+          circlePlayerIds,
+          premades,
+          playerById,
+          new Set<string>(),
+          gamesPerPlayer,
+          random,
+        )
+        teamB = buildTeam(
+          config,
+          circleB,
+          circlePlayerIds,
+          premades,
+          playerById,
+          new Set<string>(),
+          gamesPerPlayer,
+          random,
+        )
       }
     }
 
@@ -398,12 +435,12 @@ function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: nu
       teamB = fallback.teamB
     }
 
-    const teamAVisible = teamA.playerIds.map((playerId) => {
+    const teamAVisible = teamA.playerIds.map(playerId => {
       const player = playerById.get(playerId)
       if (!player) throw new Error(`Missing visible player ${playerId}`)
       return player.visible
     })
-    const teamBVisible = teamB.playerIds.map((playerId) => {
+    const teamBVisible = teamB.playerIds.map(playerId => {
       const player = playerById.get(playerId)
       if (!player) throw new Error(`Missing visible player ${playerId}`)
       return player.visible
@@ -413,28 +450,26 @@ function simulateVariant(config: VariantConfig, gamesPerPlayer: number, seed: nu
       favoriteProbability: Math.max(visibleProbabilities[0] ?? 0.5, visibleProbabilities[1] ?? 0.5),
     })
 
-    const teamAHidden = teamA.playerIds.map((playerId, index) => toHiddenRating(playerById.get(playerId), config, index < teamA.premadeSize))
-    const teamBHidden = teamB.playerIds.map((playerId, index) => toHiddenRating(playerById.get(playerId), config, index < teamB.premadeSize))
+    const teamAHidden = teamA.playerIds.map((playerId, index) =>
+      toHiddenRating(playerById.get(playerId), config, index < teamA.premadeSize),
+    )
+    const teamBHidden = teamB.playerIds.map((playerId, index) =>
+      toHiddenRating(playerById.get(playerId), config, index < teamB.premadeSize),
+    )
     const actualProbabilities = predictWinProbabilities([teamAHidden, teamBHidden])
     const teamAWon = random() < (actualProbabilities[0] ?? 0.5)
 
     const updates = teamAWon
-      ? calculateTeamRatingsForSimulation(
-          [{ players: teamAVisible }, { players: teamBVisible }],
-          {
-            start: args.discountStart,
-            floor: args.discountFloor,
-            exponent: args.discountExponent,
-          },
-        )
-      : calculateTeamRatingsForSimulation(
-          [{ players: teamBVisible }, { players: teamAVisible }],
-          {
-            start: args.discountStart,
-            floor: args.discountFloor,
-            exponent: args.discountExponent,
-          },
-        )
+      ? calculateTeamRatingsForSimulation([{ players: teamAVisible }, { players: teamBVisible }], {
+          start: args.discountStart,
+          floor: args.discountFloor,
+          exponent: args.discountExponent,
+        })
+      : calculateTeamRatingsForSimulation([{ players: teamBVisible }, { players: teamAVisible }], {
+          start: args.discountStart,
+          floor: args.discountFloor,
+          exponent: args.discountExponent,
+        })
     const updateByPlayerId = new Map(updates.map(update => [update.playerId, update]))
 
     for (const playerId of teamA.playerIds) {
@@ -521,7 +556,7 @@ function pickCircleId(
         if (!player || player.gamesPlayed >= gamesPerPlayer) return total
         return total + Math.max(1, gamesPerPlayer - player.gamesPlayed)
       }, 0),
-      available: playerIds.filter((playerId) => {
+      available: playerIds.filter(playerId => {
         const player = playerById.get(playerId)
         return player != null && player.gamesPlayed < gamesPerPlayer
       }).length,
@@ -549,7 +584,7 @@ function pickSecondCircleId(
         if (!player || player.gamesPlayed >= gamesPerPlayer) return total
         return total + Math.max(1, gamesPerPlayer - player.gamesPlayed)
       }, 0),
-      available: playerIds.filter((playerId) => {
+      available: playerIds.filter(playerId => {
         const player = playerById.get(playerId)
         return player != null && player.gamesPlayed < gamesPerPlayer
       }).length,
@@ -570,7 +605,7 @@ function buildTeam(
   gamesPerPlayer: number,
   random: () => number,
 ): TeamSelection | null {
-  const circleCandidates = (circlePlayerIds.get(circleId) ?? []).filter((playerId) => {
+  const circleCandidates = (circlePlayerIds.get(circleId) ?? []).filter(playerId => {
     const player = playerById.get(playerId)
     return player != null && player.gamesPlayed < gamesPerPlayer && !usedIds.has(playerId)
   })
@@ -581,15 +616,16 @@ function buildTeam(
 
   if (config.teamSize > 1 && random() < config.premadeChancePerTeam) {
     const premade = pickWeighted(
-      premades.filter(group =>
-        group.circleId === circleId
-        && group.size <= config.teamSize
-        && group.memberIds.every((playerId) => {
-          const player = playerById.get(playerId)
-          return player != null && player.gamesPlayed < gamesPerPlayer && !usedIds.has(playerId)
-        }),
+      premades.filter(
+        group =>
+          group.circleId === circleId &&
+          group.size <= config.teamSize &&
+          group.memberIds.every(playerId => {
+            const player = playerById.get(playerId)
+            return player != null && player.gamesPlayed < gamesPerPlayer && !usedIds.has(playerId)
+          }),
       ),
-      group => group.size === config.teamSize ? 3 : 1 + group.size,
+      group => (group.size === config.teamSize ? 3 : 1 + group.size),
       random,
     )
     if (premade) {
@@ -602,7 +638,7 @@ function buildTeam(
     const available = circleCandidates.filter(playerId => !teamIds.includes(playerId))
     const picked = pickWeighted(
       available,
-      (playerId) => {
+      playerId => {
         const player = playerById.get(playerId)
         return player ? Math.max(1, gamesPerPlayer - player.gamesPlayed) : 0
       },
@@ -622,7 +658,7 @@ function buildFallbackMatch(
   players: SimPlayer[],
   gamesPerPlayer: number,
   random: () => number,
-): { teamA: TeamSelection, teamB: TeamSelection } {
+): { teamA: TeamSelection; teamB: TeamSelection } {
   const available = players.filter(player => player.gamesPlayed < gamesPerPlayer)
   const picked = pickManyWeighted(
     available,
@@ -649,7 +685,7 @@ function toHiddenRating(player: SimPlayer | undefined, config: VariantConfig, ha
 }
 
 function displayToMu(display: number): number {
-  return DEFAULT_MU + ((display - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE)
+  return DEFAULT_MU + (display - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE
 }
 
 function calculateTeamRatingsForSimulation(
@@ -665,9 +701,9 @@ function calculateTeamRatingsForSimulation(
   if (Math.abs(liveWeight - targetWeight) < 1e-12) return currentUpdates
 
   const scale = targetWeight / liveWeight
-  return currentUpdates.map((update) => {
-    const afterMu = update.before.mu + ((update.after.mu - update.before.mu) * scale)
-    const afterSigma = update.before.sigma + ((update.after.sigma - update.before.sigma) * scale)
+  return currentUpdates.map(update => {
+    const afterMu = update.before.mu + (update.after.mu - update.before.mu) * scale
+    const afterSigma = update.before.sigma + (update.after.sigma - update.before.sigma) * scale
     const displayAfter = displayRating(afterMu, afterSigma)
     return {
       ...update,
@@ -687,7 +723,7 @@ function getExpectedWinWeight(policy: ExpectedWinDiscountPolicy, winnerProbabili
 }
 
 function summarizeModes(results: VariantSimulationResult[], requestedModes: SimMode[]): ModeSummary[] {
-  return requestedModes.map((mode) => {
+  return requestedModes.map(mode => {
     const relevant = results.filter(result => result.config.publicMode === mode)
     const playerSamples = relevant.flatMap(result => result.players)
     const matchStats = relevant.flatMap(result => result.matches)
@@ -696,8 +732,14 @@ function summarizeModes(results: VariantSimulationResult[], requestedModes: SimM
       mode,
       assumptions: summarizeAssumptions(relevant.map(result => result.config)),
       samples: playerSamples.length,
-      gamesP10: percentile(playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right), 0.1),
-      gamesP90: percentile(playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right), 0.9),
+      gamesP10: percentile(
+        playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right),
+        0.1,
+      ),
+      gamesP90: percentile(
+        playerSamples.map(sample => sample.gamesPlayed).sort((left, right) => left - right),
+        0.9,
+      ),
       favorite75PlusShare: share(matchStats, stat => stat.favoriteProbability >= 0.75),
       favorite90PlusShare: share(matchStats, stat => stat.favoriteProbability >= 0.9),
       bands: WIN_RATE_BANDS.map(({ label, low, high }) => {
@@ -721,10 +763,9 @@ function summarizeModes(results: VariantSimulationResult[], requestedModes: SimM
 
 function summarizeAssumptions(configs: VariantConfig[]): string {
   const labels = [...new Set(configs.map(config => config.label))]
-  const premadeSuffix = configs.some(config => config.premadeChancePerTeam > 0)
-    ? ', and optional premades'
-    : ''
-  if (labels.length === 1) return `${labels[0]} open lobbies with repeated circles and cross-circle games${premadeSuffix}`
+  const premadeSuffix = configs.some(config => config.premadeChancePerTeam > 0) ? ', and optional premades' : ''
+  if (labels.length === 1)
+    return `${labels[0]} open lobbies with repeated circles and cross-circle games${premadeSuffix}`
   return `${labels.join(' + ')} open lobbies mixed together with repeated circles and cross-circle games${premadeSuffix}`
 }
 
@@ -757,7 +798,9 @@ function renderMarkdown(modeSummaries: ModeSummary[], options: CliOptions): stri
     lines.push('| Observed win rate over season | Median rating | P10-P90 | Samples |')
     lines.push('| ----------------------------- | ------------- | ------- | ------- |')
     for (const band of summary.bands) {
-      lines.push(`| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`)
+      lines.push(
+        `| ${band.label} | ${formatMaybeRating(band.median)} | ${formatRange(band.p10, band.p90)} | ${band.samples} |`,
+      )
     }
     lines.push('')
   }
@@ -805,13 +848,13 @@ function percentile(values: number[], ratio: number): number | null {
   const mix = index - leftIndex
   const left = values[leftIndex] ?? values[0]!
   const right = values[rightIndex] ?? left
-  return left + ((right - left) * mix)
+  return left + (right - left) * mix
 }
 
 function createLcg(seed: number): () => number {
   let state = seed >>> 0
   return () => {
-    state = ((state * 1664525) + 1013904223) >>> 0
+    state = (state * 1664525 + 1013904223) >>> 0
     return state / 4294967296
   }
 }
@@ -821,7 +864,7 @@ function sampleNormal(random: () => number, mean: number, stdDev: number): numbe
   const u2 = Math.max(1e-12, random())
   const magnitude = Math.sqrt(-2 * Math.log(u1))
   const z0 = magnitude * Math.cos(2 * Math.PI * u2)
-  return mean + (z0 * stdDev)
+  return mean + z0 * stdDev
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -837,11 +880,7 @@ function shuffleInPlace<T>(values: T[], random: () => number): void {
   }
 }
 
-function pickWeighted<T>(
-  values: T[],
-  getWeight: (value: T) => number,
-  random: () => number,
-): T | null {
+function pickWeighted<T>(values: T[], getWeight: (value: T) => number, random: () => number): T | null {
   let totalWeight = 0
   for (const value of values) {
     totalWeight += Math.max(0, getWeight(value))
@@ -857,12 +896,7 @@ function pickWeighted<T>(
   return values.at(-1) ?? null
 }
 
-function pickManyWeighted<T>(
-  values: T[],
-  count: number,
-  getWeight: (value: T) => number,
-  random: () => number,
-): T[] {
+function pickManyWeighted<T>(values: T[], count: number, getWeight: (value: T) => number, random: () => number): T[] {
   const pool = [...values]
   const picked: T[] = []
 

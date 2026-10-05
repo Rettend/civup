@@ -12,7 +12,9 @@ export interface CivReplayCityAttributionContext {
   tileByCoordinate: ReadonlyMap<string, CivReplayMapTileSnapshot>
 }
 
-export function createCivReplayCityAttributionContext(snapshot: CivReplayTurnSnapshot): CivReplayCityAttributionContext {
+export function createCivReplayCityAttributionContext(
+  snapshot: CivReplayTurnSnapshot,
+): CivReplayCityAttributionContext {
   return {
     cityRefs: snapshot.players.players.flatMap(player => player.cities.map(city => ({ player, city }))),
     tileByCoordinate: new Map(snapshot.map.tiles.map(tile => [coordinateKey(tile.x, tile.y), tile])),
@@ -70,8 +72,8 @@ function hexDistance(leftX: number, leftY: number, rightX: number, rightY: numbe
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y), Math.abs(left.z - right.z))
 }
 
-function offsetToCube(x: number, y: number): { x: number, y: number, z: number } {
-  const cubeX = x - ((y - (y & 1)) / 2)
+function offsetToCube(x: number, y: number): { x: number; y: number; z: number } {
+  const cubeX = x - (y - (y & 1)) / 2
   const cubeZ = y
   return { x: cubeX, y: -cubeX - cubeZ, z: cubeZ }
 }

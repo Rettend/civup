@@ -66,21 +66,37 @@ describe('lobby balance summary', () => {
       { playerId: 'b2', displayName: 'B2', balanceRating: { mu: 21, sigma: 2, gamesPlayed: 20 } },
     ])
     const before = buildLobbyBalanceSummary(lobby, 'a1')!
-    const publicLobby = { ...lobby, entries: lobby.entries.map((entry, index) => entry ? { ...entry, balanceRating: {
-      ...entry.balanceRating!, ratingSystem: 'rp' as const, publicRating: index % 2 === 0 ? 750 : 1600,
-    } } : null) }
+    const publicLobby = {
+      ...lobby,
+      entries: lobby.entries.map((entry, index) =>
+        entry
+          ? {
+              ...entry,
+              balanceRating: {
+                ...entry.balanceRating!,
+                ratingSystem: 'rp' as const,
+                publicRating: index % 2 === 0 ? 750 : 1600,
+              },
+            }
+          : null,
+      ),
+    }
     const after = buildLobbyBalanceSummary(publicLobby, 'a1')!
     expect(before.teams[0]!.projectedWinDelta).not.toBeNull()
     expect(after.teams.map(team => team.projectedWinDelta)).toEqual([null, null])
-    expect(after.teams.map(team => [team.probability, team.uncertainty])).toEqual(before.teams.map(team => [team.probability, team.uncertainty]))
+    expect(after.teams.map(team => [team.probability, team.uncertainty])).toEqual(
+      before.teams.map(team => [team.probability, team.uncertainty]),
+    )
   })
   test('calculates expected team winrates and uncertainty from balance ratings', () => {
-    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 22, sigma: 2, gamesPlayed: 18 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 34, sigma: 2, gamesPlayed: 16 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 21, sigma: 2, gamesPlayed: 14 } },
-    ]))
+    const summary = buildLobbyBalanceSummary(
+      createLobbySnapshot([
+        { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 36, sigma: 2, gamesPlayed: 20 } },
+        { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 22, sigma: 2, gamesPlayed: 18 } },
+        { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 34, sigma: 2, gamesPlayed: 16 } },
+        { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 21, sigma: 2, gamesPlayed: 14 } },
+      ]),
+    )
 
     expect(summary).not.toBeNull()
     expect(summary?.teams).toHaveLength(2)
@@ -90,12 +106,15 @@ describe('lobby balance summary', () => {
   })
 
   test('calculates personalized projected Elo deltas for each winning team', () => {
-    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
-    ]), 'a1')
+    const summary = buildLobbyBalanceSummary(
+      createLobbySnapshot([
+        { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+      ]),
+      'a1',
+    )
 
     const teamA = summary?.teams.find(team => team.team === 0)
     const teamB = summary?.teams.find(team => team.team === 1)
@@ -105,12 +124,15 @@ describe('lobby balance summary', () => {
   })
 
   test('omits projected Elo deltas for unseated viewers', () => {
-    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
-    ]), 'spectator')
+    const summary = buildLobbyBalanceSummary(
+      createLobbySnapshot([
+        { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+      ]),
+      'spectator',
+    )
 
     const teamA = summary?.teams.find(team => team.team === 0)
 
@@ -118,33 +140,44 @@ describe('lobby balance summary', () => {
   })
 
   test('widens uncertainty when players have little rating history', () => {
-    const veteranSummary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
-    ]))
-    const newPlayerSummary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 0 } },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 0 } },
-      { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 0 } },
-      { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 0 } },
-    ]))
+    const veteranSummary = buildLobbyBalanceSummary(
+      createLobbySnapshot([
+        { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 20 } },
+        { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 20 } },
+      ]),
+    )
+    const newPlayerSummary = buildLobbyBalanceSummary(
+      createLobbySnapshot([
+        { playerId: 'a1', displayName: 'A1', avatarUrl: null, balanceRating: { mu: 30, sigma: 3, gamesPlayed: 0 } },
+        { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 29, sigma: 3, gamesPlayed: 0 } },
+        { playerId: 'a2', displayName: 'A2', avatarUrl: null, balanceRating: { mu: 28, sigma: 3, gamesPlayed: 0 } },
+        { playerId: 'b2', displayName: 'B2', avatarUrl: null, balanceRating: { mu: 27, sigma: 3, gamesPlayed: 0 } },
+      ]),
+    )
 
     expect(veteranSummary).not.toBeNull()
     expect(newPlayerSummary).not.toBeNull()
     expect(veteranSummary?.teams[0]?.uncertainty ?? 1).toBeLessThan(0.1)
-    expect(newPlayerSummary?.teams[0]?.uncertainty ?? 0).toBeGreaterThan((veteranSummary?.teams[0]?.uncertainty ?? 0) * 2)
+    expect(newPlayerSummary?.teams[0]?.uncertainty ?? 0).toBeGreaterThan(
+      (veteranSummary?.teams[0]?.uncertainty ?? 0) * 2,
+    )
   })
 
   test('falls back to default ratings when balance data is missing', () => {
-    const summary = buildLobbyBalanceSummary(createLobbySnapshot([
-      { playerId: 'a1', displayName: 'A1', avatarUrl: null },
-      { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 30, sigma: 4, gamesPlayed: 12 } },
-    ], {
-      mode: '1v1',
-      targetSize: 2,
-    }))
+    const summary = buildLobbyBalanceSummary(
+      createLobbySnapshot(
+        [
+          { playerId: 'a1', displayName: 'A1', avatarUrl: null },
+          { playerId: 'b1', displayName: 'B1', avatarUrl: null, balanceRating: { mu: 30, sigma: 4, gamesPlayed: 12 } },
+        ],
+        {
+          mode: '1v1',
+          targetSize: 2,
+        },
+      ),
+    )
 
     expect(summary).not.toBeNull()
     expect(summary?.teams).toHaveLength(2)

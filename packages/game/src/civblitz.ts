@@ -7,8 +7,8 @@ import type {
   LeaderDataVersion,
   LeaderUnique,
 } from './types.ts'
-import { CIV_BLITZ_CATEGORIES, LEADER_DATA_VERSIONS } from './types.ts'
 import { getLeaders } from './leader-registry.ts'
+import { CIV_BLITZ_CATEGORIES, LEADER_DATA_VERSIONS } from './types.ts'
 
 export const CIV_BLITZ_DEFAULT_OPTION_COUNT = 4
 export const CIV_BLITZ_MIN_OPTION_COUNT = 2
@@ -53,63 +53,63 @@ const UNDRAFTABLE_CIV_BLITZ_COMPONENT_IDS = new Set([
 ])
 
 const CIVILIZATION_ICON_FILES: Record<string, string> = {
-  America: 'American.png',
-  Arabia: 'Arabian.png',
-  Australia: 'Australian.png',
-  Austria: 'Austria.webp',
-  Aztec: 'Aztec.png',
-  Babylon: 'Babylonian.png',
-  Brazil: 'Brazilian.png',
-  Byzantium: 'Byzantine.png',
-  Canada: 'Canadian.png',
-  China: 'Chinese.png',
-  Cree: 'Cree.png',
-  Egypt: 'Egyptian.png',
-  England: 'English.png',
-  Ethiopia: 'Ethiopian.png',
-  France: 'French.png',
-  Gaul: 'Gallic.png',
-  Georgia: 'Georgian.png',
-  Germany: 'German.png',
-  Goths: 'Goths.webp',
+  'America': 'American.png',
+  'Arabia': 'Arabian.png',
+  'Australia': 'Australian.png',
+  'Austria': 'Austria.webp',
+  'Aztec': 'Aztec.png',
+  'Babylon': 'Babylonian.png',
+  'Brazil': 'Brazilian.png',
+  'Byzantium': 'Byzantine.png',
+  'Canada': 'Canadian.png',
+  'China': 'Chinese.png',
+  'Cree': 'Cree.png',
+  'Egypt': 'Egyptian.png',
+  'England': 'English.png',
+  'Ethiopia': 'Ethiopian.png',
+  'France': 'French.png',
+  'Gaul': 'Gallic.png',
+  'Georgia': 'Georgian.png',
+  'Germany': 'German.png',
+  'Goths': 'Goths.webp',
   'Gran Colombia': 'Gran_Colombian.png',
-  Greece: 'Greek.png',
-  Hungary: 'Hungarian.png',
-  Inca: 'Incan.png',
-  India: 'Indian.png',
-  Indonesia: 'Indonesian.png',
-  Japan: 'Japanese.png',
-  Khmer: 'Khmer.png',
-  Kongo: 'Kongolese.png',
-  Korea: 'Korean.png',
-  Macedon: 'Macedonian.png',
-  Mali: 'Malian.png',
-  Māori: 'Maori.png',
-  Mapuche: 'Mapuche.png',
-  Maya: 'Mayan.png',
-  Mongolia: 'Mongolian.png',
-  Netherlands: 'Dutch.png',
-  Norway: 'Norwegian.png',
-  Nubia: 'Nubian.png',
-  Ottomans: 'Ottoman.png',
-  Persia: 'Persian.png',
-  Phoenicia: 'Phoenician.png',
-  Poland: 'Polish.png',
-  Portugal: 'Portuguese.png',
-  Rome: 'Roman.png',
-  Russia: 'Russian.png',
-  Scotland: 'Scottish.png',
-  Scythia: 'Scythian.png',
-  Spain: 'Spanish.png',
-  Sumeria: 'Sumerian.png',
-  Swahili: 'Swahili.webp',
-  Sweden: 'Swedish.png',
-  Taíno: 'Taino.webp',
-  Teotihuacán: 'Teotihuacan.webp',
-  Thule: 'Thule.webp',
-  Tibet: 'Tibet.webp',
-  Vietnam: 'Vietnamese.png',
-  Zulu: 'Zulu.png',
+  'Greece': 'Greek.png',
+  'Hungary': 'Hungarian.png',
+  'Inca': 'Incan.png',
+  'India': 'Indian.png',
+  'Indonesia': 'Indonesian.png',
+  'Japan': 'Japanese.png',
+  'Khmer': 'Khmer.png',
+  'Kongo': 'Kongolese.png',
+  'Korea': 'Korean.png',
+  'Macedon': 'Macedonian.png',
+  'Mali': 'Malian.png',
+  'Māori': 'Maori.png',
+  'Mapuche': 'Mapuche.png',
+  'Maya': 'Mayan.png',
+  'Mongolia': 'Mongolian.png',
+  'Netherlands': 'Dutch.png',
+  'Norway': 'Norwegian.png',
+  'Nubia': 'Nubian.png',
+  'Ottomans': 'Ottoman.png',
+  'Persia': 'Persian.png',
+  'Phoenicia': 'Phoenician.png',
+  'Poland': 'Polish.png',
+  'Portugal': 'Portuguese.png',
+  'Rome': 'Roman.png',
+  'Russia': 'Russian.png',
+  'Scotland': 'Scottish.png',
+  'Scythia': 'Scythian.png',
+  'Spain': 'Spanish.png',
+  'Sumeria': 'Sumerian.png',
+  'Swahili': 'Swahili.webp',
+  'Sweden': 'Swedish.png',
+  'Taíno': 'Taino.webp',
+  'Teotihuacán': 'Teotihuacan.webp',
+  'Thule': 'Thule.webp',
+  'Tibet': 'Tibet.webp',
+  'Vietnam': 'Vietnamese.png',
+  'Zulu': 'Zulu.png',
 }
 
 export interface CivBlitzRegistry {
@@ -133,9 +133,8 @@ export function getCivBlitzRegistry(
   version: LeaderDataVersion = 'live',
   options: { excludeBbgExpanded?: boolean } = {},
 ): CivBlitzRegistry {
-  const excludedLeaderIds = options.excludeBbgExpanded === false
-    ? new Set<string>()
-    : new Set<string>(BBG_EXPANDED_CIV_BLITZ_SOURCE_LEADER_IDS)
+  const excludedLeaderIds =
+    options.excludeBbgExpanded === false ? new Set<string>() : new Set<string>(BBG_EXPANDED_CIV_BLITZ_SOURCE_LEADER_IDS)
   const leaders = getLeaders(version).filter(leader => !excludedLeaderIds.has(leader.id))
   const components: CivBlitzComponent[] = []
   const componentMap = new Map<string, CivBlitzComponent>()
@@ -209,14 +208,20 @@ export function getCivBlitzComponentIds(
   return CIV_BLITZ_CATEGORIES.flatMap(category => pools[category])
 }
 
-export function getCivBlitzStepCategories(step: Pick<DraftStep, 'civBlitzCategories' | 'civBlitzCategoriesBySeat'>, seatIndex: number): CivBlitzComponentCategory[] {
+export function getCivBlitzStepCategories(
+  step: Pick<DraftStep, 'civBlitzCategories' | 'civBlitzCategoriesBySeat'>,
+  seatIndex: number,
+): CivBlitzComponentCategory[] {
   const seatCategories = step.civBlitzCategoriesBySeat?.[seatIndex]
   if (seatCategories && seatCategories.length > 0) return normalizeCivBlitzCategories(seatCategories)
-  if (step.civBlitzCategories && step.civBlitzCategories.length > 0) return normalizeCivBlitzCategories(step.civBlitzCategories)
+  if (step.civBlitzCategories && step.civBlitzCategories.length > 0)
+    return normalizeCivBlitzCategories(step.civBlitzCategories)
   return [...CIV_BLITZ_CATEGORIES]
 }
 
-export function normalizeCivBlitzCategories(categories: readonly CivBlitzComponentCategory[]): CivBlitzComponentCategory[] {
+export function normalizeCivBlitzCategories(
+  categories: readonly CivBlitzComponentCategory[],
+): CivBlitzComponentCategory[] {
   const seen = new Set<CivBlitzComponentCategory>()
   const normalized: CivBlitzComponentCategory[] = []
   for (const category of categories) {

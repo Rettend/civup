@@ -18,9 +18,14 @@ describe('/admin health checks', () => {
   })
 
   test('warns when optional R2 uploads are disabled', async () => {
-    const results = await runHealthChecks(createEnv({ AUTOSAVE_UPLOADS: undefined }), { fetch: createFetch(), interactionEndpointUrl: ENDPOINT })
+    const results = await runHealthChecks(createEnv({ AUTOSAVE_UPLOADS: undefined }), {
+      fetch: createFetch(),
+      interactionEndpointUrl: ENDPOINT,
+    })
     expect(results.find(result => result.name === 'Saved game uploads')).toEqual({
-      name: 'Saved game uploads', status: 'WARN', reason: 'disabled',
+      name: 'Saved game uploads',
+      status: 'WARN',
+      reason: 'disabled',
     })
   })
 
@@ -28,29 +33,42 @@ describe('/admin health checks', () => {
     const fetchMock = createFetch({ applicationId: '999999999999999999', activityStatus: 503 })
     const results = await runHealthChecks(createEnv(), { fetch: fetchMock, interactionEndpointUrl: ENDPOINT })
     expect(results.find(result => result.name === 'Discord application')).toEqual({
-      name: 'Discord application', status: 'FAIL', reason: 'application ID does not match',
+      name: 'Discord application',
+      status: 'FAIL',
+      reason: 'application ID does not match',
     })
     expect(results.find(result => result.name === 'Activity')).toEqual({
-      name: 'Activity', status: 'FAIL', reason: 'HTTP 503',
+      name: 'Activity',
+      status: 'FAIL',
+      reason: 'HTTP 503',
     })
   })
 
   test('requires a successful Activity origin response', async () => {
     for (const activityStatus of [302, 404]) {
       const results = await runHealthChecks(createEnv(), {
-        fetch: createFetch({ activityStatus }), interactionEndpointUrl: ENDPOINT,
+        fetch: createFetch({ activityStatus }),
+        interactionEndpointUrl: ENDPOINT,
       })
       expect(results.find(result => result.name === 'Activity')).toEqual({
-        name: 'Activity', status: 'FAIL', reason: `HTTP ${activityStatus}`,
+        name: 'Activity',
+        status: 'FAIL',
+        reason: `HTTP ${activityStatus}`,
       })
     }
   })
 
   test('turns slow checks into concise timeout failures', async () => {
     const fetchMock = (() => new Promise<Response>(() => {})) as typeof fetch
-    const results = await runHealthChecks(createEnv(), { fetch: fetchMock, interactionEndpointUrl: ENDPOINT, timeoutMs: 5 })
+    const results = await runHealthChecks(createEnv(), {
+      fetch: fetchMock,
+      interactionEndpointUrl: ENDPOINT,
+      timeoutMs: 5,
+    })
     expect(results.find(result => result.name === 'Discord application')).toEqual({
-      name: 'Discord application', status: 'FAIL', reason: 'timed out',
+      name: 'Discord application',
+      status: 'FAIL',
+      reason: 'timed out',
     })
     expect(results.find(result => result.name === 'D1')?.status).toBe('OK')
   })
@@ -58,37 +76,47 @@ describe('/admin health checks', () => {
   test('validates the optional browser preference role when enabled', async () => {
     const roleId = '333333333333333333'
     const kv = {
-      get: async (key: string, type?: string) => key === 'system:browser-access' && type === 'json'
-        ? { enabled: true, preferenceRoleId: roleId }
-        : null,
+      get: async (key: string, type?: string) =>
+        key === 'system:browser-access' && type === 'json' ? { enabled: true, preferenceRoleId: roleId } : null,
     } as unknown as KVNamespace
     const safeRole = { id: roleId, permissions: '0', managed: false, hoist: false, mentionable: false }
     const healthy = await runHealthChecks(createEnv({ KV: kv }), {
-      fetch: createFetch({ roles: [safeRole] }), interactionEndpointUrl: ENDPOINT,
+      fetch: createFetch({ roles: [safeRole] }),
+      interactionEndpointUrl: ENDPOINT,
     })
     expect(healthy.find(result => result.name === 'Browser Access')?.status).toBe('OK')
 
-    const unsafe = await runHealthChecks(createEnv({ KV: {
-      get: kv.get.bind(kv),
-    } as unknown as KVNamespace }), {
-      fetch: createFetch({ roles: [{ ...safeRole, permissions: '8' }] }), interactionEndpointUrl: ENDPOINT,
-    })
+    const unsafe = await runHealthChecks(
+      createEnv({
+        KV: {
+          get: kv.get.bind(kv),
+        } as unknown as KVNamespace,
+      }),
+      {
+        fetch: createFetch({ roles: [{ ...safeRole, permissions: '8' }] }),
+        interactionEndpointUrl: ENDPOINT,
+      },
+    )
     expect(unsafe.find(result => result.name === 'Browser Access')).toEqual({
-      name: 'Browser Access', status: 'FAIL', reason: 'preference role permissions are unsafe',
+      name: 'Browser Access',
+      status: 'FAIL',
+      reason: 'preference role permissions are unsafe',
     })
   })
 
   test('fails browser health when stored intent is enabled but invalid', async () => {
     const kv = {
-      get: async (key: string, type?: string) => key === 'system:browser-access' && type === 'json'
-        ? { enabled: true, preferenceRoleId: 'not-a-role' }
-        : null,
+      get: async (key: string, type?: string) =>
+        key === 'system:browser-access' && type === 'json' ? { enabled: true, preferenceRoleId: 'not-a-role' } : null,
     } as unknown as KVNamespace
     const results = await runHealthChecks(createEnv({ KV: kv }), {
-      fetch: createFetch(), interactionEndpointUrl: ENDPOINT,
+      fetch: createFetch(),
+      interactionEndpointUrl: ENDPOINT,
     })
     expect(results.find(result => result.name === 'Browser Access')).toEqual({
-      name: 'Browser Access', status: 'FAIL', reason: 'enabled configuration is invalid',
+      name: 'Browser Access',
+      status: 'FAIL',
+      reason: 'enabled configuration is invalid',
     })
   })
 })
@@ -115,7 +143,9 @@ function createEnv(overrides: Partial<Env['Bindings']> = {}): Env['Bindings'] {
   }
 }
 
-function createFetch(options: { applicationId?: string, activityStatus?: number, roles?: unknown[] } = {}): typeof fetch {
+function createFetch(
+  options: { applicationId?: string; activityStatus?: number; roles?: unknown[] } = {},
+): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     const url = new URL(request.url)

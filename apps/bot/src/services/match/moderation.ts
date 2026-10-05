@@ -1,27 +1,74 @@
+import type { DbBatchItem } from '../db/batch.ts'
+import type {
+  CancelMatchInput,
+  CancelMatchResult,
+  CorrectMatchLeadersInput,
+  CorrectMatchLeadersResult,
+  MatchLeaderCorrection,
+  MatchPlayerSubstitution,
+  MatchRow,
+  ParticipantRow,
+  ResolveMatchInput,
+  ResolveMatchResult,
+  SubstituteMatchPlayerInput,
+  SubstituteMatchPlayerResult,
+} from './types.ts'
 import type { Database } from '@civup/db'
 import type { DraftState, LeaderboardMode } from '@civup/game'
-import type { DbBatchItem } from '../db/batch.ts'
-import type { CancelMatchInput, CancelMatchResult, CorrectMatchLeadersInput, CorrectMatchLeadersResult, MatchLeaderCorrection, MatchPlayerSubstitution, MatchRow, ParticipantRow, ResolveMatchInput, ResolveMatchResult, SubstituteMatchPlayerInput, SubstituteMatchPlayerResult } from './types.ts'
-import { matchBans, matches, matchParticipants, playerRatingEvents, players, seasonMatchReports, seasons } from '@civup/db'
-import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
 import { and, eq, sql } from 'drizzle-orm'
-import { claimSessionReport, getSessionRecord, releaseSessionReportClaim, runSessionTerminalLifecycleCommand, substituteActiveSessionPlayer } from '../../session-runtime/session-do-client.ts'
+import {
+  matchBans,
+  matches,
+  matchParticipants,
+  playerRatingEvents,
+  players,
+  seasonMatchReports,
+  seasons,
+} from '@civup/db'
+import { allFactionIds, getLeaderIds, isTeamMode, parseGameMode } from '@civup/game'
+import {
+  claimSessionReport,
+  getSessionRecord,
+  releaseSessionReportClaim,
+  runSessionTerminalLifecycleCommand,
+  substituteActiveSessionPlayer,
+} from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
-import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
-import { reconcilePlayerCivStatMatchContribution, reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
+import {
+  reconcileCivLeaderboardMatchContribution,
+  removeCivLeaderboardMatchContribution,
+} from '../leaderboard/civ-snapshot.ts'
+import {
+  reconcilePlayerCivStatMatchContribution,
+  reconcilePlayerCivStatMatchContributionFromRows,
+  removePlayerCivStatMatchContribution,
+} from '../leaderboard/player-civ-stats.ts'
 import { rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
+import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
-import { isMatchTournamentLinked, syncTournamentMatchAfterCancel, syncTournamentMatchAfterReport } from '../tournament/index.ts'
-import { getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext, isManualReportDraftData } from './draft-data.ts'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
+import { getSeasonMutationError } from '../season/policy.ts'
+import { prepareSeasonReplay } from '../season/replay.ts'
+import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
+import {
+  isMatchTournamentLinked,
+  syncTournamentMatchAfterCancel,
+  syncTournamentMatchAfterReport,
+} from '../tournament/index.ts'
+import {
+  getLeaderDataVersionFromDraftData,
+  getRedDeathFromDraftData,
+  getStoredGameModeContext,
+  isManualReportDraftData,
+} from './draft-data.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { parseModerationPlacements } from './placements.ts'
 import { prepareRatedMatchReplay, recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
-import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
-import { getSeasonMutationError } from '../season/policy.ts'
-import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
-import { prepareSeasonReplay } from '../season/replay.ts'
-import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
-import { finalizeIsolatedSeasonReport, hydrateParticipantRowsForRatingEvents, usesIsolatedSeasonRatings } from './report.ts'
+import {
+  finalizeIsolatedSeasonReport,
+  hydrateParticipantRowsForRatingEvents,
+  usesIsolatedSeasonRatings,
+} from './report.ts'
 
 const MATCH_PARTICIPANT_INSERT_COLUMN_COUNT = 9
 
@@ -38,20 +85,32 @@ interface MatchBanRow {
   phase: number
 }
 
-async function withRatingMutation<T>(db: Database, matchId: string, task: () => Promise<T>): Promise<T | { error: string }> {
+async function withRatingMutation<T>(
+  db: Database,
+  matchId: string,
+  task: () => Promise<T>,
+): Promise<T | { error: string }> {
   return runUnbufferedRatingMutation(db, matchId, task)
 }
 
-export function resolveMatchByModerator(...args: Parameters<typeof resolveMatchByModeratorImpl>): Promise<ResolveMatchResult> {
+export function resolveMatchByModerator(
+  ...args: Parameters<typeof resolveMatchByModeratorImpl>
+): Promise<ResolveMatchResult> {
   return withRatingMutation(args[0], args[2].matchId, () => resolveMatchByModeratorImpl(...args))
 }
-export function cancelMatchByModerator(...args: Parameters<typeof cancelMatchByModeratorImpl>): Promise<CancelMatchResult> {
+export function cancelMatchByModerator(
+  ...args: Parameters<typeof cancelMatchByModeratorImpl>
+): Promise<CancelMatchResult> {
   return withRatingMutation(args[0], args[2].matchId, () => cancelMatchByModeratorImpl(...args))
 }
-export function correctMatchLeadersByModerator(...args: Parameters<typeof correctMatchLeadersByModeratorImpl>): Promise<CorrectMatchLeadersResult> {
+export function correctMatchLeadersByModerator(
+  ...args: Parameters<typeof correctMatchLeadersByModeratorImpl>
+): Promise<CorrectMatchLeadersResult> {
   return withRatingMutation(args[0], args[1].matchId, () => correctMatchLeadersByModeratorImpl(...args))
 }
-export function substituteMatchPlayerByModerator(...args: Parameters<typeof substituteMatchPlayerByModeratorImpl>): Promise<SubstituteMatchPlayerResult> {
+export function substituteMatchPlayerByModerator(
+  ...args: Parameters<typeof substituteMatchPlayerByModeratorImpl>
+): Promise<SubstituteMatchPlayerResult> {
   return withRatingMutation(args[0], args[2].matchId, () => substituteMatchPlayerByModeratorImpl(...args))
 }
 
@@ -61,23 +120,23 @@ async function resolveMatchByModeratorImpl(
   input: ResolveMatchInput,
   options: MatchSessionLifecycleOptions = {},
 ): Promise<ResolveMatchResult> {
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
   if (match.status === 'drafting') {
     return { error: `Match **${input.matchId}** is still drafting and cannot be resolved yet.` }
   }
-  const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'first-report' : 'correction', Date.now(), null, true)
+  const seasonError = await getSeasonMutationError(
+    db,
+    match,
+    match.status === 'active' ? 'first-report' : 'correction',
+    Date.now(),
+    null,
+    true,
+  )
   if (seasonError) return { error: seasonError }
 
-  const participants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
@@ -90,59 +149,134 @@ async function resolveMatchByModeratorImpl(
   const sessionValidationError = await validateReportableSession(db, options, input.matchId)
   if (sessionValidationError) return { error: sessionValidationError }
 
-  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants, { permanentAlly: gameContext.permanentAlly })
+  const parsedPlacements = parseModerationPlacements(gameContext.mode, input.placements, participants, {
+    permanentAlly: gameContext.permanentAlly,
+  })
   if ('error' in parsedPlacements) return parsedPlacements
 
   const leaderboardMode = gameContext.leaderboardMode
-  if (leaderboardMode && !tournamentLinked && match.seasonId && await usesIsolatedSeasonRatings(db, match.seasonId)) {
-    const [priorReport] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id)).limit(1)
+  if (leaderboardMode && !tournamentLinked && match.seasonId && (await usesIsolatedSeasonRatings(db, match.seasonId))) {
+    const [priorReport] = await db
+      .select()
+      .from(seasonMatchReports)
+      .where(eq(seasonMatchReports.matchId, match.id))
+      .limit(1)
     const restoring = priorReport?.cancelledAt != null
     if ((match.status === 'active' || match.status === 'cancelled') && !restoring) {
       // Cancelled sessions reject participant report claims. Moderator resolution
       // uses the guarded first-report transaction and terminal lifecycle command.
-      const claim = options.sessionNamespace && match.status === 'active' ? await claimSessionReport(options.sessionNamespace, match.id, { matchId: match.id }) : null
+      const claim =
+        options.sessionNamespace && match.status === 'active'
+          ? await claimSessionReport(options.sessionNamespace, match.id, { matchId: match.id })
+          : null
       if (claim && !claim.claimed) return { error: 'The match already has a report in progress or has been reported.' }
       try {
-        const [current] = await db.select({ draftData: matches.draftData }).from(matches).where(eq(matches.id, match.id))
-        if (!current || current.draftData !== match.draftData) return { error: 'The match roster changed. Review the players and resolve again.' }
-        const [savedReport] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id)).limit(1)
+        const [current] = await db
+          .select({ draftData: matches.draftData })
+          .from(matches)
+          .where(eq(matches.id, match.id))
+        if (!current || current.draftData !== match.draftData)
+          return { error: 'The match roster changed. Review the players and resolve again.' }
+        const [savedReport] = await db
+          .select()
+          .from(seasonMatchReports)
+          .where(eq(seasonMatchReports.matchId, match.id))
+          .limit(1)
         if (savedReport) {
           const reported = await finalizeIsolatedSeasonReport(db, match, participants, null, options)
           if ('error' in reported) return reported
-          return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: [], historicalSeason: reported.historicalSeason }
+          return {
+            match: reported.match,
+            participants: reported.participants,
+            previousStatus,
+            recalculatedMatchIds: [],
+            historicalSeason: reported.historicalSeason,
+          }
         }
-        const corrected = participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! }))
-        await runAtomicSeasonBatch(db, corrected.map(row => db.update(matchParticipants).set({ placement: row.placement }).where(and(eq(matchParticipants.matchId, row.matchId), eq(matchParticipants.playerId, row.playerId)))))
-        const reported = await finalizeIsolatedSeasonReport(db, match, corrected, null, { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() }, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, corrected.map(row => row.playerId)), match.status === 'cancelled')
+        const corrected = participants.map(row => ({
+          ...row,
+          placement: parsedPlacements.placementsByPlayer.get(row.playerId)!,
+        }))
+        await runAtomicSeasonBatch(
+          db,
+          corrected.map(row =>
+            db
+              .update(matchParticipants)
+              .set({ placement: row.placement })
+              .where(and(eq(matchParticipants.matchId, row.matchId), eq(matchParticipants.playerId, row.playerId))),
+          ),
+        )
+        const reported = await finalizeIsolatedSeasonReport(
+          db,
+          match,
+          corrected,
+          null,
+          { ...options, acceptedAt: claim?.claim.acceptedAt ?? Date.now() },
+          await loadMatchOpponentTiers(
+            db,
+            kv,
+            options.rankedRoleGuildId,
+            corrected.map(row => row.playerId),
+          ),
+          match.status === 'cancelled',
+        )
         if ('error' in reported) return reported
-        return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: [match.id], historicalSeason: reported.historicalSeason }
+        return {
+          match: reported.match,
+          participants: reported.participants,
+          previousStatus,
+          recalculatedMatchIds: [match.id],
+          historicalSeason: reported.historicalSeason,
+        }
+      } finally {
+        if (claim?.claimed) await releaseSessionReportClaim(options.sessionNamespace, claim.claim.matchId, claim.claim)
       }
-      finally { if (claim?.claimed) await releaseSessionReportClaim(options.sessionNamespace, claim.claim.matchId, claim.claim) }
     }
     try {
-      const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, restore: restoring, participants: participants.map(row => ({ ...row, placement: parsedPlacements.placementsByPlayer.get(row.playerId)! })) }, input.resolvedAt)
+      const replay = await prepareSeasonReplay(
+        db,
+        match.seasonId,
+        {
+          matchId: match.id,
+          restore: restoring,
+          participants: participants.map(row => ({
+            ...row,
+            placement: parsedPlacements.placementsByPlayer.get(row.playerId)!,
+          })),
+        },
+        input.resolvedAt,
+      )
       await runAtomicSeasonBatch(db, replay.queries)
-      const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
+      const updatedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, match.id))
       if (restoring) {
         const reported = await finalizeIsolatedSeasonReport(db, match, updatedParticipants, null, options)
         if ('error' in reported) return reported
         await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
-        return { match: reported.match, participants: reported.participants, previousStatus, recalculatedMatchIds: replay.matchIds }
+        return {
+          match: reported.match,
+          participants: reported.participants,
+          previousStatus,
+          recalculatedMatchIds: replay.matchIds,
+        }
       }
       await reconcileCivLeaderboardMatchContribution(db, match.id)
       await reconcilePlayerCivStatMatchContributionFromRows(db, match, updatedParticipants)
       await rebuildLeaderboardModeSnapshot(db, kv, leaderboardMode)
-      return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, updatedParticipants), previousStatus, recalculatedMatchIds: replay.matchIds }
-    }
-    catch (error) {
+      return {
+        match,
+        participants: await hydrateParticipantRowsForRatingEvents(db, match, updatedParticipants),
+        previousStatus,
+        recalculatedMatchIds: replay.matchIds,
+      }
+    } catch (error) {
       console.error(`Failed to correct season result for ${match.id}:`, error)
       return { error: 'Could not confirm the result change. Check the match before trying again.' }
     }
   }
-  const originalBans = await db
-    .select()
-    .from(matchBans)
-    .where(eq(matchBans.matchId, input.matchId))
+  const originalBans = await db.select().from(matchBans).where(eq(matchBans.matchId, input.matchId))
 
   const applyQueries: DbBatchItem[] = []
   for (const participant of participants) {
@@ -152,36 +286,35 @@ async function resolveMatchByModeratorImpl(
     applyQueries.push(
       db
         .update(matchParticipants)
-        .set(tournamentLinked
-          ? {
-              placement,
-              ratingBeforeMu: null,
-              ratingBeforeSigma: null,
-              ratingAfterMu: null,
-              ratingAfterSigma: null,
-            }
-          : { placement })
-        .where(
-          and(
-            eq(matchParticipants.matchId, input.matchId),
-            eq(matchParticipants.playerId, participant.playerId),
-          ),
-        ),
+        .set(
+          tournamentLinked
+            ? {
+                placement,
+                ratingBeforeMu: null,
+                ratingBeforeSigma: null,
+                ratingAfterMu: null,
+                ratingAfterSigma: null,
+              }
+            : { placement },
+        )
+        .where(and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, participant.playerId))),
     )
   }
 
   let recalculatedMatchIds: string[] = []
   if (leaderboardMode == null || tournamentLinked) {
     await runDbBatch(db, applyQueries)
-    const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+    const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, {
+      type: 'mark-reported',
+      at: input.resolvedAt,
+    })
     if (lifecycleError) {
       const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, input.matchId, participants)
       if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
       return { error: lifecycleError }
     }
     if (tournamentLinked) await syncTournamentMatchAfterReport(db, input.matchId)
-  }
-  else {
+  } else {
     try {
       await runDbBatch(db, applyQueries)
       if (previousStatus === 'completed') {
@@ -219,13 +352,17 @@ async function resolveMatchByModeratorImpl(
           leaderboardMode,
           rankedRoleGuildId: options.rankedRoleGuildId,
         })
-        if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
+        if (rollbackError)
+          return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
         return recalculatedGlobal
       }
 
       recalculatedMatchIds = recalculated.matchIds
 
-      const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'mark-reported', at: input.resolvedAt })
+      const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, {
+        type: 'mark-reported',
+        at: input.resolvedAt,
+      })
       if (lifecycleError) {
         const rollbackError = await rollbackResolvedMatchAfterLifecycleFailure(db, kv, options, {
           input,
@@ -238,8 +375,7 @@ async function resolveMatchByModeratorImpl(
         if (rollbackError) return { error: `${lifecycleError} Automatic rollback also failed: ${rollbackError}` }
         return { error: lifecycleError }
       }
-    }
-    catch (error) {
+    } catch (error) {
       const rollbackError = await rollbackResolvedMatchModeration(db, kv, {
         input,
         match,
@@ -255,11 +391,7 @@ async function resolveMatchByModeratorImpl(
     }
   }
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
   if (!updatedMatch) return { error: `Match **${input.matchId}** not found after resolving.` }
 
   const updatedParticipants = await db
@@ -270,8 +402,7 @@ async function resolveMatchByModeratorImpl(
   if (tournamentLinked) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
     await removePlayerCivStatMatchContribution(db, input.matchId)
-  }
-  else {
+  } else {
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
   }
@@ -288,14 +419,11 @@ async function correctMatchLeadersByModeratorImpl(
   db: Database,
   input: CorrectMatchLeadersInput,
 ): Promise<CorrectMatchLeadersResult> {
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
-  if (match.status !== 'completed') return { error: `Match **${input.matchId}** must be reported before leaders can be corrected.` }
+  if (match.status !== 'completed')
+    return { error: `Match **${input.matchId}** must be reported before leaders can be corrected.` }
   const seasonError = await getSeasonMutationError(db, match, 'correction', Date.now(), null, true)
   if (seasonError) return { error: seasonError }
 
@@ -303,10 +431,7 @@ async function correctMatchLeadersByModeratorImpl(
   const hasSwapWith = typeof input.swapWithPlayerId === 'string' && input.swapWithPlayerId.trim().length > 0
   if (hasLeader === hasSwapWith) return { error: 'Provide exactly one of `leader` or `swap_with`.' }
 
-  const participants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
@@ -316,20 +441,24 @@ async function correctMatchLeadersByModeratorImpl(
   const corrections: MatchLeaderCorrection[] = []
   if (hasLeader) {
     const leaderId = input.leaderId!.trim()
-    const validCivIds = new Set(getRedDeathFromDraftData(match.draftData) ? allFactionIds : getLeaderIds(getLeaderDataVersionFromDraftData(match.draftData)))
+    const validCivIds = new Set(
+      getRedDeathFromDraftData(match.draftData)
+        ? allFactionIds
+        : getLeaderIds(getLeaderDataVersionFromDraftData(match.draftData)),
+    )
     if (!validCivIds.has(leaderId)) return { error: `Unknown leader: **${leaderId}**.` }
     corrections.push({
       playerId: participant.playerId,
       previousCivId: participant.civId,
       nextCivId: leaderId,
     })
-  }
-  else {
+  } else {
     const swapWithPlayerId = input.swapWithPlayerId!.trim()
     if (swapWithPlayerId === participant.playerId) return { error: '`swap_with` must be a different participant.' }
     const swapParticipant = participants.find(candidate => candidate.playerId === swapWithPlayerId)
     if (!swapParticipant) return { error: `<@${swapWithPlayerId}> is not a participant in match **${input.matchId}**.` }
-    if (!participant.civId || !swapParticipant.civId) return { error: 'Both participants must already have leaders to swap.' }
+    if (!participant.civId || !swapParticipant.civId)
+      return { error: 'Both participants must already have leaders to swap.' }
     corrections.push(
       { playerId: participant.playerId, previousCivId: participant.civId, nextCivId: swapParticipant.civId },
       { playerId: swapParticipant.playerId, previousCivId: swapParticipant.civId, nextCivId: participant.civId },
@@ -339,38 +468,37 @@ async function correctMatchLeadersByModeratorImpl(
   const applyQueries: DbBatchItem[] = []
   for (const correction of corrections) {
     if (correction.previousCivId === correction.nextCivId) continue
-    applyQueries.push(db
-      .update(matchParticipants)
-      .set({ civId: correction.nextCivId })
-      .where(and(
-        eq(matchParticipants.matchId, input.matchId),
-        eq(matchParticipants.playerId, correction.playerId),
-      )))
+    applyQueries.push(
+      db
+        .update(matchParticipants)
+        .set({ civId: correction.nextCivId })
+        .where(and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, correction.playerId))),
+    )
   }
 
   const nextDraftData = applyLeaderCorrectionsToDraftData(match.draftData, match.gameMode, participants, corrections)
   if (nextDraftData !== match.draftData) {
-    applyQueries.push(db
-      .update(matches)
-      .set({ draftData: nextDraftData })
-      .where(eq(matches.id, input.matchId)))
+    applyQueries.push(db.update(matches).set({ draftData: nextDraftData }).where(eq(matches.id, input.matchId)))
   }
 
-  if (match.seasonId && await usesIsolatedSeasonRatings(db, match.seasonId)) {
+  if (match.seasonId && (await usesIsolatedSeasonRatings(db, match.seasonId))) {
     await runAtomicSeasonBatch(db, [
-      seasonSourceGuard(db, sql`exists(select 1 from ${seasons} where ${seasons.id} = ${match.seasonId} and ${seasons.active} = 1 and ${seasons.endsAt} is null and ${seasons.finalizedAt} is null)
-        and exists(select 1 from ${matches} where ${matches.id} = ${match.id} and ${matches.status} = 'completed' and ${matches.draftData} is ${match.draftData})`),
-      ...participants.map(row => seasonSourceGuard(db, sql`exists(select 1 from ${matchParticipants} where ${matchParticipants.matchId} = ${match.id} and ${matchParticipants.playerId} = ${row.playerId} and ${matchParticipants.civId} is ${row.civId})`)),
+      seasonSourceGuard(
+        db,
+        sql`exists(select 1 from ${seasons} where ${seasons.id} = ${match.seasonId} and ${seasons.active} = 1 and ${seasons.endsAt} is null and ${seasons.finalizedAt} is null)
+        and exists(select 1 from ${matches} where ${matches.id} = ${match.id} and ${matches.status} = 'completed' and ${matches.draftData} is ${match.draftData})`,
+      ),
+      ...participants.map(row =>
+        seasonSourceGuard(
+          db,
+          sql`exists(select 1 from ${matchParticipants} where ${matchParticipants.matchId} = ${match.id} and ${matchParticipants.playerId} = ${row.playerId} and ${matchParticipants.civId} is ${row.civId})`,
+        ),
+      ),
       ...applyQueries,
     ])
-  }
-  else await runDbBatch(db, applyQueries)
+  } else await runDbBatch(db, applyQueries)
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
   if (!updatedMatch) return { error: `Match **${input.matchId}** not found after correcting leaders.` }
 
   const updatedParticipants = await db
@@ -381,8 +509,7 @@ async function correctMatchLeadersByModeratorImpl(
   if (await isMatchTournamentLinked(db, input.matchId)) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
     await removePlayerCivStatMatchContribution(db, input.matchId)
-  }
-  else {
+  } else {
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
   }
@@ -412,11 +539,7 @@ async function substituteMatchPlayerByModeratorImpl(
   if (!subPlayer.playerId) return { error: 'Provide a substitute player.' }
   if (playerId === subPlayer.playerId) return { error: '`sub` must be a different player.' }
 
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
   if (match.status !== 'active' && match.status !== 'completed') {
@@ -429,10 +552,7 @@ async function substituteMatchPlayerByModeratorImpl(
   const seasonError = await getSeasonMutationError(db, match, 'correction', Date.now(), null, true)
   if (seasonError) return { error: seasonError }
 
-  const participants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
   const participant = participants.find(candidate => candidate.playerId === playerId)
@@ -450,35 +570,58 @@ async function substituteMatchPlayerByModeratorImpl(
 
   const substitutions = buildPlayerSubstitutionSummaries(draftSubstitution, participantRows.rows)
   const nextBanRows = buildMatchBanRowsFromDraftState(draftSubstitution.nextState)
-  const originalBans = await db
-    .select()
-    .from(matchBans)
-    .where(eq(matchBans.matchId, input.matchId))
+  const originalBans = await db.select().from(matchBans).where(eq(matchBans.matchId, input.matchId))
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
   const gameContext = getStoredGameModeContext(match.gameMode, draftSubstitution.nextDraftData)
   if (!gameContext) return { error: `Match **${input.matchId}** has unsupported game mode: ${match.gameMode}.` }
 
-  if (!tournamentLinked && match.seasonId && gameContext.leaderboardMode && await usesIsolatedSeasonRatings(db, match.seasonId)) {
+  if (
+    !tournamentLinked &&
+    match.seasonId &&
+    gameContext.leaderboardMode &&
+    (await usesIsolatedSeasonRatings(db, match.seasonId))
+  ) {
     if (match.status !== 'completed') return { error: 'Players cannot be replaced in this match right now.' }
     try {
-      const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, participants: participantRows.rows }, input.correctedAt)
+      const replay = await prepareSeasonReplay(
+        db,
+        match.seasonId,
+        { matchId: match.id, participants: participantRows.rows },
+        input.correctedAt,
+      )
       await runAtomicSeasonBatch(db, [
-        db.insert(players).values({ id: subPlayer.playerId, displayName: subPlayer.displayName, avatarUrl: subPlayer.avatarUrl, createdAt: input.correctedAt }).onConflictDoNothing(),
+        db
+          .insert(players)
+          .values({
+            id: subPlayer.playerId,
+            displayName: subPlayer.displayName,
+            avatarUrl: subPlayer.avatarUrl,
+            createdAt: input.correctedAt,
+          })
+          .onConflictDoNothing(),
         ...replay.queries,
         db.delete(matchBans).where(eq(matchBans.matchId, match.id)),
         ...nextBanRows.map(row => db.insert(matchBans).values(row)),
         db.update(matches).set({ draftData: draftSubstitution.nextDraftData }).where(eq(matches.id, match.id)),
       ])
       const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id))
-      const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
+      const updatedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, match.id))
       if (match.status === 'completed') {
         await reconcileCivLeaderboardMatchContribution(db, match.id)
         await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch!, updatedParticipants)
         await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
       }
-      return { match: updatedMatch!, participants: updatedParticipants, previousStatus: match.status, recalculatedMatchIds: replay.matchIds, substitutions }
-    }
-    catch (error) {
+      return {
+        match: updatedMatch!,
+        participants: updatedParticipants,
+        previousStatus: match.status,
+        recalculatedMatchIds: replay.matchIds,
+        substitutions,
+      }
+    } catch (error) {
       console.error(`Failed to substitute player in season match ${match.id}:`, error)
       return { error: 'Could not confirm the player change. Check the player list before trying again.' }
     }
@@ -487,10 +630,7 @@ async function substituteMatchPlayerByModeratorImpl(
   await upsertSubstitutePlayer(db, subPlayer, input.correctedAt)
   await replaceMatchParticipantRows(db, input.matchId, participantRows.rows)
   await replaceMatchBanRows(db, input.matchId, nextBanRows)
-  await db
-    .update(matches)
-    .set({ draftData: draftSubstitution.nextDraftData })
-    .where(eq(matches.id, input.matchId))
+  await db.update(matches).set({ draftData: draftSubstitution.nextDraftData }).where(eq(matches.id, input.matchId))
 
   let recalculatedMatchIds: string[] = []
   const extraAffectedPlayerIds = draftSubstitution.removedPlayerIds
@@ -507,7 +647,10 @@ async function substituteMatchPlayerByModeratorImpl(
         bans: originalBans,
         leaderboardMode: gameContext.leaderboardMode,
         rankedRoleGuildId: options.rankedRoleGuildId,
-        extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
+        extraAffectedPlayerIds: substitutions.flatMap(substitution => [
+          substitution.previousPlayerId,
+          substitution.nextPlayerId,
+        ]),
         tournamentLinked,
       })
       if (rollbackError) return { error: `${recalculated.error} Automatic rollback also failed: ${rollbackError}` }
@@ -527,10 +670,14 @@ async function substituteMatchPlayerByModeratorImpl(
         bans: originalBans,
         leaderboardMode: gameContext.leaderboardMode,
         rankedRoleGuildId: options.rankedRoleGuildId,
-        extraAffectedPlayerIds: substitutions.flatMap(substitution => [substitution.previousPlayerId, substitution.nextPlayerId]),
+        extraAffectedPlayerIds: substitutions.flatMap(substitution => [
+          substitution.previousPlayerId,
+          substitution.nextPlayerId,
+        ]),
         tournamentLinked,
       })
-      if (rollbackError) return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
+      if (rollbackError)
+        return { error: `${recalculatedGlobal.error} Automatic rollback also failed: ${rollbackError}` }
       return recalculatedGlobal
     }
 
@@ -538,11 +685,7 @@ async function substituteMatchPlayerByModeratorImpl(
     recalculatedMatchIds = recalculated.matchIds
   }
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
   if (!updatedMatch) return { error: `Match **${input.matchId}** not found after substituting player.` }
 
   const updatedParticipants = await db
@@ -553,8 +696,7 @@ async function substituteMatchPlayerByModeratorImpl(
   if (tournamentLinked) {
     await removeCivLeaderboardMatchContribution(db, input.matchId)
     await removePlayerCivStatMatchContribution(db, input.matchId)
-  }
-  else {
+  } else {
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContribution(db, input.matchId)
   }
@@ -598,8 +740,7 @@ async function rollbackResolvedMatchModeration(
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -614,19 +755,23 @@ async function rollbackResolvedMatchRows(
   },
 ): Promise<string | null> {
   try {
-    const rollbackQueries: DbBatchItem[] = options.participants.map(participant => db
-      .update(matchParticipants)
-      .set({
-        placement: participant.placement,
-        ratingBeforeMu: participant.ratingBeforeMu,
-        ratingBeforeSigma: participant.ratingBeforeSigma,
-        ratingAfterMu: participant.ratingAfterMu,
-        ratingAfterSigma: participant.ratingAfterSigma,
-      })
-      .where(and(
-        eq(matchParticipants.matchId, options.input.matchId),
-        eq(matchParticipants.playerId, participant.playerId),
-      )))
+    const rollbackQueries: DbBatchItem[] = options.participants.map(participant =>
+      db
+        .update(matchParticipants)
+        .set({
+          placement: participant.placement,
+          ratingBeforeMu: participant.ratingBeforeMu,
+          ratingBeforeSigma: participant.ratingBeforeSigma,
+          ratingAfterMu: participant.ratingAfterMu,
+          ratingAfterSigma: participant.ratingAfterSigma,
+        })
+        .where(
+          and(
+            eq(matchParticipants.matchId, options.input.matchId),
+            eq(matchParticipants.playerId, participant.playerId),
+          ),
+        ),
+    )
 
     rollbackQueries.push(
       db
@@ -645,8 +790,7 @@ async function rollbackResolvedMatchRows(
     await reconcileCivLeaderboardMatchContribution(db, options.input.matchId)
     await reconcilePlayerCivStatMatchContribution(db, options.input.matchId)
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -657,7 +801,7 @@ async function rollbackResolvedMatchAfterLifecycleFailure(
   options: MatchSessionLifecycleOptions,
   rollbackOptions: Parameters<typeof rollbackResolvedMatchModeration>[2],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, rollbackOptions.input.matchId)) return null
+  if (!(await shouldRollbackPreparedReportedMatch(options, rollbackOptions.input.matchId))) return null
   return rollbackResolvedMatchModeration(db, kv, rollbackOptions)
 }
 
@@ -667,36 +811,39 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
   matchId: string,
   participants: ParticipantRow[],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
+  if (!(await shouldRollbackPreparedReportedMatch(options, matchId))) return null
   try {
-    await runDbBatch(db, participants.map(participant => db
-      .update(matchParticipants)
-      .set({
-        placement: participant.placement,
-        ratingBeforeMu: participant.ratingBeforeMu,
-        ratingBeforeSigma: participant.ratingBeforeSigma,
-        ratingAfterMu: participant.ratingAfterMu,
-        ratingAfterSigma: participant.ratingAfterSigma,
-      })
-      .where(and(
-        eq(matchParticipants.matchId, matchId),
-        eq(matchParticipants.playerId, participant.playerId),
-      ))))
+    await runDbBatch(
+      db,
+      participants.map(participant =>
+        db
+          .update(matchParticipants)
+          .set({
+            placement: participant.placement,
+            ratingBeforeMu: participant.ratingBeforeMu,
+            ratingBeforeSigma: participant.ratingBeforeSigma,
+            ratingAfterMu: participant.ratingAfterMu,
+            ratingAfterSigma: participant.ratingAfterSigma,
+          })
+          .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId))),
+      ),
+    )
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
 
-async function shouldRollbackPreparedReportedMatch(options: MatchSessionLifecycleOptions, matchId: string): Promise<boolean> {
+async function shouldRollbackPreparedReportedMatch(
+  options: MatchSessionLifecycleOptions,
+  matchId: string,
+): Promise<boolean> {
   if (!options.sessionNamespace) return false
   try {
     const record = await getSessionRecord(options.sessionNamespace, matchId)
     if (!record) return false
     return record.phase === 'active' || record.phase === 'swap' || record.phase === 'cancelled'
-  }
-  catch {
+  } catch {
     return false
   }
 }
@@ -712,8 +859,7 @@ function applyLeaderCorrectionsToDraftData(
   let parsed: unknown
   try {
     parsed = JSON.parse(draftData)
-  }
-  catch {
+  } catch {
     return draftData
   }
 
@@ -762,8 +908,7 @@ function applyLeaderCorrectionsToDraftData(
       }
       teamPickOffsets.set(team, offset + 1)
     }
-  }
-  else {
+  } else {
     const pickBySeat = new Map(nextState.picks.map(pick => [pick.seatIndex, pick]))
     nextState.seats.forEach((seat, seatIndex) => {
       const nextLeaderId = nextLeaderByPlayer.get(seat.playerId)
@@ -805,8 +950,7 @@ export function buildDraftPlayerSubstitution(
   let parsed: unknown
   try {
     parsed = JSON.parse(draftData)
-  }
-  catch {
+  } catch {
     return { error: `Match **${input.matchId}** has invalid stored draft data.` }
   }
 
@@ -826,7 +970,8 @@ export function buildDraftPlayerSubstitution(
   }
 
   const sourceSeatIndex = draftState.seats.findIndex(seat => seat.playerId === input.playerId)
-  if (sourceSeatIndex < 0) return { error: `<@${input.playerId}> is not in the stored draft for match **${input.matchId}**.` }
+  if (sourceSeatIndex < 0)
+    return { error: `<@${input.playerId}> is not in the stored draft for match **${input.matchId}**.` }
 
   const subSeatIndex = draftState.seats.findIndex(seat => seat.playerId === input.subPlayer.playerId)
   if (subSeatIndex === sourceSeatIndex) return { error: '`sub` must be a different player.' }
@@ -841,8 +986,7 @@ export function buildDraftPlayerSubstitution(
     nextSeats[sourceSeatIndex] = withSeatPlayer(sourceSeat, subSeat)
     nextSeats[subSeatIndex] = withSeatPlayer(subSeat, sourceSeat)
     changedSeatIndexes.push(subSeatIndex)
-  }
-  else {
+  } else {
     nextSeats[sourceSeatIndex] = withSeatPlayer(sourceSeat, input.subPlayer)
     removedPlayerIds.push(input.playerId)
   }
@@ -885,7 +1029,8 @@ export function buildSubstitutedParticipantRows(
 
   const participantByPlayerId = new Map<string, ParticipantRow>()
   for (const participant of participants) {
-    if (participantByPlayerId.has(participant.playerId)) return { error: `<@${participant.playerId}> appears in match **${matchId}** more than once.` }
+    if (participantByPlayerId.has(participant.playerId))
+      return { error: `<@${participant.playerId}> appears in match **${matchId}** more than once.` }
     participantByPlayerId.set(participant.playerId, participant)
   }
 
@@ -894,7 +1039,8 @@ export function buildSubstitutedParticipantRows(
     const previousSeat = substitution.previousState.seats[seatIndex]!
     const nextSeat = substitution.nextState.seats[seatIndex]!
     const participant = participantByPlayerId.get(previousSeat.playerId)
-    if (!participant) return { error: `<@${previousSeat.playerId}> is in the stored draft but is missing from match participants.` }
+    if (!participant)
+      return { error: `<@${previousSeat.playerId}> is in the stored draft but is missing from match participants.` }
 
     rows.push({
       matchId,
@@ -910,7 +1056,8 @@ export function buildSubstitutedParticipantRows(
   }
 
   const duplicatePlayerId = findDuplicateParticipantPlayerId(rows)
-  if (duplicatePlayerId) return { error: `<@${duplicatePlayerId}> would appear in match **${matchId}** more than once.` }
+  if (duplicatePlayerId)
+    return { error: `<@${duplicatePlayerId}> would appear in match **${matchId}** more than once.` }
 
   return { rows }
 }
@@ -920,7 +1067,7 @@ export function buildPlayerSubstitutionSummaries(
   rows: ParticipantRow[],
 ): MatchPlayerSubstitution[] {
   const uniqueSeatIndexes = [...new Set(substitution.changedSeatIndexes)]
-  return uniqueSeatIndexes.map((seatIndex) => {
+  return uniqueSeatIndexes.map(seatIndex => {
     const previousSeat = substitution.previousState.seats[seatIndex]!
     const nextSeat = substitution.nextState.seats[seatIndex]!
     const row = rows[seatIndex]!
@@ -937,7 +1084,7 @@ export function buildPlayerSubstitutionSummaries(
 
 export function buildMatchBanRowsFromDraftState(state: DraftState): MatchBanRow[] {
   return state.bans
-    .map((ban) => {
+    .map(ban => {
       const seat = state.seats[ban.seatIndex]
       if (!seat) return null
       return {
@@ -980,12 +1127,9 @@ function findDuplicateParticipantPlayerId(participants: ParticipantRow[]): strin
   return null
 }
 
-async function upsertSubstitutePlayer(
-  db: Database,
-  player: SubstitutePlayerIdentity,
-  at: number,
-): Promise<void> {
-  await db.insert(players)
+async function upsertSubstitutePlayer(db: Database, player: SubstitutePlayerIdentity, at: number): Promise<void> {
+  await db
+    .insert(players)
     .values({
       id: player.playerId,
       displayName: player.displayName,
@@ -1001,22 +1145,17 @@ async function upsertSubstitutePlayer(
     })
 }
 
-async function replaceMatchParticipantRows(
-  db: Database,
-  matchId: string,
-  rows: ParticipantRow[],
-): Promise<void> {
+async function replaceMatchParticipantRows(db: Database, matchId: string, rows: ParticipantRow[]): Promise<void> {
   await db.delete(matchParticipants).where(eq(matchParticipants.matchId, matchId))
-  for (const chunk of splitValuesForD1InsertLimit(rows.map(toParticipantInsertRow), MATCH_PARTICIPANT_INSERT_COLUMN_COUNT)) {
+  for (const chunk of splitValuesForD1InsertLimit(
+    rows.map(toParticipantInsertRow),
+    MATCH_PARTICIPANT_INSERT_COLUMN_COUNT,
+  )) {
     await db.insert(matchParticipants).values(chunk)
   }
 }
 
-async function replaceMatchBanRows(
-  db: Database,
-  matchId: string,
-  rows: MatchBanRow[],
-): Promise<void> {
+async function replaceMatchBanRows(db: Database, matchId: string, rows: MatchBanRow[]): Promise<void> {
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
   for (const chunk of splitValuesForD1InsertLimit(rows, 4)) {
     await db.insert(matchBans).values(chunk)
@@ -1051,10 +1190,7 @@ async function rollbackMatchPlayerSubstitution(
   },
 ): Promise<string | null> {
   try {
-    await db
-      .update(matches)
-      .set({ draftData: options.match.draftData })
-      .where(eq(matches.id, options.match.id))
+    await db.update(matches).set({ draftData: options.match.draftData }).where(eq(matches.id, options.match.id))
     await replaceMatchParticipantRows(db, options.match.id, options.participants)
     await replaceMatchBanRows(db, options.match.id, options.bans)
 
@@ -1078,14 +1214,12 @@ async function rollbackMatchPlayerSubstitution(
     if (options.tournamentLinked) {
       await removeCivLeaderboardMatchContribution(db, options.match.id)
       await removePlayerCivStatMatchContribution(db, options.match.id)
-    }
-    else {
+    } else {
       await reconcileCivLeaderboardMatchContribution(db, options.match.id)
       await reconcilePlayerCivStatMatchContribution(db, options.match.id)
     }
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1101,13 +1235,13 @@ async function prepareReportedMatchForRecalculation(
       .from(matches)
       .where(eq(matches.id, matchId))
       .limit(1)
-    await db.update(matches)
+    await db
+      .update(matches)
       .set({ status: 'completed', completedAt: match?.completedAt ?? reportedAt })
       .where(eq(matches.id, matchId))
     await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1121,16 +1255,18 @@ async function validateReportableSession(
 
   const { sessionNamespace } = options
   if (!sessionNamespace) {
-    return options.allowDirectTerminalWriteForTests ? null : 'The bot cannot check this match. Ask a server admin to check it.'
+    return options.allowDirectTerminalWriteForTests
+      ? null
+      : 'The bot cannot check this match. Ask a server admin to check it.'
   }
   try {
     const record = await getSessionRecord(sessionNamespace, matchId)
     if (!record) return `Session **${matchId}** not found.`
     if (record.phase === 'reported') return null
-    if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled') return 'Finish the draft before changing the result.'
+    if (record.phase !== 'active' && record.phase !== 'swap' && record.phase !== 'cancelled')
+      return 'Finish the draft before changing the result.'
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1141,56 +1277,72 @@ async function cancelMatchByModeratorImpl(
   input: CancelMatchInput,
   options: MatchSessionLifecycleOptions = {},
 ): Promise<CancelMatchResult> {
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [match] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!match) return { error: `Match **${input.matchId}** not found.` }
 
-  const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'unreported-cancellation' : 'correction', Date.now(), null, true)
+  const seasonError = await getSeasonMutationError(
+    db,
+    match,
+    match.status === 'active' ? 'unreported-cancellation' : 'correction',
+    Date.now(),
+    null,
+    true,
+  )
   if (seasonError) return { error: seasonError }
 
-  const participants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+  const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
 
   if (participants.length === 0) return { error: `Match **${input.matchId}** has no participants.` }
 
   const previousStatus = match.status
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
-  if (!tournamentLinked && match.seasonId && await usesIsolatedSeasonRatings(db, match.seasonId)) {
+  if (!tournamentLinked && match.seasonId && (await usesIsolatedSeasonRatings(db, match.seasonId))) {
     let replayed: string[] = []
     try {
       if (match.status === 'active') {
-        const [report] = await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, match.id)).limit(1)
-        if (report || participants.some(row => row.placement != null || row.ratingAfterMu != null) || await matchHasRatingEvents(db, match.id)) return { error: 'Finish the saved report before cancelling its ratings.' }
+        const [report] = await db
+          .select()
+          .from(seasonMatchReports)
+          .where(eq(seasonMatchReports.matchId, match.id))
+          .limit(1)
+        if (
+          report ||
+          participants.some(row => row.placement != null || row.ratingAfterMu != null) ||
+          (await matchHasRatingEvents(db, match.id))
+        )
+          return { error: 'Finish the saved report before cancelling its ratings.' }
       }
       if (match.status === 'completed' || match.status === 'cancelled') {
-        const replay = await prepareSeasonReplay(db, match.seasonId, { matchId: match.id, cancel: true }, input.cancelledAt)
+        const replay = await prepareSeasonReplay(
+          db,
+          match.seasonId,
+          { matchId: match.id, cancel: true },
+          input.cancelledAt,
+        )
         await runAtomicSeasonBatch(db, replay.queries)
         replayed = replay.matchIds
       }
-      const lifecycleError = await runTerminalSessionCommand(db, options, match.id, { type: 'cancel-session', at: input.cancelledAt })
+      const lifecycleError = await runTerminalSessionCommand(db, options, match.id, {
+        type: 'cancel-session',
+        at: input.cancelledAt,
+      })
       if (lifecycleError) return { error: `${lifecycleError} Retry cancellation to finish the saved rating change.` }
       await removeCivLeaderboardMatchContribution(db, match.id)
       await removePlayerCivStatMatchContribution(db, match.id)
       const [updated] = await db.select().from(matches).where(eq(matches.id, match.id))
       const rows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
       const context = getStoredGameModeContext(match.gameMode, match.draftData)
-      if (replayed.length > 0 && context?.leaderboardMode) await rebuildLeaderboardModeSnapshot(db, kv, context.leaderboardMode)
+      if (replayed.length > 0 && context?.leaderboardMode)
+        await rebuildLeaderboardModeSnapshot(db, kv, context.leaderboardMode)
       return { match: updated!, participants: rows, previousStatus, recalculatedMatchIds: replayed }
-    }
-    catch (error) {
+    } catch (error) {
       console.error(`Failed to cancel season match ${match.id}:`, error)
       return { error: 'Could not confirm the cancellation. Check the match before trying again.' }
     }
   }
-  const hasStaleRatingEvents = previousStatus === 'cancelled' && !tournamentLinked
-    ? await matchHasRatingEvents(db, input.matchId)
-    : false
+  const hasStaleRatingEvents =
+    previousStatus === 'cancelled' && !tournamentLinked ? await matchHasRatingEvents(db, input.matchId) : false
   let completedLeaderboardMode: LeaderboardMode | null = null
   if ((previousStatus === 'completed' || hasStaleRatingEvents) && !tournamentLinked) {
     const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
@@ -1198,14 +1350,20 @@ async function cancelMatchByModeratorImpl(
     completedLeaderboardMode = gameContext.leaderboardMode
   }
 
-  const replay = completedLeaderboardMode == null ? null : await prepareRatedMatchReplay(db, completedLeaderboardMode, {
-    fromMatchId: input.matchId,
-    includeFromMatch: false,
-    opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
-  })
+  const replay =
+    completedLeaderboardMode == null
+      ? null
+      : await prepareRatedMatchReplay(db, completedLeaderboardMode, {
+          fromMatchId: input.matchId,
+          includeFromMatch: false,
+          opponentTierByPlayerId: await loadCurrentRankedRoleTierByPlayerId(kv, options.rankedRoleGuildId),
+        })
   if (replay && 'error' in replay) return replay
 
-  const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, { type: 'cancel-session', at: input.cancelledAt })
+  const lifecycleError = await runTerminalSessionCommand(db, options, input.matchId, {
+    type: 'cancel-session',
+    at: input.cancelledAt,
+  })
   if (lifecycleError) return { error: lifecycleError }
 
   const clearParticipants = db
@@ -1231,11 +1389,7 @@ async function cancelMatchByModeratorImpl(
   }
   if (tournamentLinked) await syncTournamentMatchAfterCancel(db, input.matchId)
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   const updatedParticipants = await db
     .select()
@@ -1263,7 +1417,7 @@ async function runTerminalSessionCommand(
   db: Database,
   options: MatchSessionLifecycleOptions,
   matchId: string,
-  command: { type: 'mark-reported' | 'cancel-session', at: number },
+  command: { type: 'mark-reported' | 'cancel-session'; at: number },
 ): Promise<string | null> {
   if (await isManualReportedMatch(db, matchId)) {
     await applyDirectTerminalCommand(db, matchId, command)
@@ -1275,8 +1429,7 @@ async function runTerminalSessionCommand(
     try {
       await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { ...command, matchId })
       return null
-    }
-    catch (error) {
+    } catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
   }
@@ -1298,7 +1451,10 @@ async function isManualReportedMatch(db: Database, matchId: string): Promise<boo
   return isManualReportDraftData(match?.draftData ?? null)
 }
 
-async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+async function loadCurrentRankedRoleTierByPlayerId(
+  kv: KVNamespace,
+  guildId: string | null | undefined,
+): Promise<Map<string, string>> {
   if (!guildId) return new Map()
   const assignments = await getCurrentRankAssignments(kv, guildId)
   return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
@@ -1307,7 +1463,7 @@ async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: str
 async function applyDirectTerminalCommand(
   db: Database,
   matchId: string,
-  command: { type: 'mark-reported' | 'cancel-session', at: number },
+  command: { type: 'mark-reported' | 'cancel-session'; at: number },
 ): Promise<void> {
   const [match] = await db
     .select({ completedAt: matches.completedAt })
@@ -1315,10 +1471,13 @@ async function applyDirectTerminalCommand(
     .where(eq(matches.id, matchId))
     .limit(1)
 
-  await db.update(matches)
-    .set(command.type === 'mark-reported'
-      ? { status: 'completed', completedAt: match?.completedAt ?? command.at }
-      : { status: 'cancelled', completedAt: match?.completedAt ?? command.at })
+  await db
+    .update(matches)
+    .set(
+      command.type === 'mark-reported'
+        ? { status: 'completed', completedAt: match?.completedAt ?? command.at }
+        : { status: 'cancelled', completedAt: match?.completedAt ?? command.at },
+    )
     .where(eq(matches.id, matchId))
   await db.delete(matchBans).where(eq(matchBans.matchId, matchId))
 }

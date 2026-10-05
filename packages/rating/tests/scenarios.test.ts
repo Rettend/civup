@@ -13,10 +13,18 @@ import {
   Z_MULTIPLIER,
 } from '../src/index.ts'
 
-function playerFromDisplay(playerId: string, targetDisplay: number, sigma: number = 5, gamesPlayed?: number): PlayerRating {
+function playerFromDisplay(
+  playerId: string,
+  targetDisplay: number,
+  sigma: number = 5,
+  gamesPlayed?: number,
+): PlayerRating {
   const player = {
     playerId,
-    mu: DEFAULT_MU + ((targetDisplay - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE) + (Z_MULTIPLIER * (sigma - DEFAULT_SIGMA)),
+    mu:
+      DEFAULT_MU +
+      (targetDisplay - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE +
+      Z_MULTIPLIER * (sigma - DEFAULT_SIGMA),
     sigma,
   }
   return gamesPlayed == null ? player : { ...player, gamesPlayed }
@@ -31,7 +39,7 @@ function playerById(updates: RatingUpdate[], playerId: string): RatingUpdate {
 function createLcg(seed: number): () => number {
   let state = seed >>> 0
   return () => {
-    state = ((state * 1664525) + 1013904223) >>> 0
+    state = (state * 1664525 + 1013904223) >>> 0
     return state / 4294967296
   }
 }
@@ -84,7 +92,12 @@ function simulateTeamDisplayAfterGames(teamSize: 2 | 3, winRate: number, games: 
   return displayRating(hero.mu, hero.sigma)
 }
 
-function averageTeamDisplayAfterGames(teamSize: 2 | 3, winRate: number, games: number, seedCount: number = 100): number {
+function averageTeamDisplayAfterGames(
+  teamSize: 2 | 3,
+  winRate: number,
+  games: number,
+  seedCount: number = 100,
+): number {
   let total = 0
   for (let seed = 1; seed <= seedCount; seed++) {
     total += simulateTeamDisplayAfterGames(teamSize, winRate, games, seed)
@@ -150,7 +163,16 @@ describe('calculateFfaRatings realistic distributions', () => {
       { player: playerFromDisplay('p8', 650), placement: 8 },
     ]
 
-    const shuffled = [ordered[5]!, ordered[2]!, ordered[7]!, ordered[0]!, ordered[6]!, ordered[3]!, ordered[1]!, ordered[4]!]
+    const shuffled = [
+      ordered[5]!,
+      ordered[2]!,
+      ordered[7]!,
+      ordered[0]!,
+      ordered[6]!,
+      ordered[3]!,
+      ordered[1]!,
+      ordered[4]!,
+    ]
     const orderedByPlayer = new Map(calculateFfaRatings(ordered).map(update => [update.playerId, update]))
     const shuffledByPlayer = new Map(calculateFfaRatings(shuffled).map(update => [update.playerId, update]))
 
@@ -167,10 +189,12 @@ describe('calculateFfaRatings realistic distributions', () => {
 
   test('8-player FFA provisional wins stay more volatile than established ones without exploding', () => {
     const provisional = calculateFfaRatings(buildEqualFfaEntries(8))
-    const established = calculateFfaRatings(Array.from({ length: 8 }, (_, index) => ({
-      player: playerFromDisplay(`est${index + 1}`, 1000),
-      placement: index + 1,
-    })))
+    const established = calculateFfaRatings(
+      Array.from({ length: 8 }, (_, index) => ({
+        player: playerFromDisplay(`est${index + 1}`, 1000),
+        placement: index + 1,
+      })),
+    )
 
     const provisionalWinner = playerById(provisional, 'p1')
     const establishedWinner = playerById(established, 'est1')
@@ -213,10 +237,7 @@ describe('calculateFfaRatings realistic distributions', () => {
 
 describe('duel progression simulations', () => {
   test('provisional equal-skill duel wins are much more volatile than established ones', () => {
-    const provisional = calculateTeamRatings([
-      { players: [createRating('new1')] },
-      { players: [createRating('new2')] },
-    ])
+    const provisional = calculateTeamRatings([{ players: [createRating('new1')] }, { players: [createRating('new2')] }])
     const established = calculateTeamRatings([
       { players: [playerFromDisplay('est1', 1000)] },
       { players: [playerFromDisplay('est2', 1000)] },
@@ -237,10 +258,13 @@ describe('duel progression simulations', () => {
     [0.6, 1101],
     [0.7, 1167],
     [0.8, 1221],
-  ])('display rating after 100 games reflects a %p duel win rate against 1000 opposition', (winRate, expectedDisplay) => {
-    const averageDisplay = averageDisplayAfterGames(winRate, 100)
-    expect(averageDisplay).toBeCloseTo(expectedDisplay, 0)
-  })
+  ])(
+    'display rating after 100 games reflects a %p duel win rate against 1000 opposition',
+    (winRate, expectedDisplay) => {
+      const averageDisplay = averageDisplayAfterGames(winRate, 100)
+      expect(averageDisplay).toBeCloseTo(expectedDisplay, 0)
+    },
+  )
 
   test('equal established duel players exchange roughly symmetric visible Elo', () => {
     const updates = calculateTeamRatings([
@@ -308,7 +332,10 @@ describe('duel progression simulations', () => {
       { players: [playerFromDisplay('nearby-loser', 1075, 4, 10)] },
     ])
 
-    expect(playerById(gapGated, 'nearby-loser').displayDelta).toBeCloseTo(playerById(baseline, 'nearby-loser').displayDelta, 5)
+    expect(playerById(gapGated, 'nearby-loser').displayDelta).toBeCloseTo(
+      playerById(baseline, 'nearby-loser').displayDelta,
+      5,
+    )
   })
 })
 
@@ -319,11 +346,11 @@ describe('teamer rating scenarios', () => {
     const solid1 = playerFromDisplay('solid1', 1200)
     const solid2 = playerFromDisplay('solid2', 1200)
 
-    const probabilities = predictWinProbabilities([[carry, learner], [solid1, solid2]])
-    const updates = calculateTeamRatings([
-      { players: [carry, learner] },
-      { players: [solid1, solid2] },
+    const probabilities = predictWinProbabilities([
+      [carry, learner],
+      [solid1, solid2],
     ])
+    const updates = calculateTeamRatings([{ players: [carry, learner] }, { players: [solid1, solid2] }])
 
     const carryUpdate = playerById(updates, 'carry')
     const learnerUpdate = playerById(updates, 'learner')
@@ -348,14 +375,8 @@ describe('teamer rating scenarios', () => {
   })
 
   test('stacked favorites in 2v2, 3v3, and 4v4 get sharply discounted expected wins', () => {
-    const duoFavorite = [
-      playerFromDisplay('duo-pro1', 1200),
-      playerFromDisplay('duo-pro2', 1200),
-    ]
-    const duoAverage = [
-      playerFromDisplay('duo-avg1', 1000),
-      playerFromDisplay('duo-avg2', 1000),
-    ]
+    const duoFavorite = [playerFromDisplay('duo-pro1', 1200), playerFromDisplay('duo-pro2', 1200)]
+    const duoAverage = [playerFromDisplay('duo-avg1', 1000), playerFromDisplay('duo-avg2', 1000)]
     const squadFavorite = [
       playerFromDisplay('squad-pro1', 1200),
       playerFromDisplay('squad-pro2', 1200),
@@ -382,18 +403,9 @@ describe('teamer rating scenarios', () => {
     const duoProbabilities = predictWinProbabilities([duoFavorite, duoAverage])
     const squadProbabilities = predictWinProbabilities([squadFavorite, squadAverage])
     const fourStackProbabilities = predictWinProbabilities([fourStackFavorite, fourStackAverage])
-    const duoUpdates = calculateTeamRatings([
-      { players: duoFavorite },
-      { players: duoAverage },
-    ])
-    const squadUpdates = calculateTeamRatings([
-      { players: squadFavorite },
-      { players: squadAverage },
-    ])
-    const fourStackUpdates = calculateTeamRatings([
-      { players: fourStackFavorite },
-      { players: fourStackAverage },
-    ])
+    const duoUpdates = calculateTeamRatings([{ players: duoFavorite }, { players: duoAverage }])
+    const squadUpdates = calculateTeamRatings([{ players: squadFavorite }, { players: squadAverage }])
+    const fourStackUpdates = calculateTeamRatings([{ players: fourStackFavorite }, { players: fourStackAverage }])
 
     expect(duoProbabilities[0]).toBeCloseTo(0.8468, 3)
     expect(squadProbabilities[0]).toBeCloseTo(0.9008, 3)
@@ -436,14 +448,8 @@ describe('teamer rating scenarios', () => {
 
     const threeProbabilities = predictWinProbabilities([mixedThree, balancedThree])
     const fourProbabilities = predictWinProbabilities([mixedFour, balancedFour])
-    const threeUpdates = calculateTeamRatings([
-      { players: mixedThree },
-      { players: balancedThree },
-    ])
-    const fourUpdates = calculateTeamRatings([
-      { players: mixedFour },
-      { players: balancedFour },
-    ])
+    const threeUpdates = calculateTeamRatings([{ players: mixedThree }, { players: balancedThree }])
+    const fourUpdates = calculateTeamRatings([{ players: mixedFour }, { players: balancedFour }])
 
     expect(threeProbabilities[0]).toBeCloseTo(0.5, 2)
     expect(fourProbabilities[0]).toBeCloseTo(0.5, 2)
@@ -464,14 +470,8 @@ describe('teamer rating scenarios', () => {
     ]
 
     const probabilities = predictWinProbabilities([highRatedTeam, averageTeam])
-    const expectedWinUpdates = calculateTeamRatings([
-      { players: highRatedTeam },
-      { players: averageTeam },
-    ])
-    const upsetUpdates = calculateTeamRatings([
-      { players: averageTeam },
-      { players: highRatedTeam },
-    ])
+    const expectedWinUpdates = calculateTeamRatings([{ players: highRatedTeam }, { players: averageTeam }])
+    const upsetUpdates = calculateTeamRatings([{ players: averageTeam }, { players: highRatedTeam }])
 
     expect(probabilities[0]).toBeGreaterThan(0.99)
     expect(probabilities[1]).toBeLessThan(0.01)
@@ -493,16 +493,24 @@ describe('teamer rating scenarios', () => {
       { players: [playerFromDisplay('loser1', 1400, 8), playerFromDisplay('loser2', 1400, 8)] },
     ])
     const protectedUpset = calculateTeamRatings([
-      { players: [playerFromDisplay('new1', 1000, DEFAULT_SIGMA, 0), playerFromDisplay('new2', 1000, DEFAULT_SIGMA, 0)] },
+      {
+        players: [playerFromDisplay('new1', 1000, DEFAULT_SIGMA, 0), playerFromDisplay('new2', 1000, DEFAULT_SIGMA, 0)],
+      },
       { players: [playerFromDisplay('loser1', 1400, 8, 5), playerFromDisplay('loser2', 1400, 8, 5)] },
     ])
 
     for (const playerId of ['new1', 'new2']) {
-      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(playerById(baseline, playerId).displayDelta, 5)
+      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(
+        playerById(baseline, playerId).displayDelta,
+        5,
+      )
     }
     for (const playerId of ['loser1', 'loser2']) {
       expect(playerById(baseline, playerId).displayDelta).toBeLessThan(-60)
-      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(playerById(baseline, playerId).displayDelta * 0.75, 5)
+      expect(playerById(protectedUpset, playerId).displayDelta).toBeCloseTo(
+        playerById(baseline, playerId).displayDelta * 0.75,
+        5,
+      )
     }
   })
 })
@@ -513,12 +521,7 @@ describe('multi-team placements (e.g. Red Death 2v2v2v2)', () => {
       players: [createRating(`${prefix}a`), createRating(`${prefix}b`)],
     })
 
-    const updates = calculateTeamRatings([
-      team('t1'),
-      team('t2'),
-      team('t3'),
-      team('t4'),
-    ])
+    const updates = calculateTeamRatings([team('t1'), team('t2'), team('t3'), team('t4')])
 
     expect(updates).toHaveLength(8)
 

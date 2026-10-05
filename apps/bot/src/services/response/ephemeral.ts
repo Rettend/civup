@@ -54,15 +54,16 @@ export async function sendEphemeralResponse(
   const autoDeleteMs = options?.autoDeleteMs
   if (autoDeleteMs == null || autoDeleteMs <= 0) return
 
-  c.executionCtx.waitUntil((async () => {
-    try {
-      await new Promise(resolve => setTimeout(resolve, autoDeleteMs))
-      await c.followup()
-    }
-    catch (error) {
-      console.error('Failed to auto-delete ephemeral response message:', error)
-    }
-  })())
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        await new Promise(resolve => setTimeout(resolve, autoDeleteMs))
+        await c.followup()
+      } catch (error) {
+        console.error('Failed to auto-delete ephemeral response message:', error)
+      }
+    })(),
+  )
 }
 
 function resolveResponseComponents(baseComponents: unknown, showButton: boolean): unknown {
@@ -91,8 +92,6 @@ function normalizeComponentRows(components: unknown): unknown[] {
 
 function showButtonRows(): unknown[] {
   return normalizeComponentRows(
-    new Components().row(
-      new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'),
-    ),
+    new Components().row(new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary')),
   )
 }

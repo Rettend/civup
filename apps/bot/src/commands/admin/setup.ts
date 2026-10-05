@@ -1,6 +1,11 @@
 import type { AdminCommandContext } from './types.ts'
 import { createDb } from '@civup/db'
-import { getBrowserAccessState, isSafeBrowserPreferenceRole, normalizePublicOrigin, setBrowserAccessState } from '../../services/activity/browser-access.ts'
+import {
+  getBrowserAccessState,
+  isSafeBrowserPreferenceRole,
+  normalizePublicOrigin,
+  setBrowserAccessState,
+} from '../../services/activity/browser-access.ts'
 import { createGuildRole, fetchGuildRoles, updateGuildRole } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
 import {
@@ -9,8 +14,22 @@ import {
   upsertCivLeaderboardMessageForChannel,
   upsertLeaderboardMessagesForChannel,
 } from '../../services/leaderboard/message.ts'
-import { clearLeaderboardDirtyState, clearLeaderboardMessageState, clearSystemChannel, getSystemChannel, setSystemChannel } from '../../services/system/channels.ts'
-import { formatChannelMention, isCivLeaderboardSetupTarget, parseSetupTarget, sendEphemeralResponse, sendTransientEphemeralResponse, setupTargetCivModeScope, setupTargetLabel } from './shared.ts'
+import {
+  clearLeaderboardDirtyState,
+  clearLeaderboardMessageState,
+  clearSystemChannel,
+  getSystemChannel,
+  setSystemChannel,
+} from '../../services/system/channels.ts'
+import {
+  formatChannelMention,
+  isCivLeaderboardSetupTarget,
+  parseSetupTarget,
+  sendEphemeralResponse,
+  sendTransientEphemeralResponse,
+  setupTargetCivModeScope,
+  setupTargetLabel,
+} from './shared.ts'
 
 const BROWSER_ACCESS_TARGET = 'browser'
 const BROWSER_PREFERENCE_ROLE_NAME = 'Web Browser'
@@ -19,7 +38,21 @@ export function handleSetup(c: AdminCommandContext) {
   const rawTarget = c.var.target
   if (!rawTarget) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      const [draftChannelId, archiveChannelId, commandsChannelId, leaderboardChannelId, legacyCivLeaderboardChannelId, civLeaderboardAllChannelId, civLeaderboardDuelChannelId, civLeaderboardDuoChannelId, civLeaderboardSquadChannelId, tournamentDraftChannelId, tournamentArchiveChannelId, tournamentLeaderboardChannelId, browserAccess] = await Promise.all([
+      const [
+        draftChannelId,
+        archiveChannelId,
+        commandsChannelId,
+        leaderboardChannelId,
+        legacyCivLeaderboardChannelId,
+        civLeaderboardAllChannelId,
+        civLeaderboardDuelChannelId,
+        civLeaderboardDuoChannelId,
+        civLeaderboardSquadChannelId,
+        tournamentDraftChannelId,
+        tournamentArchiveChannelId,
+        tournamentLeaderboardChannelId,
+        browserAccess,
+      ] = await Promise.all([
         getSystemChannel(c.env.KV, 'draft'),
         getSystemChannel(c.env.KV, 'archive'),
         getSystemChannel(c.env.KV, 'commands'),
@@ -37,19 +70,19 @@ export function handleSetup(c: AdminCommandContext) {
 
       await sendEphemeralResponse(
         c,
-        '**Configured server features:**\n'
-        + `Draft — ${formatChannelMention(draftChannelId)}\n`
-        + `Archive — ${formatChannelMention(archiveChannelId)}\n`
-        + `Bot Commands — ${formatChannelMention(commandsChannelId)}\n`
-        + `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n`
-        + `Civ Leaderboard (All) — ${formatChannelMention(civLeaderboardAllChannelId ?? legacyCivLeaderboardChannelId)}\n`
-        + `Civ Leaderboard (Duel) — ${formatChannelMention(civLeaderboardDuelChannelId)}\n`
-        + `Civ Leaderboard (Duo) — ${formatChannelMention(civLeaderboardDuoChannelId)}\n`
-        + `Civ Leaderboard (Squad) — ${formatChannelMention(civLeaderboardSquadChannelId)}\n`
-        + `Tournament Draft — ${formatChannelMention(tournamentDraftChannelId)}\n`
-        + `Tournament Archive — ${formatChannelMention(tournamentArchiveChannelId)}\n`
-        + `Tournament Leaderboard — ${formatChannelMention(tournamentLeaderboardChannelId)}\n`
-        + `Browser Access — ${browserAccess.enabled && browserAccess.preferenceRoleId ? `on (<@&${browserAccess.preferenceRoleId}>)` : 'off'}`,
+        '**Configured server features:**\n' +
+          `Draft — ${formatChannelMention(draftChannelId)}\n` +
+          `Archive — ${formatChannelMention(archiveChannelId)}\n` +
+          `Bot Commands — ${formatChannelMention(commandsChannelId)}\n` +
+          `Leaderboard — ${formatChannelMention(leaderboardChannelId)}\n` +
+          `Civ Leaderboard (All) — ${formatChannelMention(civLeaderboardAllChannelId ?? legacyCivLeaderboardChannelId)}\n` +
+          `Civ Leaderboard (Duel) — ${formatChannelMention(civLeaderboardDuelChannelId)}\n` +
+          `Civ Leaderboard (Duo) — ${formatChannelMention(civLeaderboardDuoChannelId)}\n` +
+          `Civ Leaderboard (Squad) — ${formatChannelMention(civLeaderboardSquadChannelId)}\n` +
+          `Tournament Draft — ${formatChannelMention(tournamentDraftChannelId)}\n` +
+          `Tournament Archive — ${formatChannelMention(tournamentArchiveChannelId)}\n` +
+          `Tournament Leaderboard — ${formatChannelMention(tournamentLeaderboardChannelId)}\n` +
+          `Browser Access — ${browserAccess.enabled && browserAccess.preferenceRoleId ? `on (<@&${browserAccess.preferenceRoleId}>)` : 'off'}`,
         'info',
       )
     })
@@ -60,7 +93,11 @@ export function handleSetup(c: AdminCommandContext) {
   const target = parseSetupTarget(rawTarget)
   if (!target) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, 'Invalid setup target. Use Draft, Archive, Bot Commands, Leaderboard, a Civ Leaderboard scope, Tournament Draft, Tournament Archive, or Tournament Leaderboard.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'Invalid setup target. Use Draft, Archive, Bot Commands, Leaderboard, a Civ Leaderboard scope, Tournament Draft, Tournament Archive, or Tournament Leaderboard.',
+        'error',
+      )
     })
   }
 
@@ -81,7 +118,11 @@ export function handleSetup(c: AdminCommandContext) {
         await clearLeaderboardMessageState(kv)
         await clearLeaderboardDirtyState(kv)
       }
-      await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel disabled in <#${channelId}>.`, 'info')
+      await sendTransientEphemeralResponse(
+        c,
+        `${setupTargetLabel(target)} channel disabled in <#${channelId}>.`,
+        'info',
+      )
       return
     }
 
@@ -91,15 +132,25 @@ export function handleSetup(c: AdminCommandContext) {
       try {
         const db = createDb(c.env.DB)
         const [initialMode, ...queuedModes] = PLAYER_LEADERBOARD_MESSAGE_MODES
-        await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId, { modes: initialMode ? [initialMode] : [] })
+        await upsertLeaderboardMessagesForChannel(db, kv, c.env.DISCORD_TOKEN, channelId, {
+          modes: initialMode ? [initialMode] : [],
+        })
         if (queuedModes.length > 0) await markLeaderboardsDirty(db, 'admin-setup:leaderboard', { modes: queuedModes })
         await clearLeaderboardDirtyState(kv)
-        const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
-        await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>${movedFrom}. Initialized ${initialMode ?? 'leaderboard'}; remaining modes are queued for scheduled refresh.`, 'success')
-      }
-      catch (error) {
+        const movedFrom =
+          previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
+        await sendTransientEphemeralResponse(
+          c,
+          `Leaderboard channel set to <#${channelId}>${movedFrom}. Initialized ${initialMode ?? 'leaderboard'}; remaining modes are queued for scheduled refresh.`,
+          'success',
+        )
+      } catch (error) {
         console.error('Failed to initialize leaderboard messages:', error)
-        await sendTransientEphemeralResponse(c, `Leaderboard channel set to <#${channelId}>, but failed to initialize leaderboard images.`, 'error')
+        await sendTransientEphemeralResponse(
+          c,
+          `Leaderboard channel set to <#${channelId}>, but failed to initialize leaderboard images.`,
+          'error',
+        )
       }
       return
     }
@@ -108,24 +159,43 @@ export function handleSetup(c: AdminCommandContext) {
       try {
         const db = createDb(c.env.DB)
         const modeScope = setupTargetCivModeScope(target) ?? 'all'
-        const initialized = await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId, { modeScope })
+        const initialized = await upsertCivLeaderboardMessageForChannel(db, kv, c.env.DISCORD_TOKEN, channelId, {
+          modeScope,
+        })
         await clearLeaderboardDirtyState(kv)
-        const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
+        const movedFrom =
+          previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
         if (!initialized) {
-          await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet.`, 'info')
+          await sendTransientEphemeralResponse(
+            c,
+            `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}, but no initialized civ leaderboard snapshot exists yet.`,
+            'info',
+          )
           return
         }
-        await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}.`, 'success')
-      }
-      catch (error) {
+        await sendTransientEphemeralResponse(
+          c,
+          `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}.`,
+          'success',
+        )
+      } catch (error) {
         console.error('Failed to initialize civ leaderboard messages:', error)
-        await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel set to <#${channelId}>, but failed to initialize civ leaderboard embeds.`, 'error')
+        await sendTransientEphemeralResponse(
+          c,
+          `${setupTargetLabel(target)} channel set to <#${channelId}>, but failed to initialize civ leaderboard embeds.`,
+          'error',
+        )
       }
       return
     }
 
-    const movedFrom = previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
-    await sendTransientEphemeralResponse(c, `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}.`, 'success')
+    const movedFrom =
+      previousChannelId && previousChannelId !== channelId ? ` (moved from <#${previousChannelId}>)` : ''
+    await sendTransientEphemeralResponse(
+      c,
+      `${setupTargetLabel(target)} channel set to <#${channelId}>${movedFrom}.`,
+      'success',
+    )
   })
 }
 
@@ -135,7 +205,11 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
       const state = await getBrowserAccessState(getKvStore(c.env))
       const status = state.enabled && state.preferenceRoleId ? `on (<@&${state.preferenceRoleId}>)` : 'off'
-      await sendEphemeralResponse(c, `Browser Access is **${status}**. Set \`value\` to \`on\` or \`off\` to change it.`, 'info')
+      await sendEphemeralResponse(
+        c,
+        `Browser Access is **${status}**. Set \`value\` to \`on\` or \`off\` to change it.`,
+        'info',
+      )
     })
   }
 
@@ -143,7 +217,11 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
   const allowedGuildId = c.env.ALLOWED_DISCORD_GUILD_ID?.trim() ?? ''
   if (!guildId || !allowedGuildId || guildId !== allowedGuildId) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, 'Browser Access can only be configured inside the configured server.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'Browser Access can only be configured inside the configured server.',
+        'error',
+      )
     })
   }
 
@@ -152,12 +230,20 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
     const current = await getBrowserAccessState(kv)
     if (value === 'off') {
       await setBrowserAccessState(kv, { enabled: false, preferenceRoleId: current.preferenceRoleId })
-      await sendTransientEphemeralResponse(c, 'Browser Access disabled. The preference role and member choices were preserved.', 'info')
+      await sendTransientEphemeralResponse(
+        c,
+        'Browser Access disabled. The preference role and member choices were preserved.',
+        'info',
+      )
       return
     }
 
     if (!normalizePublicOrigin(c.env.ACTIVITY_PUBLIC_ORIGIN)) {
-      await sendTransientEphemeralResponse(c, 'Could not enable Browser Access because ACTIVITY_PUBLIC_ORIGIN is missing or invalid.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'Could not enable Browser Access because ACTIVITY_PUBLIC_ORIGIN is missing or invalid.',
+        'error',
+      )
       return
     }
 
@@ -166,26 +252,36 @@ function handleBrowserAccessSetup(c: AdminCommandContext) {
       const storedRole = current.preferenceRoleId
         ? roles.find(role => role.id === current.preferenceRoleId && isSafeBrowserPreferenceRole(role))
         : null
-      const namedRole = roles.find(role => role.name === BROWSER_PREFERENCE_ROLE_NAME && isSafeBrowserPreferenceRole(role))
+      const namedRole = roles.find(
+        role => role.name === BROWSER_PREFERENCE_ROLE_NAME && isSafeBrowserPreferenceRole(role),
+      )
       const role = storedRole
         ? storedRole.name === BROWSER_PREFERENCE_ROLE_NAME
           ? storedRole
           : await updateGuildRole(c.env.DISCORD_TOKEN, guildId, storedRole.id, { name: BROWSER_PREFERENCE_ROLE_NAME })
-        : namedRole ?? await createGuildRole(c.env.DISCORD_TOKEN, guildId, {
+        : (namedRole ??
+          (await createGuildRole(c.env.DISCORD_TOKEN, guildId, {
             name: BROWSER_PREFERENCE_ROLE_NAME,
             permissions: '0',
             hoist: false,
             mentionable: false,
-          })
+          })))
       if (!role.id) throw new Error('Discord returned a role without an ID')
 
       await setBrowserAccessState(kv, { enabled: true, preferenceRoleId: role.id })
       const action = storedRole || namedRole ? 'verified' : 'created'
-      await sendTransientEphemeralResponse(c, `Browser Access enabled. Preference role ${action}: <@&${role.id}>.`, 'success')
-    }
-    catch (error) {
+      await sendTransientEphemeralResponse(
+        c,
+        `Browser Access enabled. Preference role ${action}: <@&${role.id}>.`,
+        'success',
+      )
+    } catch (error) {
       console.error('[admin setup] failed to enable browser access', { guildId }, error)
-      await sendTransientEphemeralResponse(c, 'Could not verify or create the Browser Access preference role. Check the bot role permissions and try again.', 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        'Could not verify or create the Browser Access preference role. Check the bot role permissions and try again.',
+        'error',
+      )
     }
   })
 }

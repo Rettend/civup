@@ -1,7 +1,7 @@
-import type { GameMode } from '@civup/game'
 import type { SystemWorld } from './world.ts'
-import { createSeededRandom, swapSeatPicks } from '@civup/game'
+import type { GameMode } from '@civup/game'
 import { expect } from 'bun:test'
+import { createSeededRandom, swapSeatPicks } from '@civup/game'
 import { assertSystemWorldInvariants, expectLobbyState, expectMatchState, expectQueuePlayers } from './assertions.ts'
 
 const MODE_CASES = [
@@ -9,7 +9,7 @@ const MODE_CASES = [
   { mode: '2v2', playerCount: 4 },
   { mode: '3v3', playerCount: 6 },
   { mode: 'ffa', playerCount: 8 },
-] as const satisfies readonly { mode: GameMode, playerCount: number }[]
+] as const satisfies readonly { mode: GameMode; playerCount: number }[]
 
 type SeededOutcome = 'reported' | 'timed-out' | 'cancelled' | 'finalized'
 
@@ -92,9 +92,10 @@ export async function runSeededSystemSequence(
     const outcome = pickOutcome(modeCase.mode, random)
     switch (outcome) {
       case 'timed-out': {
-        const timeoutResponse = random() < 0.5
-          ? await replaySeededTimeout(world, started.matchId)
-          : await world.party.timeoutDraft(started.matchId)
+        const timeoutResponse =
+          random() < 0.5
+            ? await replaySeededTimeout(world, started.matchId)
+            : await world.party.timeoutDraft(started.matchId)
         expect(timeoutResponse.status).toBe(200)
         await world.flushBackgroundTasks()
 
@@ -142,8 +143,7 @@ export async function runSeededSystemSequence(
           })
           expect(cleanedUp.status).toBe(200)
           await world.flushBackgroundTasks()
-        }
-        else {
+        } else {
           expect(await world.lobby.getById(lobby.id)).toBeNull()
         }
 
@@ -154,9 +154,10 @@ export async function runSeededSystemSequence(
 
       case 'reported':
       case 'finalized': {
-        const completed = random() < 0.4
-          ? await replaySeededCompletion(world, started.matchId)
-          : await world.party.completeDraft(started.matchId)
+        const completed =
+          random() < 0.4
+            ? await replaySeededCompletion(world, started.matchId)
+            : await world.party.completeDraft(started.matchId)
         expect(completed.status).toBe(200)
         await world.flushBackgroundTasks()
 
@@ -263,16 +264,14 @@ async function replaySeededTimeout(world: SystemWorld, matchId: string): Promise
 }
 
 function pickOutcome(mode: GameMode, random: () => number): SeededOutcome {
-  const outcomes: SeededOutcome[] = mode === 'ffa' || mode === '1v1'
-    ? ['reported', 'timed-out', 'cancelled']
-    : ['reported', 'timed-out', 'cancelled', 'finalized']
+  const outcomes: SeededOutcome[] =
+    mode === 'ffa' || mode === '1v1'
+      ? ['reported', 'timed-out', 'cancelled']
+      : ['reported', 'timed-out', 'cancelled', 'finalized']
   return pick(random, outcomes)
 }
 
-function buildCycleConfig(
-  mode: GameMode,
-  random: () => number,
-): Record<string, boolean | number> | null {
+function buildCycleConfig(mode: GameMode, random: () => number): Record<string, boolean | number> | null {
   if (mode === 'ffa') {
     return random() < 0.5 ? { simultaneousPick: true } : null
   }
@@ -322,7 +321,7 @@ function swapFirstTeammatePicks(state: Parameters<typeof swapSeatPicks>[0]) {
   throw new Error(`Expected teammate picks to be swappable for ${state.matchId}`)
 }
 
-function buildPlacements(mode: GameMode, participants: Array<{ playerId: string, team: number | null }>): string {
+function buildPlacements(mode: GameMode, participants: Array<{ playerId: string; team: number | null }>): string {
   if (mode !== 'ffa') return 'A'
 
   const orderedTeamRepresentatives = new Map<number, string>()
@@ -331,7 +330,10 @@ function buildPlacements(mode: GameMode, participants: Array<{ playerId: string,
     orderedTeamRepresentatives.set(participant.team, participant.playerId)
   }
 
-  const playerIds = orderedTeamRepresentatives.size > 0 ? [...orderedTeamRepresentatives.values()] : participants.map(participant => participant.playerId)
+  const playerIds =
+    orderedTeamRepresentatives.size > 0
+      ? [...orderedTeamRepresentatives.values()]
+      : participants.map(participant => participant.playerId)
   return playerIds.map(playerId => `<@${playerId}>`).join('\n')
 }
 

@@ -16,7 +16,7 @@ function setupGlobalDevErrorRelay() {
   if (window.__civupDevErrorRelaySetup) return
   window.__civupDevErrorRelaySetup = true
 
-  window.addEventListener('error', (event) => {
+  window.addEventListener('error', event => {
     relayDevLog('error', 'Global window error', {
       message: event.message,
       filename: event.filename,
@@ -26,7 +26,7 @@ function setupGlobalDevErrorRelay() {
     })
   })
 
-  window.addEventListener('unhandledrejection', (event) => {
+  window.addEventListener('unhandledrejection', event => {
     relayDevLog('error', 'Unhandled promise rejection', event.reason)
   })
 }
@@ -51,14 +51,14 @@ async function bootstrap() {
   }
 }
 
-void bootstrap().catch((error) => {
+void bootstrap().catch(error => {
   relayDevLog('error', 'Activity bootstrap failed', error)
   console.error(error)
 })
 
 if (import.meta.hot) {
   import.meta.hot.accept()
-  import.meta.hot.dispose((data) => {
+  import.meta.hot.dispose(data => {
     data.disposeRoot = disposeRoot
   })
 }

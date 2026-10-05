@@ -24,7 +24,9 @@ describe('Map vote UI', () => {
   test('shows map as the first phase and confirms through the authoritative action', async () => {
     uiMockState.mapVoteSelectedMaps = ['lakes']
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(screen.getByText('MAP VOTING')).toBeTruthy()
     expect(screen.getByText('MAP')).toBeTruthy()
@@ -38,7 +40,9 @@ describe('Map vote UI', () => {
   })
 
   test('sends authoritative selection updates when cards are clicked and keeps the overlay open', async () => {
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     fireEvent.click(mapButton('Lakes'))
 
@@ -49,7 +53,9 @@ describe('Map vote UI', () => {
   test('collapses the map vote overlay only after confirm', async () => {
     uiMockState.mapVoteSelectedMaps = ['lakes']
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(uiMockState.gridOpen).toBe(true)
 
@@ -61,7 +67,9 @@ describe('Map vote UI', () => {
   test('deselecting a ranked map shifts later picks up instead of resetting the chain', async () => {
     uiMockState.mapVoteSelectedMaps = ['lakes', 'seven-seas', 'rich-highlands']
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     fireEvent.click(mapButton('Seven Seas'))
 
@@ -71,13 +79,17 @@ describe('Map vote UI', () => {
   test('allows confirm with fewer than three ranked maps', async () => {
     uiMockState.mapVoteSelectedMaps = ['lakes', 'seven-seas']
 
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(screen.getByRole('button', { name: 'Confirm Vote' })).toHaveProperty('disabled', false)
   })
 
   test('caps map rankings at three picks and keeps their order stable', async () => {
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     fireEvent.click(mapButton('Lakes'))
     fireEvent.click(mapButton('Seven Seas'))
@@ -91,7 +103,9 @@ describe('Map vote UI', () => {
   })
 
   test('offers evw only as concrete supported map variants', async () => {
-    render(() => <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />)
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
 
     expect(screen.queryByRole('button', { name: 'East vs West' })).toBeNull()
     expect(screen.getAllByText('EvW')).toHaveLength(4)

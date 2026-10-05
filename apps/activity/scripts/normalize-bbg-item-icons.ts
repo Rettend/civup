@@ -90,9 +90,10 @@ async function main(): Promise<void> {
       const scale = targetVisibleSize / Math.max(beforeBounds.width, beforeBounds.height)
       const skipped = isAlreadyNormalized(source, beforeBounds, targetVisibleSize, options)
       const normalized = skipped ? null : normalizeIcon(source, beforeBounds, scale, options)
-      const afterBytes = normalized == null || options.dryRun
-        ? null
-        : await encodeNormalizedWebp(inputPath, normalized.pixels, tempDir, options)
+      const afterBytes =
+        normalized == null || options.dryRun
+          ? null
+          : await encodeNormalizedWebp(inputPath, normalized.pixels, tempDir, options)
 
       results.push({
         afterBounds: normalized?.bounds ?? beforeBounds,
@@ -109,8 +110,7 @@ async function main(): Promise<void> {
 
       if (options.verbose) console.log(formatResult(results[results.length - 1]!))
     }
-  }
-  finally {
+  } finally {
     await rm(tempDir, { recursive: true, force: true })
   }
 
@@ -199,7 +199,12 @@ function readGitHeadItemIcon(file: string): Buffer {
   throw new Error(`git show failed for ${file}: ${formatSpawnFailure(result.signalCode, error)}`)
 }
 
-async function encodeNormalizedWebp(inputPath: string, pixels: Uint8Array, tempDir: string, options: Options): Promise<number> {
+async function encodeNormalizedWebp(
+  inputPath: string,
+  pixels: Uint8Array,
+  tempDir: string,
+  options: Options,
+): Promise<number> {
   const pngPath = resolve(tempDir, `${basename(inputPath)}.normalized.png`)
   const webpPath = resolve(tempDir, `${basename(inputPath)}.normalized.webp`)
 
@@ -220,7 +225,9 @@ function runTool(command: string, args: string[], context: string): void {
   if (result.exitCode === 0) return
 
   const error = result.stderr.toString('utf8').trim()
-  throw new Error(`${command} failed for ${context}: ${formatSpawnFailure(result.signalCode, error || `exit code ${result.exitCode}`)}`)
+  throw new Error(
+    `${command} failed for ${context}: ${formatSpawnFailure(result.signalCode, error || `exit code ${result.exitCode}`)}`,
+  )
 }
 
 function formatSpawnFailure(signalCode: NodeJS.Signals | null, error: string): string {
@@ -292,7 +299,12 @@ function findAlphaBounds(image: PamImage, alphaThreshold: number): Bounds {
   return { minX, minY, maxX, maxY, width: maxX - minX + 1, height: maxY - minY + 1 }
 }
 
-function normalizeIcon(image: PamImage, bounds: Bounds, scale: number, options: Options): { bounds: Bounds, pixels: Uint8Array } {
+function normalizeIcon(
+  image: PamImage,
+  bounds: Bounds,
+  scale: number,
+  options: Options,
+): { bounds: Bounds; pixels: Uint8Array } {
   const sourceCenterX = (bounds.minX + bounds.maxX + 1) / 2
   const sourceCenterY = (bounds.minY + bounds.maxY + 1) / 2
   const targetCenter = CANVAS_SIZE / 2
@@ -306,7 +318,10 @@ function normalizeIcon(image: PamImage, bounds: Bounds, scale: number, options: 
     }
   }
 
-  return { bounds: findAlphaBounds({ width: CANVAS_SIZE, height: CANVAS_SIZE, pixels }, options.alphaThreshold), pixels }
+  return {
+    bounds: findAlphaBounds({ width: CANVAS_SIZE, height: CANVAS_SIZE, pixels }, options.alphaThreshold),
+    pixels,
+  }
 }
 
 function isAlreadyNormalized(image: PamImage, bounds: Bounds, targetVisibleSize: number, options: Options): boolean {
@@ -319,7 +334,13 @@ function isAlreadyNormalized(image: PamImage, bounds: Bounds, targetVisibleSize:
   return Math.abs(centerX - CANVAS_SIZE / 2) <= 1 && Math.abs(centerY - CANVAS_SIZE / 2) <= 1
 }
 
-function writeBilinearPixel(image: PamImage, sourceX: number, sourceY: number, target: Uint8Array, targetOffset: number): void {
+function writeBilinearPixel(
+  image: PamImage,
+  sourceX: number,
+  sourceY: number,
+  target: Uint8Array,
+  targetOffset: number,
+): void {
   const x0 = Math.floor(sourceX)
   const y0 = Math.floor(sourceY)
   const xWeight = sourceX - x0
@@ -368,12 +389,8 @@ function createPng(width: number, height: number, pixels: Uint8Array): Buffer {
   }
 
   return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
-    createPngChunk('IHDR', Buffer.concat([
-      uint32(width),
-      uint32(height),
-      Buffer.from([8, 6, 0, 0, 0]),
-    ])),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    createPngChunk('IHDR', Buffer.concat([uint32(width), uint32(height), Buffer.from([8, 6, 0, 0, 0])])),
     createPngChunk('IDAT', deflateSync(raw)),
     createPngChunk('IEND', Buffer.alloc(0)),
   ])
@@ -381,12 +398,7 @@ function createPng(width: number, height: number, pixels: Uint8Array): Buffer {
 
 function createPngChunk(type: string, data: Buffer): Buffer {
   const typeBuffer = Buffer.from(type, 'ascii')
-  return Buffer.concat([
-    uint32(data.byteLength),
-    typeBuffer,
-    data,
-    uint32(crc32(Buffer.concat([typeBuffer, data]))),
-  ])
+  return Buffer.concat([uint32(data.byteLength), typeBuffer, data, uint32(crc32(Buffer.concat([typeBuffer, data])))])
 }
 
 function uint32(value: number): Buffer {
@@ -398,17 +410,17 @@ function uint32(value: number): Buffer {
 const CRC_TABLE = new Uint32Array(256).map((_, index) => {
   let value = index
   for (let bit = 0; bit < 8; bit++) {
-    value = (value & 1) !== 0 ? 0xEDB88320 ^ (value >>> 1) : value >>> 1
+    value = (value & 1) !== 0 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
   }
   return value >>> 0
 })
 
 function crc32(buffer: Buffer): number {
-  let crc = 0xFFFFFFFF
+  let crc = 0xffffffff
   for (const byte of buffer) {
-    crc = CRC_TABLE[(crc ^ byte) & 0xFF]! ^ (crc >>> 8)
+    crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
   }
-  return (crc ^ 0xFFFFFFFF) >>> 0
+  return (crc ^ 0xffffffff) >>> 0
 }
 
 function printSummary(results: NormalizedItemResult[], options: Options): void {
@@ -416,14 +428,19 @@ function printSummary(results: NormalizedItemResult[], options: Options): void {
   const afterBytes = results.reduce((total, result) => total + (result.afterBytes ?? result.beforeBytes), 0)
   const changedResults = results.filter(result => !result.skipped)
 
-  console.log(`${options.dryRun ? 'Would normalize' : 'Normalized'} ${changedResults.length} BBG item icons. Skipped ${results.length - changedResults.length} already-normalized icons.`)
-  console.log(`Source: ${options.source}; target visible size: ${options.targetVisibleSizeOverride == null ? 'per file' : `${options.targetVisibleSizeOverride}px`} on ${CANVAS_SIZE}x${CANVAS_SIZE}; alpha threshold: ${options.alphaThreshold}; quality: ${options.quality}.`)
+  console.log(
+    `${options.dryRun ? 'Would normalize' : 'Normalized'} ${changedResults.length} BBG item icons. Skipped ${results.length - changedResults.length} already-normalized icons.`,
+  )
+  console.log(
+    `Source: ${options.source}; target visible size: ${options.targetVisibleSizeOverride == null ? 'per file' : `${options.targetVisibleSizeOverride}px`} on ${CANVAS_SIZE}x${CANVAS_SIZE}; alpha threshold: ${options.alphaThreshold}; quality: ${options.quality}.`,
+  )
   if (!options.dryRun) console.log(`Size: ${formatBytes(beforeBytes)} -> ${formatBytes(afterBytes)}.`)
   for (const result of changedResults) console.log(`  ${formatResult(result)}`)
 }
 
 function formatResult(result: NormalizedItemResult): string {
-  const afterSize = result.afterBytes == null ? '' : `, ${formatBytes(result.beforeBytes)} -> ${formatBytes(result.afterBytes)}`
+  const afterSize =
+    result.afterBytes == null ? '' : `, ${formatBytes(result.beforeBytes)} -> ${formatBytes(result.afterBytes)}`
   if (result.skipped) {
     return `${result.file}: ${result.sourceWidth}x${result.sourceHeight}, target ${result.targetVisibleSize}px, visible ${result.beforeBounds.width}x${result.beforeBounds.height}, already normalized${afterSize}`
   }

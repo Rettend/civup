@@ -1,7 +1,7 @@
 import type { ActivityOverviewOptionSnapshot } from '../../src/services/activity/session-state.ts'
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
-import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
+import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { mergeActivityOverviewSnapshotForSessionUpdate } from '../../src/services/activity/session-state.ts'
 import { publishActivitySessionUpdate } from '../../src/session-runtime/activity-feed-client.ts'
 
@@ -34,7 +34,13 @@ describe('activity feed client', () => {
       channelId: 'channel-1',
       options: [
         buildOverviewOption({ id: 'session-1', lobbyId: 'session-1', kind: 'lobby', status: 'open' }),
-        buildOverviewOption({ id: 'old-match-1', lobbyId: 'old-session-1', kind: 'match', status: 'completed', matchId: 'old-match-1' }),
+        buildOverviewOption({
+          id: 'old-match-1',
+          lobbyId: 'old-session-1',
+          kind: 'match',
+          status: 'completed',
+          matchId: 'old-match-1',
+        }),
         buildOverviewOption({ id: 'session-2', lobbyId: 'session-2', kind: 'lobby', status: 'open' }),
       ],
     }

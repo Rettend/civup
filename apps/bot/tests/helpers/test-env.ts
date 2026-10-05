@@ -1,11 +1,11 @@
 import type { Database as CivupDatabase } from '@civup/db'
+import { Database } from 'bun:sqlite'
 import { readdir } from 'node:fs/promises'
 import { URL } from 'node:url'
-import { schema } from '@civup/db'
-import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { schema } from '@civup/db'
 
-export async function createTestDatabase(): Promise<{ db: CivupDatabase, sqlite: Database }> {
+export async function createTestDatabase(): Promise<{ db: CivupDatabase; sqlite: Database }> {
   const sqlite = new Database(':memory:')
   sqlite.run('PRAGMA foreign_keys = ON')
 
@@ -37,8 +37,7 @@ export function createTestKv(): KVNamespace {
       if (type === 'json') {
         try {
           return JSON.parse(value)
-        }
-        catch {
+        } catch {
           return null
         }
       }

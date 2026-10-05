@@ -26,8 +26,8 @@ export default defineConfig({
   ],
   theme: {
     font: {
-      sans: '\'Inter Variable\', system-ui, -apple-system, sans-serif',
-      mono: '\'JetBrains Mono\', \'Fira Code\', monospace',
+      sans: "'Inter Variable', system-ui, -apple-system, sans-serif",
+      mono: "'JetBrains Mono', 'Fira Code', monospace",
     },
     colors: {
       // ── Background ───────────────────────────────────────
@@ -108,7 +108,8 @@ export default defineConfig({
   shortcuts: {
     'text-heading': 'font-bold uppercase tracking-wider',
     'focus-ring': 'outline-none focus-visible:(ring-2 ring-accent/50 ring-offset-2 ring-offset-bg)',
-    'panel-glow': 'shadow-[0_0_20px_var(--accent-subtle),0_0_40px_var(--accent-subtle),inset_0_1px_0_var(--accent-muted)]',
+    'panel-glow':
+      'shadow-[0_0_20px_var(--accent-subtle),0_0_40px_var(--accent-subtle),inset_0_1px_0_var(--accent-muted)]',
   },
   rules: [
     ['animate-fill-both', { 'animation-fill-mode': 'both' }],

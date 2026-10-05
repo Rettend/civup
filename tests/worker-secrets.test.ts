@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { parseEnvFile, secretUploadCommand, selectWorkerSecrets } from '../scripts/upload-worker-secrets'
 import { resolveCloudflareTarget } from '../config/cloudflare-targets'
+import { parseEnvFile, secretUploadCommand, selectWorkerSecrets } from '../scripts/upload-worker-secrets'
 
 describe('Worker secret uploads', () => {
   test('uploads only the chosen Worker secrets from a mixed environment file', () => {
@@ -14,11 +14,16 @@ describe('Worker secret uploads', () => {
     `)
 
     expect(selectWorkerSecrets('bot', source)).toEqual({ DISCORD_TOKEN: 'bot=token', CIVUP_SECRET: 'shared-secret' })
-    expect(selectWorkerSecrets('activity', source)).toEqual({ DISCORD_CLIENT_SECRET: 'activity-secret', CIVUP_SECRET: 'shared-secret' })
+    expect(selectWorkerSecrets('activity', source)).toEqual({
+      DISCORD_CLIENT_SECRET: 'activity-secret',
+      CIVUP_SECRET: 'shared-secret',
+    })
   })
 
   test('requires the entire secret set before uploading', () => {
-    expect(() => selectWorkerSecrets('bot', { DISCORD_TOKEN: 'bot-secret', CIVUP_SECRET: '  ' })).toThrow('CIVUP_SECRET')
+    expect(() => selectWorkerSecrets('bot', { DISCORD_TOKEN: 'bot-secret', CIVUP_SECRET: '  ' })).toThrow(
+      'CIVUP_SECRET',
+    )
     expect(() => selectWorkerSecrets('activity', { CIVUP_SECRET: 'shared' })).toThrow('DISCORD_CLIENT_SECRET')
   })
 

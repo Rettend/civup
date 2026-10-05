@@ -29,14 +29,14 @@ export interface GeneratedCivBlitzModFiles {
   files: readonly CivBlitzModFile[]
 }
 
-export type CivBlitzModErrorCode
-  = | 'INVALID_INPUT'
-    | 'INVALID_KIT'
-    | 'DUPLICATE_COMPONENT'
-    | 'COMPONENT_NOT_FOUND'
-    | 'COMPONENT_UNSUPPORTED'
-    | 'BBG_EXPANDED_UNSUPPORTED'
-    | 'GENERATION_LIMIT'
+export type CivBlitzModErrorCode =
+  | 'INVALID_INPUT'
+  | 'INVALID_KIT'
+  | 'DUPLICATE_COMPONENT'
+  | 'COMPONENT_NOT_FOUND'
+  | 'COMPONENT_UNSUPPORTED'
+  | 'BBG_EXPANDED_UNSUPPORTED'
+  | 'GENERATION_LIMIT'
 
 export class CivBlitzModError extends Error {
   readonly code: CivBlitzModErrorCode

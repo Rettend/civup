@@ -14,8 +14,7 @@ function getStorage(type: 'local' | 'session'): Storage | null {
 
   try {
     return type === 'local' ? window.localStorage : window.sessionStorage
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -39,8 +38,7 @@ function readCachedSessionFromStorage(storage: Storage | null): CachedActivitySe
     }
 
     return cached
-  }
-  catch {
+  } catch {
     storage.removeItem(ACTIVITY_SESSION_CACHE_KEY)
     return null
   }
@@ -51,8 +49,7 @@ function writeCachedSessionToStorage(storage: Storage | null, payload: CachedAct
 
   try {
     storage.setItem(ACTIVITY_SESSION_CACHE_KEY, JSON.stringify(payload))
-  }
-  catch {}
+  } catch {}
 }
 
 function clearCachedSessionFromStorage(storage: Storage | null) {
@@ -60,8 +57,7 @@ function clearCachedSessionFromStorage(storage: Storage | null) {
 
   try {
     storage.removeItem(ACTIVITY_SESSION_CACHE_KEY)
-  }
-  catch {}
+  } catch {}
 }
 
 export function getActivitySessionToken(): string | null {
@@ -76,11 +72,11 @@ export function getActivitySessionToken(): string | null {
 }
 
 export function cacheActivitySessionToken(token: string, expiresInSeconds?: number) {
-  const expiresAt = Date.now() + (
-    typeof expiresInSeconds === 'number' && expiresInSeconds > 0
+  const expiresAt =
+    Date.now() +
+    (typeof expiresInSeconds === 'number' && expiresInSeconds > 0
       ? expiresInSeconds * 1000
-      : DEFAULT_ACTIVITY_SESSION_LIFETIME_MS
-  )
+      : DEFAULT_ACTIVITY_SESSION_LIFETIME_MS)
 
   const payload: CachedActivitySession = { token, expiresAt }
   writeCachedSessionToStorage(getStorage('session'), payload)

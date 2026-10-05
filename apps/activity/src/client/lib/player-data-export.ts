@@ -83,19 +83,19 @@ export interface PlayerDataExportProgress {
   bans: number
 }
 
-export type PlayerDataExportState
-  = | { status: 'idle' }
-    | { status: 'estimating' }
-    | { status: 'estimate', estimate: PlayerDataExportEstimate }
-    | ({ status: 'loading' } & PlayerDataExportProgress)
-    | {
+export type PlayerDataExportState =
+  | { status: 'idle' }
+  | { status: 'estimating' }
+  | { status: 'estimate'; estimate: PlayerDataExportEstimate }
+  | ({ status: 'loading' } & PlayerDataExportProgress)
+  | {
       status: 'ready'
       filename: string
       url: string
       players: number
       matches: number
     }
-    | { status: 'error', message: string, retry: 'estimate' | 'export' }
+  | { status: 'error'; message: string; retry: 'estimate' | 'export' }
 
 export interface PlayerDataExportEstimate {
   version: typeof EXPORT_VERSION
@@ -150,7 +150,9 @@ export interface PublishedPlayerDataExport {
   url: string
 }
 
-export async function fetchPlayerDataExportEstimate(fetchImpl: typeof fetch = fetch): Promise<PlayerDataExportEstimate> {
+export async function fetchPlayerDataExportEstimate(
+  fetchImpl: typeof fetch = fetch,
+): Promise<PlayerDataExportEstimate> {
   const response = await fetchImpl(EXPORT_ESTIMATE_ENDPOINT, {
     cache: 'no-store',
     headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
@@ -159,7 +161,8 @@ export async function fetchPlayerDataExportEstimate(fetchImpl: typeof fetch = fe
   if (response.status === 403) throw new Error('Player data export is only available to server administrators.')
 
   const payload: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(readPayloadError(payload) ?? `Player data export estimate failed (${response.status}).`)
+  if (!response.ok)
+    throw new Error(readPayloadError(payload) ?? `Player data export estimate failed (${response.status}).`)
   const estimate = parseExportEstimate(payload)
   if (!estimate) throw new Error('Player data export estimate returned malformed data.')
   return estimate
@@ -229,16 +232,18 @@ export async function publishPlayerDataExport(
     method: 'POST',
     cache: 'no-store',
     headers: buildActivitySessionHeaders({
-      Accept: 'application/json',
+      'Accept': 'application/json',
       'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
     }),
     body: file.blob,
   })
   const payload: unknown = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(readPayloadError(payload) ?? `Export download preparation failed (${response.status}).`)
+  if (!response.ok)
+    throw new Error(readPayloadError(payload) ?? `Export download preparation failed (${response.status}).`)
   if (!payload || typeof payload !== 'object') throw new Error('Export download preparation returned malformed data.')
   const filename = (payload as { filename?: unknown }).filename
-  if (typeof filename !== 'string' || filename.length === 0) throw new Error('Export download preparation returned malformed data.')
+  if (typeof filename !== 'string' || filename.length === 0)
+    throw new Error('Export download preparation returned malformed data.')
 
   const url = new URL(`${EXPORT_UPLOAD_ENDPOINT}/download`, window.location.origin)
   const sessionToken = getActivitySessionToken()
@@ -283,8 +288,7 @@ export async function fetchPlayerDataExport(options: ExportRequestOptions = {}):
       source.generatedAt = page.generatedAt
       source.cutoffAt = page.cutoffAt
       if (page.phase !== 'players') throw new Error('Player data export started in an invalid phase.')
-    }
-    else if (page.generatedAt !== source.generatedAt || page.cutoffAt !== source.cutoffAt) {
+    } else if (page.generatedAt !== source.generatedAt || page.cutoffAt !== source.cutoffAt) {
       throw new Error('Player data export cutoff changed between pages.')
     }
 
@@ -293,8 +297,7 @@ export async function fetchPlayerDataExport(options: ExportRequestOptions = {}):
       if (matchPhaseStarted) throw new Error('Player data export returned to the player phase.')
       appendUniqueParents(source.players, page.players, seenPlayerIds, row => row.id, 'player')
       appendRows(source.ratings, page.ratings)
-    }
-    else {
+    } else {
       matchPhaseStarted = true
       appendUniqueParents(source.matches, page.matches, seenMatchIds, row => row.id, 'match')
       appendRows(source.participants, page.participants)
@@ -334,7 +337,12 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       rowCount: source.players.length,
       *rows() {
         for (const player of source.players) {
-          yield [player.id, player.displayName, formatTimestampMs(player.createdAt), formatTimestampMs(lastMatchAtByPlayerId.get(player.id))]
+          yield [
+            player.id,
+            player.displayName,
+            formatTimestampMs(player.createdAt),
+            formatTimestampMs(lastMatchAtByPlayerId.get(player.id)),
+          ]
         }
       },
     },
@@ -344,7 +352,15 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       rowCount: source.ratings.length,
       *rows() {
         for (const rating of source.ratings) {
-          yield [rating.playerId, rating.mode, rating.mu, rating.sigma, rating.gamesPlayed, rating.wins, formatTimestampMs(rating.lastPlayedAt)]
+          yield [
+            rating.playerId,
+            rating.mode,
+            rating.mu,
+            rating.sigma,
+            rating.gamesPlayed,
+            rating.wins,
+            formatTimestampMs(rating.lastPlayedAt),
+          ]
         }
       },
     },
@@ -354,13 +370,31 @@ export function buildPlayerDataWorksheets(source: PlayerDataExportSource): Strea
       rowCount: source.matches.length,
       *rows() {
         for (const match of source.matches) {
-          yield [match.id, match.gameMode, match.status, match.isOld, match.seasonId, formatTimestampMs(match.createdAt), formatTimestampMs(match.completedAt)]
+          yield [
+            match.id,
+            match.gameMode,
+            match.status,
+            match.isOld,
+            match.seasonId,
+            formatTimestampMs(match.createdAt),
+            formatTimestampMs(match.completedAt),
+          ]
         }
       },
     },
     {
       name: 'match_participants',
-      columns: ['match_id', 'player_id', 'team', 'civ_id', 'placement', 'rating_before_mu', 'rating_before_sigma', 'rating_after_mu', 'rating_after_sigma'],
+      columns: [
+        'match_id',
+        'player_id',
+        'team',
+        'civ_id',
+        'placement',
+        'rating_before_mu',
+        'rating_before_sigma',
+        'rating_after_mu',
+        'rating_after_sigma',
+      ],
       rowCount: source.participants.length,
       *rows() {
         for (const participant of source.participants) {
@@ -425,7 +459,11 @@ function worksheetXmlStream(worksheet: StreamingXlsxWorksheet): ReadableStream<U
       if (stage === 'start') {
         const lastColumn = columnName(Math.max(worksheet.columnCount ?? worksheet.columns.length, 1) - 1)
         const totalRows = worksheet.rowCount + 1
-        controller.enqueue(encoder.encode(`${XML_HEADER}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${lastColumn}${totalRows}"/><sheetData>`))
+        controller.enqueue(
+          encoder.encode(
+            `${XML_HEADER}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${lastColumn}${totalRows}"/><sheetData>`,
+          ),
+        )
         stage = 'header'
         return
       }
@@ -540,44 +578,78 @@ function buildOverviewRows(source: PlayerDataExportSource): XlsxCellValue[][] {
   rows.push([], ['Mode Breakdown'], ['Mode', 'Completed matches'])
   for (const row of modeRows) rows.push([row.gameMode, row.completedMatches])
   rows.push([], ['Weekly Activity'], ['ISO week', 'Week start', 'Completed matches', 'Unique players'])
-  for (const row of weeklyRows) rows.push([row.isoWeek, formatTimestampMs(row.weekStartAt), row.completedMatches, row.uniquePlayers])
+  for (const row of weeklyRows)
+    rows.push([row.isoWeek, formatTimestampMs(row.weekStartAt), row.completedMatches, row.uniquePlayers])
   rows.push([], ['Top Picked Leaders'], ['Leader', 'Civilization', 'Picks', 'Wins', 'Win rate'])
-  for (const row of leaderRows.mostPicked) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.picks, row.wins, formatPercent(row.winRatePct)])
+  for (const row of leaderRows.mostPicked)
+    rows.push([
+      row.leaderName || row.civId,
+      row.civilizationName || null,
+      row.picks,
+      row.wins,
+      formatPercent(row.winRatePct),
+    ])
   rows.push([], ['Top Banned Leaders'], ['Leader', 'Civilization', 'Bans', 'Picks', 'Wins', 'Win rate'])
-  for (const row of leaderRows.mostBanned) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.bans, row.picks, row.wins, formatPercent(row.winRatePct)])
-  rows.push([], ['Best Win Rates (min 10 picks)'], ['Leader', 'Civilization', 'Picks', 'Wins', 'Win rate', 'Average placement'])
-  for (const row of leaderRows.bestWinRatesMin10) rows.push([row.leaderName || row.civId, row.civilizationName || null, row.picks, row.wins, formatPercent(row.winRatePct), row.averagePlacement])
+  for (const row of leaderRows.mostBanned)
+    rows.push([
+      row.leaderName || row.civId,
+      row.civilizationName || null,
+      row.bans,
+      row.picks,
+      row.wins,
+      formatPercent(row.winRatePct),
+    ])
+  rows.push(
+    [],
+    ['Best Win Rates (min 10 picks)'],
+    ['Leader', 'Civilization', 'Picks', 'Wins', 'Win rate', 'Average placement'],
+  )
+  for (const row of leaderRows.bestWinRatesMin10)
+    rows.push([
+      row.leaderName || row.civId,
+      row.civilizationName || null,
+      row.picks,
+      row.wins,
+      formatPercent(row.winRatePct),
+      row.averagePlacement,
+    ])
   return rows
 }
 
 function sortPlayerDataExportSource(source: PlayerDataExportSource): void {
   source.players.sort((left, right) => left.id.localeCompare(right.id))
-  source.ratings.sort((left, right) => left.playerId.localeCompare(right.playerId) || left.mode.localeCompare(right.mode))
+  source.ratings.sort(
+    (left, right) => left.playerId.localeCompare(right.playerId) || left.mode.localeCompare(right.mode),
+  )
   source.matches.sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id))
   const matchOrder = new Map<string, number>()
   for (let index = 0; index < source.matches.length; index += 1) matchOrder.set(source.matches[index]!.id, index)
-  source.participants.sort((left, right) => (
-    compareMatchOrder(left.matchId, right.matchId, matchOrder)
-    || compareNullableNumber(left.team, right.team)
-    || left.playerId.localeCompare(right.playerId)
-    || (left.civId ?? '').localeCompare(right.civId ?? '')
-    || compareNullableNumber(left.placement, right.placement)
-    || compareNullableNumber(left.ratingBeforeMu, right.ratingBeforeMu)
-    || compareNullableNumber(left.ratingBeforeSigma, right.ratingBeforeSigma)
-    || compareNullableNumber(left.ratingAfterMu, right.ratingAfterMu)
-    || compareNullableNumber(left.ratingAfterSigma, right.ratingAfterSigma)
-  ))
-  source.bans.sort((left, right) => (
-    compareMatchOrder(left.matchId, right.matchId, matchOrder)
-    || left.phase - right.phase
-    || left.civId.localeCompare(right.civId)
-    || left.bannedBy.localeCompare(right.bannedBy)
-  ))
+  source.participants.sort(
+    (left, right) =>
+      compareMatchOrder(left.matchId, right.matchId, matchOrder) ||
+      compareNullableNumber(left.team, right.team) ||
+      left.playerId.localeCompare(right.playerId) ||
+      (left.civId ?? '').localeCompare(right.civId ?? '') ||
+      compareNullableNumber(left.placement, right.placement) ||
+      compareNullableNumber(left.ratingBeforeMu, right.ratingBeforeMu) ||
+      compareNullableNumber(left.ratingBeforeSigma, right.ratingBeforeSigma) ||
+      compareNullableNumber(left.ratingAfterMu, right.ratingAfterMu) ||
+      compareNullableNumber(left.ratingAfterSigma, right.ratingAfterSigma),
+  )
+  source.bans.sort(
+    (left, right) =>
+      compareMatchOrder(left.matchId, right.matchId, matchOrder) ||
+      left.phase - right.phase ||
+      left.civId.localeCompare(right.civId) ||
+      left.bannedBy.localeCompare(right.bannedBy),
+  )
 }
 
 function compareMatchOrder(leftId: string, rightId: string, matchOrder: Map<string, number>): number {
-  return (matchOrder.get(leftId) ?? Number.MAX_SAFE_INTEGER) - (matchOrder.get(rightId) ?? Number.MAX_SAFE_INTEGER)
-    || leftId.localeCompare(rightId)
+  return (
+    (matchOrder.get(leftId) ?? Number.MAX_SAFE_INTEGER) - (matchOrder.get(rightId) ?? Number.MAX_SAFE_INTEGER) ||
+    leftId.localeCompare(rightId)
+  )
 }
 
 function compareNullableNumber(left: number | null, right: number | null): number {
@@ -613,7 +685,10 @@ function groupParticipantsByMatch(rows: PlayerDataExportParticipant[]): Map<stri
   return result
 }
 
-function buildLastMatchAtByPlayerId(matches: PlayerDataExportMatch[], participants: PlayerDataExportParticipant[]): Map<string, number> {
+function buildLastMatchAtByPlayerId(
+  matches: PlayerDataExportMatch[],
+  participants: PlayerDataExportParticipant[],
+): Map<string, number> {
   const matchAtById = new Map<string, number>()
   for (const match of matches) matchAtById.set(match.id, match.completedAt ?? match.createdAt)
   const result = new Map<string, number>()
@@ -631,7 +706,7 @@ function buildRecentActivity(
   participantsByMatch: Map<string, PlayerDataExportParticipant[]>,
   generatedAt: number,
   days: number,
-): { completedMatches: number, uniquePlayers: number } {
+): { completedMatches: number; uniquePlayers: number } {
   const cutoff = generatedAt - days * DAY_MS
   const playerIds = new Set<string>()
   let completedMatches = 0
@@ -643,22 +718,27 @@ function buildRecentActivity(
   return { completedMatches, uniquePlayers: playerIds.size }
 }
 
-function buildModeRows(matches: PlayerDataExportMatch[]): Array<{ gameMode: string, completedMatches: number }> {
+function buildModeRows(matches: PlayerDataExportMatch[]): Array<{ gameMode: string; completedMatches: number }> {
   const counts = new Map<string, number>()
   for (const match of matches) counts.set(match.gameMode, (counts.get(match.gameMode) ?? 0) + 1)
-  return Array.from(counts, ([gameMode, completedMatches]) => ({ gameMode, completedMatches }))
-    .sort((left, right) => right.completedMatches - left.completedMatches || left.gameMode.localeCompare(right.gameMode))
+  return Array.from(counts, ([gameMode, completedMatches]) => ({ gameMode, completedMatches })).sort(
+    (left, right) => right.completedMatches - left.completedMatches || left.gameMode.localeCompare(right.gameMode),
+  )
 }
 
 function buildWeeklyActivityRows(
   matches: PlayerDataExportMatch[],
   participantsByMatch: Map<string, PlayerDataExportParticipant[]>,
-): Array<{ isoWeek: string, weekStartAt: number, completedMatches: number, uniquePlayers: number }> {
-  const buckets = new Map<string, { weekStartAt: number, completedMatches: number, playerIds: Set<string> }>()
+): Array<{ isoWeek: string; weekStartAt: number; completedMatches: number; uniquePlayers: number }> {
+  const buckets = new Map<string, { weekStartAt: number; completedMatches: number; playerIds: Set<string> }>()
   for (const match of matches) {
     if (match.isOld || match.completedAt == null) continue
     const week = getIsoWeekBucket(match.completedAt)
-    const bucket = buckets.get(week.isoWeek) ?? { weekStartAt: week.weekStartAt, completedMatches: 0, playerIds: new Set<string>() }
+    const bucket = buckets.get(week.isoWeek) ?? {
+      weekStartAt: week.weekStartAt,
+      completedMatches: 0,
+      playerIds: new Set<string>(),
+    }
     bucket.completedMatches += 1
     for (const participant of participantsByMatch.get(match.id) ?? []) bucket.playerIds.add(participant.playerId)
     buckets.set(week.isoWeek, bucket)
@@ -674,7 +754,11 @@ function buildWeeklyActivityRows(
 function buildLeaderOverview(
   participants: PlayerDataExportParticipant[],
   bans: PlayerDataExportBan[],
-): { mostPicked: OverviewLeaderSummary[], mostBanned: OverviewLeaderSummary[], bestWinRatesMin10: OverviewLeaderSummary[] } {
+): {
+  mostPicked: OverviewLeaderSummary[]
+  mostBanned: OverviewLeaderSummary[]
+  bestWinRatesMin10: OverviewLeaderSummary[]
+} {
   const aggregates = new Map<string, OverviewLeaderAggregate>()
   for (const participant of participants) {
     if (!participant.civId) continue
@@ -689,9 +773,27 @@ function buildLeaderOverview(
   for (const ban of bans) getLeaderAggregate(aggregates, ban.civId).bans += 1
   const summaries = Array.from(aggregates.values(), toLeaderSummary)
   return {
-    mostPicked: summaries.filter(row => row.picks > 0).sort((left, right) => right.picks - left.picks || right.wins - left.wins || left.civId.localeCompare(right.civId)).slice(0, 10),
-    mostBanned: summaries.filter(row => row.bans > 0).sort((left, right) => right.bans - left.bans || right.picks - left.picks || left.civId.localeCompare(right.civId)).slice(0, 10),
-    bestWinRatesMin10: summaries.filter(row => row.picks >= 10 && row.winRatePct != null).sort((left, right) => (right.winRatePct ?? 0) - (left.winRatePct ?? 0) || right.picks - left.picks || left.civId.localeCompare(right.civId)).slice(0, 10),
+    mostPicked: summaries
+      .filter(row => row.picks > 0)
+      .sort(
+        (left, right) => right.picks - left.picks || right.wins - left.wins || left.civId.localeCompare(right.civId),
+      )
+      .slice(0, 10),
+    mostBanned: summaries
+      .filter(row => row.bans > 0)
+      .sort(
+        (left, right) => right.bans - left.bans || right.picks - left.picks || left.civId.localeCompare(right.civId),
+      )
+      .slice(0, 10),
+    bestWinRatesMin10: summaries
+      .filter(row => row.picks >= 10 && row.winRatePct != null)
+      .sort(
+        (left, right) =>
+          (right.winRatePct ?? 0) - (left.winRatePct ?? 0) ||
+          right.picks - left.picks ||
+          left.civId.localeCompare(right.civId),
+      )
+      .slice(0, 10),
   }
 }
 
@@ -713,17 +815,15 @@ function getLeaderAggregate(aggregates: Map<string, OverviewLeaderAggregate>, ci
   return aggregate
 }
 
-function resolveLeaderMeta(civId: string): { leaderName: string, civilizationName: string } {
+function resolveLeaderMeta(civId: string): { leaderName: string; civilizationName: string } {
   try {
     const leader = getLeader(civId)
     return { leaderName: leader.name, civilizationName: leader.civilization }
-  }
-  catch {
+  } catch {
     try {
       const leader = getLeader(civId, 'beta')
       return { leaderName: leader.name, civilizationName: leader.civilization }
-    }
-    catch {
+    } catch {
       return { leaderName: '', civilizationName: '' }
     }
   }
@@ -737,12 +837,12 @@ function toLeaderSummary(row: OverviewLeaderAggregate): OverviewLeaderSummary {
     picks: row.picks,
     bans: row.bans,
     wins: row.wins,
-    winRatePct: row.picks > 0 ? round(row.wins / row.picks * 100, 1) : null,
+    winRatePct: row.picks > 0 ? round((row.wins / row.picks) * 100, 1) : null,
     averagePlacement: row.placementCount > 0 ? round(row.placementTotal / row.placementCount, 2) : null,
   }
 }
 
-function getIsoWeekBucket(timestampMs: number): { isoWeek: string, weekStartAt: number } {
+function getIsoWeekBucket(timestampMs: number): { isoWeek: string; weekStartAt: number } {
   const source = new Date(timestampMs)
   const dayStart = new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth(), source.getUTCDate()))
   const weekday = dayStart.getUTCDay() || 7
@@ -779,7 +879,11 @@ function parseExportPage(payload: unknown): ExportPage | null {
   if (payload.version !== EXPORT_VERSION) return null
   if (!isSafeTimestamp(payload.generatedAt) || !isSafeTimestamp(payload.cutoffAt)) return null
   if (payload.phase !== 'players' && payload.phase !== 'matches') return null
-  if (payload.nextCursor !== null && (typeof payload.nextCursor !== 'string' || payload.nextCursor.length === 0 || payload.nextCursor.length > 1024)) return null
+  if (
+    payload.nextCursor !== null &&
+    (typeof payload.nextCursor !== 'string' || payload.nextCursor.length === 0 || payload.nextCursor.length > 1024)
+  )
+    return null
 
   const base = {
     version: EXPORT_VERSION,
@@ -789,35 +893,75 @@ function parseExportPage(payload: unknown): ExportPage | null {
     nextCursor: payload.nextCursor,
   }
   if (payload.phase === 'players') {
-    if (!Array.isArray(payload.players) || payload.players.length > EXPORT_PARENT_PAGE_SIZE || !payload.players.every(isExportPlayer)) return null
-    if (!Array.isArray(payload.ratings) || payload.ratings.length > MAX_RATINGS_PER_PAGE || !payload.ratings.every(isExportRating)) return null
+    if (
+      !Array.isArray(payload.players) ||
+      payload.players.length > EXPORT_PARENT_PAGE_SIZE ||
+      !payload.players.every(isExportPlayer)
+    )
+      return null
+    if (
+      !Array.isArray(payload.ratings) ||
+      payload.ratings.length > MAX_RATINGS_PER_PAGE ||
+      !payload.ratings.every(isExportRating)
+    )
+      return null
     return { ...base, phase: 'players', players: payload.players, ratings: payload.ratings }
   }
-  if (!Array.isArray(payload.matches) || payload.matches.length > EXPORT_PARENT_PAGE_SIZE || !payload.matches.every(isExportMatch)) return null
-  if (!Array.isArray(payload.participants) || payload.participants.length > MAX_PARTICIPANTS_PER_PAGE || !payload.participants.every(isExportParticipant)) return null
-  if (!Array.isArray(payload.bans) || payload.bans.length > MAX_BANS_PER_PAGE || !payload.bans.every(isExportBan)) return null
+  if (
+    !Array.isArray(payload.matches) ||
+    payload.matches.length > EXPORT_PARENT_PAGE_SIZE ||
+    !payload.matches.every(isExportMatch)
+  )
+    return null
+  if (
+    !Array.isArray(payload.participants) ||
+    payload.participants.length > MAX_PARTICIPANTS_PER_PAGE ||
+    !payload.participants.every(isExportParticipant)
+  )
+    return null
+  if (!Array.isArray(payload.bans) || payload.bans.length > MAX_BANS_PER_PAGE || !payload.bans.every(isExportBan))
+    return null
   return { ...base, phase: 'matches', matches: payload.matches, participants: payload.participants, bans: payload.bans }
 }
 
 function parseExportEstimate(payload: unknown): PlayerDataExportEstimate | null {
-  if (!hasExactKeys(payload, ['version', 'estimatedAt', 'rows', 'dataPageRequests', 'workerRequests', 'd1RowsRead', 'dailyFreeAllowance'])) return null
+  if (
+    !hasExactKeys(payload, [
+      'version',
+      'estimatedAt',
+      'rows',
+      'dataPageRequests',
+      'workerRequests',
+      'd1RowsRead',
+      'dailyFreeAllowance',
+    ])
+  )
+    return null
   if (payload.version !== EXPORT_VERSION || !isSafeTimestamp(payload.estimatedAt)) return null
   if (!hasExactKeys(payload.rows, ['players', 'ratings', 'matches', 'participants', 'storedBans'])) return null
   if (!hasExactKeys(payload.d1RowsRead, ['lowEstimate', 'highEstimate'])) return null
   if (!hasExactKeys(payload.dailyFreeAllowance, ['workerRequests', 'd1RowsRead'])) return null
 
-  if (!isNonnegativeSafeInteger(payload.rows.players)
-    || !isNonnegativeSafeInteger(payload.rows.ratings)
-    || !isNonnegativeSafeInteger(payload.rows.matches)
-    || !isNonnegativeSafeInteger(payload.rows.participants)
-    || !isNonnegativeSafeInteger(payload.rows.storedBans)
-    || !isNonnegativeSafeInteger(payload.dataPageRequests)
-    || !isNonnegativeSafeInteger(payload.workerRequests)
-    || !isNonnegativeSafeInteger(payload.d1RowsRead.lowEstimate)
-    || !isNonnegativeSafeInteger(payload.d1RowsRead.highEstimate)
-    || !isNonnegativeSafeInteger(payload.dailyFreeAllowance.workerRequests)
-    || !isNonnegativeSafeInteger(payload.dailyFreeAllowance.d1RowsRead)) return null
-  if (payload.dataPageRequests === 0 || payload.dailyFreeAllowance.workerRequests === 0 || payload.dailyFreeAllowance.d1RowsRead === 0) return null
+  if (
+    !isNonnegativeSafeInteger(payload.rows.players) ||
+    !isNonnegativeSafeInteger(payload.rows.ratings) ||
+    !isNonnegativeSafeInteger(payload.rows.matches) ||
+    !isNonnegativeSafeInteger(payload.rows.participants) ||
+    !isNonnegativeSafeInteger(payload.rows.storedBans) ||
+    !isNonnegativeSafeInteger(payload.dataPageRequests) ||
+    !isNonnegativeSafeInteger(payload.workerRequests) ||
+    !isNonnegativeSafeInteger(payload.d1RowsRead.lowEstimate) ||
+    !isNonnegativeSafeInteger(payload.d1RowsRead.highEstimate) ||
+    !isNonnegativeSafeInteger(payload.dailyFreeAllowance.workerRequests) ||
+    !isNonnegativeSafeInteger(payload.dailyFreeAllowance.d1RowsRead)
+  )
+    return null
+  if (
+    payload.dataPageRequests === 0 ||
+    payload.dailyFreeAllowance.workerRequests === 0 ||
+    payload.dailyFreeAllowance.d1RowsRead === 0
+  )
+    return null
   if (payload.d1RowsRead.highEstimate < payload.d1RowsRead.lowEstimate) return null
 
   return {
@@ -884,42 +1028,66 @@ function isExportPlayer(value: unknown): value is PlayerDataExportPlayer {
 
 function isExportRating(value: unknown): value is PlayerDataExportRating {
   if (!hasExactKeys(value, ['playerId', 'mode', 'mu', 'sigma', 'gamesPlayed', 'wins', 'lastPlayedAt'])) return false
-  return isNonemptyString(value.playerId)
-    && isNonemptyString(value.mode)
-    && isFiniteNumber(value.mu)
-    && isFiniteNumber(value.sigma)
-    && isSafeInteger(value.gamesPlayed)
-    && isSafeInteger(value.wins)
-    && isNullableTimestamp(value.lastPlayedAt)
+  return (
+    isNonemptyString(value.playerId) &&
+    isNonemptyString(value.mode) &&
+    isFiniteNumber(value.mu) &&
+    isFiniteNumber(value.sigma) &&
+    isSafeInteger(value.gamesPlayed) &&
+    isSafeInteger(value.wins) &&
+    isNullableTimestamp(value.lastPlayedAt)
+  )
 }
 
 function isExportMatch(value: unknown): value is PlayerDataExportMatch {
   if (!hasExactKeys(value, ['id', 'gameMode', 'status', 'isOld', 'seasonId', 'createdAt', 'completedAt'])) return false
-  return isNonemptyString(value.id)
-    && isNonemptyString(value.gameMode)
-    && isNonemptyString(value.status)
-    && typeof value.isOld === 'boolean'
-    && (value.seasonId === null || typeof value.seasonId === 'string')
-    && isSafeTimestamp(value.createdAt)
-    && isNullableTimestamp(value.completedAt)
+  return (
+    isNonemptyString(value.id) &&
+    isNonemptyString(value.gameMode) &&
+    isNonemptyString(value.status) &&
+    typeof value.isOld === 'boolean' &&
+    (value.seasonId === null || typeof value.seasonId === 'string') &&
+    isSafeTimestamp(value.createdAt) &&
+    isNullableTimestamp(value.completedAt)
+  )
 }
 
 function isExportParticipant(value: unknown): value is PlayerDataExportParticipant {
-  if (!hasExactKeys(value, ['matchId', 'playerId', 'team', 'civId', 'placement', 'ratingBeforeMu', 'ratingBeforeSigma', 'ratingAfterMu', 'ratingAfterSigma'])) return false
-  return isNonemptyString(value.matchId)
-    && isNonemptyString(value.playerId)
-    && isNullableSafeInteger(value.team)
-    && (value.civId === null || typeof value.civId === 'string')
-    && isNullableSafeInteger(value.placement)
-    && isNullableFiniteNumber(value.ratingBeforeMu)
-    && isNullableFiniteNumber(value.ratingBeforeSigma)
-    && isNullableFiniteNumber(value.ratingAfterMu)
-    && isNullableFiniteNumber(value.ratingAfterSigma)
+  if (
+    !hasExactKeys(value, [
+      'matchId',
+      'playerId',
+      'team',
+      'civId',
+      'placement',
+      'ratingBeforeMu',
+      'ratingBeforeSigma',
+      'ratingAfterMu',
+      'ratingAfterSigma',
+    ])
+  )
+    return false
+  return (
+    isNonemptyString(value.matchId) &&
+    isNonemptyString(value.playerId) &&
+    isNullableSafeInteger(value.team) &&
+    (value.civId === null || typeof value.civId === 'string') &&
+    isNullableSafeInteger(value.placement) &&
+    isNullableFiniteNumber(value.ratingBeforeMu) &&
+    isNullableFiniteNumber(value.ratingBeforeSigma) &&
+    isNullableFiniteNumber(value.ratingAfterMu) &&
+    isNullableFiniteNumber(value.ratingAfterSigma)
+  )
 }
 
 function isExportBan(value: unknown): value is PlayerDataExportBan {
   if (!hasExactKeys(value, ['matchId', 'civId', 'bannedBy', 'phase'])) return false
-  return isNonemptyString(value.matchId) && isNonemptyString(value.civId) && isNonemptyString(value.bannedBy) && isSafeInteger(value.phase)
+  return (
+    isNonemptyString(value.matchId) &&
+    isNonemptyString(value.civId) &&
+    isNonemptyString(value.bannedBy) &&
+    isSafeInteger(value.phase)
+  )
 }
 
 function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
@@ -969,7 +1137,13 @@ function appendRows<T>(target: T[], rows: T[]): void {
   for (const row of rows) target.push(row)
 }
 
-function appendUniqueParents<T>(target: T[], rows: T[], seen: Set<string>, getId: (row: T) => string, label: string): void {
+function appendUniqueParents<T>(
+  target: T[],
+  rows: T[],
+  seen: Set<string>,
+  getId: (row: T) => string,
+  label: string,
+): void {
   for (const row of rows) {
     const id = getId(row)
     if (seen.has(id)) throw new Error(`Player data export repeated ${label} ${id}.`)
@@ -978,7 +1152,10 @@ function appendUniqueParents<T>(target: T[], rows: T[], seen: Set<string>, getId
   }
 }
 
-function progressFor(source: PlayerDataExportSource, phase: PlayerDataExportProgress['phase']): PlayerDataExportProgress {
+function progressFor(
+  source: PlayerDataExportSource,
+  phase: PlayerDataExportProgress['phase'],
+): PlayerDataExportProgress {
   return {
     phase,
     players: source.players.length,
@@ -990,14 +1167,16 @@ function progressFor(source: PlayerDataExportSource, phase: PlayerDataExportProg
 }
 
 function readPayloadError(payload: unknown): string | null {
-  return isRecord(payload) && typeof payload.error === 'string' && payload.error.trim().length > 0 ? payload.error : null
+  return isRecord(payload) && typeof payload.error === 'string' && payload.error.trim().length > 0
+    ? payload.error
+    : null
 }
 
 function formatTimestampMs(timestampMs: number | null | undefined): XlsxCellValue {
   if (timestampMs == null) return null
   return {
     type: 'date',
-    value: Math.round(((timestampMs / 86_400_000) + 25_569) * 86_400) / 86_400,
+    value: Math.round((timestampMs / 86_400_000 + 25_569) * 86_400) / 86_400,
   }
 }
 
@@ -1032,11 +1211,13 @@ function escapeXmlAttribute(value: string): string {
 }
 
 function escapeXmlText(value: string): string {
-  return value
-    // XML 1.0 does not allow these control characters in workbook cells.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\v\f\u000E-\u001F\uFFFE\uFFFF]/g, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return (
+    value
+      // XML 1.0 does not allow these control characters in workbook cells.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\v\f\u000E-\u001F\uFFFE\uFFFF]/g, '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+  )
 }

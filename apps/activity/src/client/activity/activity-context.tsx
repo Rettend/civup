@@ -1,15 +1,25 @@
-import type { Accessor } from 'solid-js'
-import type { JSX } from '@solidjs/web'
 import type { PlayerDataExportState } from '../lib/player-data-export'
-import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
+import type {
+  ActivityLaunchSelection,
+  ActivityTargetOption,
+  LobbyJoinEligibilitySnapshot,
+  LobbySnapshot,
+} from '../stores'
+import type { JSX } from '@solidjs/web'
+import type { Accessor } from 'solid-js'
 import { createContext, useContext } from 'solid-js'
 
-export type ActivityState
-  = | { status: 'loading' }
-    | { status: 'error', message: string }
-    | { status: 'overview' }
-    | { status: 'lobby-waiting', lobby: LobbySnapshot, joinPending: boolean, joinEligibility: LobbyJoinEligibilitySnapshot }
-    | {
+export type ActivityState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'overview' }
+  | {
+      status: 'lobby-waiting'
+      lobby: LobbySnapshot
+      joinPending: boolean
+      joinEligibility: LobbyJoinEligibilitySnapshot
+    }
+  | {
       status: 'authenticated'
       matchId: string
       autoStart: boolean

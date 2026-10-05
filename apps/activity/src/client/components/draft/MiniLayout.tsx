@@ -1,6 +1,6 @@
 import type { JSX } from '@solidjs/web'
-import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { getLeader } from '@civup/game'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import { draftStore } from '~/client/stores'
@@ -59,7 +59,12 @@ export function MiniFrame(props: MiniFrameProps) {
           )}
         </Show>
 
-        <span class={cn('absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xs tracking-widest font-bold uppercase', titleColorClass())}>
+        <span
+          class={cn(
+            'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xs tracking-widest font-bold uppercase',
+            titleColorClass(),
+          )}
+        >
           {props.title}
         </span>
 
@@ -73,9 +78,7 @@ export function MiniFrame(props: MiniFrameProps) {
       </div>
 
       {/* Content */}
-      <div class="mt-3 flex flex-1 flex-col min-h-0 overflow-hidden">
-        {props.children}
-      </div>
+      <div class="mt-3 flex flex-1 flex-col min-h-0 overflow-hidden">{props.children}</div>
     </div>
   )
 }
@@ -94,9 +97,7 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
         <For each={props.columns}>
           {column => (
             <div class="flex flex-col gap-1 min-h-0 overflow-hidden">
-              <For each={column}>
-                {item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} />}
-              </For>
+              <For each={column}>{item => <MiniSeatRow item={item} activeTone={props.activeTone ?? 'gold'} />}</For>
             </div>
           )}
         </For>
@@ -109,15 +110,14 @@ export function MiniSeatGrid(props: MiniSeatGridProps) {
   )
 }
 
-function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | 'orange' | 'cyan' }) {
+function MiniSeatRow(props: { item: MiniSeatItem; activeTone: 'gold' | 'red' | 'orange' | 'cyan' }) {
   const leaderPortraitUrl = () => {
     const leaderId = props.item.leaderId ?? props.item.previewLeaderId
     if (!leaderId) return null
 
     try {
       return getLeader(leaderId, draftStore.leaderDataVersion).portraitUrl ?? null
-    }
-    catch {
+    } catch {
       return null
     }
   }
@@ -138,33 +138,37 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
   }
 
   return (
-    <div class={cn('relative flex h-6 items-center gap-1 overflow-hidden rounded px-1.5', backgroundClass(), activeClass())}>
+    <div
+      class={cn(
+        'relative flex h-6 items-center gap-1 overflow-hidden rounded px-1.5',
+        backgroundClass(),
+        activeClass(),
+      )}
+    >
       {/* Avatar — small, matching leader icon size */}
       <Show
         when={!props.item.empty && props.item.avatarUrl}
-        fallback={(
-          <div class={cn(
-            'flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
-            props.item.empty ? 'bg-white/4 text-fg-subtle/60' : 'bg-bg/70 text-fg-subtle/80',
-          )}
+        fallback={
+          <div
+            class={cn(
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
+              props.item.empty ? 'bg-white/4 text-fg-subtle/60' : 'bg-bg/70 text-fg-subtle/80',
+            )}
           >
             <span class="i-ph-user-bold text-[8px]" />
           </div>
-        )}
+        }
       >
-        {avatar => (
-          <img
-            src={avatar()}
-            alt=""
-            class="rounded-full shrink-0 h-4 w-4 object-cover"
-          />
-        )}
+        {avatar => <img src={avatar()} alt="" class="rounded-full shrink-0 h-4 w-4 object-cover" />}
       </Show>
 
       {/* Name */}
       <div class="flex-1 min-w-0 overflow-hidden">
         <span
-          class={cn('block overflow-hidden whitespace-nowrap text-[6px] leading-none', props.item.empty ? 'text-fg-subtle/75' : 'text-fg')}
+          class={cn(
+            'block overflow-hidden whitespace-nowrap text-[6px] leading-none',
+            props.item.empty ? 'text-fg-subtle/75' : 'text-fg',
+          )}
           style={MINI_NAME_FADE_STYLE}
         >
           {props.item.name}
@@ -175,26 +179,33 @@ function MiniSeatRow(props: { item: MiniSeatItem, activeTone: 'gold' | 'red' | '
       <div class="flex h-5 w-5 items-center right-1 top-1/2 justify-center absolute -translate-y-1/2">
         <Show
           when={leaderPortraitUrl()}
-          fallback={(
+          fallback={
             <Show
               when={props.item.leaderId}
-              fallback={(
+              fallback={
                 <Show when={props.item.active}>
                   <div class="flex h-5 w-5 items-center justify-center">
-                    <span class={cn(
-                      'h-1.5 w-1.5 rounded-full animate-pulse',
-                      props.activeTone === 'red' ? 'bg-danger' : props.activeTone === 'orange' ? 'bg-[#f97316]' : props.activeTone === 'cyan' ? 'bg-cyan-300' : 'bg-accent',
-                    )}
+                    <span
+                      class={cn(
+                        'h-1.5 w-1.5 rounded-full animate-pulse',
+                        props.activeTone === 'red'
+                          ? 'bg-danger'
+                          : props.activeTone === 'orange'
+                            ? 'bg-[#f97316]'
+                            : props.activeTone === 'cyan'
+                              ? 'bg-cyan-300'
+                              : 'bg-accent',
+                      )}
                     />
                   </div>
                 </Show>
-              )}
+              }
             >
               <div class="border border-border rounded-full bg-bg/80 flex h-5 w-5 items-center justify-center">
                 <span class="i-ph-crown-simple-fill text-[8px] text-accent" />
               </div>
             </Show>
-          )}
+          }
         >
           {portraitUrl => (
             <img

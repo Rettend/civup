@@ -1,15 +1,23 @@
-import { createDb } from '@civup/db'
 import { Button } from 'discord-hono'
+import { createDb } from '@civup/db'
+import { parseCivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { PAGINATION_COMPONENT_ID, parsePaginationCustomId } from '../services/response/pagination.ts'
 import { factory } from '../setup.ts'
-import { buildCivLeaderboardCommandPayload, isCivLeaderboardPaginationNamespace, parseCivLeaderboardModeScope } from './civ-leaderboard.ts'
-import { buildPlayerHistoryCommandPayload, isPlayerHistoryPaginationNamespace, parsePlayerHistoryMode } from './history.ts'
-import { parseCivLeaderboardBoard } from '../embeds/civ-leaderboard.ts'
+import {
+  buildCivLeaderboardCommandPayload,
+  isCivLeaderboardPaginationNamespace,
+  parseCivLeaderboardModeScope,
+} from './civ-leaderboard.ts'
+import {
+  buildPlayerHistoryCommandPayload,
+  isPlayerHistoryPaginationNamespace,
+  parsePlayerHistoryMode,
+} from './history.ts'
 
 export const component_pagination = factory.component(
   new Button(PAGINATION_COMPONENT_ID, 'Page', 'Secondary'),
-  async (c) => {
+  async c => {
     const request = parsePaginationCustomId(c.var.custom_id)
     if (!request) return c.flags('EPHEMERAL').res('This pagination control is invalid or expired.')
 
@@ -20,7 +28,10 @@ export const component_pagination = factory.component(
 
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
-      const payload = await buildCivLeaderboardCommandPayload(db, kv, board, { pageIndex: request.pageIndex, modeScope })
+      const payload = await buildCivLeaderboardCommandPayload(db, kv, board, {
+        pageIndex: request.pageIndex,
+        modeScope,
+      })
       return c.update().res({
         content: payload.content ?? undefined,
         embeds: payload.embeds,

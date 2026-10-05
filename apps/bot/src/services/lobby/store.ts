@@ -1,7 +1,18 @@
-import type { GameMode } from '@civup/game'
 import type { LobbyState } from './types.ts'
+import type { GameMode } from '@civup/game'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
-import { bumpCooldownKey, channelIndexKey, channelPrefix, hostKey, idKey, LOBBY_HOST_KEY_PREFIX, LOBBY_ID_KEY_PREFIX, LOBBY_TTL, modeIndexKey, modePrefix } from './keys.ts'
+import {
+  bumpCooldownKey,
+  channelIndexKey,
+  channelPrefix,
+  hostKey,
+  idKey,
+  LOBBY_HOST_KEY_PREFIX,
+  LOBBY_ID_KEY_PREFIX,
+  LOBBY_TTL,
+  modeIndexKey,
+  modePrefix,
+} from './keys.ts'
 import { normalizeLobby, parseLobbyState } from './normalize.ts'
 
 interface LobbyStoreEntry {
@@ -94,10 +105,11 @@ export async function getCurrentLobbiesForPlayers(
   const currentLobbies = await getCurrentLobbies(kv, options?.mode)
   for (const playerId of uniquePlayerIds) {
     if (!playerId) continue
-    const currentLobby = currentLobbies.find((lobby) => {
-      if (excludedLobbyIds.has(lobby.id)) return false
-      return lobby.memberPlayerIds.includes(playerId)
-    }) ?? null
+    const currentLobby =
+      currentLobbies.find(lobby => {
+        if (excludedLobbyIds.has(lobby.id)) return false
+        return lobby.memberPlayerIds.includes(playerId)
+      }) ?? null
     lobbyByPlayerId.set(playerId, currentLobby)
   }
 
@@ -117,14 +129,17 @@ export async function getCurrentLobbiesForPlayer(
     excludeLobbyIds?: readonly string[]
   },
 ): Promise<LobbyState[]> {
-  const mappedLobby = (await getCurrentLobbiesForPlayers(kv, [playerId], {
-    ...options,
-  })).get(playerId) ?? null
+  const mappedLobby =
+    (
+      await getCurrentLobbiesForPlayers(kv, [playerId], {
+        ...options,
+      })
+    ).get(playerId) ?? null
   if (mappedLobby) return [mappedLobby]
 
   const excludedLobbyIds = new Set(options?.excludeLobbyIds ?? [])
   const currentLobbies = await getCurrentLobbies(kv, options?.mode)
-  return currentLobbies.filter((lobby) => {
+  return currentLobbies.filter(lobby => {
     if (excludedLobbyIds.has(lobby.id)) return false
     return lobby.memberPlayerIds.includes(playerId)
   })
@@ -148,8 +163,11 @@ export async function getOpenLobbyForPlayer(
   playerId: string,
   mode?: GameMode,
 ): Promise<LobbyState | null> {
-  return (await getCurrentLobbiesForPlayer(kv, playerId, { mode }))
-    .find((lobby): lobby is LobbyState => lobby.status === 'open') ?? null
+  return (
+    (await getCurrentLobbiesForPlayer(kv, playerId, { mode })).find(
+      (lobby): lobby is LobbyState => lobby.status === 'open',
+    ) ?? null
+  )
 }
 
 export async function upsertLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
@@ -167,9 +185,7 @@ export async function clearLobbyById(
 ): Promise<void> {
   const lobby = currentLobby?.id === lobbyId ? currentLobby : await getLobbyById(kv, lobbyId)
   const keys = [idKey(lobbyId), bumpCooldownKey(lobbyId)]
-  const hostKeys = lobby
-    ? [hostKey(lobby.hostId)]
-    : await findHostKeysForLobby(kv, lobbyId)
+  const hostKeys = lobby ? [hostKey(lobby.hostId)] : await findHostKeysForLobby(kv, lobbyId)
   keys.push(...hostKeys)
   if (lobby) {
     keys.push(modeIndexKey(lobby.mode, lobby.id))
@@ -181,16 +197,19 @@ export async function clearLobbyById(
 export async function clearLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<void> {
   const lobbies = await getLobbiesByMode(kv, mode)
   if (lobbies.length === 0) return
-  await kvMdelete(kv, lobbies.flatMap((lobby) => {
-    const keys = [
-      idKey(lobby.id),
-      hostKey(lobby.hostId),
-      bumpCooldownKey(lobby.id),
-      modeIndexKey(mode, lobby.id),
-      channelIndexKey(lobby.channelId, lobby.id),
-    ]
-    return keys
-  }))
+  await kvMdelete(
+    kv,
+    lobbies.flatMap(lobby => {
+      const keys = [
+        idKey(lobby.id),
+        hostKey(lobby.hostId),
+        bumpCooldownKey(lobby.id),
+        modeIndexKey(mode, lobby.id),
+        channelIndexKey(lobby.channelId, lobby.id),
+      ]
+      return keys
+    }),
+  )
 }
 
 export async function putLobby(kv: KVNamespace, lobby: LobbyState): Promise<void> {
@@ -236,7 +255,10 @@ async function getAllLobbies(kv: KVNamespace): Promise<LobbyState[]> {
 async function findHostKeysForLobby(kv: KVNamespace, lobbyId: string): Promise<string[]> {
   const listed = await kv.list({ prefix: LOBBY_HOST_KEY_PREFIX })
   const hostKeys = listed.keys.map(entry => entry.name)
-  const hostLobbyIds = await kvMget(kv, hostKeys.map(key => ({ key })))
+  const hostLobbyIds = await kvMget(
+    kv,
+    hostKeys.map(key => ({ key })),
+  )
 
   return hostKeys.filter((key, index) => hostLobbyIds[index] === lobbyId)
 }

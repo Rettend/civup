@@ -34,68 +34,68 @@ export interface DraftRuntimeConfig {
   steamLobbyLink?: string | null
 }
 
-export type SessionClientMessage
-  = | { type: 'start' }
-    | { type: 'map-vote-selection', selection: MapVoteSelection }
-    | { type: 'map-vote-confirm' }
-    | { type: 'ban', civIds: string[] }
-    | { type: 'pick', civId: string }
-    | { type: 'civ-blitz-submit', kit: CivBlitzPartialKit }
-    | { type: 'preview', action: DraftAction, civIds: string[] }
-    | { type: 'cancel', reason: 'cancel' | 'scrub' | 'revert' }
-    | { type: 'leader-swap', toSeat: number }
-    | {
+export type SessionClientMessage =
+  | { type: 'start' }
+  | { type: 'map-vote-selection'; selection: MapVoteSelection }
+  | { type: 'map-vote-confirm' }
+  | { type: 'ban'; civIds: string[] }
+  | { type: 'pick'; civId: string }
+  | { type: 'civ-blitz-submit'; kit: CivBlitzPartialKit }
+  | { type: 'preview'; action: DraftAction; civIds: string[] }
+  | { type: 'cancel'; reason: 'cancel' | 'scrub' | 'revert' }
+  | { type: 'leader-swap'; toSeat: number }
+  | {
       type: 'config'
       banTimerSeconds: number | null
       pickTimerSeconds: number | null
     }
 
-export type SessionServerMessage
-  = | {
-    type: 'lobby'
-    lobbyId: string
-    snapshot: unknown
-  }
+export type SessionServerMessage =
   | {
-    type: 'session-started'
-    lobbyId: string
-    matchId: string
-    steamLobbyLink: string | null
-    sessionAccessToken: string | null
-    mode: string | null
-  }
+      type: 'lobby'
+      lobbyId: string
+      snapshot: unknown
+    }
   | {
-    type: 'init'
-    state: DraftState
-    mapVote: MapVoteSnapshot
-    leaderDataVersion?: LeaderDataVersion
-    hostId?: string
-    seatIndex: number | null
-    serverNow?: number
-    timerEndsAt: number | null
-    completedAt: number | null
-    previews: DraftPreviewState
-    swapState?: LeaderSwapState | null
-    steamLobbyLink?: string | null
-    permanentAlly?: boolean
-    hiddenDraft?: boolean
-  }
+      type: 'session-started'
+      lobbyId: string
+      matchId: string
+      steamLobbyLink: string | null
+      sessionAccessToken: string | null
+      mode: string | null
+    }
   | {
-    type: 'update'
-    state: DraftState
-    mapVote: MapVoteSnapshot
-    leaderDataVersion?: LeaderDataVersion
-    hostId?: string
-    events: DraftEvent[]
-    serverNow?: number
-    timerEndsAt: number | null
-    completedAt: number | null
-    previews: DraftPreviewState
-    swapState?: LeaderSwapState | null
-    steamLobbyLink?: string | null
-    permanentAlly?: boolean
-    hiddenDraft?: boolean
-  }
-  | { type: 'preview', previews: DraftPreviewState }
-  | { type: 'projection-update', steamLobbyLink: string | null }
-  | { type: 'error', message: string }
+      type: 'init'
+      state: DraftState
+      mapVote: MapVoteSnapshot
+      leaderDataVersion?: LeaderDataVersion
+      hostId?: string
+      seatIndex: number | null
+      serverNow?: number
+      timerEndsAt: number | null
+      completedAt: number | null
+      previews: DraftPreviewState
+      swapState?: LeaderSwapState | null
+      steamLobbyLink?: string | null
+      permanentAlly?: boolean
+      hiddenDraft?: boolean
+    }
+  | {
+      type: 'update'
+      state: DraftState
+      mapVote: MapVoteSnapshot
+      leaderDataVersion?: LeaderDataVersion
+      hostId?: string
+      events: DraftEvent[]
+      serverNow?: number
+      timerEndsAt: number | null
+      completedAt: number | null
+      previews: DraftPreviewState
+      swapState?: LeaderSwapState | null
+      steamLobbyLink?: string | null
+      permanentAlly?: boolean
+      hiddenDraft?: boolean
+    }
+  | { type: 'preview'; previews: DraftPreviewState }
+  | { type: 'projection-update'; steamLobbyLink: string | null }
+  | { type: 'error'; message: string }

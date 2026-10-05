@@ -1,8 +1,15 @@
-import type { DraftState } from '@civup/game'
 import type { RoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
 import type { DraftRuntimeEnv } from '../../src/session-runtime/draft-room.ts'
-import { CIV_BLITZ_CATEGORIES, createDraft, draftFormatMap, getCivBlitzRegistry, isDraftError, processDraftInput } from '@civup/game'
+import type { DraftState } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
+import {
+  CIV_BLITZ_CATEGORIES,
+  createDraft,
+  draftFormatMap,
+  getCivBlitzRegistry,
+  isDraftError,
+  processDraftInput,
+} from '@civup/game'
 import { createRoomRecord, ROOM_RECORD_KEY } from '../../src/session-runtime/draft-room-domain.ts'
 import { censorDraftStateForSeat, SessionDraftRuntime } from '../../src/session-runtime/draft-room.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
@@ -14,7 +21,7 @@ class TestStorage {
   constructor(private room: RoomRecord | null) {}
 
   async get<T>(key: string): Promise<T | undefined> {
-    return key === ROOM_RECORD_KEY && this.room ? this.room as T : undefined
+    return key === ROOM_RECORD_KEY && this.room ? (this.room as T) : undefined
   }
 
   async put(key: string, value: unknown): Promise<void> {
@@ -36,14 +43,17 @@ class TestSessionDraftRuntime extends SessionDraftRuntime<DraftRuntimeEnv> {
 
   constructor(storage: TestStorage, env: DraftRuntimeEnv = {}) {
     const waitUntilPromises: Promise<unknown>[] = []
-    super({
-      storage,
-      waitUntil: (promise: Promise<unknown>) => {
-        waitUntilPromises.push(promise)
-        void promise.catch(() => {})
-      },
-      getWebSockets: () => [],
-    } as unknown as DurableObjectState, env)
+    super(
+      {
+        storage,
+        waitUntil: (promise: Promise<unknown>) => {
+          waitUntilPromises.push(promise)
+          void promise.catch(() => {})
+        },
+        getWebSockets: () => [],
+      } as unknown as DurableObjectState,
+      env,
+    )
     this.waitUntilPromises = waitUntilPromises
   }
 
@@ -75,7 +85,17 @@ describe('draft runtime alarm recovery', () => {
       matchId: 'blind-pick-censor-test',
       formatId: 'default-2v2-blind-pick',
       currentStepIndex: 0,
-      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, fallbackPickOrder: [0, 1, 2, 3] }],
+      steps: [
+        {
+          action: 'pick',
+          seats: 'all',
+          count: 1,
+          timer: 60,
+          blind: true,
+          blindPickRound: 0,
+          fallbackPickOrder: [0, 1, 2, 3],
+        },
+      ],
       seats: [
         { playerId: 'a1', displayName: 'A1', team: 0 },
         { playerId: 'b1', displayName: 'B1', team: 1 },
@@ -167,7 +187,18 @@ describe('draft runtime alarm recovery', () => {
       matchId: 'civblitz-censor-test',
       formatId: 'civblitz-2v2',
       currentStepIndex: 0,
-      steps: [{ action: 'pick', seats: 'all', count: 1, timer: 60, blind: true, blindPickRound: 0, civBlitz: true, civBlitzCategories: ['unit'] }],
+      steps: [
+        {
+          action: 'pick',
+          seats: 'all',
+          count: 1,
+          timer: 60,
+          blind: true,
+          blindPickRound: 0,
+          civBlitz: true,
+          civBlitzCategories: ['unit'],
+        },
+      ],
       seats: [
         { playerId: 'a1', displayName: 'A1', team: 0 },
         { playerId: 'b1', displayName: 'B1', team: 1 },
@@ -231,17 +262,27 @@ describe('draft runtime alarm recovery', () => {
       { playerId: 'bot:p2', displayName: 'Debug Bot' },
     ]
     const state = createDraft('debug-bot-match', format, seats, ['civ-1', 'civ-2', 'civ-3', 'civ-4'])
-    const room = createRoomRecord({
-      matchId: 'debug-bot-match',
-      hostId: 'p1',
-      formatId: format.id,
-      seats,
-      civPool: ['civ-1', 'civ-2', 'civ-3', 'civ-4'],
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'debug-bot-match',
+        hostId: 'p1',
+        formatId: format.id,
+        seats,
+        civPool: ['civ-1', 'civ-2', 'civ-3', 'civ-4'],
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
     const runtime = new TestSessionDraftRuntime(new TestStorage(room))
     expect(runtime.debugActionsEnabledForTest()).toBe(false)
 
-    const socket = createFakeSessionWebSocket({ id: 'conn-p1', sessionId: 'debug-bot-match', playerId: 'p1', kind: 'draft', connectedAt: 1 })
+    const socket = createFakeSessionWebSocket({
+      id: 'conn-p1',
+      sessionId: 'debug-bot-match',
+      playerId: 'p1',
+      kind: 'draft',
+      connectedAt: 1,
+    })
 
     await runtime.webSocketMessage(socket.connection, JSON.stringify({ type: 'start' }))
 
@@ -266,18 +307,28 @@ describe('draft runtime alarm recovery', () => {
         random: () => 0,
       },
     })
-    const room = createRoomRecord({
-      matchId: 'debug-civblitz-bot-match',
-      hostId: 'p1',
-      formatId: format.id,
-      seats,
-      civPool: ['rome-trajan'],
-      civBlitz: true,
-      civBlitzOptionCount: 4,
-      civBlitzExcludeBbgExpanded: true,
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'debug-civblitz-bot-match',
+        hostId: 'p1',
+        formatId: format.id,
+        seats,
+        civPool: ['rome-trajan'],
+        civBlitz: true,
+        civBlitzOptionCount: 4,
+        civBlitzExcludeBbgExpanded: true,
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
     const runtime = new TestSessionDraftRuntime(new TestStorage(room), { ENABLE_DEBUG_LOBBY_FILL: '1' })
-    const socket = createFakeSessionWebSocket({ id: 'conn-p1', sessionId: 'debug-civblitz-bot-match', playerId: 'p1', kind: 'draft', connectedAt: 1 })
+    const socket = createFakeSessionWebSocket({
+      id: 'conn-p1',
+      sessionId: 'debug-civblitz-bot-match',
+      playerId: 'p1',
+      kind: 'draft',
+      connectedAt: 1,
+    })
 
     await runtime.webSocketMessage(socket.connection, JSON.stringify({ type: 'start' }))
     await Promise.all(runtime.waitUntilPromises)
@@ -306,17 +357,24 @@ describe('draft runtime alarm recovery', () => {
       currentStepIndex: 1,
       submissions: { 0: ['civ-1'] },
     }
-    const room = createRoomRecord({
-      matchId: 'debug-blind-team-pick-match',
-      hostId: 'a1',
-      formatId: format.id,
-      seats,
-      civPool: ['civ-1', 'civ-2', 'civ-3'],
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'debug-blind-team-pick-match',
+        hostId: 'a1',
+        formatId: format.id,
+        seats,
+        civPool: ['civ-1', 'civ-2', 'civ-3'],
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
     const runtime = new TestSessionDraftRuntime(new TestStorage(room), { ENABLE_DEBUG_LOBBY_FILL: '1' })
 
-    await (runtime as unknown as { runDebugActiveBotAction: (stepIndex: number, seatIndex: number, blindBans: boolean) => Promise<void> })
-      .runDebugActiveBotAction(1, 2, format.blindBans)
+    await (
+      runtime as unknown as {
+        runDebugActiveBotAction: (stepIndex: number, seatIndex: number, blindBans: boolean) => Promise<void>
+      }
+    ).runDebugActiveBotAction(1, 2, format.blindBans)
 
     const nextRoom = await runtime.readRoom()
     expect(nextRoom?.state.submissions[2]).toEqual(['civ-2'])
@@ -331,7 +389,9 @@ describe('draft runtime alarm recovery', () => {
     expect(format).toBeDefined()
     if (!format) return
 
-    const started = processDraftInput(createDraft('match-red-death-timeout', format, seats, ['civ-1']), { type: 'START' })
+    const started = processDraftInput(createDraft('match-red-death-timeout', format, seats, ['civ-1']), {
+      type: 'START',
+    })
     expect(isDraftError(started)).toBe(false)
     if (isDraftError(started)) return
 
@@ -340,22 +400,29 @@ describe('draft runtime alarm recovery', () => {
       availableCivIds: [],
       dealtCivIds: ['civ-1'],
     }
-    const room = createRoomRecord({
-      matchId: 'match-red-death-timeout',
-      hostId: 'p1',
-      formatId: 'red-death-1v1',
-      seats,
-      civPool: ['civ-1'],
-    }, state, EMPTY_STORED_MAP_VOTE_STATE, {
-      timerEndsAt: 100,
-      alarmStepIndex: state.currentStepIndex,
-    })
+    const room = createRoomRecord(
+      {
+        matchId: 'match-red-death-timeout',
+        hostId: 'p1',
+        formatId: 'red-death-1v1',
+        seats,
+        civPool: ['civ-1'],
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+      {
+        timerEndsAt: 100,
+        alarmStepIndex: state.currentStepIndex,
+      },
+    )
     const storage = new TestStorage(room)
     const runtime = new TestSessionDraftRuntime(storage)
     const errors: unknown[][] = []
     const originalConsoleError = console.error
     const originalConsoleLog = console.log
-    console.error = (...args: unknown[]) => { errors.push(args) }
+    console.error = (...args: unknown[]) => {
+      errors.push(args)
+    }
     console.log = () => {}
 
     try {
@@ -369,8 +436,7 @@ describe('draft runtime alarm recovery', () => {
       expect(nextRoom?.alarmStepIndex).toBe(-1)
       expect(storage.alarm).toBeNull()
       expect(errors.some(args => String(args[0]).includes('timeout resolution failed'))).toBe(true)
-    }
-    finally {
+    } finally {
       console.error = originalConsoleError
       console.log = originalConsoleLog
     }

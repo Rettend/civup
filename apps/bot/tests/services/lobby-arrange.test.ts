@@ -93,12 +93,7 @@ describe('lobby arrange helpers', () => {
       mode: '2v2',
       strategy: 'balance',
       slots: ['p1', 'p2', 'p3', 'p4'],
-      queueEntries: [
-        entry('p1', ['p2']),
-        entry('p2', ['p1']),
-        entry('p3'),
-        entry('p4'),
-      ],
+      queueEntries: [entry('p1', ['p2']), entry('p2', ['p1']), entry('p3'), entry('p4')],
       ratingsByPlayerId: new Map([
         ['p1', { mu: 40, sigma: 2 }],
         ['p2', { mu: 39, sigma: 2 }],

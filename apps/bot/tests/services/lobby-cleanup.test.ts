@@ -1,11 +1,19 @@
 import type { QueueEntry } from '@civup/game'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq, isNull } from 'drizzle-orm'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { getLobbyForUser } from '../../src/services/activity/index.ts'
 import { SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { getOpenSessionLobbyProjectionsByMode } from '../../src/services/session/index.ts'
-import { createLobby, getExistingTestLobbyRuntime, getLobbyById, pruneInactiveOpenLobbies, setLobbyLastActivityAt, setLobbyMemberPlayerIds, setLobbySlots } from '../helpers/lobby-runtime.ts'
+import {
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  pruneInactiveOpenLobbies,
+  setLobbyLastActivityAt,
+  setLobbyMemberPlayerIds,
+  setLobbySlots,
+} from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const originalFetch = globalThis.fetch
@@ -17,7 +25,7 @@ afterEach(() => {
 describe('inactive lobby cleanup', () => {
   test('prunes inactive open lobbies, clears state, and updates the embed', async () => {
     const { kv } = createTrackedKv()
-    const requests: Array<{ url: string, init?: RequestInit }> = []
+    const requests: Array<{ url: string; init?: RequestInit }> = []
 
     globalThis.fetch = (async (input, init) => {
       requests.push({ url: String(input), init })
@@ -35,19 +43,32 @@ describe('inactive lobby cleanup', () => {
     const rosterEntries = [entry('host', now - 120_000), entry('player', now - 119_999)]
     const sessionOptions = { queueEntries: rosterEntries }
     const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player'], lobby, sessionOptions)
-    const withSlots = await setLobbySlots(kv, lobby.id, ['host', 'player', null, null], withMembers ?? lobby, sessionOptions)
-    const staleLobby = await setLobbyLastActivityAt(kv, lobby.id, now - 61 * 60 * 1000, withSlots ?? withMembers ?? lobby)
+    const withSlots = await setLobbySlots(
+      kv,
+      lobby.id,
+      ['host', 'player', null, null],
+      withMembers ?? lobby,
+      sessionOptions,
+    )
+    const staleLobby = await setLobbyLastActivityAt(
+      kv,
+      lobby.id,
+      now - 61 * 60 * 1000,
+      withSlots ?? withMembers ?? lobby,
+    )
     expect(staleLobby).not.toBeNull()
 
     const pruned = await pruneInactiveOpenLobbies(kv, 'token', {
       now,
     })
 
-    expect(pruned).toEqual([{
-      lobbyId: staleLobby!.id,
-      mode: '2v2',
-      removedPlayerIds: ['host', 'player'],
-    }])
+    expect(pruned).toEqual([
+      {
+        lobbyId: staleLobby!.id,
+        mode: '2v2',
+        removedPlayerIds: ['host', 'player'],
+      },
+    ])
     expect((await getLobbyById(kv, staleLobby!.id))?.status).toBe('cancelled')
     const runtime = getExistingTestLobbyRuntime(kv)
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
@@ -83,9 +104,11 @@ describe('inactive lobby cleanup', () => {
 
     await setLobbyLastActivityAt(kv, lobby.id, now - 30 * 60 * 1000, lobby)
 
-    await expect(pruneInactiveOpenLobbies(kv, 'token', {
-      now,
-    })).resolves.toEqual([])
+    await expect(
+      pruneInactiveOpenLobbies(kv, 'token', {
+        now,
+      }),
+    ).resolves.toEqual([])
     expect(await getLobbyById(kv, lobby.id)).not.toBeNull()
     expect(fetchCalls).toBe(0)
   })
@@ -101,7 +124,8 @@ describe('inactive lobby cleanup', () => {
       messageId: 'message-1',
     })
     const runtime = getExistingTestLobbyRuntime(kv)
-    await runtime.db.update(sessionDirectory)
+    await runtime.db
+      .update(sessionDirectory)
       .set({ updatedAt: staleAt, lastActivityAt: staleAt })
       .where(eq(sessionDirectory.sessionId, lobby.id))
 
@@ -109,11 +133,13 @@ describe('inactive lobby cleanup', () => {
 
     const pruned = await pruneInactiveOpenLobbies(kv, undefined, { now })
 
-    expect(pruned).toEqual([{
-      lobbyId: lobby.id,
-      mode: '2v2',
-      removedPlayerIds: ['host'],
-    }])
+    expect(pruned).toEqual([
+      {
+        lobbyId: lobby.id,
+        mode: '2v2',
+        removedPlayerIds: ['host'],
+      },
+    ])
     expect((await getLobbyById(kv, lobby.id))?.status).toBe('cancelled')
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
   })
@@ -129,7 +155,8 @@ describe('inactive lobby cleanup', () => {
       messageId: 'message-1',
     })
     const runtime = getExistingTestLobbyRuntime(kv)
-    await runtime.db.update(sessionDirectory)
+    await runtime.db
+      .update(sessionDirectory)
       .set({ updatedAt: staleAt, lastActivityAt: staleAt })
       .where(eq(sessionDirectory.sessionId, lobby.id))
 
@@ -153,20 +180,27 @@ describe('inactive lobby cleanup', () => {
     let pruned: Awaited<ReturnType<typeof pruneInactiveOpenLobbies>>
     try {
       pruned = await pruneInactiveOpenLobbies(kv, undefined, { now, sessionNamespace: failingSessionNamespace })
-    }
-    finally {
+    } finally {
       console.error = originalConsoleError
     }
 
-    expect(pruned!).toEqual([{
-      lobbyId: lobby.id,
-      mode: '2v2',
-      removedPlayerIds: ['host'],
-    }])
+    expect(pruned!).toEqual([
+      {
+        lobbyId: lobby.id,
+        mode: '2v2',
+        removedPlayerIds: ['host'],
+      },
+    ])
     expect(await getLobbyForUser(runtime.db, 'host')).toBeNull()
-    const [directoryRow] = await runtime.db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    const [directoryRow] = await runtime.db
+      .select()
+      .from(sessionDirectory)
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+      .limit(1)
     expect(directoryRow).toMatchObject({ phase: 'cancelled' })
-    expect(await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).toHaveLength(0)
+    expect(
+      await runtime.db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt)),
+    ).toHaveLength(0)
   })
 })
 

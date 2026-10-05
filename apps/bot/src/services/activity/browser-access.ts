@@ -13,9 +13,9 @@ export interface BrowserAccessConfig {
   preferenceRoleId: string
 }
 
-export type LaunchModeResolution
-  = | { ok: true, mode: LaunchMode, config: BrowserAccessConfig | null }
-    | { ok: false, error: string }
+export type LaunchModeResolution =
+  | { ok: true; mode: LaunchMode; config: BrowserAccessConfig | null }
+  | { ok: false; error: string }
 
 interface BrowserAccessStateCacheEntry {
   expiresAt: number
@@ -41,14 +41,14 @@ export async function getBrowserAccessState(kv: KVNamespace): Promise<BrowserAcc
   const cached = browserAccessStateCache.get(kv)
   if (cached && cached.expiresAt > Date.now()) return cached.state
 
-  const stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+  const stored = (await kv.get(BROWSER_ACCESS_STATE_KEY, 'json')) as StoredBrowserAccessState | null
   const state = normalizeBrowserAccessState(stored)
   cacheBrowserAccessState(kv, state)
   return state
 }
 
 export async function getBrowserAccessIntent(kv: KVNamespace): Promise<BrowserAccessIntent> {
-  const stored = await kv.get(BROWSER_ACCESS_STATE_KEY, 'json') as StoredBrowserAccessState | null
+  const stored = (await kv.get(BROWSER_ACCESS_STATE_KEY, 'json')) as StoredBrowserAccessState | null
   const enabled = stored?.enabled === true
   const preferenceRoleId = normalizeDiscordId(stored?.preferenceRoleId)
   return {
@@ -84,10 +84,16 @@ export async function resolveInteractionLaunchMode(
 
   const config = await resolveBrowserAccessConfig(env)
   if (!config) {
-    return { ok: false, error: 'Browser access is enabled but not fully configured. Please contact a server administrator.' }
+    return {
+      ok: false,
+      error: 'Browser access is enabled but not fully configured. Please contact a server administrator.',
+    }
   }
   if (!Array.isArray(memberRoles)) {
-    return { ok: false, error: 'Could not read your Discord roles. Please use this control inside the configured server and try again.' }
+    return {
+      ok: false,
+      error: 'Could not read your Discord roles. Please use this control inside the configured server and try again.',
+    }
   }
 
   return {
@@ -110,10 +116,10 @@ export function normalizePublicOrigin(value: string | undefined): string | null 
   if (!normalized) return null
   try {
     const url = new URL(normalized)
-    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash)
+      return null
     return url.origin
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -129,10 +135,7 @@ export function isSafeBrowserPreferenceRole(role: {
   mentionable?: unknown
   permissions?: unknown
 }): boolean {
-  return role.managed === false
-    && role.permissions === '0'
-    && role.hoist === false
-    && role.mentionable === false
+  return role.managed === false && role.permissions === '0' && role.hoist === false && role.mentionable === false
 }
 
 export function resetBrowserAccessStateCache(): void {

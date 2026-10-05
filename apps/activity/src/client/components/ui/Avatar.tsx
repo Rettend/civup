@@ -40,17 +40,11 @@ export function Avatar(local: AvatarProps) {
       )}
       {...rest}
     >
-      {local.src
-        ? (
-            <img
-              src={local.src}
-              alt={local.alt ?? ''}
-              class="h-full w-full object-cover"
-            />
-          )
-        : (
-            <span class="text-fg-subtle font-semibold">{initials()}</span>
-          )}
+      {local.src ? (
+        <img src={local.src} alt={local.alt ?? ''} class="h-full w-full object-cover" />
+      ) : (
+        <span class="text-fg-subtle font-semibold">{initials()}</span>
+      )}
     </div>
   )
 }

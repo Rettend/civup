@@ -6,7 +6,7 @@ describe('maintenance queue', () => {
     const queue = new MaintenanceQueue()
     const events: string[] = []
     let releaseFirst: (() => void) | undefined
-    const firstGate = new Promise<void>((resolve) => {
+    const firstGate = new Promise<void>(resolve => {
       releaseFirst = resolve
     })
 

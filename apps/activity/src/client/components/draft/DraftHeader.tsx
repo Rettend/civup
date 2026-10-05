@@ -1,5 +1,5 @@
-import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
+import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
 import { cn } from '~/client/lib/css'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import {
@@ -49,17 +49,26 @@ interface DraftHeaderProps {
   onReportFailed?: (matchId: string) => void
 }
 
-type ResultStatus = 'idle' | 'submitting:result' | 'processing:result' | 'submitting:scrub' | 'submitting:revert' | 'done'
-interface ResultNotice { message: string, tone: 'info' | 'error' }
+type ResultStatus =
+  | 'idle'
+  | 'submitting:result'
+  | 'processing:result'
+  | 'submitting:scrub'
+  | 'submitting:revert'
+  | 'done'
+interface ResultNotice {
+  message: string
+  tone: 'info' | 'error'
+}
 
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
 export function DraftHeader(props: DraftHeaderProps) {
   type DraftHostAction = 'scrub' | 'revert'
 
   const state = () => draftStore.state
-  const accent = () => isMapVotePhase() ? ('gold' as const) : phaseAccent()
-  const accentColor = () => isMapVotePhase() ? 'var(--accent)' : phaseAccentColor()
-  const headerBg = () => isComplete() ? 'bg-bg-subtle' : isMapVotePhase() ? 'bg-bg-subtle' : phaseHeaderBg()
+  const accent = () => (isMapVotePhase() ? ('gold' as const) : phaseAccent())
+  const accentColor = () => (isMapVotePhase() ? 'var(--accent)' : phaseAccentColor())
+  const headerBg = () => (isComplete() ? 'bg-bg-subtle' : isMapVotePhase() ? 'bg-bg-subtle' : phaseHeaderBg())
   const amHost = () => userId() === draftStore.hostId
   const isParticipant = () => {
     const uid = userId()
@@ -74,11 +83,11 @@ export function DraftHeader(props: DraftHeaderProps) {
   let armedHostActionTimeout: ReturnType<typeof setTimeout> | null = null
 
   const isTeamMode = () => state()?.seats.some(s => s.team != null) ?? false
-  const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => seat.team == null ? [] : [seat.team])).size
+  const teamCount = () => new Set((state()?.seats ?? []).flatMap(seat => (seat.team == null ? [] : [seat.team]))).size
   const isComplete = () => state()?.status === 'complete'
   const seatCount = () => state()?.seats.length ?? 0
 
-  const displayPhaseLabel = () => isMapVotePhase() ? 'MAP VOTING' : phaseLabel()
+  const displayPhaseLabel = () => (isMapVotePhase() ? 'MAP VOTING' : phaseLabel())
   const winningMapTypeOption = () => {
     const id = mapVoteWinningType()
     return id ? MAP_TYPE_BY_ID[id] : null
@@ -88,7 +97,8 @@ export function DraftHeader(props: DraftHeaderProps) {
     return id ? MAP_SCRIPT_BY_ID[id] : null
   }
   const hasWinningMap = () => winningMapTypeOption() != null && winningMapScriptOption() != null
-  const showWinningMapBadge = () => hasWinningMap() && !isMapVotePhase() && (state()?.status === 'active' || state()?.status === 'complete')
+  const showWinningMapBadge = () =>
+    hasWinningMap() && !isMapVotePhase() && (state()?.status === 'active' || state()?.status === 'complete')
   const showHostActions = () => amHost() && (state()?.status === 'active' || isMapVotePhase())
 
   const clearPhaseFlashTimeout = () => {
@@ -128,7 +138,10 @@ export function DraftHeader(props: DraftHeaderProps) {
   const leftBans = () => {
     const s = state()
     if (!s) return [] as string[]
-    if (isTeamMode()) return visibleBanSelections().filter(b => b.seatIndex === 0).map(b => b.civId)
+    if (isTeamMode())
+      return visibleBanSelections()
+        .filter(b => b.seatIndex === 0)
+        .map(b => b.civId)
     return allBans().slice(0, ffaSplitIndex())
   }
 
@@ -136,7 +149,10 @@ export function DraftHeader(props: DraftHeaderProps) {
   const rightBans = () => {
     const s = state()
     if (!s) return [] as string[]
-    if (isTeamMode()) return visibleBanSelections().filter(b => b.seatIndex === 1).map(b => b.civId)
+    if (isTeamMode())
+      return visibleBanSelections()
+        .filter(b => b.seatIndex === 1)
+        .map(b => b.civId)
     return allBans().slice(ffaSplitIndex())
   }
 
@@ -146,18 +162,23 @@ export function DraftHeader(props: DraftHeaderProps) {
     return mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt()
   }
 
-  createEffect(() => ({ endsAt: timerEndsAt(), now: draftNow() }), ({ endsAt, now }) => {
-    if (endsAt == null) {
-      setRemaining(0)
-      return
-    }
-    const nextEndsAt = endsAt
+  createEffect(
+    () => ({ endsAt: timerEndsAt(), now: draftNow() }),
+    ({ endsAt, now }) => {
+      if (endsAt == null) {
+        setRemaining(0)
+        return
+      }
+      const nextEndsAt = endsAt
 
-    function tick() { setRemaining(Math.max(0, nextEndsAt - draftNow())) }
-    setRemaining(Math.max(0, nextEndsAt - now))
-    const interval = setInterval(tick, 100)
-    return () => clearInterval(interval)
-  })
+      function tick() {
+        setRemaining(Math.max(0, nextEndsAt - draftNow()))
+      }
+      setRemaining(Math.max(0, nextEndsAt - now))
+      const interval = setInterval(tick, 100)
+      return () => clearInterval(interval)
+    },
+  )
 
   const seconds = () => Math.ceil(remaining() / 1000)
   const duration = () => {
@@ -175,16 +196,19 @@ export function DraftHeader(props: DraftHeaderProps) {
   const isExpired = () => timerEndsAt() != null && remaining() <= 0
 
   // Brief phase flash on ban/pick transitions
-  createEffect(() => ({ accent: accent(), active: state()?.status === 'active' }), (next, prev) => {
-    if (!prev || prev.accent === next.accent || !next.active) return
+  createEffect(
+    () => ({ accent: accent(), active: state()?.status === 'active' }),
+    (next, prev) => {
+      if (!prev || prev.accent === next.accent || !next.active) return
 
-    clearPhaseFlashTimeout()
-    setPhaseFlash(true)
-    phaseFlashTimeout = setTimeout(() => {
-      setPhaseFlash(false)
-      phaseFlashTimeout = null
-    }, 220)
-  })
+      clearPhaseFlashTimeout()
+      setPhaseFlash(true)
+      phaseFlashTimeout = setTimeout(() => {
+        setPhaseFlash(false)
+        phaseFlashTimeout = null
+      }, 220)
+    },
+  )
 
   onSettled(() => () => {
     clearPhaseFlashTimeout()
@@ -197,51 +221,67 @@ export function DraftHeader(props: DraftHeaderProps) {
   const [resultNotice, setResultNotice] = createSignal<ResultNotice | null>(null)
   const visibleResultStatus = () => {
     if (props.reportResultStatus === 'done') return 'done'
-    if (props.reportResultStatus === 'submitting' && resultStatus() !== 'submitting:scrub' && resultStatus() !== 'submitting:revert' && resultStatus() !== 'processing:result') return 'submitting:result'
+    if (
+      props.reportResultStatus === 'submitting' &&
+      resultStatus() !== 'submitting:scrub' &&
+      resultStatus() !== 'submitting:revert' &&
+      resultStatus() !== 'processing:result'
+    )
+      return 'submitting:result'
     return resultStatus()
   }
   const resultLocked = () => visibleResultStatus() !== 'idle'
 
-  createEffect(() => ({ locked: resultLocked(), status: visibleResultStatus() }), ({ locked, status }) => {
-    setResultSelectionsLocked(locked)
-    if (status === 'done') setResultNotice(null)
-  })
+  createEffect(
+    () => ({ locked: resultLocked(), status: visibleResultStatus() }),
+    ({ locked, status }) => {
+      setResultSelectionsLocked(locked)
+      if (status === 'done') setResultNotice(null)
+    },
+  )
 
   let lastResultMatchId = untrack(() => state()?.matchId ?? null)
-  createEffect(() => state()?.matchId ?? null, (matchId) => {
-    if (matchId === lastResultMatchId) return
-    lastResultMatchId = matchId
-    setResultStatus('idle')
-    setResultNotice(null)
-    setPendingHostAction(null)
-    clearResultSelections()
-    clearHiddenDraftLeaderSelections()
-    disarmHostAction()
-  })
+  createEffect(
+    () => state()?.matchId ?? null,
+    matchId => {
+      if (matchId === lastResultMatchId) return
+      lastResultMatchId = matchId
+      setResultStatus('idle')
+      setResultNotice(null)
+      setPendingHostAction(null)
+      clearResultSelections()
+      clearHiddenDraftLeaderSelections()
+      disarmHostAction()
+    },
+  )
 
   let hasTrackedResultStatus = false
   let lastDraftStatus = untrack(() => state()?.status)
-  createEffect(() => state()?.status, (status) => {
-    if (hasTrackedResultStatus && status === lastDraftStatus) return
-    hasTrackedResultStatus = true
-    lastDraftStatus = status
-    if (status === 'complete') return
-    setResultStatus('idle')
-    setResultNotice(null)
-    setPendingHostAction(null)
-    clearResultSelections()
-    clearHiddenDraftLeaderSelections()
-  })
+  createEffect(
+    () => state()?.status,
+    status => {
+      if (hasTrackedResultStatus && status === lastDraftStatus) return
+      hasTrackedResultStatus = true
+      lastDraftStatus = status
+      if (status === 'complete') return
+      setResultStatus('idle')
+      setResultNotice(null)
+      setPendingHostAction(null)
+      clearResultSelections()
+      clearHiddenDraftLeaderSelections()
+    },
+  )
 
   createEffect(
-    () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isMapVotePhase() ? mapVotePhase() : 'draft'}`,
+    () =>
+      `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isMapVotePhase() ? mapVotePhase() : 'draft'}`,
     () => disarmHostAction(),
     { defer: true },
   )
 
   const handleReportFailure = (
     matchId: string,
-    result: { error: string, reason?: 'processing' | 'finalizing' },
+    result: { error: string; reason?: 'processing' | 'finalizing' },
     clearSelectionsAfterFailure?: () => void,
   ) => {
     props.onReportFailed?.(matchId)
@@ -314,8 +354,9 @@ export function DraftHeader(props: DraftHeaderProps) {
       setResultStatus('done')
       setResultNotice(null)
       props.onReportComplete?.(matchId)
+    } else {
+      handleReportFailure(matchId, res, clearFfaPlacements)
     }
-    else { handleReportFailure(matchId, res, clearFfaPlacements) }
   }
 
   const confirmResult = async () => {
@@ -362,7 +403,14 @@ export function DraftHeader(props: DraftHeaderProps) {
 
   const revertDraft = () => {
     const s = state()
-    if (!amHost() || !s || pendingHostAction() != null || resultLocked() || (s.status !== 'active' && !isMapVotePhase())) return
+    if (
+      !amHost() ||
+      !s ||
+      pendingHostAction() != null ||
+      resultLocked() ||
+      (s.status !== 'active' && !isMapVotePhase())
+    )
+      return
 
     setPendingHostAction('revert')
     if (sendRevert() === false) setPendingHostAction(null)
@@ -395,10 +443,12 @@ export function DraftHeader(props: DraftHeaderProps) {
     const s = state()
     if (!isHiddenDraftComplete() || !s) return undefined
     const selections = hiddenDraftLeaderSelections()
-    return Object.fromEntries(getVisualSeatOrder(s.seats).map((seatIndex, selectionIndex) => [
-      s.seats[seatIndex]!.playerId,
-      selections[selectionIndex]!,
-    ]))
+    return Object.fromEntries(
+      getVisualSeatOrder(s.seats).map((seatIndex, selectionIndex) => [
+        s.seats[seatIndex]!.playerId,
+        selections[selectionIndex]!,
+      ]),
+    )
   }
   const resultSelectionReady = () => {
     if (!hiddenDraftLeaderSelectionReady()) return false
@@ -412,13 +462,14 @@ export function DraftHeader(props: DraftHeaderProps) {
     if (isComplete()) return isParticipant()
     return false
   }
-  const showLeftNoBans = () => state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
+  const showLeftNoBans = () =>
+    state()?.status !== 'waiting' && (isTeamMode() ? leftBans().length === 0 : allBans().length === 0)
   const showRightNoBans = () => state()?.status !== 'waiting' && isTeamMode() && rightBans().length === 0
   const hasSteamLobbyButton = () => true
   const hasOverviewButton = () => Boolean(props.onSwitchTarget)
   const rightHeaderButtonCount = () => Number(hasOverviewButton())
   const mobileRailInsetCount = () => Number(hasSteamLobbyButton()) + rightHeaderButtonCount()
-  const desktopRightInsetClass = () => rightHeaderButtonCount() > 1 ? 'pr-24' : 'pr-12'
+  const desktopRightInsetClass = () => (rightHeaderButtonCount() > 1 ? 'pr-24' : 'pr-12')
 
   const renderOverviewButton = () => (
     <Show when={props.onSwitchTarget}>
@@ -444,13 +495,15 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   const confirmationHint = () => {
-    if (armedHostAction() === 'revert') return { line1: 'Revert will return everyone to the lobby.', line2: 'Click again to confirm.' }
-    if (armedHostAction() === 'scrub') return { line1: 'Scrub will cancel the draft completely.', line2: 'Click again to confirm.' }
+    if (armedHostAction() === 'revert')
+      return { line1: 'Revert will return everyone to the lobby.', line2: 'Click again to confirm.' }
+    if (armedHostAction() === 'scrub')
+      return { line1: 'Scrub will cancel the draft completely.', line2: 'Click again to confirm.' }
     return null
   }
 
-  function HostActionButton(props: { action: DraftHostAction, label: string, iconClass: string, iconOnly: boolean }) {
-    const loadingLabel = () => props.action === 'revert' ? 'Reverting' : 'Scrubbing'
+  function HostActionButton(props: { action: DraftHostAction; label: string; iconClass: string; iconOnly: boolean }) {
+    const loadingLabel = () => (props.action === 'revert' ? 'Reverting' : 'Scrubbing')
 
     return (
       <button
@@ -458,7 +511,9 @@ export function DraftHeader(props: DraftHeaderProps) {
         class={cn(
           'border rounded-full bg-bg-muted/30 cursor-pointer whitespace-nowrap transition-colors',
           'disabled:opacity-50 disabled:pointer-events-none',
-          props.iconOnly ? 'flex h-9 w-9 items-center justify-center px-0 py-0 text-sm' : 'px-3 py-1.5 text-xs text-fg-muted',
+          props.iconOnly
+            ? 'flex h-9 w-9 items-center justify-center px-0 py-0 text-sm'
+            : 'px-3 py-1.5 text-xs text-fg-muted',
           armedHostAction() === props.action || pendingHostAction() === props.action
             ? 'border-danger/70 bg-danger/20 text-danger hover:border-danger hover:bg-danger/25'
             : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
@@ -469,7 +524,13 @@ export function DraftHeader(props: DraftHeaderProps) {
         onClick={() => confirmHostAction(props.action)}
       >
         <Show when={props.iconOnly} fallback={pendingHostAction() === props.action ? loadingLabel() : props.label}>
-          <span class={pendingHostAction() === props.action ? 'i-gg:spinner text-sm text-accent animate-spin' : cn(props.iconClass, 'text-sm')} />
+          <span
+            class={
+              pendingHostAction() === props.action
+                ? 'i-gg:spinner text-sm text-accent animate-spin'
+                : cn(props.iconClass, 'text-sm')
+            }
+          />
         </Show>
       </button>
     )
@@ -479,7 +540,12 @@ export function DraftHeader(props: DraftHeaderProps) {
     return (
       <div class="flex gap-2 items-center relative">
         <div class="flex gap-2 items-center">
-          <HostActionButton action="revert" label="Revert" iconClass="i-ph-arrow-u-up-left-bold" iconOnly={props.iconOnly} />
+          <HostActionButton
+            action="revert"
+            label="Revert"
+            iconClass="i-ph-arrow-u-up-left-bold"
+            iconOnly={props.iconOnly}
+          />
           <HostActionButton action="scrub" label="Scrub" iconClass="i-ph-x-bold" iconOnly={props.iconOnly} />
         </div>
         <Show when={confirmationHint()}>
@@ -505,33 +571,35 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderResultActions = () => (
     <Show
       when={visibleResultStatus() !== 'done'}
-      fallback={(
-        <span class="text-sm text-accent tracking-widest font-bold uppercase sm:text-lg">Result reported</span>
-      )}
+      fallback={<span class="text-sm text-accent tracking-widest font-bold uppercase sm:text-lg">Result reported</span>}
     >
       <div class="flex flex-col gap-1.5 items-center justify-center">
         <div class="flex flex-wrap gap-2 items-center justify-center">
-          <Button
-            size="sm"
-            disabled={!canSubmitResult() || !resultSelectionReady()}
-            onClick={confirmResult}
-          >
-            {visibleResultStatus() === 'submitting:result' ? 'Submitting' : visibleResultStatus() === 'processing:result' ? 'Finalizing' : 'Confirm Result'}
+          <Button size="sm" disabled={!canSubmitResult() || !resultSelectionReady()} onClick={confirmResult}>
+            {visibleResultStatus() === 'submitting:result'
+              ? 'Submitting'
+              : visibleResultStatus() === 'processing:result'
+                ? 'Finalizing'
+                : 'Confirm Result'}
           </Button>
           <Show when={amHost()}>
-            <Button
-              size="sm"
-              variant="redOutline"
-              disabled={!canManageDraft()}
-              onClick={confirmCompleteScrub}
-            >
-              {visibleResultStatus() === 'submitting:scrub' ? 'Submitting' : armedHostAction() === 'scrub' ? 'Confirm Scrub' : 'Scrub'}
+            <Button size="sm" variant="redOutline" disabled={!canManageDraft()} onClick={confirmCompleteScrub}>
+              {visibleResultStatus() === 'submitting:scrub'
+                ? 'Submitting'
+                : armedHostAction() === 'scrub'
+                  ? 'Confirm Scrub'
+                  : 'Scrub'}
             </Button>
           </Show>
         </div>
         <Show when={resultNotice()}>
           {notice => (
-            <div class={cn('max-w-[18rem] text-center text-xs', notice().tone === 'error' ? 'text-danger' : 'text-fg-muted')}>
+            <div
+              class={cn(
+                'max-w-[18rem] text-center text-xs',
+                notice().tone === 'error' ? 'text-danger' : 'text-fg-muted',
+              )}
+            >
               {notice().message}
             </div>
           )}
@@ -543,13 +611,9 @@ export function DraftHeader(props: DraftHeaderProps) {
   const renderBanItems = (bans: string[], showPlaceholder: boolean) => (
     <Show
       when={bans.length > 0}
-      fallback={showPlaceholder
-        ? <span class="text-xs text-fg-muted/30 whitespace-nowrap">No bans</span>
-        : null}
+      fallback={showPlaceholder ? <span class="text-xs text-fg-muted/30 whitespace-nowrap">No bans</span> : null}
     >
-      <For each={bans}>
-        {civId => <BanSquare civId={civId} />}
-      </For>
+      <For each={bans}>{civId => <BanSquare civId={civId} />}</For>
     </Show>
   )
 
@@ -602,26 +666,24 @@ export function DraftHeader(props: DraftHeaderProps) {
       </div>
 
       <div class="flex flex-col gap-0.5 items-center justify-center">
-        <span class={cn(
-          'text-xs font-bold tracking-widest uppercase',
-          accent() === 'red' ? 'text-danger' : 'text-accent',
-        )}
+        <span
+          class={cn('text-xs font-bold tracking-widest uppercase', accent() === 'red' ? 'text-danger' : 'text-accent')}
         >
           {displayPhaseLabel()}
         </span>
 
         <div class="flex min-h-6 items-center justify-center">
           <Show when={timerEndsAt() != null}>
-            <span class={cn(
-              'font-mono text-lg font-bold tabular-nums leading-none',
-              isExpired() && 'text-fg-subtle',
-              isCritical() && 'text-danger animate-pulse',
-              isUrgent() && !isCritical() && 'text-danger',
-              !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-            )}
+            <span
+              class={cn(
+                'font-mono text-lg font-bold tabular-nums leading-none',
+                isExpired() && 'text-fg-subtle',
+                isCritical() && 'text-danger animate-pulse',
+                isUrgent() && !isCritical() && 'text-danger',
+                !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+              )}
             >
-              {seconds()}
-              s
+              {seconds()}s
             </span>
           </Show>
         </div>
@@ -636,12 +698,15 @@ export function DraftHeader(props: DraftHeaderProps) {
   )
 
   return (
-    <header class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', headerBg(), 'transition-colors duration-200')}>
+    <header
+      class={cn('relative z-30 flex flex-col shrink-0 overflow-x-clip', headerBg(), 'transition-colors duration-200')}
+    >
       <Show when={phaseFlash()}>
-        <div class={cn(
-          'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
-          accent() === 'red' ? 'bg-danger/20' : 'bg-accent/20',
-        )}
+        <div
+          class={cn(
+            'pointer-events-none absolute inset-0 z-0 anim-phase-flash',
+            accent() === 'red' ? 'bg-danger/20' : 'bg-accent/20',
+          )}
         />
       </Show>
 
@@ -649,10 +714,11 @@ export function DraftHeader(props: DraftHeaderProps) {
         <div class="flex flex-col relative z-10">
           <div class="px-12 pb-1.5 pt-2 text-center flex flex-col pointer-events-none items-center justify-center">
             <div class="flex gap-2 min-h-4 items-center justify-center">
-              <span class={cn(
-                'text-xs font-bold tracking-widest uppercase',
-                accent() === 'red' ? 'text-danger' : 'text-accent',
-              )}
+              <span
+                class={cn(
+                  'text-xs font-bold tracking-widest uppercase',
+                  accent() === 'red' ? 'text-danger' : 'text-accent',
+                )}
               >
                 {displayPhaseLabel()}
               </span>
@@ -660,16 +726,16 @@ export function DraftHeader(props: DraftHeaderProps) {
 
             <div class="flex min-h-5 items-center justify-center relative">
               <Show when={timerEndsAt() != null}>
-                <span class={cn(
-                  'font-mono text-base font-bold tabular-nums leading-none',
-                  isExpired() && 'text-fg-subtle',
-                  isCritical() && 'text-danger animate-pulse',
-                  isUrgent() && !isCritical() && 'text-danger',
-                  !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
-                )}
+                <span
+                  class={cn(
+                    'font-mono text-base font-bold tabular-nums leading-none',
+                    isExpired() && 'text-fg-subtle',
+                    isCritical() && 'text-danger animate-pulse',
+                    isUrgent() && !isCritical() && 'text-danger',
+                    !isUrgent() && !isCritical() && !isExpired() && 'text-fg',
+                  )}
                 >
-                  {seconds()}
-                  s
+                  {seconds()}s
                 </span>
               </Show>
             </div>
@@ -706,25 +772,24 @@ export function DraftHeader(props: DraftHeaderProps) {
       <Show when={!isMobileLayout()}>
         {/* Main row */}
         <div class="px-4 py-2.5 relative z-10">
-          <div class="left-4 top-1/2 absolute z-20 -translate-y-1/2">
-            {renderSteamLobbyButton('h-8 w-8')}
-          </div>
+          <div class="left-4 top-1/2 absolute z-20 -translate-y-1/2">{renderSteamLobbyButton('h-8 w-8')}</div>
           <div class="flex gap-2 items-center right-4 top-1/2 absolute z-20 -translate-y-1/2">
             {renderOverviewButton()}
           </div>
 
-          <div class={cn(
-            'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4',
-            hasSteamLobbyButton() && 'pl-12',
-            desktopRightInsetClass(),
-          )}
+          <div
+            class={cn(
+              'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4',
+              hasSteamLobbyButton() && 'pl-12',
+              desktopRightInsetClass(),
+            )}
           >
             {renderBanRail('left', leftBans(), showLeftNoBans())}
 
             {/* Center: phase + timer / post-draft controls */}
             <Show
               when={!isComplete()}
-              fallback={(
+              fallback={
                 <div class="flex gap-3 items-center relative">
                   <Show when={showWinningMapBadge()}>
                     <div class="mr-3 min-w-0 right-full top-1/2 absolute -translate-y-1/2">
@@ -740,7 +805,7 @@ export function DraftHeader(props: DraftHeaderProps) {
                     {renderResultActions()}
                   </Show>
                 </div>
-              )}
+              }
             >
               {renderDesktopActiveCenterCluster()}
             </Show>
@@ -790,7 +855,12 @@ function WinningMapBadge(props: { compact?: boolean }) {
       title={title()}
       aria-label={title()}
     >
-      <span class={cn('block truncate whitespace-nowrap text-fg font-medium tracking-wide', props.compact ? 'text-[10px]' : 'text-[11px]')}>
+      <span
+        class={cn(
+          'block truncate whitespace-nowrap text-fg font-medium tracking-wide',
+          props.compact ? 'text-[10px]' : 'text-[11px]',
+        )}
+      >
         {label()}
       </span>
     </div>

@@ -1,5 +1,5 @@
-import type { DraftState } from '@civup/game'
 import type { PlayerRow } from './helpers'
+import type { DraftState } from '@civup/game'
 import type { MiniSeatItem } from '~/client/components/draft/MiniLayout'
 import type { LobbySnapshot } from '~/client/stores'
 import { inferGameMode, slotToTeamIndex } from '@civup/game'
@@ -14,7 +14,12 @@ interface BuildRowsInput {
   pendingSelfJoinSlot: number | null
 }
 
-function buildLobbyRow(input: BuildRowsInput, slot: number, entry: LobbySnapshot['entries'][number] | null, key: string): PlayerRow {
+function buildLobbyRow(
+  input: BuildRowsInput,
+  slot: number,
+  entry: LobbySnapshot['entries'][number] | null,
+  key: string,
+): PlayerRow {
   const team = input.lobby ? slotToTeamIndex(inferGameMode(input.lobby.mode), slot, input.lobby.targetSize) : null
   const pendingSelf = input.pendingSelfJoinSlot === slot
   if (pendingSelf && input.currentUserId) {
@@ -59,26 +64,32 @@ export function buildTeamRows(input: BuildRowsInput, team: number): PlayerRow[] 
     return rows
   }
 
-  return (input.draftState?.seats ?? []).flatMap((seat, seatIndex) => seat.team !== team
-    ? []
-    : [{
-        key: `room-${team}-${seat.playerId}`,
-        slot: seatIndex,
-        name: seat.displayName,
-        playerId: seat.playerId,
-        avatarUrl: seat.avatarUrl ?? null,
-        team,
-        isHost: seat.playerId === input.hostId,
-        empty: false,
-        pendingSelf: false,
-        balanceRating: null,
-        rankedRole: null,
-      }])
+  return (input.draftState?.seats ?? []).flatMap((seat, seatIndex) =>
+    seat.team !== team
+      ? []
+      : [
+          {
+            key: `room-${team}-${seat.playerId}`,
+            slot: seatIndex,
+            name: seat.displayName,
+            playerId: seat.playerId,
+            avatarUrl: seat.avatarUrl ?? null,
+            team,
+            isHost: seat.playerId === input.hostId,
+            empty: false,
+            pendingSelf: false,
+            balanceRating: null,
+            rankedRole: null,
+          },
+        ],
+  )
 }
 
 export function buildFfaRows(input: BuildRowsInput): PlayerRow[] {
   if (input.lobby) {
-    return Array.from({ length: input.lobby.targetSize }, (_, index) => buildLobbyRow(input, index, input.lobby?.entries[index] ?? null, `lobby-ffa-${index}`))
+    return Array.from({ length: input.lobby.targetSize }, (_, index) =>
+      buildLobbyRow(input, index, input.lobby?.entries[index] ?? null, `lobby-ffa-${index}`),
+    )
   }
 
   return (input.draftState?.seats ?? []).map((seat, index) => ({

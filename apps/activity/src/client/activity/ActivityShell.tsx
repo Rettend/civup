@@ -1,6 +1,5 @@
-import type { JSX } from '@solidjs/web'
-import type { PlayerDataExportFile, PlayerDataExportState } from '../lib/player-data-export'
 import type { ActivityTargetDescriptor } from '../lib/activity-targets'
+import type { PlayerDataExportFile, PlayerDataExportState } from '../lib/player-data-export'
 import type {
   ActivityLaunchSelection,
   ActivityLaunchSnapshot,
@@ -14,15 +13,32 @@ import type {
   SessionSocketTarget,
 } from '../stores'
 import type { ActivityState } from './activity-context'
-import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
+import type { JSX } from '@solidjs/web'
 import { useLocation, useNavigate } from '@solidjs/router'
+import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { createEffect, createSignal, onSettled, Show, untrack } from 'solid-js'
-import { activityTargetOptionKey, activityTargetsMatch, filterClearedActivityTargetOptions, getBrokenMatchRefreshKey, resolveAutoSelectedActivityTarget, resolveMissingLiveTarget, shouldApplyActivityLaunchSnapshotRefresh, shouldApplyResolvedActivitySelection, shouldHoldAuthenticatedDraftStateForSelection, shouldReconnectVisibleActivityTarget, shouldRequestActivityTargetSelection } from '../lib/activity-targets'
-import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { buildActivitySessionHeaders } from '../lib/activity-session'
+import {
+  activityTargetOptionKey,
+  activityTargetsMatch,
+  filterClearedActivityTargetOptions,
+  getBrokenMatchRefreshKey,
+  resolveAutoSelectedActivityTarget,
+  resolveMissingLiveTarget,
+  shouldApplyActivityLaunchSnapshotRefresh,
+  shouldApplyResolvedActivitySelection,
+  shouldHoldAuthenticatedDraftStateForSelection,
+  shouldReconnectVisibleActivityTarget,
+  shouldRequestActivityTargetSelection,
+} from '../lib/activity-targets'
+import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/autosave-upload'
 import { relayDevLog } from '../lib/dev-log'
-import { bootstrapBrowserChannel, bootstrapBrowserSession, BrowserLaunchValidationError } from '../platform/browser-platform'
+import {
+  bootstrapBrowserChannel,
+  bootstrapBrowserSession,
+  BrowserLaunchValidationError,
+} from '../platform/browser-platform'
 import { bootstrapDiscordPlatform } from '../platform/discord-platform'
 import { openExternalLink } from '../platform/external-links'
 import {
@@ -40,7 +56,14 @@ import {
   watchLobbyState,
 } from '../stores'
 import { ActivityControllerContext } from './activity-context'
-import { browserChannelPath, browserPracticePath, browserSessionPath, parseBrowserLaunchRoute, parseBrowserReturnPath, shouldWatchChannelFeed } from './route-policy'
+import {
+  browserChannelPath,
+  browserPracticePath,
+  browserSessionPath,
+  parseBrowserLaunchRoute,
+  parseBrowserReturnPath,
+  shouldWatchChannelFeed,
+} from './route-policy'
 
 const SESSION_SOCKET_TARGET = resolveSessionSocketTarget()
 const MINI_VIEW_MAX_WIDTH = 430
@@ -50,11 +73,11 @@ const MOBILE_LAYOUT_BREAKPOINT = 640
 const AUTOSAVE_UPLOAD_ACCEPT = '.zip,application/zip,application/x-zip-compressed'
 const MAX_AUTOSAVE_UPLOAD_BYTES = 512 * 1024 * 1024
 
-type AutosaveUploadState
-  = | { status: 'idle' }
-    | { status: 'uploading', fileName: string }
-    | { status: 'success', fileName: string }
-    | { status: 'error', message: string }
+type AutosaveUploadState =
+  | { status: 'idle' }
+  | { status: 'uploading'; fileName: string }
+  | { status: 'success'; fileName: string }
+  | { status: 'error'; message: string }
 
 interface AutosaveUploadInitResponse {
   id?: string
@@ -93,41 +116,42 @@ interface WebkitFileSystemDirectoryReader {
 
 let cachedOverviewTargets: ActivityTargetOption[] = []
 
-type LiveActivityTargetState
-  = | {
-    kind: 'lobby'
-    id: string
-    pendingJoin: boolean
-  }
+type LiveActivityTargetState =
   | {
-    kind: 'match'
-    id: string
-    pendingJoin: boolean
-    sessionAccessToken: string | null
-    steamLobbyLink: string | null
-    lobbyId: string | null
-    mode: string | null
-    status: ActivityTargetOption['status']
-  }
+      kind: 'lobby'
+      id: string
+      pendingJoin: boolean
+    }
+  | {
+      kind: 'match'
+      id: string
+      pendingJoin: boolean
+      sessionAccessToken: string | null
+      steamLobbyLink: string | null
+      lobbyId: string | null
+      mode: string | null
+      status: ActivityTargetOption['status']
+    }
 
-type LiveRoute
-  = | { kind: 'root' }
-    | { kind: 'overview' }
-    | { kind: 'uploads' }
-    | { kind: 'lobby', id: string }
-    | { kind: 'draft', id: string }
+type LiveRoute =
+  | { kind: 'root' }
+  | { kind: 'overview' }
+  | { kind: 'uploads' }
+  | { kind: 'lobby'; id: string }
+  | { kind: 'draft'; id: string }
 
-export default function ActivityShell(props: { surface: 'web' | 'discord-embedded', children?: JSX.Element }) {
+export default function ActivityShell(props: { surface: 'web' | 'discord-embedded'; children?: JSX.Element }) {
   const navigate = useNavigate()
   const location = useLocation()
   // Each surface is a separate layout route; this shell never changes surface.
   const surface = untrack(() => props.surface)
-  const browserRoute = () => surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null
+  const browserRoute = () => (surface === 'web' ? parseBrowserLaunchRoute(location.pathname) : null)
   const directBrowserSessionId = () => {
     const route = browserRoute()
     return route?.kind === 'session' ? route.sessionId : null
   }
-  const browserReturnPath = () => browserRoute()?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
+  const browserReturnPath = () =>
+    browserRoute()?.kind === 'channel' ? parseBrowserReturnPath(location.search, 'session') : null
   const browserReturnRoute = () => {
     const path = browserReturnPath()
     return path ? parseBrowserLaunchRoute(path) : null
@@ -141,7 +165,9 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
   const [fallbackOptions, setFallbackOptions] = createSignal<ActivityTargetOption[]>([])
   const [clearedTarget, setClearedTarget] = createSignal<ActivityTargetDescriptor>(null)
   const [overviewPinned, setOverviewPinned] = createSignal(false)
-  const [liveOverviewSnapshot, setLiveOverviewSnapshot] = createSignal<ActivityOverviewSnapshot | null | undefined>(undefined)
+  const [liveOverviewSnapshot, setLiveOverviewSnapshot] = createSignal<ActivityOverviewSnapshot | null | undefined>(
+    undefined,
+  )
   const [liveTargetState, setLiveTargetState] = createSignal<LiveActivityTargetState | null>(null)
   const [liveLobbySnapshotVersion, setLiveLobbySnapshotVersion] = createSignal(0)
   const [autosaveDragActive, setAutosaveDragActive] = createSignal(false)
@@ -211,7 +237,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     if (disposed || document.visibilityState === 'hidden') return
     const requestVersion = ++selectedSessionVersion
     connectToSession(SESSION_SOCKET_TARGET, sessionId, sessionAccessToken, {
-      onStateChanged: (change) => {
+      onStateChanged: change => {
         if (disposed || requestVersion !== selectedSessionVersion) return
         handleSelectedSessionStateChange(change)
       },
@@ -241,7 +267,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     pathname: location.pathname,
   })
 
-  const shouldHoldAuthenticatedDraftState = (nextSelectionKind: 'lobby' | 'match' | null = null, selectionState = readSelectionState()) => {
+  const shouldHoldAuthenticatedDraftState = (
+    nextSelectionKind: 'lobby' | 'match' | null = null,
+    selectionState = readSelectionState(),
+  ) => {
     if (selectionState.current.status !== 'authenticated') return false
     return shouldHoldAuthenticatedDraftStateForSelection({
       nextSelectionKind,
@@ -278,10 +307,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
       setIsMobileLayout(width < MOBILE_LAYOUT_BREAKPOINT)
       setIsMiniView(
-        isLandscape
-        && width <= MINI_VIEW_MAX_WIDTH
-        && height <= MINI_VIEW_MAX_HEIGHT
-        && aspectRatio >= MINI_VIEW_MIN_ASPECT_RATIO,
+        isLandscape &&
+          width <= MINI_VIEW_MAX_WIDTH &&
+          height <= MINI_VIEW_MAX_HEIGHT &&
+          aspectRatio >= MINI_VIEW_MIN_ASPECT_RATIO,
       )
     }
 
@@ -348,7 +377,8 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     return activityTargetOptionKey(lastSelection.option)
   }
 
-  const visibleTargetOptions = (options: readonly ActivityTargetOption[]) => filterClearedActivityTargetOptions(options, clearedTarget())
+  const visibleTargetOptions = (options: readonly ActivityTargetOption[]) =>
+    filterClearedActivityTargetOptions(options, clearedTarget())
 
   const targetStateFromSelection = (selection: ActivityLaunchSelection): LiveActivityTargetState => {
     if (selection.kind === 'lobby') {
@@ -371,9 +401,15 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     }
   }
 
-  const resolveMatchSelectionOption = (matchId: string, lobbyId: string | null, lobbyMode: string | null, selectionState = readSelectionState()): ActivityTargetOption => {
-    const resolved = selectionState.targets.find(option => option.kind === 'match' && option.id === matchId)
-      ?? selectionState.fallback.find(option => option.kind === 'match' && option.id === matchId)
+  const resolveMatchSelectionOption = (
+    matchId: string,
+    lobbyId: string | null,
+    lobbyMode: string | null,
+    selectionState = readSelectionState(),
+  ): ActivityTargetOption => {
+    const resolved =
+      selectionState.targets.find(option => option.kind === 'match' && option.id === matchId) ??
+      selectionState.fallback.find(option => option.kind === 'match' && option.id === matchId)
     if (resolved) return resolved
 
     const lastSelection = selectionState.lastSelection
@@ -415,19 +451,20 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     setPickerError(null)
 
     const current = selectionState.current
-    const nextAutoStart = current.status === 'authenticated' && current.matchId === matchId
-      ? current.autoStart || autoStart
-      : autoStart
+    const nextAutoStart =
+      current.status === 'authenticated' && current.matchId === matchId ? current.autoStart || autoStart : autoStart
     const isSameMatch = current.status === 'authenticated' && current.matchId === matchId
     const hasTerminalDraft = selectionState.draft?.status === 'complete' || selectionState.draft?.status === 'cancelled'
-    const nextLobbyId = lobbyContext?.lobbyId
-      ?? (current.status === 'lobby-waiting'
+    const nextLobbyId =
+      lobbyContext?.lobbyId ??
+      (current.status === 'lobby-waiting'
         ? current.lobby.id
         : current.status === 'authenticated'
           ? current.lobbyId
           : null)
-    const nextLobbyMode = lobbyContext?.lobbyMode
-      ?? (current.status === 'lobby-waiting'
+    const nextLobbyMode =
+      lobbyContext?.lobbyMode ??
+      (current.status === 'lobby-waiting'
         ? current.lobby.mode
         : current.status === 'authenticated'
           ? current.lobbyMode
@@ -447,7 +484,16 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       })
     }
 
-    setState({ status: 'authenticated', matchId, autoStart: nextAutoStart, steamLobbyLink, sessionAccessToken, lobbyId: nextLobbyId, lobbyMode: nextLobbyMode, reported: nextReported })
+    setState({
+      status: 'authenticated',
+      matchId,
+      autoStart: nextAutoStart,
+      steamLobbyLink,
+      sessionAccessToken,
+      lobbyId: nextLobbyId,
+      lobbyMode: nextLobbyMode,
+      reported: nextReported,
+    })
     if (nextReported) {
       const shouldKeepTerminalDraft = isSameMatch && hasTerminalDraft
       disconnectSelectedSession()
@@ -480,9 +526,13 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       setLiveLobbySnapshotVersion(version => version + 1)
 
       const currentState = state()
-      if (currentState.status === 'authenticated' && (currentState.matchId === snapshot.id || currentState.lobbyId === snapshot.id)) {
+      if (
+        currentState.status === 'authenticated' &&
+        (currentState.matchId === snapshot.id || currentState.lobbyId === snapshot.id)
+      ) {
         const currentUserId = activeUserId ?? ''
-        const existingOption = availableTargets().find(option => option.kind === 'lobby' && option.id === snapshot.id) ?? null
+        const existingOption =
+          availableTargets().find(option => option.kind === 'lobby' && option.id === snapshot.id) ?? null
         const option = existingOption ?? buildLobbyTargetOptionFromSnapshot(snapshot, currentUserId, activeChannelId)
         const options = existingOption ? availableTargets() : [...availableTargets(), option]
         const joinEligibility = resolveLiveJoinEligibility(options, option, snapshot, currentUserId)
@@ -501,10 +551,11 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         return
       }
 
-      setState((prev) => {
+      setState(prev => {
         if (prev.status !== 'lobby-waiting' || prev.lobby.id !== snapshot.id) return prev
-        const option = availableTargets().find(target => target.kind === 'lobby' && target.id === snapshot.id)
-          ?? lastResolvedSelection()?.option
+        const option =
+          availableTargets().find(target => target.kind === 'lobby' && target.id === snapshot.id) ??
+          lastResolvedSelection()?.option
         const joinEligibility = option
           ? resolveLiveJoinEligibility(availableTargets(), option, snapshot, activeUserId ?? '')
           : prev.joinEligibility
@@ -526,12 +577,16 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
   const reconnectVisibleSelection = () => {
     const current = state()
-    if (!shouldReconnectVisibleActivityTarget({
-      appStatus: current.status,
-      connectionStatus: connectionStatus(),
-      draftStatus: draftStore.state?.status ?? null,
-      hasOpenSwapWindow: draftStore.swapState != null,
-    })) { return }
+    if (
+      !shouldReconnectVisibleActivityTarget({
+        appStatus: current.status,
+        connectionStatus: connectionStatus(),
+        draftStatus: draftStore.state?.status ?? null,
+        hasOpenSwapWindow: draftStore.swapState != null,
+      })
+    ) {
+      return
+    }
 
     if (current.status === 'authenticated') {
       connectSelectedSession(current.lobbyId ?? current.matchId, current.sessionAccessToken)
@@ -543,7 +598,8 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       connectSelectedSession(directSessionId, null)
       return
     }
-    if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch) startActivityWatch(activeChannelId, activeUserId)
+    if (current.status === 'lobby-waiting' && activeChannelId && activeUserId && !activityWatch)
+      startActivityWatch(activeChannelId, activeUserId)
   }
 
   const applyLaunchSnapshot = (
@@ -554,9 +610,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
   ) => {
     if (disposed) return
     const filteredSnapshot: ActivityLaunchSnapshot = {
-      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, selectionState.cleared)
-        ? null
-        : snapshot.selection,
+      selection:
+        snapshot.selection && activityTargetsMatch(snapshot.selection.option, selectionState.cleared)
+          ? null
+          : snapshot.selection,
       options: filterClearedActivityTargetOptions(snapshot.options, selectionState.cleared),
     }
     const current = selectionState.current
@@ -570,8 +627,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       setLastResolvedSelection(null)
       if (current.status === 'authenticated') {
         clearDraftConnection()
-      }
-      else if (current.status === 'lobby-waiting') {
+      } else if (current.status === 'lobby-waiting') {
         disconnectSelectedSession()
       }
 
@@ -579,14 +635,23 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       return
     }
 
-    if (current.status === 'authenticated' && filteredSnapshot.selection.kind === 'lobby' && shouldHoldAuthenticatedDraftState('lobby', selectionState)) return
+    if (
+      current.status === 'authenticated' &&
+      filteredSnapshot.selection.kind === 'lobby' &&
+      shouldHoldAuthenticatedDraftState('lobby', selectionState)
+    )
+      return
 
     setLastResolvedSelection(filteredSnapshot.selection)
 
-    if (!shouldApplyResolvedActivitySelection({
-      isOverviewVisible: current.status === 'overview' || pendingLiveRoutePath === '/overview',
-      allowSelectionWhileOverview,
-    })) { return }
+    if (
+      !shouldApplyResolvedActivitySelection({
+        isOverviewVisible: current.status === 'overview' || pendingLiveRoutePath === '/overview',
+        allowSelectionWhileOverview,
+      })
+    ) {
+      return
+    }
 
     if (filteredSnapshot.selection.kind === 'lobby') {
       const nextLobby = filteredSnapshot.selection.lobby
@@ -598,15 +663,16 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         clearDraftConnection()
       }
 
-      setState((prev) => {
-        if (prev.status !== 'lobby-waiting') return { status: 'lobby-waiting', lobby: nextLobby, joinPending, joinEligibility }
+      setState(prev => {
+        if (prev.status !== 'lobby-waiting')
+          return { status: 'lobby-waiting', lobby: nextLobby, joinPending, joinEligibility }
         const resolvedLobby = nextLobby.revision < prev.lobby.revision ? prev.lobby : nextLobby
         if (
-          isSameLobbySnapshot(prev.lobby, resolvedLobby)
-          && prev.joinPending === joinPending
-          && prev.joinEligibility.canJoin === joinEligibility.canJoin
-          && prev.joinEligibility.blockedReason === joinEligibility.blockedReason
-          && prev.joinEligibility.pendingSlot === joinEligibility.pendingSlot
+          isSameLobbySnapshot(prev.lobby, resolvedLobby) &&
+          prev.joinPending === joinPending &&
+          prev.joinEligibility.canJoin === joinEligibility.canJoin &&
+          prev.joinEligibility.blockedReason === joinEligibility.blockedReason &&
+          prev.joinEligibility.pendingSlot === joinEligibility.pendingSlot
         ) {
           return prev
         }
@@ -621,29 +687,48 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     }
 
     if (filteredSnapshot.selection.option.reported === true) {
-      if (current.status === 'authenticated' && current.matchId === filteredSnapshot.selection.matchId && selectionState.draft?.status === 'complete') {
+      if (
+        current.status === 'authenticated' &&
+        current.matchId === filteredSnapshot.selection.matchId &&
+        selectionState.draft?.status === 'complete'
+      ) {
         if (!current.reported) setState({ ...current, reported: true })
         return
       }
-      transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.sessionAccessToken, {
-        lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
-        lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
-        reported: true,
-      }, selectionState)
+      transitionToDraft(
+        filteredSnapshot.selection.matchId,
+        autoStart,
+        filteredSnapshot.selection.steamLobbyLink,
+        filteredSnapshot.selection.sessionAccessToken,
+        {
+          lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
+          lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
+          reported: true,
+        },
+        selectionState,
+      )
       return
     }
 
-    transitionToDraft(filteredSnapshot.selection.matchId, autoStart, filteredSnapshot.selection.steamLobbyLink, filteredSnapshot.selection.sessionAccessToken, {
-      lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
-      lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
-    }, selectionState)
+    transitionToDraft(
+      filteredSnapshot.selection.matchId,
+      autoStart,
+      filteredSnapshot.selection.steamLobbyLink,
+      filteredSnapshot.selection.sessionAccessToken,
+      {
+        lobbyId: filteredSnapshot.selection.lobbyId ?? filteredSnapshot.selection.option.lobbyId,
+        lobbyMode: filteredSnapshot.selection.mode ?? filteredSnapshot.selection.option.mode,
+      },
+      selectionState,
+    )
   }
 
   const hydrateActivityLaunchSnapshot = (snapshot: ActivityLaunchSnapshot, allowSelectionWhileOverview = false) => {
     const filteredSnapshot: ActivityLaunchSnapshot = {
-      selection: snapshot.selection && activityTargetsMatch(snapshot.selection.option, clearedTarget())
-        ? null
-        : snapshot.selection,
+      selection:
+        snapshot.selection && activityTargetsMatch(snapshot.selection.option, clearedTarget())
+          ? null
+          : snapshot.selection,
       options: visibleTargetOptions(snapshot.options),
     }
 
@@ -663,26 +748,36 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     const liveStateRevisionAtStart = liveStateRevision
     if (surface === 'web' && route?.kind === 'channel') {
       const bootstrap = await bootstrapBrowserChannel(route.channelId)
-      if (disposed || requestVersion !== launchSnapshotRequestVersion || routeRequestVersion !== browserRouteRequestVersion
-        || liveStateRevisionAtStart !== liveStateRevision
-        || activeChannelId !== channelId || activeUserId !== userId) return
+      if (
+        disposed ||
+        requestVersion !== launchSnapshotRequestVersion ||
+        routeRequestVersion !== browserRouteRequestVersion ||
+        liveStateRevisionAtStart !== liveStateRevision ||
+        activeChannelId !== channelId ||
+        activeUserId !== userId
+      )
+        return
       hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
       return
     }
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
     if (!snapshot) return
 
-    if (!shouldApplyActivityLaunchSnapshotRefresh({
-      requestVersion,
-      latestRequestVersion: launchSnapshotRequestVersion,
-      requestedChannelId: channelId,
-      requestedUserId: userId,
-      activeChannelId,
-      activeUserId,
-      hydratedLiveState: hasHydratedLiveActivityState(),
-      liveStateRevisionAtStart,
-      liveStateRevision,
-    })) { return }
+    if (
+      !shouldApplyActivityLaunchSnapshotRefresh({
+        requestVersion,
+        latestRequestVersion: launchSnapshotRequestVersion,
+        requestedChannelId: channelId,
+        requestedUserId: userId,
+        activeChannelId,
+        activeUserId,
+        hydratedLiveState: hasHydratedLiveActivityState(),
+        liveStateRevisionAtStart,
+        liveStateRevision,
+      })
+    ) {
+      return
+    }
 
     hydrateActivityLaunchSnapshot(snapshot)
   }
@@ -699,19 +794,26 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       refreshInFlight = refreshRequest
       try {
         const bootstrap = await bootstrapBrowserSession(directSessionId)
-        if (disposed || routeRequestVersion !== browserRouteRequestVersion || requestVersion !== launchSnapshotRequestVersion
-          || liveStateRevisionAtStart !== liveStateRevision) return
+        if (
+          disposed ||
+          routeRequestVersion !== browserRouteRequestVersion ||
+          requestVersion !== launchSnapshotRequestVersion ||
+          liveStateRevisionAtStart !== liveStateRevision
+        )
+          return
         if (bootstrap.context.status === 'ended') {
           setState({ status: 'error', message: 'This session has ended.' })
           clearDraftConnection()
           return
         }
-        hydrateActivityLaunchSnapshot({
-          selection: bootstrap.context.selection,
-          options: [bootstrap.context.selection.option],
-        }, true)
-      }
-      finally {
+        hydrateActivityLaunchSnapshot(
+          {
+            selection: bootstrap.context.selection,
+            options: [bootstrap.context.selection.option],
+          },
+          true,
+        )
+      } finally {
         if (refreshInFlight === refreshRequest) refreshInFlight = null
       }
       return
@@ -724,15 +826,19 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     refreshInFlight = refreshRequest
     try {
       await refreshActivityLaunchSnapshot(channelId, userId, route)
-    }
-    finally {
+    } finally {
       if (refreshInFlight === refreshRequest) refreshInFlight = null
     }
   }
 
-  const navigateToSelectionFromOverview = (selection: ActivityLaunchSelection, options: { auto?: boolean } = {}, selectionState = readSelectionState()) => {
+  const navigateToSelectionFromOverview = (
+    selection: ActivityLaunchSelection,
+    options: { auto?: boolean } = {},
+    selectionState = readSelectionState(),
+  ) => {
     if (surface === 'web') {
-      const sessionId = selection.kind === 'lobby' ? selection.lobby.id : selection.lobbyId ?? selection.option.lobbyId
+      const sessionId =
+        selection.kind === 'lobby' ? selection.lobby.id : (selection.lobbyId ?? selection.option.lobbyId)
       navigate(browserSessionPath(sessionId), { scroll: false })
       return
     }
@@ -765,12 +871,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     navigate('/overview', { replace, scroll: false })
     if (current.status === 'authenticated') {
       clearDraftConnection()
-    }
-    else if (current.status === 'lobby-waiting') {
+    } else if (current.status === 'lobby-waiting') {
       disconnectSelectedSession()
       resetDraft()
-    }
-    else {
+    } else {
       resetDraft()
     }
     void requestActivityLaunchSnapshotRefresh()
@@ -781,7 +885,9 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       const channelId = activeChannelId
       if (!channelId) return
       const returnRoute = browserReturnRoute()
-      navigate(browserPracticePath(channelId, returnRoute?.kind === 'session' ? returnRoute.sessionId : undefined), { scroll: false })
+      navigate(browserPracticePath(channelId, returnRoute?.kind === 'session' ? returnRoute.sessionId : undefined), {
+        scroll: false,
+      })
       return
     }
 
@@ -833,60 +939,67 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       return
     }
 
-    const shouldEstimate = currentState.status === 'idle'
-      || (currentState.status === 'error' && currentState.retry === 'estimate')
+    const shouldEstimate =
+      currentState.status === 'idle' || (currentState.status === 'error' && currentState.retry === 'estimate')
     if (shouldEstimate) {
       const requestVersion = ++playerDataExportRequestVersion
       setPlayerDataExportState({ status: 'estimating' })
       try {
         const { fetchPlayerDataExportEstimate } = await import('../lib/player-data-export')
         const estimate = await fetchPlayerDataExportEstimate()
-        if (requestVersion === playerDataExportRequestVersion) setPlayerDataExportState({ status: 'estimate', estimate })
-      }
-      catch (error) {
+        if (requestVersion === playerDataExportRequestVersion)
+          setPlayerDataExportState({ status: 'estimate', estimate })
+      } catch (error) {
         if (requestVersion !== playerDataExportRequestVersion) return
         setPlayerDataExportState({
           status: 'error',
           retry: 'estimate',
-          message: error instanceof Error && error.message.trim().length > 0
-            ? error.message
-            : 'Player data export estimate failed.',
+          message:
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : 'Player data export estimate failed.',
         })
       }
       return
     }
 
-    if (currentState.status !== 'estimate' && !(currentState.status === 'error' && currentState.retry === 'export')) return
+    if (currentState.status !== 'estimate' && !(currentState.status === 'error' && currentState.retry === 'export'))
+      return
 
     const requestVersion = ++playerDataExportRequestVersion
     const existingExport = pendingPlayerDataExport
-    setPlayerDataExportState(existingExport
-      ? {
-          status: 'loading',
-          phase: 'workbook',
-          players: existingExport.source.players.length,
-          ratings: existingExport.source.ratings.length,
-          matches: existingExport.source.matches.length,
-          participants: existingExport.source.participants.length,
-          bans: existingExport.source.bans.length,
-        }
-      : {
-          status: 'loading',
-          phase: 'players',
-          players: 0,
-          ratings: 0,
-          matches: 0,
-          participants: 0,
-          bans: 0,
-        })
+    setPlayerDataExportState(
+      existingExport
+        ? {
+            status: 'loading',
+            phase: 'workbook',
+            players: existingExport.source.players.length,
+            ratings: existingExport.source.ratings.length,
+            matches: existingExport.source.matches.length,
+            participants: existingExport.source.participants.length,
+            bans: existingExport.source.bans.length,
+          }
+        : {
+            status: 'loading',
+            phase: 'players',
+            players: 0,
+            ratings: 0,
+            matches: 0,
+            participants: 0,
+            bans: 0,
+          },
+    )
 
     try {
       const { createPlayerDataExport, publishPlayerDataExport } = await import('../lib/player-data-export')
-      const result = existingExport ?? await createPlayerDataExport({
-        onProgress(progress) {
-          if (requestVersion === playerDataExportRequestVersion) setPlayerDataExportState({ status: 'loading', ...progress })
-        },
-      })
+      const result =
+        existingExport ??
+        (await createPlayerDataExport({
+          onProgress(progress) {
+            if (requestVersion === playerDataExportRequestVersion)
+              setPlayerDataExportState({ status: 'loading', ...progress })
+          },
+        }))
       if (requestVersion !== playerDataExportRequestVersion) return
       pendingPlayerDataExport = result
       const published = await publishPlayerDataExport(result)
@@ -900,15 +1013,13 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         matches: result.source.matches.length,
       })
       await openPlayerDataExportDownload(published.url)
-    }
-    catch (error) {
+    } catch (error) {
       if (requestVersion !== playerDataExportRequestVersion) return
       setPlayerDataExportState({
         status: 'error',
         retry: 'export',
-        message: error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : 'Player data export failed.',
+        message:
+          error instanceof Error && error.message.trim().length > 0 ? error.message : 'Player data export failed.',
       })
     }
   }
@@ -917,8 +1028,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     try {
       const opened = await openExternalLink(url)
       if (!opened) window.open(url, '_blank', 'noopener')
-    }
-    catch (error) {
+    } catch (error) {
       console.error('Player data download failed:', error)
       window.open(url, '_blank', 'noopener')
     }
@@ -950,12 +1060,14 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     try {
       await uploadAutosaveFileMultipart(file)
       setAutosaveUploadMessage({ status: 'success', fileName: file.name })
-    }
-    catch (error) {
-      setAutosaveUploadMessage({
-        status: 'error',
-        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Upload failed',
-      }, 6500)
+    } catch (error) {
+      setAutosaveUploadMessage(
+        {
+          status: 'error',
+          message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Upload failed',
+        },
+        6500,
+      )
     }
   }
 
@@ -972,7 +1084,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         matchId: current.status === 'authenticated' ? current.matchId : null,
       }),
     })
-    const initPayload = await initResponse.json().catch(() => null) as AutosaveUploadInitResponse | null
+    const initPayload = (await initResponse.json().catch(() => null)) as AutosaveUploadInitResponse | null
     if (!initResponse.ok) {
       throw new Error(getAutosaveUploadErrorMessage(initResponse.status, initPayload?.error))
     }
@@ -1015,12 +1127,14 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     try {
       const zipFile = await zipAutosaveFolder(files, zipName)
       await uploadAutosaveFile(zipFile)
-    }
-    catch (error) {
-      setAutosaveUploadMessage({
-        status: 'error',
-        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Failed to zip folder',
-      }, 6500)
+    } catch (error) {
+      setAutosaveUploadMessage(
+        {
+          status: 'error',
+          message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Failed to zip folder',
+        },
+        6500,
+      )
     }
   }
 
@@ -1041,12 +1155,14 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         return
       }
       await uploadAutosaveFile(files.item(0))
-    }
-    catch (error) {
-      setAutosaveUploadMessage({
-        status: 'error',
-        message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Drop failed',
-      }, 6500)
+    } catch (error) {
+      setAutosaveUploadMessage(
+        {
+          status: 'error',
+          message: error instanceof Error && error.message.trim().length > 0 ? error.message : 'Drop failed',
+        },
+        6500,
+      )
     }
   }
 
@@ -1111,17 +1227,23 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
     clearLaunchSnapshotFallback()
 
-    const rawOptions = overviewSnapshot === undefined
-      ? selectionState.fallback
-      : overviewSnapshot
-        ? materializeOverviewOptions(overviewSnapshot, currentUserId)
-        : []
-    const options = applyLiveLobbyMembership(filterClearedActivityTargetOptions(rawOptions, selectionState.cleared), liveLobbySnapshots, currentUserId)
+    const rawOptions =
+      overviewSnapshot === undefined
+        ? selectionState.fallback
+        : overviewSnapshot
+          ? materializeOverviewOptions(overviewSnapshot, currentUserId)
+          : []
+    const options = applyLiveLobbyMembership(
+      filterClearedActivityTargetOptions(rawOptions, selectionState.cleared),
+      liveLobbySnapshots,
+      currentUserId,
+    )
     const resolvedSnapshot = buildLiveActivityLaunchSnapshot(options, targetState, liveLobbySnapshots, currentUserId)
     const targetOption = targetState
-      ? options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null
+      ? (options.find(option => activityTargetOptionKey(option) === activityTargetOptionKey(targetState)) ?? null)
       : null
-    const waitingOnLobbySnapshot = targetState?.kind === 'lobby' && targetOption != null && !liveLobbySnapshots.has(targetState.id)
+    const waitingOnLobbySnapshot =
+      targetState?.kind === 'lobby' && targetOption != null && !liveLobbySnapshots.has(targetState.id)
     const pendingSelectionKey = pendingTargetSelectionKey
     const resolvedAutoSelectedOption = resolveAutoSelectedActivityTarget({
       options,
@@ -1129,9 +1251,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       overviewPinned: pinned,
       suppressAutoSelection,
     })
-    const autoSelectedOption = resolvedAutoSelectedOption && !failedAutoSelectionKeys.has(activityTargetOptionKey(resolvedAutoSelectedOption))
-      ? resolvedAutoSelectedOption
-      : null
+    const autoSelectedOption =
+      resolvedAutoSelectedOption && !failedAutoSelectionKeys.has(activityTargetOptionKey(resolvedAutoSelectedOption))
+        ? resolvedAutoSelectedOption
+        : null
 
     updateAvailableTargets(options)
 
@@ -1158,11 +1281,16 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
     if (resolvedSnapshot?.selection) {
       const resolvedKey = activityTargetOptionKey(resolvedSnapshot.selection.option)
-      const allowSelectionWhileOverview = !pinned || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
-      if (!shouldApplyResolvedActivitySelection({
-        isOverviewVisible: current.status === 'overview',
-        allowSelectionWhileOverview,
-      })) { return }
+      const allowSelectionWhileOverview =
+        !pinned || (pendingSelectionKey != null && pendingSelectionKey === resolvedKey)
+      if (
+        !shouldApplyResolvedActivitySelection({
+          isOverviewVisible: current.status === 'overview',
+          allowSelectionWhileOverview,
+        })
+      ) {
+        return
+      }
 
       if (pendingSelectionKey === resolvedKey) {
         pendingTargetSelectionKey = null
@@ -1204,8 +1332,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
           return
         }
         liveLobbySnapshots.set(snapshot.id, snapshot)
-      }
-      else {
+      } else {
         liveLobbySnapshots.delete(change.lobbyId)
         if (liveOverviewSnapshot() === null) {
           void requestActivityLaunchSnapshotRefresh()
@@ -1215,39 +1342,42 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     }
   }
 
+  createEffect(readLiveActivityState, input => applyLiveActivityState(input))
+
   createEffect(
-    readLiveActivityState,
-    input => applyLiveActivityState(input),
+    () => state().status,
+    status => {
+      if (status !== 'overview') setOverviewPinned(false)
+    },
   )
 
-  createEffect(() => state().status, (status) => {
-    if (status !== 'overview') setOverviewPinned(false)
-  })
+  createEffect(
+    () => {
+      const current = state()
+      return {
+        status: current.status,
+        route: browserRoute(),
+        refreshKey: getBrokenMatchRefreshKey({
+          appStatus: current.status,
+          currentMatchId: current.status === 'authenticated' ? current.matchId : null,
+          connectionStatus: connectionStatus(),
+          connectionCloseReason: connectionCloseReason(),
+          draftState: draftStore.state,
+        }),
+      }
+    },
+    ({ status, refreshKey, route }) => {
+      if (status !== 'authenticated') {
+        brokenMatchRefreshKey = null
+        return
+      }
 
-  createEffect(() => {
-    const current = state()
-    return {
-      status: current.status,
-      route: browserRoute(),
-      refreshKey: getBrokenMatchRefreshKey({
-        appStatus: current.status,
-        currentMatchId: current.status === 'authenticated' ? current.matchId : null,
-        connectionStatus: connectionStatus(),
-        connectionCloseReason: connectionCloseReason(),
-        draftState: draftStore.state,
-      }),
-    }
-  }, ({ status, refreshKey, route }) => {
-    if (status !== 'authenticated') {
-      brokenMatchRefreshKey = null
-      return
-    }
+      if (!refreshKey || brokenMatchRefreshKey === refreshKey) return
 
-    if (!refreshKey || brokenMatchRefreshKey === refreshKey) return
-
-    brokenMatchRefreshKey = refreshKey
-    void requestActivityLaunchSnapshotRefresh(route)
-  })
+      brokenMatchRefreshKey = refreshKey
+      void requestActivityLaunchSnapshotRefresh(route)
+    },
+  )
 
   const startActivityWatch = (channelId: string, currentUserId: string) => {
     if (disposed) return
@@ -1269,11 +1399,11 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     activityWatch = watchLobbyState(SESSION_SOCKET_TARGET, {
       channelId,
       userId: currentUserId,
-      onStateChanged: (change) => {
+      onStateChanged: change => {
         if (disposed || requestVersion !== activityWatchVersion) return
         handleActivityStateChange(channelId, currentUserId, change)
       },
-      onError: (message) => {
+      onError: message => {
         if (disposed || requestVersion !== activityWatchVersion) return
         if (liveOverviewSnapshot() === undefined) {
           setState({ status: 'error', message })
@@ -1288,18 +1418,21 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     }, 1500)
   }
 
-  createEffect(() => ({
-    routeReady: surface !== 'web' || loadedBrowserRouteKey() === browserRouteKey(),
-    shouldWatch: shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: state().status }),
-    channelId: activeChannelId,
-    userId: activeUserId,
-  }), ({ routeReady, shouldWatch, channelId, userId }) => {
-    if (!routeReady || !shouldWatch || !channelId || !userId || document.visibilityState === 'hidden') {
-      stopActivityWatch()
-      return
-    }
-    if (!activityWatch) startActivityWatch(channelId, userId)
-  })
+  createEffect(
+    () => ({
+      routeReady: surface !== 'web' || loadedBrowserRouteKey() === browserRouteKey(),
+      shouldWatch: shouldWatchChannelFeed({ directSessionId: directBrowserSessionId(), status: state().status }),
+      channelId: activeChannelId,
+      userId: activeUserId,
+    }),
+    ({ routeReady, shouldWatch, channelId, userId }) => {
+      if (!routeReady || !shouldWatch || !channelId || !userId || document.visibilityState === 'hidden') {
+        stopActivityWatch()
+        return
+      }
+      if (!activityWatch) startActivityWatch(channelId, userId)
+    },
+  )
 
   const handleTargetSelection = async (option: ActivityTargetOption) => {
     suppressAutoSelection = false
@@ -1329,11 +1462,12 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     suppressAutoSelection = false
     const optionKey = activityTargetOptionKey(lastSelection.option)
     failedAutoSelectionKeys.delete(optionKey)
-    const selectedKey = selectionState.current.status === 'authenticated'
-      ? activityTargetOptionKey({ kind: 'match', id: selectionState.current.matchId })
-      : selectionState.current.status === 'lobby-waiting'
-        ? activityTargetOptionKey({ kind: 'lobby', id: selectionState.current.lobby.id })
-        : activityTargetOptionKey(lastSelection.option)
+    const selectedKey =
+      selectionState.current.status === 'authenticated'
+        ? activityTargetOptionKey({ kind: 'match', id: selectionState.current.matchId })
+        : selectionState.current.status === 'lobby-waiting'
+          ? activityTargetOptionKey({ kind: 'lobby', id: selectionState.current.lobby.id })
+          : activityTargetOptionKey(lastSelection.option)
     if (!shouldRequestActivityTargetSelection({ option: lastSelection.option, currentTargetKey: selectedKey })) {
       pendingTargetSelectionKey = optionKey
       navigateToSelectionFromOverview(lastSelection, {}, selectionState)
@@ -1345,77 +1479,82 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
   const canResumeSelection = () => browserReturnPath() != null || lastResolvedSelection() != null
 
-  createEffect(() => surface === 'web' ? { route: browserRoute(), routeKey: browserRouteKey() } : null, (browser) => {
-    if (!browser) return
-    const { route, routeKey } = browser
-    const requestVersion = ++browserRouteRequestVersion
-    launchSnapshotRequestVersion += 1
-    selectionRequestVersion += 1
-    adminCapabilitiesRequestVersion += 1
-    activeChannelId = null
-    activeUserId = null
-    refreshInFlight = null
+  createEffect(
+    () => (surface === 'web' ? { route: browserRoute(), routeKey: browserRouteKey() } : null),
+    browser => {
+      if (!browser) return
+      const { route, routeKey } = browser
+      const requestVersion = ++browserRouteRequestVersion
+      launchSnapshotRequestVersion += 1
+      selectionRequestVersion += 1
+      adminCapabilitiesRequestVersion += 1
+      activeChannelId = null
+      activeUserId = null
+      refreshInFlight = null
 
-    stopActivityWatch()
-    clearLaunchSnapshotFallback()
-    clearDraftConnection()
-    setLoadedBrowserRouteKey(null)
-    setLastResolvedSelection(null)
-    setClearedTarget(null)
-    setLiveOverviewSnapshot(undefined)
-    setLiveTargetState(null)
-    setFallbackOptions([])
-    liveLobbySnapshots.clear()
-    setLiveLobbySnapshotVersion(version => version + 1)
-    setOverviewPinned(false)
-    setPickerBusy(false)
-    setPickerError(null)
-    setState({ status: 'loading' })
+      stopActivityWatch()
+      clearLaunchSnapshotFallback()
+      clearDraftConnection()
+      setLoadedBrowserRouteKey(null)
+      setLastResolvedSelection(null)
+      setClearedTarget(null)
+      setLiveOverviewSnapshot(undefined)
+      setLiveTargetState(null)
+      setFallbackOptions([])
+      liveLobbySnapshots.clear()
+      setLiveLobbySnapshotVersion(version => version + 1)
+      setOverviewPinned(false)
+      setPickerBusy(false)
+      setPickerError(null)
+      setState({ status: 'loading' })
 
-    void (async () => {
-      try {
-        if (!route) throw new Error('Invalid browser URL')
-        if (route.kind === 'session') {
-          const bootstrap = await bootstrapBrowserSession(route.sessionId)
-          if (requestVersion !== browserRouteRequestVersion) return
-          setAuthenticatedUser(bootstrap.identity)
-          activeUserId = bootstrap.identity.userId
-          void refreshAdminCapabilities()
-          if (bootstrap.context.status === 'ended') {
+      void (async () => {
+        try {
+          if (!route) throw new Error('Invalid browser URL')
+          if (route.kind === 'session') {
+            const bootstrap = await bootstrapBrowserSession(route.sessionId)
+            if (requestVersion !== browserRouteRequestVersion) return
+            setAuthenticatedUser(bootstrap.identity)
+            activeUserId = bootstrap.identity.userId
+            void refreshAdminCapabilities()
+            if (bootstrap.context.status === 'ended') {
+              setLoadedBrowserRouteKey(routeKey)
+              setState({ status: 'error', message: 'This session has ended.' })
+              return
+            }
+            activeChannelId = bootstrap.context.selection.option.channelId
             setLoadedBrowserRouteKey(routeKey)
-            setState({ status: 'error', message: 'This session has ended.' })
+            hydrateActivityLaunchSnapshot(
+              {
+                selection: bootstrap.context.selection,
+                options: [bootstrap.context.selection.option],
+              },
+              true,
+            )
             return
           }
-          activeChannelId = bootstrap.context.selection.option.channelId
-          setLoadedBrowserRouteKey(routeKey)
-          hydrateActivityLaunchSnapshot({
-            selection: bootstrap.context.selection,
-            options: [bootstrap.context.selection.option],
-          }, true)
-          return
-        }
 
-        const bootstrap = await bootstrapBrowserChannel(route.channelId)
-        if (requestVersion !== browserRouteRequestVersion) return
-        setAuthenticatedUser(bootstrap.identity)
-        activeChannelId = bootstrap.context.channelId
-        activeUserId = bootstrap.identity.userId
-        void refreshAdminCapabilities()
-        setOverviewPinned(true)
-        setLoadedBrowserRouteKey(routeKey)
-        hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
-      }
-      catch (err) {
-        if (requestVersion !== browserRouteRequestVersion) return
-        console.error('Browser app setup failed:', err)
-        relayDevLog('error', 'Browser app setup failed', err)
-        setState({
-          status: 'error',
-          message: err instanceof BrowserLaunchValidationError ? err.message : 'Could not open the activity.',
-        })
-      }
-    })()
-  })
+          const bootstrap = await bootstrapBrowserChannel(route.channelId)
+          if (requestVersion !== browserRouteRequestVersion) return
+          setAuthenticatedUser(bootstrap.identity)
+          activeChannelId = bootstrap.context.channelId
+          activeUserId = bootstrap.identity.userId
+          void refreshAdminCapabilities()
+          setOverviewPinned(true)
+          setLoadedBrowserRouteKey(routeKey)
+          hydrateActivityLaunchSnapshot(bootstrap.context.snapshot, true)
+        } catch (err) {
+          if (requestVersion !== browserRouteRequestVersion) return
+          console.error('Browser app setup failed:', err)
+          relayDevLog('error', 'Browser app setup failed', err)
+          setState({
+            status: 'error',
+            message: err instanceof BrowserLaunchValidationError ? err.message : 'Could not open the activity.',
+          })
+        }
+      })()
+    },
+  )
 
   onSettled(() => {
     if (surface === 'web') return
@@ -1440,8 +1579,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
           if (availableTargets().length > 0) setState({ status: 'overview' })
         }
         void requestActivityLaunchSnapshotRefresh()
-      }
-      catch (err) {
+      } catch (err) {
         if (disposed) return
         console.error('Discord SDK setup failed:', err)
         relayDevLog('error', 'Activity app setup failed', err)
@@ -1484,59 +1622,65 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
   let routeRestoreAttemptKey: string | null = null
 
-  createEffect(() => surface === 'web' ? null : {
-    pathname: location.pathname,
-    current: state(),
-    selection: lastResolvedSelection(),
-    busy: pickerBusy(),
-    selectionState: untrack(readSelectionState),
-    liveInput: readLiveActivityState(),
-  }, (snapshot) => {
-    if (!snapshot) return
-    const { pathname, current, selection, busy, selectionState, liveInput } = snapshot
-    const route = parseLiveRoute(pathname)
-    if (current.status === 'loading' || current.status === 'error') return
-    const canonicalPath = getCanonicalLivePath(current)
-    if (!canonicalPath) return
+  createEffect(
+    () =>
+      surface === 'web'
+        ? null
+        : {
+            pathname: location.pathname,
+            current: state(),
+            selection: lastResolvedSelection(),
+            busy: pickerBusy(),
+            selectionState: untrack(readSelectionState),
+            liveInput: readLiveActivityState(),
+          },
+    snapshot => {
+      if (!snapshot) return
+      const { pathname, current, selection, busy, selectionState, liveInput } = snapshot
+      const route = parseLiveRoute(pathname)
+      if (current.status === 'loading' || current.status === 'error') return
+      const canonicalPath = getCanonicalLivePath(current)
+      if (!canonicalPath) return
 
-    // Router navigation can hold the same staged update as shell state. Never
-    // replace that in-flight destination using the last committed selection.
-    if (pendingLiveRoutePath) {
-      if (pathname !== pendingLiveRoutePath) return
-      pendingLiveRoutePath = null
-    }
-
-    if (route?.kind === 'uploads') return
-    if (route?.kind === 'overview') {
-      routeRestoreAttemptKey = null
-      if (current.status !== 'overview') openOverview({ replace: true }, selectionState)
-      else overviewPushSourcePath = null
-      return
-    }
-
-    if (pathname === canonicalPath) {
-      routeRestoreAttemptKey = null
-      return
-    }
-
-    if (canonicalPath === '/overview' && overviewPushSourcePath === pathname) return
-    if (
-      current.status === 'overview'
-      && route
-      && route.kind !== 'root'
-      && liveRouteMatchesSelection(route, selection)
-    ) {
-      const routeKey = liveRouteKey(route)
-      if (!busy && routeRestoreAttemptKey !== routeKey) {
-        routeRestoreAttemptKey = routeKey
-        void restoreLastSelection(selectionState, liveInput)
+      // Router navigation can hold the same staged update as shell state. Never
+      // replace that in-flight destination using the last committed selection.
+      if (pendingLiveRoutePath) {
+        if (pathname !== pendingLiveRoutePath) return
+        pendingLiveRoutePath = null
       }
-      return
-    }
 
-    routeRestoreAttemptKey = null
-    navigate(canonicalPath, { replace: true, scroll: false })
-  })
+      if (route?.kind === 'uploads') return
+      if (route?.kind === 'overview') {
+        routeRestoreAttemptKey = null
+        if (current.status !== 'overview') openOverview({ replace: true }, selectionState)
+        else overviewPushSourcePath = null
+        return
+      }
+
+      if (pathname === canonicalPath) {
+        routeRestoreAttemptKey = null
+        return
+      }
+
+      if (canonicalPath === '/overview' && overviewPushSourcePath === pathname) return
+      if (
+        current.status === 'overview' &&
+        route &&
+        route.kind !== 'root' &&
+        liveRouteMatchesSelection(route, selection)
+      ) {
+        const routeKey = liveRouteKey(route)
+        if (!busy && routeRestoreAttemptKey !== routeKey) {
+          routeRestoreAttemptKey = routeKey
+          void restoreLastSelection(selectionState, liveInput)
+        }
+        return
+      }
+
+      routeRestoreAttemptKey = null
+      navigate(canonicalPath, { replace: true, scroll: false })
+    },
+  )
 
   return (
     <ActivityControllerContext
@@ -1565,18 +1709,20 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     >
       {props.children}
       <input
-        ref={(element) => { autosaveFileInput = element }}
+        ref={element => {
+          autosaveFileInput = element
+        }}
         type="file"
         class="hidden"
         accept={AUTOSAVE_UPLOAD_ACCEPT}
-        onChange={(event) => {
+        onChange={event => {
           const file = event.currentTarget.files?.item(0) ?? null
           event.currentTarget.value = ''
           void uploadAutosaveFile(file)
         }}
       />
       <input
-        ref={(element) => {
+        ref={element => {
           autosaveFolderInput = element
           element.setAttribute('webkitdirectory', '')
           element.setAttribute('directory', '')
@@ -1584,7 +1730,7 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         type="file"
         class="hidden"
         multiple
-        onChange={(event) => {
+        onChange={event => {
           const files = event.currentTarget.files
           event.currentTarget.value = ''
           void uploadAutosaveFolder(files)
@@ -1609,14 +1755,16 @@ function AutosaveDropOverlay(props: { visible: boolean }) {
         <div class="mx-6 max-w-md rounded-3xl border border-border-subtle bg-bg-subtle/92 px-8 py-7 text-center shadow-2xl">
           <div class="i-ph-upload-simple-bold mx-auto mb-4 text-5xl text-fg-muted" />
           <div class="text-xl font-bold text-fg">Upload autosaves</div>
-          <div class="mt-2 text-sm text-fg-muted">Upload the <code class="rounded bg-bg px-1 py-0.5 text-fg">auto</code> folder to share the game with others</div>
+          <div class="mt-2 text-sm text-fg-muted">
+            Upload the <code class="rounded bg-bg px-1 py-0.5 text-fg">auto</code> folder to share the game with others
+          </div>
         </div>
       </div>
     </Show>
   )
 }
 
-function AutosaveUploadToast(props: { state: AutosaveUploadState, onDismiss: () => void }) {
+function AutosaveUploadToast(props: { state: AutosaveUploadState; onDismiss: () => void }) {
   const iconClass = () => {
     const status = props.state.status
     if (status === 'success') return 'i-ph-check-circle-bold text-emerald-300'
@@ -1737,16 +1885,21 @@ async function readDroppedFolderFiles(dataTransfer: DataTransfer): Promise<Autos
   return readDroppedDirectoryEntries(directory, directory.name)
 }
 
-async function readDroppedDirectoryEntries(directory: WebkitFileSystemDirectoryEntry, relativePath: string): Promise<AutosaveFolderFile[]> {
+async function readDroppedDirectoryEntries(
+  directory: WebkitFileSystemDirectoryEntry,
+  relativePath: string,
+): Promise<AutosaveFolderFile[]> {
   const entries = await readAllDirectoryEntries(directory)
-  const files = await Promise.all(entries.map(async (entry) => {
-    const childPath = `${relativePath}/${entry.name}`
-    if (isWebkitFileEntry(entry)) {
-      return [{ file: await readDroppedFileEntry(entry), relativePath: childPath }]
-    }
-    if (isWebkitDirectoryEntry(entry)) return readDroppedDirectoryEntries(entry, childPath)
-    return []
-  }))
+  const files = await Promise.all(
+    entries.map(async entry => {
+      const childPath = `${relativePath}/${entry.name}`
+      if (isWebkitFileEntry(entry)) {
+        return [{ file: await readDroppedFileEntry(entry), relativePath: childPath }]
+      }
+      if (isWebkitDirectoryEntry(entry)) return readDroppedDirectoryEntries(entry, childPath)
+      return []
+    }),
+  )
 
   return files.flat()
 }
@@ -1979,7 +2132,15 @@ function resolveLiveJoinEligibility(
     }
   }
 
-  if (options.some(option => option.kind === 'match' && option.status === 'drafting' && option.id !== selectedOption.id && (option.isHost || option.isMember))) {
+  if (
+    options.some(
+      option =>
+        option.kind === 'match' &&
+        option.status === 'drafting' &&
+        option.id !== selectedOption.id &&
+        (option.isHost || option.isMember),
+    )
+  ) {
     return {
       canJoin: false,
       blockedReason: 'You are already in a live match.',
@@ -1987,7 +2148,11 @@ function resolveLiveJoinEligibility(
     }
   }
 
-  if (options.some(option => option.kind === 'lobby' && option.id !== selectedOption.id && (option.isHost || option.isMember))) {
+  if (
+    options.some(
+      option => option.kind === 'lobby' && option.id !== selectedOption.id && (option.isHost || option.isMember),
+    )
+  ) {
     return {
       canJoin: false,
       blockedReason: 'You are already in another open lobby.',
@@ -2016,7 +2181,7 @@ function applyLiveLobbyMembership(
   liveLobbySnapshots: ReadonlyMap<string, LobbySnapshot>,
   currentUserId: string,
 ): ActivityTargetOption[] {
-  return options.map((option) => {
+  return options.map(option => {
     if (option.kind !== 'lobby') return option
     const snapshot = liveLobbySnapshots.get(option.id)
     if (!snapshot) return option
@@ -2026,14 +2191,15 @@ function applyLiveLobbyMembership(
     const isMember = option.isMember || isLobbySnapshotMember(snapshot, currentUserId)
     const isHost = snapshot.hostId === currentUserId
     if (
-      option.status === status
-      && option.participantCount === participantCount
-      && option.targetSize === snapshot.targetSize
-      && option.mode === snapshot.mode
-      && option.redDeath === snapshot.draftConfig.redDeath
-      && option.isMember === isMember
-      && option.isHost === isHost
-    ) return option
+      option.status === status &&
+      option.participantCount === participantCount &&
+      option.targetSize === snapshot.targetSize &&
+      option.mode === snapshot.mode &&
+      option.redDeath === snapshot.draftConfig.redDeath &&
+      option.isMember === isMember &&
+      option.isHost === isHost
+    )
+      return option
 
     return {
       ...option,
@@ -2050,8 +2216,10 @@ function applyLiveLobbyMembership(
 
 function isLobbySnapshotMember(snapshot: LobbySnapshot, currentUserId: string): boolean {
   if (!currentUserId) return false
-  return snapshot.entries.some(entry => entry?.playerId === currentUserId)
-    || snapshot.memberPlayerIds?.includes(currentUserId) === true
+  return (
+    snapshot.entries.some(entry => entry?.playerId === currentUserId) ||
+    snapshot.memberPlayerIds?.includes(currentUserId) === true
+  )
 }
 
 function isSameLobbySnapshot(a: LobbySnapshot, b: LobbySnapshot): boolean {

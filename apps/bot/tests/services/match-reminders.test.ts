@@ -1,6 +1,6 @@
-import { matches } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { matches } from '@civup/db'
 import { sendOverdueHostReportReminders } from '../../src/services/match/reminders.ts'
 import { createLobby, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -17,7 +17,7 @@ describe('host report reminders', () => {
     const now = Date.now()
     const { db, sqlite } = await createTestDatabase()
     const { kv } = createTrackedKv()
-    const fetchCalls: Array<{ url: string, body: unknown }> = []
+    const fetchCalls: Array<{ url: string; body: unknown }> = []
 
     globalThis.fetch = (async (input, init) => {
       fetchCalls.push({
@@ -51,18 +51,21 @@ describe('host report reminders', () => {
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.update(matches).set({
-        gameMode: '2v2',
-        status: 'active',
-        seasonId: null,
-        draftData: JSON.stringify({
-          completedAt: now - (3 * 60 * 60 * 1000) - 1,
-          hostId: 'host-1',
-          state: { seats: [{ playerId: 'host-1' }] },
-        }),
-        createdAt: now - (4 * 60 * 60 * 1000),
-        completedAt: null,
-      }).where(eq(matches.id, matchId))
+      await db
+        .update(matches)
+        .set({
+          gameMode: '2v2',
+          status: 'active',
+          seasonId: null,
+          draftData: JSON.stringify({
+            completedAt: now - 3 * 60 * 60 * 1000 - 1,
+            hostId: 'host-1',
+            state: { seats: [{ playerId: 'host-1' }] },
+          }),
+          createdAt: now - 4 * 60 * 60 * 1000,
+          completedAt: null,
+        })
+        .where(eq(matches.id, matchId))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 1,
@@ -73,17 +76,19 @@ describe('host report reminders', () => {
         'https://discord.com/api/v10/users/@me/channels',
         'https://discord.com/api/v10/channels/dm-1/messages',
       ])
-      expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: 'Reminder: you have an unreported **2v2** game. Don\'t forget to report it: https://discord.com/channels/guild-1/channel-1/message-1',
-      }))
+      expect(fetchCalls[1]?.body).toEqual(
+        expect.objectContaining({
+          content:
+            "Reminder: you have an unreported **2v2** game. Don't forget to report it: https://discord.com/channels/guild-1/channel-1/message-1",
+        }),
+      )
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 0,
         sentCount: 0,
       })
       expect(fetchCalls).toHaveLength(2)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -92,7 +97,7 @@ describe('host report reminders', () => {
     const now = Date.now()
     const { db, sqlite } = await createTestDatabase()
     const { kv } = createTrackedKv()
-    const fetchCalls: Array<{ url: string, body: unknown }> = []
+    const fetchCalls: Array<{ url: string; body: unknown }> = []
 
     globalThis.fetch = (async (input, init) => {
       fetchCalls.push({
@@ -126,34 +131,39 @@ describe('host report reminders', () => {
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.update(matches).set({
-        gameMode: 'ffa',
-        status: 'active',
-        seasonId: null,
-        draftData: JSON.stringify({
-          completedAt: now - (7 * 60 * 60 * 1000),
-          hostId: 'host-2',
-          state: { seats: [{ playerId: 'host-2' }] },
-        }),
-        createdAt: now - (8 * 60 * 60 * 1000),
-        completedAt: null,
-      }).where(eq(matches.id, matchId))
+      await db
+        .update(matches)
+        .set({
+          gameMode: 'ffa',
+          status: 'active',
+          seasonId: null,
+          draftData: JSON.stringify({
+            completedAt: now - 7 * 60 * 60 * 1000,
+            hostId: 'host-2',
+            state: { seats: [{ playerId: 'host-2' }] },
+          }),
+          createdAt: now - 8 * 60 * 60 * 1000,
+          completedAt: null,
+        })
+        .where(eq(matches.id, matchId))
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 1,
         sentCount: 1,
       })
 
-      expect(fetchCalls[1]?.body).toEqual(expect.objectContaining({
-        content: 'Reminder: you still have an unreported **FFA** game. Don\'t forget to report it: https://discord.com/channels/guild-2/channel-2/message-2',
-      }))
+      expect(fetchCalls[1]?.body).toEqual(
+        expect.objectContaining({
+          content:
+            "Reminder: you still have an unreported **FFA** game. Don't forget to report it: https://discord.com/channels/guild-2/channel-2/message-2",
+        }),
+      )
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
         attemptedCount: 0,
         sentCount: 0,
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -176,18 +186,21 @@ describe('host report reminders', () => {
       await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
       const matchId = lobby.id
 
-      await db.update(matches).set({
-        gameMode: '1v1',
-        status: 'active',
-        seasonId: null,
-        draftData: JSON.stringify({
-          completedAt: now - (3 * 60 * 60 * 1000) - 1,
-          hostId: 'host-fail',
-          state: { seats: [{ playerId: 'host-fail' }] },
-        }),
-        createdAt: now - (4 * 60 * 60 * 1000),
-        completedAt: null,
-      }).where(eq(matches.id, matchId))
+      await db
+        .update(matches)
+        .set({
+          gameMode: '1v1',
+          status: 'active',
+          seasonId: null,
+          draftData: JSON.stringify({
+            completedAt: now - 3 * 60 * 60 * 1000 - 1,
+            hostId: 'host-fail',
+            state: { seats: [{ playerId: 'host-fail' }] },
+          }),
+          createdAt: now - 4 * 60 * 60 * 1000,
+          completedAt: null,
+        })
+        .where(eq(matches.id, matchId))
 
       globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
 
@@ -209,8 +222,7 @@ describe('host report reminders', () => {
         attemptedCount: 1,
         sentCount: 1,
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -219,7 +231,7 @@ describe('host report reminders', () => {
     const now = Date.now()
     const { db, sqlite } = await createTestDatabase()
     const { kv } = createTrackedKv()
-    const fetchCalls: Array<{ url: string, body: unknown }> = []
+    const fetchCalls: Array<{ url: string; body: unknown }> = []
 
     globalThis.fetch = (async (input, init) => {
       fetchCalls.push({
@@ -255,18 +267,21 @@ describe('host report reminders', () => {
         await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
         const matchId = lobby.id
 
-        await db.update(matches).set({
-          gameMode: '2v2',
-          status: 'active',
-          seasonId: null,
-          draftData: JSON.stringify({
-            completedAt: now - (3 * 60 * 60 * 1000) - 1,
-            hostId: `host-${suffix}`,
-            state: { seats: [{ playerId: `host-${suffix}` }] },
-          }),
-          createdAt: now - (4 * 60 * 60 * 1000),
-          completedAt: null,
-        }).where(eq(matches.id, matchId))
+        await db
+          .update(matches)
+          .set({
+            gameMode: '2v2',
+            status: 'active',
+            seasonId: null,
+            draftData: JSON.stringify({
+              completedAt: now - 3 * 60 * 60 * 1000 - 1,
+              hostId: `host-${suffix}`,
+              state: { seats: [{ playerId: `host-${suffix}` }] },
+            }),
+            createdAt: now - 4 * 60 * 60 * 1000,
+            completedAt: null,
+          })
+          .where(eq(matches.id, matchId))
       }
 
       await expect(sendOverdueHostReportReminders(db, kv, 'token', { now })).resolves.toEqual({
@@ -278,8 +293,7 @@ describe('host report reminders', () => {
         attemptedCount: 2,
         sentCount: 2,
       })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })

@@ -56,8 +56,7 @@ interface CliOptions {
 let options: CliOptions
 try {
   options = parseArgs(Bun.argv.slice(2))
-}
-catch (error) {
+} catch (error) {
   console.error(error instanceof Error ? error.message : 'Invalid arguments')
   printUsage()
   process.exit(1)
@@ -276,43 +275,57 @@ function parseArgs(args: string[]): CliOptions {
 
 function formatParseOutput(timeline: CivupAutosaveTimeline, options: CliOptions): string {
   if (options.format === 'json') return `${JSON.stringify(timeline, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${timeline.turns.map(turn => JSON.stringify({ source: timeline.source, ...turn })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${timeline.turns.map(turn => JSON.stringify({ source: timeline.source, ...turn })).join('\n')}\n`
   return formatParseSummary(timeline, options.focus)
 }
 
 function formatLobbyOutput(report: CivupLobbyReport, options: CliOptions): string {
   if (options.format === 'json') return `${JSON.stringify(report, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${report.players.map(player => JSON.stringify({ source: report.source, saveName: report.saveName, gameRandomSeed: report.gameRandomSeed, mapRandomSeed: report.mapRandomSeed, ...player })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${report.players.map(player => JSON.stringify({ source: report.source, saveName: report.saveName, gameRandomSeed: report.gameRandomSeed, mapRandomSeed: report.mapRandomSeed, ...player })).join('\n')}\n`
   return formatLobbySummary(report)
 }
 
 function formatSnapshotOutput(timeline: CivReplaySnapshotTimeline, options: CliOptions): string {
   if (options.format === 'json') return `${JSON.stringify(timeline, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${timeline.snapshots.map(snapshot => JSON.stringify({ source: timeline.source, ...snapshot })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${timeline.snapshots.map(snapshot => JSON.stringify({ source: timeline.source, ...snapshot })).join('\n')}\n`
   return formatSnapshotSummary(timeline)
 }
 
 function formatOpeningOutput(report: ReturnType<typeof analyzeOpeningReportBytes>, options: CliOptions): string {
   if (options.format === 'json') return `${JSON.stringify(report, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${report.turns.map(turn => JSON.stringify({ source: report.source, player: report.player, ...turn })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${report.turns.map(turn => JSON.stringify({ source: report.source, player: report.player, ...turn })).join('\n')}\n`
   return formatOpeningReportSummary(report)
 }
 
 function formatScienceOutput(report: ReturnType<typeof analyzeScienceReportBytes>, options: CliOptions): string {
   if (options.format === 'json') return `${JSON.stringify(report, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${report.players.map(player => JSON.stringify({ source: report.source, turn: report.turn, saveName: report.saveName, ...player })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${report.players.map(player => JSON.stringify({ source: report.source, turn: report.turn, saveName: report.saveName, ...player })).join('\n')}\n`
   return formatScienceReportSummary(report)
 }
 
-function formatOpeningComparisonOutput(comparison: ReturnType<typeof compareOpeningReports>, options: CliOptions): string {
+function formatOpeningComparisonOutput(
+  comparison: ReturnType<typeof compareOpeningReports>,
+  options: CliOptions,
+): string {
   if (options.format === 'json') return `${JSON.stringify(comparison, null, options.compact ? 0 : 2)}\n`
-  if (options.format === 'jsonl') return `${comparison.keyTurns.map(turn => JSON.stringify({ baselineSide: comparison.baseline, subjectSide: comparison.subject, ...turn })).join('\n')}\n`
+  if (options.format === 'jsonl')
+    return `${comparison.keyTurns.map(turn => JSON.stringify({ baselineSide: comparison.baseline, subjectSide: comparison.subject, ...turn })).join('\n')}\n`
   return formatOpeningComparisonSummary(comparison)
 }
 
 function parseOpeningReportJson(text: string, path: string): CivupOpeningReport {
   const parsed = JSON.parse(text) as CivupOpeningReport
-  if (parsed.tool !== 'civup-analyzer' || parsed.schemaVersion !== 1 || !Array.isArray(parsed.turns) || !parsed.milestones) {
+  if (
+    parsed.tool !== 'civup-analyzer' ||
+    parsed.schemaVersion !== 1 ||
+    !Array.isArray(parsed.turns) ||
+    !parsed.milestones
+  ) {
     throw new Error(`${path} is not a civup opening report JSON file`)
   }
   return parsed
@@ -331,13 +344,15 @@ function buildLobbyReport(timeline: CivupAutosaveTimeline): CivupLobbyReport {
     mapRandomSeed: firstTurn?.mapRandomSeed ?? timeline.summary.mapRandomSeeds[0] ?? null,
     gameMode: firstTurn?.gameMode ?? timeline.summary.gameModes[0] ?? null,
     mapFile: firstTurn?.mapFile ?? null,
-    players: (firstTurn?.players ?? timeline.summary.players).map(player => ({
-      slot: player.slot,
-      team: player.team,
-      playerName: player.playerName,
-      leader: player.leader,
-      civilization: player.civilization,
-    })).sort((left, right) => left.slot - right.slot),
+    players: (firstTurn?.players ?? timeline.summary.players)
+      .map(player => ({
+        slot: player.slot,
+        team: player.team,
+        playerName: player.playerName,
+        leader: player.leader,
+        civilization: player.civilization,
+      }))
+      .sort((left, right) => left.slot - right.slot),
   }
 }
 
@@ -347,17 +362,21 @@ function formatLobbySummary(report: CivupLobbyReport): string {
   lines.push(`source: ${report.source}`)
   if (report.saveName) lines.push(`save: ${report.saveName}`)
   lines.push(`seeds: game random ${report.gameRandomSeed ?? '?'}, map random ${report.mapRandomSeed ?? '?'}`)
-  if (report.gameMode || report.mapFile) lines.push(`settings: ${report.gameMode ?? '?'}${report.mapFile ? ` | ${report.mapFile}` : ''}`)
+  if (report.gameMode || report.mapFile)
+    lines.push(`settings: ${report.gameMode ?? '?'}${report.mapFile ? ` | ${report.mapFile}` : ''}`)
   lines.push('')
   lines.push('Slot Order')
   for (const player of report.players) {
-    lines.push(`  slot ${player.slot} | team ${player.team ?? '?'} | ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'}`)
+    lines.push(
+      `  slot ${player.slot} | team ${player.team ?? '?'} | ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'}`,
+    )
   }
   lines.push('')
   lines.push('Teams')
   const teams = groupLobbyTeams(report.players)
   if (teams.length === 0) lines.push('  no team data found')
-  for (const [team, players] of teams) lines.push(`  team ${team}: slots ${players.map(player => player.slot).join(', ')}`)
+  for (const [team, players] of teams)
+    lines.push(`  team ${team}: slots ${players.map(player => player.slot).join(', ')}`)
   return `${lines.join('\n')}\n`
 }
 
@@ -378,14 +397,21 @@ function formatParseSummary(timeline: CivupAutosaveTimeline, focus: string | nul
   lines.push('CivUp Autosave Timeline')
   lines.push(`source: ${timeline.source}`)
   lines.push(`kind: ${timeline.sourceKind}`)
-  lines.push(`saves: ${summary.parsedCount}/${summary.saveCount} parsed${summary.failureCount ? `, ${summary.failureCount} failed` : ''}`)
+  lines.push(
+    `saves: ${summary.parsedCount}/${summary.saveCount} parsed${summary.failureCount ? `, ${summary.failureCount} failed` : ''}`,
+  )
   lines.push(`turns: ${summary.firstTurn ?? '?'} -> ${summary.lastTurn ?? '?'}`)
-  if (summary.gameRandomSeeds.length > 0 || summary.mapRandomSeeds.length > 0) lines.push(`seeds: game random ${formatNumberList(summary.gameRandomSeeds)}, map random ${formatNumberList(summary.mapRandomSeeds)}`)
+  if (summary.gameRandomSeeds.length > 0 || summary.mapRandomSeeds.length > 0)
+    lines.push(
+      `seeds: game random ${formatNumberList(summary.gameRandomSeeds)}, map random ${formatNumberList(summary.mapRandomSeeds)}`,
+    )
   if (summary.gameModes.length > 0) lines.push(`modes: ${summary.gameModes.join(', ')}`)
   lines.push('')
   lines.push('Players')
   for (const player of summary.players) {
-    lines.push(`  slot ${player.slot}${player.team == null ? '' : ` team ${player.team}`}: ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'} | turns ${player.firstTurn ?? '?'}-${player.lastTurn ?? '?'}`)
+    lines.push(
+      `  slot ${player.slot}${player.team == null ? '' : ` team ${player.team}`}: ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'} | turns ${player.firstTurn ?? '?'}-${player.lastTurn ?? '?'}`,
+    )
   }
 
   if (focus) {
@@ -393,7 +419,10 @@ function formatParseSummary(timeline: CivupAutosaveTimeline, focus: string | nul
     lines.push('')
     lines.push(`Focus: ${focus}`)
     if (focusedPlayers.length === 0) lines.push('  no matching players/leaders/civilizations found')
-    for (const player of focusedPlayers) lines.push(`  slot ${player.slot}${player.team == null ? '' : ` team ${player.team}`}: ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'} | ${player.seenTurns} turns`)
+    for (const player of focusedPlayers)
+      lines.push(
+        `  slot ${player.slot}${player.team == null ? '' : ` team ${player.team}`}: ${player.playerName ?? 'AI'} | ${player.leader ?? 'unknown leader'} | ${player.civilization ?? 'unknown civ'} | ${player.seenTurns} turns`,
+      )
   }
 
   if (timeline.failures.length > 0) {
@@ -414,12 +443,19 @@ function formatSnapshotSummary(timeline: CivReplaySnapshotTimeline): string {
   lines.push('CivUp CivReplay Snapshot Parse')
   lines.push(`source: ${timeline.source}`)
   lines.push(`kind: ${timeline.sourceKind}`)
-  lines.push(`saves: ${summary.parsedCount}/${summary.saveCount} parsed${summary.failureCount ? `, ${summary.failureCount} failed` : ''}`)
+  lines.push(
+    `saves: ${summary.parsedCount}/${summary.saveCount} parsed${summary.failureCount ? `, ${summary.failureCount} failed` : ''}`,
+  )
   lines.push(`turns: ${summary.firstTurn ?? '?'} -> ${summary.lastTurn ?? '?'}`)
   if (summary.minStateBlobBytes != null && summary.maxStateBlobBytes != null) {
-    lines.push(`state blob: ${formatByteCount(summary.minStateBlobBytes)} -> ${formatByteCount(summary.maxStateBlobBytes)}`)
+    lines.push(
+      `state blob: ${formatByteCount(summary.minStateBlobBytes)} -> ${formatByteCount(summary.maxStateBlobBytes)}`,
+    )
   }
-  if (summary.gameRandomSeeds.length > 0 || summary.mapRandomSeeds.length > 0) lines.push(`seeds: game random ${formatNumberList(summary.gameRandomSeeds)}, map random ${formatNumberList(summary.mapRandomSeeds)}`)
+  if (summary.gameRandomSeeds.length > 0 || summary.mapRandomSeeds.length > 0)
+    lines.push(
+      `seeds: game random ${formatNumberList(summary.gameRandomSeeds)}, map random ${formatNumberList(summary.mapRandomSeeds)}`,
+    )
   if (summary.mapWidths.length > 0 && summary.tileCounts.length > 0) {
     const widths = summary.mapWidths.join(',')
     const heights = summary.mapHeights.length ? summary.mapHeights.join(',') : '?'
@@ -429,7 +465,9 @@ function formatSnapshotSummary(timeline: CivReplaySnapshotTimeline): string {
     lines.push(`players: internal ${summary.internalPlayerCounts.join(',')}, cities ${formatRange(summary.cityCounts)}`)
   }
   if (summary.cityStateCounts.length > 0) {
-    lines.push(`city-states: known ${formatRange(summary.cityStateCounts)}, alive ${formatRange(summary.cityStateAliveCounts)}, scientific ${formatRange(summary.cityStateScientificAliveCounts)}/${formatRange(summary.cityStateScientificCounts)} alive/known`)
+    lines.push(
+      `city-states: known ${formatRange(summary.cityStateCounts)}, alive ${formatRange(summary.cityStateAliveCounts)}, scientific ${formatRange(summary.cityStateScientificAliveCounts)}/${formatRange(summary.cityStateScientificCounts)} alive/known`,
+    )
   }
 
   if (timeline.failures.length > 0) {
@@ -454,14 +492,18 @@ function formatSnapshotLine(snapshot: CivReplayTurnSnapshot): string {
   const turnLabel = snapshot.turnFromName ?? '?'
   const height = snapshot.map.height ?? '?'
   const events = snapshot.events.length ? ` | events ${snapshot.events.length}` : ''
-  const cityStates = snapshot.cityStates.count ? ` | city-states ${snapshot.cityStates.aliveCount}/${snapshot.cityStates.count} alive${snapshot.cityStates.scientificCount ? `, scientific ${snapshot.cityStates.scientificAliveCount}/${snapshot.cityStates.scientificCount}` : ''}` : ''
+  const cityStates = snapshot.cityStates.count
+    ? ` | city-states ${snapshot.cityStates.aliveCount}/${snapshot.cityStates.count} alive${snapshot.cityStates.scientificCount ? `, scientific ${snapshot.cityStates.scientificAliveCount}/${snapshot.cityStates.scientificCount}` : ''}`
+    : ''
   return `  T${turnLabel}: ${snapshot.saveName} | map ${snapshot.map.width}x${height} ${snapshot.map.tileCount} tiles | owned ${snapshot.map.ownedTileCount} | cities ${snapshot.players.cityCount}${cityStates}${events} | state ${formatByteCount(snapshot.stateBlobInflatedSizeBytes)} | blobs ${snapshot.compressedBlobCount}`
 }
 
-function matchesFocus(player: { playerName: string | null, leader: string | null, civilization: string | null }, focus: string): boolean {
+function matchesFocus(
+  player: { playerName: string | null; leader: string | null; civilization: string | null },
+  focus: string,
+): boolean {
   const needle = normalize(focus)
-  return [player.playerName, player.leader, player.civilization]
-    .some(value => normalize(value ?? '').includes(needle))
+  return [player.playerName, player.leader, player.civilization].some(value => normalize(value ?? '').includes(needle))
 }
 
 function normalize(value: string): string {
@@ -508,7 +550,25 @@ function formatNumberList(values: readonly number[]): string {
 }
 
 function isCliCommand(value: string): boolean {
-  return ['parse', 'timeline', 'autosaves', 'lobby', 'setup', 'slots', 'snapshot', 'snapshots', 'state', 'opening', 'open', 'science', 'sci', 'compare-opening', 'compare', 'compare-openings', 'help'].includes(value)
+  return [
+    'parse',
+    'timeline',
+    'autosaves',
+    'lobby',
+    'setup',
+    'slots',
+    'snapshot',
+    'snapshots',
+    'state',
+    'opening',
+    'open',
+    'science',
+    'sci',
+    'compare-opening',
+    'compare',
+    'compare-openings',
+    'help',
+  ].includes(value)
 }
 
 function normalizeCliCommand(value: string): CliCommand {

@@ -1,4 +1,9 @@
-import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
+import {
+  ActivityErrorPage,
+  ActivityLoadingPage,
+  ActivityRedirectingPage,
+  useActivityController,
+} from '../activity-context'
 
 export default function ActivityIndexRoute() {
   const activity = useActivityController()

@@ -1,8 +1,17 @@
+import type {
+  CivReplayCitySnapshot,
+  CivReplayDistrictSnapshot,
+  CivReplayPlayerSnapshot,
+  CivReplayUnitSnapshot,
+} from './players.ts'
+import type { CivReplayTradeRouteSnapshot } from './trade-routes.ts'
 import { expect, test } from 'bun:test'
 import { civHash, createHashResolver } from '../hash.ts'
-import type { CivReplayCitySnapshot, CivReplayDistrictSnapshot, CivReplayPlayerSnapshot, CivReplayUnitSnapshot } from './players.ts'
-import type { CivReplayTradeRouteSnapshot } from './trade-routes.ts'
-import { buildCivReplayTradeRoutes, summarizeCivReplayKnownTradeRouteYields, summarizeCivReplayTradeRoutes } from './trade-routes.ts'
+import {
+  buildCivReplayTradeRoutes,
+  summarizeCivReplayKnownTradeRouteYields,
+  summarizeCivReplayTradeRoutes,
+} from './trade-routes.ts'
 
 test('builds active trade routes from trader operation endpoint coordinates', () => {
   const foreignCity = city({ id: 4, name: 'Rheims', x: 12, y: 21 })
@@ -12,35 +21,39 @@ test('builds active trade routes from trader operation endpoint coordinates', ()
     player({
       id: 2,
       cities: [ownerCity],
-      units: [unit({
-        id: 7,
-        tradeRouteOperations: [{ destinationX: 12, destinationY: 21, originX: 25, originY: 29 }],
-      })],
+      units: [
+        unit({
+          id: 7,
+          tradeRouteOperations: [{ destinationX: 12, destinationY: 21, originX: 25, originY: 29 }],
+        }),
+      ],
     }),
   ]
 
   buildCivReplayTradeRoutes(players)
 
-  expect(players[1]!.tradeRoutes).toEqual([{
-    ownerPlayerId: 2,
-    traderUnitId: 7,
-    originX: 25,
-    originY: 29,
-    destinationX: 12,
-    destinationY: 21,
-    originCity: { playerId: 2, cityId: 1, name: 'New York', x: 25, y: 29 },
-    destinationCity: { playerId: 1, cityId: 4, name: 'Rheims', x: 12, y: 21 },
-    originCityId: 1,
-    originCityName: 'New York',
-    originCityPlayerId: 2,
-    destinationCityId: 4,
-    destinationCityName: 'Rheims',
-    destinationCityPlayerId: 1,
-    relationship: 'international',
-    yields: [],
-    remainingTurns: null,
-    length: null,
-  }])
+  expect(players[1]!.tradeRoutes).toEqual([
+    {
+      ownerPlayerId: 2,
+      traderUnitId: 7,
+      originX: 25,
+      originY: 29,
+      destinationX: 12,
+      destinationY: 21,
+      originCity: { playerId: 2, cityId: 1, name: 'New York', x: 25, y: 29 },
+      destinationCity: { playerId: 1, cityId: 4, name: 'Rheims', x: 12, y: 21 },
+      originCityId: 1,
+      originCityName: 'New York',
+      originCityPlayerId: 2,
+      destinationCityId: 4,
+      destinationCityName: 'Rheims',
+      destinationCityPlayerId: 1,
+      relationship: 'international',
+      yields: [],
+      remainingTurns: null,
+      length: null,
+    },
+  ])
 })
 
 test('normalizes endpoint order when the owner city is stored first', () => {
@@ -65,11 +78,28 @@ test('summarizes route counts, team routes, and decoded route yields', () => {
   const cultureHash = civHash('YIELD_CULTURE')
   const routes = [
     tradeRoute({ ownerPlayerId: 2, destinationCityPlayerId: 2, relationship: 'domestic' }),
-    tradeRoute({ ownerPlayerId: 2, destinationCityPlayerId: 1, relationship: 'international', yields: [{ hash: scienceHash, value: 2 }, { hash: cultureHash, value: 1 }] }),
+    tradeRoute({
+      ownerPlayerId: 2,
+      destinationCityPlayerId: 1,
+      relationship: 'international',
+      yields: [
+        { hash: scienceHash, value: 2 },
+        { hash: cultureHash, value: 1 },
+      ],
+    }),
     tradeRoute({ ownerPlayerId: 2, destinationCityPlayerId: null, relationship: 'unknown' }),
   ]
 
-  expect(summarizeCivReplayTradeRoutes(routes, hashResolver, new Map([[1, 7], [2, 7]]))).toEqual({
+  expect(
+    summarizeCivReplayTradeRoutes(
+      routes,
+      hashResolver,
+      new Map([
+        [1, 7],
+        [2, 7],
+      ]),
+    ),
+  ).toEqual({
     activeCount: 3,
     domesticCount: 1,
     internationalCount: 1,
@@ -98,32 +128,72 @@ test('summarizes known route yields from destination districts and active route 
       id: 2,
       policies: [[], [], [], [civHash('POLICY_TRADE_CONFEDERATION')]],
       cities: [city({ id: 1, name: 'New York', x: 25, y: 29 })],
-      tradeRoutes: [tradeRoute({
-        ownerPlayerId: 2,
-        originCityId: 1,
-        originCityName: 'New York',
-        originCityPlayerId: 2,
-        destinationCityId: 4,
-        destinationCityName: 'Rheims',
-        destinationCityPlayerId: 1,
-        relationship: 'international',
-      })],
+      tradeRoutes: [
+        tradeRoute({
+          ownerPlayerId: 2,
+          originCityId: 1,
+          originCityName: 'New York',
+          originCityPlayerId: 2,
+          destinationCityId: 4,
+          destinationCityName: 'Rheims',
+          destinationCityPlayerId: 1,
+          relationship: 'international',
+        }),
+      ],
     }),
   ]
 
-  expect(summarizeCivReplayKnownTradeRouteYields(players[1]!, players, hashResolver, {
-    districtYields: [
-      { districtType: 'DISTRICT_CITY_CENTER', yieldType: 'YIELD_GOLD', origin: 0, domesticDestination: 0, internationalDestination: 3 },
-      { districtType: 'DISTRICT_CAMPUS', yieldType: 'YIELD_SCIENCE', origin: 0, domesticDestination: 0, internationalDestination: 1 },
-      { districtType: 'DISTRICT_THEATER', yieldType: 'YIELD_CULTURE', origin: 0, domesticDestination: 0, internationalDestination: 1 },
-      { districtType: 'DISTRICT_COMMERCIAL_HUB', yieldType: 'YIELD_GOLD', origin: 0, domesticDestination: 0, internationalDestination: 3 },
-    ],
-    policyYields: [
-      { policyType: 'POLICY_TRADE_CONFEDERATION', modifierId: 'TRADECONFEDERATION_TRADEROUTESCIENCE', yieldType: 'YIELD_SCIENCE', amount: 1, scope: 'international' },
-      { policyType: 'POLICY_TRADE_CONFEDERATION', modifierId: 'TRADECONFEDERATION_TRADEROUTECULTURE', yieldType: 'YIELD_CULTURE', amount: 1, scope: 'international' },
-    ],
-    unsupportedPolicyModifiers: [],
-  })).toEqual({
+  expect(
+    summarizeCivReplayKnownTradeRouteYields(players[1]!, players, hashResolver, {
+      districtYields: [
+        {
+          districtType: 'DISTRICT_CITY_CENTER',
+          yieldType: 'YIELD_GOLD',
+          origin: 0,
+          domesticDestination: 0,
+          internationalDestination: 3,
+        },
+        {
+          districtType: 'DISTRICT_CAMPUS',
+          yieldType: 'YIELD_SCIENCE',
+          origin: 0,
+          domesticDestination: 0,
+          internationalDestination: 1,
+        },
+        {
+          districtType: 'DISTRICT_THEATER',
+          yieldType: 'YIELD_CULTURE',
+          origin: 0,
+          domesticDestination: 0,
+          internationalDestination: 1,
+        },
+        {
+          districtType: 'DISTRICT_COMMERCIAL_HUB',
+          yieldType: 'YIELD_GOLD',
+          origin: 0,
+          domesticDestination: 0,
+          internationalDestination: 3,
+        },
+      ],
+      policyYields: [
+        {
+          policyType: 'POLICY_TRADE_CONFEDERATION',
+          modifierId: 'TRADECONFEDERATION_TRADEROUTESCIENCE',
+          yieldType: 'YIELD_SCIENCE',
+          amount: 1,
+          scope: 'international',
+        },
+        {
+          policyType: 'POLICY_TRADE_CONFEDERATION',
+          modifierId: 'TRADECONFEDERATION_TRADEROUTECULTURE',
+          yieldType: 'YIELD_CULTURE',
+          amount: 1,
+          scope: 'international',
+        },
+      ],
+      unsupportedPolicyModifiers: [],
+    }),
+  ).toEqual({
     yieldTotals: { YIELD_CULTURE: 2, YIELD_GOLD: 3, YIELD_SCIENCE: 2 },
     science: 2,
     culture: 2,
@@ -138,31 +208,39 @@ test('reports active unsupported route-yield policy modifiers without guessing t
     id: 2,
     policies: [[], [], [], [civHash('POLICY_WISSELBANKEN')]],
     cities: [city({ id: 1, name: 'New York', x: 25, y: 29 })],
-    tradeRoutes: [tradeRoute({
-      ownerPlayerId: 2,
-      originCityId: 1,
-      originCityName: 'New York',
-      originCityPlayerId: 2,
-      destinationCityId: 4,
-      destinationCityName: 'Rheims',
-      destinationCityPlayerId: 1,
-      relationship: 'international',
-    })],
+    tradeRoutes: [
+      tradeRoute({
+        ownerPlayerId: 2,
+        originCityId: 1,
+        originCityName: 'New York',
+        originCityPlayerId: 2,
+        destinationCityId: 4,
+        destinationCityName: 'Rheims',
+        destinationCityPlayerId: 1,
+        relationship: 'international',
+      }),
+    ],
   })
 
-  expect(summarizeCivReplayKnownTradeRouteYields(activePlayer, [foreignPlayer, activePlayer], hashResolver, {
-    districtYields: [],
-    policyYields: [],
-    unsupportedPolicyModifiers: [{
-      policyType: 'POLICY_WISSELBANKEN',
-      modifierId: 'WISSELBANKEN_TRADEROUTEPRODUCTIONFROMALLY',
-      modifierType: 'MODIFIER_PLAYER_ADJUST_TRADE_ROUTE_ORIGIN_YIELD_FOR_ALLY_ROUTE',
-    }],
-  })).toEqual({
+  expect(
+    summarizeCivReplayKnownTradeRouteYields(activePlayer, [foreignPlayer, activePlayer], hashResolver, {
+      districtYields: [],
+      policyYields: [],
+      unsupportedPolicyModifiers: [
+        {
+          policyType: 'POLICY_WISSELBANKEN',
+          modifierId: 'WISSELBANKEN_TRADEROUTEPRODUCTIONFROMALLY',
+          modifierType: 'MODIFIER_PLAYER_ADJUST_TRADE_ROUTE_ORIGIN_YIELD_FOR_ALLY_ROUTE',
+        },
+      ],
+    }),
+  ).toEqual({
     yieldTotals: {},
     science: 0,
     culture: 0,
-    unsupported: ['POLICY_WISSELBANKEN:WISSELBANKEN_TRADEROUTEPRODUCTIONFROMALLY:MODIFIER_PLAYER_ADJUST_TRADE_ROUTE_ORIGIN_YIELD_FOR_ALLY_ROUTE'],
+    unsupported: [
+      'POLICY_WISSELBANKEN:WISSELBANKEN_TRADEROUTEPRODUCTIONFROMALLY:MODIFIER_PLAYER_ADJUST_TRADE_ROUTE_ORIGIN_YIELD_FOR_ALLY_ROUTE',
+    ],
   })
 })
 

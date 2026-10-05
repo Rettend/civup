@@ -53,7 +53,10 @@ export interface LobbyState {
   revision: number
 }
 
-export interface StoredLobbyState extends Omit<LobbyState, 'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt' | 'lastArrange'> {
+export interface StoredLobbyState extends Omit<
+  LobbyState,
+  'draftConfig' | 'slots' | 'revision' | 'memberPlayerIds' | 'steamLobbyLink' | 'lastActivityAt' | 'lastArrange'
+> {
   steamLobbyLink?: unknown
   draftConfig?: Partial<LobbyDraftConfig> | null
   slots?: unknown

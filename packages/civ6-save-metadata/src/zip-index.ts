@@ -1,10 +1,10 @@
 import { Inflate } from 'fflate'
 
-const EOCD_SIGNATURE = 0x06054B50
-const LOCAL_FILE_HEADER_SIGNATURE = 0x04034B50
-const CENTRAL_DIRECTORY_SIGNATURE = 0x02014B50
-const ZIP64_SENTINEL_16 = 0xFFFF
-const ZIP64_SENTINEL_32 = 0xFFFFFFFF
+const EOCD_SIGNATURE = 0x06054b50
+const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50
+const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50
+const ZIP64_SENTINEL_16 = 0xffff
+const ZIP64_SENTINEL_32 = 0xffffffff
 const MAX_EOCD_SEARCH_BYTES = 65_535 + 22
 const ZIP_METHOD_STORE = 0
 const ZIP_METHOD_DEFLATE = 8
@@ -76,12 +76,18 @@ export function parseAutosaveZipIndex(bytes: Uint8Array, options: AutosaveZipInd
   return createAutosaveZipIndex(zipEntries, options)
 }
 
-export async function parseAutosaveZipIndexFromReader(reader: ZipByteReader, options: AutosaveZipIndexOptions = {}): Promise<AutosaveZipIndex> {
+export async function parseAutosaveZipIndexFromReader(
+  reader: ZipByteReader,
+  options: AutosaveZipIndexOptions = {},
+): Promise<AutosaveZipIndex> {
   const zipEntries = await parseZipEntriesFromReader(reader)
   return createAutosaveZipIndex(zipEntries, options)
 }
 
-export function createAutosaveZipIndex(zipEntries: readonly ZipEntry[], options: AutosaveZipIndexOptions = {}): AutosaveZipIndex {
+export function createAutosaveZipIndex(
+  zipEntries: readonly ZipEntry[],
+  options: AutosaveZipIndexOptions = {},
+): AutosaveZipIndex {
   const saveEntries = listAutosaveZipEntries(zipEntries)
   const latestSave = pickLatestAutosaveZipEntry(zipEntries)
   const maxTurn = saveEntries.reduce<number | null>((max, entry) => {
@@ -154,7 +160,8 @@ export async function readZipEntryDataFromReader(
   const dataOffset = entry.localHeaderOffset + 30 + fileNameLength + extraLength
 
   if (entry.compressionMethod === ZIP_METHOD_STORE) {
-    if (entry.compressedSize !== entry.uncompressedSize) throw new Error('Stored zip entry size does not match its declaration')
+    if (entry.compressedSize !== entry.uncompressedSize)
+      throw new Error('Stored zip entry size does not match its declaration')
     return readStoredZipEntryFromReader(reader, dataOffset, entry.uncompressedSize, rangeChunkSizeBytes)
   }
   if (entry.compressionMethod !== ZIP_METHOD_DEFLATE) {
@@ -177,14 +184,25 @@ function inflateZipEntryData(compressed: Uint8Array, entry: ZipEntry, inflateRaw
 export function parseZipEntries(bytes: Uint8Array, limits: ZipParseLimits = {}): ZipEntry[] {
   const eocd = findEndOfCentralDirectory(bytes)
   validateCentralDirectoryLimits(eocd, limits)
-  const centralDirectory = bytes.subarray(eocd.centralDirectoryOffset, eocd.centralDirectoryOffset + eocd.centralDirectorySize)
+  const centralDirectory = bytes.subarray(
+    eocd.centralDirectoryOffset,
+    eocd.centralDirectoryOffset + eocd.centralDirectorySize,
+  )
   return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
 }
 
-export async function parseZipEntriesFromReader(reader: ZipByteReader, limits: ZipParseLimits = {}): Promise<ZipEntry[]> {
+export async function parseZipEntriesFromReader(
+  reader: ZipByteReader,
+  limits: ZipParseLimits = {},
+): Promise<ZipEntry[]> {
   const eocd = await findEndOfCentralDirectoryFromReader(reader)
   validateCentralDirectoryLimits(eocd, limits)
-  const centralDirectory = await readZipRange(reader, eocd.centralDirectoryOffset, eocd.centralDirectorySize, 'central directory')
+  const centralDirectory = await readZipRange(
+    reader,
+    eocd.centralDirectoryOffset,
+    eocd.centralDirectorySize,
+    'central directory',
+  )
   return parseZipEntriesFromCentralDirectory(centralDirectory, eocd)
 }
 
@@ -212,7 +230,7 @@ async function inflateZipEntryFromReader(
 ): Promise<Uint8Array> {
   const output = new Uint8Array(entry.uncompressedSize)
   let outputOffset = 0
-  const inflate = new Inflate((chunk) => {
+  const inflate = new Inflate(chunk => {
     if (outputOffset + chunk.length > entry.uncompressedSize) {
       throw new Error('Inflated zip entry exceeds its declared uncompressed size')
     }
@@ -287,7 +305,10 @@ function parseZipEntriesFromCentralDirectory(bytes: Uint8Array, eocd: EndOfCentr
     ensureRange(bytes, fileNameOffset, fileNameLength, 'central directory file name')
     if (nextOffset > endOffset) throw new Error('Central directory entry exceeds declared directory size')
 
-    const name = decodeZipFileName(bytes.subarray(fileNameOffset, fileNameOffset + fileNameLength), Boolean(flags & 0x0800))
+    const name = decodeZipFileName(
+      bytes.subarray(fileNameOffset, fileNameOffset + fileNameLength),
+      Boolean(flags & 0x0800),
+    )
     entries.push({
       name,
       directory: name.endsWith('/'),
@@ -329,10 +350,10 @@ function findEndOfCentralDirectory(bytes: Uint8Array, baseOffset = 0, fileSize =
       throw new Error('Multi-disk zip files are not supported')
     }
     if (
-      totalEntries === ZIP64_SENTINEL_16
-      || totalEntriesOnDisk === ZIP64_SENTINEL_16
-      || centralDirectorySize === ZIP64_SENTINEL_32
-      || centralDirectoryOffset === ZIP64_SENTINEL_32
+      totalEntries === ZIP64_SENTINEL_16 ||
+      totalEntriesOnDisk === ZIP64_SENTINEL_16 ||
+      centralDirectorySize === ZIP64_SENTINEL_32 ||
+      centralDirectoryOffset === ZIP64_SENTINEL_32
     ) {
       throw new Error('Zip64 files are not supported yet')
     }
@@ -362,7 +383,13 @@ async function readZipRange(reader: ZipByteReader, offset: number, length: numbe
 
 function ensureReaderRange(size: number, offset: number, length: number, label: string) {
   if (!Number.isSafeInteger(size) || size < 0) throw new Error(`Invalid zip reader size ${size}`)
-  if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > size) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length < 0 ||
+    offset + length > size
+  ) {
     throw new Error(`Invalid ${label} range ${offset}:${offset + length}`)
   }
 }
@@ -416,7 +443,8 @@ function readUint32(bytes: Uint8Array, offset: number): number {
   const second = bytes[offset + 1]
   const third = bytes[offset + 2]
   const fourth = bytes[offset + 3]
-  if (first == null || second == null || third == null || fourth == null) throw new Error(`Unexpected end of buffer at offset ${offset}`)
+  if (first == null || second == null || third == null || fourth == null)
+    throw new Error(`Unexpected end of buffer at offset ${offset}`)
   return (first | (second << 8) | (third << 16) | (fourth << 24)) >>> 0
 }
 

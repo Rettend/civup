@@ -1,29 +1,57 @@
-import type { Database } from '@civup/db'
-import type { LeaderboardMode } from '@civup/game'
-import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { LeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
 import type { MatchRow, ParticipantRow, ReportInput, ReportProcessingClaim, ReportResult } from './types.ts'
+import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
+import type { FfaEntry, RatingUpdate, TeamInput } from '@civup/rating'
+import { and, eq, inArray } from 'drizzle-orm'
 import { matchBans, matches, matchParticipants, playerRatingEvents, playerRatings, players, seasons } from '@civup/db'
 import { allFactionIds, getLeaderIds, isTeamMode } from '@civup/game'
 import { calculateRatings, createRating, IMPORTED_GAME_EFFECTIVE_WEIGHT } from '@civup/rating'
-import { and, eq, inArray } from 'drizzle-orm'
-import { claimSessionReport, getSessionRecord, getSessionReportClaimStatus, releaseSessionReportClaim, runSessionTerminalLifecycleCommand } from '../../session-runtime/session-do-client.ts'
+import {
+  claimSessionReport,
+  getSessionRecord,
+  getSessionReportClaimStatus,
+  releaseSessionReportClaim,
+  runSessionTerminalLifecycleCommand,
+} from '../../session-runtime/session-do-client.ts'
 import { runDbBatch } from '../db/batch.ts'
-import { reconcileCivLeaderboardMatchContribution, removeCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
-import { reconcilePlayerCivStatMatchContributionFromRows, removePlayerCivStatMatchContribution } from '../leaderboard/player-civ-stats.ts'
+import {
+  reconcileCivLeaderboardMatchContribution,
+  removeCivLeaderboardMatchContribution,
+} from '../leaderboard/civ-snapshot.ts'
+import {
+  reconcilePlayerCivStatMatchContributionFromRows,
+  removePlayerCivStatMatchContribution,
+} from '../leaderboard/player-civ-stats.ts'
 import { getStoredLeaderboardModeSnapshot, rebuildLeaderboardModeSnapshot } from '../leaderboard/snapshot.ts'
-import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { loadMatchOpponentTiers } from '../ranked/match-tiers.ts'
-import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
-import { getCompletedAtFromDraftData, getDraftStateFromDraftData, getHiddenDraftFromDraftData, getLeaderDataVersionFromDraftData, getRedDeathFromDraftData, getStoredGameModeContext } from './draft-data.ts'
-import { buildPermanentAllyFfaEffectiveRows, buildPermanentAllyFfaPlacementByPlayerId, calculatePermanentAllyFfaRatingUpdates } from './permanent-ally.ts'
-import { parseOrderedParticipantIds, parseOrderedTeamIndexes, parsePermanentAllyFfaPlacements, resolveWinningTeamIndex } from './placements.ts'
-import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
-import { buildRankByPlayer, prepareRatedMatchReplay } from './ratings.ts'
+import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import { getSeasonMutationError } from '../season/policy.ts'
 import { prepareSeasonReport, runAtomicSeasonBatch } from '../season/report.ts'
-import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
+import { isMatchTournamentLinked, syncTournamentMatchAfterReport } from '../tournament/index.ts'
+import {
+  getCompletedAtFromDraftData,
+  getDraftStateFromDraftData,
+  getHiddenDraftFromDraftData,
+  getLeaderDataVersionFromDraftData,
+  getRedDeathFromDraftData,
+  getStoredGameModeContext,
+} from './draft-data.ts'
+import {
+  buildPermanentAllyFfaEffectiveRows,
+  buildPermanentAllyFfaPlacementByPlayerId,
+  calculatePermanentAllyFfaRatingUpdates,
+} from './permanent-ally.ts'
+import {
+  parseOrderedParticipantIds,
+  parseOrderedTeamIndexes,
+  parsePermanentAllyFfaPlacements,
+  resolveWinningTeamIndex,
+} from './placements.ts'
+import { hydrateModeRatingSnapshotsFromEvents } from './rating-events.ts'
+import { buildRankByPlayer, prepareRatedMatchReplay } from './ratings.ts'
 
 interface ReportMatchOptions {
   sessionNamespace?: DurableObjectNamespace | null
@@ -81,7 +109,11 @@ interface RatingScopeUpdateInput {
   evidenceByPlayerId: Map<string, MatchEvidenceDelta>
   now: number
   writeParticipantSnapshots: boolean
-  collect?: (update: { summary: StoredRatingSummaryRow, event: typeof playerRatingEvents.$inferInsert, rawAfterMu: number }) => void
+  collect?: (update: {
+    summary: StoredRatingSummaryRow
+    event: typeof playerRatingEvents.$inferInsert
+    rawAfterMu: number
+  }) => void
 }
 
 const GLOBAL_RATING_SCOPE = 'global'
@@ -106,20 +138,13 @@ async function reportMatchWithAdmission(
   input: ReportInput,
   options: ReportMatchOptions = {},
 ): Promise<ReportResult> {
-  let [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, input.matchId))
-    .limit(1)
+  let [match] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
 
   if (!match) {
     return { error: `Match **${input.matchId}** not found.` }
   }
 
-  let participantRows = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, input.matchId))
+  let participantRows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
   const tournamentLinked = await isMatchTournamentLinked(db, input.matchId)
 
   const isParticipant = participantRows.some(p => p.playerId === input.reporterId)
@@ -132,20 +157,30 @@ async function reportMatchWithAdmission(
   if (match.status === 'cancelled') {
     return { error: 'This match was cancelled. You cannot report a result for it.' }
   }
-  if (match.status === 'drafting' || (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null)) {
+  if (
+    match.status === 'drafting' ||
+    (match.status === 'active' && getCompletedAtFromDraftData(match.draftData) == null)
+  ) {
     return { error: 'Finish the draft before reporting the result.' }
   }
   if (match.status !== 'active' && match.status !== 'completed') {
     return { error: 'This match is not open for reporting.' }
   }
 
-  if (!tournamentLinked && match.status === 'completed' && await usesIsolatedSeasonRatings(db, match.seasonId)) {
+  if (!tournamentLinked && match.status === 'completed' && (await usesIsolatedSeasonRatings(db, match.seasonId))) {
     return finalizeIsolatedSeasonReport(db, match, participantRows, input.reporterId, options)
   }
 
-  const seasonError = await getSeasonMutationError(db, match, match.status === 'active' ? 'first-report' : 'correction', Date.now(), options.acceptedAt)
+  const seasonError = await getSeasonMutationError(
+    db,
+    match,
+    match.status === 'active' ? 'first-report' : 'correction',
+    Date.now(),
+    options.acceptedAt,
+  )
   if (seasonError) {
-    if (match.status === 'completed') return { match, participants: participantRows, idempotent: true, tournamentLinked }
+    if (match.status === 'completed')
+      return { match, participants: participantRows, idempotent: true, tournamentLinked }
     return { error: seasonError }
   }
 
@@ -173,46 +208,68 @@ async function reportMatchWithAdmission(
 
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContributionFromRows(db, match, participantRows)
-    return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participantRows), idempotent: true, tournamentLinked }
+    return {
+      match,
+      participants: await hydrateParticipantRowsForRatingEvents(db, match, participantRows),
+      idempotent: true,
+      tournamentLinked,
+    }
   }
 
   const reportClaim = await claimReportedMatchProcessing(options, input.matchId, input.reporterId)
   if ('error' in reportClaim) return reportClaim
   if (!reportClaim.claimed) {
-    if (reportClaim.processing) return { match, participants: participantRows, idempotent: true, reportProcessing: true, reportFinalizing: reportClaim.finalizing, tournamentLinked }
+    if (reportClaim.processing)
+      return {
+        match,
+        participants: participantRows,
+        idempotent: true,
+        reportProcessing: true,
+        reportFinalizing: reportClaim.finalizing,
+        tournamentLinked,
+      }
 
     const cleanupError = await ensureReportedMatchCleanup(db, options, input.matchId, Date.now(), null, false)
     if (cleanupError) return { error: cleanupError }
 
     const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
-    const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
+    const updatedParticipants = await db
+      .select()
+      .from(matchParticipants)
+      .where(eq(matchParticipants.matchId, input.matchId))
     if (tournamentLinked) {
       await resetParticipantRatingSnapshots(db, input.matchId)
       await removeCivLeaderboardMatchContribution(db, input.matchId)
       await removePlayerCivStatMatchContribution(db, input.matchId)
       await syncTournamentMatchAfterReport(db, input.matchId)
-      const refreshedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
-      return { match: updatedMatch ?? match, participants: withNoLeaderboardRanks(refreshedParticipants), idempotent: true, tournamentLinked }
+      const refreshedParticipants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, input.matchId))
+      return {
+        match: updatedMatch ?? match,
+        participants: withNoLeaderboardRanks(refreshedParticipants),
+        idempotent: true,
+        tournamentLinked,
+      }
     }
 
     await reconcileCivLeaderboardMatchContribution(db, input.matchId)
     await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch ?? match, updatedParticipants)
-    return { match: updatedMatch ?? match, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants), idempotent: true, tournamentLinked }
+    return {
+      match: updatedMatch ?? match,
+      participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch ?? match, updatedParticipants),
+      idempotent: true,
+      tournamentLinked,
+    }
   }
 
   if (reportClaim.finalized) {
-    const [refreshedMatch] = await db
-      .select()
-      .from(matches)
-      .where(eq(matches.id, input.matchId))
-      .limit(1)
+    const [refreshedMatch] = await db.select().from(matches).where(eq(matches.id, input.matchId)).limit(1)
     match = refreshedMatch
     if (!match) return { error: `Match **${input.matchId}** not found.` }
 
-    participantRows = await db
-      .select()
-      .from(matchParticipants)
-      .where(eq(matchParticipants.matchId, input.matchId))
+    participantRows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
   }
 
   const gameContext = getStoredGameModeContext(match.gameMode, match.draftData)
@@ -226,10 +283,14 @@ async function reportMatchWithAdmission(
   try {
     if (options.sessionNamespace) {
       const [current] = await db.select({ draftData: matches.draftData }).from(matches).where(eq(matches.id, match.id))
-      if (!current || current.draftData !== match.draftData) return { error: 'The match roster changed while reporting. Please review the players and report again.' }
+      if (!current || current.draftData !== match.draftData)
+        return { error: 'The match roster changed while reporting. Please review the players and report again.' }
     }
-    const hasPreparedRatedReport = !tournamentLinked && gameContext.leaderboardMode != null
-      && (hasPreparedRatedReportParticipantMarkers(participantRows) || await hasPreparedRatedReportEvents(db, match.id, participantRows, gameContext.leaderboardMode))
+    const hasPreparedRatedReport =
+      !tournamentLinked &&
+      gameContext.leaderboardMode != null &&
+      (hasPreparedRatedReportParticipantMarkers(participantRows) ||
+        (await hasPreparedRatedReportEvents(db, match.id, participantRows, gameContext.leaderboardMode)))
     if (hasPreparedRatedReport && gameContext.leaderboardMode != null) {
       const preparedReport = await buildPreparedRatedReportResultIfRatingEventsExist(
         db,
@@ -241,10 +302,7 @@ async function reportMatchWithAdmission(
         gameContext.leaderboardMode,
       )
       if (preparedReport) return withTournamentLinked(preparedReport, tournamentLinked)
-      participantRows = await db
-        .select()
-        .from(matchParticipants)
-        .where(eq(matchParticipants.matchId, input.matchId))
+      participantRows = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, input.matchId))
     }
 
     const hiddenLeaderAssignments = getHiddenDraftFromDraftData(match.draftData)
@@ -260,52 +318,45 @@ async function reportMatchWithAdmission(
       for (const participant of participantRows) {
         const placement = parsedPlacements.placementsByPlayer.get(participant.playerId)
         if (placement == null) return { error: `Permanent Ally FFA placement missing for <@${participant.playerId}>.` }
-        placementUpdates.push(db
-          .update(matchParticipants)
-          .set({ placement })
-          .where(
-            and(
-              eq(matchParticipants.matchId, input.matchId),
-              eq(matchParticipants.playerId, participant.playerId),
+        placementUpdates.push(
+          db
+            .update(matchParticipants)
+            .set({ placement })
+            .where(
+              and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, participant.playerId)),
             ),
-          ))
+        )
       }
-    }
-    else if (isTeamMode(gameMode) || gameMode === '1v1') {
-      const uniqueTeams = new Set(participantRows.flatMap(participant => participant.team == null ? [] : [participant.team]))
+    } else if (isTeamMode(gameMode) || gameMode === '1v1') {
+      const uniqueTeams = new Set(
+        participantRows.flatMap(participant => (participant.team == null ? [] : [participant.team])),
+      )
       if (uniqueTeams.size > 2) {
         const parsedTeams = parseOrderedTeamIndexes(input.placements, participantRows)
         if ('error' in parsedTeams) return parsedTeams
 
         for (let index = 0; index < parsedTeams.orderedTeams.length; index++) {
           const teamIndex = parsedTeams.orderedTeams[index]!
-          placementUpdates.push(db
-            .update(matchParticipants)
-            .set({ placement: index + 1 })
-            .where(
-              and(
-                eq(matchParticipants.matchId, input.matchId),
-                eq(matchParticipants.team, teamIndex),
-              ),
-            ))
+          placementUpdates.push(
+            db
+              .update(matchParticipants)
+              .set({ placement: index + 1 })
+              .where(and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.team, teamIndex))),
+          )
         }
 
         const remainingTeams = [...uniqueTeams].filter(teamIndex => !parsedTeams.orderedTeams.includes(teamIndex))
         let nextPlacement = parsedTeams.orderedTeams.length + 1
         for (const teamIndex of remainingTeams) {
-          placementUpdates.push(db
-            .update(matchParticipants)
-            .set({ placement: nextPlacement })
-            .where(
-              and(
-                eq(matchParticipants.matchId, input.matchId),
-                eq(matchParticipants.team, teamIndex),
-              ),
-            ))
+          placementUpdates.push(
+            db
+              .update(matchParticipants)
+              .set({ placement: nextPlacement })
+              .where(and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.team, teamIndex))),
+          )
           nextPlacement += 1
         }
-      }
-      else {
+      } else {
         const resolvedTeam = resolveWinningTeamIndex(input.placements, participantRows)
         if ('error' in resolvedTeam) return resolvedTeam
 
@@ -313,49 +364,43 @@ async function reportMatchWithAdmission(
 
         for (const participant of participantRows) {
           const placement = participant.team === winTeamIdx ? 1 : 2
-          placementUpdates.push(db
-            .update(matchParticipants)
-            .set({ placement })
-            .where(
-              and(
-                eq(matchParticipants.matchId, input.matchId),
-                eq(matchParticipants.playerId, participant.playerId),
+          placementUpdates.push(
+            db
+              .update(matchParticipants)
+              .set({ placement })
+              .where(
+                and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, participant.playerId)),
               ),
-            ))
+          )
         }
       }
-    }
-    else {
+    } else {
       const parsedOrder = parseOrderedParticipantIds(input.placements, participantRows)
       if ('error' in parsedOrder) return parsedOrder
       const placementIds = parsedOrder.orderedIds
 
       for (let index = 0; index < placementIds.length; index++) {
         const playerId = placementIds[index]!
-        placementUpdates.push(db
-          .update(matchParticipants)
-          .set({ placement: index + 1 })
-          .where(
-            and(
-              eq(matchParticipants.matchId, input.matchId),
-              eq(matchParticipants.playerId, playerId),
-            ),
-          ))
+        placementUpdates.push(
+          db
+            .update(matchParticipants)
+            .set({ placement: index + 1 })
+            .where(and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, playerId))),
+        )
       }
 
       const mentionedIds = new Set(placementIds)
       const unplaced = participantRows.filter(participant => !mentionedIds.has(participant.playerId))
       const lastPlace = placementIds.length + 1
       for (const participant of unplaced) {
-        placementUpdates.push(db
-          .update(matchParticipants)
-          .set({ placement: lastPlace })
-          .where(
-            and(
-              eq(matchParticipants.matchId, input.matchId),
-              eq(matchParticipants.playerId, participant.playerId),
+        placementUpdates.push(
+          db
+            .update(matchParticipants)
+            .set({ placement: lastPlace })
+            .where(
+              and(eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, participant.playerId)),
             ),
-          ))
+        )
       }
     }
 
@@ -374,27 +419,37 @@ async function reportMatchWithAdmission(
       return { error: 'Some players are missing a finishing position. Check the result and report it again.' }
     }
 
-    const finalized = await finalizeReportedMatch(db, kv, match, updatedParticipants, participantRows, input.reporterId, { ...options, acceptedAt: options.acceptedAt ?? reportClaim.claim?.acceptedAt ?? Date.now() }, tournamentLinked)
+    const finalized = await finalizeReportedMatch(
+      db,
+      kv,
+      match,
+      updatedParticipants,
+      participantRows,
+      input.reporterId,
+      { ...options, acceptedAt: options.acceptedAt ?? reportClaim.claim?.acceptedAt ?? Date.now() },
+      tournamentLinked,
+    )
     if ('error' in finalized) {
       return finalized
     }
 
     reportCompleted = true
-    return reportClaim.claim ? { ...finalized, reportClaim: reportClaim.claim, tournamentLinked } : { ...finalized, tournamentLinked }
-  }
-  finally {
+    return reportClaim.claim
+      ? { ...finalized, reportClaim: reportClaim.claim, tournamentLinked }
+      : { ...finalized, tournamentLinked }
+  } finally {
     if (!reportCompleted && reportClaim.claim) {
-      await releaseReportedMatchProcessingClaim(options.sessionNamespace, reportClaim.claim).catch((error) => {
+      await releaseReportedMatchProcessingClaim(options.sessionNamespace, reportClaim.claim).catch(error => {
         console.error(`Failed to release report claim for match ${input.matchId}:`, error)
       })
     }
   }
 }
 
-type ReportProcessingClaimAttempt
-  = | { claimed: true, claim: ReportProcessingClaim | null, finalized?: boolean }
-    | { claimed: false, processing?: boolean, alreadyReported?: boolean, finalizing?: boolean }
-    | { error: string }
+type ReportProcessingClaimAttempt =
+  | { claimed: true; claim: ReportProcessingClaim | null; finalized?: boolean }
+  | { claimed: false; processing?: boolean; alreadyReported?: boolean; finalizing?: boolean }
+  | { error: string }
 
 async function buildReportProcessingResultIfClaimed(
   options: ReportMatchOptions,
@@ -407,8 +462,7 @@ async function buildReportProcessingResultIfClaimed(
     if (!status.claimed && status.processing) {
       return { match, participants, idempotent: true, reportProcessing: true }
     }
-  }
-  catch {
+  } catch {
     return null
   }
   return null
@@ -423,9 +477,13 @@ async function claimReportedMatchProcessing(
     try {
       const result = await claimSessionReport(options.sessionNamespace, matchId, { matchId, reporterId })
       if (result.claimed) return { claimed: true, claim: result.claim, finalized: result.finalized }
-      return { claimed: false, processing: result.processing, alreadyReported: result.alreadyReported, finalizing: result.finalizing }
-    }
-    catch (error) {
+      return {
+        claimed: false,
+        processing: result.processing,
+        alreadyReported: result.alreadyReported,
+        finalizing: result.finalizing,
+      }
+    } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) }
     }
   }
@@ -471,7 +529,9 @@ function validateHiddenDraftLeaderAssignments(
   }
 
   const draftState = getDraftStateFromDraftData(draftData)
-  const validCivIds = new Set(getRedDeathFromDraftData(draftData) ? allFactionIds : getLeaderIds(getLeaderDataVersionFromDraftData(draftData)))
+  const validCivIds = new Set(
+    getRedDeathFromDraftData(draftData) ? allFactionIds : getLeaderIds(getLeaderDataVersionFromDraftData(draftData)),
+  )
   for (const civId of draftState?.availableCivIds ?? []) validCivIds.add(civId)
   for (const ban of draftState?.bans ?? []) validCivIds.add(ban.civId)
   for (const pick of draftState?.picks ?? []) validCivIds.add(pick.civId)
@@ -495,13 +555,12 @@ async function applyHiddenDraftLeaderAssignments(
 ): Promise<void> {
   const updates: DbBatchItem[] = []
   for (const [playerId, civId] of assignments) {
-    updates.push(db
-      .update(matchParticipants)
-      .set({ civId })
-      .where(and(
-        eq(matchParticipants.matchId, matchId),
-        eq(matchParticipants.playerId, playerId),
-      )))
+    updates.push(
+      db
+        .update(matchParticipants)
+        .set({ civId })
+        .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, playerId))),
+    )
   }
   await runDbBatch(db, updates)
 }
@@ -532,10 +591,24 @@ async function finalizeReportedMatch(
   if (await usesIsolatedSeasonRatings(db, match.seasonId)) {
     const [stored] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
     if (!stored) return { error: 'Match disappeared before report preparation.' }
-    return finalizeIsolatedSeasonReport(db, stored, participantRows, reporterId, options, await loadMatchOpponentTiers(db, kv, options.rankedRoleGuildId, participantRows.map(row => row.playerId)))
+    return finalizeIsolatedSeasonReport(
+      db,
+      stored,
+      participantRows,
+      reporterId,
+      options,
+      await loadMatchOpponentTiers(
+        db,
+        kv,
+        options.rankedRoleGuildId,
+        participantRows.map(row => row.playerId),
+      ),
+    )
   }
 
-  const cachedLeaderboardSnapshot = options.minimalResult ? null : await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
+  const cachedLeaderboardSnapshot = options.minimalResult
+    ? null
+    : await getStoredLeaderboardModeSnapshot(kv, leaderboardMode)
   const beforeRankByPlayer = buildCachedRankByPlayer(cachedLeaderboardSnapshot, leaderboardMode)
   const existingRatingsByScope = await listPlayerRatingsForPlayers(
     db,
@@ -545,14 +618,19 @@ async function finalizeReportedMatch(
 
   const now = Date.now()
 
-  await runDbBatch(db, participantRows.map(participant => db
-    .insert(players)
-    .values({
-      id: participant.playerId,
-      displayName: participant.playerId,
-      createdAt: now,
-    })
-    .onConflictDoNothing()))
+  await runDbBatch(
+    db,
+    participantRows.map(participant =>
+      db
+        .insert(players)
+        .values({
+          id: participant.playerId,
+          displayName: participant.playerId,
+          createdAt: now,
+        })
+        .onConflictDoNothing(),
+    ),
+  )
 
   const applied = await applyIncrementalRatedReport(
     db,
@@ -570,31 +648,42 @@ async function finalizeReportedMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
   if (cleanupError) {
-    const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(db, kv, options, match, leaderboardMode, originalParticipantRows)
+    const rollbackError = await rollbackPreparedReportAfterLifecycleFailure(
+      db,
+      kv,
+      options,
+      match,
+      leaderboardMode,
+      originalParticipantRows,
+    )
     if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
     return { error: cleanupError }
   }
 
   await reconcileCivLeaderboardMatchContribution(db, matchId)
-  await reconcilePlayerCivStatMatchContributionFromRows(db, { ...match, status: 'completed' }, participantRows, { updatedAt: now, previous: 'empty' })
+  await reconcilePlayerCivStatMatchContributionFromRows(db, { ...match, status: 'completed' }, participantRows, {
+    updatedAt: now,
+    previous: 'empty',
+  })
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   if (options.minimalResult) return { match: updatedMatch!, participants: updatedParticipants }
 
   const updatedRatingsByPlayerId = cachedLeaderboardSnapshot
-    ? await listPlayerRatingsForPlayers(db, leaderboardMode, updatedParticipants.map(participant => participant.playerId))
+    ? await listPlayerRatingsForPlayers(
+        db,
+        leaderboardMode,
+        updatedParticipants.map(participant => participant.playerId),
+      )
     : new Map<RatingScope, Map<string, StoredRatingSummaryRow>>()
-  const afterRankContext = buildCachedRankContext(cachedLeaderboardSnapshot, leaderboardMode, updatedRatingsByPlayerId.get(leaderboardMode) ?? new Map())
+  const afterRankContext = buildCachedRankContext(
+    cachedLeaderboardSnapshot,
+    leaderboardMode,
+    updatedRatingsByPlayerId.get(leaderboardMode) ?? new Map(),
+  )
 
   const participantsWithLeaderboardRanks: ParticipantRow[] = updatedParticipants.map(participant => ({
     ...participant,
@@ -603,26 +692,39 @@ async function finalizeReportedMatch(
     leaderboardEligibleCount: afterRankContext?.eligibleCount ?? null,
   }))
 
-  return { match: updatedMatch!, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, participantsWithLeaderboardRanks) }
+  return {
+    match: updatedMatch!,
+    participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, participantsWithLeaderboardRanks),
+  }
 }
 
 export async function hydrateParticipantRowsForRatingEvents<T extends ParticipantRow>(
   db: Database,
-  match: { gameMode: string, draftData: string | null },
+  match: { gameMode: string; draftData: string | null },
   participants: readonly T[],
 ): Promise<T[]> {
-  const hydrated = await hydrateModeRatingSnapshotsFromEvents(db, participants.map(participant => ({
-    ...participant,
-    gameMode: match.gameMode,
-    draftData: match.draftData,
-  })))
+  const hydrated = await hydrateModeRatingSnapshotsFromEvents(
+    db,
+    participants.map(participant => ({
+      ...participant,
+      gameMode: match.gameMode,
+      draftData: match.draftData,
+    })),
+  )
   return hydrated.map((row, index) => ({
     ...participants[index]!,
     ratingBeforeMu: row.ratingBeforeMu,
     ratingBeforeSigma: row.ratingBeforeSigma,
     ratingAfterMu: row.ratingAfterMu,
     ratingAfterSigma: row.ratingAfterSigma,
-    ...(row.ratingSystem === 'rp' ? { ratingSystem: row.ratingSystem, publicRatingBefore: row.publicRatingBefore, publicRatingAfter: row.publicRatingAfter, publicRatingReady: row.publicRatingReady } : {}),
+    ...(row.ratingSystem === 'rp'
+      ? {
+          ratingSystem: row.ratingSystem,
+          publicRatingBefore: row.publicRatingBefore,
+          publicRatingAfter: row.publicRatingAfter,
+          publicRatingReady: row.publicRatingReady,
+        }
+      : {}),
   }))
 }
 
@@ -637,7 +739,7 @@ function buildCachedRankContext(
   snapshot: LeaderboardModeSnapshot | null,
   leaderboardMode: LeaderboardMode,
   updatedRatingsByPlayerId: Map<string, StoredRatingSummaryRow>,
-): { rankByPlayer: Map<string, number>, eligibleCount: number } | null {
+): { rankByPlayer: Map<string, number>; eligibleCount: number } | null {
   if (!snapshot) return null
 
   const rowsByPlayerId = new Map(snapshot.rows.map(row => [row.playerId, row]))
@@ -684,12 +786,11 @@ async function listPlayerRatingsForPlayers(
       updatedAt: playerRatings.updatedAt,
     })
     .from(playerRatings)
-    .where(and(
-      inArray(playerRatings.mode, requestedScopes),
-      inArray(playerRatings.playerId, uniquePlayerIds),
-    ))
+    .where(and(inArray(playerRatings.mode, requestedScopes), inArray(playerRatings.playerId, uniquePlayerIds)))
 
-  const byScope = new Map<RatingScope, Map<string, StoredRatingSummaryRow>>(requestedScopes.map(scope => [scope, new Map()]))
+  const byScope = new Map<RatingScope, Map<string, StoredRatingSummaryRow>>(
+    requestedScopes.map(scope => [scope, new Map()]),
+  )
   for (const row of rows) {
     if (!requestedScopes.includes(row.mode as RatingScope)) continue
     const scope = row.mode as RatingScope
@@ -727,7 +828,12 @@ async function applyIncrementalRatedReport(
   now: number,
 ): Promise<string | null> {
   const opponentTierByPlayerId = await loadCurrentRankedRoleTierByPlayerId(kv, rankedRoleGuildId)
-  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(participantRows, match.isOld, opponentTierByPlayerId, permanentAlly)
+  const evidenceByPlayerId = buildMatchEvidenceByPlayerId(
+    participantRows,
+    match.isOld,
+    opponentTierByPlayerId,
+    permanentAlly,
+  )
   const modeQueries = buildRatingScopeUpdateQueries(db, {
     scope: leaderboardMode,
     match,
@@ -758,15 +864,13 @@ async function applyIncrementalRatedReport(
   return null
 }
 
-export function buildRatingScopeUpdateQueries(
-  db: Database,
-  input: RatingScopeUpdateInput,
-): DbBatchItem[] | string {
-  const placementByPlayerId = input.permanentAlly && input.gameMode === 'ffa'
-    ? buildPermanentAllyFfaPlacementByPlayerId(input.participantRows)
-    : new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
+export function buildRatingScopeUpdateQueries(db: Database, input: RatingScopeUpdateInput): DbBatchItem[] | string {
+  const placementByPlayerId =
+    input.permanentAlly && input.gameMode === 'ffa'
+      ? buildPermanentAllyFfaPlacementByPlayerId(input.participantRows)
+      : new Map(input.participantRows.map(participant => [participant.playerId, participant.placement]))
   if ('error' in placementByPlayerId) return placementByPlayerId.error
-  const playerRatingMap = new Map<string, { mu: number, sigma: number, gamesPlayed: number }>()
+  const playerRatingMap = new Map<string, { mu: number; sigma: number; gamesPlayed: number }>()
 
   for (const participant of input.participantRows) {
     const existing = input.existingRatingsByPlayerId.get(participant.playerId)
@@ -776,8 +880,7 @@ export function buildRatingScopeUpdateQueries(
         sigma: existing.sigma,
         gamesPlayed: existing.gamesPlayed,
       })
-    }
-    else {
+    } else {
       const fresh = createRating(participant.playerId)
       playerRatingMap.set(participant.playerId, { mu: fresh.mu, sigma: fresh.sigma, gamesPlayed: 0 })
     }
@@ -786,16 +889,15 @@ export function buildRatingScopeUpdateQueries(
   let ratingUpdates: RatingUpdate[]
 
   if (input.permanentAlly && input.gameMode === 'ffa') {
-    const updates = calculatePermanentAllyFfaRatingUpdates(input.participantRows, (playerId) => {
+    const updates = calculatePermanentAllyFfaRatingUpdates(input.participantRows, playerId => {
       const rating = playerRatingMap.get(playerId)
       if (!rating) throw new Error(`Missing rating state for ${playerId}`)
       return rating
     })
     if ('error' in updates) return updates.error
     ratingUpdates = updates
-  }
-  else if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
-    const teams = new Map<number, { playerId: string, mu: number, sigma: number, gamesPlayed: number }[]>()
+  } else if (isTeamMode(input.gameMode as Parameters<typeof isTeamMode>[0]) || input.gameMode === '1v1') {
+    const teams = new Map<number, { playerId: string; mu: number; sigma: number; gamesPlayed: number }[]>()
     for (const participant of input.participantRows) {
       const team = participant.team ?? 0
       if (!teams.has(team)) teams.set(team, [])
@@ -828,9 +930,8 @@ export function buildRatingScopeUpdateQueries(
       { type: 'team', teams: teamInputs },
       { sourceWeight: input.match.isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1, policy: input.ratingPolicy },
     )
-  }
-  else {
-    const ffaEntries: FfaEntry[] = input.participantRows.map((participant) => {
+  } else {
+    const ffaEntries: FfaEntry[] = input.participantRows.map(participant => {
       const rating = playerRatingMap.get(participant.playerId)
       if (!rating) throw new Error(`Missing rating state for ${participant.playerId}`)
       return {
@@ -851,27 +952,23 @@ export function buildRatingScopeUpdateQueries(
     const ratingAfterSigma = ratingAfter.sigma
 
     if (input.writeParticipantSnapshots && !input.collect) {
-      queries.push(db
-        .update(matchParticipants)
-        .set({
-          ratingBeforeMu,
-          ratingBeforeSigma: update.before.sigma,
-          ratingAfterMu,
-          ratingAfterSigma,
-        })
-        .where(and(
-          eq(matchParticipants.matchId, input.match.id),
-          eq(matchParticipants.playerId, update.playerId),
-        ))
+      queries.push(
+        db
+          .update(matchParticipants)
+          .set({
+            ratingBeforeMu,
+            ratingBeforeSigma: update.before.sigma,
+            ratingAfterMu,
+            ratingAfterSigma,
+          })
+          .where(and(eq(matchParticipants.matchId, input.match.id), eq(matchParticipants.playerId, update.playerId))),
       )
     }
 
     const existing = input.existingRatingsByPlayerId.get(update.playerId)
     const isWin = placementByPlayerId.get(update.playerId) === 1
     const evidence = input.evidenceByPlayerId.get(update.playerId) ?? createEmptyMatchEvidenceDelta()
-    const qualityWins = input.scope === GLOBAL_RATING_SCOPE
-      ? evidence
-      : createEmptyMatchEvidenceDelta()
+    const qualityWins = input.scope === GLOBAL_RATING_SCOPE ? evidence : createEmptyMatchEvidenceDelta()
     const row = {
       playerId: update.playerId,
       mode: input.scope,
@@ -885,7 +982,11 @@ export function buildRatingScopeUpdateQueries(
       winsVsTier2Plus: (existing?.winsVsTier2Plus ?? 0) + qualityWins.winsVsTier2Plus,
       effectiveWinsVsTier1: (existing?.effectiveWinsVsTier1 ?? 0) + qualityWins.effectiveWinsVsTier1,
       effectiveWinsVsTier2Plus: (existing?.effectiveWinsVsTier2Plus ?? 0) + qualityWins.effectiveWinsVsTier2Plus,
-      lastPlayedAt: input.match.isOld ? (existing?.lastPlayedAt ?? null) : input.collect ? Math.max(existing?.lastPlayedAt ?? 0, input.now) : input.now,
+      lastPlayedAt: input.match.isOld
+        ? (existing?.lastPlayedAt ?? null)
+        : input.collect
+          ? Math.max(existing?.lastPlayedAt ?? 0, input.now)
+          : input.now,
       updatedAt: input.now,
     }
     const eventRow = {
@@ -914,14 +1015,24 @@ export function buildRatingScopeUpdateQueries(
       input.collect({ summary: row, event: eventRow, rawAfterMu: update.after.mu })
       continue
     }
-    queries.push(db.insert(playerRatings).values(row).onConflictDoUpdate({
-      target: [playerRatings.playerId, playerRatings.mode],
-      set: row,
-    }))
-    queries.push(db.insert(playerRatingEvents).values(eventRow).onConflictDoUpdate({
-      target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
-      set: eventRow,
-    }))
+    queries.push(
+      db
+        .insert(playerRatings)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [playerRatings.playerId, playerRatings.mode],
+          set: row,
+        }),
+    )
+    queries.push(
+      db
+        .insert(playerRatingEvents)
+        .values(eventRow)
+        .onConflictDoUpdate({
+          target: [playerRatingEvents.matchId, playerRatingEvents.playerId, playerRatingEvents.mode],
+          set: eventRow,
+        }),
+    )
   }
 
   return queries
@@ -930,13 +1041,14 @@ export function buildRatingScopeUpdateQueries(
 type PreparedRatedReportState = 'none' | 'complete' | 'partial'
 
 function hasPreparedRatedReportParticipantMarkers(participantRows: ParticipantRow[]): boolean {
-  return participantRows.some(participant => (
-    participant.placement != null
-    || participant.ratingBeforeMu != null
-    || participant.ratingBeforeSigma != null
-    || participant.ratingAfterMu != null
-    || participant.ratingAfterSigma != null
-  ))
+  return participantRows.some(
+    participant =>
+      participant.placement != null ||
+      participant.ratingBeforeMu != null ||
+      participant.ratingBeforeSigma != null ||
+      participant.ratingAfterMu != null ||
+      participant.ratingAfterSigma != null,
+  )
 }
 
 async function hasPreparedRatedReportEvents(
@@ -945,16 +1057,20 @@ async function hasPreparedRatedReportEvents(
   participantRows: ParticipantRow[],
   leaderboardMode: LeaderboardMode,
 ): Promise<boolean> {
-  const playerIds = [...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0))]
+  const playerIds = [
+    ...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0)),
+  ]
   if (playerIds.length === 0) return false
   const [event] = await db
     .select({ matchId: playerRatingEvents.matchId })
     .from(playerRatingEvents)
-    .where(and(
-      eq(playerRatingEvents.matchId, matchId),
-      inArray(playerRatingEvents.playerId, playerIds),
-      inArray(playerRatingEvents.mode, [leaderboardMode, GLOBAL_RATING_SCOPE]),
-    ))
+    .where(
+      and(
+        eq(playerRatingEvents.matchId, matchId),
+        inArray(playerRatingEvents.playerId, playerIds),
+        inArray(playerRatingEvents.mode, [leaderboardMode, GLOBAL_RATING_SCOPE]),
+      ),
+    )
     .limit(1)
   return event != null
 }
@@ -969,7 +1085,11 @@ async function buildPreparedRatedReportResultIfRatingEventsExist(
   leaderboardMode: LeaderboardMode,
 ): Promise<ReportResult | null> {
   if (await usesIsolatedSeasonRatings(db, match.seasonId)) {
-    const [event] = await db.select({ matchId: playerRatingEvents.matchId }).from(playerRatingEvents).where(eq(playerRatingEvents.matchId, match.id)).limit(1)
+    const [event] = await db
+      .select({ matchId: playerRatingEvents.matchId })
+      .from(playerRatingEvents)
+      .where(eq(playerRatingEvents.matchId, match.id))
+      .limit(1)
     if (!event) return null
     return finalizeIsolatedSeasonReport(db, match, participantRows, reporterId, options)
   }
@@ -981,7 +1101,9 @@ async function buildPreparedRatedReportResultIfRatingEventsExist(
       rankedRoleGuildId: options.rankedRoleGuildId,
     })
     if (rollbackError) {
-      return { error: `Match **${match.id}** has a partially prepared rating report. Automatic cleanup failed: ${rollbackError}` }
+      return {
+        error: `Match **${match.id}** has a partially prepared rating report. Automatic cleanup failed: ${rollbackError}`,
+      }
     }
     return null
   }
@@ -989,21 +1111,18 @@ async function buildPreparedRatedReportResultIfRatingEventsExist(
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), reporterId, true)
   if (cleanupError) return { error: cleanupError }
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, match.id))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
   if (!updatedMatch) return { error: `Match **${match.id}** not found after cleanup.` }
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, match.id))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
 
   await reconcileCivLeaderboardMatchContribution(db, match.id)
   await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
-  return { match: updatedMatch, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants), idempotent: true }
+  return {
+    match: updatedMatch,
+    participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants),
+    idempotent: true,
+  }
 }
 
 async function getPreparedRatedReportState(
@@ -1012,18 +1131,22 @@ async function getPreparedRatedReportState(
   participantRows: ParticipantRow[],
   leaderboardMode: LeaderboardMode,
 ): Promise<PreparedRatedReportState> {
-  const playerIds = [...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0))]
+  const playerIds = [
+    ...new Set(participantRows.map(participant => participant.playerId).filter(playerId => playerId.length > 0)),
+  ]
   if (playerIds.length === 0) return 'none'
 
   const scopes = [leaderboardMode, GLOBAL_RATING_SCOPE]
   const rows = await db
     .select({ playerId: playerRatingEvents.playerId, mode: playerRatingEvents.mode })
     .from(playerRatingEvents)
-    .where(and(
-      eq(playerRatingEvents.matchId, matchId),
-      inArray(playerRatingEvents.playerId, playerIds),
-      inArray(playerRatingEvents.mode, scopes),
-    ))
+    .where(
+      and(
+        eq(playerRatingEvents.matchId, matchId),
+        inArray(playerRatingEvents.playerId, playerIds),
+        inArray(playerRatingEvents.mode, scopes),
+      ),
+    )
   if (rows.length === 0) return 'none'
 
   const eventKeys = new Set(rows.map(row => `${row.playerId}:${row.mode}`))
@@ -1033,39 +1156,71 @@ async function getPreparedRatedReportState(
 
 export async function usesIsolatedSeasonRatings(db: Database, seasonId: string | null): Promise<boolean> {
   if (!seasonId) return false
-  const [season] = await db.select({ enabled: seasons.isolatedRatingsEnabled }).from(seasons).where(eq(seasons.id, seasonId)).limit(1)
+  const [season] = await db
+    .select({ enabled: seasons.isolatedRatingsEnabled })
+    .from(seasons)
+    .where(eq(seasons.id, seasonId))
+    .limit(1)
   return season?.enabled === true
 }
 
-export async function finalizeIsolatedSeasonReport(db: Database, match: typeof matches.$inferSelect, participants: ParticipantRow[], reporterId: string | null, options: ReportMatchOptions, opponentTiers: ReadonlyMap<string, string> = new Map(), allowCancelled = false): Promise<ReportResult> {
+export async function finalizeIsolatedSeasonReport(
+  db: Database,
+  match: typeof matches.$inferSelect,
+  participants: ParticipantRow[],
+  reporterId: string | null,
+  options: ReportMatchOptions,
+  opponentTiers: ReadonlyMap<string, string> = new Map(),
+  allowCancelled = false,
+): Promise<ReportResult> {
   let prepared
   try {
-    prepared = await prepareSeasonReport(db, { match, participants, acceptedAt: options.acceptedAt ?? Date.now(), now: Date.now(), opponentTierByPlayerId: opponentTiers, allowCancelled })
+    prepared = await prepareSeasonReport(db, {
+      match,
+      participants,
+      acceptedAt: options.acceptedAt ?? Date.now(),
+      now: Date.now(),
+      opponentTierByPlayerId: opponentTiers,
+      allowCancelled,
+    })
     await runAtomicSeasonBatch(db, prepared.queries)
-  }
-  catch (error) {
+  } catch (error) {
     console.error(`Season report preparation/apply failed for ${match.id}:`, error)
     return { error: 'Could not confirm the result. Try reporting it again.' }
   }
   if (prepared.idempotent && prepared.late && match.status === 'completed') {
     await reconcileCivLeaderboardMatchContribution(db, match.id)
     await reconcilePlayerCivStatMatchContributionFromRows(db, match, participants)
-    return { match, participants: await hydrateParticipantRowsForRatingEvents(db, match, participants), idempotent: true, historicalSeason: true }
+    return {
+      match,
+      participants: await hydrateParticipantRowsForRatingEvents(db, match, participants),
+      idempotent: true,
+      historicalSeason: true,
+    }
   }
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, prepared.acceptedAt, reporterId, true)
-  if (cleanupError) return { error: 'Ratings are saved, but the match is not closed yet. Report the result again to finish.' }
+  if (cleanupError)
+    return { error: 'Ratings are saved, but the match is not closed yet. Report the result again to finish.' }
   const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
   const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
   await reconcileCivLeaderboardMatchContribution(db, match.id)
   await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch!, updatedParticipants)
-  return { match: updatedMatch!, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, updatedParticipants), idempotent: prepared.idempotent, historicalSeason: prepared.late }
+  return {
+    match: updatedMatch!,
+    participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch!, updatedParticipants),
+    idempotent: prepared.idempotent,
+    historicalSeason: prepared.late,
+  }
 }
 
-function scaleRatingAfterForSource(update: ReturnType<typeof calculateRatings>[number], sourceWeight: number): { mu: number, sigma: number } {
+function scaleRatingAfterForSource(
+  update: ReturnType<typeof calculateRatings>[number],
+  sourceWeight: number,
+): { mu: number; sigma: number } {
   if (sourceWeight >= 1) return update.after
   return {
-    mu: update.before.mu + ((update.after.mu - update.before.mu) * sourceWeight),
-    sigma: update.before.sigma + ((update.after.sigma - update.before.sigma) * sourceWeight),
+    mu: update.before.mu + (update.after.mu - update.before.mu) * sourceWeight,
+    sigma: update.before.sigma + (update.after.sigma - update.before.sigma) * sourceWeight,
   }
 }
 
@@ -1078,17 +1233,27 @@ export function buildMatchEvidenceByPlayerId(
   const sourceWeight = isOld ? IMPORTED_GAME_EFFECTIVE_WEIGHT : 1
   const effectiveRows = permanentAlly ? buildPermanentAllyFfaEffectiveRows(participantRows) : participantRows
   const evidenceRows = 'error' in effectiveRows ? participantRows : effectiveRows
-  return new Map(evidenceRows.map((participant) => {
-    const qualityWins = countQualityWinsForParticipant(participant, evidenceRows, opponentTierByPlayerId, sourceWeight)
-    return [participant.playerId, {
-      importedGames: isOld ? 1 : 0,
-      effectiveGames: sourceWeight,
-      winsVsTier1: qualityWins.winsVsTier1,
-      winsVsTier2Plus: qualityWins.winsVsTier2Plus,
-      effectiveWinsVsTier1: qualityWins.effectiveWinsVsTier1,
-      effectiveWinsVsTier2Plus: qualityWins.effectiveWinsVsTier2Plus,
-    }]
-  }))
+  return new Map(
+    evidenceRows.map(participant => {
+      const qualityWins = countQualityWinsForParticipant(
+        participant,
+        evidenceRows,
+        opponentTierByPlayerId,
+        sourceWeight,
+      )
+      return [
+        participant.playerId,
+        {
+          importedGames: isOld ? 1 : 0,
+          effectiveGames: sourceWeight,
+          winsVsTier1: qualityWins.winsVsTier1,
+          winsVsTier2Plus: qualityWins.winsVsTier2Plus,
+          effectiveWinsVsTier1: qualityWins.effectiveWinsVsTier1,
+          effectiveWinsVsTier2Plus: qualityWins.effectiveWinsVsTier2Plus,
+        },
+      ]
+    }),
+  )
 }
 
 function createEmptyMatchEvidenceDelta(): MatchEvidenceDelta {
@@ -1107,7 +1272,7 @@ function countQualityWinsForParticipant(
   participantRows: Array<Pick<ParticipantRow, 'playerId' | 'team' | 'placement'>>,
   opponentTierByPlayerId: ReadonlyMap<string, string>,
   sourceWeight = 1,
-): { winsVsTier1: number, winsVsTier2Plus: number, effectiveWinsVsTier1: number, effectiveWinsVsTier2Plus: number } {
+): { winsVsTier1: number; winsVsTier2Plus: number; effectiveWinsVsTier1: number; effectiveWinsVsTier2Plus: number } {
   let winsVsTier1 = 0
   let winsVsTier2Plus = 0
   let effectiveWinsVsTier1 = 0
@@ -1149,7 +1314,10 @@ function didDefeatOpponent(
   return participant.placement < opponent.placement
 }
 
-async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+async function loadCurrentRankedRoleTierByPlayerId(
+  kv: KVNamespace,
+  guildId: string | null | undefined,
+): Promise<Map<string, string>> {
   if (!guildId) return new Map()
   const assignments = await getCurrentRankAssignments(kv, guildId)
   return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))
@@ -1166,7 +1334,7 @@ function rankedRoleTierNumber(tier: string | null): number | null {
 async function repairCompletedReportedMatch(
   db: Database,
   kv: KVNamespace,
-  match: { id: string, gameMode: string, draftData: string | null },
+  match: { id: string; gameMode: string; draftData: string | null },
   participantRows: ParticipantRow[],
   options: ReportMatchOptions = {},
 ): Promise<ReportResult | null> {
@@ -1189,32 +1357,30 @@ async function repairCompletedReportedMatch(
 
   await rebuildLeaderboardModeSnapshot(db, kv, gameContext.leaderboardMode)
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, match.id))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, match.id)).limit(1)
   if (!updatedMatch) return { error: `Match **${match.id}** not found after repair.` }
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, match.id))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, match.id))
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, match.id, Date.now(), null, false)
   if (cleanupError) return { error: cleanupError }
   await reconcileCivLeaderboardMatchContribution(db, match.id)
   await reconcilePlayerCivStatMatchContributionFromRows(db, updatedMatch, updatedParticipants)
-  return { match: updatedMatch, participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants), idempotent: true }
+  return {
+    match: updatedMatch,
+    participants: await hydrateParticipantRowsForRatingEvents(db, updatedMatch, updatedParticipants),
+    idempotent: true,
+  }
 }
 
 function hasMissingRatingSnapshots(participantRows: ParticipantRow[]): boolean {
-  return participantRows.some(participant => (
-    participant.ratingBeforeMu == null
-    || participant.ratingBeforeSigma == null
-    || participant.ratingAfterMu == null
-    || participant.ratingAfterSigma == null
-  ))
+  return participantRows.some(
+    participant =>
+      participant.ratingBeforeMu == null ||
+      participant.ratingBeforeSigma == null ||
+      participant.ratingAfterMu == null ||
+      participant.ratingAfterSigma == null,
+  )
 }
 
 async function ensureReportedMatchCleanup(
@@ -1228,9 +1394,13 @@ async function ensureReportedMatchCleanup(
   const { sessionNamespace } = options
   if (sessionNamespace) {
     try {
-      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, { type: 'mark-reported', matchId, at: reportedAt, reportedById })
-    }
-    catch (error) {
+      await runSessionTerminalLifecycleCommand(sessionNamespace, matchId, {
+        type: 'mark-reported',
+        matchId,
+        at: reportedAt,
+        reportedById,
+      })
+    } catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
     return null
@@ -1241,7 +1411,7 @@ async function ensureReportedMatchCleanup(
   }
 
   if (updateMatch) {
-    const values: { status: string, completedAt: number, draftData?: string | null } = {
+    const values: { status: string; completedAt: number; draftData?: string | null } = {
       status: 'completed',
       completedAt: reportedAt,
     }
@@ -1259,13 +1429,12 @@ async function ensureReportedMatchCleanup(
   return null
 }
 
-async function validateReportableSession(
-  options: ReportMatchOptions,
-  matchId: string,
-): Promise<string | null> {
+async function validateReportableSession(options: ReportMatchOptions, matchId: string): Promise<string | null> {
   const { sessionNamespace } = options
   if (!sessionNamespace) {
-    return options.allowDirectTerminalWriteForTests ? null : 'The bot cannot check this match. Ask a server admin to check it.'
+    return options.allowDirectTerminalWriteForTests
+      ? null
+      : 'The bot cannot check this match. Ask a server admin to check it.'
   }
   try {
     const record = await getSessionRecord(sessionNamespace, matchId)
@@ -1274,8 +1443,7 @@ async function validateReportableSession(
     if (record.phase === 'cancelled') return 'This match was cancelled. You cannot report a result for it.'
     if (record.phase !== 'active' && record.phase !== 'swap') return 'Finish the draft before reporting the result.'
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1284,7 +1452,7 @@ async function rollbackReportedRatedMatch(
   db: Database,
   kv: KVNamespace,
   options: {
-    match: { id: string, draftData: string | null }
+    match: { id: string; draftData: string | null }
     leaderboardMode: LeaderboardMode
     participantRows?: ParticipantRow[]
     rankedRoleGuildId?: string | null
@@ -1294,43 +1462,50 @@ async function rollbackReportedRatedMatch(
     const restoreQueries: DbBatchItem[] = []
     if (options.participantRows) {
       for (const participant of options.participantRows) {
-        restoreQueries.push(db
+        restoreQueries.push(
+          db
+            .update(matchParticipants)
+            .set({
+              civId: participant.civId,
+              placement: participant.placement,
+              ratingBeforeMu: participant.ratingBeforeMu,
+              ratingBeforeSigma: participant.ratingBeforeSigma,
+              ratingAfterMu: participant.ratingAfterMu,
+              ratingAfterSigma: participant.ratingAfterSigma,
+            })
+            .where(
+              and(
+                eq(matchParticipants.matchId, options.match.id),
+                eq(matchParticipants.playerId, participant.playerId),
+              ),
+            ),
+        )
+      }
+    } else {
+      restoreQueries.push(
+        db
           .update(matchParticipants)
           .set({
-            civId: participant.civId,
-            placement: participant.placement,
-            ratingBeforeMu: participant.ratingBeforeMu,
-            ratingBeforeSigma: participant.ratingBeforeSigma,
-            ratingAfterMu: participant.ratingAfterMu,
-            ratingAfterSigma: participant.ratingAfterSigma,
+            placement: null,
+            ratingBeforeMu: null,
+            ratingBeforeSigma: null,
+            ratingAfterMu: null,
+            ratingAfterSigma: null,
           })
-          .where(and(
-            eq(matchParticipants.matchId, options.match.id),
-            eq(matchParticipants.playerId, participant.playerId),
-          )))
-      }
-    }
-    else {
-      restoreQueries.push(db
-        .update(matchParticipants)
-        .set({
-          placement: null,
-          ratingBeforeMu: null,
-          ratingBeforeSigma: null,
-          ratingAfterMu: null,
-          ratingAfterSigma: null,
-        })
-        .where(eq(matchParticipants.matchId, options.match.id)))
+          .where(eq(matchParticipants.matchId, options.match.id)),
+      )
     }
 
-    restoreQueries.push(db
-      .update(matches)
-      .set({
-        status: 'active',
-        completedAt: null,
-        draftData: options.match.draftData,
-      })
-      .where(eq(matches.id, options.match.id)))
+    restoreQueries.push(
+      db
+        .update(matches)
+        .set({
+          status: 'active',
+          completedAt: null,
+          draftData: options.match.draftData,
+        })
+        .where(eq(matches.id, options.match.id)),
+    )
 
     const replay = await prepareRatedMatchReplay(db, options.leaderboardMode, {
       fromMatchId: options.match.id,
@@ -1342,8 +1517,7 @@ async function rollbackReportedRatedMatch(
 
     await rebuildLeaderboardModeSnapshot(db, kv, options.leaderboardMode)
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1352,12 +1526,17 @@ async function rollbackPreparedReportAfterLifecycleFailure(
   db: Database,
   kv: KVNamespace,
   options: ReportMatchOptions,
-  match: { id: string, draftData: string | null, gameMode: string, seasonId: string | null },
+  match: { id: string; draftData: string | null; gameMode: string; seasonId: string | null },
   leaderboardMode: LeaderboardMode,
   participantRows?: ParticipantRow[],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, match.id)) return null
-  return rollbackReportedRatedMatch(db, kv, { match, leaderboardMode, participantRows, rankedRoleGuildId: options.rankedRoleGuildId })
+  if (!(await shouldRollbackPreparedReportedMatch(options, match.id))) return null
+  return rollbackReportedRatedMatch(db, kv, {
+    match,
+    leaderboardMode,
+    participantRows,
+    rankedRoleGuildId: options.rankedRoleGuildId,
+  })
 }
 
 async function rollbackParticipantRowsAfterLifecycleFailure(
@@ -1366,7 +1545,7 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
   matchId: string,
   participants: ParticipantRow[],
 ): Promise<string | null> {
-  if (!await shouldRollbackPreparedReportedMatch(options, matchId)) return null
+  if (!(await shouldRollbackPreparedReportedMatch(options, matchId))) return null
   try {
     for (const participant of participants) {
       await db
@@ -1379,14 +1558,10 @@ async function rollbackParticipantRowsAfterLifecycleFailure(
           ratingAfterMu: participant.ratingAfterMu,
           ratingAfterSigma: participant.ratingAfterSigma,
         })
-        .where(and(
-          eq(matchParticipants.matchId, matchId),
-          eq(matchParticipants.playerId, participant.playerId),
-        ))
+        .where(and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.playerId, participant.playerId)))
     }
     return null
-  }
-  catch (error) {
+  } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
 }
@@ -1397,15 +1572,14 @@ async function shouldRollbackPreparedReportedMatch(options: ReportMatchOptions, 
     const record = await getSessionRecord(options.sessionNamespace, matchId)
     if (!record) return false
     return record.phase === 'active' || record.phase === 'swap'
-  }
-  catch {
+  } catch {
     return false
   }
 }
 
 async function finalizeReportedUnrankedMatch(
   db: Database,
-  match: { id: string, draftData: string | null, gameMode: string, seasonId: string | null },
+  match: { id: string; draftData: string | null; gameMode: string; seasonId: string | null },
   participantRows: ParticipantRow[],
   originalParticipantRows: ParticipantRow[],
   reporterId: string,
@@ -1426,23 +1600,24 @@ async function finalizeReportedUnrankedMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
   if (cleanupError) {
-    const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, matchId, originalParticipantRows)
+    const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(
+      db,
+      options,
+      matchId,
+      originalParticipantRows,
+    )
     if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
     return { error: cleanupError }
   }
   await reconcileCivLeaderboardMatchContribution(db, matchId)
-  await reconcilePlayerCivStatMatchContributionFromRows(db, { ...match, status: 'completed' }, participantRows, { updatedAt: now, previous: 'empty' })
+  await reconcilePlayerCivStatMatchContributionFromRows(db, { ...match, status: 'completed' }, participantRows, {
+    updatedAt: now,
+    previous: 'empty',
+  })
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   return {
     match: updatedMatch!,
@@ -1457,7 +1632,7 @@ async function finalizeReportedUnrankedMatch(
 
 async function finalizeReportedTournamentMatch(
   db: Database,
-  match: { id: string, draftData: string | null },
+  match: { id: string; draftData: string | null },
   originalParticipantRows: ParticipantRow[],
   reporterId: string,
   options: ReportMatchOptions,
@@ -1469,7 +1644,12 @@ async function finalizeReportedTournamentMatch(
 
   const cleanupError = await ensureReportedMatchCleanup(db, options, matchId, now, reporterId, true)
   if (cleanupError) {
-    const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(db, options, matchId, originalParticipantRows)
+    const rollbackError = await rollbackParticipantRowsAfterLifecycleFailure(
+      db,
+      options,
+      matchId,
+      originalParticipantRows,
+    )
     if (rollbackError) return { error: `${cleanupError} Automatic rollback also failed: ${rollbackError}` }
     return { error: cleanupError }
   }
@@ -1478,16 +1658,9 @@ async function finalizeReportedTournamentMatch(
   await removePlayerCivStatMatchContribution(db, matchId)
   await syncTournamentMatchAfterReport(db, matchId)
 
-  const [updatedMatch] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1)
+  const [updatedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
-  const updatedParticipants = await db
-    .select()
-    .from(matchParticipants)
-    .where(eq(matchParticipants.matchId, matchId))
+  const updatedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
   return {
     match: updatedMatch!,
@@ -1532,8 +1705,7 @@ function setReportedByInDraftData(draftData: string | null, reporterId: string):
       ...(parsed as Record<string, unknown>),
       reportedById: normalizedReporterId,
     })
-  }
-  catch {
+  } catch {
     return draftData
   }
 }

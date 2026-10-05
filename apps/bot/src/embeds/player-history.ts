@@ -1,15 +1,15 @@
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
+import { Embed } from 'discord-hono'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { matches, matchParticipants, players, tournamentMatches } from '@civup/db'
 import { formatModeLabel } from '@civup/game'
 import { displayRating } from '@civup/rating'
-import { Embed } from 'discord-hono'
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { getStoredGameModeContext } from '../services/match/draft-data.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
-import { getDisplaySeason } from '../services/season/index.ts'
 import { clampPageIndex } from '../services/response/pagination.ts'
+import { getDisplaySeason } from '../services/season/index.ts'
 import { formatDisplayRatingChange, formatUnrankedResultMarker } from './rating-change.ts'
 
 export type PlayerHistoryModeFilter = 'all' | GameMode
@@ -189,25 +189,29 @@ export async function playerHistoryPageEmbed(
     pageIndex?: number
     pageSize?: number
   } = {},
-): Promise<{ embed: Embed, pageIndex: number, pageCount: number, totalRows: number }> {
+): Promise<{ embed: Embed; pageIndex: number; pageCount: number; totalRows: number }> {
   const pageSize = normalizePageSize(options.pageSize)
   const displaySeason = await getDisplaySeason(db)
   const seasonId = displaySeason?.id ?? null
   const targetRows = await loadPlayerHistoryRows(db, playerId, modeFilter, seasonId)
-  const layoutCosts = await loadHistoryLayoutCosts(db, targetRows.map(row => row.matchId))
+  const layoutCosts = await loadHistoryLayoutCosts(
+    db,
+    targetRows.map(row => row.matchId),
+  )
   const pages = paginateHistoryRows(targetRows, layoutCosts, pageSize)
   const totalRows = targetRows.length
   const pageCount = Math.max(1, pages.length)
   const pageIndex = clampPageIndex(options.pageIndex ?? 0, pageCount)
   const page = pages[pageIndex] ?? { startIndex: 0, rows: [] }
   const hydratedRows = await hydrateModeRatingSnapshotsFromEvents(db, page.rows)
-  const participants = await loadHistoryParticipants(db, hydratedRows.map(row => row.matchId))
+  const participants = await loadHistoryParticipants(
+    db,
+    hydratedRows.map(row => row.matchId),
+  )
   const player = await loadPlayerProfile(db, playerId)
   const modeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
   const title = modeLabel ? `Match History (${modeLabel})` : 'Match History'
-  const embed = new Embed()
-    .title(title)
-    .color(0xC8AA6E)
+  const embed = new Embed().title(title).color(0xc8aa6e)
 
   const fields = formatHistoryFields(hydratedRows, participants, playerId)
   if (fields.length > 0) embed.fields(...fields)
@@ -250,9 +254,16 @@ async function loadPlayerHistoryRows(
     })
     .from(matchParticipants)
     .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-    .leftJoin(tournamentMatches, or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)))
+    .leftJoin(
+      tournamentMatches,
+      or(eq(tournamentMatches.matchId, matches.id), eq(tournamentMatches.sessionId, matches.id)),
+    )
     .where(buildPlayerHistoryWhere(playerId, modeFilter, seasonId))
-    .orderBy(desc(sql`coalesce(${matches.completedAt}, ${matches.createdAt})`), desc(matches.createdAt), desc(matches.id))
+    .orderBy(
+      desc(sql`coalesce(${matches.completedAt}, ${matches.createdAt})`),
+      desc(matches.createdAt),
+      desc(matches.id),
+    )
 
   return rows.map(({ tournamentSessionId, ...row }) => ({
     ...row,
@@ -275,25 +286,35 @@ async function loadHistoryLayoutCosts(db: Database, matchIds: readonly string[])
     }
   }
 
-  return new Map([...participantsByMatchId.entries()].map(([matchId, participants]) => [matchId, estimateHistoryRowCost(participants)]))
+  return new Map(
+    [...participantsByMatchId.entries()].map(([matchId, participants]) => [
+      matchId,
+      estimateHistoryRowCost(participants),
+    ]),
+  )
 }
 
-async function loadHistoryParticipants(db: Database, matchIds: readonly string[]): Promise<PlayerHistoryParticipantRow[]> {
+async function loadHistoryParticipants(
+  db: Database,
+  matchIds: readonly string[],
+): Promise<PlayerHistoryParticipantRow[]> {
   const uniqueMatchIds = [...new Set(matchIds)]
   const rows: PlayerHistoryParticipantRow[] = []
   for (const batch of chunk(uniqueMatchIds, 90)) {
-    rows.push(...await db
-      .select({
-        matchId: matchParticipants.matchId,
-        playerId: matchParticipants.playerId,
-        team: matchParticipants.team,
-        placement: matchParticipants.placement,
-        civId: matchParticipants.civId,
-        displayName: players.displayName,
-      })
-      .from(matchParticipants)
-      .leftJoin(players, eq(matchParticipants.playerId, players.id))
-      .where(inArray(matchParticipants.matchId, batch)))
+    rows.push(
+      ...(await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          placement: matchParticipants.placement,
+          civId: matchParticipants.civId,
+          displayName: players.displayName,
+        })
+        .from(matchParticipants)
+        .leftJoin(players, eq(matchParticipants.playerId, players.id))
+        .where(inArray(matchParticipants.matchId, batch))),
+    )
   }
   return rows
 }
@@ -311,10 +332,7 @@ async function loadPlayerProfile(db: Database, playerId: string): Promise<Player
 }
 
 function buildPlayerHistoryWhere(playerId: string, modeFilter: PlayerHistoryModeFilter, seasonId: string | null) {
-  const conditions = [
-    eq(matchParticipants.playerId, playerId),
-    eq(matches.status, 'completed'),
-  ]
+  const conditions = [eq(matchParticipants.playerId, playerId), eq(matches.status, 'completed')]
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))
   return and(...conditions)
@@ -367,7 +385,7 @@ function formatHistoryFields(
   rows: readonly PlayerHistoryTargetRow[],
   participants: readonly PlayerHistoryParticipantRow[],
   targetPlayerId: string,
-): Array<{ name: string, value: string, inline: false }> {
+): Array<{ name: string; value: string; inline: false }> {
   const participantsByMatchId = new Map<string, PlayerHistoryParticipantRow[]>()
   for (const participant of participants) {
     const list = participantsByMatchId.get(participant.matchId) ?? []
@@ -375,12 +393,11 @@ function formatHistoryFields(
     participantsByMatchId.set(participant.matchId, list)
   }
 
-  return rows
-    .map(row => ({
-      name: formatHistoryFieldName(row),
-      value: preserveLeadingIndent(formatPlayerList(row, participantsByMatchId.get(row.matchId) ?? [], targetPlayerId)),
-      inline: false,
-    }))
+  return rows.map(row => ({
+    name: formatHistoryFieldName(row),
+    value: preserveLeadingIndent(formatPlayerList(row, participantsByMatchId.get(row.matchId) ?? [], targetPlayerId)),
+    inline: false,
+  }))
 }
 
 function formatHistoryFieldName(row: PlayerHistoryTargetRow): string {
@@ -405,7 +422,10 @@ function formatPlayerList(
   const grouped = groupParticipantsByTeam(sorted)
   if (grouped.length <= 1) {
     return sorted
-      .map(participant => `${PLAYER_ROW_INDENT}${formatPlacementCode(participant.placement)} ${formatPlayerEntry(participant, row.isOld, targetPlayerId).text}`)
+      .map(
+        participant =>
+          `${PLAYER_ROW_INDENT}${formatPlacementCode(participant.placement)} ${formatPlayerEntry(participant, row.isOld, targetPlayerId).text}`,
+      )
       .join('\n')
   }
 
@@ -413,35 +433,57 @@ function formatPlayerList(
 }
 
 function formatTeamColumns(
-  groups: Array<{ team: number | null, participants: PlayerHistoryParticipantRow[] }>,
+  groups: Array<{ team: number | null; participants: PlayerHistoryParticipantRow[] }>,
   targetPlayerId: string,
   isOld: boolean,
 ): string {
-  const columns = groups.map(group => sortTeamParticipants(group.participants, targetPlayerId).map(participant => formatPlayerEntry(participant, isOld, targetPlayerId)))
-  const columnWidths = columns.slice(0, -1).map(column => Math.max(MIN_TEAM_COLUMN_WIDTH_PX, Math.max(0, ...column.map(entry => entry.visibleWidth)) + INTER_TEAM_COLUMN_GAP_PX))
+  const columns = groups.map(group =>
+    sortTeamParticipants(group.participants, targetPlayerId).map(participant =>
+      formatPlayerEntry(participant, isOld, targetPlayerId),
+    ),
+  )
+  const columnWidths = columns
+    .slice(0, -1)
+    .map(column =>
+      Math.max(
+        MIN_TEAM_COLUMN_WIDTH_PX,
+        Math.max(0, ...column.map(entry => entry.visibleWidth)) + INTER_TEAM_COLUMN_GAP_PX,
+      ),
+    )
   const maxRows = Math.max(0, ...columns.map(column => column.length))
   const lines: string[] = []
 
   for (let rowIndex = 0; rowIndex < maxRows; rowIndex += 1) {
     const cells = columns.map(column => column[rowIndex] ?? null)
-    lines.push(`${PLAYER_ROW_INDENT}${cells.map((cell, index) => {
-      if (index === cells.length - 1) return cell?.text ?? ''
-      return padColumn(cell, columnWidths[index] ?? MIN_TEAM_COLUMN_WIDTH_PX)
-    }).join('')}`.trimEnd())
+    lines.push(
+      `${PLAYER_ROW_INDENT}${cells
+        .map((cell, index) => {
+          if (index === cells.length - 1) return cell?.text ?? ''
+          return padColumn(cell, columnWidths[index] ?? MIN_TEAM_COLUMN_WIDTH_PX)
+        })
+        .join('')}`.trimEnd(),
+    )
   }
 
   return lines.join('\n')
 }
 
-function sortTeamParticipants(participants: readonly PlayerHistoryParticipantRow[], targetPlayerId: string): PlayerHistoryParticipantRow[] {
+function sortTeamParticipants(
+  participants: readonly PlayerHistoryParticipantRow[],
+  targetPlayerId: string,
+): PlayerHistoryParticipantRow[] {
   return [...participants].sort((left, right) => {
     if (left.playerId === targetPlayerId) return -1
     if (right.playerId === targetPlayerId) return 1
-    return formatPlainPlayerName(left.displayName, left.playerId).localeCompare(formatPlainPlayerName(right.displayName, right.playerId))
+    return formatPlainPlayerName(left.displayName, left.playerId).localeCompare(
+      formatPlainPlayerName(right.displayName, right.playerId),
+    )
   })
 }
 
-function groupParticipantsByTeam(participants: readonly PlayerHistoryParticipantRow[]): Array<{ team: number | null, participants: PlayerHistoryParticipantRow[] }> {
+function groupParticipantsByTeam(
+  participants: readonly PlayerHistoryParticipantRow[],
+): Array<{ team: number | null; participants: PlayerHistoryParticipantRow[] }> {
   const groups = new Map<number | null, PlayerHistoryParticipantRow[]>()
   for (const participant of participants) {
     const list = groups.get(participant.team) ?? []
@@ -459,11 +501,17 @@ function sortParticipants(participants: readonly PlayerHistoryParticipantRow[]):
     if (placementDiff !== 0) return placementDiff
     const teamDiff = normalizePlacement(left.team) - normalizePlacement(right.team)
     if (teamDiff !== 0) return teamDiff
-    return formatPlainPlayerName(left.displayName, left.playerId).localeCompare(formatPlainPlayerName(right.displayName, right.playerId))
+    return formatPlainPlayerName(left.displayName, left.playerId).localeCompare(
+      formatPlainPlayerName(right.displayName, right.playerId),
+    )
   })
 }
 
-function formatPlayerEntry(participant: PlayerHistoryParticipantRow, isOld: boolean, targetPlayerId: string): { text: string, visibleWidth: number } {
+function formatPlayerEntry(
+  participant: PlayerHistoryParticipantRow,
+  isOld: boolean,
+  targetPlayerId: string,
+): { text: string; visibleWidth: number } {
   const rawName = formatPlainPlayerName(participant.displayName, participant.playerId)
   const escapedName = escapeMarkdown(rawName)
   const name = participant.playerId === targetPlayerId ? `**${escapedName}**` : escapedName
@@ -473,7 +521,7 @@ function formatPlayerEntry(participant: PlayerHistoryParticipantRow, isOld: bool
   }
 }
 
-function padColumn(entry: { text: string, visibleWidth: number } | null, widthPx: number): string {
+function padColumn(entry: { text: string; visibleWidth: number } | null, widthPx: number): string {
   if (!entry) return formatPadding(widthPx)
   const padWidthPx = Math.max(INTER_TEAM_COLUMN_GAP_PX, widthPx - entry.visibleWidth)
   return `${entry.text}${formatPadding(padWidthPx)}`
@@ -493,7 +541,7 @@ function formatPadding(widthPx: number): string {
 function preserveLeadingIndent(value: string): string {
   return value
     .split('\n')
-    .map(line => line.startsWith(PLAYER_ROW_INDENT) ? `${LEADING_INDENT_GUARD}${line}` : line)
+    .map(line => (line.startsWith(PLAYER_ROW_INDENT) ? `${LEADING_INDENT_GUARD}${line}` : line))
     .join('\n')
 }
 
@@ -511,7 +559,8 @@ function estimateNaturalNameAdjustment(value: string): number {
   if (spaceCount > 0 && isSpacedInitialism(value)) return spaceCount * INITIALISM_SPACE_EXTRA_WIDTH
   if (spaceCount > 0) return spaceCount * NAME_SPACE_EXTRA_WIDTH
   if (/^[A-Za-z0-9]+$/u.test(value)) return estimateAlnumNameAdjustment(chars.length)
-  if (/^[A-Za-z0-9_-]+$/u.test(value)) return estimateCompoundNameAdjustment(chars.length, chars.filter(char => char === '_' || char === '-').length)
+  if (/^[A-Za-z0-9_-]+$/u.test(value))
+    return estimateCompoundNameAdjustment(chars.length, chars.filter(char => char === '_' || char === '-').length)
   return 0
 }
 
@@ -523,7 +572,10 @@ function estimateAlnumNameAdjustment(length: number): number {
 }
 
 function estimateCompoundNameAdjustment(length: number, separatorCount: number): number {
-  return Math.max(0, length - COMPOUND_NAME_LENGTH_BASE) * COMPOUND_NAME_LENGTH_EXTRA_WIDTH + separatorCount * COMPOUND_NAME_SEPARATOR_EXTRA_WIDTH
+  return (
+    Math.max(0, length - COMPOUND_NAME_LENGTH_BASE) * COMPOUND_NAME_LENGTH_EXTRA_WIDTH +
+    separatorCount * COMPOUND_NAME_SEPARATOR_EXTRA_WIDTH
+  )
 }
 
 function isSpacedInitialism(value: string): boolean {
@@ -549,23 +601,23 @@ function estimateCharacterWidth(char: string): number {
 
 function isEmojiLikeCharacter(char: string): boolean {
   const codePoint = char.codePointAt(0) ?? 0
-  return (codePoint >= 0x1F1E6 && codePoint <= 0x1FAFF)
+  return codePoint >= 0x1f1e6 && codePoint <= 0x1faff
 }
 
 function isHangulCharacter(char: string): boolean {
   const codePoint = char.codePointAt(0) ?? 0
-  return (codePoint >= 0x1100 && codePoint <= 0x11FF) || (codePoint >= 0xAC00 && codePoint <= 0xD7AF)
+  return (codePoint >= 0x1100 && codePoint <= 0x11ff) || (codePoint >= 0xac00 && codePoint <= 0xd7af)
 }
 
 function isWideNameCharacter(char: string): boolean {
   const codePoint = char.codePointAt(0) ?? 0
   return (
-    (codePoint >= 0x1100 && codePoint <= 0x11FF)
-    || (codePoint >= 0x2E80 && codePoint <= 0xA4CF)
-    || (codePoint >= 0xAC00 && codePoint <= 0xD7AF)
-    || (codePoint >= 0xF900 && codePoint <= 0xFAFF)
-    || (codePoint >= 0xFF01 && codePoint <= 0xFF60)
-    || (codePoint >= 0xFFE0 && codePoint <= 0xFFE6)
+    (codePoint >= 0x1100 && codePoint <= 0x11ff) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xff01 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6)
   )
 }
 
@@ -582,10 +634,10 @@ function formatRatingChange(row: PlayerHistoryTargetRow): string {
   if (row.isTournament) return `${formatTournamentResultEmoji(row.placement)} \`Tournament\``
   if (getStoredGameModeContext(row.gameMode, row.draftData)?.civBlitz) return formatUnrankedResultMarker(row.placement)
   if (
-    row.ratingBeforeMu == null
-    || row.ratingBeforeSigma == null
-    || row.ratingAfterMu == null
-    || row.ratingAfterSigma == null
+    row.ratingBeforeMu == null ||
+    row.ratingBeforeSigma == null ||
+    row.ratingAfterMu == null ||
+    row.ratingAfterSigma == null
   ) {
     return '` ? ` ❔ `(   ?)`'
   }
@@ -615,7 +667,14 @@ function formatLeaderIcon(civId: string | null, isOld: boolean): string {
   return leaderEmojiMention(civId) ?? '▫️'
 }
 
-function formatHistoryFooter(playerName: string, pageIndex: number, pageCount: number, totalRows: number, rowCount: number, pageStartIndex: number): string {
+function formatHistoryFooter(
+  playerName: string,
+  pageIndex: number,
+  pageCount: number,
+  totalRows: number,
+  rowCount: number,
+  pageStartIndex: number,
+): string {
   if (totalRows <= 0) return `${playerName} - Page 1/1 - 0 matches`
   const start = pageStartIndex + 1
   const end = start + rowCount - 1

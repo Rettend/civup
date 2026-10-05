@@ -1,6 +1,13 @@
-import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
 import { describe, expect, test } from 'bun:test'
-import { clearActivityFollowTargetSelection, clearActivityLaunchTargetSelection, readActivityFollowTargetSelection, readActivityLaunchTargetSelection, storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
+import { CIVUP_INTERNAL_SECRET_HEADER, PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER } from '@civup/utils'
+import {
+  clearActivityFollowTargetSelection,
+  clearActivityLaunchTargetSelection,
+  readActivityFollowTargetSelection,
+  readActivityLaunchTargetSelection,
+  storeActivityFollowTargetSelection,
+  storeActivityLaunchTargetSelection,
+} from '../../src/services/activity/launch-target.ts'
 
 describe('activity launch target selection', () => {
   test('uses PartyServer room routing headers for direct Activity DO RPCs', async () => {
@@ -34,8 +41,14 @@ describe('activity launch target selection', () => {
       },
     } as unknown as DurableObjectNamespace
 
-    await storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', { kind: 'match', id: 'match-1' })
-    await expect(readActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({ kind: 'match', id: 'match-1' })
+    await storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', {
+      kind: 'match',
+      id: 'match-1',
+    })
+    await expect(readActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({
+      kind: 'match',
+      id: 'match-1',
+    })
     await clearActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')
 
     expect(requests.map(request => request.method)).toEqual(['POST', 'GET', 'DELETE'])
@@ -59,9 +72,13 @@ describe('activity launch target selection', () => {
     const warnings: unknown[][] = []
     console.warn = (...args: unknown[]) => warnings.push(args)
     try {
-      await expect(storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', { kind: 'match', id: 'match-1' })).resolves.toBeUndefined()
-    }
-    finally {
+      await expect(
+        storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', {
+          kind: 'match',
+          id: 'match-1',
+        }),
+      ).resolves.toBeUndefined()
+    } finally {
       console.warn = originalWarn
     }
     expect(warnings[0]?.[0]).toBe('Activity launch target store failed: 500 Injected failure')
@@ -91,7 +108,9 @@ describe('activity launch target selection', () => {
 
     await storeActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1', { kind: 'overview' })
 
-    await expect(readActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({ kind: 'overview' })
+    await expect(readActivityLaunchTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({
+      kind: 'overview',
+    })
   })
 
   test('stores spectator follow targets per channel and user', async () => {
@@ -123,17 +142,40 @@ describe('activity launch target selection', () => {
       },
     } as unknown as DurableObjectNamespace
 
-    await storeActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1', { kind: 'lobby', id: 'lobby-1' })
-    await storeActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1', { kind: 'lobby', id: 'lobby-2' })
+    await storeActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1', {
+      kind: 'lobby',
+      id: 'lobby-1',
+    })
+    await storeActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1', {
+      kind: 'lobby',
+      id: 'lobby-2',
+    })
 
-    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({ kind: 'lobby', id: 'lobby-1' })
-    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1')).resolves.toEqual({ kind: 'lobby', id: 'lobby-2' })
+    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-1',
+    })
+    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-2',
+    })
 
     await clearActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1')
     await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-1', 'player-1')).resolves.toBeNull()
-    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1')).resolves.toEqual({ kind: 'lobby', id: 'lobby-2' })
+    await expect(readActivityFollowTargetSelection(namespace, 'secret', 'channel-2', 'player-1')).resolves.toEqual({
+      kind: 'lobby',
+      id: 'lobby-2',
+    })
 
-    expect(requests.some(request => request.headers.get(PARTYSERVER_ROOM_HEADER) === 'activity-follow-target:channel-1:player-1')).toBe(true)
-    expect(requests.some(request => request.headers.get(PARTYSERVER_ROOM_HEADER) === 'activity-follow-target:channel-2:player-1')).toBe(true)
+    expect(
+      requests.some(
+        request => request.headers.get(PARTYSERVER_ROOM_HEADER) === 'activity-follow-target:channel-1:player-1',
+      ),
+    ).toBe(true)
+    expect(
+      requests.some(
+        request => request.headers.get(PARTYSERVER_ROOM_HEADER) === 'activity-follow-target:channel-2:player-1',
+      ),
+    ).toBe(true)
   })
 })

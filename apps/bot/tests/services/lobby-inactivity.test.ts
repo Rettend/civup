@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { buildActivityLaunchSnapshot } from '../../src/routes/activity.ts'
-import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyLastActivityAt } from '../helpers/lobby-runtime.ts'
+import {
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  setLobbyLastActivityAt,
+} from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -35,7 +40,14 @@ describe('activity launch with long-idle lobbies', () => {
     })
     await setLobbyLastActivityAt(kv, lobby.id, Date.now() - 61 * 60 * 1000, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot('token', 'secret', kv, 'channel-1', 'host-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      'token',
+      'secret',
+      kv,
+      'channel-1',
+      'host-1',
+      activityRuntimeOptions(kv),
+    )
 
     expect(snapshot.options).toHaveLength(1)
     expect(snapshot.selection?.kind).toBe('lobby')

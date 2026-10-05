@@ -1,17 +1,17 @@
+import type { PlayerCivRankingSummary, PlayerCivStatSummary } from '../services/leaderboard/player-civ-stats.ts'
+import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
+import type { SeasonSelection } from '../services/season/selection.ts'
 import type { Database } from '@civup/db'
 import type { GameMode, LeaderboardMode } from '@civup/game'
-import type { PlayerRankProfile, PlayerRatingSummary } from '../services/player/rank.ts'
-import type { PlayerCivRankingSummary, PlayerCivStatSummary } from '../services/leaderboard/player-civ-stats.ts'
-import { matches, matchParticipants, players } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { and, eq } from 'drizzle-orm'
+import { matches, matchParticipants, players } from '@civup/db'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader, LEADERBOARD_MODES } from '@civup/game'
 import { leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { listPlayerCivStats, loadPlayerCivRankingSummaries } from '../services/leaderboard/player-civ-stats.ts'
 import { hydrateModeRatingSnapshotsFromEvents } from '../services/match/rating-events.ts'
-import type { SeasonSelection } from '../services/season/selection.ts'
-import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { loadSelectedSeasonRatings } from '../services/season/ratings.ts'
+import { resolveSeasonSelection } from '../services/season/selection.ts'
 import { historicalModeRankLabel, loadSeasonStandings } from '../services/season/standings.ts'
 import { buildPlayerCardDescription, countFfaRatingWins, formatModeStats, getRatingModes } from './player-card.ts'
 
@@ -60,9 +60,13 @@ export async function playerLeadersEmbed(
   ])
 
   const requestedModeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
-  const rankProfile = historical ? null : options.rankProfile ?? null
+  const rankProfile = historical ? null : (options.rankProfile ?? null)
   const historicalStandings = historical ? await loadSeasonStandings(db, options.kv, displaySeason.id) : null
-  const historicalPositions = Object.fromEntries((historicalStandings?.modes ?? []).flatMap(row => row.playerId === playerId && row.position != null ? [[row.mode, row.position]] : []))
+  const historicalPositions = Object.fromEntries(
+    (historicalStandings?.modes ?? []).flatMap(row =>
+      row.playerId === playerId && row.position != null ? [[row.mode, row.position]] : [],
+    ),
+  )
   const visibleModes = options.visibleModes ?? LEADERBOARD_MODES
   const playerCivFilter = {
     seasonId: displaySeason?.id ?? null,
@@ -71,10 +75,15 @@ export async function playerLeadersEmbed(
 
   const leaderStats = await listPlayerCivStats(db, playerCivFilter, playerId)
   const topPlayedLeaders = sortLeaderStatsByGames(leaderStats).slice(0, TOP_LEADER_LIMIT)
-  const rankings = await loadPlayerCivRankingSummaries(db, playerCivFilter, playerId, leaderStats.map(stat => stat.civId))
+  const rankings = await loadPlayerCivRankingSummaries(
+    db,
+    playerCivFilter,
+    playerId,
+    leaderStats.map(stat => stat.civId),
+  )
   const rankRows = buildRankRows(leaderStats, rankings)
 
-  const fields: Array<{ name: string, value: string, inline?: boolean }> = []
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = []
   const ratingModes = getRatingModes(modeFilter, visibleModes)
   const ffaRatingWins = ratingModes.includes('ffa')
     ? await countPlayerFfaRatingWins(db, playerId, modeFilter, displaySeason?.id ?? null)
@@ -82,11 +91,29 @@ export async function playerLeadersEmbed(
 
   for (const mode of ratingModes) {
     const ratingRow = ratings.find(row => row.mode === mode)
-    if (!ratingRow || (ratingRow.gamesPlayed === 0 && ratingRow.effectiveGames === 0 && ratingRow.publicRating == null)) continue
+    if (!ratingRow || (ratingRow.gamesPlayed === 0 && ratingRow.effectiveGames === 0 && ratingRow.publicRating == null))
+      continue
 
     fields.push({
       name: formatLeaderboardModeLabel(mode, mode),
-      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, { labelsByTier: rankProfile?.labelsByTier, ffaRatingWins, position: historicalPositions[mode], historicalRankLabel: historical ? historicalModeRankLabel(historicalStandings?.modes.find(row => row.playerId === playerId && row.mode === mode), displaySeason.seasonNumber, options.historicalRoleIds, options.unrankedRoleId, options.historicalRoleLabels) : undefined, publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null), currentRatingLabel: selected.allTime, roleIdsByTier: rankProfile?.roleIdsByTier, unrankedRoleId: rankProfile?.unrankedRoleId }),
+      value: formatModeStats(rankProfile?.modes[mode], ratingRow, mode, {
+        labelsByTier: rankProfile?.labelsByTier,
+        ffaRatingWins,
+        position: historicalPositions[mode],
+        historicalRankLabel: historical
+          ? historicalModeRankLabel(
+              historicalStandings?.modes.find(row => row.playerId === playerId && row.mode === mode),
+              displaySeason.seasonNumber,
+              options.historicalRoleIds,
+              options.unrankedRoleId,
+              options.historicalRoleLabels,
+            )
+          : undefined,
+        publicEra: displaySeason?.ratingSystem === 'rp' || (selected.allTime && ratingRow.publicRating != null),
+        currentRatingLabel: selected.allTime,
+        roleIdsByTier: rankProfile?.roleIdsByTier,
+        unrankedRoleId: rankProfile?.unrankedRoleId,
+      }),
       inline: true,
     })
   }
@@ -121,12 +148,16 @@ export async function playerLeadersEmbed(
   return new Embed()
     .title(`Leaders${displaySeason || selected.allTime ? ` · ${selected.label}` : ''}`)
     .description(buildLeadersDescription(playerId, requestedModeLabel, rankProfile))
-    .color(0xC8AA6E)
+    .color(0xc8aa6e)
     .footer({ text: displayName, icon_url: player?.avatarUrl ?? undefined })
     .fields(...fields)
 }
 
-function buildLeadersDescription(playerId: string, requestedModeLabel: string | null, rankProfile: PlayerRankProfile | null): string {
+function buildLeadersDescription(
+  playerId: string,
+  requestedModeLabel: string | null,
+  rankProfile: PlayerRankProfile | null,
+): string {
   return buildPlayerCardDescription(playerId, requestedModeLabel, rankProfile)
 }
 
@@ -147,7 +178,7 @@ function buildRankRows(
   rankings: Map<string, PlayerCivRankingSummary>,
 ): LeaderRankRow[] {
   return leaderStats
-    .flatMap((stat) => {
+    .flatMap(stat => {
       const ranking = rankings.get(stat.civId)
       if (!ranking || ranking.playerAdjustedWinRateRank == null || ranking.playerAdjustedWinRatePct == null) return []
       return [{ stat, ranking }]
@@ -173,7 +204,7 @@ function formatTopPlayedLeaderList(
   stats: readonly PlayerCivStatSummary[],
   rankings: Map<string, PlayerCivRankingSummary>,
 ): string {
-  const lines = stats.map((stat) => {
+  const lines = stats.map(stat => {
     const ranking = rankings.get(stat.civId)
     const rank = ranking?.playerGamesRank
     return `${formatRank(rank)} ${formatRecord(stat.wins, stat.picks)} ${formatLeaderName(stat.civId)}`
@@ -182,7 +213,7 @@ function formatTopPlayedLeaderList(
 }
 
 function formatBestLeaderList(rows: readonly LeaderRankRow[]): string {
-  const lines = rows.map((row) => {
+  const lines = rows.map(row => {
     const rank = row.ranking.playerAdjustedWinRateRank
     return `${formatRank(rank)} ${formatRecord(row.stat.wins, row.stat.picks)} ${formatLeaderName(row.stat.civId)}`
   })
@@ -204,14 +235,12 @@ function formatLeaderName(civId: string): string {
     const leader = getLeader(civId)
     const emoji = leaderEmojiMention(civId)
     return emoji ? `${emoji} ${leader.name}` : leader.name
-  }
-  catch {
+  } catch {
     try {
       const leader = getLeader(civId, 'beta')
       const emoji = leaderEmojiMention(civId)
       return emoji ? `${emoji} ${leader.name}` : leader.name
-    }
-    catch {
+    } catch {
       return civId
     }
   }
@@ -233,7 +262,12 @@ function limitFieldLines(lines: readonly string[]): string {
   return kept.join('\n')
 }
 
-async function countPlayerFfaRatingWins(db: Database, playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null): Promise<number> {
+async function countPlayerFfaRatingWins(
+  db: Database,
+  playerId: string,
+  modeFilter: LeadersModeFilter,
+  seasonId: string | null,
+): Promise<number> {
   const rowsRaw = await db
     .select({
       matchId: matchParticipants.matchId,
@@ -253,10 +287,7 @@ async function countPlayerFfaRatingWins(db: Database, playerId: string, modeFilt
 }
 
 function buildCompletedMatchesWhereClause(playerId: string, modeFilter: LeadersModeFilter, seasonId: string | null) {
-  const conditions = [
-    eq(matchParticipants.playerId, playerId),
-    eq(matches.status, 'completed'),
-  ]
+  const conditions = [eq(matchParticipants.playerId, playerId), eq(matches.status, 'completed')]
 
   if (seasonId) conditions.push(eq(matches.seasonId, seasonId))
   if (modeFilter !== 'all') conditions.push(eq(matches.gameMode, modeFilter))

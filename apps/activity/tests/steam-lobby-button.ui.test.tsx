@@ -1,9 +1,9 @@
 /** @jsxImportSource @solidjs/web */
 
 import { screen, waitFor } from '@solidjs/testing-library'
-import { fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import { clipboardSpies, discordSpies, resetUiMocks, uiMockState } from './ui-mocks'
 
 const onSaveSteamLink = vi.fn(() => {})
@@ -18,10 +18,7 @@ describe('SteamLobbyButton UI', () => {
 
   test('shows the editable affordance when a steam link can be managed', () => {
     render(() => (
-      <SteamLobbyButton
-        steamLobbyLink="steam://joinlobby/289070/example"
-        onSaveSteamLink={onSaveSteamLink}
-      />
+      <SteamLobbyButton steamLobbyLink="steam://joinlobby/289070/example" onSaveSteamLink={onSaveSteamLink} />
     ))
 
     const button = screen.getByRole('button', { name: 'Edit Steam lobby link' })

@@ -1,13 +1,7 @@
 import { CivReplayStateReader } from './state-reader.ts'
 
 const MAP_BEGIN = [
-  0x0A, 0, 0, 0,
-  0x0B, 0, 0, 0,
-  0x0C, 0, 0, 0,
-  0x0D, 0, 0, 0,
-  0x0E, 0, 0, 0,
-  0x0F, 0, 0, 0,
-  0x06, 0, 0, 0,
+  0x0a, 0, 0, 0, 0x0b, 0, 0, 0, 0x0c, 0, 0, 0, 0x0d, 0, 0, 0, 0x0e, 0, 0, 0, 0x0f, 0, 0, 0, 0x06, 0, 0, 0,
 ] as const
 
 export interface CivReplayMapSnapshot {
@@ -66,9 +60,8 @@ export function parseCivReplayMap(bytes: Uint8Array): CivReplayMapSnapshot {
 
   reader.skip(4)
   summary.width = reader.readU32()
-  summary.height = summary.width > 0 && summary.tileCount % summary.width === 0
-    ? summary.tileCount / summary.width
-    : null
+  summary.height =
+    summary.width > 0 && summary.tileCount % summary.width === 0 ? summary.tileCount / summary.width : null
   for (const tile of summary.tiles) {
     tile.x = summary.width > 0 ? tile.index % summary.width : tile.index
     tile.y = summary.width > 0 ? Math.floor(tile.index / summary.width) : 0
@@ -77,7 +70,11 @@ export function parseCivReplayMap(bytes: Uint8Array): CivReplayMapSnapshot {
   return summary
 }
 
-function parseTile(reader: CivReplayStateReader, summary: CivReplayMapSnapshot, index: number): CivReplayMapTileSnapshot {
+function parseTile(
+  reader: CivReplayStateReader,
+  summary: CivReplayMapSnapshot,
+  index: number,
+): CivReplayMapTileSnapshot {
   reader.readU32()
   reader.readU32()
 
@@ -135,16 +132,16 @@ function parseTile(reader: CivReplayStateReader, summary: CivReplayMapSnapshot, 
     reader.readU8()
     const wonderRaw = reader.readU32()
 
-    cityId = city !== 0xFFFF ? city : null
-    cityToken = cityTokenRaw !== 0xFFFF ? cityTokenRaw : null
-    ownershipToken = ownershipTokenRaw !== 0xFFFFFFFF ? ownershipTokenRaw : null
-    districtId = district !== 0xFFFF ? district : null
-    districtToken = districtTokenRaw !== 0xFFFF ? districtTokenRaw : null
-    wonder = wonderRaw !== 0xFFFFFFFF ? wonderRaw : null
+    cityId = city !== 0xffff ? city : null
+    cityToken = cityTokenRaw !== 0xffff ? cityTokenRaw : null
+    ownershipToken = ownershipTokenRaw !== 0xffffffff ? ownershipTokenRaw : null
+    districtId = district !== 0xffff ? district : null
+    districtToken = districtTokenRaw !== 0xffff ? districtTokenRaw : null
+    wonder = wonderRaw !== 0xffffffff ? wonderRaw : null
 
-    if (city !== 0xFFFF) summary.cityTileCount += 1
-    if (district !== 0xFFFF) summary.districtTileCount += 1
-    if (wonderRaw !== 0xFFFFFFFF) summary.wonderTileCount += 1
+    if (city !== 0xffff) summary.cityTileCount += 1
+    if (district !== 0xffff) summary.districtTileCount += 1
+    if (wonderRaw !== 0xffffffff) summary.wonderTileCount += 1
   }
 
   return {

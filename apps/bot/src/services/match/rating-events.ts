@@ -1,8 +1,8 @@
 import type { Database } from '@civup/db'
 import type { PublicRatingSnapshot } from '@civup/rating'
+import { and, eq, inArray } from 'drizzle-orm'
 import { matches, playerRatingEvents, seasons } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { and, eq, inArray } from 'drizzle-orm'
 import { getStoredGameModeContext } from './draft-data.ts'
 
 const RATING_EVENT_MATCH_ID_BATCH_SIZE = 40
@@ -18,12 +18,19 @@ interface ModeRatingSnapshotTarget {
   ratingAfterSigma: number | null
 }
 
-export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(db: Database, rows: readonly T[]): Promise<Array<T & PublicRatingSnapshot>> {
+export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingSnapshotTarget>(
+  db: Database,
+  rows: readonly T[],
+): Promise<Array<T & PublicRatingSnapshot>> {
   if (rows.length === 0) return [...rows]
 
   const matchIds = [...new Set(rows.map(row => row.matchId))]
-  const eras = new Map<string, { publicEra: boolean, enabled: boolean }>()
-  const events = new Map<string, Pick<ModeRatingSnapshotTarget, 'ratingBeforeMu' | 'ratingBeforeSigma' | 'ratingAfterMu' | 'ratingAfterSigma'> & PublicRatingSnapshot>()
+  const eras = new Map<string, { publicEra: boolean; enabled: boolean }>()
+  const events = new Map<
+    string,
+    Pick<ModeRatingSnapshotTarget, 'ratingBeforeMu' | 'ratingBeforeSigma' | 'ratingAfterMu' | 'ratingAfterSigma'> &
+      PublicRatingSnapshot
+  >()
 
   for (const matchIdBatch of chunk(matchIds, RATING_EVENT_MATCH_ID_BATCH_SIZE)) {
     const eventRows = await db
@@ -42,10 +49,10 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
       })
       .from(matches)
       .leftJoin(seasons, eq(seasons.id, matches.seasonId))
-      .leftJoin(playerRatingEvents, and(
-        eq(playerRatingEvents.matchId, matches.id),
-        inArray(playerRatingEvents.mode, [...LEADERBOARD_MODES]),
-      ))
+      .leftJoin(
+        playerRatingEvents,
+        and(eq(playerRatingEvents.matchId, matches.id), inArray(playerRatingEvents.mode, [...LEADERBOARD_MODES])),
+      )
       .where(inArray(matches.id, matchIdBatch))
 
     for (const event of eventRows) {
@@ -56,18 +63,28 @@ export async function hydrateModeRatingSnapshotsFromEvents<T extends ModeRatingS
         ratingBeforeSigma: event.ratingBeforeSigma,
         ratingAfterMu: event.ratingAfterMu,
         ratingAfterSigma: event.ratingAfterSigma,
-        ...(event.ratingSystem === 'rp' ? { ratingSystem: 'rp', publicRatingBefore: event.publicReadsEnabled ? event.publicRatingBefore : null, publicRatingAfter: event.publicReadsEnabled ? event.publicRatingAfter : null,
-          publicRatingReady: event.publicReadsEnabled === true && event.publicRatingBefore != null && event.publicRatingAfter != null,
-        } as const : {}),
+        ...(event.ratingSystem === 'rp'
+          ? ({
+              ratingSystem: 'rp',
+              publicRatingBefore: event.publicReadsEnabled ? event.publicRatingBefore : null,
+              publicRatingAfter: event.publicReadsEnabled ? event.publicRatingAfter : null,
+              publicRatingReady:
+                event.publicReadsEnabled === true &&
+                event.publicRatingBefore != null &&
+                event.publicRatingAfter != null,
+            } as const)
+          : {}),
       })
     }
   }
 
-  return rows.map((row) => {
+  return rows.map(row => {
     const leaderboardMode = getStoredGameModeContext(row.gameMode, row.draftData)?.leaderboardMode ?? null
     const event = leaderboardMode ? events.get(eventKey(row.matchId, row.playerId, leaderboardMode)) : null
     if (event) return { ...row, ...event }
-    return leaderboardMode && eras.get(row.matchId)?.publicEra ? { ...row, ratingSystem: 'rp', publicRatingBefore: null, publicRatingAfter: null, publicRatingReady: false } : row
+    return leaderboardMode && eras.get(row.matchId)?.publicEra
+      ? { ...row, ratingSystem: 'rp', publicRatingBefore: null, publicRatingAfter: null, publicRatingReady: false }
+      : row
   })
 }
 

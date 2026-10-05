@@ -3,12 +3,12 @@ import { Hono } from 'hono'
 import { routePartykitRequest } from 'partyserver'
 import * as commands from './commands/index.ts'
 import * as cron from './cron/cleanup.ts'
-import { registerApiRoutes } from './routes/index.ts'
 import { MaintenanceDO } from './maintenance/maintenance-do.ts'
+import { registerApiRoutes } from './routes/index.ts'
+import { withDivisionDelivery } from './services/ranked/division-delivery.ts'
 import { Activity } from './session-runtime/activity-feed.ts'
 import { SessionDO } from './session-runtime/session-do.ts'
 import { factory } from './setup.ts'
-import { withDivisionDelivery } from './services/ranked/division-delivery.ts'
 
 interface DiscordInteractionEnvelope {
   type?: number
@@ -19,10 +19,7 @@ const DISCORD_PING_INTERACTION_TYPE = 1
 const DISCORD_CHANNEL_MESSAGE_WITH_SOURCE = 4
 const DISCORD_EPHEMERAL_MESSAGE_FLAG = 1 << 6
 
-const discordApp = factory.discord().loader([
-  ...Object.values(commands),
-  ...Object.values(cron),
-])
+const discordApp = factory.discord().loader([...Object.values(commands), ...Object.values(cron)])
 
 const app = new Hono<Env>()
 
@@ -44,7 +41,9 @@ const worker: ExportedHandler<Env['Bindings']> = {
 
     const disallowedGuildResponse = await rejectDisallowedDiscordGuildInteraction(request, env)
     if (disallowedGuildResponse) return disallowedGuildResponse
-    return withDivisionDelivery(env.MaintenanceDO, ctx, () => app.fetch(request, { ...env, CIVUP_INTERACTION_ENDPOINT_URL: request.url }, ctx))
+    return withDivisionDelivery(env.MaintenanceDO, ctx, () =>
+      app.fetch(request, { ...env, CIVUP_INTERACTION_ENDPOINT_URL: request.url }, ctx),
+    )
   },
   scheduled(controller, env, ctx) {
     const cronEvent = {
@@ -61,7 +60,8 @@ async function handleBotPartyRequest(request: Request, env: Env['Bindings']): Pr
   const partyNamespace = getBotPartyNamespace(request)
   if (!partyNamespace) return null
   if (partyNamespace === 'session') return routeSessionPartyRequest(request, env)
-  if (partyNamespace === 'activity' && !env.Activity) return new Response('Activity feed is not configured', { status: 503 })
+  if (partyNamespace === 'activity' && !env.Activity)
+    return new Response('Activity feed is not configured', { status: 503 })
 
   return routePartykitRequest(request, env, { prefix: 'parties' })
 }
@@ -76,42 +76,49 @@ async function routeSessionPartyRequest(request: Request, env: Env['Bindings']):
   return stub.fetch(request)
 }
 
-async function rejectDisallowedDiscordGuildInteraction(request: Request, env: Env['Bindings']): Promise<Response | null> {
+async function rejectDisallowedDiscordGuildInteraction(
+  request: Request,
+  env: Env['Bindings'],
+): Promise<Response | null> {
   const allowedGuildId = normalizeAllowedGuildId(env.ALLOWED_DISCORD_GUILD_ID)
   if (!allowedGuildId || !isDiscordInteractionRequest(request)) return null
 
   let interaction: DiscordInteractionEnvelope
   try {
     interaction = await request.clone().json<DiscordInteractionEnvelope>()
-  }
-  catch {
+  } catch {
     return null
   }
 
   if (interaction.type === DISCORD_PING_INTERACTION_TYPE) return null
   if (typeof interaction.guild_id === 'string' && interaction.guild_id === allowedGuildId) return null
 
-  return new Response(JSON.stringify({
-    type: DISCORD_CHANNEL_MESSAGE_WITH_SOURCE,
-    data: {
-      flags: DISCORD_EPHEMERAL_MESSAGE_FLAG,
-      content: 'This bot is only available in the configured Discord server.',
+  return new Response(
+    JSON.stringify({
+      type: DISCORD_CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags: DISCORD_EPHEMERAL_MESSAGE_FLAG,
+        content: 'This bot is only available in the configured Discord server.',
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
     },
-  }), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  })
+  )
 }
 
 function isDiscordInteractionRequest(request: Request): boolean {
   const url = new URL(request.url)
-  return request.method.toUpperCase() === 'POST'
-    && !url.pathname.startsWith('/api/')
-    && request.headers.has('X-Signature-Ed25519')
-    && request.headers.has('X-Signature-Timestamp')
+  return (
+    request.method.toUpperCase() === 'POST' &&
+    !url.pathname.startsWith('/api/') &&
+    request.headers.has('X-Signature-Ed25519') &&
+    request.headers.has('X-Signature-Timestamp')
+  )
 }
 
 function getBotPartyNamespace(request: Request): 'session' | 'activity' | null {

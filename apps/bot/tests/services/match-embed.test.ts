@@ -1,51 +1,61 @@
 import { describe, expect, test } from 'bun:test'
-import { lobbyCancelledEmbed, lobbyDraftCompleteEmbed, lobbyOpenEmbed, lobbyResultEmbed } from '../../src/embeds/match.ts'
+import {
+  lobbyCancelledEmbed,
+  lobbyDraftCompleteEmbed,
+  lobbyOpenEmbed,
+  lobbyResultEmbed,
+} from '../../src/embeds/match.ts'
 
 describe('match result embed', () => {
   test('limits leaderboard movement lines to tracked top ranks while always keeping new entrants', () => {
-    const embed = lobbyResultEmbed('ffa', [
+    const embed = lobbyResultEmbed(
+      'ffa',
+      [
+        {
+          playerId: '100010000000000001',
+          team: null,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8,
+          ratingAfterMu: 28,
+          ratingAfterSigma: 7,
+          leaderboardBeforeRank: 9,
+          leaderboardAfterRank: 6,
+          leaderboardEligibleCount: 100,
+        },
+        {
+          playerId: '100010000000000002',
+          team: null,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: 24,
+          ratingBeforeSigma: 8,
+          ratingAfterMu: 26,
+          ratingAfterSigma: 7,
+          leaderboardBeforeRank: 50,
+          leaderboardAfterRank: 40,
+          leaderboardEligibleCount: 100,
+        },
+        {
+          playerId: '100010000000000003',
+          team: null,
+          civId: null,
+          placement: 3,
+          ratingBeforeMu: 23,
+          ratingBeforeSigma: 8,
+          ratingAfterMu: 25,
+          ratingAfterSigma: 7,
+          leaderboardBeforeRank: null,
+          leaderboardAfterRank: 12,
+          leaderboardEligibleCount: 100,
+        },
+      ],
+      undefined,
       {
-        playerId: '100010000000000001',
-        team: null,
-        civId: null,
-        placement: 1,
-        ratingBeforeMu: 25,
-        ratingBeforeSigma: 8,
-        ratingAfterMu: 28,
-        ratingAfterSigma: 7,
-        leaderboardBeforeRank: 9,
-        leaderboardAfterRank: 6,
-        leaderboardEligibleCount: 100,
+        rankedRoleLines: ['⬆️ <@100010000000000001> <@&1> -> <@&2> (FFA)'],
       },
-      {
-        playerId: '100010000000000002',
-        team: null,
-        civId: null,
-        placement: 2,
-        ratingBeforeMu: 24,
-        ratingBeforeSigma: 8,
-        ratingAfterMu: 26,
-        ratingAfterSigma: 7,
-        leaderboardBeforeRank: 50,
-        leaderboardAfterRank: 40,
-        leaderboardEligibleCount: 100,
-      },
-      {
-        playerId: '100010000000000003',
-        team: null,
-        civId: null,
-        placement: 3,
-        ratingBeforeMu: 23,
-        ratingBeforeSigma: 8,
-        ratingAfterMu: 25,
-        ratingAfterSigma: 7,
-        leaderboardBeforeRank: null,
-        leaderboardAfterRank: 12,
-        leaderboardEligibleCount: 100,
-      },
-    ], undefined, {
-      rankedRoleLines: ['⬆️ <@100010000000000001> <@&1> -> <@&2> (FFA)'],
-    }).toJSON()
+    ).toJSON()
 
     const fields = JSON.stringify(embed.fields)
     expect(fields).toContain('⬆️ <@100010000000000001> `#9 ` -> `#6 `')
@@ -56,12 +66,19 @@ describe('match result embed', () => {
   })
 
   test('resolves leaders in historical beta results', () => {
-    const embed = lobbyResultEmbed('ffa', [{
-      playerId: '100010000000000001',
-      team: null,
-      civId: 'taino-anacaona',
-      placement: 1,
-    }], undefined, { leaderDataVersion: 'beta' }).toJSON()
+    const embed = lobbyResultEmbed(
+      'ffa',
+      [
+        {
+          playerId: '100010000000000001',
+          team: null,
+          civId: 'taino-anacaona',
+          placement: 1,
+        },
+      ],
+      undefined,
+      { leaderDataVersion: 'beta' },
+    ).toJSON()
 
     expect(embed.description).toContain('Anacaona')
     expect(embed.description).not.toContain('taino-anacaona')
@@ -83,28 +100,43 @@ describe('match result embed', () => {
   })
 
   test('pads four-team open lobbies into a 2x2 inline field layout', () => {
-    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 8 }, () => null), 8).toJSON()
+    const embed = lobbyOpenEmbed(
+      '2v2',
+      Array.from({ length: 8 }, () => null),
+      8,
+    ).toJSON()
 
     expect(embed.title).toContain('2v2v2v2')
-    expect(embed.fields?.map(field => field.name)).toEqual([
-      'Team A',
-      'Team B',
-      '\u200B',
-      'Team C',
-      'Team D',
-      '\u200B',
-    ])
+    expect(embed.fields?.map(field => field.name)).toEqual(['Team A', 'Team B', '\u200B', 'Team C', 'Team D', '\u200B'])
   })
 
   test('marks closed open lobbies with a closed title and purple highlight', () => {
-    const embed = lobbyOpenEmbed('ffa', Array.from({ length: 6 }, () => null), 6, null, null, 'live', false, { closed: true }).toJSON()
+    const embed = lobbyOpenEmbed(
+      'ffa',
+      Array.from({ length: 6 }, () => null),
+      6,
+      null,
+      null,
+      'live',
+      false,
+      { closed: true },
+    ).toJSON()
 
     expect(embed.title).toBe('LOBBY CLOSED  -  FFA')
-    expect(embed.color).toBe(0x8B5CF6)
+    expect(embed.color).toBe(0x8b5cf6)
   })
 
   test('labels CivBlitz embeds before the game mode', () => {
-    const openEmbed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, { civBlitz: true }).toJSON()
+    const openEmbed = lobbyOpenEmbed(
+      '2v2',
+      Array.from({ length: 4 }, () => null),
+      4,
+      null,
+      null,
+      'live',
+      false,
+      { civBlitz: true },
+    ).toJSON()
     const resultEmbed = lobbyResultEmbed('2v2', [], undefined, { civBlitz: true }).toJSON()
 
     expect(openEmbed.title).toBe('LOBBY OPEN  -  CivBlitz 2v2')
@@ -112,12 +144,17 @@ describe('match result embed', () => {
   })
 
   test('shows unranked result markers without rating fallbacks', () => {
-    const embed = lobbyResultEmbed('2v2', [
-      { playerId: '100010000000000001', team: 0, civId: 'america-abraham-lincoln', placement: 1 },
-      { playerId: '100010000000000002', team: 1, civId: 'arabia-saladin-vizier', placement: 2 },
-      { playerId: '100010000000000003', team: 0, civId: 'australia-john-curtin', placement: 1 },
-      { playerId: '100010000000000004', team: 1, civId: 'aztec-montezuma', placement: 2 },
-    ], undefined, { civBlitz: true, unranked: true }).toJSON()
+    const embed = lobbyResultEmbed(
+      '2v2',
+      [
+        { playerId: '100010000000000001', team: 0, civId: 'america-abraham-lincoln', placement: 1 },
+        { playerId: '100010000000000002', team: 1, civId: 'arabia-saladin-vizier', placement: 2 },
+        { playerId: '100010000000000003', team: 0, civId: 'australia-john-curtin', placement: 1 },
+        { playerId: '100010000000000004', team: 1, civId: 'aztec-montezuma', placement: 2 },
+      ],
+      undefined,
+      { civBlitz: true, unranked: true },
+    ).toJSON()
 
     expect(embed.description).toContain('`  +` 📈 <@100010000000000001>')
     expect(embed.description).toContain('`  -` 📉 <@100010000000000002>')
@@ -130,7 +167,16 @@ describe('match result embed', () => {
       closed: false,
       draftConfig: { blindBans: false, blindPicks: true },
     }
-    const embed = lobbyOpenEmbed('2v2', Array.from({ length: 4 }, () => null), 4, null, null, 'live', false, options).toJSON()
+    const embed = lobbyOpenEmbed(
+      '2v2',
+      Array.from({ length: 4 }, () => null),
+      4,
+      null,
+      null,
+      'live',
+      false,
+      options,
+    ).toJSON()
     const fields = JSON.stringify(embed.fields ?? [])
 
     expect(embed.fields?.map(field => field.name)).not.toContain('Draft Settings')
@@ -146,27 +192,24 @@ describe('match result embed', () => {
     }))
     const embed = lobbyCancelledEmbed('2v2', participants, 'cancel').toJSON()
 
-    expect(embed.fields?.map(field => field.name)).toEqual([
-      'Team A',
-      'Team B',
-      '\u200B',
-      'Team C',
-      'Team D',
-      '\u200B',
-    ])
+    expect(embed.fields?.map(field => field.name)).toEqual(['Team A', 'Team B', '\u200B', 'Team C', 'Team D', '\u200B'])
   })
 
   test('shows the chosen map above draft-complete roster fields', () => {
-    const embed = lobbyDraftCompleteEmbed('2v2', [
-      { playerId: '1', team: 0, civId: null },
-      { playerId: '2', team: 1, civId: null },
-      { playerId: '3', team: 0, civId: null },
-      { playerId: '4', team: 1, civId: null },
-    ], {
-      mapType: 'east-vs-west',
-      mapScript: 'seven-seas',
-      winningSeatCount: 3,
-    }).toJSON()
+    const embed = lobbyDraftCompleteEmbed(
+      '2v2',
+      [
+        { playerId: '1', team: 0, civId: null },
+        { playerId: '2', team: 1, civId: null },
+        { playerId: '3', team: 0, civId: null },
+        { playerId: '4', team: 1, civId: null },
+      ],
+      {
+        mapType: 'east-vs-west',
+        mapScript: 'seven-seas',
+        winningSeatCount: 3,
+      },
+    ).toJSON()
 
     expect(embed.fields?.[0]).toEqual({ name: 'Map', value: 'Seven Seas EvW', inline: false })
     expect(embed.fields?.[1]?.name).toBe('Team A')

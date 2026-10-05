@@ -1,3 +1,4 @@
+import type { CivReplayCityAttributionContext } from './city-attribution.ts'
 import type {
   CivReplayAgeState,
   CivReplayCitySnapshot,
@@ -12,7 +13,6 @@ import type {
   CivReplayUnitSnapshot,
 } from './players.ts'
 import type { CivReplayTurnSnapshot } from './snapshot.ts'
-import type { CivReplayCityAttributionContext } from './city-attribution.ts'
 import { createCivReplayCityAttributionContext, inferUnitCreatedCity } from './city-attribution.ts'
 
 export type CivReplaySnapshotEvent =
@@ -196,7 +196,11 @@ export interface CivReplayUnitCreatedEvent {
   currentCityProductionItems: number[]
 }
 
-export type CivReplayUnitCreationMethod = 'producedOrChopped' | 'likelyPurchasedOrGranted' | 'likelySettlementGrantOrInstant' | 'unknown'
+export type CivReplayUnitCreationMethod =
+  | 'producedOrChopped'
+  | 'likelyPurchasedOrGranted'
+  | 'likelySettlementGrantOrInstant'
+  | 'unknown'
 export type CivReplayUnitCreationConfidence = 'high' | 'medium' | 'low'
 
 interface CivReplayUnitCreationInference {
@@ -268,15 +272,20 @@ export function attachCivReplaySnapshotEvents(snapshots: CivReplayTurnSnapshot[]
   let previous: CivReplayTurnSnapshot | null = null
   const seenCityLocationKeys = new Set<string>()
   for (const snapshot of snapshots) {
-    snapshot.events = previous && areConsecutiveTurns(previous, snapshot)
-      ? diffConsecutiveSnapshots(previous, snapshot, seenCityLocationKeys)
-      : []
+    snapshot.events =
+      previous && areConsecutiveTurns(previous, snapshot)
+        ? diffConsecutiveSnapshots(previous, snapshot, seenCityLocationKeys)
+        : []
     for (const { city } of iterateCities(snapshot)) seenCityLocationKeys.add(cityLocationKey(city))
     previous = snapshot
   }
 }
 
-function diffConsecutiveSnapshots(previous: CivReplayTurnSnapshot, current: CivReplayTurnSnapshot, seenCityLocationKeys: Set<string>): CivReplaySnapshotEvent[] {
+function diffConsecutiveSnapshots(
+  previous: CivReplayTurnSnapshot,
+  current: CivReplayTurnSnapshot,
+  seenCityLocationKeys: Set<string>,
+): CivReplaySnapshotEvent[] {
   const previousPlayerCityKeys = new Set<string>()
   const previousCityLocationKeys = new Set<string>()
   const previousCitiesByPlayerKey = new Map<string, CivReplayCitySnapshot>()
@@ -299,8 +308,18 @@ function diffConsecutiveSnapshots(previous: CivReplayTurnSnapshot, current: CivR
     events.push(...diffDedication(previousPlayer, player, current.turnFromName))
     events.push(...diffAge(previousPlayer, player, current.turnFromName))
     events.push(...diffPantheon(previousPlayer, player, current.turnFromName))
-    events.push(...diffProgressionCompleted(previousPlayer.techs, player.techs, 'techCompleted', current.turnFromName, player.id))
-    events.push(...diffProgressionCompleted(previousPlayer.civics, player.civics, 'civicCompleted', current.turnFromName, player.id))
+    events.push(
+      ...diffProgressionCompleted(previousPlayer.techs, player.techs, 'techCompleted', current.turnFromName, player.id),
+    )
+    events.push(
+      ...diffProgressionCompleted(
+        previousPlayer.civics,
+        player.civics,
+        'civicCompleted',
+        current.turnFromName,
+        player.id,
+      ),
+    )
     events.push(...diffDistricts(previousPlayer, player, current.turnFromName))
     events.push(...diffUnits(previousPlayer, player, current.turnFromName, cityAttribution))
     events.push(...diffGovernors(previousPlayer, player, current.turnFromName))
@@ -349,47 +368,77 @@ function diffConsecutiveSnapshots(previous: CivReplayTurnSnapshot, current: CivR
   return events
 }
 
-function diffPantheon(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplayPantheonChangedEvent[] {
+function diffPantheon(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplayPantheonChangedEvent[] {
   const previousPantheon = normalizeNullableHash(previous.pantheon)
   const currentPantheon = normalizeNullableHash(current.pantheon)
   if (previousPantheon === currentPantheon) return []
   return [{ type: 'pantheonChanged', turn, playerId: current.id, previousPantheon, currentPantheon }]
 }
 
-function diffDedication(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplayDedicationChangedEvent[] {
+function diffDedication(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplayDedicationChangedEvent[] {
   const previousHash = previous.dedication?.hash ?? null
   const currentHash = current.dedication?.hash ?? null
   const previousRecordId = previous.dedication?.recordId ?? null
   const currentRecordId = current.dedication?.recordId ?? null
   if (previousHash === currentHash && previousRecordId === currentRecordId) return []
-  return [{ type: 'dedicationChanged', turn, playerId: current.id, previousHash, currentHash, previousRecordId, currentRecordId }]
+  return [
+    {
+      type: 'dedicationChanged',
+      turn,
+      playerId: current.id,
+      previousHash,
+      currentHash,
+      previousRecordId,
+      currentRecordId,
+    },
+  ]
 }
 
-function diffAge(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplayAgeChangedEvent[] {
+function diffAge(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplayAgeChangedEvent[] {
   const previousEra = previous.era
   const currentEra = current.era
   if (
-    previousEra?.age === currentEra?.age
-    && previousEra?.hasGoldenAge === currentEra?.hasGoldenAge
-    && previousEra?.hasDarkAge === currentEra?.hasDarkAge
-  ) return []
+    previousEra?.age === currentEra?.age &&
+    previousEra?.hasGoldenAge === currentEra?.hasGoldenAge &&
+    previousEra?.hasDarkAge === currentEra?.hasDarkAge
+  )
+    return []
 
-  return [{
-    type: 'ageChanged',
-    turn,
-    playerId: current.id,
-    previousAge: previousEra?.age ?? null,
-    currentAge: currentEra?.age ?? null,
-    previousCurrentScore: previousEra?.currentScore ?? null,
-    currentCurrentScore: currentEra?.currentScore ?? null,
-    previousHasGoldenAge: previousEra?.hasGoldenAge ?? null,
-    currentHasGoldenAge: currentEra?.hasGoldenAge ?? null,
-    previousHasDarkAge: previousEra?.hasDarkAge ?? null,
-    currentHasDarkAge: currentEra?.hasDarkAge ?? null,
-  }]
+  return [
+    {
+      type: 'ageChanged',
+      turn,
+      playerId: current.id,
+      previousAge: previousEra?.age ?? null,
+      currentAge: currentEra?.age ?? null,
+      previousCurrentScore: previousEra?.currentScore ?? null,
+      currentCurrentScore: currentEra?.currentScore ?? null,
+      previousHasGoldenAge: previousEra?.hasGoldenAge ?? null,
+      currentHasGoldenAge: currentEra?.hasGoldenAge ?? null,
+      previousHasDarkAge: previousEra?.hasDarkAge ?? null,
+      currentHasDarkAge: currentEra?.hasDarkAge ?? null,
+    },
+  ]
 }
 
-function diffCityReligion(previous: CivReplayCitySnapshot, current: CivReplayCitySnapshot, playerId: number, turn: number | null): CivReplayCityReligionChangedEvent | null {
+function diffCityReligion(
+  previous: CivReplayCitySnapshot,
+  current: CivReplayCitySnapshot,
+  playerId: number,
+  turn: number | null,
+): CivReplayCityReligionChangedEvent | null {
   const previousReligion = normalizeNullableHash(previous.religion)
   const currentReligion = normalizeNullableHash(current.religion)
   if (previousReligion === currentReligion) return null
@@ -406,29 +455,40 @@ function diffCityReligion(previous: CivReplayCitySnapshot, current: CivReplayCit
   }
 }
 
-function diffGovernment(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplayGovernmentChangedEvent[] {
+function diffGovernment(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplayGovernmentChangedEvent[] {
   const previousPolicies = normalizePolicySlots(previous.policies)
   const currentPolicies = normalizePolicySlots(current.policies)
   if (
-    previous.government === current.government
-    && previous.lastTurnChangeGovernment === current.lastTurnChangeGovernment
-    && samePolicySlots(previousPolicies, currentPolicies)
-  ) return []
+    previous.government === current.government &&
+    previous.lastTurnChangeGovernment === current.lastTurnChangeGovernment &&
+    samePolicySlots(previousPolicies, currentPolicies)
+  )
+    return []
 
-  return [{
-    type: 'governmentChanged',
-    turn,
-    playerId: current.id,
-    previousGovernment: previous.government,
-    currentGovernment: current.government,
-    previousLastTurnChangeGovernment: previous.lastTurnChangeGovernment,
-    currentLastTurnChangeGovernment: current.lastTurnChangeGovernment,
-    previousPolicies,
-    currentPolicies,
-  }]
+  return [
+    {
+      type: 'governmentChanged',
+      turn,
+      playerId: current.id,
+      previousGovernment: previous.government,
+      currentGovernment: current.government,
+      previousLastTurnChangeGovernment: previous.lastTurnChangeGovernment,
+      currentLastTurnChangeGovernment: current.lastTurnChangeGovernment,
+      previousPolicies,
+      currentPolicies,
+    },
+  ]
 }
 
-function diffGoodyHuts(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplayGoodyHutCategoryCountChangedEvent[] {
+function diffGoodyHuts(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplayGoodyHutCategoryCountChangedEvent[] {
   const previousValues = hashValueMap(previous.goodyHuts)
   const currentValues = hashValueMap(current.goodyHuts)
   const hashes = [...new Set([...previousValues.keys(), ...currentValues.keys()])].sort((left, right) => left - right)
@@ -437,12 +497,24 @@ function diffGoodyHuts(previous: CivReplayPlayerSnapshot, current: CivReplayPlay
     const previousValue = previousValues.get(hash) ?? 0
     const currentValue = currentValues.get(hash) ?? 0
     if (previousValue === currentValue) continue
-    events.push({ type: 'goodyHutCategoryCountChanged', turn, playerId: current.id, categoryHash: hash, previousValue, currentValue })
+    events.push({
+      type: 'goodyHutCategoryCountChanged',
+      turn,
+      playerId: current.id,
+      categoryHash: hash,
+      previousValue,
+      currentValue,
+    })
   }
   return events
 }
 
-function diffCityBuiltItems(previous: CivReplayCitySnapshot, current: CivReplayCitySnapshot, playerId: number, turn: number | null): CivReplayCityBuiltItemCompletedEvent[] {
+function diffCityBuiltItems(
+  previous: CivReplayCitySnapshot,
+  current: CivReplayCitySnapshot,
+  playerId: number,
+  turn: number | null,
+): CivReplayCityBuiltItemCompletedEvent[] {
   const previousValues = hashValueMap(previous.builtItems)
   const events: CivReplayCityBuiltItemCompletedEvent[] = []
   for (const item of current.builtItems) {
@@ -464,7 +536,11 @@ function diffCityBuiltItems(previous: CivReplayCitySnapshot, current: CivReplayC
   return events
 }
 
-function diffDistricts(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplaySnapshotEvent[] {
+function diffDistricts(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplaySnapshotEvent[] {
   const events: CivReplaySnapshotEvent[] = []
   const previousByKey = new Map(previous.districts.map(district => [districtKey(district), district]))
   for (const district of current.districts) {
@@ -503,7 +579,12 @@ function diffDistricts(previous: CivReplayPlayerSnapshot, current: CivReplayPlay
   return events
 }
 
-function diffUnits(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null, cityAttribution: CivReplayCityAttributionContext): CivReplaySnapshotEvent[] {
+function diffUnits(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+  cityAttribution: CivReplayCityAttributionContext,
+): CivReplaySnapshotEvent[] {
   const events: CivReplaySnapshotEvent[] = []
   const previousByKey = new Map(previous.units.map(unit => [unitKey(unit), unit]))
   const currentByKey = new Map(current.units.map(unit => [unitKey(unit), unit]))
@@ -530,18 +611,42 @@ function diffUnits(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSn
       continue
     }
     if (previousUnit.type !== unit.type) {
-      events.push({ type: 'unitUpgraded', turn, playerId: current.id, unitId: unit.id, previousUnitType: previousUnit.type, currentUnitType: unit.type, x: unit.x, y: unit.y, name: unit.name })
+      events.push({
+        type: 'unitUpgraded',
+        turn,
+        playerId: current.id,
+        unitId: unit.id,
+        previousUnitType: previousUnit.type,
+        currentUnitType: unit.type,
+        x: unit.x,
+        y: unit.y,
+        name: unit.name,
+      })
     }
   }
   for (const unit of previous.units) {
     if (currentByKey.has(unitKey(unit))) continue
-    events.push({ type: 'unitLost', turn, playerId: current.id, unitId: unit.id, unitType: unit.type, x: unit.x, y: unit.y, name: unit.name })
+    events.push({
+      type: 'unitLost',
+      turn,
+      playerId: current.id,
+      unitId: unit.id,
+      unitType: unit.type,
+      x: unit.x,
+      y: unit.y,
+      name: unit.name,
+    })
   }
   return events
 }
 
-function inferUnitCreation(previousPlayer: CivReplayPlayerSnapshot, currentCity: CivReplayCitySnapshot | null, unit: CivReplayUnitSnapshot): CivReplayUnitCreationInference {
-  const previousCity = currentCity == null ? null : previousPlayer.cities.find(city => city.id === currentCity.id) ?? null
+function inferUnitCreation(
+  previousPlayer: CivReplayPlayerSnapshot,
+  currentCity: CivReplayCitySnapshot | null,
+  unit: CivReplayUnitSnapshot,
+): CivReplayUnitCreationInference {
+  const previousCity =
+    currentCity == null ? null : (previousPlayer.cities.find(city => city.id === currentCity.id) ?? null)
   const previousCityProductionType = previousCity?.currentProductionType ?? null
   const currentCityProductionType = currentCity?.currentProductionType ?? null
   const previousCityProductionItems = previousCity ? [...previousCity.currentProductionItems] : []
@@ -583,9 +688,10 @@ function inferUnitCreation(previousPlayer: CivReplayPlayerSnapshot, currentCity:
     }
   }
 
-  const unchangedProduction = previousCity.currentProductionType === currentCity.currentProductionType
-    && previousCity.currentProductionItems.length === currentCity.currentProductionItems.length
-    && previousCity.currentProductionItems.every((item, index) => item === currentCity.currentProductionItems[index])
+  const unchangedProduction =
+    previousCity.currentProductionType === currentCity.currentProductionType &&
+    previousCity.currentProductionItems.length === currentCity.currentProductionItems.length &&
+    previousCity.currentProductionItems.every((item, index) => item === currentCity.currentProductionItems[index])
 
   return {
     creationMethod: 'likelyPurchasedOrGranted',
@@ -600,7 +706,11 @@ function inferUnitCreation(previousPlayer: CivReplayPlayerSnapshot, currentCity:
   }
 }
 
-function diffGovernors(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplaySnapshotEvent[] {
+function diffGovernors(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplaySnapshotEvent[] {
   const events: CivReplaySnapshotEvent[] = []
   const previousByKey = new Map(previous.governors.map(governor => [governorKey(governor), governor]))
   for (const governor of current.governors) {
@@ -634,13 +744,24 @@ function diffGovernors(previous: CivReplayPlayerSnapshot, current: CivReplayPlay
     const previousPromotions = new Set(governorPromotionHashes(previousGovernor))
     for (const promotionHash of promotionHashes) {
       if (previousPromotions.has(promotionHash)) continue
-      events.push({ type: 'governorPromoted', turn, playerId: current.id, governorId: governor.id, governorType: governor.type, promotionHash })
+      events.push({
+        type: 'governorPromoted',
+        turn,
+        playerId: current.id,
+        governorId: governor.id,
+        governorType: governor.type,
+        promotionHash,
+      })
     }
   }
   return events
 }
 
-function diffImprovements(previous: CivReplayPlayerSnapshot, current: CivReplayPlayerSnapshot, turn: number | null): CivReplaySnapshotEvent[] {
+function diffImprovements(
+  previous: CivReplayPlayerSnapshot,
+  current: CivReplayPlayerSnapshot,
+  turn: number | null,
+): CivReplaySnapshotEvent[] {
   const events: CivReplaySnapshotEvent[] = []
   const previousImprovements = previous.improvements.filter(isRealImprovement)
   const currentImprovements = current.improvements.filter(isRealImprovement)
@@ -648,7 +769,12 @@ function diffImprovements(previous: CivReplayPlayerSnapshot, current: CivReplayP
   const currentByKey = new Map(currentImprovements.map(improvement => [improvementKey(improvement), improvement]))
   for (const improvement of currentImprovements) {
     const previousImprovement = previousByKey.get(improvementKey(improvement))
-    if (previousImprovement && previousImprovement.type === improvement.type && previousImprovement.district === improvement.district) continue
+    if (
+      previousImprovement &&
+      previousImprovement.type === improvement.type &&
+      previousImprovement.district === improvement.district
+    )
+      continue
     events.push({
       type: 'tileImprovementChanged',
       turn,
@@ -708,7 +834,9 @@ function areConsecutiveTurns(previous: CivReplayTurnSnapshot, current: CivReplay
   return previous.turnFromName != null && current.turnFromName === previous.turnFromName + 1
 }
 
-function iterateCities(snapshot: CivReplayTurnSnapshot): Array<{ player: CivReplayPlayerSnapshot, city: CivReplayCitySnapshot }> {
+function iterateCities(
+  snapshot: CivReplayTurnSnapshot,
+): Array<{ player: CivReplayPlayerSnapshot; city: CivReplayCitySnapshot }> {
   return snapshot.players.players.flatMap(player => player.cities.map(city => ({ player, city })))
 }
 
@@ -733,7 +861,11 @@ function normalizePolicySlots(policies: readonly (readonly number[])[]): number[
 
 function samePolicySlots(previous: readonly (readonly number[])[], current: readonly (readonly number[])[]): boolean {
   if (previous.length !== current.length) return false
-  return previous.every((slot, slotIndex) => slot.length === current[slotIndex]!.length && slot.every((policy, policyIndex) => policy === current[slotIndex]![policyIndex]))
+  return previous.every(
+    (slot, slotIndex) =>
+      slot.length === current[slotIndex]!.length &&
+      slot.every((policy, policyIndex) => policy === current[slotIndex]![policyIndex]),
+  )
 }
 
 function districtKey(district: CivReplayDistrictSnapshot): string {
@@ -764,15 +896,15 @@ function improvementKey(improvement: CivReplayImprovementSnapshot): string {
 }
 
 function isRealImprovement(improvement: CivReplayImprovementSnapshot): boolean {
-  return improvement.type !== 0 && improvement.type !== 0xFFFFFFFF
+  return improvement.type !== 0 && improvement.type !== 0xffffffff
 }
 
 function isCompletedBuiltItemValue(value: number | null | undefined): value is number {
-  return value != null && value > 0 && value < 0xFFFF
+  return value != null && value > 0 && value < 0xffff
 }
 
 function normalizeNullableHash(value: number | null | undefined): number | null {
-  return value == null || value === 0 || value === 0xFFFFFFFF ? null : value
+  return value == null || value === 0 || value === 0xffffffff ? null : value
 }
 
 function hashValueMap(values: readonly CivReplayHashValue[]): Map<number, number> {

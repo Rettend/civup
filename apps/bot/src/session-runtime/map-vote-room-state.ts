@@ -1,4 +1,10 @@
-import type { DraftState, MapVotePhase, MapVoteSelection, ResolvedMapVoteResult, RevealedMapVoteSeatBallot } from '@civup/game'
+import type {
+  DraftState,
+  MapVotePhase,
+  MapVoteSelection,
+  ResolvedMapVoteResult,
+  RevealedMapVoteSeatBallot,
+} from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
 import {
   DEFAULT_MAP_VOTE_SELECTION,
@@ -40,11 +46,15 @@ export function isMapVoteInProgress(mapVoteState: StoredMapVoteState): boolean {
   return mapVoteState.enabled && (mapVoteState.phase === 'voting' || mapVoteState.phase === 'reveal')
 }
 
-export function isValidMapVoteSelectionInput(selection: { maps?: unknown } | null | undefined): selection is MapVoteSelection {
-  return Array.isArray(selection?.maps)
-    && selection.maps.length <= MAX_MAP_VOTE_MAP_PICKS
-    && selection.maps.every(map => typeof map === 'string' && isMapVoteMapId(map))
-    && new Set(selection.maps).size === selection.maps.length
+export function isValidMapVoteSelectionInput(
+  selection: { maps?: unknown } | null | undefined,
+): selection is MapVoteSelection {
+  return (
+    Array.isArray(selection?.maps) &&
+    selection.maps.length <= MAX_MAP_VOTE_MAP_PICKS &&
+    selection.maps.every(map => typeof map === 'string' && isMapVoteMapId(map)) &&
+    new Set(selection.maps).size === selection.maps.length
+  )
 }
 
 export function applyMapVoteSelectionUpdate(
@@ -69,8 +79,16 @@ export function applyMapVoteSelectionUpdate(
 
 export { isMapVoteSelectionConfirmable }
 
-export function createInitialMapVoteState(state: DraftState, config: DraftRuntimeConfig, redDeath: boolean): StoredMapVoteState {
-  const enabled = normalizeMapVoteEnabled(draftFormatMap.get(config.formatId)?.gameMode ?? 'ffa', config.mapVoteEnabled === true, { redDeath })
+export function createInitialMapVoteState(
+  state: DraftState,
+  config: DraftRuntimeConfig,
+  redDeath: boolean,
+): StoredMapVoteState {
+  const enabled = normalizeMapVoteEnabled(
+    draftFormatMap.get(config.formatId)?.gameMode ?? 'ffa',
+    config.mapVoteEnabled === true,
+    { redDeath },
+  )
   if (!enabled) return { ...EMPTY_STORED_MAP_VOTE_STATE }
 
   const selections: Record<number, MapVoteSelection> = {}

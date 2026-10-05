@@ -12,8 +12,12 @@ export async function runDbBatch(db: Database, queries: DbBatchItem[]): Promise<
 
   const batchRunner = db as OptionalBatchRunner
   if (typeof batchRunner.batch === 'function') {
-    try { await batchRunner.batch(queries as [DbBatchItem, ...DbBatchItem[]]) }
-    catch (error) { markRatingMutationUncertain(); throw error }
+    try {
+      await batchRunner.batch(queries as [DbBatchItem, ...DbBatchItem[]])
+    } catch (error) {
+      markRatingMutationUncertain()
+      throw error
+    }
     return
   }
 

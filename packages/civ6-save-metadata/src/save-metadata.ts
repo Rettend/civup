@@ -1,53 +1,53 @@
-const START_ACTOR = marker([0x58, 0xBA, 0x7F, 0x4C])
-const ZLIB_HEADER = marker([0x78, 0x9C])
+const START_ACTOR = marker([0x58, 0xba, 0x7f, 0x4c])
+const ZLIB_HEADER = marker([0x78, 0x9c])
 const END_UNCOMPRESSED = marker([0x00, 0x00, 0x01, 0x00])
-const COMPRESSED_DATA_END = marker([0x00, 0x00, 0xFF, 0xFF])
+const COMPRESSED_DATA_END = marker([0x00, 0x00, 0xff, 0xff])
 
 const GAME_DATA = {
-  GAME_TURN: marker([0x9D, 0x2C, 0xE6, 0xBD]),
-  GAME_SPEED: marker([0x99, 0xB0, 0xD9, 0x05]),
-  GAME_RANDOM_SEED: marker([0x8C, 0x54, 0xEE, 0x04]),
-  MAP_RANDOM_SEED: marker([0x7C, 0xC7, 0xC5, 0x96]),
-  MOD_BLOCK_1: marker([0x5C, 0xAE, 0x27, 0x84]),
-  MOD_BLOCK_2: marker([0xC8, 0xD1, 0x8C, 0x1B]),
-  MOD_BLOCK_3: marker([0x44, 0x7F, 0xD4, 0xFE]),
-  MOD_BLOCK_4: marker([0xBB, 0x5E, 0x30, 0x88]),
-  MOD_ID: marker([0x54, 0x5F, 0xC4, 0x04]),
-  MOD_TITLE: marker([0x72, 0xE1, 0x34, 0x30]),
-  MAP_FILE: marker([0x5A, 0x87, 0xD8, 0x63]),
-  MAP_SIZE: marker([0x40, 0x5C, 0x83, 0x0B]),
+  GAME_TURN: marker([0x9d, 0x2c, 0xe6, 0xbd]),
+  GAME_SPEED: marker([0x99, 0xb0, 0xd9, 0x05]),
+  GAME_RANDOM_SEED: marker([0x8c, 0x54, 0xee, 0x04]),
+  MAP_RANDOM_SEED: marker([0x7c, 0xc7, 0xc5, 0x96]),
+  MOD_BLOCK_1: marker([0x5c, 0xae, 0x27, 0x84]),
+  MOD_BLOCK_2: marker([0xc8, 0xd1, 0x8c, 0x1b]),
+  MOD_BLOCK_3: marker([0x44, 0x7f, 0xd4, 0xfe]),
+  MOD_BLOCK_4: marker([0xbb, 0x5e, 0x30, 0x88]),
+  MOD_ID: marker([0x54, 0x5f, 0xc4, 0x04]),
+  MOD_TITLE: marker([0x72, 0xe1, 0x34, 0x30]),
+  MAP_FILE: marker([0x5a, 0x87, 0xd8, 0x63]),
+  MAP_SIZE: marker([0x40, 0x5c, 0x83, 0x0b]),
 } as const
 
 const PACKET_DATA = {
-  PLAYER_ID: 0x1A96522F,
-  TEAM: 0x0D8AB454,
+  PLAYER_ID: 0x1a96522f,
+  TEAM: 0x0d8ab454,
 } as const
 
 const SLOT_HEADERS = [
-  marker([0xC8, 0x9B, 0x5F, 0x65]),
-  marker([0x5E, 0xAB, 0x58, 0x12]),
-  marker([0xE4, 0xFA, 0x51, 0x8B]),
-  marker([0x72, 0xCA, 0x56, 0xFC]),
-  marker([0xD1, 0x5F, 0x32, 0x62]),
-  marker([0x47, 0x6F, 0x35, 0x15]),
-  marker([0xFD, 0x3E, 0x3C, 0x8C]),
-  marker([0x6B, 0x0E, 0x3B, 0xFB]),
-  marker([0xFA, 0x13, 0x84, 0x6B]),
-  marker([0x6C, 0x23, 0x83, 0x1C]),
-  marker([0xF4, 0x14, 0x18, 0xAA]),
-  marker([0x62, 0x24, 0x1F, 0xDD]),
+  marker([0xc8, 0x9b, 0x5f, 0x65]),
+  marker([0x5e, 0xab, 0x58, 0x12]),
+  marker([0xe4, 0xfa, 0x51, 0x8b]),
+  marker([0x72, 0xca, 0x56, 0xfc]),
+  marker([0xd1, 0x5f, 0x32, 0x62]),
+  marker([0x47, 0x6f, 0x35, 0x15]),
+  marker([0xfd, 0x3e, 0x3c, 0x8c]),
+  marker([0x6b, 0x0e, 0x3b, 0xfb]),
+  marker([0xfa, 0x13, 0x84, 0x6b]),
+  marker([0x6c, 0x23, 0x83, 0x1c]),
+  marker([0xf4, 0x14, 0x18, 0xaa]),
+  marker([0x62, 0x24, 0x1f, 0xdd]),
 ] as const
 
 const ACTOR_DATA = {
-  ACTOR_NAME: marker([0x2F, 0x5C, 0x5E, 0x9D]),
-  LEADER_NAME: marker([0x5F, 0x5E, 0xCD, 0xE8]),
-  ACTOR_TYPE: marker([0xBE, 0xAB, 0x55, 0xCA]),
-  PLAYER_NAME: marker([0xFD, 0x6B, 0xB9, 0xDA]),
-  PLAYER_PASSWORD: marker([0x6C, 0xD1, 0x7C, 0x6E]),
-  PLAYER_ALIVE: marker([0xA6, 0xDF, 0xA7, 0x62]),
-  IS_CURRENT_TURN: marker([0xCB, 0x21, 0xB0, 0x7A]),
-  ACTOR_AI_HUMAN: marker([0x95, 0xB9, 0x42, 0xCE]),
-  ACTOR_DESCRIPTION: marker([0x65, 0x19, 0x9B, 0xFF]),
+  ACTOR_NAME: marker([0x2f, 0x5c, 0x5e, 0x9d]),
+  LEADER_NAME: marker([0x5f, 0x5e, 0xcd, 0xe8]),
+  ACTOR_TYPE: marker([0xbe, 0xab, 0x55, 0xca]),
+  PLAYER_NAME: marker([0xfd, 0x6b, 0xb9, 0xda]),
+  PLAYER_PASSWORD: marker([0x6c, 0xd1, 0x7c, 0x6e]),
+  PLAYER_ALIVE: marker([0xa6, 0xdf, 0xa7, 0x62]),
+  IS_CURRENT_TURN: marker([0xcb, 0x21, 0xb0, 0x7a]),
+  ACTOR_AI_HUMAN: marker([0x95, 0xb9, 0x42, 0xce]),
+  ACTOR_DESCRIPTION: marker([0x65, 0x19, 0x9b, 0xff]),
 } as const
 
 const DATA_TYPES = {
@@ -55,7 +55,7 @@ const DATA_TYPES = {
   INTEGER: 2,
   STRING: 5,
   UTF_STRING: 6,
-  ARRAY_START: 0x0A,
+  ARRAY_START: 0x0a,
 } as const
 
 type MarkerMap = Record<string, Uint8Array>
@@ -118,7 +118,10 @@ export function parseCiv6SaveMetadata(bytes: Uint8Array): Civ6SaveMetadata {
   const state: ParserState = { pos: 0 }
   let curActor: ActorRecord | null = null
 
-  while (state.pos < bytes.length - 4 && !markerEquals(bytes.subarray(state.pos, state.pos + 4), GAME_DATA.GAME_SPEED)) {
+  while (
+    state.pos < bytes.length - 4 &&
+    !markerEquals(bytes.subarray(state.pos, state.pos + 4), GAME_DATA.GAME_SPEED)
+  ) {
     state.pos += 1
   }
   if (state.pos >= bytes.length - 4) throw new Error('Could not find Civ 6 game metadata block')
@@ -158,8 +161,18 @@ export function parseCiv6SaveMetadata(bytes: Uint8Array): Civ6SaveMetadata {
     }
   }
 
-  addFallbackGameInt(parsed.game, 'GAME_RANDOM_SEED', GAME_DATA.GAME_RANDOM_SEED, findPacketInt32(bytes, GAME_DATA.GAME_RANDOM_SEED))
-  addFallbackGameInt(parsed.game, 'MAP_RANDOM_SEED', GAME_DATA.MAP_RANDOM_SEED, findPacketInt32(bytes, GAME_DATA.MAP_RANDOM_SEED))
+  addFallbackGameInt(
+    parsed.game,
+    'GAME_RANDOM_SEED',
+    GAME_DATA.GAME_RANDOM_SEED,
+    findPacketInt32(bytes, GAME_DATA.GAME_RANDOM_SEED),
+  )
+  addFallbackGameInt(
+    parsed.game,
+    'MAP_RANDOM_SEED',
+    GAME_DATA.MAP_RANDOM_SEED,
+    findPacketInt32(bytes, GAME_DATA.MAP_RANDOM_SEED),
+  )
 
   parsed.CIVS = collectCivilizationActors(parsed.ACTORS)
   return buildMetadata(parsed, bytes)
@@ -195,19 +208,23 @@ function buildMetadata(parsed: ParsedSave, bytes: Uint8Array): Civ6SaveMetadata 
 function collectCivilizationActors(actors: ActorRecord[]): ActorRecord[] {
   const civs: ActorRecord[] = []
   for (const slotHeader of SLOT_HEADERS) {
-    const actor = actors.find(candidate => (
-      candidate.SLOT_HEADER
-      && markerEquals(candidate.SLOT_HEADER.marker, slotHeader)
-      && numberData(candidate.ACTOR_AI_HUMAN) !== 2
-      && stringData(candidate.ACTOR_TYPE) === 'CIVILIZATION_LEVEL_FULL_CIV'
-      && candidate.ACTOR_NAME
-    ))
+    const actor = actors.find(
+      candidate =>
+        candidate.SLOT_HEADER &&
+        markerEquals(candidate.SLOT_HEADER.marker, slotHeader) &&
+        numberData(candidate.ACTOR_AI_HUMAN) !== 2 &&
+        stringData(candidate.ACTOR_TYPE) === 'CIVILIZATION_LEVEL_FULL_CIV' &&
+        candidate.ACTOR_NAME,
+    )
     if (actor) civs.push(actor)
   }
   return civs
 }
 
-function buildPlayerMetadata(actor: ActorRecord, packetPlayers: Map<number, Civ6SavePacketPlayerMetadata>): Civ6SavePlayerMetadata {
+function buildPlayerMetadata(
+  actor: ActorRecord,
+  packetPlayers: Map<number, Civ6SavePacketPlayerMetadata>,
+): Civ6SavePlayerMetadata {
   const aiHuman = numberData(actor.ACTOR_AI_HUMAN)
   const slot = resolveSlotIndex(actor.SLOT_HEADER?.marker)
   return {
@@ -244,8 +261,7 @@ function collectPacketPlayerMetadata(bytes: Uint8Array): Map<number, Civ6SavePac
       })
     }
     return players
-  }
-  catch {
+  } catch {
     return new Map()
   }
 }
@@ -288,18 +304,19 @@ function readPacketEntry(bytes: Uint8Array, state: ParserState, arrayIndex: numb
     state.pos += 4
     return { marker: markerValue, intValue, children: [] }
   }
-  if (type === DATA_TYPES.ARRAY_START || type === 0x0B) {
+  if (type === DATA_TYPES.ARRAY_START || type === 0x0b) {
     const count = readUint32(bytes, state.pos)
     state.pos += 4
     const children: PacketNode[] = []
-    for (let index = 0; index < count; index += 1) children.push(readPacketEntry(bytes, state, type === 0x0B ? index : null))
+    for (let index = 0; index < count; index += 1)
+      children.push(readPacketEntry(bytes, state, type === 0x0b ? index : null))
     return { marker: markerValue, intValue: null, children }
   }
 
   if (type === 4 || type === DATA_TYPES.STRING) state.pos += length || 4
   else if (type === DATA_TYPES.UTF_STRING) state.pos += length * 2
   else if (type === 0x14) state.pos += 8
-  else if (type === 0x15 || type === 0x0D) state.pos += 8
+  else if (type === 0x15 || type === 0x0d) state.pos += 8
   else if (type === 0x18) skipPacketCompressed(state, length)
   else throw new Error(`Unsupported packet type ${type}`)
   return { marker: markerValue, intValue: null, children: [] }
@@ -342,16 +359,23 @@ function collectMods(game: ParsedGameData): Civ6SaveModMetadata[] {
   return mods
 }
 
-function resolveBbgMetadata(mods: Civ6SaveModMetadata[]): { detected: boolean, title: string | null, version: string | null } {
-  const baseBbg = mods.find(candidate => {
-    const haystack = `${candidate.id ?? ''} ${candidate.title ?? ''}`.toLowerCase()
-    return (haystack.includes('better balanced game') || /\bbbg\b/.test(haystack))
-      && !haystack.includes('expanded')
-  }) ?? null
-  const mod = baseBbg ?? mods.find(candidate => {
-    const haystack = `${candidate.id ?? ''} ${candidate.title ?? ''}`.toLowerCase()
-    return haystack.includes('better balanced game') || /\bbbg\b/.test(haystack)
-  }) ?? null
+function resolveBbgMetadata(mods: Civ6SaveModMetadata[]): {
+  detected: boolean
+  title: string | null
+  version: string | null
+} {
+  const baseBbg =
+    mods.find(candidate => {
+      const haystack = `${candidate.id ?? ''} ${candidate.title ?? ''}`.toLowerCase()
+      return (haystack.includes('better balanced game') || /\bbbg\b/.test(haystack)) && !haystack.includes('expanded')
+    }) ?? null
+  const mod =
+    baseBbg ??
+    mods.find(candidate => {
+      const haystack = `${candidate.id ?? ''} ${candidate.title ?? ''}`.toLowerCase()
+      return haystack.includes('better balanced game') || /\bbbg\b/.test(haystack)
+    }) ??
+    null
 
   const title = mod?.title ?? null
   return {
@@ -369,23 +393,26 @@ function normalizeModTitle(value: string | null): string | null {
       const [key, localizedValues] = Object.entries(parsed as Record<string, unknown>)[0] ?? []
       if (!key) return value
       if (Array.isArray(localizedValues)) {
-        const localized = localizedValues.find(item => hasLocaleText(item, 'en_US'))
-          ?? localizedValues.find(hasAnyText)
+        const localized = localizedValues.find(item => hasLocaleText(item, 'en_US')) ?? localizedValues.find(hasAnyText)
         if (localized && typeof localized === 'object' && 'text' in localized && typeof localized.text === 'string') {
           return localized.text
         }
       }
       return key
     }
-  }
-  catch {}
+  } catch {}
   return value
 }
 
 function hasLocaleText(value: unknown, locale: string): boolean {
-  return Boolean(value && typeof value === 'object'
-    && 'locale' in value && value.locale === locale
-    && 'text' in value && typeof value.text === 'string')
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'locale' in value &&
+    value.locale === locale &&
+    'text' in value &&
+    typeof value.text === 'string',
+  )
 }
 
 function hasAnyText(value: unknown): boolean {
@@ -442,11 +469,11 @@ function parseEntry(bytes: Uint8Array, state: ParserState): ParsedEntry {
         entry.data = readUtfString(bytes, state)
         return entry
       case 0x14:
-      case 0x0D:
+      case 0x0d:
         entry.data = 'UNKNOWN'
         state.pos += 16
         return entry
-      case 0x0B:
+      case 0x0b:
         entry.data = readArray0B(bytes, state)
         return entry
       default:
@@ -481,7 +508,7 @@ function readArray0B(bytes: Uint8Array, state: ParserState): unknown[] | string 
   state.pos += 4
 
   for (let index = 0; index < arrayLen; index += 1) {
-    if (bytes[state.pos] !== 0x0A) return 'Error reading array'
+    if (bytes[state.pos] !== 0x0a) return 'Error reading array'
 
     state.pos += 16
     const curData: Record<string, ParsedEntry> = {}
@@ -602,7 +629,10 @@ function int32Data(entry: ParsedEntry | undefined): number | null {
 }
 
 function stringData(entry: ParsedEntry | undefined): string | null {
-  return typeof entry?.data === 'string' && entry.data.length > 0 && !entry.data.startsWith('ERROR ') && !entry.data.startsWith('UNKNOWN')
+  return typeof entry?.data === 'string' &&
+    entry.data.length > 0 &&
+    !entry.data.startsWith('ERROR ') &&
+    !entry.data.startsWith('UNKNOWN')
     ? entry.data
     : null
 }
@@ -661,7 +691,8 @@ function readUint32(bytes: Uint8Array, offset: number): number {
   const second = bytes[offset + 1]
   const third = bytes[offset + 2]
   const fourth = bytes[offset + 3]
-  if (first == null || second == null || third == null || fourth == null) throw new Error(`Unexpected end of buffer at offset ${offset}`)
+  if (first == null || second == null || third == null || fourth == null)
+    throw new Error(`Unexpected end of buffer at offset ${offset}`)
   return (first | (second << 8) | (third << 16) | (fourth << 24)) >>> 0
 }
 

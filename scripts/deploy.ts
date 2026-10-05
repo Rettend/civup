@@ -30,10 +30,15 @@ if (import.meta.main) {
   if (args.some(argument => argument !== '--register' && argument !== '--print-commands')) {
     console.error('Usage: bun scripts/deploy.ts [--register] [--print-commands]')
     process.exitCode = 1
-  }
-  else {
+  } else {
     const commands = standardDeploymentCommands(args.includes('--register'))
-    if (args.includes('--print-commands')) console.log(JSON.stringify({ target: 'standard', cwd: repositoryRoot, commands }, null, 2))
-    else process.exitCode = runDeploymentCommands(commands, cmd => spawnSync({ cmd, cwd: repositoryRoot, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }).exitCode ?? 1)
+    if (args.includes('--print-commands'))
+      console.log(JSON.stringify({ target: 'standard', cwd: repositoryRoot, commands }, null, 2))
+    else
+      process.exitCode = runDeploymentCommands(
+        commands,
+        cmd =>
+          spawnSync({ cmd, cwd: repositoryRoot, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }).exitCode ?? 1,
+      )
   }
 }

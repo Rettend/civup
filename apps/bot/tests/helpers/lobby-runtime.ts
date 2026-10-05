@@ -1,10 +1,23 @@
+import type { LobbyState } from '../../src/services/lobby/types.ts'
 import type { Database as CivupDatabase } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import type { LobbyState } from '../../src/services/lobby/types.ts'
 import { canStartWithPlayerCount } from '@civup/game'
 import * as source from '../../src/services/lobby/index.ts'
-import { getCurrentSessionLobbyProjectionsForPlayer, getCurrentSessionLobbyProjectionsForPlayers, getLiveSessionLobbyProjections, getLiveSessionLobbyProjectionsHostedBy, getOpenSessionLobbyProjectionForPlayer, getOpenSessionLobbyProjectionsByChannel, getOpenSessionLobbyProjectionsByMode, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
-import { getSessionRecord, runSessionDraftLifecycleCommand, startSessionDraft } from '../../src/session-runtime/session-do-client.ts'
+import {
+  getCurrentSessionLobbyProjectionsForPlayer,
+  getCurrentSessionLobbyProjectionsForPlayers,
+  getLiveSessionLobbyProjections,
+  getLiveSessionLobbyProjectionsHostedBy,
+  getOpenSessionLobbyProjectionForPlayer,
+  getOpenSessionLobbyProjectionsByChannel,
+  getOpenSessionLobbyProjectionsByMode,
+  getSessionLobbyProjectionByMatch,
+} from '../../src/services/session/index.ts'
+import {
+  getSessionRecord,
+  runSessionDraftLifecycleCommand,
+  startSessionDraft,
+} from '../../src/session-runtime/session-do-client.ts'
 import { buildLobbyProjectionFromSessionRecord } from '../../src/session-runtime/session-record.ts'
 import { createSqliteD1Database } from './d1.ts'
 import { getSeededRosterEntries } from './session-roster.ts'
@@ -18,23 +31,31 @@ export async function getLobbyById(kv: KVNamespace, lobbyId: string): Promise<Lo
   if (!runtime) return await source.getLobbyById(kv, lobbyId)
   const record = await getSessionRecord(runtime.sessionNamespace, lobbyId).catch(() => null)
   if (record) return buildLobbyProjectionFromSessionRecord(record)
-  return await getSessionLobbyProjectionByMatch(runtime.db, lobbyId) ?? await source.getLobbyById(kv, lobbyId)
+  return (await getSessionLobbyProjectionByMatch(runtime.db, lobbyId)) ?? (await source.getLobbyById(kv, lobbyId))
 }
 
 export async function getLobby(kv: KVNamespace, mode: GameMode): Promise<LobbyState | null> {
   const runtime = getResolvedRuntime(kv)
   if (!runtime) return await source.getLobby(kv, mode)
-  return [...await getOpenSessionLobbyProjectionsByMode(runtime.db, mode)].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+  return (
+    [...(await getOpenSessionLobbyProjectionsByMode(runtime.db, mode))].sort(
+      (left, right) => right.updatedAt - left.updatedAt,
+    )[0] ?? null
+  )
 }
 
 export async function getLobbiesByMode(kv: KVNamespace, mode: GameMode): Promise<LobbyState[]> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? await getOpenSessionLobbyProjectionsByMode(runtime.db, mode) : await source.getLobbiesByMode(kv, mode)
+  return runtime
+    ? await getOpenSessionLobbyProjectionsByMode(runtime.db, mode)
+    : await source.getLobbiesByMode(kv, mode)
 }
 
 export async function getLobbiesByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState[]> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? await getOpenSessionLobbyProjectionsByChannel(runtime.db, channelId) : await source.getLobbiesByChannel(kv, channelId)
+  return runtime
+    ? await getOpenSessionLobbyProjectionsByChannel(runtime.db, channelId)
+    : await source.getLobbiesByChannel(kv, channelId)
 }
 
 export async function getLobbyByChannel(kv: KVNamespace, channelId: string): Promise<LobbyState | null> {
@@ -50,29 +71,41 @@ export async function getCurrentLobbies(kv: KVNamespace, mode?: GameMode): Promi
 export async function getCurrentLobbiesForPlayers(
   kv: KVNamespace,
   playerIds: string[],
-  options?: { mode?: GameMode, excludeLobbyIds?: readonly string[] },
+  options?: { mode?: GameMode; excludeLobbyIds?: readonly string[] },
 ): Promise<Map<string, LobbyState | null>> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? await getCurrentSessionLobbyProjectionsForPlayers(runtime.db, playerIds, options) : await source.getCurrentLobbiesForPlayers(kv, playerIds, options)
+  return runtime
+    ? await getCurrentSessionLobbyProjectionsForPlayers(runtime.db, playerIds, options)
+    : await source.getCurrentLobbiesForPlayers(kv, playerIds, options)
 }
 
 export async function getCurrentLobbiesForPlayer(
   kv: KVNamespace,
   playerId: string,
-  options?: { mode?: GameMode, excludeLobbyIds?: readonly string[] },
+  options?: { mode?: GameMode; excludeLobbyIds?: readonly string[] },
 ): Promise<LobbyState[]> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? await getCurrentSessionLobbyProjectionsForPlayer(runtime.db, playerId, options) : await source.getCurrentLobbiesForPlayer(kv, playerId, options)
+  return runtime
+    ? await getCurrentSessionLobbyProjectionsForPlayer(runtime.db, playerId, options)
+    : await source.getCurrentLobbiesForPlayer(kv, playerId, options)
 }
 
 export async function getCurrentLobbyHostedBy(kv: KVNamespace, hostId: string): Promise<LobbyState | null> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? (await getLiveSessionLobbyProjectionsHostedBy(runtime.db, hostId))[0] ?? null : await source.getCurrentLobbyHostedBy(kv, hostId)
+  return runtime
+    ? ((await getLiveSessionLobbyProjectionsHostedBy(runtime.db, hostId))[0] ?? null)
+    : await source.getCurrentLobbyHostedBy(kv, hostId)
 }
 
-export async function getOpenLobbyForPlayer(kv: KVNamespace, playerId: string, mode?: GameMode): Promise<LobbyState | null> {
+export async function getOpenLobbyForPlayer(
+  kv: KVNamespace,
+  playerId: string,
+  mode?: GameMode,
+): Promise<LobbyState | null> {
   const runtime = getResolvedRuntime(kv)
-  return runtime ? await getOpenSessionLobbyProjectionForPlayer(runtime.db, playerId, { mode }) : await source.getOpenLobbyForPlayer(kv, playerId, mode)
+  return runtime
+    ? await getOpenSessionLobbyProjectionForPlayer(runtime.db, playerId, { mode })
+    : await source.getOpenLobbyForPlayer(kv, playerId, mode)
 }
 
 interface TestLobbyRuntime {
@@ -90,7 +123,7 @@ export async function getTestLobbyRuntime(kv: KVNamespace, db?: CivupDatabase | 
   const existing = runtimes.get(kv)
   if (existing) return existing
 
-  const created = createTestLobbyRuntime(kv, db).then((runtime) => {
+  const created = createTestLobbyRuntime(kv, db).then(runtime => {
     resolvedRuntimes.set(kv, runtime)
     return runtime
   })
@@ -159,7 +192,7 @@ export async function setLobbyStatus(
     return await getLobbyById(kv, lobbyId)
   }
 
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyStatus(kv, lobbyId, status, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -180,7 +213,7 @@ export async function setLobbyDraftConfig(
   currentLobby?: Parameters<typeof source.setLobbyDraftConfig>[3],
   options?: Parameters<typeof source.setLobbyDraftConfig>[4],
 ): ReturnType<typeof source.setLobbyDraftConfig> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyDraftConfig(kv, lobbyId, draftConfig, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -191,7 +224,7 @@ export async function setLobbyMinRole(
   currentLobby?: Parameters<typeof source.setLobbyMinRole>[3],
   options?: Parameters<typeof source.setLobbyMinRole>[4],
 ): ReturnType<typeof source.setLobbyMinRole> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyMinRole(kv, lobbyId, minRole, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -202,7 +235,7 @@ export async function setLobbyMaxRole(
   currentLobby?: Parameters<typeof source.setLobbyMaxRole>[3],
   options?: Parameters<typeof source.setLobbyMaxRole>[4],
 ): ReturnType<typeof source.setLobbyMaxRole> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyMaxRole(kv, lobbyId, maxRole, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -213,7 +246,7 @@ export async function setLobbySteamLobbyLink(
   currentLobby?: Parameters<typeof source.setLobbySteamLobbyLink>[3],
   options?: Parameters<typeof source.setLobbySteamLobbyLink>[4],
 ): ReturnType<typeof source.setLobbySteamLobbyLink> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbySteamLobbyLink(kv, lobbyId, steamLobbyLink, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -224,7 +257,7 @@ export async function setLobbySlots(
   currentLobby?: Parameters<typeof source.setLobbySlots>[3],
   options?: Parameters<typeof source.setLobbySlots>[4],
 ): ReturnType<typeof source.setLobbySlots> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbySlots(kv, lobbyId, slots, lobby, await withRuntimeOptionsForLobby(kv, lobby, options))
 }
 
@@ -235,7 +268,7 @@ export async function setLobbyArranged(
   currentLobby?: Parameters<typeof source.setLobbyArranged>[3],
   options?: Parameters<typeof source.setLobbyArranged>[4],
 ): ReturnType<typeof source.setLobbyArranged> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyArranged(kv, lobbyId, input, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -246,8 +279,14 @@ export async function setLobbyMemberPlayerIds(
   currentLobby?: Parameters<typeof source.setLobbyMemberPlayerIds>[3],
   options?: Parameters<typeof source.setLobbyMemberPlayerIds>[4],
 ): ReturnType<typeof source.setLobbyMemberPlayerIds> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
-  return await source.setLobbyMemberPlayerIds(kv, lobbyId, memberPlayerIds, lobby, await withRuntimeOptionsForLobby(kv, lobby, options))
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
+  return await source.setLobbyMemberPlayerIds(
+    kv,
+    lobbyId,
+    memberPlayerIds,
+    lobby,
+    await withRuntimeOptionsForLobby(kv, lobby, options),
+  )
 }
 
 export async function setLobbyLastActivityAt(
@@ -257,7 +296,7 @@ export async function setLobbyLastActivityAt(
   currentLobby?: Parameters<typeof source.setLobbyLastActivityAt>[3],
   options?: Parameters<typeof source.setLobbyLastActivityAt>[4],
 ): ReturnType<typeof source.setLobbyLastActivityAt> {
-  const lobby = currentLobby ?? await getLobbyById(kv, lobbyId) ?? undefined
+  const lobby = currentLobby ?? (await getLobbyById(kv, lobbyId)) ?? undefined
   return await source.setLobbyLastActivityAt(kv, lobbyId, lastActivityAt, lobby, await withRuntimeOptions(kv, options))
 }
 
@@ -322,7 +361,7 @@ async function fillEmptySlotsFromMembers(
     changed = true
   }
   if (!changed) return lobby
-  return await source.setLobbySlots(kv, lobby.id, slots, lobby, options) ?? lobby
+  return (await source.setLobbySlots(kv, lobby.id, slots, lobby, options)) ?? lobby
 }
 
 async function ensureStartableLobby(
@@ -334,7 +373,12 @@ async function ensureStartableLobby(
   let selectedCount = next.slots.filter(Boolean).length
   let fillerIndex = 1
 
-  while (!canStartWithPlayerCount(next.mode, selectedCount, next.slots.length, { redDeath: next.draftConfig.redDeath, permanentAlly: next.draftConfig.permanentAlly })) {
+  while (
+    !canStartWithPlayerCount(next.mode, selectedCount, next.slots.length, {
+      redDeath: next.draftConfig.redDeath,
+      permanentAlly: next.draftConfig.permanentAlly,
+    })
+  ) {
     const emptyIndex = next.slots.findIndex(slot => slot == null)
     if (emptyIndex === -1) break
 
@@ -350,8 +394,11 @@ async function ensureStartableLobby(
     slots[emptyIndex] = fillerId
     const fillerOptions = { ...options, queueEntries }
 
-    next = await source.setLobbyMemberPlayerIds(kv, next.id, memberPlayerIds, next, fillerOptions) ?? { ...next, memberPlayerIds }
-    next = await source.setLobbySlots(kv, next.id, slots, next, fillerOptions) ?? { ...next, slots }
+    next = (await source.setLobbyMemberPlayerIds(kv, next.id, memberPlayerIds, next, fillerOptions)) ?? {
+      ...next,
+      memberPlayerIds,
+    }
+    next = (await source.setLobbySlots(kv, next.id, slots, next, fillerOptions)) ?? { ...next, slots }
     selectedCount = next.slots.filter(Boolean).length
   }
 
@@ -361,26 +408,24 @@ async function ensureStartableLobby(
 async function withRuntimeOptions<T extends LobbyProjectionOptions | undefined>(
   kv: KVNamespace,
   options: T,
-): Promise<NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }> {
+): Promise<NonNullable<T> & { db: CivupDatabase; sessionNamespace: DurableObjectNamespace }> {
   const runtime = await getTestLobbyRuntime(kv, options?.db)
   return {
     ...options,
     db: options?.db ?? runtime.db,
     sessionNamespace: options?.sessionNamespace ?? runtime.sessionNamespace,
-  } as NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }
+  } as NonNullable<T> & { db: CivupDatabase; sessionNamespace: DurableObjectNamespace }
 }
 
 async function withRuntimeOptionsForLobby<T extends LobbyProjectionOptions | undefined>(
   kv: KVNamespace,
   lobby: LobbyState | null | undefined,
   options: T,
-): Promise<NonNullable<T> & { db: CivupDatabase, sessionNamespace: DurableObjectNamespace }> {
+): Promise<NonNullable<T> & { db: CivupDatabase; sessionNamespace: DurableObjectNamespace }> {
   const runtimeOptions = await withRuntimeOptions(kv, options)
   if (!lobby || runtimeOptions.queueEntries) return runtimeOptions
   const seededEntries = getSeededRosterEntries(kv, lobby.mode)
-  return seededEntries.length > 0
-    ? { ...runtimeOptions, queueEntries: seededEntries }
-    : runtimeOptions
+  return seededEntries.length > 0 ? { ...runtimeOptions, queueEntries: seededEntries } : runtimeOptions
 }
 
 async function createTestLobbyRuntime(kv: KVNamespace, dbOverride?: CivupDatabase | null): Promise<TestLobbyRuntime> {

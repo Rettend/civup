@@ -36,8 +36,7 @@ export function createTrackedKv(options: CreateTrackedKvOptions = {}): TrackedKv
       if (type === 'json') {
         try {
           return JSON.parse(value)
-        }
-        catch {
+        } catch {
           return null
         }
       }
@@ -54,9 +53,7 @@ export function createTrackedKv(options: CreateTrackedKvOptions = {}): TrackedKv
     async list(options?: { prefix?: string }) {
       const prefix = options?.prefix ?? ''
       track('list', prefix)
-      const keys = [...store.keys()]
-        .filter(key => key.startsWith(prefix))
-        .map(name => ({ name }))
+      const keys = [...store.keys()].filter(key => key.startsWith(prefix)).map(name => ({ name }))
 
       return {
         keys,
@@ -77,8 +74,7 @@ export function createTrackedKv(options: CreateTrackedKvOptions = {}): TrackedKv
       trackingEnabled = false
       try {
         return await callback()
-      }
-      finally {
+      } finally {
         trackingEnabled = previous
       }
     },

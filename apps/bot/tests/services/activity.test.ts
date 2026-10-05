@@ -1,17 +1,25 @@
-import type { QueueEntry } from '@civup/game'
-import { allLeaderIds } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
-import { buildActivityOverviewOptionsFromSessionRecord, buildLobbySnapshotFromSessionRecord } from '../../src/services/activity/session-state.ts'
 import type { LobbyState } from '../../src/services/lobby/types.ts'
-import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
+import type { QueueEntry } from '@civup/game'
+import { describe, expect, test } from 'bun:test'
+import { allLeaderIds } from '@civup/game'
 import {
   buildDraftRuntimeConfig,
   getChannelForMatch,
   getLobbyForUser,
   getMatchForUser,
 } from '../../src/services/activity/index.ts'
+import {
+  buildActivityOverviewOptionsFromSessionRecord,
+  buildLobbySnapshotFromSessionRecord,
+} from '../../src/services/activity/session-state.ts'
+import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { buildOpenSessionRecordFromLobby } from '../../src/session-runtime/session-record.ts'
-import { createLobby, getExistingTestLobbyRuntime, setLobbyMemberPlayerIds, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  createLobby,
+  getExistingTestLobbyRuntime,
+  setLobbyMemberPlayerIds,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
 const baseFfaEntries: QueueEntry[] = Array.from({ length: 4 }, (_, index) => ({
@@ -281,7 +289,9 @@ describe('lobby activity snapshots', () => {
       revision: 1,
     }
 
-    const [option] = buildActivityOverviewOptionsFromSessionRecord(buildOpenSessionRecordFromLobby(lobby, [{ playerId: 'p1', displayName: 'P1', joinedAt: 1 }]))
+    const [option] = buildActivityOverviewOptionsFromSessionRecord(
+      buildOpenSessionRecordFromLobby(lobby, [{ playerId: 'p1', displayName: 'P1', joinedAt: 1 }]),
+    )
 
     expect(option?.redDeath).toBe(false)
     expect(option?.civBlitz).toBe(true)

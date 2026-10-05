@@ -6,7 +6,8 @@ const variants = {
   gold: 'bg-accent text-bg hover:brightness-110 font-semibold',
   red: 'bg-danger text-white hover:brightness-110 font-semibold',
   ghost: 'bg-transparent text-fg-muted border border-border hover:bg-bg-muted hover:text-fg',
-  redOutline: 'border border-danger/50 bg-danger/10 text-danger/90 hover:bg-danger/15 hover:border-danger/80 hover:text-danger font-medium',
+  redOutline:
+    'border border-danger/50 bg-danger/10 text-danger/90 hover:bg-danger/15 hover:border-danger/80 hover:text-danger font-medium',
   outline: 'border border-border text-fg-muted hover:bg-bg-muted hover:text-fg hover:border-border-hover',
 } as const
 

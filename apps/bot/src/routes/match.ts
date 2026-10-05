@@ -1,17 +1,27 @@
-import type { Hono, MiddlewareHandler } from 'hono'
 import type { Env } from '../env.ts'
-import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/game'
 import type { CivBlitzModInput } from '@civup/civ6-mod'
+import type { CivBlitzKit, CivBlitzPartialKit, LeaderboardMode } from '@civup/game'
+import type { Hono, MiddlewareHandler } from 'hono'
+import { eq } from 'drizzle-orm'
 import { createDb, matches, matchParticipants } from '@civup/db'
 import { CIV_BLITZ_CATEGORIES } from '@civup/game'
-import { eq } from 'drizzle-orm'
-import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { lobbyCancelledEmbed } from '../embeds/match.ts'
+import { requestCivBlitzModArchive } from '../maintenance/maintenance-client.ts'
 import { getKvStore } from '../services/kv/batch.ts'
-import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { markLeaderboardsDirty } from '../services/leaderboard/message.ts'
+import { getStoredLeaderboardModeSnapshot } from '../services/leaderboard/snapshot.ts'
 import { upsertLobbyMessage } from '../services/lobby/index.ts'
-import { buildRankByPlayer, cancelMatchByModerator, getCivBlitzFromDraftData, getDraftStateFromDraftData, getHostIdFromDraftData, getLeaderDataVersionFromDraftData, getStoredGameModeContext, releaseReportedMatchProcessingClaim, reportMatch } from '../services/match/index.ts'
+import {
+  buildRankByPlayer,
+  cancelMatchByModerator,
+  getCivBlitzFromDraftData,
+  getDraftStateFromDraftData,
+  getHostIdFromDraftData,
+  getLeaderDataVersionFromDraftData,
+  getStoredGameModeContext,
+  releaseReportedMatchProcessingClaim,
+  reportMatch,
+} from '../services/match/index.ts'
 import { storeMatchMessageMapping } from '../services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../services/match/report-discord.ts'
 import { markRankedRolesDirty } from '../services/ranked/role-sync.ts'
@@ -23,27 +33,20 @@ import { rejectMismatchedActivityUser, requireAuthenticatedActivity } from './au
 export function registerMatchRoutes(app: Hono<Env>) {
   app.use('/api/match/:matchId/report', keepMatchMutationAlive)
   app.use('/api/match/:matchId/scrub', keepMatchMutationAlive)
-  app.get('/api/match/state/:matchId', async (c) => {
+  app.get('/api/match/state/:matchId', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
     const matchId = c.req.param('matchId')
     const db = createDb(c.env.DB)
 
-    const [match] = await db
-      .select()
-      .from(matches)
-      .where(eq(matches.id, matchId))
-      .limit(1)
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
 
     if (!match) {
       return c.json({ error: 'Match not found' }, 404)
     }
 
-    const participants = await db
-      .select()
-      .from(matchParticipants)
-      .where(eq(matchParticipants.matchId, matchId))
+    const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
     if (!participants.some(participant => participant.playerId === auth.identity.userId)) {
       return c.json({ error: 'Only match participants can view this match.' }, 403)
@@ -52,7 +55,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     return c.json({ match, participants })
   })
 
-  app.get('/api/match/:matchId/civblitz/download', async (c) => {
+  app.get('/api/match/:matchId/civblitz/download', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -85,7 +88,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
     }
 
     const state = getDraftStateFromDraftData(match.draftData)
-    if (!state || state.status !== 'complete' || !state.civBlitz || !Array.isArray(state.seats) || !isRecord(state.civBlitz.lockedKits)) {
+    if (
+      !state ||
+      state.status !== 'complete' ||
+      !state.civBlitz ||
+      !Array.isArray(state.seats) ||
+      !isRecord(state.civBlitz.lockedKits)
+    ) {
       return c.json({ error: 'The CivBlitz draft is not complete.' }, 409)
     }
 
@@ -108,14 +117,13 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     try {
       return await requestCivBlitzModArchive(c.env.MaintenanceDO, input)
-    }
-    catch (error) {
+    } catch (error) {
       console.error(`Failed to request CivBlitz mod for match ${matchId}:`, error)
       return c.json({ error: 'Failed to generate the match mod.' }, 500)
     }
   })
 
-  app.post('/api/match/:matchId/report', async (c) => {
+  app.post('/api/match/:matchId/report', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -123,8 +131,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     let body: unknown
     try {
       body = await c.req.json()
-    }
-    catch {
+    } catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -132,7 +139,11 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: 'Invalid request body' }, 400)
     }
 
-    const { reporterId, placements, leaderAssignments } = body as { reporterId?: string, placements?: string, leaderAssignments?: unknown }
+    const { reporterId, placements, leaderAssignments } = body as {
+      reporterId?: string
+      placements?: string
+      leaderAssignments?: unknown
+    }
     if (typeof reporterId !== 'string' || typeof placements !== 'string') {
       return c.json({ error: 'reporterId and placements are required strings' }, 400)
     }
@@ -145,23 +156,34 @@ export function registerMatchRoutes(app: Hono<Env>) {
 
     const db = createDb(c.env.DB)
     const liveLobbyBeforeReport = await getSessionLobbyProjectionByMatch(db, c.req.param('matchId'))
-    const result = await reportMatch(db, kv, {
-      matchId: c.req.param('matchId'),
-      reporterId: auth.identity.userId,
-      placements,
-      leaderAssignments,
-    }, {
-      sessionNamespace: c.env.SessionDO,
-      rankedRoleGuildId: liveLobbyBeforeReport?.guildId ?? null,
-      minimalResult: true,
-    })
+    const result = await reportMatch(
+      db,
+      kv,
+      {
+        matchId: c.req.param('matchId'),
+        reporterId: auth.identity.userId,
+        placements,
+        leaderAssignments,
+      },
+      {
+        sessionNamespace: c.env.SessionDO,
+        rankedRoleGuildId: liveLobbyBeforeReport?.guildId ?? null,
+        minimalResult: true,
+      },
+    )
 
     if ('error' in result) {
       return c.json({ error: result.error }, 400)
     }
 
     if (result.reportProcessing) {
-      return c.json({ ok: true, reportProcessing: true, reportFinalizing: result.reportFinalizing === true, match: result.match, participants: result.participants })
+      return c.json({
+        ok: true,
+        reportProcessing: true,
+        reportFinalizing: result.reportFinalizing === true,
+        match: result.match,
+        participants: result.participants,
+      })
     }
 
     const reportedContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
@@ -200,10 +222,15 @@ export function registerMatchRoutes(app: Hono<Env>) {
           },
     })
 
-    return c.json({ ok: true, alreadyReported: result.idempotent === true || undefined, match: result.match, participants: result.participants })
+    return c.json({
+      ok: true,
+      alreadyReported: result.idempotent === true || undefined,
+      match: result.match,
+      participants: result.participants,
+    })
   })
 
-  app.post('/api/match/:matchId/scrub', async (c) => {
+  app.post('/api/match/:matchId/scrub', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -211,8 +238,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
     let body: unknown
     try {
       body = await c.req.json()
-    }
-    catch {
+    } catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -260,13 +286,18 @@ export function registerMatchRoutes(app: Hono<Env>) {
       return c.json({ error: 'Only the match host can scrub this match.' }, 403)
     }
 
-    const result = await cancelMatchByModerator(db, kv, {
-      matchId,
-      cancelledAt: Date.now(),
-    }, {
-      sessionNamespace: c.env.SessionDO,
-      rankedRoleGuildId: lobby?.guildId ?? null,
-    })
+    const result = await cancelMatchByModerator(
+      db,
+      kv,
+      {
+        matchId,
+        cancelledAt: Date.now(),
+      },
+      {
+        sessionNamespace: c.env.SessionDO,
+        rankedRoleGuildId: lobby?.guildId ?? null,
+      },
+    )
 
     if ('error' in result) {
       return c.json({ error: result.error }, 400)
@@ -279,13 +310,29 @@ export function registerMatchRoutes(app: Hono<Env>) {
           displayName: auth.identity.displayName,
           avatarUrl: auth.identity.avatarUrl,
         }
-        const updatedLobby = await upsertLobbyMessage(kv, c.env.DISCORD_TOKEN, lobby, {
-          embeds: [lobbyCancelledEmbed(lobby.mode, result.participants, 'scrub', undefined, lobby.draftConfig.leaderDataVersion, lobby.draftConfig.redDeath, scrubber, lobby.draftConfig.civBlitz)],
-          components: [],
-        }, { db, sessionNamespace: c.env.SessionDO })
+        const updatedLobby = await upsertLobbyMessage(
+          kv,
+          c.env.DISCORD_TOKEN,
+          lobby,
+          {
+            embeds: [
+              lobbyCancelledEmbed(
+                lobby.mode,
+                result.participants,
+                'scrub',
+                undefined,
+                lobby.draftConfig.leaderDataVersion,
+                lobby.draftConfig.redDeath,
+                scrubber,
+                lobby.draftConfig.civBlitz,
+              ),
+            ],
+            components: [],
+          },
+          { db, sessionNamespace: c.env.SessionDO },
+        )
         await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`Failed to update scrubbed lobby embed for match ${result.match.id}:`, error)
       }
     }
@@ -294,7 +341,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       const scrubContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
       const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
       if (isTournamentMatch) {
-        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch((error) => {
+        await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch(error => {
           console.error(`Failed to refresh tournament leaderboard after activity scrub ${result.match.id}:`, error)
         })
       }
@@ -304,8 +351,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
             civ: true,
             modes: scrubContext.leaderboardMode ? [scrubContext.leaderboardMode] : [],
           })
-        }
-        catch (error) {
+        } catch (error) {
           console.error(`Failed to mark leaderboards dirty after scrub ${result.match.id}:`, error)
         }
       }
@@ -313,8 +359,7 @@ export function registerMatchRoutes(app: Hono<Env>) {
       if (!isTournamentMatch && scrubContext?.ranked) {
         try {
           await markRankedRolesDirty(kv, `activity-scrub:${result.match.id}`)
-        }
-        catch (error) {
+        } catch (error) {
           console.error(`Failed to mark ranked roles dirty after scrub ${result.match.id}:`, error)
         }
       }
@@ -346,21 +391,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCompleteCivBlitzKit(value: CivBlitzPartialKit | undefined): value is CivBlitzKit {
-  return value != null && CIV_BLITZ_CATEGORIES.every(category => typeof value[category] === 'string' && value[category]!.length > 0)
+  return (
+    value != null &&
+    CIV_BLITZ_CATEGORIES.every(category => typeof value[category] === 'string' && value[category]!.length > 0)
+  )
 }
 
 async function releaseReportedMatchClaimIfNeeded(
   sessionNamespace: DurableObjectNamespace | null | undefined,
-  result: { match: { id: string }, reportClaim?: Parameters<typeof releaseReportedMatchProcessingClaim>[1] },
+  result: { match: { id: string }; reportClaim?: Parameters<typeof releaseReportedMatchProcessingClaim>[1] },
 ): Promise<void> {
   if (!result.reportClaim) return
-  await releaseReportedMatchProcessingClaim(sessionNamespace, result.reportClaim).catch((error) => {
+  await releaseReportedMatchProcessingClaim(sessionNamespace, result.reportClaim).catch(error => {
     console.error(`Failed to release report claim for match ${result.match.id}:`, error)
   })
 }
 
 function queueActivityReportProjectionTasks(
-  context: { env: Env['Bindings'], executionCtx: ExecutionContext },
+  context: { env: Env['Bindings']; executionCtx: ExecutionContext },
   input: {
     db: ReturnType<typeof createDb>
     kv: KVNamespace
@@ -376,75 +424,85 @@ function queueActivityReportProjectionTasks(
     reporter: Parameters<typeof syncReportedMatchDiscordMessages>[0]['reporter']
   },
 ): void {
-  queueBackgroundTask(context, async () => {
-    let reportClaimReleased = false
-    const releaseReportClaim = async () => {
-      if (reportClaimReleased) return
-      reportClaimReleased = true
-      await releaseReportedMatchClaimIfNeeded(context.env.SessionDO, { match: { id: input.matchId }, reportClaim: input.reportClaim })
-    }
+  queueBackgroundTask(
+    context,
+    async () => {
+      let reportClaimReleased = false
+      const releaseReportClaim = async () => {
+        if (reportClaimReleased) return
+        reportClaimReleased = true
+        await releaseReportedMatchClaimIfNeeded(context.env.SessionDO, {
+          match: { id: input.matchId },
+          reportClaim: input.reportClaim,
+        })
+      }
 
-    try {
-      let discordSyncErrors: string[] = []
       try {
-        const participants = input.historicalSeason ? input.participants : await hydrateLeaderboardRanksForDiscord(input.kv, input.reportedContext.leaderboardMode, input.participants)
-        const discordSync = await syncReportedMatchDiscordMessages({
-          db: input.db,
-          kv: input.kv,
-          token: context.env.DISCORD_TOKEN,
-          matchId: input.matchId,
-          reportedMode: input.reportedContext.mode,
-          reportedRedDeath: input.reportedContext.redDeath,
-          reportedCivBlitz: input.reportedContext.civBlitz,
-          participants,
-          matchDraftData: input.matchDraftData,
-          lobby: input.lobby,
-          sessionNamespace: context.env.SessionDO,
-          reporter: input.reporter,
-          archivePolicy: input.archivePolicy,
-          archiveChannelType: input.isTournamentMatch ? 'tournament-archive' : 'archive',
-        })
-        discordSyncErrors = discordSync.errors
-      }
-      catch (error) {
-        console.error(`Failed to sync reported Discord messages after activity report ${input.matchId}:`, error)
-        discordSyncErrors = [error instanceof Error ? error.message : String(error)]
-      }
-      if (discordSyncErrors.length > 0) {
+        let discordSyncErrors: string[] = []
+        try {
+          const participants = input.historicalSeason
+            ? input.participants
+            : await hydrateLeaderboardRanksForDiscord(
+                input.kv,
+                input.reportedContext.leaderboardMode,
+                input.participants,
+              )
+          const discordSync = await syncReportedMatchDiscordMessages({
+            db: input.db,
+            kv: input.kv,
+            token: context.env.DISCORD_TOKEN,
+            matchId: input.matchId,
+            reportedMode: input.reportedContext.mode,
+            reportedRedDeath: input.reportedContext.redDeath,
+            reportedCivBlitz: input.reportedContext.civBlitz,
+            participants,
+            matchDraftData: input.matchDraftData,
+            lobby: input.lobby,
+            sessionNamespace: context.env.SessionDO,
+            reporter: input.reporter,
+            archivePolicy: input.archivePolicy,
+            archiveChannelType: input.isTournamentMatch ? 'tournament-archive' : 'archive',
+          })
+          discordSyncErrors = discordSync.errors
+        } catch (error) {
+          console.error(`Failed to sync reported Discord messages after activity report ${input.matchId}:`, error)
+          discordSyncErrors = [error instanceof Error ? error.message : String(error)]
+        }
+        if (discordSyncErrors.length > 0) {
+          await releaseReportClaim()
+          await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
+        } else {
+          await releaseReportClaim()
+        }
+
+        if (input.isTournamentMatch) {
+          await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN).catch(error => {
+            console.error(`Failed to refresh tournament leaderboard after activity report ${input.matchId}:`, error)
+          })
+          return
+        }
+
+        if (input.historicalSeason) return
+        if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
+          await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
+            civ: true,
+            modes: input.reportedContext.leaderboardMode ? [input.reportedContext.leaderboardMode] : [],
+          }).catch(error => {
+            console.error(`Failed to mark leaderboards dirty after match ${input.matchId}:`, error)
+          })
+        }
+
+        if (input.reportedContext.ranked) {
+          await markRankedRolesDirty(input.kv, `activity-report:${input.matchId}`).catch(error => {
+            console.error(`Failed to mark ranked roles dirty after match ${input.matchId}:`, error)
+          })
+        }
+      } finally {
         await releaseReportClaim()
-        await queueReportedDiscordRepair(context, input.matchId, discordSyncErrors)
       }
-      else {
-        await releaseReportClaim()
-      }
-
-      if (input.isTournamentMatch) {
-        await refreshTournamentLeaderboard(input.db, input.kv, context.env.DISCORD_TOKEN).catch((error) => {
-          console.error(`Failed to refresh tournament leaderboard after activity report ${input.matchId}:`, error)
-        })
-        return
-      }
-
-      if (input.historicalSeason) return
-      if (!input.reportedContext.redDeath && !input.reportedContext.civBlitz) {
-        await markLeaderboardsDirty(input.db, `activity-report:${input.matchId}`, {
-          civ: true,
-          modes: input.reportedContext.leaderboardMode ? [input.reportedContext.leaderboardMode] : [],
-        }).catch((error) => {
-          console.error(`Failed to mark leaderboards dirty after match ${input.matchId}:`, error)
-        })
-      }
-
-      if (input.reportedContext.ranked) {
-        await markRankedRolesDirty(input.kv, `activity-report:${input.matchId}`).catch((error) => {
-          console.error(`Failed to mark ranked roles dirty after match ${input.matchId}:`, error)
-        })
-      }
-    }
-    finally {
-      await releaseReportClaim()
-    }
-  }, `[match-report] failed to queue activity report projection work for ${input.matchId}:`)
+    },
+    `[match-report] failed to queue activity report projection work for ${input.matchId}:`,
+  )
 }
 
 async function hydrateLeaderboardRanksForDiscord(
@@ -490,25 +548,27 @@ async function queueReportedDiscordRepair(
   await queueSessionReportedDiscordSync(context.env.SessionDO, matchId, {
     matchId,
     reason: errors.join('; '),
-  }).catch((error) => {
+  }).catch(error => {
     console.error(`[match-report] failed to queue reported Discord repair for ${matchId}:`, error)
   })
 }
 
-function queueBackgroundTask(context: { executionCtx: ExecutionContext }, run: () => Promise<void>, errorMessage: string): void {
+function queueBackgroundTask(
+  context: { executionCtx: ExecutionContext },
+  run: () => Promise<void>,
+  errorMessage: string,
+): void {
   const task = (async () => {
     try {
       await run()
-    }
-    catch (error) {
+    } catch (error) {
       console.error(errorMessage, error)
     }
   })()
 
   try {
     context.executionCtx.waitUntil(task)
-  }
-  catch {
+  } catch {
     void task
   }
 }

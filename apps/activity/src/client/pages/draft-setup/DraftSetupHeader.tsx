@@ -16,7 +16,9 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
   const header = () => props.header
   return (
     <>
-      <div class={cn('flex gap-2 items-center z-20 absolute', props.isMobileLayout ? 'top-12 right-4' : 'top-4 right-6')}>
+      <div
+        class={cn('flex gap-2 items-center z-20 absolute', props.isMobileLayout ? 'top-12 right-4' : 'top-4 right-6')}
+      >
         <Show when={props.onSwitchTarget}>
           <button
             type="button"
@@ -34,10 +36,7 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
         steamLobbyLink={header().steamLobbyLink()}
         onSaveSteamLink={header().canSaveSteamLobbyLink() ? header().saveSteamLobbyLink : undefined}
         savePending={header().savePending()}
-        class={cn(
-          'z-20 absolute',
-          props.isMobileLayout ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9',
-        )}
+        class={cn('z-20 absolute', props.isMobileLayout ? 'top-12 left-4 h-9 w-9' : 'top-4 left-6 h-9 w-9')}
       />
 
       <div class="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-center">
@@ -50,7 +49,11 @@ export function DraftSetupHeader(props: DraftSetupHeaderProps) {
                 <span
                   class="text-[11px] leading-none font-semibold px-2 py-1 border rounded-full bg-bg-muted/40 inline-flex whitespace-nowrap items-center justify-center max-sm:mb-1 sm:absolute sm:left-full sm:top-1/2 sm:ml-3 sm:-translate-y-[calc(50%+0.125rem)]"
                   style={buildRolePillStyle(rank().color)}
-                  title={rank().leaderPoolSize == null ? `Average lobby rank: ${rank().label}` : `Average lobby rank: ${rank().label}. Default leaders: ${rank().leaderPoolSize}`}
+                  title={
+                    rank().leaderPoolSize == null
+                      ? `Average lobby rank: ${rank().label}`
+                      : `Average lobby rank: ${rank().label}. Default leaders: ${rank().leaderPoolSize}`
+                  }
                 >
                   {rank().label} lobby
                 </span>

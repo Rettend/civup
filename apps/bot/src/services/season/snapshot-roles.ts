@@ -1,9 +1,16 @@
 import type { Database } from '@civup/db'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { matches, matchParticipants, seasonPeakModeRanks, seasonPeakRanks, seasons } from '@civup/db'
 import { parseLeaderboardMode } from '@civup/game'
-import { and, desc, eq, inArray } from 'drizzle-orm'
-import { addGuildMemberRole, createGuildRole, deleteGuildRole, DiscordApiError, editGuildMemberRoles, removeGuildMemberRole } from '../discord/index.ts'
+import {
+  addGuildMemberRole,
+  createGuildRole,
+  deleteGuildRole,
+  DiscordApiError,
+  editGuildMemberRoles,
+  removeGuildMemberRole,
+} from '../discord/index.ts'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
 import {
   createRankedRoleTierId,
@@ -20,21 +27,27 @@ import { formatSeasonShortName } from './index.ts'
 import { ensureHistoricalRoleOrder } from './role-order.ts'
 
 interface StoredSeasonSnapshotRoleMappings {
-  bySeasonId?: Record<string, {
-    seasonNumber?: unknown
-    seasonName?: unknown
-    roles?: Record<string, unknown>
-    labels?: Record<string, string>
-  }>
+  bySeasonId?: Record<
+    string,
+    {
+      seasonNumber?: unknown
+      seasonName?: unknown
+      roles?: Record<string, unknown>
+      labels?: Record<string, string>
+    }
+  >
 }
 
 export interface SeasonSnapshotRoleMappings {
-  bySeasonId: Record<string, {
-    seasonNumber: number
-    seasonName: string
-    roles: Record<string, string | null>
-    labels?: Record<string, string>
-  }>
+  bySeasonId: Record<
+    string,
+    {
+      seasonNumber: number
+      seasonName: string
+      roles: Record<string, string | null>
+      labels?: Record<string, string>
+    }
+  >
 }
 
 export interface SeasonRankHistoryModeSummary {
@@ -57,8 +70,11 @@ export interface SeasonRankHistoryEntry {
 const SEASON_SNAPSHOT_ROLE_KEY_PREFIX = 'ranked-roles:season-snapshots:'
 const SEASON_SNAPSHOT_ROLE_WINDOW = 4
 
-export async function getSeasonSnapshotRoleMappings(kv: KVNamespace, guildId: string): Promise<SeasonSnapshotRoleMappings> {
-  const raw = await kv.get(snapshotRolesKey(guildId), 'json') as StoredSeasonSnapshotRoleMappings | null
+export async function getSeasonSnapshotRoleMappings(
+  kv: KVNamespace,
+  guildId: string,
+): Promise<SeasonSnapshotRoleMappings> {
+  const raw = (await kv.get(snapshotRolesKey(guildId), 'json')) as StoredSeasonSnapshotRoleMappings | null
   return normalizeSeasonSnapshotRoleMappings(raw)
 }
 
@@ -66,7 +82,7 @@ export async function ensureSeasonSnapshotRoles(
   kv: KVNamespace,
   guildId: string,
   token: string,
-  season: { id: string, seasonNumber: number, name: string },
+  season: { id: string; seasonNumber: number; name: string },
 ): Promise<Record<string, string>> {
   const [mappings, guildRoles, config] = await Promise.all([
     getSeasonSnapshotRoleMappings(kv, guildId),
@@ -124,23 +140,40 @@ export async function finalizeSeasonSnapshotRoles(
   kv: KVNamespace,
   guildId: string,
   token: string,
-  season: { id: string, seasonNumber: number, name: string },
+  season: { id: string; seasonNumber: number; name: string },
   playerIds?: string[],
 ): Promise<void> {
   const [storedSeason] = await db.select().from(seasons).where(eq(seasons.id, season.id)).limit(1)
   if (!storedSeason) throw new Error('The season no longer exists.')
-  if (storedSeason.isolatedRatingsEnabled && (storedSeason.active || storedSeason.finalizedAt == null || storedSeason.reportingDeadline == null || Date.now() < storedSeason.reportingDeadline)) throw new Error('Finish the reporting window and finalize the saved season before assigning historical roles.')
+  if (
+    storedSeason.isolatedRatingsEnabled &&
+    (storedSeason.active ||
+      storedSeason.finalizedAt == null ||
+      storedSeason.reportingDeadline == null ||
+      Date.now() < storedSeason.reportingDeadline)
+  )
+    throw new Error('Finish the reporting window and finalize the saved season before assigning historical roles.')
   const roleIdsByTier = await ensureSeasonSnapshotRoles(kv, guildId, token, season)
   if (storedSeason.isolatedRatingsEnabled) {
-    const [mappings, config] = await Promise.all([getSeasonSnapshotRoleMappings(kv, guildId), getRankedRoleConfig(kv, guildId)])
-    const historicalIds = Object.values(mappings.bySeasonId).flatMap(entry => Object.values(entry.roles).filter((id): id is string => id != null))
-    const liveIds = config.tiers.flatMap(tier => tier.roleId ? [tier.roleId] : [])
+    const [mappings, config] = await Promise.all([
+      getSeasonSnapshotRoleMappings(kv, guildId),
+      getRankedRoleConfig(kv, guildId),
+    ])
+    const historicalIds = Object.values(mappings.bySeasonId).flatMap(entry =>
+      Object.values(entry.roles).filter((id): id is string => id != null),
+    )
+    const liveIds = config.tiers.flatMap(tier => (tier.roleId ? [tier.roleId] : []))
     await ensureHistoricalRoleOrder(token, guildId, historicalIds, liveIds)
   }
   const rows = await db
     .select({ playerId: seasonPeakRanks.playerId, tier: seasonPeakRanks.tier })
     .from(seasonPeakRanks)
-    .where(and(eq(seasonPeakRanks.seasonId, season.id), playerIds ? inArray(seasonPeakRanks.playerId, playerIds) : undefined))
+    .where(
+      and(
+        eq(seasonPeakRanks.seasonId, season.id),
+        playerIds ? inArray(seasonPeakRanks.playerId, playerIds) : undefined,
+      ),
+    )
 
   const seasonRoleIds = Object.values(roleIdsByTier)
   for (const row of rows) {
@@ -153,10 +186,10 @@ export async function finalizeSeasonSnapshotRoles(
       const roleIds = await fetchGuildMemberRoleIds(token, guildId, row.playerId)
       if (!roleIds.includes(desiredRoleId)) await addGuildMemberRole(token, guildId, row.playerId, desiredRoleId)
       for (const roleId of roleIds) {
-        if (roleId !== desiredRoleId && seasonRoleIds.includes(roleId)) await removeGuildMemberRole(token, guildId, row.playerId, roleId)
+        if (roleId !== desiredRoleId && seasonRoleIds.includes(roleId))
+          await removeGuildMemberRole(token, guildId, row.playerId, roleId)
       }
-    }
-    catch (error) {
+    } catch (error) {
       if (error instanceof DiscordApiError && error.status === 404) continue
       throw error
     }
@@ -194,14 +227,11 @@ export async function listPlayerSeasonSnapshotHistory(
       })
       .from(matchParticipants)
       .innerJoin(matches, eq(matchParticipants.matchId, matches.id))
-      .where(and(
-        eq(matchParticipants.playerId, playerId),
-        eq(matches.status, 'completed'),
-      )),
+      .where(and(eq(matchParticipants.playerId, playerId), eq(matches.status, 'completed'))),
     getRankedRoleConfig(kv, guildId),
   ])
 
-  const seasonMatchStats = new Map<string, Partial<Record<LeaderboardMode, { gamesPlayed: number, wins: number }>>>()
+  const seasonMatchStats = new Map<string, Partial<Record<LeaderboardMode, { gamesPlayed: number; wins: number }>>>()
   for (const row of matchRows) {
     if (!row.seasonId) continue
     const context = getStoredGameModeContext(row.gameMode, row.draftData)
@@ -235,7 +265,7 @@ export async function listPlayerSeasonSnapshotHistory(
     seasonEntry.modes[mode] = {
       mode,
       tier,
-      tierLabel: tier ? getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier) : 'Unranked',
+      tierLabel: tier ? (getConfiguredRankedRoleLabel(config, tier) ?? formatRankedRoleSlotLabel(tier)) : 'Unranked',
       tierRoleId: tier ? getConfiguredRankedRoleId(config, tier) : null,
       rating: row.rating,
       gamesPlayed: stats.gamesPlayed,
@@ -284,8 +314,9 @@ async function trimExpiredSeasonSnapshotRoles(
     const mapping = mappings.bySeasonId[seasonId]
     if (!mapping) continue
 
-    const roleIds = Object.values(mapping.roles)
-      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    const roleIds = Object.values(mapping.roles).filter(
+      (roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0,
+    )
 
     const playerIds = [...(playerIdsBySeasonId.get(seasonId) ?? new Set<string>())]
     for (const playerId of playerIds) {
@@ -293,10 +324,15 @@ async function trimExpiredSeasonSnapshotRoles(
         const memberRoleIds = await fetchGuildMemberRoleIds(token, guildId, playerId)
         const nextRoleIds = memberRoleIds.filter(roleId => !roleIds.includes(roleId))
         nextRoleIds.sort((a, b) => a.localeCompare(b))
-        if (sameStringArray([...memberRoleIds].sort((a, b) => a.localeCompare(b)), nextRoleIds)) continue
+        if (
+          sameStringArray(
+            [...memberRoleIds].sort((a, b) => a.localeCompare(b)),
+            nextRoleIds,
+          )
+        )
+          continue
         await editGuildMemberRoles(token, guildId, playerId, nextRoleIds)
-      }
-      catch (error) {
+      } catch (error) {
         if (error instanceof DiscordApiError && error.status === 404) continue
         throw error
       }
@@ -305,8 +341,7 @@ async function trimExpiredSeasonSnapshotRoles(
     for (const roleId of roleIds) {
       try {
         await deleteGuildRole(token, guildId, roleId)
-      }
-      catch (error) {
+      } catch (error) {
         if (error instanceof DiscordApiError && error.status === 404) continue
         throw error
       }
@@ -318,7 +353,11 @@ async function trimExpiredSeasonSnapshotRoles(
   await setSeasonSnapshotRoleMappings(kv, guildId, mappings)
 }
 
-async function setSeasonSnapshotRoleMappings(kv: KVNamespace, guildId: string, mappings: SeasonSnapshotRoleMappings): Promise<void> {
+async function setSeasonSnapshotRoleMappings(
+  kv: KVNamespace,
+  guildId: string,
+  mappings: SeasonSnapshotRoleMappings,
+): Promise<void> {
   await kv.put(snapshotRolesKey(guildId), JSON.stringify(mappings))
 }
 
@@ -326,7 +365,9 @@ function snapshotRolesKey(guildId: string): string {
   return `${SEASON_SNAPSHOT_ROLE_KEY_PREFIX}${guildId}`
 }
 
-function normalizeSeasonSnapshotRoleMappings(raw: StoredSeasonSnapshotRoleMappings | null | undefined): SeasonSnapshotRoleMappings {
+function normalizeSeasonSnapshotRoleMappings(
+  raw: StoredSeasonSnapshotRoleMappings | null | undefined,
+): SeasonSnapshotRoleMappings {
   const bySeasonId: SeasonSnapshotRoleMappings['bySeasonId'] = {}
   for (const [seasonId, value] of Object.entries(raw?.bySeasonId ?? {})) {
     if (!seasonId) continue
@@ -336,12 +377,17 @@ function normalizeSeasonSnapshotRoleMappings(raw: StoredSeasonSnapshotRoleMappin
         .filter((entry): entry is [CompetitiveTier, string | null] => entry[0] != null),
     )
     bySeasonId[seasonId] = {
-      seasonNumber: typeof value.seasonNumber === 'number' && Number.isFinite(value.seasonNumber)
-        ? Math.max(0, Math.round(value.seasonNumber))
-        : 0,
+      seasonNumber:
+        typeof value.seasonNumber === 'number' && Number.isFinite(value.seasonNumber)
+          ? Math.max(0, Math.round(value.seasonNumber))
+          : 0,
       seasonName: typeof value.seasonName === 'string' ? value.seasonName : seasonId,
       roles,
-      labels: Object.fromEntries(Object.entries(value.labels ?? {}).filter(([tier, label]) => normalizeRankedRoleTierId(tier) && typeof label === 'string' && label.trim())),
+      labels: Object.fromEntries(
+        Object.entries(value.labels ?? {}).filter(
+          ([tier, label]) => normalizeRankedRoleTierId(tier) && typeof label === 'string' && label.trim(),
+        ),
+      ),
     }
   }
 

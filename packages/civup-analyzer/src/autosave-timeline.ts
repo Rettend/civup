@@ -1,7 +1,19 @@
-import type { AnalyzeAutosaveTimelineOptions, CivupAutosaveTimeline, CivupTimelineFailure, CivupTimelinePlayerSummary, CivupTimelineSummary, CivupTurnSnapshot } from './types.ts'
+import type {
+  AnalyzeAutosaveTimelineOptions,
+  CivupAutosaveTimeline,
+  CivupTimelineFailure,
+  CivupTimelinePlayerSummary,
+  CivupTimelineSummary,
+  CivupTurnSnapshot,
+} from './types.ts'
 import type { Civ6SaveMetadata, Civ6SavePlayerMetadata } from '@civup/civ6-save-metadata'
 import { inflateRawSync } from 'node:zlib'
-import { listAutosaveZipEntries, parseCiv6SaveMetadata, parseZipEntries, readZipEntryData } from '@civup/civ6-save-metadata'
+import {
+  listAutosaveZipEntries,
+  parseCiv6SaveMetadata,
+  parseZipEntries,
+  readZipEntryData,
+} from '@civup/civ6-save-metadata'
 
 export function analyzeAutosaveTimelineBytes(
   source: string,
@@ -9,9 +21,7 @@ export function analyzeAutosaveTimelineBytes(
   options: AnalyzeAutosaveTimelineOptions = {},
 ): CivupAutosaveTimeline {
   const sourceKind = isCiv6SavePath(source) ? 'save' : 'autosave-zip'
-  const result = sourceKind === 'save'
-    ? analyzeSingleSave(source, bytes)
-    : analyzeAutosaveZip(source, bytes, options)
+  const result = sourceKind === 'save' ? analyzeSingleSave(source, bytes) : analyzeAutosaveZip(source, bytes, options)
 
   return {
     tool: 'civup-analyzer',
@@ -25,22 +35,26 @@ export function analyzeAutosaveTimelineBytes(
   }
 }
 
-function analyzeSingleSave(source: string, bytes: Uint8Array): { turns: CivupTurnSnapshot[], failures: CivupTimelineFailure[] } {
+function analyzeSingleSave(
+  source: string,
+  bytes: Uint8Array,
+): { turns: CivupTurnSnapshot[]; failures: CivupTimelineFailure[] } {
   try {
     const metadata = parseCiv6SaveMetadata(bytes)
     return {
-      turns: [buildTurnSnapshot({
-        index: 0,
-        saveName: source,
-        turnFromName: null,
-        compressedSizeBytes: null,
-        uncompressedSizeBytes: bytes.length,
-        metadata,
-      })],
+      turns: [
+        buildTurnSnapshot({
+          index: 0,
+          saveName: source,
+          turnFromName: null,
+          compressedSizeBytes: null,
+          uncompressedSizeBytes: bytes.length,
+          metadata,
+        }),
+      ],
       failures: [],
     }
-  }
-  catch (error) {
+  } catch (error) {
     return {
       turns: [],
       failures: [{ index: 0, saveName: source, turnFromName: null, error: errorMessage(error) }],
@@ -52,7 +66,7 @@ function analyzeAutosaveZip(
   source: string,
   bytes: Uint8Array,
   options: AnalyzeAutosaveTimelineOptions,
-): { turns: CivupTurnSnapshot[], failures: CivupTimelineFailure[] } {
+): { turns: CivupTurnSnapshot[]; failures: CivupTimelineFailure[] } {
   const zipEntries = parseZipEntries(bytes)
   const saveEntries = listAutosaveZipEntries(zipEntries)
   const limit = normalizeLimit(options.limit)
@@ -65,16 +79,17 @@ function analyzeAutosaveZip(
     try {
       const saveBytes = readZipEntryData(bytes, entry, inflateRaw)
       const metadata = parseCiv6SaveMetadata(saveBytes)
-      turns.push(buildTurnSnapshot({
-        index,
-        saveName: entry.name,
-        turnFromName: entry.turn,
-        compressedSizeBytes: entry.compressedSize,
-        uncompressedSizeBytes: entry.uncompressedSize,
-        metadata,
-      }))
-    }
-    catch (error) {
+      turns.push(
+        buildTurnSnapshot({
+          index,
+          saveName: entry.name,
+          turnFromName: entry.turn,
+          compressedSizeBytes: entry.compressedSize,
+          uncompressedSizeBytes: entry.uncompressedSize,
+          metadata,
+        }),
+      )
+    } catch (error) {
       const failure = { index, saveName: entry.name, turnFromName: entry.turn, error: errorMessage(error) }
       failures.push(failure)
       if (options.failFast) throw new Error(`${source}: ${entry.name}: ${failure.error}`)
@@ -115,7 +130,10 @@ function buildTurnSnapshot(input: {
   }
 }
 
-function buildTimelineSummary(turns: readonly CivupTurnSnapshot[], failures: readonly CivupTimelineFailure[]): CivupTimelineSummary {
+function buildTimelineSummary(
+  turns: readonly CivupTurnSnapshot[],
+  failures: readonly CivupTimelineFailure[],
+): CivupTimelineSummary {
   const firstTurn = turns[0]?.gameTurn ?? turns[0]?.turnFromName ?? null
   const last = turns.at(-1)
   const lastTurn = last?.gameTurn ?? last?.turnFromName ?? null
@@ -159,8 +177,10 @@ function summarizePlayers(turns: readonly CivupTurnSnapshot[]): CivupTimelinePla
       }
 
       existing.seenTurns += 1
-      if (existing.firstTurn == null || (turnNumber != null && turnNumber < existing.firstTurn)) existing.firstTurn = turnNumber
-      if (existing.lastTurn == null || (turnNumber != null && turnNumber > existing.lastTurn)) existing.lastTurn = turnNumber
+      if (existing.firstTurn == null || (turnNumber != null && turnNumber < existing.firstTurn))
+        existing.firstTurn = turnNumber
+      if (existing.lastTurn == null || (turnNumber != null && turnNumber > existing.lastTurn))
+        existing.lastTurn = turnNumber
     }
   }
 

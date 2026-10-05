@@ -1,15 +1,26 @@
+import type {
+  CreateManualReportedMatchInput,
+  CreateManualReportedMatchResult,
+  ManualReportedMatchPlayerInput,
+} from './types.ts'
 import type { Database } from '@civup/db'
-import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import type { DraftState, GameMode, LeaderDataVersion } from '@civup/game'
-import type { CreateManualReportedMatchInput, CreateManualReportedMatchResult, ManualReportedMatchPlayerInput } from './types.ts'
-import { matches, matchParticipants, players, seasons } from '@civup/db'
-import { getLeaders, maxPlayerCount, playerCountOptions, slotToTeamIndex, startPlayerCountOptions, toLeaderboardMode } from '@civup/game'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import { matches, matchParticipants, players, seasons } from '@civup/db'
+import {
+  getLeaders,
+  maxPlayerCount,
+  playerCountOptions,
+  slotToTeamIndex,
+  startPlayerCountOptions,
+  toLeaderboardMode,
+} from '@civup/game'
 import { reconcileCivLeaderboardMatchContribution } from '../leaderboard/civ-snapshot.ts'
 import { reconcilePlayerCivStatMatchContributionFromRows } from '../leaderboard/player-civ-stats.ts'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 import { getActiveSeason } from '../season/index.ts'
+import { runUnbufferedRatingMutation } from '../season/maintenance.ts'
 import { splitValuesForD1InsertLimit } from './draft.ts'
 import { recalculateGlobalRatings, recalculateLeaderboardMode } from './ratings.ts'
 
@@ -22,8 +33,12 @@ interface CreateManualReportedMatchOptions {
   rankedRoleGuildId?: string | null
 }
 
-export function createManualReportedMatch(...args: Parameters<typeof createManualReportedMatchImpl>): Promise<CreateManualReportedMatchResult> {
-  return runUnbufferedRatingMutation(args[0], args[2].matchId ?? 'manual-report', () => createManualReportedMatchImpl(...args))
+export function createManualReportedMatch(
+  ...args: Parameters<typeof createManualReportedMatchImpl>
+): Promise<CreateManualReportedMatchResult> {
+  return runUnbufferedRatingMutation(args[0], args[2].matchId ?? 'manual-report', () =>
+    createManualReportedMatchImpl(...args),
+  )
 }
 
 async function createManualReportedMatchImpl(
@@ -34,10 +49,15 @@ async function createManualReportedMatchImpl(
 ): Promise<CreateManualReportedMatchResult> {
   const validationError = validateManualReportedMatchInput(input)
   if (validationError) return { error: validationError }
-  const [publicSeason] = await db.select({ id: seasons.id }).from(seasons).where(eq(seasons.ratingSystem, 'rp')).limit(1)
-  if (publicSeason) return { error: 'Manual reports require the season-aware import workflow. No match or player data was changed.' }
+  const [publicSeason] = await db
+    .select({ id: seasons.id })
+    .from(seasons)
+    .where(eq(seasons.ratingSystem, 'rp'))
+    .limit(1)
+  if (publicSeason)
+    return { error: 'Manual reports require the season-aware import workflow. No match or player data was changed.' }
 
-  const matchId = input.matchId ?? await createUniqueManualMatchId(db)
+  const matchId = input.matchId ?? (await createUniqueManualMatchId(db))
   const [existingMatch] = await db.select({ id: matches.id }).from(matches).where(eq(matches.id, matchId)).limit(1)
   if (existingMatch) return { error: `Match **${matchId}** already exists.` }
 
@@ -45,7 +65,15 @@ async function createManualReportedMatchImpl(
   const playerCount = input.players.length
   const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
   const leaderDataVersion = resolveManualReportLeaderDataVersion(input.players)
-  const draftData = buildManualReportedDraftData(matchId, input.mode, input.players, input.reporterId, input.reportedAt, permanentAlly, leaderDataVersion)
+  const draftData = buildManualReportedDraftData(
+    matchId,
+    input.mode,
+    input.players,
+    input.reporterId,
+    input.reportedAt,
+    permanentAlly,
+    leaderDataVersion,
+  )
   const participantRows = input.players.map((player, index) => {
     const team = resolveManualReportTeam(input.mode, index, playerCount)
     return {
@@ -63,7 +91,8 @@ async function createManualReportedMatchImpl(
 
   try {
     for (const player of input.players) {
-      await db.insert(players)
+      await db
+        .insert(players)
         .values({
           id: player.playerId,
           displayName: player.displayName,
@@ -118,13 +147,18 @@ async function createManualReportedMatchImpl(
     }
 
     await reconcileCivLeaderboardMatchContribution(db, matchId)
-    await reconcilePlayerCivStatMatchContributionFromRows(db, {
-      id: matchId,
-      status: 'completed',
-      draftData,
-      gameMode: input.mode,
-      seasonId: activeSeason?.id ?? null,
-    }, participantRows, { updatedAt: input.reportedAt, previous: 'empty' })
+    await reconcilePlayerCivStatMatchContributionFromRows(
+      db,
+      {
+        id: matchId,
+        status: 'completed',
+        draftData,
+        gameMode: input.mode,
+        seasonId: activeSeason?.id ?? null,
+      },
+      participantRows,
+      { updatedAt: input.reportedAt, previous: 'empty' },
+    )
 
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
     const participants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
@@ -136,9 +170,8 @@ async function createManualReportedMatchImpl(
       previousStatus: 'manual',
       recalculatedMatchIds,
     }
-  }
-  catch (error) {
-    await rollbackManualReportedMatch(db, matchId).catch((rollbackError) => {
+  } catch (error) {
+    await rollbackManualReportedMatch(db, matchId).catch(rollbackError => {
       console.error(`Failed to roll back manual match ${matchId}:`, rollbackError)
     })
     throw error
@@ -147,9 +180,10 @@ async function createManualReportedMatchImpl(
 
 function validateManualReportedMatchInput(input: CreateManualReportedMatchInput): string | null {
   const permanentAlly = input.mode === 'ffa' && input.permanentAlly === true
-  const allowedCounts = input.mode === 'ffa'
-    ? startPlayerCountOptions(input.mode, maxPlayerCount(input.mode), { permanentAlly })
-    : playerCountOptions(input.mode)
+  const allowedCounts =
+    input.mode === 'ffa'
+      ? startPlayerCountOptions(input.mode, maxPlayerCount(input.mode), { permanentAlly })
+      : playerCountOptions(input.mode)
   if (!allowedCounts.includes(input.players.length)) {
     return `${input.mode} manual reports require ${formatAllowedCounts(allowedCounts)} players.`
   }
@@ -159,7 +193,8 @@ function validateManualReportedMatchInput(input: CreateManualReportedMatchInput)
   for (const player of input.players) {
     if (!player.playerId.trim()) return 'Manual reports require every player slot to have a player.'
     if (!player.displayName.trim()) return `Manual report player **${player.playerId}** is missing a display name.`
-    if (!LIVE_LEADER_IDS.has(player.civId) && !BETA_LEADER_IDS.has(player.civId)) return `Unknown leader: **${player.civId}**.`
+    if (!LIVE_LEADER_IDS.has(player.civId) && !BETA_LEADER_IDS.has(player.civId))
+      return `Unknown leader: **${player.civId}**.`
     if (playerIds.has(player.playerId)) return `<@${player.playerId}> is listed more than once.`
     if (civIds.has(player.civId)) return `Leader **${player.civId}** is listed more than once.`
     playerIds.add(player.playerId)
@@ -228,7 +263,9 @@ function buildManualReportedDraftData(
 }
 
 function resolveManualReportLeaderDataVersion(players: ManualReportedMatchPlayerInput[]): LeaderDataVersion {
-  return players.some(player => !LIVE_LEADER_IDS.has(player.civId) && BETA_LEADER_IDS.has(player.civId)) ? 'beta' : 'live'
+  return players.some(player => !LIVE_LEADER_IDS.has(player.civId) && BETA_LEADER_IDS.has(player.civId))
+    ? 'beta'
+    : 'live'
 }
 
 function resolveManualFfaPlacement(index: number, permanentAlly: boolean): number {
@@ -249,7 +286,10 @@ function formatAllowedCounts(counts: readonly number[]): string {
   return `${counts.slice(0, -1).join(', ')} or ${counts[counts.length - 1]}`
 }
 
-async function loadCurrentRankedRoleTierByPlayerId(kv: KVNamespace, guildId: string | null | undefined): Promise<Map<string, string>> {
+async function loadCurrentRankedRoleTierByPlayerId(
+  kv: KVNamespace,
+  guildId: string | null | undefined,
+): Promise<Map<string, string>> {
   if (!guildId) return new Map()
   const assignments = await getCurrentRankAssignments(kv, guildId)
   return new Map(Object.entries(assignments.byPlayerId).map(([playerId, assignment]) => [playerId, assignment.tier]))

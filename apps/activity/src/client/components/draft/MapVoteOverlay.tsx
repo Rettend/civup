@@ -1,7 +1,7 @@
 import type { MapVoteMapOption } from '@civup/game'
 import type { JSX } from '@solidjs/web'
-import { MAP_VOTE_MAPS } from '@civup/game'
 import { For, Show } from 'solid-js'
+import { MAP_VOTE_MAPS } from '@civup/game'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -19,7 +19,9 @@ import {
   toggleMapVoteSelectedMap,
 } from '~/client/stores'
 
-const MAPS_WITH_RANDOM_FIRST = [...MAP_VOTE_MAPS].sort((left, right) => Number(right.id === 'random') - Number(left.id === 'random'))
+const MAPS_WITH_RANDOM_FIRST = [...MAP_VOTE_MAPS].sort(
+  (left, right) => Number(right.id === 'random') - Number(left.id === 'random'),
+)
 
 export function MapVoteOverlay() {
   return (
@@ -32,13 +34,14 @@ export function MapVoteOverlay() {
             gridExpanded() ? 'items-stretch top-3' : 'items-end top-6',
           )}
         >
-          <div class={cn(
-            'pointer-events-auto relative z-30',
-            isMobileLayout()
-              ? 'w-[min(calc(100vw-1rem),32rem)]'
-              : 'w-[min(calc(100vw-1.5rem),52rem)] xl:w-fit xl:max-w-[calc(100vw-1.5rem)]',
-            gridExpanded() && 'h-full',
-          )}
+          <div
+            class={cn(
+              'pointer-events-auto relative z-30',
+              isMobileLayout()
+                ? 'w-[min(calc(100vw-1rem),32rem)]'
+                : 'w-[min(calc(100vw-1.5rem),52rem)] xl:w-fit xl:max-w-[calc(100vw-1.5rem)]',
+              gridExpanded() && 'h-full',
+            )}
           >
             <VotePanel />
           </div>
@@ -48,8 +51,13 @@ export function MapVoteOverlay() {
   )
 }
 
-function MapVotePanelFrame(props: { children: JSX.Element, footer?: JSX.Element, footerClass?: string, bodyClass?: string }) {
-  const expandLabel = () => gridExpanded() ? 'Restore map vote size' : 'Expand map vote'
+function MapVotePanelFrame(props: {
+  children: JSX.Element
+  footer?: JSX.Element
+  footerClass?: string
+  bodyClass?: string
+}) {
+  const expandLabel = () => (gridExpanded() ? 'Restore map vote size' : 'Expand map vote')
 
   return (
     <div
@@ -80,12 +88,15 @@ function MapVotePanelFrame(props: { children: JSX.Element, footer?: JSX.Element,
         </button>
       </div>
 
-      <div class={cn('px-4 pb-4 pt-3 min-h-0 flex-1', props.bodyClass)}>
-        {props.children}
-      </div>
+      <div class={cn('px-4 pb-4 pt-3 min-h-0 flex-1', props.bodyClass)}>{props.children}</div>
 
       <Show when={props.footer != null}>
-        <div class={cn('px-4 py-3 border-t border-border-subtle flex items-center justify-center shrink-0', props.footerClass)}>
+        <div
+          class={cn(
+            'px-4 py-3 border-t border-border-subtle flex items-center justify-center shrink-0',
+            props.footerClass,
+          )}
+        >
           {props.footer}
         </div>
       </Show>
@@ -101,7 +112,7 @@ function VotePanel() {
     <MapVotePanelFrame
       bodyClass="overflow-y-auto overflow-x-hidden"
       footerClass={isRevealing() ? 'h-0 overflow-hidden border-t-0 py-0' : ''}
-      footer={(
+      footer={
         <button
           type="button"
           class={cn(
@@ -116,16 +127,18 @@ function VotePanel() {
             if (confirmMapVote()) setGridOpen(false)
           }}
         >
-          <Show when={!mapVoteHasConfirmed()} fallback="Vote Submitted">Confirm Vote</Show>
+          <Show when={!mapVoteHasConfirmed()} fallback="Vote Submitted">
+            Confirm Vote
+          </Show>
         </button>
-      )}
+      }
     >
       <MapColumn disabled={!canVote() || mapVoteHasConfirmed()} />
     </MapVotePanelFrame>
   )
 }
 
-function MapOptionSection(props: { title: string, gridClass: string, children: JSX.Element }) {
+function MapOptionSection(props: { title: string; gridClass: string; children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2">
       <div class="text-sm text-white leading-none font-semibold px-1">{props.title}</div>
@@ -136,10 +149,7 @@ function MapOptionSection(props: { title: string, gridClass: string, children: J
 
 function MapColumn(props: { disabled: boolean }) {
   return (
-    <MapOptionSection
-      title="Map"
-      gridClass="flex flex-wrap content-start justify-start gap-2"
-    >
+    <MapOptionSection title="Map" gridClass="flex flex-wrap content-start justify-start gap-2">
       <For each={MAPS_WITH_RANDOM_FIRST}>
         {option => (
           <MapVoteOptionCard
@@ -170,13 +180,17 @@ function MapVoteOptionCard(props: {
         'group relative flex w-20 max-w-20 shrink-0 cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-bg/50 text-left transition-all',
         'hover:border-accent/60 hover:bg-bg/70',
         'disabled:cursor-default disabled:opacity-80 disabled:hover:border-border disabled:hover:bg-bg/50',
-        props.selected && 'border-accent/80 bg-accent/10 shadow-[0_0_0_2px_var(--accent-subtle)] hover:border-accent hover:bg-accent/18',
+        props.selected &&
+          'border-accent/80 bg-accent/10 shadow-[0_0_0_2px_var(--accent-subtle)] hover:border-accent hover:bg-accent/18',
       )}
       onClick={() => props.onSelect()}
     >
       <div class="bg-bg-muted/45 flex w-full aspect-square items-center justify-center relative overflow-hidden">
         <MapVoteSelectionRankBadge rank={props.rank} />
-        <Show when={props.option.imageUrl} fallback={<MapVoteOptionIcon option={props.option} selected={props.selected} />}>
+        <Show
+          when={props.option.imageUrl}
+          fallback={<MapVoteOptionIcon option={props.option} selected={props.selected} />}
+        >
           {url => (
             <img
               src={resolveAssetUrl(url()) ?? url()}
@@ -215,7 +229,12 @@ function MapVoteOptionCard(props: {
       </div>
 
       <div class="px-2 py-1 border-t border-border-subtle flex h-8 items-center justify-center">
-        <div class={cn('text-xs text-center font-semibold leading-tight', props.selected ? 'text-accent' : 'text-fg-muted')}>
+        <div
+          class={cn(
+            'text-xs text-center font-semibold leading-tight',
+            props.selected ? 'text-accent' : 'text-fg-muted',
+          )}
+        >
           {props.option.name}
         </div>
       </div>
@@ -248,7 +267,7 @@ function MapVoteSelectionRankBadge(props: { rank: number }) {
   )
 }
 
-function MapVoteOptionIcon(props: { option: MapVoteMapOption, selected: boolean }) {
+function MapVoteOptionIcon(props: { option: MapVoteMapOption; selected: boolean }) {
   const isRandom = () => props.option.id === 'random'
 
   return (

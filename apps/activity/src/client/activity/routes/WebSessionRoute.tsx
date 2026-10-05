@@ -1,8 +1,8 @@
+import type { ActivityState } from '../activity-context'
 import type { Accessor } from 'solid-js'
+import { Match, Show, Switch } from 'solid-js'
 import { DraftPage } from '../../pages/draft'
 import { DraftSetupPage } from '../../pages/draft-setup'
-import { Match, Show, Switch } from 'solid-js'
-import type { ActivityState } from '../activity-context'
 import { ActivityErrorPage, ActivityLoadingPage, useActivityController } from '../activity-context'
 
 export default function WebSessionRoute() {
@@ -15,7 +15,12 @@ export default function WebSessionRoute() {
   return (
     <Show
       when={activity.state().status === 'lobby-waiting'}
-      fallback={<WebSessionFallback state={activity.state} onSwitchTarget={activity.canSwitchTargets ? activity.openOverview : undefined} />}
+      fallback={
+        <WebSessionFallback
+          state={activity.state}
+          onSwitchTarget={activity.canSwitchTargets ? activity.openOverview : undefined}
+        />
+      }
     >
       <DraftSetupPage
         lobby={waitingState()?.lobby}
@@ -30,7 +35,7 @@ export default function WebSessionRoute() {
   )
 }
 
-function WebSessionFallback(props: { state: Accessor<ActivityState>, onSwitchTarget?: () => void }) {
+function WebSessionFallback(props: { state: Accessor<ActivityState>; onSwitchTarget?: () => void }) {
   const authenticatedState = () => {
     const state = props.state()
     return state.status === 'authenticated' ? state : null

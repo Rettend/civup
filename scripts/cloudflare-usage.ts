@@ -41,11 +41,14 @@ interface UsageSnapshot {
     to: string
   }
   workers: {
-    byScript: Record<string, {
-      requests: number
-      errors: number
-      subrequests: number
-    }>
+    byScript: Record<
+      string,
+      {
+        requests: number
+        errors: number
+        subrequests: number
+      }
+    >
     totalRequests: number
   }
   kv: {
@@ -53,20 +56,26 @@ interface UsageSnapshot {
     totalOperations: number
   }
   d1: {
-    byDatabaseId: Record<string, {
-      rowsRead: number
-      rowsWritten: number
-    }>
+    byDatabaseId: Record<
+      string,
+      {
+        rowsRead: number
+        rowsWritten: number
+      }
+    >
     totalRowsRead: number
     totalRowsWritten: number
   }
   durableObjects: {
     dataset: string | null
-    byScript: Record<string, {
-      requests: number
-      errors: number
-      wallTime: number
-    }>
+    byScript: Record<
+      string,
+      {
+        requests: number
+        errors: number
+        wallTime: number
+      }
+    >
     totalRequests: number | null
     totalWallTime: number | null
   }
@@ -87,11 +96,14 @@ interface SnapshotDiff {
     to: string
   }
   workers: {
-    byScript: Record<string, {
-      requests: number
-      errors: number
-      subrequests: number
-    }>
+    byScript: Record<
+      string,
+      {
+        requests: number
+        errors: number
+        subrequests: number
+      }
+    >
     totalRequests: number
   }
   kv: {
@@ -99,20 +111,26 @@ interface SnapshotDiff {
     totalOperations: number
   }
   d1: {
-    byDatabaseId: Record<string, {
-      rowsRead: number
-      rowsWritten: number
-    }>
+    byDatabaseId: Record<
+      string,
+      {
+        rowsRead: number
+        rowsWritten: number
+      }
+    >
     totalRowsRead: number
     totalRowsWritten: number
   }
   durableObjects: {
     dataset: string | null
-    byScript: Record<string, {
-      requests: number
-      errors: number
-      wallTime: number
-    }>
+    byScript: Record<
+      string,
+      {
+        requests: number
+        errors: number
+        wallTime: number
+      }
+    >
     totalRequests: number | null
     totalWallTime: number | null
   }
@@ -327,9 +345,7 @@ function parseCli(args: string[]): CliOptions {
   if (args.length === 0) return { command: 'help' }
 
   const commandRaw = args[0]?.toLowerCase()
-  const command = commandRaw === 'snapshot' || commandRaw === 'diff' || commandRaw === 'help'
-    ? commandRaw
-    : 'help'
+  const command = commandRaw === 'snapshot' || commandRaw === 'diff' || commandRaw === 'help' ? commandRaw : 'help'
 
   if (command === 'help') return { command: 'help' }
 
@@ -357,7 +373,11 @@ function parseCli(args: string[]): CliOptions {
       else if (flag === '--output') options.output = value
       else if (flag === '--before') options.before = value
       else if (flag === '--after') options.after = value
-      else if (flag === '--scripts') options.scripts = value?.split(',').map(part => part.trim()).filter(Boolean)
+      else if (flag === '--scripts')
+        options.scripts = value
+          ?.split(',')
+          .map(part => part.trim())
+          .filter(Boolean)
     }
   }
 
@@ -425,12 +445,18 @@ function createDiff(before: UsageSnapshot, after: UsageSnapshot): SnapshotDiff {
   }
 
   let durableTotalRequests: number | null = null
-  if (typeof before.durableObjects.totalRequests === 'number' && typeof after.durableObjects.totalRequests === 'number') {
+  if (
+    typeof before.durableObjects.totalRequests === 'number' &&
+    typeof after.durableObjects.totalRequests === 'number'
+  ) {
     durableTotalRequests = after.durableObjects.totalRequests - before.durableObjects.totalRequests
   }
 
   let durableTotalWallTime: number | null = null
-  if (typeof before.durableObjects.totalWallTime === 'number' && typeof after.durableObjects.totalWallTime === 'number') {
+  if (
+    typeof before.durableObjects.totalWallTime === 'number' &&
+    typeof after.durableObjects.totalWallTime === 'number'
+  ) {
     durableTotalWallTime = after.durableObjects.totalWallTime - before.durableObjects.totalWallTime
   }
 
@@ -486,11 +512,13 @@ function printSnapshotSummary(snapshot: UsageSnapshot, scripts: string[]): void 
   console.table(toRows(snapshot.kv.byActionType, 'actionType', 'count'))
 
   console.log('\n[d1] rows by databaseId')
-  console.table(Object.entries(snapshot.d1.byDatabaseId).map(([databaseId, rows]) => ({
-    databaseId,
-    rowsRead: rows.rowsRead,
-    rowsWritten: rows.rowsWritten,
-  })))
+  console.table(
+    Object.entries(snapshot.d1.byDatabaseId).map(([databaseId, rows]) => ({
+      databaseId,
+      rowsRead: rows.rowsRead,
+      rowsWritten: rows.rowsWritten,
+    })),
+  )
 
   console.log('\n[durable objects]')
   console.table([
@@ -502,12 +530,14 @@ function printSnapshotSummary(snapshot: UsageSnapshot, scripts: string[]): void 
   ])
 
   if (snapshot.durableObjects.dataset) {
-    console.table(Object.entries(snapshot.durableObjects.byScript).map(([scriptName, row]) => ({
-      scriptName,
-      requests: row.requests,
-      errors: row.errors,
-      wallTime: row.wallTime,
-    })))
+    console.table(
+      Object.entries(snapshot.durableObjects.byScript).map(([scriptName, row]) => ({
+        scriptName,
+        requests: row.requests,
+        errors: row.errors,
+        wallTime: row.wallTime,
+      })),
+    )
   }
 }
 
@@ -530,11 +560,13 @@ function printDiffSummary(diff: SnapshotDiff, scripts: string[]): void {
   console.table(toRows(diff.kv.byActionType, 'actionType', 'count'))
 
   console.log('\n[d1] rows by databaseId delta')
-  console.table(Object.entries(diff.d1.byDatabaseId).map(([databaseId, rows]) => ({
-    databaseId,
-    rowsRead: rows.rowsRead,
-    rowsWritten: rows.rowsWritten,
-  })))
+  console.table(
+    Object.entries(diff.d1.byDatabaseId).map(([databaseId, rows]) => ({
+      databaseId,
+      rowsRead: rows.rowsRead,
+      rowsWritten: rows.rowsWritten,
+    })),
+  )
 
   console.log('\n[durable objects] delta')
   console.table([
@@ -546,37 +578,46 @@ function printDiffSummary(diff: SnapshotDiff, scripts: string[]): void {
   ])
 
   if (diff.durableObjects.dataset) {
-    console.table(Object.entries(diff.durableObjects.byScript).map(([scriptName, row]) => ({
-      scriptName,
-      requests: row.requests,
-      errors: row.errors,
-      wallTime: row.wallTime,
-    })))
+    console.table(
+      Object.entries(diff.durableObjects.byScript).map(([scriptName, row]) => ({
+        scriptName,
+        requests: row.requests,
+        errors: row.errors,
+        wallTime: row.wallTime,
+      })),
+    )
   }
 }
 
 function summarizeScripts(
-  byScript: Record<string, { requests: number, errors: number, subrequests: number }>,
+  byScript: Record<string, { requests: number; errors: number; subrequests: number }>,
   scripts: string[],
-): Array<{ scriptName: string, requests: number, errors: number, subrequests: number }> {
+): Array<{ scriptName: string; requests: number; errors: number; subrequests: number }> {
   const wanted = new Set(scripts)
-  const exactRows = scripts.map((scriptName) => {
+  const exactRows = scripts.map(scriptName => {
     const row = byScript[scriptName] ?? { requests: 0, errors: 0, subrequests: 0 }
     return { scriptName, ...row }
   })
 
   const other = Object.entries(byScript)
     .filter(([scriptName]) => !wanted.has(scriptName))
-    .reduce((sum, [, row]) => ({
-      requests: sum.requests + row.requests,
-      errors: sum.errors + row.errors,
-      subrequests: sum.subrequests + row.subrequests,
-    }), { requests: 0, errors: 0, subrequests: 0 })
+    .reduce(
+      (sum, [, row]) => ({
+        requests: sum.requests + row.requests,
+        errors: sum.errors + row.errors,
+        subrequests: sum.subrequests + row.subrequests,
+      }),
+      { requests: 0, errors: 0, subrequests: 0 },
+    )
 
   return [...exactRows, { scriptName: '(other)', ...other }]
 }
 
-function toRows(record: Record<string, number>, keyName: string, valueName: string): Array<Record<string, string | number>> {
+function toRows(
+  record: Record<string, number>,
+  keyName: string,
+  valueName: string,
+): Array<Record<string, string | number>> {
   return Object.entries(record).map(([key, value]) => ({
     [keyName]: key,
     [valueName]: value,
@@ -588,7 +629,7 @@ async function queryWorkersByScript(
   accountId: string,
   from: string,
   to: string,
-): Promise<Record<string, { requests: number, errors: number, subrequests: number }>> {
+): Promise<Record<string, { requests: number; errors: number; subrequests: number }>> {
   const groupQuery = `
     query Usage {
       viewer {
@@ -647,7 +688,7 @@ async function queryWorkersByScript(
     rows = adaptiveResponse.viewer?.accounts?.[0]?.workersInvocationsAdaptive
   }
 
-  const byScript: Record<string, { requests: number, errors: number, subrequests: number }> = {}
+  const byScript: Record<string, { requests: number; errors: number; subrequests: number }> = {}
 
   for (const row of rows ?? []) {
     const scriptName = row?.dimensions?.scriptName?.trim() || '(unknown)'
@@ -711,7 +752,7 @@ async function queryD1ByDatabaseId(
   accountId: string,
   from: string,
   to: string,
-): Promise<Record<string, { rowsRead: number, rowsWritten: number }>> {
+): Promise<Record<string, { rowsRead: number; rowsWritten: number }>> {
   const query = `
     query Usage {
       viewer {
@@ -739,7 +780,7 @@ async function queryD1ByDatabaseId(
   const data = await queryGraphQlStrict<D1QueryData>(apiToken, query)
   const rows = data.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups ?? []
 
-  const byDatabaseId: Record<string, { rowsRead: number, rowsWritten: number }> = {}
+  const byDatabaseId: Record<string, { rowsRead: number; rowsWritten: number }> = {}
   for (const row of rows) {
     const databaseId = row?.dimensions?.databaseId?.trim() || '(unknown)'
     if (!byDatabaseId[databaseId]) {
@@ -781,7 +822,7 @@ async function queryDurableObjectsUsage(
   discoveredFields: string[],
 ): Promise<{
   dataset: string | null
-  byScript: Record<string, { requests: number, errors: number, wallTime: number }>
+  byScript: Record<string, { requests: number; errors: number; wallTime: number }>
   totalRequests: number | null
   totalWallTime: number | null
 }> {
@@ -827,22 +868,25 @@ async function queryDurableObjectsUsage(
     const rows = account?.[fieldName]
     if (!Array.isArray(rows)) continue
 
-    const byScript: Record<string, { requests: number, errors: number, wallTime: number }> = {}
+    const byScript: Record<string, { requests: number; errors: number; wallTime: number }> = {}
 
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue
       const dimensions = (row as { dimensions?: { scriptName?: unknown } }).dimensions
-      const sum = (row as {
-        sum?: {
-          requests?: unknown
-          errors?: unknown
-          wallTime?: unknown
+      const sum = (
+        row as {
+          sum?: {
+            requests?: unknown
+            errors?: unknown
+            wallTime?: unknown
+          }
         }
-      }).sum
+      ).sum
 
-      const scriptName = typeof dimensions?.scriptName === 'string' && dimensions.scriptName.trim().length > 0
-        ? dimensions.scriptName.trim()
-        : '(unknown)'
+      const scriptName =
+        typeof dimensions?.scriptName === 'string' && dimensions.scriptName.trim().length > 0
+          ? dimensions.scriptName.trim()
+          : '(unknown)'
 
       if (!byScript[scriptName]) {
         byScript[scriptName] = {
@@ -904,8 +948,7 @@ async function queryGraphQl<T>(apiToken: string, query: string): Promise<GraphQl
 
   try {
     bodyJson = JSON.parse(bodyText) as GraphQlResponse<T>
-  }
-  catch {
+  } catch {
     throw new Error(`Non-JSON GraphQL response: ${bodyText.slice(0, 300)}`)
   }
 
@@ -919,15 +962,7 @@ async function queryGraphQl<T>(apiToken: string, query: string): Promise<GraphQl
 
 function startOfUtcDayIso(iso: string): string {
   const date = new Date(iso)
-  return new Date(Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate(),
-    0,
-    0,
-    0,
-    0,
-  )).toISOString()
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0)).toISOString()
 }
 
 function graphqlString(value: string): string {

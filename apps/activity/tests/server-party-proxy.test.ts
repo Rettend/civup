@@ -1,9 +1,5 @@
-import {
-  CIVUP_ACTIVITY_USER_ID_HEADER,
-  CIVUP_INTERNAL_SECRET_HEADER,
-  createActivitySession,
-} from '@civup/utils'
 import { afterEach, describe, expect, test } from 'vitest'
+import { CIVUP_ACTIVITY_USER_ID_HEADER, CIVUP_INTERNAL_SECRET_HEADER, createActivitySession } from '@civup/utils'
 import activityWorker from '../src/server'
 
 const SECRET = 'server-party-proxy-secret'
@@ -17,16 +13,20 @@ afterEach(() => {
 describe('activity party proxy', () => {
   test('proxies launch lookups through the bot service binding', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player One', avatarUrl: null })
+    const token = await createActivitySession(SECRET, {
+      userId: 'player-1',
+      displayName: 'Player One',
+      avatarUrl: null,
+    })
 
-    const response = await activityWorker.fetch(new Request(
-      'https://civup-activity.thepeace.workers.dev/api/activity/launch/1496817844812386365/player-1',
-      {
+    const response = await activityWorker.fetch(
+      new Request('https://civup-activity.thepeace.workers.dev/api/activity/launch/1496817844812386365/player-1', {
         headers: {
           'x-civup-activity-session': token,
         },
-      },
-    ), createEnv(forwardedRequests))
+      }),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('ok')
@@ -39,19 +39,26 @@ describe('activity party proxy', () => {
 
   test('rewrites stale main selected-session websocket paths to SessionDO', async () => {
     const forwardedRequests: Request[] = []
-    const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: 'Player One', avatarUrl: null })
+    const token = await createActivitySession(SECRET, {
+      userId: 'player-1',
+      displayName: 'Player One',
+      avatarUrl: null,
+    })
 
-    const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
-      {
-        headers: {
-          'connection': 'Upgrade',
-          'sec-websocket-key': 'test-key',
-          'sec-websocket-version': '13',
-          'upgrade': 'websocket',
+    const response = await activityWorker.fetch(
+      new Request(
+        `https://civup-activity.thepeace.workers.dev/api/parties/main/Fqo0_8B9f4Xz?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
+        {
+          headers: {
+            'connection': 'Upgrade',
+            'sec-websocket-key': 'test-key',
+            'sec-websocket-version': '13',
+            'upgrade': 'websocket',
+          },
         },
-      },
-    ), createEnv(forwardedRequests))
+      ),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
@@ -68,9 +75,12 @@ describe('activity party proxy', () => {
     const forwardedRequests: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
 
-    const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/lobby-short-id?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
-    ), createEnv(forwardedRequests))
+    const response = await activityWorker.fetch(
+      new Request(
+        `https://civup-activity.thepeace.workers.dev/api/parties/main/lobby-short-id?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
+      ),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
@@ -81,13 +91,18 @@ describe('activity party proxy', () => {
     const forwardedRequests: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
 
-    const response = await activityWorker.fetch(new Request(
-      `https://civup-activity.thepeace.workers.dev/api/parties/main/1496817844812386365?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
-    ), createEnv(forwardedRequests))
+    const response = await activityWorker.fetch(
+      new Request(
+        `https://civup-activity.thepeace.workers.dev/api/parties/main/1496817844812386365?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
+      ),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
-    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe('/parties/activity/1496817844812386365')
+    expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe(
+      '/parties/activity/1496817844812386365',
+    )
   })
 
   test('uses the fixed local bot origin for recognized development hosts', async () => {
@@ -98,10 +113,12 @@ describe('activity party proxy', () => {
     }) as typeof fetch
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
 
-    const response = await activityWorker.fetch(new Request(
-      'http://activity-dev.localhost/api/activity/launch/channel/player-1',
-      { headers: { 'x-civup-activity-session': token } },
-    ), { ...createEnv([]), BOT: undefined })
+    const response = await activityWorker.fetch(
+      new Request('http://activity-dev.localhost/api/activity/launch/channel/player-1', {
+        headers: { 'x-civup-activity-session': token },
+      }),
+      { ...createEnv([]), BOT: undefined },
+    )
 
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
@@ -110,41 +127,42 @@ describe('activity party proxy', () => {
 
   test('returns 503 instead of using public fetch when the production binding is absent', async () => {
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
-    const response = await activityWorker.fetch(new Request(
-      'https://activity.example.com/api/activity/launch/channel/player-1',
-      { headers: { 'x-civup-activity-session': token } },
-    ), { ...createEnv([]), BOT: undefined })
+    const response = await activityWorker.fetch(
+      new Request('https://activity.example.com/api/activity/launch/channel/player-1', {
+        headers: { 'x-civup-activity-session': token },
+      }),
+      { ...createEnv([]), BOT: undefined },
+    )
 
     expect(response.status).toBe(503)
-    expect(await response.json() as unknown).toEqual({ error: 'Bot service is not configured' })
+    expect((await response.json()) as unknown).toEqual({ error: 'Bot service is not configured' })
   })
 
   test('streams upload bodies and init metadata through the service binding', async () => {
     const forwardedRequests: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
     const metadata = { fileName: 'autosaves.zip', fileSizeBytes: 123, channelId: 'channel-1', matchId: 'match-1' }
-    const response = await activityWorker.fetch(new Request(
-      'https://activity.example.com/api/uploads/autosaves/init',
-      {
+    const response = await activityWorker.fetch(
+      new Request('https://activity.example.com/api/uploads/autosaves/init', {
         method: 'POST',
         headers: { 'x-civup-activity-session': token, 'Content-Type': 'application/json' },
         body: JSON.stringify(metadata),
-      },
-    ), createEnv(forwardedRequests))
+      }),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     const forwarded = requireForwardedRequest(forwardedRequests)
     expect(forwarded.method).toBe('POST')
     expect(forwarded.headers.get('Content-Type')).toBe('application/json')
-    expect(await forwarded.json() as unknown).toEqual(metadata)
+    expect((await forwarded.json()) as unknown).toEqual(metadata)
   })
 
   test('preserves a safe upload part content length through the service binding', async () => {
     const forwardedRequests: Request[] = []
     const token = await createActivitySession(SECRET, { userId: 'player-1', displayName: null, avatarUrl: null })
-    const response = await activityWorker.fetch(new Request(
-      'https://activity.example.com/api/uploads/autosaves/upload-1/parts/1',
-      {
+    const response = await activityWorker.fetch(
+      new Request('https://activity.example.com/api/uploads/autosaves/upload-1/parts/1', {
         method: 'PUT',
         headers: {
           'x-civup-activity-session': token,
@@ -152,8 +170,9 @@ describe('activity party proxy', () => {
           'Content-Type': 'application/octet-stream',
         },
         body: new Uint8Array([1, 2, 3, 4]),
-      },
-    ), createEnv(forwardedRequests))
+      }),
+      createEnv(forwardedRequests),
+    )
 
     expect(response.status).toBe(200)
     const forwarded = requireForwardedRequest(forwardedRequests)

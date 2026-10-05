@@ -20,7 +20,11 @@ export interface PartyServerDurableObjectNamespace<TId = unknown> {
   get: (id: TId) => PartyServerDurableObjectStub
 }
 
-export function buildPartyServerRequest(input: RequestInfo | URL, init: RequestInit | undefined, routing: PartyServerRoomRouting): Request {
+export function buildPartyServerRequest(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  routing: PartyServerRoomRouting,
+): Request {
   const request = input instanceof Request ? new Request(input, init) : new Request(input, init)
   request.headers.set(PARTYSERVER_ROOM_HEADER, routing.room)
   request.headers.set(PARTYSERVER_NAMESPACE_HEADER, routing.party)

@@ -1,14 +1,38 @@
-import { sessionDirectory } from '@civup/db'
-import { PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER, verifySessionAccessToken } from '@civup/utils'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { buildActivityLaunchSnapshot, registerActivityRoutes, resolveLobbyJoinEligibility, selectActivityTargetForUser } from '../../src/routes/activity.ts'
-import { buildOpenLobbySnapshot, buildOpenLobbySnapshotFromParts, resolveOpenLobbyFromBody } from '../../src/routes/lobby/snapshot.ts'
-import { storeActivityFollowTargetSelection, storeActivityLaunchTargetSelection } from '../../src/services/activity/launch-target.ts'
+import { sessionDirectory } from '@civup/db'
+import { PARTYSERVER_NAMESPACE_HEADER, PARTYSERVER_ROOM_HEADER, verifySessionAccessToken } from '@civup/utils'
+import {
+  buildActivityLaunchSnapshot,
+  registerActivityRoutes,
+  resolveLobbyJoinEligibility,
+  selectActivityTargetForUser,
+} from '../../src/routes/activity.ts'
+import {
+  buildOpenLobbySnapshot,
+  buildOpenLobbySnapshotFromParts,
+  resolveOpenLobbyFromBody,
+} from '../../src/routes/lobby/snapshot.ts'
+import {
+  storeActivityFollowTargetSelection,
+  storeActivityLaunchTargetSelection,
+} from '../../src/services/activity/launch-target.ts'
 import { leaderboardModeSnapshotKey } from '../../src/services/leaderboard/snapshot.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { buildTestLobbyEnv, createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyDraftConfig, setLobbyMaxRole, setLobbyMemberPlayerIds, setLobbyMinRole, setLobbySlots, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  buildTestLobbyEnv,
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  setLobbyDraftConfig,
+  setLobbyMaxRole,
+  setLobbyMemberPlayerIds,
+  setLobbyMinRole,
+  setLobbySlots,
+  setLobbyStatus,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { seedRosterEntry as addToQueue } from '../helpers/session-roster.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 
@@ -95,10 +119,18 @@ describe('activity lobby join eligibility', () => {
     })
     await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
-      kind: 'lobby',
-      id: openLobby.id,
-    }, activityRuntimeOptions(kv))
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'player-1',
+      {
+        kind: 'lobby',
+        id: openLobby.id,
+      },
+      activityRuntimeOptions(kv),
+    )
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     const snapshot = selected.snapshot
@@ -234,7 +266,14 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['host-1', 'player-1', null, null], populatedSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
+    const eligibility = await resolveLobbyJoinEligibility(
+      'token',
+      kv,
+      'player-1',
+      targetLobby,
+      snapshot,
+      activityRuntimeOptions(kv),
+    )
 
     expect(eligibility).toEqual({
       canJoin: true,
@@ -275,7 +314,14 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['host-1', null, null, null], staleSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
+    const eligibility = await resolveLobbyJoinEligibility(
+      'token',
+      kv,
+      'player-1',
+      targetLobby,
+      snapshot,
+      activityRuntimeOptions(kv),
+    )
 
     expect(eligibility).toEqual({
       canJoin: true,
@@ -322,7 +368,14 @@ describe('activity lobby join eligibility', () => {
     await setLobbySlots(kv, sourceLobby.id, ['player-1', 'ally-1', null, null], populatedSource ?? sourceLobby)
 
     const snapshot = await buildOpenLobbySnapshot(kv, '2v2', targetLobby)
-    const eligibility = await resolveLobbyJoinEligibility('token', kv, 'player-1', targetLobby, snapshot, activityRuntimeOptions(kv))
+    const eligibility = await resolveLobbyJoinEligibility(
+      'token',
+      kv,
+      'player-1',
+      targetLobby,
+      snapshot,
+      activityRuntimeOptions(kv),
+    )
 
     expect(eligibility).toEqual({
       canJoin: false,
@@ -352,10 +405,11 @@ describe('activity lobby join eligibility', () => {
       tier2: '11111111111111111',
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
     const storedLobby = await getLobbyById(kv, lobby.id)
     expect(storedLobby).not.toBeNull()
@@ -392,10 +446,11 @@ describe('activity lobby join eligibility', () => {
       tier2: '11111111111111111',
     })
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ roles: [TITAN_ROLE_ID] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
 
     const storedLobby = await getLobbyById(kv, lobby.id)
     expect(storedLobby).not.toBeNull()
@@ -429,16 +484,20 @@ describe('activity target selection', () => {
       avatarUrl: null,
       joinedAt: Date.now(),
     })
-    const response = await app.request('/api/activity/target', {
-      method: 'POST',
-      headers: buildAuthHeaders('spectator-1'),
-      body: JSON.stringify({
-        channelId: 'channel-1',
-        userId: 'spectator-1',
-        kind: 'match',
-        id: 'missing-match',
-      }),
-    }, buildEnv(kv))
+    const response = await app.request(
+      '/api/activity/target',
+      {
+        method: 'POST',
+        headers: buildAuthHeaders('spectator-1'),
+        body: JSON.stringify({
+          channelId: 'channel-1',
+          userId: 'spectator-1',
+          kind: 'match',
+          id: 'missing-match',
+        }),
+      },
+      buildEnv(kv),
+    )
 
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ error: 'That target is no longer available.' })
@@ -481,12 +540,21 @@ describe('activity target selection', () => {
       joinedAt: Date.now() + 2,
     })
 
-    const populatedCurrentLobby = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
+    const populatedCurrentLobby = await setLobbyMemberPlayerIds(
+      kv,
+      currentLobby.id,
+      ['host-1', 'player-1'],
+      currentLobby,
+    )
     await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], populatedCurrentLobby ?? currentLobby)
 
-    const response = await app.request('/api/lobby/user/player-1', {
-      headers: buildAuthHeaders('player-1'),
-    }, buildEnv(kv))
+    const response = await app.request(
+      '/api/lobby/user/player-1',
+      {
+        headers: buildAuthHeaders('player-1'),
+      },
+      buildEnv(kv),
+    )
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expect.objectContaining({ id: currentLobby.id }))
@@ -527,27 +595,30 @@ describe('activity target selection', () => {
       messageId: 'message-1',
       queueEntries: [hostQueueEntry],
     })
-    await kv.put(leaderboardModeSnapshotKey('duo'), JSON.stringify({
-      version: 4,
-      updatedAt: Date.now(),
-      rows: [
-        { playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null },
-      ],
-    }))
+    await kv.put(
+      leaderboardModeSnapshotKey('duo'),
+      JSON.stringify({
+        version: 4,
+        updatedAt: Date.now(),
+        rows: [{ playerId: 'host-1', mu: 31, sigma: 3, gamesPlayed: 12, wins: 7, lastPlayedAt: null }],
+      }),
+    )
 
     const snapshot = await buildOpenLobbySnapshotFromParts(kv, '2v2', lobby, [hostQueueEntry], lobby.slots)
     const hostEntry = snapshot.entries.find(entry => entry?.playerId === 'host-1') ?? null
 
-    expect(hostEntry).toEqual(expect.objectContaining({
-      playerId: 'host-1',
-      balanceRating: expect.objectContaining({
-        mu: 31,
-        sigma: 3,
-        gamesPlayed: 12,
-        wins: 7,
-        rank: 1,
+    expect(hostEntry).toEqual(
+      expect.objectContaining({
+        playerId: 'host-1',
+        balanceRating: expect.objectContaining({
+          mu: 31,
+          sigma: 3,
+          gamesPlayed: 12,
+          wins: 7,
+          rank: 1,
+        }),
       }),
-    }))
+    )
   })
 
   test('does not auto-select unrelated open lobbies for spectators', async () => {
@@ -566,18 +637,27 @@ describe('activity target selection', () => {
       joinedAt: Date.now(),
     })
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toHaveLength(1)
-    expect(snapshot.options[0]).toEqual(expect.objectContaining({
-      kind: 'lobby',
-      channelId: 'channel-1',
-      isHost: false,
-      isMember: false,
-    }))
+    expect(snapshot.options[0]).toEqual(
+      expect.objectContaining({
+        kind: 'lobby',
+        channelId: 'channel-1',
+        isHost: false,
+        isMember: false,
+      }),
+    )
   })
 
-  test('prefers the viewer\'s current lobby by canonical membership', async () => {
+  test("prefers the viewer's current lobby by canonical membership", async () => {
     const { kv } = createTrackedKv()
     const currentLobby = await createLobby(kv, {
       mode: '2v2',
@@ -611,10 +691,22 @@ describe('activity target selection', () => {
       joinedAt: Date.now() + 2,
     })
 
-    const populatedCurrentLobby = await setLobbyMemberPlayerIds(kv, currentLobby.id, ['host-1', 'player-1'], currentLobby)
+    const populatedCurrentLobby = await setLobbyMemberPlayerIds(
+      kv,
+      currentLobby.id,
+      ['host-1', 'player-1'],
+      currentLobby,
+    )
     await setLobbySlots(kv, currentLobby.id, ['host-1', 'player-1', null, null], populatedCurrentLobby ?? currentLobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      currentLobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('lobby')
     if (snapshot.selection?.kind !== 'lobby') return
 
@@ -630,8 +722,18 @@ describe('activity target selection', () => {
       channelId: 'channel-1',
       messageId: 'message-active',
     })
-    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const draftingLobby = await startTestSessionDraft(kv, oldMatchLobby.id, oldMatchLobby)
     await setLobbyStatus(kv, oldMatchLobby.id, 'active', draftingLobby ?? oldMatchLobby)
 
@@ -642,11 +744,20 @@ describe('activity target selection', () => {
       messageId: 'message-current',
     })
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, currentLobby.channelId, 'player-1', activityRuntimeOptions(kv))
-    expect(snapshot.options).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', isMember: true }),
-      expect.objectContaining({ kind: 'lobby', id: currentLobby.id, isHost: true }),
-    ]))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      currentLobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
+    expect(snapshot.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', isMember: true }),
+        expect.objectContaining({ kind: 'lobby', id: currentLobby.id, isHost: true }),
+      ]),
+    )
     expect(snapshot.selection?.kind).toBe('lobby')
     expect(snapshot.selection?.option.id).toBe(currentLobby.id)
   })
@@ -659,14 +770,39 @@ describe('activity target selection', () => {
       channelId: 'channel-1',
       messageId: 'message-active',
     })
-    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const draftingLobby = await startTestSessionDraft(kv, oldMatchLobby.id, oldMatchLobby)
     await setLobbyStatus(kv, oldMatchLobby.id, 'active', draftingLobby ?? oldMatchLobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, oldMatchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      oldMatchLobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: oldMatchLobby.id, status: 'completed', reported: false, isMember: true })])
+    expect(snapshot.options).toEqual([
+      expect.objectContaining({
+        kind: 'match',
+        id: oldMatchLobby.id,
+        status: 'completed',
+        reported: false,
+        isMember: true,
+      }),
+    ])
   })
 
   test('opens overview from an explicit launch target even when following a lobby', async () => {
@@ -678,12 +814,33 @@ describe('activity target selection', () => {
       messageId: 'message-open',
     })
 
-    await storeActivityFollowTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'lobby', id: lobby.id })
-    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'overview' })
+    await storeActivityFollowTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'channel-1',
+      'player-1',
+      { kind: 'lobby', id: lobby.id },
+    )
+    await storeActivityLaunchTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'channel-1',
+      'player-1',
+      { kind: 'overview' },
+    )
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
-    expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'lobby', id: lobby.id, isHost: false, isMember: false })])
+    expect(snapshot.options).toEqual([
+      expect.objectContaining({ kind: 'lobby', id: lobby.id, isHost: false, isMember: false }),
+    ])
   })
 
   test('opens a clicked reportable active match from a launch target hint', async () => {
@@ -694,20 +851,50 @@ describe('activity target selection', () => {
       channelId: 'channel-1',
       messageId: 'message-active',
     })
-    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
     await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
 
-    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'channel-1', 'player-1', { kind: 'match', id: matchLobby.id })
+    await storeActivityLaunchTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'channel-1',
+      'player-1',
+      { kind: 'match', id: matchLobby.id },
+    )
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, matchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      matchLobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(matchLobby.id)
     expect(snapshot.selection.option.id).toBe(matchLobby.id)
 
-    const reopened = await buildActivityLaunchSnapshot(undefined, 'secret', kv, matchLobby.channelId, 'player-1', activityRuntimeOptions(kv))
+    const reopened = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      matchLobby.channelId,
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(reopened.selection?.kind).toBe('match')
     if (reopened.selection?.kind !== 'match') return
     expect(reopened.selection.matchId).toBe(matchLobby.id)
@@ -722,15 +909,31 @@ describe('activity target selection', () => {
       messageId: 'message-reported',
     })
 
-    await createDbFromRuntime(kv).update(sessionDirectory).set({
-      phase: 'reported',
-      matchId: lobby.id,
-      updatedAt: Date.now(),
-      closedAt: Date.now(),
-    }).where(eq(sessionDirectory.sessionId, lobby.id))
-    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-channel', 'player-1', { kind: 'match', id: lobby.id })
+    await createDbFromRuntime(kv)
+      .update(sessionDirectory)
+      .set({
+        phase: 'reported',
+        matchId: lobby.id,
+        updatedAt: Date.now(),
+        closedAt: Date.now(),
+      })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+    await storeActivityLaunchTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'button-channel',
+      'player-1',
+      { kind: 'match', id: lobby.id },
+    )
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
@@ -748,14 +951,37 @@ describe('activity target selection', () => {
       channelId: 'activity-channel',
       messageId: 'message-active',
     })
-    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
     await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
 
-    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-interaction-channel', 'player-1', { kind: 'match', id: matchLobby.id })
+    await storeActivityLaunchTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'button-interaction-channel',
+      'player-1',
+      { kind: 'match', id: matchLobby.id },
+    )
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'activity-channel', 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'activity-channel',
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(matchLobby.id)
@@ -769,17 +995,47 @@ describe('activity target selection', () => {
       channelId: 'channel-1',
       messageId: 'message-active',
     })
-    await addToQueue(kv, '2v2', { playerId: 'player-1', displayName: 'Player 1', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'player-2', displayName: 'Player 2', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-1',
+      displayName: 'Player 1',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'player-2',
+      displayName: 'Player 2',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const draftingLobby = await startTestSessionDraft(kv, matchLobby.id, matchLobby)
     await setLobbyStatus(kv, matchLobby.id, 'active', draftingLobby ?? matchLobby)
 
-    await storeActivityLaunchTargetSelection(activityRuntimeOptions(kv).activityNamespace, 'secret', 'button-interaction-channel', 'player-1', { kind: 'match', id: matchLobby.id })
+    await storeActivityLaunchTargetSelection(
+      activityRuntimeOptions(kv).activityNamespace,
+      'secret',
+      'button-interaction-channel',
+      'player-1',
+      { kind: 'match', id: matchLobby.id },
+    )
 
-    const staleHydrate = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'empty-channel', 'player-1', activityRuntimeOptions(kv))
+    const staleHydrate = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'empty-channel',
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(staleHydrate.selection).toBeNull()
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'player-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'player-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(matchLobby.id)
@@ -808,22 +1064,35 @@ describe('activity target selection', () => {
     })
     await startTestSessionDraft(kv, liveLobby.id, liveLobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
-    expect(snapshot.options).toEqual(expect.arrayContaining([
+    expect(snapshot.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'lobby',
+          id: invalidLobby.id,
+          participantCount: 1,
+        }),
+        expect.objectContaining({
+          kind: 'match',
+          id: liveLobby.id,
+        }),
+      ]),
+    )
+    await expect(
+      resolveOpenLobbyFromBody(createDbFromRuntime(kv), '2v2', { lobbyId: invalidLobby.id }),
+    ).resolves.toEqual(
       expect.objectContaining({
-        kind: 'lobby',
         id: invalidLobby.id,
-        participantCount: 1,
       }),
-      expect.objectContaining({
-        kind: 'match',
-        id: liveLobby.id,
-      }),
-    ]))
-    await expect(resolveOpenLobbyFromBody(createDbFromRuntime(kv), '2v2', { lobbyId: invalidLobby.id })).resolves.toEqual(expect.objectContaining({
-      id: invalidLobby.id,
-    }))
+    )
   })
 
   test('does not auto-select unrelated live matches for spectators', async () => {
@@ -837,7 +1106,14 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'spectator-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([
       expect.objectContaining({
@@ -861,16 +1137,25 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'host-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.steamLobbyLink).toBe('steam://joinlobby/289070/12345678901234567/76561198000000000')
     expect(snapshot.selection.sessionAccessToken).not.toBeNull()
-    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
-      sessionId: lobby.id,
-      userId: 'host-1',
-    })).resolves.not.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+        sessionId: lobby.id,
+        userId: 'host-1',
+      }),
+    ).resolves.not.toBeNull()
   })
 
   test('keeps live match activity tokens valid for long games', async () => {
@@ -884,15 +1169,24 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'host-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'host-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection?.kind).toBe('match')
     if (snapshot.selection?.kind !== 'match') return
 
-    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
-      sessionId: lobby.id,
-      userId: 'host-1',
-      nowMs: Date.now() + 5 * 60 * 60 * 1000,
-    })).resolves.not.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+        sessionId: lobby.id,
+        userId: 'host-1',
+        nowMs: Date.now() + 5 * 60 * 60 * 1000,
+      }),
+    ).resolves.not.toBeNull()
   })
 
   test('allows authenticated spectators to open live session targets read-only when selected', async () => {
@@ -913,10 +1207,18 @@ describe('activity target selection', () => {
 
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, lobby.channelId, 'spectator-1', {
-      kind: 'match',
-      id: lobby.id,
-    }, activityRuntimeOptions(kv))
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'spectator-1',
+      {
+        kind: 'match',
+        id: lobby.id,
+      },
+      activityRuntimeOptions(kv),
+    )
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
 
@@ -925,10 +1227,12 @@ describe('activity target selection', () => {
     if (snapshot.selection?.kind !== 'match') return
     expect(snapshot.selection.matchId).toBe(lobby.id)
     expect(snapshot.selection.sessionAccessToken).not.toBeNull()
-    await expect(verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
-      sessionId: lobby.id,
-      userId: 'spectator-1',
-    })).resolves.not.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', snapshot.selection.sessionAccessToken, {
+        sessionId: lobby.id,
+        userId: 'spectator-1',
+      }),
+    ).resolves.not.toBeNull()
   })
 
   test('does not auto-select spectator matches without local target state', async () => {
@@ -948,7 +1252,14 @@ describe('activity target selection', () => {
     })
     await startTestSessionDraft(kv, lobby.id, lobby)
 
-    const snapshot = await buildActivityLaunchSnapshot(undefined, 'secret', kv, lobby.channelId, 'spectator-1', activityRuntimeOptions(kv))
+    const snapshot = await buildActivityLaunchSnapshot(
+      undefined,
+      'secret',
+      kv,
+      lobby.channelId,
+      'spectator-1',
+      activityRuntimeOptions(kv),
+    )
     expect(snapshot.selection).toBeNull()
     expect(snapshot.options).toEqual([expect.objectContaining({ kind: 'match', id: lobby.id })])
   })
@@ -962,10 +1273,18 @@ describe('activity target selection', () => {
       messageId: 'message-1',
     })
 
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'lobby',
-      id: lobby.id,
-    }, activityRuntimeOptions(kv))
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      {
+        kind: 'lobby',
+        id: lobby.id,
+      },
+      activityRuntimeOptions(kv),
+    )
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     expect(selected.snapshot.selection?.kind).toBe('lobby')
@@ -993,10 +1312,18 @@ describe('activity target selection', () => {
     await setLobbySlots(kv, lobby.id, playerIds, fullLobby ?? lobby)
 
     const options = activityRuntimeOptions(kv)
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'lobby',
-      id: lobby.id,
-    }, options)
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      {
+        kind: 'lobby',
+        id: lobby.id,
+      },
+      options,
+    )
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     expect(selected.snapshot.selection?.kind).toBe('lobby')
@@ -1038,10 +1365,18 @@ describe('activity target selection', () => {
     await setLobbySlots(kv, lobby.id, ['host-1', 'player-2', null, null], partialLobby ?? lobby)
 
     const options = activityRuntimeOptions(kv)
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'lobby',
-      id: lobby.id,
-    }, options)
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      {
+        kind: 'lobby',
+        id: lobby.id,
+      },
+      options,
+    )
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
     expect(selected.snapshot.selection?.kind).toBe('lobby')
@@ -1081,30 +1416,44 @@ describe('activity target selection', () => {
     await setLobbySlots(kv, lobby.id, playerIds, fullLobby ?? lobby)
 
     const options = activityRuntimeOptions(kv)
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'lobby',
-      id: lobby.id,
-    }, options)
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      {
+        kind: 'lobby',
+        id: lobby.id,
+      },
+      options,
+    )
     expect(selected.ok).toBe(true)
 
-    await createDbFromRuntime(kv).update(sessionDirectory).set({
-      rosterJson: JSON.stringify({
-        participants: [...playerIds.map((playerId, index) => ({
-          playerId,
-          displayName: `Player ${index + 1}`,
-          avatarUrl: null,
-          joinedAt: index + 1,
-          slotIndex: index,
-        })), {
-          playerId: 'spectator-1',
-          displayName: 'Spectator One',
-          avatarUrl: null,
-          joinedAt: 99,
-          slotIndex: null,
-        }],
-        slots: playerIds,
-      }),
-    }).where(eq(sessionDirectory.sessionId, lobby.id))
+    await createDbFromRuntime(kv)
+      .update(sessionDirectory)
+      .set({
+        rosterJson: JSON.stringify({
+          participants: [
+            ...playerIds.map((playerId, index) => ({
+              playerId,
+              displayName: `Player ${index + 1}`,
+              avatarUrl: null,
+              joinedAt: index + 1,
+              slotIndex: index,
+            })),
+            {
+              playerId: 'spectator-1',
+              displayName: 'Spectator One',
+              avatarUrl: null,
+              joinedAt: 99,
+              slotIndex: null,
+            },
+          ],
+          slots: playerIds,
+        }),
+      })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
 
     const reopened = await buildActivityLaunchSnapshot(undefined, 'secret', kv, 'channel-1', 'spectator-1', options)
     expect(reopened.selection?.kind).toBe('lobby')
@@ -1128,10 +1477,30 @@ describe('activity target selection', () => {
       messageId: 'message-target',
     })
 
-    await addToQueue(kv, '2v2', { playerId: 'source-host', displayName: 'Source Host', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '2v2', { playerId: 'spectator-1', displayName: 'Spectator One', avatarUrl: null, joinedAt: Date.now() + 1 })
-    const sourceWithSpectator = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'spectator-1'], sourceLobby)
-    await setLobbySlots(kv, sourceLobby.id, ['source-host', 'spectator-1', null, null], sourceWithSpectator ?? sourceLobby)
+    await addToQueue(kv, '2v2', {
+      playerId: 'source-host',
+      displayName: 'Source Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '2v2', {
+      playerId: 'spectator-1',
+      displayName: 'Spectator One',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    const sourceWithSpectator = await setLobbyMemberPlayerIds(
+      kv,
+      sourceLobby.id,
+      ['source-host', 'spectator-1'],
+      sourceLobby,
+    )
+    await setLobbySlots(
+      kv,
+      sourceLobby.id,
+      ['source-host', 'spectator-1', null, null],
+      sourceWithSpectator ?? sourceLobby,
+    )
 
     const targetPlayerIds = ['target-host', 'player-2', 'player-3', 'player-4']
     for (let index = 0; index < targetPlayerIds.length; index++) {
@@ -1146,10 +1515,18 @@ describe('activity target selection', () => {
     await setLobbySlots(kv, targetLobby.id, targetPlayerIds, fullTarget ?? targetLobby)
 
     const options = activityRuntimeOptions(kv)
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'spectator-1', {
-      kind: 'lobby',
-      id: targetLobby.id,
-    }, options)
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'spectator-1',
+      {
+        kind: 'lobby',
+        id: targetLobby.id,
+      },
+      options,
+    )
 
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
@@ -1188,14 +1565,27 @@ describe('activity target selection', () => {
     })
 
     await addToQueue(kv, '1v1', { playerId: 'host-1', displayName: 'Host One', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '1v1', { playerId: 'target-host', displayName: 'Target Host', avatarUrl: null, joinedAt: Date.now() + 1 })
+    await addToQueue(kv, '1v1', {
+      playerId: 'target-host',
+      displayName: 'Target Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['host-1'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['host-1', null], populatedSource ?? sourceLobby)
 
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'host-1', {
-      kind: 'lobby',
-      id: targetLobby.id,
-    }, activityRuntimeOptions(kv))
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'host-1',
+      {
+        kind: 'lobby',
+        id: targetLobby.id,
+      },
+      activityRuntimeOptions(kv),
+    )
 
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
@@ -1229,16 +1619,39 @@ describe('activity target selection', () => {
       messageId: 'message-target',
     })
 
-    await addToQueue(kv, '1v1', { playerId: 'source-host', displayName: 'Source Host', avatarUrl: null, joinedAt: Date.now() })
-    await addToQueue(kv, '1v1', { playerId: 'player-1', displayName: 'Player One', avatarUrl: null, joinedAt: Date.now() + 1 })
-    await addToQueue(kv, '1v1', { playerId: 'target-host', displayName: 'Target Host', avatarUrl: null, joinedAt: Date.now() + 2 })
+    await addToQueue(kv, '1v1', {
+      playerId: 'source-host',
+      displayName: 'Source Host',
+      avatarUrl: null,
+      joinedAt: Date.now(),
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'player-1',
+      displayName: 'Player One',
+      avatarUrl: null,
+      joinedAt: Date.now() + 1,
+    })
+    await addToQueue(kv, '1v1', {
+      playerId: 'target-host',
+      displayName: 'Target Host',
+      avatarUrl: null,
+      joinedAt: Date.now() + 2,
+    })
     const populatedSource = await setLobbyMemberPlayerIds(kv, sourceLobby.id, ['source-host', 'player-1'], sourceLobby)
     await setLobbySlots(kv, sourceLobby.id, ['source-host', 'player-1'], populatedSource ?? sourceLobby)
 
-    const selected = await selectActivityTargetForUser(undefined, 'secret', kv, 'channel-1', 'player-1', {
-      kind: 'lobby',
-      id: targetLobby.id,
-    }, activityRuntimeOptions(kv))
+    const selected = await selectActivityTargetForUser(
+      undefined,
+      'secret',
+      kv,
+      'channel-1',
+      'player-1',
+      {
+        kind: 'lobby',
+        id: targetLobby.id,
+      },
+      activityRuntimeOptions(kv),
+    )
 
     expect(selected.ok).toBe(true)
     if (!selected.ok) return
@@ -1269,19 +1682,25 @@ describe('browser context routes', () => {
     })
     await addToQueue(kv, '2v2', { playerId: 'host-1', displayName: 'Host', avatarUrl: null, joinedAt: 1 })
 
-    const response = await app.request(`/api/activity/session/${lobby.id}`, {
-      headers: buildAuthHeaders('spectator-1'),
-    }, buildEnv(kv))
+    const response = await app.request(
+      `/api/activity/session/${lobby.id}`,
+      {
+        headers: buildAuthHeaders('spectator-1'),
+      },
+      buildEnv(kv),
+    )
 
     expect(response.status).toBe(200)
     const context = await response.json<any>()
-    expect(context).toEqual(expect.objectContaining({
-      status: 'available',
-      sessionId: lobby.id,
-      matchId: null,
-      phase: 'open',
-      selection: expect.objectContaining({ kind: 'lobby' }),
-    }))
+    expect(context).toEqual(
+      expect.objectContaining({
+        status: 'available',
+        sessionId: lobby.id,
+        matchId: null,
+        phase: 'open',
+        selection: expect.objectContaining({ kind: 'lobby' }),
+      }),
+    )
   })
 
   test('filters channel and direct contexts to the configured guild', async () => {
@@ -1289,18 +1708,34 @@ describe('browser context routes', () => {
     const app = new Hono()
     registerActivityRoutes(app as any)
     const allowed = await createLobby(kv, {
-      mode: '1v1', guildId: '1234044388733095946', hostId: 'allowed-host', channelId: 'channel-shared', messageId: 'allowed-message',
+      mode: '1v1',
+      guildId: '1234044388733095946',
+      hostId: 'allowed-host',
+      channelId: 'channel-shared',
+      messageId: 'allowed-message',
     })
     const denied = await createLobby(kv, {
-      mode: '1v1', guildId: '999999999999999999', hostId: 'denied-host', channelId: 'channel-shared', messageId: 'denied-message',
+      mode: '1v1',
+      guildId: '999999999999999999',
+      hostId: 'denied-host',
+      channelId: 'channel-shared',
+      messageId: 'denied-message',
     })
 
-    const channelResponse = await app.request('/api/activity/channel/channel-shared', { headers: buildAuthHeaders('spectator') }, buildEnv(kv))
+    const channelResponse = await app.request(
+      '/api/activity/channel/channel-shared',
+      { headers: buildAuthHeaders('spectator') },
+      buildEnv(kv),
+    )
     expect(channelResponse.status).toBe(200)
     const channel = await channelResponse.json<any>()
     expect(channel.snapshot.options.map((option: any) => option.lobbyId)).toEqual([allowed.id])
 
-    const deniedResponse = await app.request(`/api/activity/session/${denied.id}`, { headers: buildAuthHeaders('spectator') }, buildEnv(kv))
+    const deniedResponse = await app.request(
+      `/api/activity/session/${denied.id}`,
+      { headers: buildAuthHeaders('spectator') },
+      buildEnv(kv),
+    )
     expect(deniedResponse.status).toBe(403)
   })
 
@@ -1309,26 +1744,41 @@ describe('browser context routes', () => {
     const app = new Hono()
     registerActivityRoutes(app as any)
     const lobby = await createLobby(kv, {
-      mode: '1v1', guildId: '1234044388733095946', hostId: 'host-1', channelId: 'channel-1', messageId: 'message-1',
+      mode: '1v1',
+      guildId: '1234044388733095946',
+      hostId: 'host-1',
+      channelId: 'channel-1',
+      messageId: 'message-1',
     })
     const db = createDbFromRuntime(kv)
-    await db.update(sessionDirectory).set({ phase: 'active', matchId: 'different-match-id', version: 2 }).where(eq(sessionDirectory.sessionId, lobby.id))
+    await db
+      .update(sessionDirectory)
+      .set({ phase: 'active', matchId: 'different-match-id', version: 2 })
+      .where(eq(sessionDirectory.sessionId, lobby.id))
     const env = { ...buildEnv(kv), SessionDO: undefined }
 
-    const response = await app.request(`/api/activity/session/${lobby.id}`, { headers: buildAuthHeaders('spectator') }, env)
+    const response = await app.request(
+      `/api/activity/session/${lobby.id}`,
+      { headers: buildAuthHeaders('spectator') },
+      env,
+    )
     expect(response.status).toBe(200)
     const context = await response.json<any>()
     expect(context.sessionId).toBe(lobby.id)
     expect(context.matchId).toBe('different-match-id')
     expect(context.selection.matchId).toBe('different-match-id')
-    await expect(verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
-      sessionId: lobby.id,
-      userId: 'spectator',
-    })).resolves.not.toBeNull()
-    await expect(verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
-      sessionId: 'different-match-id',
-      userId: 'spectator',
-    })).resolves.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
+        sessionId: lobby.id,
+        userId: 'spectator',
+      }),
+    ).resolves.not.toBeNull()
+    await expect(
+      verifySessionAccessToken('secret', context.selection.sessionAccessToken, {
+        sessionId: 'different-match-id',
+        userId: 'spectator',
+      }),
+    ).resolves.toBeNull()
   })
 })
 
@@ -1364,7 +1814,12 @@ function buildEnv(kv: KVNamespace) {
 
 function activityRuntimeOptions(kv: KVNamespace) {
   const runtime = getExistingTestLobbyRuntime(kv)
-  return { db: runtime.d1, sessionNamespace: runtime.sessionNamespace, activityNamespace: getTestActivityNamespace(kv), internalSecret: 'secret' }
+  return {
+    db: runtime.d1,
+    sessionNamespace: runtime.sessionNamespace,
+    activityNamespace: getTestActivityNamespace(kv),
+    internalSecret: 'secret',
+  }
 }
 
 function getTestActivityNamespace(kv: KVNamespace): DurableObjectNamespace {
@@ -1381,10 +1836,16 @@ function getTestActivityNamespace(kv: KVNamespace): DurableObjectNamespace {
       return {
         async fetch(input: RequestInfo | URL, init?: RequestInit) {
           const request = input instanceof Request ? input : new Request(input, init)
-          if (request.headers.get(PARTYSERVER_ROOM_HEADER) !== roomId || request.headers.get(PARTYSERVER_NAMESPACE_HEADER) !== 'activity') {
+          if (
+            request.headers.get(PARTYSERVER_ROOM_HEADER) !== roomId ||
+            request.headers.get(PARTYSERVER_NAMESPACE_HEADER) !== 'activity'
+          ) {
             return new Response('Missing namespace or room headers', { status: 500 })
           }
-          if (request.method === 'GET') return new Response(JSON.stringify({ target: rooms.get(roomId) ?? null }), { headers: { 'Content-Type': 'application/json' } })
+          if (request.method === 'GET')
+            return new Response(JSON.stringify({ target: rooms.get(roomId) ?? null }), {
+              headers: { 'Content-Type': 'application/json' },
+            })
           if (request.method === 'DELETE') {
             rooms.set(roomId, null)
             return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } })
@@ -1410,16 +1871,14 @@ function buildDb(
   liveMatches:
     | string[]
     | {
-      liveMatchPlayerIds?: string[] | null
-      liveMatchIds?: string[] | null
-    }
+        liveMatchPlayerIds?: string[] | null
+        liveMatchIds?: string[] | null
+      }
     | null,
 ): D1Database {
   if (liveMatches == null) return {} as D1Database
 
-  const config = Array.isArray(liveMatches)
-    ? { liveMatchPlayerIds: liveMatches, liveMatchIds: [] }
-    : liveMatches
+  const config = Array.isArray(liveMatches) ? { liveMatchPlayerIds: liveMatches, liveMatchIds: [] } : liveMatches
   const livePlayerIdSet = new Set(config.liveMatchPlayerIds ?? [])
   const liveMatchIdSet = new Set(config.liveMatchIds ?? [])
 

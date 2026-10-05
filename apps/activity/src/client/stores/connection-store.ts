@@ -1,19 +1,41 @@
-import type { CivBlitzPartialKit, CompetitiveTier, DraftAction, DraftState, LeaderDataVersion, MapVoteSelection, MapVoteSnapshot } from '@civup/game'
+import type {
+  CivBlitzPartialKit,
+  CompetitiveTier,
+  DraftAction,
+  DraftState,
+  LeaderDataVersion,
+  MapVoteSelection,
+  MapVoteSnapshot,
+} from '@civup/game'
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
-import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import PartySocket from 'partysocket'
 import { createSignal, latest } from 'solid-js'
-import { buildActivitySessionHeaders, clearActivitySessionToken, getActivitySessionToken } from '../lib/activity-session'
+import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
+import {
+  buildActivitySessionHeaders,
+  clearActivitySessionToken,
+  getActivitySessionToken,
+} from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
-import { getAuthTransport } from '../platform/runtime'
 import { getReconnectWatchdogTimerEndsAt, shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
-import { draftNow, draftStore, getScheduledDraftNow, initDraft, setOptimisticSeatPick, syncDraftServerTime, updateDraft, updateDraftPreviews, updateDraftSteamLobbyLink } from './draft-store'
+import { getAuthTransport } from '../platform/runtime'
+import {
+  draftNow,
+  draftStore,
+  getScheduledDraftNow,
+  initDraft,
+  setOptimisticSeatPick,
+  syncDraftServerTime,
+  updateDraft,
+  updateDraftPreviews,
+  updateDraftSteamLobbyLink,
+} from './draft-store'
 import { clearSelections } from './ui-store'
 
 // ── Types ──────────────────────────────────────────────────
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error'
-export type ReportMatchResult = { ok: true } | { ok: false, error: string, reason?: 'processing' | 'finalizing' }
+export type ReportMatchResult = { ok: true } | { ok: false; error: string; reason?: 'processing' | 'finalizing' }
 
 export interface MatchStateSnapshot {
   match: {
@@ -65,7 +87,7 @@ export interface LobbySnapshot {
       seasonGames?: number
       seasonWins?: number
       seasonNumber?: number
-      pastRanks?: Array<{ seasonNumber: number, tier: CompetitiveTier, label?: string, division?: number }>
+      pastRanks?: Array<{ seasonNumber: number; tier: CompetitiveTier; label?: string; division?: number }>
     }
     rankedRole?: {
       label?: string
@@ -133,13 +155,20 @@ export interface LobbyRankedRolesSnapshot {
 
 export type LobbyArrangeStrategy = 'randomize' | 'balance' | 'shuffle-teams'
 
-export type ActivityStateChange
-  = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
-    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
+export type ActivityStateChange =
+  | { type: 'overview'; snapshot: ActivityOverviewSnapshot | null }
+  | { type: 'lobby'; lobbyId: string; snapshot: LobbySnapshot | null }
 
-export type SelectedSessionStateChange
-  = | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
-    | { type: 'session-started', lobbyId: string, matchId: string, steamLobbyLink: string | null, sessionAccessToken: string | null, mode: string | null }
+export type SelectedSessionStateChange =
+  | { type: 'lobby'; lobbyId: string; snapshot: LobbySnapshot | null }
+  | {
+      type: 'session-started'
+      lobbyId: string
+      matchId: string
+      steamLobbyLink: string | null
+      sessionAccessToken: string | null
+      mode: string | null
+    }
 
 interface SessionConnectionOptions {
   onStateChanged?: (change: SelectedSessionStateChange) => void
@@ -215,23 +244,23 @@ export interface LobbyJoinEligibilitySnapshot {
   pendingSlot: number | null
 }
 
-export type ActivityLaunchSelection
-  = | {
-    kind: 'lobby'
-    option: ActivityTargetOption
-    pendingJoin: boolean
-    joinEligibility: LobbyJoinEligibilitySnapshot
-    lobby: LobbySnapshot
-  }
+export type ActivityLaunchSelection =
   | {
-    kind: 'match'
-    option: ActivityTargetOption
-    matchId: string
-    steamLobbyLink: string | null
-    sessionAccessToken: string | null
-    lobbyId?: string | null
-    mode?: string | null
-  }
+      kind: 'lobby'
+      option: ActivityTargetOption
+      pendingJoin: boolean
+      joinEligibility: LobbyJoinEligibilitySnapshot
+      lobby: LobbySnapshot
+    }
+  | {
+      kind: 'match'
+      option: ActivityTargetOption
+      matchId: string
+      steamLobbyLink: string | null
+      sessionAccessToken: string | null
+      lobbyId?: string | null
+      mode?: string | null
+    }
 
 export interface ActivityLaunchSnapshot {
   selection: ActivityLaunchSelection | null
@@ -258,29 +287,40 @@ const SESSION_SOCKET_MAX_RETRIES = 12
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
-let currentSessionConnection: { target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, onStateChanged?: (change: SelectedSessionStateChange) => void } | null = null
+let currentSessionConnection: {
+  target: SessionSocketTarget
+  sessionId: string
+  sessionAccessToken: string | null
+  onStateChanged?: (change: SelectedSessionStateChange) => void
+} | null = null
 let staleDraftReconnectInterval: ReturnType<typeof setInterval> | null = null
 let lastSocketActivityAt = 0
 // Transport callbacks can run before the reactive clock offset commits.
 let socketServerTimeOffsetMs = 0
 let lastForcedReconnectTimerEndsAt: number | null = null
-let lastServerErrorMessage: { message: string, at: number } | null = null
-let pendingConfigAck:
-  | {
-    resolve: () => void
-    reject: (error: Error) => void
-    timeout: ReturnType<typeof setTimeout>
-  }
-  | null = null
+let lastServerErrorMessage: { message: string; at: number } | null = null
+let pendingConfigAck: {
+  resolve: () => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout>
+} | null = null
 let lastSentPreviewKeys: Partial<Record<DraftAction, string>> = {}
 
 /** Connect to the selected session runtime socket. */
-export function connectToSession(target: SessionSocketTarget, sessionId: string, sessionAccessToken: string | null, options: SessionConnectionOptions = {}) {
-  if (!options.forceReconnect && socket
-    && currentSessionConnection?.sessionId === sessionId
-    && currentSessionConnection.sessionAccessToken === sessionAccessToken
-    && currentSessionConnection.target.host === target.host
-    && currentSessionConnection.target.prefix === target.prefix) {
+export function connectToSession(
+  target: SessionSocketTarget,
+  sessionId: string,
+  sessionAccessToken: string | null,
+  options: SessionConnectionOptions = {},
+) {
+  if (
+    !options.forceReconnect &&
+    socket &&
+    currentSessionConnection?.sessionId === sessionId &&
+    currentSessionConnection.sessionAccessToken === sessionAccessToken &&
+    currentSessionConnection.target.host === target.host &&
+    currentSessionConnection.target.prefix === target.prefix
+  ) {
     currentSessionConnection = { ...currentSessionConnection, target, onStateChanged: options.onStateChanged }
     return
   }
@@ -313,7 +353,8 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
   startStaleDraftReconnectWatchdog()
 
   const query: Record<string, string> = {}
-  if (getAuthTransport() === 'token' && activitySessionToken) query[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = activitySessionToken
+  if (getAuthTransport() === 'token' && activitySessionToken)
+    query[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = activitySessionToken
   if (sessionAccessToken) query.accessToken = sessionAccessToken
 
   const nextSocket = new PartySocket({
@@ -335,32 +376,30 @@ export function connectToSession(target: SessionSocketTarget, sessionId: string,
     setConnectionCloseReason(null)
   })
 
-  nextSocket.addEventListener('message', (event) => {
+  nextSocket.addEventListener('message', event => {
     if (socket !== nextSocket) return
     const receivedAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as SessionServerMessage
       if (msg.type === 'init' || msg.type === 'update') {
         syncDraftServerTime(msg.serverNow, receivedAt)
-        if (typeof msg.serverNow === 'number' && Number.isFinite(msg.serverNow)) socketServerTimeOffsetMs = msg.serverNow - receivedAt
+        if (typeof msg.serverNow === 'number' && Number.isFinite(msg.serverNow))
+          socketServerTimeOffsetMs = msg.serverNow - receivedAt
       }
       lastSocketActivityAt = receivedAt + socketServerTimeOffsetMs
       handleServerMessage(msg)
-    }
-    catch (err) {
+    } catch (err) {
       lastSocketActivityAt = receivedAt + socketServerTimeOffsetMs
       relayDevLog('error', 'Failed to parse server message', err)
       console.error('Failed to parse server message:', err)
     }
   })
 
-  nextSocket.addEventListener('close', (event) => {
+  nextSocket.addEventListener('close', event => {
     if (socket !== nextSocket) return
 
     const code = typeof event.code === 'number' ? event.code : -1
-    const closeReason = typeof event.reason === 'string' && event.reason.length > 0
-      ? event.reason
-      : null
+    const closeReason = typeof event.reason === 'string' && event.reason.length > 0 ? event.reason : null
     const reason = closeReason ?? (typeof event.type === 'string' ? event.type : '-')
 
     if (code !== 1000) {
@@ -459,23 +498,31 @@ function rejectPendingConfigAck() {
 function startStaleDraftReconnectWatchdog() {
   stopStaleDraftReconnectWatchdog()
   staleDraftReconnectInterval = setInterval(() => {
-    if (!latest(() => shouldForceReconnectForStaleDraft({
-      connectionStatus: connectionStatus(),
-      state: draftStore.state,
-      timerEndsAt: draftStore.timerEndsAt,
-      mapVote: draftStore.mapVote,
-      lastSocketActivityAt,
-      lastForcedReconnectTimerEndsAt,
-      nowMs: draftNow(),
-    }))) { return }
+    if (
+      !latest(() =>
+        shouldForceReconnectForStaleDraft({
+          connectionStatus: connectionStatus(),
+          state: draftStore.state,
+          timerEndsAt: draftStore.timerEndsAt,
+          mapVote: draftStore.mapVote,
+          lastSocketActivityAt,
+          lastForcedReconnectTimerEndsAt,
+          nowMs: draftNow(),
+        }),
+      )
+    ) {
+      return
+    }
 
     const currentSession = currentSessionConnection
     if (!currentSession) return
-    lastForcedReconnectTimerEndsAt = latest(() => getReconnectWatchdogTimerEndsAt({
-      state: draftStore.state,
-      timerEndsAt: draftStore.timerEndsAt,
-      mapVote: draftStore.mapVote,
-    }))
+    lastForcedReconnectTimerEndsAt = latest(() =>
+      getReconnectWatchdogTimerEndsAt({
+        state: draftStore.state,
+        timerEndsAt: draftStore.timerEndsAt,
+        mapVote: draftStore.mapVote,
+      }),
+    )
 
     relayDevLog('warn', 'Forcing session socket reconnect after stale timer', {
       sessionId: currentSession.sessionId,
@@ -507,7 +554,11 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     queueMicrotask(() => {
       if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
     })
-    return { close: () => { closed = true } }
+    return {
+      close: () => {
+        closed = true
+      },
+    }
   }
 
   const activitySocket = new PartySocket({
@@ -515,9 +566,10 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     party: 'activity',
     prefix: target.prefix ?? 'api/parties',
     room: options.channelId,
-    query: getAuthTransport() === 'token' && activitySessionToken
-      ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
-      : {},
+    query:
+      getAuthTransport() === 'token' && activitySessionToken
+        ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
+        : {},
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
 
@@ -526,23 +578,29 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     options.onConnected?.()
   })
 
-  activitySocket.addEventListener('message', (event) => {
+  activitySocket.addEventListener('message', event => {
     if (closed) return
     try {
       const message = JSON.parse(event.data as string) as Record<string, unknown>
       if (message.type === 'overview') {
-        options.onStateChanged({ type: 'overview', snapshot: isActivityOverviewSnapshot(message.snapshot) ? message.snapshot : null })
+        options.onStateChanged({
+          type: 'overview',
+          snapshot: isActivityOverviewSnapshot(message.snapshot) ? message.snapshot : null,
+        })
         return
       }
       if (message.type === 'lobby' && typeof message.lobbyId === 'string') {
-        options.onStateChanged({ type: 'lobby', lobbyId: message.lobbyId, snapshot: isLobbySnapshot(message.snapshot) ? message.snapshot : null })
+        options.onStateChanged({
+          type: 'lobby',
+          lobbyId: message.lobbyId,
+          snapshot: isLobbySnapshot(message.snapshot) ? message.snapshot : null,
+        })
         return
       }
       if (message.type === 'error' && typeof message.message === 'string') {
         options.onError?.(message.message)
       }
-    }
-    catch (err) {
+    } catch (err) {
       relayDevLog('error', 'Failed to parse activity feed message', err)
       console.error('Failed to parse activity feed message:', err)
     }
@@ -568,11 +626,22 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
 }
 
 function isActivityOverviewSnapshot(value: unknown): value is ActivityOverviewSnapshot {
-  return !!value && typeof value === 'object' && typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string' && Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as Partial<ActivityOverviewSnapshot>).channelId === 'string' &&
+    Array.isArray((value as Partial<ActivityOverviewSnapshot>).options)
+  )
 }
 
 function isLobbySnapshot(value: unknown): value is LobbySnapshot {
-  return !!value && typeof value === 'object' && typeof (value as Partial<LobbySnapshot>).id === 'string' && typeof (value as Partial<LobbySnapshot>).revision === 'number' && Array.isArray((value as Partial<LobbySnapshot>).entries)
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as Partial<LobbySnapshot>).id === 'string' &&
+    typeof (value as Partial<LobbySnapshot>).revision === 'number' &&
+    Array.isArray((value as Partial<LobbySnapshot>).entries)
+  )
 }
 
 // ── Send Messages ──────────────────────────────────────────
@@ -686,14 +755,11 @@ function activityFetch(url: string, init?: RequestInit): Promise<Response> {
 }
 
 /** Fetch match ID for a channel from the bot API */
-export async function fetchMatchForChannel(
-  channelId: string,
-): Promise<string | null> {
+export async function fetchMatchForChannel(channelId: string): Promise<string | null> {
   try {
     const data = await activityApiGet<{ matchId?: string }>(`/api/match/${channelId}`)
     return data.matchId ?? null
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch match for channel:', err)
     if (err instanceof ApiError && err.status === 404) return null
     return null
@@ -701,26 +767,20 @@ export async function fetchMatchForChannel(
 }
 
 /** Fetch open lobby state for a channel from the bot API */
-export async function fetchLobbyForChannel(
-  channelId: string,
-): Promise<LobbySnapshot | null> {
+export async function fetchLobbyForChannel(channelId: string): Promise<LobbySnapshot | null> {
   try {
     return await activityApiGet<LobbySnapshot>(`/api/lobby/${channelId}`)
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch lobby for channel:', err)
     return null
   }
 }
 
 /** Fetch open lobby state for a user from the bot API */
-export async function fetchLobbyForUser(
-  userId: string,
-): Promise<LobbySnapshot | null> {
+export async function fetchLobbyForUser(userId: string): Promise<LobbySnapshot | null> {
   try {
     return await activityApiGet<LobbySnapshot>(`/api/lobby/user/${userId}`)
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch lobby for user:', err)
     return null
   }
@@ -755,7 +815,7 @@ export async function updateLobbyConfig(
     minRole?: CompetitiveTier | null
     maxRole?: CompetitiveTier | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot } | { ok: false; error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/config`, {
       lobbyId,
@@ -784,8 +844,7 @@ export async function updateLobbyConfig(
       maxRole: draftConfig.maxRole,
     })
     return { ok: true, lobby }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to update lobby config:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby config' }
@@ -793,14 +852,10 @@ export async function updateLobbyConfig(
 }
 
 /** Fetch ranked-role option labels/colors for one open lobby. */
-export async function fetchLobbyRankedRoles(
-  mode: string,
-  lobbyId: string,
-): Promise<LobbyRankedRolesSnapshot | null> {
+export async function fetchLobbyRankedRoles(mode: string, lobbyId: string): Promise<LobbyRankedRolesSnapshot | null> {
   try {
     return await activityApiGet<LobbyRankedRolesSnapshot>(`/api/lobby-ranks/${mode}/${lobbyId}`)
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch lobby ranked roles:', err)
     return null
   }
@@ -812,12 +867,11 @@ export async function updateLobbyMode(
   lobbyId: string,
   userId: string,
   nextMode: string,
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot } | { ok: false; error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/mode`, { lobbyId, userId, nextMode })
     return { ok: true, lobby }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to update lobby mode:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby mode' }
@@ -835,12 +889,11 @@ export async function placeLobbySlot(
     displayName?: string
     avatarUrl?: string | null
   },
-): Promise<{ ok: true, lobby: LobbySnapshot, transferNotice: string | null } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot; transferNotice: string | null } | { ok: false; error: string }> {
   try {
     const result = await activityApiPost<LobbyPlacementResponse>(`/api/lobby/${mode}/place`, payload)
     return { ok: true, lobby: result.lobby, transferNotice: result.transferNotice }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to place lobby slot:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while updating lobby slot' }
@@ -855,12 +908,11 @@ export async function removeLobbySlot(
     userId: string
     slot: number
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot } | { ok: false; error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/remove`, payload)
     return { ok: true, lobby }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to remove lobby slot:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while removing lobby slot' }
@@ -875,12 +927,11 @@ export async function transferLobbyHost(
     userId: string
     targetPlayerId: string
   },
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot } | { ok: false; error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/transfer-host`, payload)
     return { ok: true, lobby }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to transfer lobby host:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while transferring host' }
@@ -893,12 +944,11 @@ export async function arrangeLobbySlots(
   lobbyId: string,
   userId: string,
   strategy: LobbyArrangeStrategy,
-): Promise<{ ok: true, lobby: LobbySnapshot } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot } | { ok: false; error: string }> {
   try {
     const lobby = await activityApiPost<LobbySnapshot>(`/api/lobby/${mode}/arrange`, { lobbyId, userId, strategy })
     return { ok: true, lobby }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to arrange lobby slots:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while arranging lobby slots' }
@@ -910,13 +960,15 @@ export async function startLobbyDraft(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true, matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }> {
+): Promise<{ ok: true; matchId: string; sessionAccessToken: string | null } | { ok: false; error: string }> {
   try {
-    const data = await activityApiPost<{ matchId?: string, sessionAccessToken?: string | null }>(`/api/lobby/${mode}/start`, { lobbyId, userId })
+    const data = await activityApiPost<{ matchId?: string; sessionAccessToken?: string | null }>(
+      `/api/lobby/${mode}/start`,
+      { lobbyId, userId },
+    )
     if (!data.matchId) return { ok: false, error: 'Draft started but no match ID was returned' }
     return { ok: true, matchId: data.matchId, sessionAccessToken: data.sessionAccessToken ?? null }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to start lobby draft:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while starting lobby draft' }
@@ -928,13 +980,24 @@ export async function repeatLobbyDraft(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true, kind: 'resume' | 'complete', matchId: string, sessionAccessToken: string | null } | { ok: false, error: string }> {
+): Promise<
+  | { ok: true; kind: 'resume' | 'complete'; matchId: string; sessionAccessToken: string | null }
+  | { ok: false; error: string }
+> {
   try {
-    const data = await activityApiPost<{ kind?: 'resume' | 'complete', matchId?: string, sessionAccessToken?: string | null }>(`/api/lobby/${mode}/repeat-draft`, { lobbyId, userId })
+    const data = await activityApiPost<{
+      kind?: 'resume' | 'complete'
+      matchId?: string
+      sessionAccessToken?: string | null
+    }>(`/api/lobby/${mode}/repeat-draft`, { lobbyId, userId })
     if (!data.matchId) return { ok: false, error: 'Draft repeated but no match ID was returned' }
-    return { ok: true, kind: data.kind ?? 'complete', matchId: data.matchId, sessionAccessToken: data.sessionAccessToken ?? null }
-  }
-  catch (err) {
+    return {
+      ok: true,
+      kind: data.kind ?? 'complete',
+      matchId: data.matchId,
+      sessionAccessToken: data.sessionAccessToken ?? null,
+    }
+  } catch (err) {
     console.error('Failed to repeat lobby draft:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while repeating draft' }
@@ -946,12 +1009,11 @@ export async function cancelLobby(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await activityApiPost(`/api/lobby/${mode}/cancel`, { lobbyId, userId })
     return { ok: true }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to cancel lobby:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while cancelling lobby' }
@@ -959,14 +1021,11 @@ export async function cancelLobby(
 }
 
 /** Fetch match ID for a user from the bot API */
-export async function fetchMatchForUser(
-  userId: string,
-): Promise<string | null> {
+export async function fetchMatchForUser(userId: string): Promise<string | null> {
   try {
     const data = await activityApiGet<{ matchId?: string }>(`/api/match/user/${userId}`)
     return data.matchId ?? null
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch match for user:', err)
     return null
   }
@@ -979,8 +1038,7 @@ export async function fetchActivityLaunchSnapshot(
 ): Promise<ActivityLaunchSnapshot | null> {
   try {
     return await activityApiGet<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch activity launch snapshot:', err)
     return null
   }
@@ -991,7 +1049,7 @@ export async function selectActivityTarget(
   channelId: string,
   userId: string,
   target: Pick<ActivityTargetOption, 'kind' | 'id'>,
-): Promise<{ ok: true, snapshot: ActivityLaunchSnapshot } | { ok: false, error: string, status?: number }> {
+): Promise<{ ok: true; snapshot: ActivityLaunchSnapshot } | { ok: false; error: string; status?: number }> {
   try {
     const data = await activityApiPost<{ snapshot?: ActivityLaunchSnapshot }>('/api/activity/target', {
       channelId,
@@ -1001,8 +1059,7 @@ export async function selectActivityTarget(
     })
     if (!data.snapshot) return { ok: false, error: 'Activity target response was missing a snapshot' }
     return { ok: true, snapshot: data.snapshot }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to select activity target:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message, status: err.status }
     return { ok: false, error: 'Network error while switching activity target' }
@@ -1013,8 +1070,7 @@ export async function selectActivityTarget(
 export async function fetchMatchState(matchId: string): Promise<MatchStateSnapshot | null> {
   try {
     return await activityApiGet<MatchStateSnapshot>(`/api/match/state/${matchId}`)
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fetch match state:', err)
     return null
   }
@@ -1028,7 +1084,12 @@ export async function reportMatchResult(
   leaderAssignments?: Record<string, string>,
 ): Promise<ReportMatchResult> {
   try {
-    const data = await activityApiPost<{ ok?: boolean, reportProcessing?: boolean, reportFinalizing?: boolean, error?: string }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
+    const data = await activityApiPost<{
+      ok?: boolean
+      reportProcessing?: boolean
+      reportFinalizing?: boolean
+      error?: string
+    }>(`/api/match/${matchId}/report`, { reporterId, placements, leaderAssignments })
     if (data.reportProcessing) {
       const reason = data.reportFinalizing ? 'finalizing' : 'processing'
       return {
@@ -1041,8 +1102,7 @@ export async function reportMatchResult(
     }
     if (data.ok === false) return { ok: false, error: data.error ?? 'Failed to report result' }
     return { ok: true }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to report match result:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while reporting result' }
@@ -1053,12 +1113,11 @@ export async function reportMatchResult(
 export async function scrubMatchResult(
   matchId: string,
   reporterId: string,
-): Promise<{ ok: true } | { ok: false, error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await activityApiPost(`/api/match/${matchId}/scrub`, { reporterId })
     return { ok: true }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to scrub match result:', err)
     if (err instanceof ApiError) return { ok: false, error: err.message }
     return { ok: false, error: 'Network error while scrubbing match' }
@@ -1073,8 +1132,7 @@ export async function canFillLobbyWithTestPlayers(mode: string): Promise<boolean
       headers: { 'Cache-Control': 'no-store' },
     })
     return res.ok
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to check test-player fill availability:', err)
     return false
   }
@@ -1085,7 +1143,7 @@ export async function fillLobbyWithTestPlayers(
   mode: string,
   lobbyId: string,
   userId: string,
-): Promise<{ ok: true, lobby: LobbySnapshot, addedCount: number } | { ok: false, error: string }> {
+): Promise<{ ok: true; lobby: LobbySnapshot; addedCount: number } | { ok: false; error: string }> {
   try {
     const res = await activityFetch(`/api/lobby/${mode}/fill-test`, {
       method: 'POST',
@@ -1093,15 +1151,14 @@ export async function fillLobbyWithTestPlayers(
       body: JSON.stringify({ lobbyId, userId }),
     })
 
-    const data = await res.json<LobbySnapshot & { error?: string, addedCount?: unknown }>()
+    const data = await res.json<LobbySnapshot & { error?: string; addedCount?: unknown }>()
     if (!res.ok) return { ok: false, error: data.error ?? 'Failed to fill lobby slots' }
     return {
       ok: true,
       lobby: data,
       addedCount: typeof data.addedCount === 'number' ? data.addedCount : 0,
     }
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Failed to fill lobby slots with test players:', err)
     return { ok: false, error: 'Network error while filling lobby slots' }
   }
@@ -1132,7 +1189,20 @@ function handleServerMessage(msg: SessionServerMessage) {
       clearSelections()
       syncForcedReconnectTimer(msg.state, msg.timerEndsAt, msg.mapVote)
       syncPreviewCache(msg.previews, msg.seatIndex)
-      initDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.seatIndex, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
+      initDraft(
+        msg.state,
+        msg.leaderDataVersion ?? 'live',
+        msg.hostId ?? msg.state.seats[0]?.playerId ?? '',
+        msg.seatIndex,
+        msg.timerEndsAt,
+        msg.completedAt,
+        msg.previews,
+        msg.swapState ?? null,
+        msg.mapVote,
+        msg.steamLobbyLink ?? null,
+        msg.permanentAlly === true,
+        msg.hiddenDraft === true,
+      )
       if (shouldDisconnectAfterState(msg.state.status, msg.swapState ?? null)) {
         disconnect()
       }
@@ -1140,7 +1210,20 @@ function handleServerMessage(msg: SessionServerMessage) {
     case 'update':
       syncForcedReconnectTimer(msg.state, msg.timerEndsAt, msg.mapVote)
       syncPreviewCache(msg.previews)
-      updateDraft(msg.state, msg.leaderDataVersion ?? 'live', msg.hostId ?? msg.state.seats[0]?.playerId ?? '', msg.events, msg.timerEndsAt, msg.completedAt, msg.previews, msg.swapState ?? null, msg.mapVote, msg.steamLobbyLink ?? null, msg.permanentAlly === true, msg.hiddenDraft === true)
+      updateDraft(
+        msg.state,
+        msg.leaderDataVersion ?? 'live',
+        msg.hostId ?? msg.state.seats[0]?.playerId ?? '',
+        msg.events,
+        msg.timerEndsAt,
+        msg.completedAt,
+        msg.previews,
+        msg.swapState ?? null,
+        msg.mapVote,
+        msg.steamLobbyLink ?? null,
+        msg.permanentAlly === true,
+        msg.hiddenDraft === true,
+      )
       if (pendingConfigAck) {
         clearTimeout(pendingConfigAck.timeout)
         pendingConfigAck.resolve()
@@ -1182,16 +1265,14 @@ function shouldDisconnectAfterState(status: string, swapState: unknown): boolean
 function formatSessionSocketCloseError(
   code: number,
   reason: string,
-  serverError: { message: string, at: number } | null,
+  serverError: { message: string; at: number } | null,
 ): string {
   if (code === 4401) {
     return 'Activity session expired. Reopen the activity.'
   }
 
   if (code === 4403) {
-    const recentServerError = serverError && Date.now() - serverError.at <= 2_000
-      ? serverError.message.trim()
-      : ''
+    const recentServerError = serverError && Date.now() - serverError.at <= 2_000 ? serverError.message.trim() : ''
     if (recentServerError.length > 0) {
       return /reopen the activity\.?$/i.test(recentServerError)
         ? recentServerError
@@ -1210,7 +1291,10 @@ function formatConfigAckError(message: string): Error {
   return new Error(message)
 }
 
-function syncPreviewCache(previews: { bans: Record<number, string[]>, picks: Record<number, string[]> }, seatIndex: number | null = latest(() => draftStore.seatIndex)) {
+function syncPreviewCache(
+  previews: { bans: Record<number, string[]>; picks: Record<number, string[]> },
+  seatIndex: number | null = latest(() => draftStore.seatIndex),
+) {
   if (seatIndex == null) {
     lastSentPreviewKeys = {}
     return

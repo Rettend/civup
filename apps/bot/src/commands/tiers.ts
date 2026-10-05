@@ -1,6 +1,6 @@
+import { Command, Option } from 'discord-hono'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
-import { Command, Option } from 'discord-hono'
 import { rankedPreviewEmbeds } from '../embeds/ranked-preview.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { summarizeRankedPreview } from '../services/ranked/role-sync.ts'
@@ -15,13 +15,13 @@ export const command_tiers = factory.command<Var>(
   new Command('tiers', 'View ranks and rating requirements').options(
     new Option('mode', 'Filter by leaderboard track').choices(...LEADERBOARD_MODE_CHOICES),
   ),
-  (c) => {
+  c => {
     const guildId = c.interaction.guild_id
     const mode = parseLeaderboardMode(c.var.mode)
 
     if (!guildId) return c.res('This command can only be used in a server.')
 
-    return resDeferGeneralCommandResponse(c, async (c) => {
+    return resDeferGeneralCommandResponse(c, async c => {
       const db = createDb(c.env.DB)
       const kv = getKvStore(c.env)
       const summary = await summarizeRankedPreview({

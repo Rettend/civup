@@ -1,9 +1,9 @@
 /* eslint-disable no-console */
 import type { GameMode, LeaderboardMode } from '@civup/game'
+import { describe, expect, test } from 'bun:test'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
 import { matches, matchParticipants, playerRatings, players, seasons } from '@civup/db'
 import { LEADERBOARD_MODES } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
 import { playerCardEmbed } from '../../src/embeds/player-card.ts'
 import { getPlayerStatsRankProfile } from '../../src/services/player/rank.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
@@ -39,7 +39,14 @@ const STATS_SCENARIOS = [
   { id: 'duel-150', label: 'Duel', gameMode: '1v1', matchCount: 150, participantsPerMatch: 2, leaderboardMode: 'duel' },
   { id: 'duo-150', label: '2v2', gameMode: '2v2', matchCount: 150, participantsPerMatch: 4, leaderboardMode: 'duo' },
   { id: 'ffa-150', label: 'FFA8', gameMode: 'ffa', matchCount: 150, participantsPerMatch: 8, leaderboardMode: 'ffa' },
-  { id: 'sixes-120', label: '6v6', gameMode: '6v6', matchCount: 120, participantsPerMatch: 12, leaderboardMode: 'squad' },
+  {
+    id: 'sixes-120',
+    label: '6v6',
+    gameMode: '6v6',
+    matchCount: 120,
+    participantsPerMatch: 12,
+    leaderboardMode: 'squad',
+  },
 ] as const satisfies readonly StatsBenchmarkScenario[]
 
 interface StatsBenchmarkScenario {
@@ -209,8 +216,7 @@ async function measureScenarioSample(scenario: StatsBenchmarkScenario): Promise<
       warm: warm.metrics,
       output: warm.output,
     }
-  }
-  finally {
+  } finally {
     sqlTracker.restore()
     sqlite.close()
   }
@@ -222,7 +228,7 @@ async function measureStatsCall(input: {
   sqlTracker: ReturnType<typeof trackSqlite>
   operations: ReturnType<typeof createTrackedKv>['operations']
   resetOperations: () => void
-}): Promise<{ metrics: StatsCallMetrics, output: StatsOutputSummary }> {
+}): Promise<{ metrics: StatsCallMetrics; output: StatsOutputSummary }> {
   const rankProfile = await measureBlock(input, async () => {
     return await getPlayerStatsRankProfile(input.db, input.kv, GUILD_ID, HERO_ID)
   })
@@ -262,7 +268,7 @@ async function measureBlock<T>(
     resetOperations: () => void
   },
   action: () => Promise<T>,
-): Promise<{ result: T, elapsedMs: number, sqlRowsRead: number, kvOps: StatsCallMetrics['kvOps'] }> {
+): Promise<{ result: T; elapsedMs: number; sqlRowsRead: number; kvOps: StatsCallMetrics['kvOps'] }> {
   input.sqlTracker.reset()
   input.resetOperations()
 
@@ -301,8 +307,22 @@ async function seedStatsBenchmarkScenario(
     softReset: true,
   })
 
-  const allPlayerRows = new Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>()
-  const allRatingRows = new Map<string, { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number }>()
+  const allPlayerRows = new Map<
+    string,
+    { id: string; displayName: string; avatarUrl: string | null; createdAt: number }
+  >()
+  const allRatingRows = new Map<
+    string,
+    {
+      playerId: string
+      mode: LeaderboardMode
+      mu: number
+      sigma: number
+      gamesPlayed: number
+      wins: number
+      lastPlayedAt: number
+    }
+  >()
   const matchRows: Array<{
     id: string
     gameMode: GameMode
@@ -345,11 +365,11 @@ async function seedStatsBenchmarkScenario(
       addRatingRow(allRatingRows, {
         playerId,
         mode,
-        mu: 25 + ((LEADERBOARD_PLAYERS_PER_MODE - index) * 0.04),
-        sigma: 7 + ((index % 5) * 0.1),
+        mu: 25 + (LEADERBOARD_PLAYERS_PER_MODE - index) * 0.04,
+        sigma: 7 + (index % 5) * 0.1,
         gamesPlayed: 12 + (index % 30),
         wins: 6 + (index % 18),
-        lastPlayedAt: NOW - (index * 1_000),
+        lastPlayedAt: NOW - index * 1_000,
       })
     }
   }
@@ -367,7 +387,7 @@ async function seedStatsBenchmarkScenario(
 
   for (let matchIndex = 0; matchIndex < scenario.matchCount; matchIndex += 1) {
     const matchId = `${scenario.id}-${String(matchIndex + 1).padStart(4, '0')}`
-    const completedAt = NOW - ((scenario.matchCount - matchIndex) * 60_000)
+    const completedAt = NOW - (scenario.matchCount - matchIndex) * 60_000
     const heroWon = matchIndex % 2 === 0
 
     matchRows.push({
@@ -381,14 +401,16 @@ async function seedStatsBenchmarkScenario(
       completedAt,
     })
 
-    participantRows.push(...buildScenarioParticipants({
-      scenario,
-      matchId,
-      matchIndex,
-      heroWon,
-      teammatePool,
-      opponentPool,
-    }))
+    participantRows.push(
+      ...buildScenarioParticipants({
+        scenario,
+        matchId,
+        matchIndex,
+        heroWon,
+        teammatePool,
+        opponentPool,
+      }),
+    )
   }
 
   appendBackgroundCompletedMatches({
@@ -406,7 +428,7 @@ async function seedStatsBenchmarkScenario(
 
 function appendBackgroundCompletedMatches(input: {
   scenario: StatsBenchmarkScenario
-  allPlayerRows: Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>
+  allPlayerRows: Map<string, { id: string; displayName: string; avatarUrl: string | null; createdAt: number }>
   matchRows: Array<{
     id: string
     gameMode: GameMode
@@ -437,7 +459,7 @@ function appendBackgroundCompletedMatches(input: {
 
   for (let matchIndex = 0; matchIndex < BACKGROUND_COMPLETED_MATCHES; matchIndex += 1) {
     const matchId = `${input.scenario.id}-bg-${String(matchIndex + 1).padStart(4, '0')}`
-    const completedAt = NOW - ((input.scenario.matchCount + matchIndex + 1) * 60_000)
+    const completedAt = NOW - (input.scenario.matchCount + matchIndex + 1) * 60_000
     input.matchRows.push({
       id: matchId,
       gameMode: input.scenario.gameMode,
@@ -449,12 +471,14 @@ function appendBackgroundCompletedMatches(input: {
       completedAt,
     })
 
-    input.participantRows.push(...buildBackgroundParticipants({
-      scenario: input.scenario,
-      matchId,
-      matchIndex,
-      playerPool: backgroundPlayers,
-    }))
+    input.participantRows.push(
+      ...buildBackgroundParticipants({
+        scenario: input.scenario,
+        matchId,
+        matchIndex,
+        playerPool: backgroundPlayers,
+      }),
+    )
   }
 }
 
@@ -475,26 +499,26 @@ function buildBackgroundParticipants(input: {
   ratingAfterSigma: number | null
 }> {
   if (input.scenario.gameMode === 'ffa') {
-    return Array.from({ length: input.scenario.participantsPerMatch }, (_value, index) => buildParticipantRow(
-      input.matchId,
-      cyclePick(input.playerPool, input.matchIndex + index),
-      null,
-      index + 1,
-      null,
-      input.matchIndex,
-    ))
+    return Array.from({ length: input.scenario.participantsPerMatch }, (_value, index) =>
+      buildParticipantRow(
+        input.matchId,
+        cyclePick(input.playerPool, input.matchIndex + index),
+        null,
+        index + 1,
+        null,
+        input.matchIndex,
+      ),
+    )
   }
 
   const firstTeamWon = input.matchIndex % 2 === 0
   const teamSize = input.scenario.participantsPerMatch / 2
   return Array.from({ length: input.scenario.participantsPerMatch }, (_value, index) => {
     const team = index < teamSize ? 0 : 1
-    const placement = team === 0
-      ? (firstTeamWon ? 1 : 2)
-      : (firstTeamWon ? 2 : 1)
+    const placement = team === 0 ? (firstTeamWon ? 1 : 2) : firstTeamWon ? 2 : 1
     return buildParticipantRow(
       input.matchId,
-      cyclePick(input.playerPool, (input.matchIndex * input.scenario.participantsPerMatch) + index),
+      cyclePick(input.playerPool, input.matchIndex * input.scenario.participantsPerMatch + index),
       team,
       placement,
       null,
@@ -539,14 +563,16 @@ function buildScenarioParticipants(input: {
     const rows = [buildParticipantRow(input.matchId, HERO_ID, null, heroPlacement, heroLeaderId, input.matchIndex)]
 
     for (let index = 0; index < input.scenario.participantsPerMatch - 1; index += 1) {
-      rows.push(buildParticipantRow(
-        input.matchId,
-        cyclePick(input.opponentPool, input.matchIndex * 3 + index),
-        null,
-        placements[index] ?? index + 2,
-        null,
-        input.matchIndex,
-      ))
+      rows.push(
+        buildParticipantRow(
+          input.matchId,
+          cyclePick(input.opponentPool, input.matchIndex * 3 + index),
+          null,
+          placements[index] ?? index + 2,
+          null,
+          input.matchIndex,
+        ),
+      )
     }
 
     return rows
@@ -558,25 +584,29 @@ function buildScenarioParticipants(input: {
   const rows = [buildParticipantRow(input.matchId, HERO_ID, 0, heroPlacement, heroLeaderId, input.matchIndex)]
 
   for (let index = 0; index < teamSize - 1; index += 1) {
-    rows.push(buildParticipantRow(
-      input.matchId,
-      cyclePick(input.teammatePool, input.matchIndex + index),
-      0,
-      heroPlacement,
-      null,
-      input.matchIndex,
-    ))
+    rows.push(
+      buildParticipantRow(
+        input.matchId,
+        cyclePick(input.teammatePool, input.matchIndex + index),
+        0,
+        heroPlacement,
+        null,
+        input.matchIndex,
+      ),
+    )
   }
 
   for (let index = 0; index < teamSize; index += 1) {
-    rows.push(buildParticipantRow(
-      input.matchId,
-      cyclePick(input.opponentPool, input.matchIndex * 2 + index),
-      1,
-      opponentPlacement,
-      null,
-      input.matchIndex,
-    ))
+    rows.push(
+      buildParticipantRow(
+        input.matchId,
+        cyclePick(input.opponentPool, input.matchIndex * 2 + index),
+        1,
+        opponentPlacement,
+        null,
+        input.matchIndex,
+      ),
+    )
   }
 
   return rows
@@ -635,9 +665,7 @@ function summarizeMetrics(samples: StatsCallMetrics[]): StatsCallMetrics {
   }
 }
 
-function summarizeOutput(embed: {
-  fields?: Array<{ name: string, value: string }>
-}): StatsOutputSummary {
+function summarizeOutput(embed: { fields?: Array<{ name: string; value: string }> }): StatsOutputSummary {
   const fields = embed.fields ?? []
   return {
     fieldCount: fields.length,
@@ -649,7 +677,7 @@ function summarizeOutput(embed: {
   }
 }
 
-function countFieldLines(fields: Array<{ name: string, value: string }>, prefix: string): number {
+function countFieldLines(fields: Array<{ name: string; value: string }>, prefix: string): number {
   const field = fields.find(entry => entry.name === prefix || entry.name.startsWith(`${prefix} (`))
   if (!field) return 0
   return field.value.split('\n').filter(line => line.trim().length > 0).length
@@ -734,8 +762,7 @@ function roundSnapshotNumber(value: number): number {
 async function readSnapshotText(read: typeof readFileText): Promise<string | null> {
   try {
     return await read(STATS_SNAPSHOT_FILE, 'utf8')
-  }
-  catch (error) {
+  } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null
     throw error
   }
@@ -743,34 +770,38 @@ async function readSnapshotText(read: typeof readFileText): Promise<string | nul
 
 function printReports(reports: StatsScenarioReport[]): void {
   console.log('\n[stats] scenarios')
-  console.table(reports.map(report => ({
-    scenario: report.label,
-    matches: report.matchCount,
-    playersPerMatch: report.participantsPerMatch,
-    ladderPlayers: report.leaderboardPlayersPerMode,
-    coldMs: roundSnapshotNumber(report.cold.totalMs),
-    warmMs: roundSnapshotNumber(report.warm.totalMs),
-    coldRows: report.cold.sqlRowsRead.total,
-    warmRows: report.warm.sqlRowsRead.total,
-    coldKvGets: report.cold.kvOps.gets,
-    warmKvGets: report.warm.kvOps.gets,
-    payloadBytes: report.output.jsonBytes,
-  })))
+  console.table(
+    reports.map(report => ({
+      scenario: report.label,
+      matches: report.matchCount,
+      playersPerMatch: report.participantsPerMatch,
+      ladderPlayers: report.leaderboardPlayersPerMode,
+      coldMs: roundSnapshotNumber(report.cold.totalMs),
+      warmMs: roundSnapshotNumber(report.warm.totalMs),
+      coldRows: report.cold.sqlRowsRead.total,
+      warmRows: report.warm.sqlRowsRead.total,
+      coldKvGets: report.cold.kvOps.gets,
+      warmKvGets: report.warm.kvOps.gets,
+      payloadBytes: report.output.jsonBytes,
+    })),
+  )
 
   console.log('\n[stats] breakdown')
-  console.table(reports.map(report => ({
-    scenario: report.label,
-    coldRankMs: roundSnapshotNumber(report.cold.rankProfileMs),
-    coldEmbedMs: roundSnapshotNumber(report.cold.embedMs),
-    warmRankMs: roundSnapshotNumber(report.warm.rankProfileMs),
-    warmEmbedMs: roundSnapshotNumber(report.warm.embedMs),
-    coldRankRows: report.cold.sqlRowsRead.rankProfile,
-    coldEmbedRows: report.cold.sqlRowsRead.embed,
-    warmRankRows: report.warm.sqlRowsRead.rankProfile,
-    warmEmbedRows: report.warm.sqlRowsRead.embed,
-    commonTeammates: report.output.commonTeammatesLines,
-    commonOpponents: report.output.commonOpponentsLines,
-  })))
+  console.table(
+    reports.map(report => ({
+      scenario: report.label,
+      coldRankMs: roundSnapshotNumber(report.cold.rankProfileMs),
+      coldEmbedMs: roundSnapshotNumber(report.cold.embedMs),
+      warmRankMs: roundSnapshotNumber(report.warm.rankProfileMs),
+      warmEmbedMs: roundSnapshotNumber(report.warm.embedMs),
+      coldRankRows: report.cold.sqlRowsRead.rankProfile,
+      coldEmbedRows: report.cold.sqlRowsRead.embed,
+      warmRankRows: report.warm.sqlRowsRead.rankProfile,
+      warmEmbedRows: report.warm.sqlRowsRead.embed,
+      commonTeammates: report.output.commonTeammatesLines,
+      commonOpponents: report.output.commonOpponentsLines,
+    })),
+  )
 }
 
 function median(values: number[]): number {
@@ -781,7 +812,7 @@ function median(values: number[]): number {
 }
 
 function addPlayerRow(
-  rows: Map<string, { id: string, displayName: string, avatarUrl: string | null, createdAt: number }>,
+  rows: Map<string, { id: string; displayName: string; avatarUrl: string | null; createdAt: number }>,
   playerId: string,
   displayName: string,
 ): void {
@@ -795,8 +826,27 @@ function addPlayerRow(
 }
 
 function addRatingRow(
-  rows: Map<string, { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number }>,
-  row: { playerId: string, mode: LeaderboardMode, mu: number, sigma: number, gamesPlayed: number, wins: number, lastPlayedAt: number },
+  rows: Map<
+    string,
+    {
+      playerId: string
+      mode: LeaderboardMode
+      mu: number
+      sigma: number
+      gamesPlayed: number
+      wins: number
+      lastPlayedAt: number
+    }
+  >,
+  row: {
+    playerId: string
+    mode: LeaderboardMode
+    mu: number
+    sigma: number
+    gamesPlayed: number
+    wins: number
+    lastPlayedAt: number
+  },
 ): void {
   rows.set(`${row.playerId}:${row.mode}`, row)
 }

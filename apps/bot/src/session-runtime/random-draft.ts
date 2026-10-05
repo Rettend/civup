@@ -17,10 +17,14 @@ function pickRandomWithReplacement<T>(items: T[], count: number, random: RandomS
   return Array.from({ length: count }, () => items[Math.floor(random() * items.length)]!)
 }
 
-export function buildRandomDraftResult(state: DraftState, random: RandomSource = Math.random): { state: DraftState, events: DraftEvent[] } {
-  const assignedIds = state.duplicateFactions === true
-    ? pickRandomWithReplacement(state.availableCivIds, state.seats.length, random)
-    : pickRandomDistinct(state.availableCivIds, state.seats.length, random)
+export function buildRandomDraftResult(
+  state: DraftState,
+  random: RandomSource = Math.random,
+): { state: DraftState; events: DraftEvent[] } {
+  const assignedIds =
+    state.duplicateFactions === true
+      ? pickRandomWithReplacement(state.availableCivIds, state.seats.length, random)
+      : pickRandomDistinct(state.availableCivIds, state.seats.length, random)
   const picks = state.seats.map((_, seatIndex) => ({
     civId: assignedIds[seatIndex]!,
     seatIndex,
@@ -33,21 +37,19 @@ export function buildRandomDraftResult(state: DraftState, random: RandomSource =
       currentStepIndex: state.steps.length,
       submissions: {},
       picks,
-      availableCivIds: state.duplicateFactions === true
-        ? state.availableCivIds
-        : state.availableCivIds.filter(civId => !picks.some(pick => pick.civId === civId)),
+      availableCivIds:
+        state.duplicateFactions === true
+          ? state.availableCivIds
+          : state.availableCivIds.filter(civId => !picks.some(pick => pick.civId === civId)),
       dealtCivIds: null,
       status: 'complete',
       cancelReason: null,
     },
-    events: [
-      { type: 'DRAFT_STARTED' },
-      { type: 'DRAFT_COMPLETE' },
-    ],
+    events: [{ type: 'DRAFT_STARTED' }, { type: 'DRAFT_COMPLETE' }],
   }
 }
 
-export function buildHiddenDraftResult(state: DraftState): { state: DraftState, events: DraftEvent[] } {
+export function buildHiddenDraftResult(state: DraftState): { state: DraftState; events: DraftEvent[] } {
   return {
     state: {
       ...state,
@@ -58,9 +60,6 @@ export function buildHiddenDraftResult(state: DraftState): { state: DraftState, 
       status: 'complete',
       cancelReason: null,
     },
-    events: [
-      { type: 'DRAFT_STARTED' },
-      { type: 'DRAFT_COMPLETE' },
-    ],
+    events: [{ type: 'DRAFT_STARTED' }, { type: 'DRAFT_COMPLETE' }],
   }
 }

@@ -1,5 +1,5 @@
-import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import type { RankedRoleAssignments } from '../ranked/role-sync.ts'
+import type { CompetitiveTier, GameMode, LeaderDataVersion } from '@civup/game'
 import { DEFAULT_LEADER_POOL_RANK_TIER, getDefaultLeaderPoolSize, resolveAverageLeaderPoolRankTier } from '@civup/game'
 import { getCurrentRankAssignments } from '../ranked/role-sync.ts'
 
@@ -36,9 +36,10 @@ export async function resolveLobbyRankTier(
   playerIds: readonly string[],
   assignments?: RankedRoleAssignments | null,
 ): Promise<CompetitiveTier> {
-  const resolvedAssignments = assignments === undefined && guildId
-    ? await getCurrentRankAssignments(kv, guildId, playerIds)
-    : assignments ?? null
+  const resolvedAssignments =
+    assignments === undefined && guildId
+      ? await getCurrentRankAssignments(kv, guildId, playerIds)
+      : (assignments ?? null)
   const tiers = playerIds.map(playerId => resolvedAssignments?.byPlayerId[playerId]?.tier ?? null)
   if (tiers.every(tier => tier == null)) return DEFAULT_LEADER_POOL_RANK_TIER
   return resolveAverageLeaderPoolRankTier(tiers)

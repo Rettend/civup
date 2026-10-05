@@ -1,9 +1,24 @@
+import type { Env } from '../../src/env.ts'
+import type {
+  CapacityModel,
+  DailyUsage,
+  MetricBreakpoint,
+  OverageRatesPerMillion,
+  UsageLimits,
+} from './capacity/model.ts'
+import type {
+  CapacityScenario,
+  CapacitySnapshot,
+  CapacitySnapshotBreakpoint,
+  ScenarioReport,
+  SimulationResult,
+  UsageSample,
+} from './capacity/types.ts'
 /* eslint-disable no-console */
 import type { DraftInput, DraftSeat, DraftState, GameMode, QueueEntry } from '@civup/game'
-import type { Env } from '../../src/env.ts'
-import type { CapacityModel, DailyUsage, MetricBreakpoint, OverageRatesPerMillion, UsageLimits } from './capacity/model.ts'
-import type { CapacityScenario, CapacitySnapshot, CapacitySnapshotBreakpoint, ScenarioReport, SimulationResult, UsageSample } from './capacity/types.ts'
+import { describe, expect, test } from 'bun:test'
 import { readFile as readFileText, writeFile as writeFileText } from 'node:fs/promises'
+import { eq } from 'drizzle-orm'
 import { matches, matchParticipants, playerRatings, players } from '@civup/db'
 import {
   allLeaderIds,
@@ -16,8 +31,6 @@ import {
   swapSeatPicks,
   toLeaderboardMode,
 } from '@civup/game'
-import { describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
 import { findBlockingDraftMatchIdsForPlayers, joinLobbyAndMaybeStartMatch } from '../../src/commands/match/shared.ts'
 import { runRankedRoleMaintenance } from '../../src/maintenance/ranked-role-maintenance.ts'
 import { buildActivityLaunchSnapshot, selectActivityTargetForUser } from '../../src/routes/activity.ts'
@@ -30,12 +43,22 @@ import { syncLobbyDerivedState } from '../../src/services/lobby/live-snapshot.ts
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import { activateDraftMatch, reportMatch } from '../../src/services/match/index.ts'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
-import { clearCurrentRankAssignmentsCache, listRankedRoleMatchUpdateLines, markRankedRolesDirty, previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
+import {
+  clearCurrentRankAssignmentsCache,
+  listRankedRoleMatchUpdateLines,
+  markRankedRolesDirty,
+  previewRankedRoles,
+  syncRankedRoles,
+} from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
-import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipart.ts'
 import { startSeason, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
-import { getOpenSessionLobbyProjectionHostedBy, getSessionLobbyProjectionByMatch } from '../../src/services/session/index.ts'
+import {
+  getOpenSessionLobbyProjectionHostedBy,
+  getSessionLobbyProjectionByMatch,
+} from '../../src/services/session/index.ts'
 import { getSystemChannel, setSystemChannel } from '../../src/services/system/channels.ts'
+import { recoverStaleAutosaveUploads } from '../../src/services/uploads/multipart.ts'
+import { createSqliteD1Database } from '../helpers/d1.ts'
 import {
   createLobby,
   filterQueueEntriesForLobby,
@@ -51,7 +74,6 @@ import {
   startTestSessionDraft,
 } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
-import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTrackedKv } from '../helpers/tracked-kv.ts'
 import { trackSqlite } from '../helpers/tracked-sqlite.ts'
 import {
@@ -100,13 +122,19 @@ const CAPACITY_SCENARIOS: CapacityScenario[] = [
     id: 'squad-ranked',
     label: '3v3',
     mode: '3v3',
-    joinGroups: [['p2', 'p3'], ['p4', 'p5', 'p6']],
+    joinGroups: [
+      ['p2', 'p3'],
+      ['p4', 'p5', 'p6'],
+    ],
   },
   {
     id: 'teamer-ranked',
     label: '4v4',
     mode: '4v4',
-    joinGroups: [['p2', 'p3', 'p4'], ['p5', 'p6', 'p7', 'p8']],
+    joinGroups: [
+      ['p2', 'p3', 'p4'],
+      ['p5', 'p6', 'p7', 'p8'],
+    ],
   },
   {
     id: 'ffa-twelve-player',
@@ -126,7 +154,8 @@ const AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT = 0.5
 const ACCEPTED_SWAP_DRAFT_ROOM_INCOMING_MESSAGES = 2
 const CURRENT_ARCHITECTURE_MODEL = 'current-non-hibernating-selected-session-sockets'
 const TARGET_ARCHITECTURE_MODEL = 'target-session-do-v4-hibernating-selected-sockets'
-const RANKED_FINISH_MODEL = 'ranked-replacement-global-mode-summary-batched-context-async-role-sync-effective-quality-gates'
+const RANKED_FINISH_MODEL =
+  'ranked-replacement-global-mode-summary-batched-context-async-role-sync-effective-quality-gates'
 const RANKED_QUALIFICATION_MIN_RAW_GAMES = 0
 const RANKED_QUALIFICATION_MIN_EFFECTIVE_GAMES = 8
 const RANKED_TIER_3_MIN_RAW_GAMES = 0
@@ -157,7 +186,7 @@ const TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION = 1
 const TARGET_DIRECTORY_WRITES_PER_DRAFT_START = 1
 const TARGET_DIRECTORY_WRITES_PER_REPORT = 1
 const TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP = 1
-const LEADERBOARD_CRON_RUNS_PER_DAY = 24 * 60 / 15
+const LEADERBOARD_CRON_RUNS_PER_DAY = (24 * 60) / 15
 const INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY = 24
 const RANKED_ROLE_CRON_RUNS_PER_DAY = 1
 const RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY = 10
@@ -203,12 +232,12 @@ const PAID_MONTHLY_LIMITS: UsageLimits = {
 }
 
 const PAID_OVERAGE_RATES_PER_MILLION: OverageRatesPerMillion = {
-  workersRequests: 0.30,
+  workersRequests: 0.3,
   d1RowsRead: 0.001,
   d1RowsWritten: 1.0,
   doSqliteRowsRead: 0.001,
   doSqliteRowsWritten: 1.0,
-  kvReads: 0.50,
+  kvReads: 0.5,
   kvWrites: 5.0,
   kvDeletes: 5.0,
   kvLists: 5.0,
@@ -232,13 +261,25 @@ const NOW = 1_700_000_000_000
 describe('capacity models', () => {
   test('prints current ranked lifecycle capacity projections', { timeout: 45_000 }, async () => {
     const leaderboardCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureLeaderboardCronRunUsage)
-    const inactiveLobbyCleanupCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureInactiveLobbyCleanupCronRunUsage)
+    const inactiveLobbyCleanupCronRunUsage = await measureStableValue(
+      CAPACITY_STABILITY_SAMPLES,
+      measureInactiveLobbyCleanupCronRunUsage,
+    )
     const rankedRoleCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleCronRunUsage)
-    const rankedRoleRetryCronRunUsage = await measureStableValue(CAPACITY_STABILITY_SAMPLES, measureRankedRoleRetryCronRunUsage)
+    const rankedRoleRetryCronRunUsage = await measureStableValue(
+      CAPACITY_STABILITY_SAMPLES,
+      measureRankedRoleRetryCronRunUsage,
+    )
     const leaderboardCronBackgroundUsage = multiplyUsage(leaderboardCronRunUsage, LEADERBOARD_CRON_RUNS_PER_DAY)
-    const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(inactiveLobbyCleanupCronRunUsage, INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY)
+    const inactiveLobbyCleanupBackgroundUsage = multiplyUsage(
+      inactiveLobbyCleanupCronRunUsage,
+      INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
+    )
     const rankedRoleCronBackgroundUsage = multiplyUsage(rankedRoleCronRunUsage, RANKED_ROLE_CRON_RUNS_PER_DAY)
-    const rankedRoleRetryCronBackgroundUsage = multiplyUsage(rankedRoleRetryCronRunUsage, RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
+    const rankedRoleRetryCronBackgroundUsage = multiplyUsage(
+      rankedRoleRetryCronRunUsage,
+      RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    )
     const projectedLegacyBackgroundUsage = projectBackgroundUsageToTargetArchitecture(
       addUsage(leaderboardCronBackgroundUsage, inactiveLobbyCleanupBackgroundUsage),
     )
@@ -260,11 +301,20 @@ describe('capacity models', () => {
     for (const report of reports) {
       expect(report.model.perDraft.workersRequests).toBeGreaterThan(0)
       expect(report.model.perDraft.d1RowsWritten).toBeGreaterThan(0)
-      expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(report.draftRoomIncomingMessages)
-      expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(report.draftRoomIncomingMessagesWithSelectionPreviews)
-      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
-      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY)
-      if (report.mode.id === 'duel-ranked') expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
+      expect(report.draftRoomIncomingMessagesWithSelectionPreviews).toBeGreaterThanOrEqual(
+        report.draftRoomIncomingMessages,
+      )
+      expect(report.draftRoomIncomingMessagesWithTeamPickPreviews).toBe(
+        report.draftRoomIncomingMessagesWithSelectionPreviews,
+      )
+      expect(report.model.backgroundDaily?.kvLists ?? 0).toBe(
+        RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      )
+      expect(report.model.backgroundDaily?.doRequests ?? 0).toBe(
+        LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      )
+      if (report.mode.id === 'duel-ranked')
+        expect(report.freeCapacityPlaysPerDay / scenarioPlayersPerDraft(report.mode)).toBeGreaterThanOrEqual(1_000)
       expect(report.freeCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidIncludedCapacityPlaysPerDay).toBeGreaterThan(0)
       expect(report.paidSixDollarCapacityPlaysPerDay).toBeGreaterThanOrEqual(report.paidIncludedCapacityPlaysPerDay)
@@ -279,25 +329,31 @@ async function buildScenarioReport(
   mode: CapacityScenario,
   leaderboardCronBackgroundUsage: DailyUsage,
 ): Promise<ScenarioReport> {
-  const coreBaseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
-    mode,
-    backgroundRatedPlayers: 0,
-    includeOpenLobbyChurn: false,
-  }))
-  const baseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
-    mode,
-    backgroundRatedPlayers: 0,
-    includeOpenLobbyChurn: true,
-  }))
+  const coreBaseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () =>
+    simulateScenarioLifecycle({
+      mode,
+      backgroundRatedPlayers: 0,
+      includeOpenLobbyChurn: false,
+    }),
+  )
+  const baseline = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () =>
+    simulateScenarioLifecycle({
+      mode,
+      backgroundRatedPlayers: 0,
+      includeOpenLobbyChurn: true,
+    }),
+  )
   const modeledCurrentBaseline = await applyTeamSwapBlend(mode, baseline, {
     backgroundRatedPlayers: 0,
     includeOpenLobbyChurn: true,
   })
-  const withOneBackgroundPlayer = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
-    mode,
-    backgroundRatedPlayers: 1,
-    includeOpenLobbyChurn: true,
-  }))
+  const withOneBackgroundPlayer = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () =>
+    simulateScenarioLifecycle({
+      mode,
+      backgroundRatedPlayers: 1,
+      includeOpenLobbyChurn: true,
+    }),
+  )
   const modeledCurrentWithOneBackgroundPlayer = await applyTeamSwapBlend(mode, withOneBackgroundPlayer, {
     backgroundRatedPlayers: 1,
     includeOpenLobbyChurn: true,
@@ -305,7 +361,10 @@ async function buildScenarioReport(
   const projectedCoreBaseline = projectSimulationResultToTargetArchitecture(mode, coreBaseline)
   const projectedBaseline = projectSimulationResultToTargetArchitecture(mode, baseline)
   const modeledBaseline = projectSimulationResultToTargetArchitecture(mode, modeledCurrentBaseline)
-  const modeledWithOneBackgroundPlayer = projectSimulationResultToTargetArchitecture(mode, modeledCurrentWithOneBackgroundPlayer)
+  const modeledWithOneBackgroundPlayer = projectSimulationResultToTargetArchitecture(
+    mode,
+    modeledCurrentWithOneBackgroundPlayer,
+  )
   const openLobbyChurnPerDraft = subtractUsage(projectedBaseline.usage, projectedCoreBaseline.usage)
   const corePerDraft = subtractUsage(modeledBaseline.usage, openLobbyChurnPerDraft)
 
@@ -315,7 +374,8 @@ async function buildScenarioReport(
       botWorkerRequests: modeledBaseline.usage.botWorkerRequests,
       activityWorkerRequests: modeledBaseline.usage.activityWorkerRequests,
       d1RowsReadBase: modeledBaseline.usage.d1RowsRead,
-      d1RowsReadPerLeaderboardPlayer: modeledWithOneBackgroundPlayer.usage.d1RowsRead - modeledBaseline.usage.d1RowsRead,
+      d1RowsReadPerLeaderboardPlayer:
+        modeledWithOneBackgroundPlayer.usage.d1RowsRead - modeledBaseline.usage.d1RowsRead,
       d1RowsWritten: modeledBaseline.usage.d1RowsWritten,
       doSqliteRowsRead: modeledBaseline.usage.doSqliteRowsRead,
       doSqliteRowsWritten: modeledBaseline.usage.doSqliteRowsWritten,
@@ -440,8 +500,7 @@ async function measureLeaderboardCronRunUsage(): Promise<DailyUsage> {
       doRequestsRaw: doRequests,
       doDurationGbSeconds: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     }
-  }
-  finally {
+  } finally {
     sqlTracker.restore()
     sqlite.close()
   }
@@ -485,8 +544,7 @@ async function measureInactiveLobbyCleanupCronRunUsage(): Promise<DailyUsage> {
       doRequestsRaw: doRequests,
       doDurationGbSeconds: estimateDoDurationGbSeconds(doRequests),
     }
-  }
-  finally {
+  } finally {
     sqlTracker.restore()
     sqlite.close()
   }
@@ -549,12 +607,12 @@ async function measureRankedRoleMaintenanceRunUsage(action: 'sync' | 'apply-pend
       kvLists,
       doRequests,
       doRequestsRaw: doRequests,
-      doDurationGbSeconds: action === 'sync'
-        ? ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN
-        : ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
+      doDurationGbSeconds:
+        action === 'sync'
+          ? ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN
+          : ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
     }
-  }
-  finally {
+  } finally {
     globalThis.fetch = originalFetch
     sqlTracker.restore()
     sqlite.close()
@@ -569,35 +627,39 @@ async function seedRankedRoleCronState(
 
   await setRankedRoleCurrentRoles(kv, GUILD_ID, RANKED_ROLE_IDS)
 
-  await db.insert(players).values(playerIds.map((playerId, index) => ({
-    id: playerId,
-    displayName: playerId.toUpperCase(),
-    avatarUrl: null,
-    createdAt: NOW + index,
-  })))
+  await db.insert(players).values(
+    playerIds.map((playerId, index) => ({
+      id: playerId,
+      displayName: playerId.toUpperCase(),
+      avatarUrl: null,
+      createdAt: NOW + index,
+    })),
+  )
 
-  await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
-    {
-      playerId,
-      mode: 'ffa',
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: 10,
-      wins: Math.max(0, 6 - (index % 4)),
-      effectiveGames: 10,
-      lastPlayedAt: NOW + 10_000 + index,
-    },
-    {
-      playerId,
-      mode: 'global',
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: 10,
-      wins: Math.max(0, 6 - (index % 4)),
-      effectiveGames: 10,
-      lastPlayedAt: NOW + 10_000 + index,
-    },
-  ]))
+  await db.insert(playerRatings).values(
+    playerIds.flatMap((playerId, index) => [
+      {
+        playerId,
+        mode: 'ffa',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: Math.max(0, 6 - (index % 4)),
+        effectiveGames: 10,
+        lastPlayedAt: NOW + 10_000 + index,
+      },
+      {
+        playerId,
+        mode: 'global',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: Math.max(0, 6 - (index % 4)),
+        effectiveGames: 10,
+        lastPlayedAt: NOW + 10_000 + index,
+      },
+    ]),
+  )
 }
 
 async function simulateScenarioLifecycle(input: {
@@ -608,7 +670,12 @@ async function simulateScenarioLifecycle(input: {
 }): Promise<SimulationResult> {
   const { db, sqlite } = await createTestDatabase()
   const sqlTracker = trackSqlite(sqlite)
-  const { kv, operations, resetOperations, runWithoutTracking: runKvWithoutTracking } = createTrackedKv({ trackReads: true })
+  const {
+    kv,
+    operations,
+    resetOperations,
+    runWithoutTracking: runKvWithoutTracking,
+  } = createTrackedKv({ trackReads: true })
 
   let botRequests = 0
   let activityRequests = 0
@@ -635,9 +702,7 @@ async function simulateScenarioLifecycle(input: {
     sqlTracker.reset()
 
     const runUnmetered = async <T>(callback: () => Promise<T>): Promise<T> =>
-      runKvWithoutTracking(() =>
-        sqlTracker.runWithoutTracking(callback),
-      )
+      runKvWithoutTracking(() => sqlTracker.runWithoutTracking(callback))
 
     botRequests += 1
     await simulateMatchCreate(db, kv, input.mode)
@@ -669,9 +734,7 @@ async function simulateScenarioLifecycle(input: {
       await simulateSpectatorLobbySelection(kv, input.mode, spectatorId)
     }
 
-    const openLobbyMutationRequests = input.includeOpenLobbyChurn
-      ? await simulateOpenLobbyChurn(kv, input.mode)
-      : 0
+    const openLobbyMutationRequests = input.includeOpenLobbyChurn ? await simulateOpenLobbyChurn(kv, input.mode) : 0
     activityRequests += openLobbyMutationRequests
     botRequests += openLobbyMutationRequests
     const selectedLobbyPushUpdates = viewerIds.length * openLobbyMutationRequests
@@ -700,7 +763,9 @@ async function simulateScenarioLifecycle(input: {
 
     if (isTeamMode(input.mode.mode)) {
       botRequests += 1
-      await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState, { finalized: true })
+      await handleDraftCompleteLifecycleSync(db, kv, input.mode, started.matchId, completedDraftState, {
+        finalized: true,
+      })
       await runUnmetered(() => assertActiveCapacityState(db, kv, started.matchId, playerIds))
     }
 
@@ -756,8 +821,7 @@ async function simulateScenarioLifecycle(input: {
         doDurationGbSeconds: estimateDoDurationGbSeconds(doRequestsRaw),
       },
     }
-  }
-  finally {
+  } finally {
     sqlTracker.restore()
     sqlite.close()
   }
@@ -786,7 +850,7 @@ async function simulateMatchCreate(
     db,
   })
   if (mode.targetSize != null && mode.targetSize !== lobby.slots.length) {
-    const slots = Array.from({ length: mode.targetSize }, (_value, index) => index === 0 ? HOST_ID : null)
+    const slots = Array.from({ length: mode.targetSize }, (_value, index) => (index === 0 ? HOST_ID : null))
     await setLobbySlots(kv, lobby.id, slots, lobby, { db })
   }
 }
@@ -822,14 +886,26 @@ async function simulateActivityLaunchSnapshot(
   })
 }
 
-async function simulateSpectatorLobbySelection(kv: KVNamespace, mode: CapacityScenario, spectatorId: string): Promise<void> {
+async function simulateSpectatorLobbySelection(
+  kv: KVNamespace,
+  mode: CapacityScenario,
+  spectatorId: string,
+): Promise<void> {
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before spectator selection`)
   const runtime = await getTestLobbyRuntime(kv)
-  const result = await selectActivityTargetForUser(undefined, undefined, kv, lobby.channelId, spectatorId, { kind: 'lobby', id: lobby.id }, {
-    db: runtime.d1,
-    sessionNamespace: runtime.sessionNamespace,
-  })
+  const result = await selectActivityTargetForUser(
+    undefined,
+    undefined,
+    kv,
+    lobby.channelId,
+    spectatorId,
+    { kind: 'lobby', id: lobby.id },
+    {
+      db: runtime.d1,
+      sessionNamespace: runtime.sessionNamespace,
+    },
+  )
   if (!result.ok) throw new Error(result.error)
 }
 
@@ -849,10 +925,16 @@ async function simulateOpenLobbyConfigEdit(kv: KVNamespace, mode: CapacityScenar
   const lobby = await getLobby(kv, mode.mode)
   if (!lobby || lobby.status !== 'open') throw new Error(`Expected open ${mode.mode} lobby before config edit`)
 
-  const updatedLobby = await setLobbyDraftConfig(kv, lobby.id, {
-    ...lobby.draftConfig,
-    banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
-  }, lobby) ?? lobby
+  const updatedLobby =
+    (await setLobbyDraftConfig(
+      kv,
+      lobby.id,
+      {
+        ...lobby.draftConfig,
+        banTimerSeconds: (lobby.draftConfig.banTimerSeconds ?? 30) + 1,
+      },
+      lobby,
+    )) ?? lobby
 
   const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode.mode, updatedLobby.draftConfig.redDeath)
   const queueEntries = filterQueueEntriesForLobby(updatedLobby, [])
@@ -961,7 +1043,9 @@ async function startDraftFromOpenLobby(
   const lobbyQueueEntries = filterQueueEntriesForLobby(lobby, [])
   const slots = normalizeLobbySlots(mode.mode, lobby.slots, lobbyQueueEntries)
   const slottedEntries = mapLobbySlotsToEntries(slots, lobbyQueueEntries)
-  const selectedEntries = slottedEntries.filter((entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null)
+  const selectedEntries = slottedEntries.filter(
+    (entry): entry is Exclude<(typeof slottedEntries)[number], null> => entry !== null,
+  )
 
   await resolveDraftTimerConfig(kv, lobby.draftConfig)
 
@@ -969,7 +1053,7 @@ async function startDraftFromOpenLobby(
   const seats = buildDraftSeats(mode.mode, slottedEntries)
   if (selectedEntries.length !== seats.length) throw new Error('Seat count did not match selected entries')
 
-  const slottedLobby = await setLobbySlots(kv, lobby.id, slots, lobby) ?? { ...lobby, slots }
+  const slottedLobby = (await setLobbySlots(kv, lobby.id, slots, lobby)) ?? { ...lobby, slots }
   const draftingLobby = await startTestSessionDraft(kv, lobby.id, slottedLobby, { db })
   if (!draftingLobby) throw new Error('Expected lobby to transition to drafting during capacity simulation')
   await syncLobbyDerivedState(kv, draftingLobby)
@@ -991,7 +1075,11 @@ function sortParticipantIdsByExpectedOrder(
 ): string[] {
   const expectedOrder = new Map(expectedPlayerIds.map((playerId, index) => [playerId, index]))
   return [...participants]
-    .sort((left, right) => (expectedOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (expectedOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER))
+    .sort(
+      (left, right) =>
+        (expectedOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) -
+        (expectedOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER),
+    )
     .map(participant => participant.playerId)
 }
 
@@ -1022,7 +1110,7 @@ async function handleDraftCompleteLifecycleSync(
     return
   }
 
-  const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', lobby) ?? lobby
+  const activeLobby = (await setLobbyStatus(kv, lobby.id, 'active', lobby)) ?? lobby
   await syncLobbyDerivedState(kv, activeLobby)
   await storeMatchMessageMapping(db, `message-lobby-active-${matchId}`, matchId)
 }
@@ -1042,11 +1130,16 @@ async function handleMatchReport(
   matchId: string,
 ): Promise<void> {
   const runtime = await getTestLobbyRuntime(kv, db)
-  const reported = await reportMatch(db, kv, {
-    matchId,
-    reporterId: HOST_ID,
-    placements: buildPlacements(mode),
-  }, { sessionNamespace: runtime.sessionNamespace, rankedRoleGuildId: GUILD_ID })
+  const reported = await reportMatch(
+    db,
+    kv,
+    {
+      matchId,
+      reporterId: HOST_ID,
+      placements: buildPlacements(mode),
+    },
+    { sessionNamespace: runtime.sessionNamespace, rankedRoleGuildId: GUILD_ID },
+  )
   if ('error' in reported) throw new Error(reported.error)
 
   const lobby = await getSessionLobbyProjectionByMatch(db, matchId)
@@ -1114,9 +1207,8 @@ function buildCompletedDraftState(
     const step = state.steps[state.currentStepIndex]
     if (!step) throw new Error('Expected a current draft step while completing the draft')
 
-    const activeSeatIndices = step.seats === 'all'
-      ? Array.from({ length: state.seats.length }, (_value, index) => index)
-      : [...step.seats]
+    const activeSeatIndices =
+      step.seats === 'all' ? Array.from({ length: state.seats.length }, (_value, index) => index) : [...step.seats]
 
     if (step.action === 'ban') {
       const reserved = new Set<string>()
@@ -1165,12 +1257,14 @@ async function applyTeamSwapBlend(
 ): Promise<SimulationResult> {
   if (!isTeamMode(mode.mode) || AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT <= 0) return base
 
-  const withAcceptedSwap = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () => simulateScenarioLifecycle({
-    mode,
-    backgroundRatedPlayers: input.backgroundRatedPlayers,
-    includeOpenLobbyChurn: input.includeOpenLobbyChurn,
-    acceptedSwaps: 1,
-  }))
+  const withAcceptedSwap = await measureStableValue(CAPACITY_STABILITY_SAMPLES, () =>
+    simulateScenarioLifecycle({
+      mode,
+      backgroundRatedPlayers: input.backgroundRatedPlayers,
+      includeOpenLobbyChurn: input.includeOpenLobbyChurn,
+      acceptedSwaps: 1,
+    }),
+  )
 
   return blendSimulationResult(base, withAcceptedSwap, AVERAGE_ACCEPTED_SWAPS_PER_TEAM_DRAFT)
 }
@@ -1182,11 +1276,31 @@ function blendSimulationResult(
 ): SimulationResult {
   return {
     usage: blendUsageSample(base.usage, withAcceptedSwap.usage, acceptedSwapRate),
-    draftRoomIncomingMessages: blendMetric(base.draftRoomIncomingMessages, withAcceptedSwap.draftRoomIncomingMessages, acceptedSwapRate),
-    draftRoomIncomingMessagesWithSelectionPreviews: blendMetric(base.draftRoomIncomingMessagesWithSelectionPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithSelectionPreviews, acceptedSwapRate),
-    draftRoomIncomingMessagesWithTeamPickPreviews: blendMetric(base.draftRoomIncomingMessagesWithTeamPickPreviews, withAcceptedSwap.draftRoomIncomingMessagesWithTeamPickPreviews, acceptedSwapRate),
-    openLobbyMutationRequests: blendMetric(base.openLobbyMutationRequests, withAcceptedSwap.openLobbyMutationRequests, acceptedSwapRate),
-    selectedLobbyPushUpdates: blendMetric(base.selectedLobbyPushUpdates, withAcceptedSwap.selectedLobbyPushUpdates, acceptedSwapRate),
+    draftRoomIncomingMessages: blendMetric(
+      base.draftRoomIncomingMessages,
+      withAcceptedSwap.draftRoomIncomingMessages,
+      acceptedSwapRate,
+    ),
+    draftRoomIncomingMessagesWithSelectionPreviews: blendMetric(
+      base.draftRoomIncomingMessagesWithSelectionPreviews,
+      withAcceptedSwap.draftRoomIncomingMessagesWithSelectionPreviews,
+      acceptedSwapRate,
+    ),
+    draftRoomIncomingMessagesWithTeamPickPreviews: blendMetric(
+      base.draftRoomIncomingMessagesWithTeamPickPreviews,
+      withAcceptedSwap.draftRoomIncomingMessagesWithTeamPickPreviews,
+      acceptedSwapRate,
+    ),
+    openLobbyMutationRequests: blendMetric(
+      base.openLobbyMutationRequests,
+      withAcceptedSwap.openLobbyMutationRequests,
+      acceptedSwapRate,
+    ),
+    selectedLobbyPushUpdates: blendMetric(
+      base.selectedLobbyPushUpdates,
+      withAcceptedSwap.selectedLobbyPushUpdates,
+      acceptedSwapRate,
+    ),
   }
 }
 
@@ -1194,7 +1308,11 @@ function blendUsageSample(base: UsageSample, withAcceptedSwap: UsageSample, acce
   return {
     workersRequests: blendMetric(base.workersRequests, withAcceptedSwap.workersRequests, acceptedSwapRate),
     botWorkerRequests: blendMetric(base.botWorkerRequests, withAcceptedSwap.botWorkerRequests, acceptedSwapRate),
-    activityWorkerRequests: blendMetric(base.activityWorkerRequests, withAcceptedSwap.activityWorkerRequests, acceptedSwapRate),
+    activityWorkerRequests: blendMetric(
+      base.activityWorkerRequests,
+      withAcceptedSwap.activityWorkerRequests,
+      acceptedSwapRate,
+    ),
     d1RowsRead: blendMetric(base.d1RowsRead, withAcceptedSwap.d1RowsRead, acceptedSwapRate),
     d1RowsWritten: blendMetric(base.d1RowsWritten, withAcceptedSwap.d1RowsWritten, acceptedSwapRate),
     doSqliteRowsRead: blendMetric(base.doSqliteRowsRead, withAcceptedSwap.doSqliteRowsRead, acceptedSwapRate),
@@ -1214,9 +1332,8 @@ function blendMetric(base: number, withAcceptedSwap: number, acceptedSwapRate: n
 }
 
 function projectBackgroundUsageToTargetArchitecture(current: DailyUsage): DailyUsage {
-  const rankedRoleSyncReads = MODELED_PRODUCTION_RATED_PLAYERS
-    * RANKED_ROLE_CRON_RUNS_PER_DAY
-    * RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER
+  const rankedRoleSyncReads =
+    MODELED_PRODUCTION_RATED_PLAYERS * RANKED_ROLE_CRON_RUNS_PER_DAY * RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER
 
   return {
     ...current,
@@ -1249,14 +1366,23 @@ function projectSimulationResultToTargetArchitecture(
   const rankedFinishExtraUsage = estimateRankedFinishExtraUsage(mode)
 
   const botWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.botWorkerRequests - removedBotRequests))
-  const activityWorkerRequests = Math.max(0, roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests))
+  const activityWorkerRequests = Math.max(
+    0,
+    roundSnapshotNumber(current.usage.activityWorkerRequests - removedActivityRequests),
+  )
   const sessionSocketConnections = viewerCount * TARGET_SESSION_SOCKET_CONNECTIONS_PER_VIEWER
-  const doRequestsRaw = sessionCommandRequests + sessionSocketConnections + current.draftRoomIncomingMessages + activityFeedSessionUpdates + activityFeedConnections
-  const doRequests = sessionCommandRequests
-    + sessionSocketConnections
-    + Math.ceil(current.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
-    + activityFeedSessionUpdates
-    + activityFeedConnections
+  const doRequestsRaw =
+    sessionCommandRequests +
+    sessionSocketConnections +
+    current.draftRoomIncomingMessages +
+    activityFeedSessionUpdates +
+    activityFeedConnections
+  const doRequests =
+    sessionCommandRequests +
+    sessionSocketConnections +
+    Math.ceil(current.draftRoomIncomingMessages / DO_WEBSOCKET_BILLING_RATIO) +
+    activityFeedSessionUpdates +
+    activityFeedConnections
 
   return {
     ...current,
@@ -1264,33 +1390,38 @@ function projectSimulationResultToTargetArchitecture(
       workersRequests: botWorkerRequests + activityWorkerRequests,
       botWorkerRequests,
       activityWorkerRequests,
-      d1RowsRead: Math.max(0, roundSnapshotNumber(
-        current.usage.d1RowsRead
-        - removedPostDraftSnapshotRowsRead
-        + viewerCount * TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH
-        + mode.joinGroups.length * TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
-      )) + rankedFinishExtraUsage.d1RowsRead,
-      d1RowsWritten: roundSnapshotNumber(
-        current.usage.d1RowsWritten
-        + TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE
-        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN
-        + current.openLobbyMutationRequests * TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION
-        + TARGET_DIRECTORY_WRITES_PER_DRAFT_START
-        + TARGET_DIRECTORY_WRITES_PER_REPORT
-        + playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
-      ) + rankedFinishExtraUsage.d1RowsWritten,
+      d1RowsRead:
+        Math.max(
+          0,
+          roundSnapshotNumber(
+            current.usage.d1RowsRead -
+              removedPostDraftSnapshotRowsRead +
+              viewerCount * TARGET_DIRECTORY_READS_PER_VIEWER_LAUNCH +
+              mode.joinGroups.length * TARGET_DIRECTORY_READS_PER_JOIN_GROUP,
+          ),
+        ) + rankedFinishExtraUsage.d1RowsRead,
+      d1RowsWritten:
+        roundSnapshotNumber(
+          current.usage.d1RowsWritten +
+            TARGET_DIRECTORY_WRITES_PER_SESSION_CREATE +
+            playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_JOIN +
+            current.openLobbyMutationRequests * TARGET_DIRECTORY_WRITES_PER_OPEN_LOBBY_MUTATION +
+            TARGET_DIRECTORY_WRITES_PER_DRAFT_START +
+            TARGET_DIRECTORY_WRITES_PER_REPORT +
+            playerCount * TARGET_DIRECTORY_WRITES_PER_PARTICIPANT_REPORT_CLEANUP,
+        ) + rankedFinishExtraUsage.d1RowsWritten,
       doSqliteRowsRead: roundSnapshotNumber(
-        sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND
-        + sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT
-        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE
-        + activityFeedConnections * TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT
-        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE,
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_READS_PER_COMMAND +
+          sessionSocketConnections * TARGET_SESSION_DO_SQL_READS_PER_SOCKET_CONNECT +
+          current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_READS_PER_DRAFT_MESSAGE +
+          activityFeedConnections * TARGET_ACTIVITY_DO_SQL_READS_PER_FEED_CONNECT +
+          activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_READS_PER_SESSION_UPDATE,
       ),
       doSqliteRowsWritten: roundSnapshotNumber(
-        sessionCommandRequests * TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND
-        + sessionSocketConnections * TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT
-        + current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE
-        + activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE,
+        sessionCommandRequests * TARGET_SESSION_DO_SQL_WRITES_PER_COMMAND +
+          sessionSocketConnections * TARGET_SESSION_DO_SQL_WRITES_PER_SOCKET_CONNECT +
+          current.draftRoomIncomingMessages * TARGET_SESSION_DO_SQL_WRITES_PER_DRAFT_MESSAGE +
+          activityFeedSessionUpdates * TARGET_ACTIVITY_DO_SQL_WRITES_PER_SESSION_UPDATE,
       ),
       kvReads: current.usage.kvReads,
       kvWrites: current.usage.kvWrites,
@@ -1308,19 +1439,18 @@ function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSampl
 
   return {
     d1RowsRead: roundSnapshotNumber(
-      RANKED_FINISH_CONTEXT_READS_PER_MATCH + playerCount * (
-        RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER
-        + RANKED_FINISH_EVIDENCE_READS_PER_PLAYER
-        + RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER
-        + RANKED_FINISH_SEASON_READS_PER_PLAYER
-      ),
+      RANKED_FINISH_CONTEXT_READS_PER_MATCH +
+        playerCount *
+          (RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER +
+            RANKED_FINISH_EVIDENCE_READS_PER_PLAYER +
+            RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER +
+            RANKED_FINISH_SEASON_READS_PER_PLAYER),
     ),
     d1RowsWritten: roundSnapshotNumber(
-      playerCount * (
-        RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER
-        + RANKED_FINISH_EVENT_WRITES_PER_PLAYER
-        + RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER
-      ),
+      playerCount *
+        (RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER +
+          RANKED_FINISH_EVENT_WRITES_PER_PLAYER +
+          RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER),
     ),
   }
 }
@@ -1330,29 +1460,24 @@ function estimateRankedFinishExtraUsage(mode: CapacityScenario): Pick<UsageSampl
 
   return {
     d1RowsRead: roundSnapshotNumber(
-      RANKED_FINISH_CONTEXT_READS_PER_MATCH + playerCount * (
-        RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER
-        + RANKED_FINISH_EVIDENCE_READS_PER_PLAYER
-        + RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER
-        + RANKED_FINISH_SEASON_READS_PER_PLAYER
-      ),
+      RANKED_FINISH_CONTEXT_READS_PER_MATCH +
+        playerCount *
+          (RANKED_FINISH_EXTRA_RATING_READS_PER_PLAYER +
+            RANKED_FINISH_EVIDENCE_READS_PER_PLAYER +
+            RANKED_FINISH_OPPONENT_QUALITY_READS_PER_PLAYER +
+            RANKED_FINISH_SEASON_READS_PER_PLAYER),
     ),
     d1RowsWritten: roundSnapshotNumber(
-      playerCount * (
-        RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER
-        + RANKED_FINISH_EVENT_WRITES_PER_PLAYER
-        + RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER
-      ),
+      playerCount *
+        (RANKED_FINISH_EXTRA_RATING_WRITES_PER_PLAYER +
+          RANKED_FINISH_EVENT_WRITES_PER_PLAYER +
+          RANKED_FINISH_EVIDENCE_WRITES_PER_PLAYER),
     ),
   }
 }
 
 function estimateTargetSessionCommandRequests(mode: CapacityScenario, openLobbyMutationRequests: number): number {
-  return 1
-    + mode.joinGroups.length
-    + openLobbyMutationRequests
-    + 1
-    + 1
+  return 1 + mode.joinGroups.length + openLobbyMutationRequests + 1 + 1
 }
 
 function applyAcceptedTeamSwap(state: DraftState): DraftState {
@@ -1382,11 +1507,7 @@ function applyAcceptedTeamSwap(state: DraftState): DraftState {
   throw new Error(`Expected an accepted teammate swap to be available for ${state.matchId}`)
 }
 
-function applyDraftInput(
-  state: DraftState,
-  input: DraftInput,
-  blindBans: boolean,
-): DraftState {
+function applyDraftInput(state: DraftState, input: DraftInput, blindBans: boolean): DraftState {
   const result = processDraftInput(state, input, blindBans)
   if (isDraftError(result)) throw new Error(result.error)
   return result.state
@@ -1403,37 +1524,41 @@ async function seedRatedPlayers(
   ]
   const leaderboardMode = toLeaderboardMode(mode.mode)
 
-  await db.insert(players).values(playerIds.map((playerId, index) => ({
-    id: playerId,
-    displayName: playerId.toUpperCase(),
-    avatarUrl: null,
-    createdAt: NOW + index,
-  })))
+  await db.insert(players).values(
+    playerIds.map((playerId, index) => ({
+      id: playerId,
+      displayName: playerId.toUpperCase(),
+      avatarUrl: null,
+      createdAt: NOW + index,
+    })),
+  )
 
   if (leaderboardMode == null) return
 
-  await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
-    {
-      playerId,
-      mode: leaderboardMode,
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: 10,
-      wins: Math.max(0, 6 - (index % 4)),
-      effectiveGames: 10,
-      lastPlayedAt: NOW + 10_000 + index,
-    },
-    {
-      playerId,
-      mode: 'global',
-      mu: 40 - index,
-      sigma: 6,
-      gamesPlayed: 10,
-      wins: Math.max(0, 6 - (index % 4)),
-      effectiveGames: 10,
-      lastPlayedAt: NOW + 10_000 + index,
-    },
-  ]))
+  await db.insert(playerRatings).values(
+    playerIds.flatMap((playerId, index) => [
+      {
+        playerId,
+        mode: leaderboardMode,
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: Math.max(0, 6 - (index % 4)),
+        effectiveGames: 10,
+        lastPlayedAt: NOW + 10_000 + index,
+      },
+      {
+        playerId,
+        mode: 'global',
+        mu: 40 - index,
+        sigma: 6,
+        gamesPlayed: 10,
+        wins: Math.max(0, 6 - (index % 4)),
+        effectiveGames: 10,
+        lastPlayedAt: NOW + 10_000 + index,
+      },
+    ]),
+  )
 }
 
 function buildJoinEntries(group: string[]): QueueEntry[] {
@@ -1446,10 +1571,7 @@ function buildJoinEntries(group: string[]): QueueEntry[] {
   }))
 }
 
-function buildDraftSeats(
-  mode: GameMode,
-  slottedEntries: ReturnType<typeof mapLobbySlotsToEntries>,
-): DraftSeat[] {
+function buildDraftSeats(mode: GameMode, slottedEntries: ReturnType<typeof mapLobbySlotsToEntries>): DraftSeat[] {
   const seats: DraftSeat[] = []
 
   for (let index = 0; index < slottedEntries.length; index++) {
@@ -1469,7 +1591,9 @@ function buildDraftSeats(
 
 function buildPlacements(mode: CapacityScenario): string {
   if (mode.mode !== 'ffa') return 'A'
-  return scenarioPlayerIds(mode).map(playerId => `<@${playerId}>`).join('\n')
+  return scenarioPlayerIds(mode)
+    .map(playerId => `<@${playerId}>`)
+    .join('\n')
 }
 
 function buildQueueEntry(playerId: string, joinedAt: number): QueueEntry {
@@ -1481,11 +1605,7 @@ function buildQueueEntry(playerId: string, joinedAt: number): QueueEntry {
   }
 }
 
-function pickAvailableCivs(
-  availableCivIds: string[],
-  count: number,
-  blocked: Set<string>,
-): string[] {
+function pickAvailableCivs(availableCivIds: string[], count: number, blocked: Set<string>): string[] {
   const picked: string[] = []
 
   for (const civId of availableCivIds) {
@@ -1525,8 +1645,7 @@ async function withFixedNow<T>(now: number, run: () => Promise<T>): Promise<T> {
 
   try {
     return await run()
-  }
-  finally {
+  } finally {
     Date.now = originalNow
   }
 }
@@ -1577,7 +1696,8 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
       inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
       rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
       rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-      maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+      maintenanceDoRequestsPerDay:
+        LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
       estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
       estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
@@ -1627,7 +1747,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
       rankedRoleSyncReadsPerRatedPlayer: RANKED_ROLE_SYNC_READS_PER_RATED_PLAYER,
     },
     backgroundDailyUsage: backgroundDailyUsage ? roundNumericRecord(backgroundDailyUsage) : null,
-    scenarios: reports.map((report) => {
+    scenarios: reports.map(report => {
       const players = scenarioPlayersPerDraft(report.mode)
 
       return {
@@ -1679,10 +1799,7 @@ function buildCapacitySnapshot(reports: ScenarioReport[]): CapacitySnapshot {
   }
 }
 
-function toSnapshotBreakpoints(
-  breakpoints: MetricBreakpoint[],
-  playersPerDraft: number,
-): CapacitySnapshotBreakpoint[] {
+function toSnapshotBreakpoints(breakpoints: MetricBreakpoint[], playersPerDraft: number): CapacitySnapshotBreakpoint[] {
   return breakpoints.slice(0, 3).map(row => ({
     metric: row.metric,
     playsPerDay: row.playsPerDay,
@@ -1703,8 +1820,7 @@ function roundSnapshotNumber(value: number): number {
 async function readSnapshotText(read: typeof readFileText): Promise<string | null> {
   try {
     return await read(CAPACITY_SNAPSHOT_FILE, 'utf8')
-  }
-  catch (error) {
+  } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null
     throw error
   }
@@ -1714,25 +1830,28 @@ function printReports(reports: ScenarioReport[]): void {
   const backgroundDailyUsage = reports[0]?.model.backgroundDaily
 
   console.log('\n[capacity] assumptions')
-  console.table(reports.map(report => ({
-    mode: report.mode.label,
-    players: scenarioPlayersPerDraft(report.mode),
-    viewers: scenarioViewerIds(report.mode).length,
-    lobbyMutations: report.openLobbyMutationRequests,
-    selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
-    rankedFinishExtraD1Reads: estimateRankedFinishExtraUsage(report.mode).d1RowsRead,
-    rankedFinishExtraD1Writes: estimateRankedFinishExtraUsage(report.mode).d1RowsWritten,
-    draftMsgs: report.draftRoomIncomingMessages,
-    previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
-    teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
-  })))
+  console.table(
+    reports.map(report => ({
+      mode: report.mode.label,
+      players: scenarioPlayersPerDraft(report.mode),
+      viewers: scenarioViewerIds(report.mode).length,
+      lobbyMutations: report.openLobbyMutationRequests,
+      selectedLobbyPushUpdates: report.selectedLobbyPushUpdates,
+      rankedFinishExtraD1Reads: estimateRankedFinishExtraUsage(report.mode).d1RowsRead,
+      rankedFinishExtraD1Writes: estimateRankedFinishExtraUsage(report.mode).d1RowsWritten,
+      draftMsgs: report.draftRoomIncomingMessages,
+      previewMsgs: report.draftRoomIncomingMessagesWithSelectionPreviews,
+      teamPreviewMsgs: report.draftRoomIncomingMessagesWithTeamPickPreviews,
+    })),
+  )
   console.log('[capacity] globals', {
     stabilitySamples: CAPACITY_STABILITY_SAMPLES,
     leaderboardCronRunsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY,
     inactiveLobbyCleanupCronRunsPerDay: INACTIVE_LOBBY_CLEANUP_CRON_RUNS_PER_DAY,
     rankedRoleCronRunsPerDay: RANKED_ROLE_CRON_RUNS_PER_DAY,
     rankedRoleRetryCronRunsPerDay: RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
-    maintenanceDoRequestsPerDay: LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
+    maintenanceDoRequestsPerDay:
+      LEADERBOARD_CRON_RUNS_PER_DAY + RANKED_ROLE_CRON_RUNS_PER_DAY + RANKED_ROLE_RETRY_CRON_RUNS_PER_DAY,
     estimatedLeaderboardMaintenanceDoGbSecondsPerRun: ESTIMATED_LEADERBOARD_MAINTENANCE_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceSyncDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_SYNC_DO_GB_SECONDS_PER_RUN,
     estimatedMaintenanceRetryDoGbSecondsPerRun: ESTIMATED_MAINTENANCE_RETRY_DO_GB_SECONDS_PER_RUN,
@@ -1783,176 +1902,184 @@ function printReports(reports: ScenarioReport[]): void {
 
   if (backgroundDailyUsage) {
     console.log('\n[capacity] background daily usage')
-    console.table([{
-      ...backgroundDailyUsage,
-      workersRequests: backgroundDailyUsage.workersRequests,
-      botWorkerRequests: backgroundDailyUsage.botWorkerRequests,
-      activityWorkerRequests: backgroundDailyUsage.activityWorkerRequests,
-      doRequestsRaw: backgroundDailyUsage.doRequestsRaw,
-      doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
-    }])
+    console.table([
+      {
+        ...backgroundDailyUsage,
+        workersRequests: backgroundDailyUsage.workersRequests,
+        botWorkerRequests: backgroundDailyUsage.botWorkerRequests,
+        activityWorkerRequests: backgroundDailyUsage.activityWorkerRequests,
+        doRequestsRaw: backgroundDailyUsage.doRequestsRaw,
+        doDurationGbSeconds: roundForReport(backgroundDailyUsage.doDurationGbSeconds),
+      },
+    ])
   }
 
   console.log('\n[capacity] core lifecycle vs modeled lobby churn')
-  console.table(reports.map(report => ({
-    mode: report.mode.label,
-    coreWorkers: report.corePerDraft.workersRequests,
-    churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
-    churnActivityWorkers: report.openLobbyChurnPerDraft.activityWorkerRequests,
-    coreDoReqBilled: report.corePerDraft.doRequests,
-    churnDoReqBilled: report.openLobbyChurnPerDraft.doRequests,
-    totalDoReqBilled: report.model.perDraft.doRequests,
-    totalDoReqRaw: report.model.perDraft.doRequestsRaw,
-    churnKvReads: report.openLobbyChurnPerDraft.kvReads,
-    churnKvLists: report.openLobbyChurnPerDraft.kvLists,
-    churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
-  })))
+  console.table(
+    reports.map(report => ({
+      mode: report.mode.label,
+      coreWorkers: report.corePerDraft.workersRequests,
+      churnWorkers: report.openLobbyChurnPerDraft.workersRequests,
+      churnActivityWorkers: report.openLobbyChurnPerDraft.activityWorkerRequests,
+      coreDoReqBilled: report.corePerDraft.doRequests,
+      churnDoReqBilled: report.openLobbyChurnPerDraft.doRequests,
+      totalDoReqBilled: report.model.perDraft.doRequests,
+      totalDoReqRaw: report.model.perDraft.doRequestsRaw,
+      churnKvReads: report.openLobbyChurnPerDraft.kvReads,
+      churnKvLists: report.openLobbyChurnPerDraft.kvLists,
+      churnDoSqlReads: report.openLobbyChurnPerDraft.doSqliteRowsRead,
+    })),
+  )
 
   console.log('\n[capacity] measured per draft usage')
-  console.table(reports.map(report => ({
-    mode: report.mode.label,
-    workersRequests: report.model.perDraft.workersRequests,
-    botWorkerRequests: report.model.perDraft.botWorkerRequests,
-    activityWorkerRequests: report.model.perDraft.activityWorkerRequests,
-    d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
-    d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
-    d1RowsWritten: report.model.perDraft.d1RowsWritten,
-    doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
-    doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
-    kvReads: report.model.perDraft.kvReads,
-    kvLists: report.model.perDraft.kvLists,
-    kvWrites: report.model.perDraft.kvWrites,
-    doReqBilled: report.model.perDraft.doRequests,
-    doReqRaw: report.model.perDraft.doRequestsRaw,
-    doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
-  })))
+  console.table(
+    reports.map(report => ({
+      mode: report.mode.label,
+      workersRequests: report.model.perDraft.workersRequests,
+      botWorkerRequests: report.model.perDraft.botWorkerRequests,
+      activityWorkerRequests: report.model.perDraft.activityWorkerRequests,
+      d1RowsReadBase: report.model.perDraft.d1RowsReadBase,
+      d1RowsReadPerRatedPlayer: report.model.perDraft.d1RowsReadPerLeaderboardPlayer,
+      d1RowsWritten: report.model.perDraft.d1RowsWritten,
+      doSqliteRowsRead: report.model.perDraft.doSqliteRowsRead,
+      doSqliteRowsWritten: report.model.perDraft.doSqliteRowsWritten,
+      kvReads: report.model.perDraft.kvReads,
+      kvLists: report.model.perDraft.kvLists,
+      kvWrites: report.model.perDraft.kvWrites,
+      doReqBilled: report.model.perDraft.doRequests,
+      doReqRaw: report.model.perDraft.doRequestsRaw,
+      doDurationGbSeconds: roundForReport(report.model.perDraft.doDurationGbSeconds),
+    })),
+  )
 
   console.log('\n[capacity] plan ceilings')
-  console.table(reports.flatMap((report) => {
-    const playersPerDraft = scenarioPlayersPerDraft(report.mode)
-    const freeBottleneck = report.freeBreakpoints[0]
-    const paidBottleneck = report.paidBreakpoints[0]
+  console.table(
+    reports.flatMap(report => {
+      const playersPerDraft = scenarioPlayersPerDraft(report.mode)
+      const freeBottleneck = report.freeBreakpoints[0]
+      const paidBottleneck = report.paidBreakpoints[0]
 
-    return [
-      {
-        mode: report.mode.label,
-        plan: 'free',
-        playsPerDay: report.freeCapacityPlaysPerDay,
-        draftsPerDay: roundForReport(report.freeCapacityPlaysPerDay / playersPerDraft),
-        bottleneck: freeBottleneck?.metric ?? 'unknown',
-      },
-      {
-        mode: report.mode.label,
-        plan: '$5 included',
-        playsPerDay: report.paidIncludedCapacityPlaysPerDay,
-        draftsPerDay: roundForReport(report.paidIncludedCapacityPlaysPerDay / playersPerDraft),
-        bottleneck: paidBottleneck?.metric ?? 'unknown',
-      },
-      {
-        mode: report.mode.label,
-        plan: '$6 target',
-        playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
-        draftsPerDay: roundForReport(report.paidSixDollarCapacityPlaysPerDay / playersPerDraft),
-        bottleneck: '',
-      },
-      {
-        mode: report.mode.label,
-        plan: '$10 target',
-        playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
-        draftsPerDay: roundForReport(report.paidTenDollarCapacityPlaysPerDay / playersPerDraft),
-        bottleneck: '',
-      },
-    ]
-  }))
+      return [
+        {
+          mode: report.mode.label,
+          plan: 'free',
+          playsPerDay: report.freeCapacityPlaysPerDay,
+          draftsPerDay: roundForReport(report.freeCapacityPlaysPerDay / playersPerDraft),
+          bottleneck: freeBottleneck?.metric ?? 'unknown',
+        },
+        {
+          mode: report.mode.label,
+          plan: '$5 included',
+          playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+          draftsPerDay: roundForReport(report.paidIncludedCapacityPlaysPerDay / playersPerDraft),
+          bottleneck: paidBottleneck?.metric ?? 'unknown',
+        },
+        {
+          mode: report.mode.label,
+          plan: '$6 target',
+          playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
+          draftsPerDay: roundForReport(report.paidSixDollarCapacityPlaysPerDay / playersPerDraft),
+          bottleneck: '',
+        },
+        {
+          mode: report.mode.label,
+          plan: '$10 target',
+          playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
+          draftsPerDay: roundForReport(report.paidTenDollarCapacityPlaysPerDay / playersPerDraft),
+          bottleneck: '',
+        },
+      ]
+    }),
+  )
 
   console.log('\n[capacity] projected usage at plan ceilings')
-  console.table(reports.flatMap((report) => {
-    const freeUsage = projectUsageAtCapacity(report, report.freeCapacityPlaysPerDay, 1)
-    const paidUsage = projectUsageAtCapacity(report, report.paidIncludedCapacityPlaysPerDay, DAYS_PER_MONTH)
-    const paidSixDollarUsage = projectUsageAtCapacity(report, report.paidSixDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
-    const paidTenDollarUsage = projectUsageAtCapacity(report, report.paidTenDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
+  console.table(
+    reports.flatMap(report => {
+      const freeUsage = projectUsageAtCapacity(report, report.freeCapacityPlaysPerDay, 1)
+      const paidUsage = projectUsageAtCapacity(report, report.paidIncludedCapacityPlaysPerDay, DAYS_PER_MONTH)
+      const paidSixDollarUsage = projectUsageAtCapacity(report, report.paidSixDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
+      const paidTenDollarUsage = projectUsageAtCapacity(report, report.paidTenDollarCapacityPlaysPerDay, DAYS_PER_MONTH)
 
-    return [
-      {
-        mode: report.mode.label,
-        plan: 'free',
-        playsPerDay: report.freeCapacityPlaysPerDay,
-        workersRequests: freeUsage.workersRequests,
-        d1RowsRead: freeUsage.d1RowsRead,
-        doSqliteRowsRead: freeUsage.doSqliteRowsRead,
-        doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
-        doReqBilled: freeUsage.doRequests,
-        doReqRaw: freeUsage.doRequestsRaw,
-        doDurationGbSeconds: roundForReport(freeUsage.doDurationGbSeconds),
-      },
-      {
-        mode: report.mode.label,
-        plan: '$5 included',
-        playsPerDay: report.paidIncludedCapacityPlaysPerDay,
-        workersRequests: paidUsage.workersRequests,
-        d1RowsRead: paidUsage.d1RowsRead,
-        doSqliteRowsRead: paidUsage.doSqliteRowsRead,
-        doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
-        doReqBilled: paidUsage.doRequests,
-        doReqRaw: paidUsage.doRequestsRaw,
-        doDurationGbSeconds: roundForReport(paidUsage.doDurationGbSeconds),
-      },
-      {
-        mode: report.mode.label,
-        plan: '$6 target',
-        playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
-        workersRequests: paidSixDollarUsage.workersRequests,
-        d1RowsRead: paidSixDollarUsage.d1RowsRead,
-        doSqliteRowsRead: paidSixDollarUsage.doSqliteRowsRead,
-        doSqliteRowsWritten: paidSixDollarUsage.doSqliteRowsWritten,
-        doReqBilled: paidSixDollarUsage.doRequests,
-        doReqRaw: paidSixDollarUsage.doRequestsRaw,
-        doDurationGbSeconds: roundForReport(paidSixDollarUsage.doDurationGbSeconds),
-      },
-      {
-        mode: report.mode.label,
-        plan: '$10 target',
-        playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
-        workersRequests: paidTenDollarUsage.workersRequests,
-        d1RowsRead: paidTenDollarUsage.d1RowsRead,
-        doSqliteRowsRead: paidTenDollarUsage.doSqliteRowsRead,
-        doSqliteRowsWritten: paidTenDollarUsage.doSqliteRowsWritten,
-        doReqBilled: paidTenDollarUsage.doRequests,
-        doReqRaw: paidTenDollarUsage.doRequestsRaw,
-        doDurationGbSeconds: roundForReport(paidTenDollarUsage.doDurationGbSeconds),
-      },
-    ]
-  }))
+      return [
+        {
+          mode: report.mode.label,
+          plan: 'free',
+          playsPerDay: report.freeCapacityPlaysPerDay,
+          workersRequests: freeUsage.workersRequests,
+          d1RowsRead: freeUsage.d1RowsRead,
+          doSqliteRowsRead: freeUsage.doSqliteRowsRead,
+          doSqliteRowsWritten: freeUsage.doSqliteRowsWritten,
+          doReqBilled: freeUsage.doRequests,
+          doReqRaw: freeUsage.doRequestsRaw,
+          doDurationGbSeconds: roundForReport(freeUsage.doDurationGbSeconds),
+        },
+        {
+          mode: report.mode.label,
+          plan: '$5 included',
+          playsPerDay: report.paidIncludedCapacityPlaysPerDay,
+          workersRequests: paidUsage.workersRequests,
+          d1RowsRead: paidUsage.d1RowsRead,
+          doSqliteRowsRead: paidUsage.doSqliteRowsRead,
+          doSqliteRowsWritten: paidUsage.doSqliteRowsWritten,
+          doReqBilled: paidUsage.doRequests,
+          doReqRaw: paidUsage.doRequestsRaw,
+          doDurationGbSeconds: roundForReport(paidUsage.doDurationGbSeconds),
+        },
+        {
+          mode: report.mode.label,
+          plan: '$6 target',
+          playsPerDay: report.paidSixDollarCapacityPlaysPerDay,
+          workersRequests: paidSixDollarUsage.workersRequests,
+          d1RowsRead: paidSixDollarUsage.d1RowsRead,
+          doSqliteRowsRead: paidSixDollarUsage.doSqliteRowsRead,
+          doSqliteRowsWritten: paidSixDollarUsage.doSqliteRowsWritten,
+          doReqBilled: paidSixDollarUsage.doRequests,
+          doReqRaw: paidSixDollarUsage.doRequestsRaw,
+          doDurationGbSeconds: roundForReport(paidSixDollarUsage.doDurationGbSeconds),
+        },
+        {
+          mode: report.mode.label,
+          plan: '$10 target',
+          playsPerDay: report.paidTenDollarCapacityPlaysPerDay,
+          workersRequests: paidTenDollarUsage.workersRequests,
+          d1RowsRead: paidTenDollarUsage.d1RowsRead,
+          doSqliteRowsRead: paidTenDollarUsage.doSqliteRowsRead,
+          doSqliteRowsWritten: paidTenDollarUsage.doSqliteRowsWritten,
+          doReqBilled: paidTenDollarUsage.doRequests,
+          doReqRaw: paidTenDollarUsage.doRequestsRaw,
+          doDurationGbSeconds: roundForReport(paidTenDollarUsage.doDurationGbSeconds),
+        },
+      ]
+    }),
+  )
 
   console.log('\n[capacity] metric breakpoints')
-  console.table(reports.flatMap((report) => {
-    const playersPerDraft = scenarioPlayersPerDraft(report.mode)
-    const freeRows = report.mode.id === 'duel-ranked'
-      ? report.freeBreakpoints
-      : report.freeBreakpoints.slice(0, 3)
-    const paidRows = report.mode.id === 'duel-ranked'
-      ? report.paidBreakpoints
-      : report.paidBreakpoints.slice(0, 3)
+  console.table(
+    reports.flatMap(report => {
+      const playersPerDraft = scenarioPlayersPerDraft(report.mode)
+      const freeRows = report.mode.id === 'duel-ranked' ? report.freeBreakpoints : report.freeBreakpoints.slice(0, 3)
+      const paidRows = report.mode.id === 'duel-ranked' ? report.paidBreakpoints : report.paidBreakpoints.slice(0, 3)
 
-    return [
-      ...freeRows.map((row, index) => ({
-        mode: report.mode.label,
-        plan: 'free',
-        rank: index + 1,
-        metric: row.metric,
-        playsPerDay: row.playsPerDay,
-        draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
-      })),
-      ...paidRows.map((row, index) => ({
-        mode: report.mode.label,
-        plan: '$5 included',
-        rank: index + 1,
-        metric: row.metric,
-        playsPerDay: row.playsPerDay,
-        draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
-      })),
-    ]
-  }))
+      return [
+        ...freeRows.map((row, index) => ({
+          mode: report.mode.label,
+          plan: 'free',
+          rank: index + 1,
+          metric: row.metric,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
+        })),
+        ...paidRows.map((row, index) => ({
+          mode: report.mode.label,
+          plan: '$5 included',
+          rank: index + 1,
+          metric: row.metric,
+          playsPerDay: row.playsPerDay,
+          draftsPerDay: roundForReport(row.playsPerDay / playersPerDraft),
+        })),
+      ]
+    }),
+  )
 }
 
 function roundForReport(value: number): number {
@@ -1988,11 +2115,11 @@ function estimateDoRawRequests(input: {
   const lobbyWatchIncomingMessages = input.viewerCount * input.lobbyWatchIncomingMessagesPerConnection
 
   return (
-    DO_CREATE_ROOM_REQUESTS_PER_DRAFT
-    + draftRoomWebsocketConnects
-    + lobbyWatchWebsocketConnects
-    + input.draftRoomIncomingMessages
-    + lobbyWatchIncomingMessages
+    DO_CREATE_ROOM_REQUESTS_PER_DRAFT +
+    draftRoomWebsocketConnects +
+    lobbyWatchWebsocketConnects +
+    input.draftRoomIncomingMessages +
+    lobbyWatchIncomingMessages
   )
 }
 
@@ -2009,11 +2136,11 @@ function estimateDoBilledRequestUnits(input: {
   const billedLobbyWatchMessages = Math.ceil(lobbyWatchIncomingMessages / DO_WEBSOCKET_BILLING_RATIO)
 
   return (
-    DO_CREATE_ROOM_REQUESTS_PER_DRAFT
-    + draftRoomWebsocketConnects
-    + lobbyWatchWebsocketConnects
-    + billedDraftMessages
-    + billedLobbyWatchMessages
+    DO_CREATE_ROOM_REQUESTS_PER_DRAFT +
+    draftRoomWebsocketConnects +
+    lobbyWatchWebsocketConnects +
+    billedDraftMessages +
+    billedLobbyWatchMessages
   )
 }
 
@@ -2025,15 +2152,7 @@ function estimateSelectedSessionObjectSeconds(mode: CapacityScenario): number {
   return scenarioViewerIds(mode).length * ESTIMATED_SELECTED_SESSION_CONNECTED_SECONDS
 }
 
-function projectUsageAtCapacity(
-  report: ScenarioReport,
-  playsPerDay: number,
-  periodDays: number,
-) {
-  const dailyUsage = estimateDailyUsage(
-    report.model,
-    playsPerDay,
-    scenarioPlayersPerDraft(report.mode),
-  )
+function projectUsageAtCapacity(report: ScenarioReport, playsPerDay: number, periodDays: number) {
+  const dailyUsage = estimateDailyUsage(report.model, playsPerDay, scenarioPlayersPerDraft(report.mode))
   return periodDays === 1 ? dailyUsage : multiplyUsage(dailyUsage, periodDays)
 }

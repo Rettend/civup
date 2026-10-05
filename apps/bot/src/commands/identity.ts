@@ -64,7 +64,12 @@ export function getIdentityByUserId(c: InteractionIdentityContext, userId: strin
   }
 }
 
-function resolveDisplayName(nick: string | null | undefined, globalName: string | null | undefined, username: string | null | undefined, fallback: string): string {
+function resolveDisplayName(
+  nick: string | null | undefined,
+  globalName: string | null | undefined,
+  username: string | null | undefined,
+  fallback: string,
+): string {
   return normalizeName(nick) ?? normalizeName(globalName) ?? normalizeName(username) ?? fallback
 }
 
@@ -73,7 +78,12 @@ function normalizeName(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
-function resolveAvatarUrl(guildId: string | null | undefined, userId: string, memberAvatarHash: string | null | undefined, userAvatarHash: string | null | undefined): string {
+function resolveAvatarUrl(
+  guildId: string | null | undefined,
+  userId: string,
+  memberAvatarHash: string | null | undefined,
+  userAvatarHash: string | null | undefined,
+): string {
   if (guildId && memberAvatarHash) return buildDiscordGuildMemberAvatarUrl(guildId, userId, memberAvatarHash)
   return buildDiscordAvatarUrl(userId, userAvatarHash ?? null)
 }

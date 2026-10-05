@@ -1,6 +1,6 @@
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
 import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 
 export type SessionId = string
 export type SessionPhase = 'open' | 'draft' | 'swap' | 'active' | 'reported' | 'cancelled'
@@ -50,17 +50,17 @@ export interface SessionProjectionParticipant {
   leaderboardEligibleCount?: number | null
 }
 
-export type SessionProjectionSyncPayload
-  = | {
-    type: 'draft-completed'
-    payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }>
-    participants: SessionProjectionParticipant[]
-  }
+export type SessionProjectionSyncPayload =
   | {
-    type: 'draft-cancelled'
-    payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>
-    participants: SessionProjectionParticipant[]
-  }
+      type: 'draft-completed'
+      payload: Extract<DraftLifecyclePayload, { outcome: 'complete' }>
+      participants: SessionProjectionParticipant[]
+    }
+  | {
+      type: 'draft-cancelled'
+      payload: Extract<DraftLifecyclePayload, { outcome: 'cancelled' }>
+      participants: SessionProjectionParticipant[]
+    }
 
 export interface SessionProjectionSyncState {
   payload: SessionProjectionSyncPayload
@@ -73,18 +73,18 @@ export interface SessionDraftStartSyncState {
   nextRetryAt: number
 }
 
-export type SessionTerminalSyncCommand
-  = | {
-    type: 'mark-reported'
-    matchId: string
-    at: number
-    reportedById?: string | null
-  }
+export type SessionTerminalSyncCommand =
   | {
-    type: 'cancel-session'
-    matchId: string
-    at: number
-  }
+      type: 'mark-reported'
+      matchId: string
+      at: number
+      reportedById?: string | null
+    }
+  | {
+      type: 'cancel-session'
+      matchId: string
+      at: number
+    }
 
 export interface SessionTerminalSyncState {
   command: SessionTerminalSyncCommand
@@ -155,13 +155,13 @@ export interface CancelledSessionRecord extends BaseSessionRecord {
   closedAt: number
 }
 
-export type SessionRecord
-  = | OpenSessionRecord
-    | DraftSessionRecord
-    | SwapSessionRecord
-    | ActiveSessionRecord
-    | ReportedSessionRecord
-    | CancelledSessionRecord
+export type SessionRecord =
+  | OpenSessionRecord
+  | DraftSessionRecord
+  | SwapSessionRecord
+  | ActiveSessionRecord
+  | ReportedSessionRecord
+  | CancelledSessionRecord
 
 export function buildOpenSessionRecordFromLobby(
   lobby: LobbyState,
@@ -193,9 +193,8 @@ export function buildSessionRecordFromLobby(
   queueEntries: readonly QueueEntry[] = [],
 ): SessionRecord {
   const phase = mapLobbyStatusToSessionPhase(lobby.status)
-  const closedAt = phase === 'reported' || phase === 'cancelled'
-    ? Math.max(lobby.updatedAt, lobby.lastActivityAt, 1)
-    : null
+  const closedAt =
+    phase === 'reported' || phase === 'cancelled' ? Math.max(lobby.updatedAt, lobby.lastActivityAt, 1) : null
   const base = {
     id: lobby.id,
     phase,
@@ -275,10 +274,7 @@ export function buildSessionConfig(lobby: Pick<LobbyState, 'draftConfig' | 'minR
   }
 }
 
-export function buildLobbyStateFromSessionRecord(
-  record: SessionRecord,
-  currentLobby: LobbyState,
-): LobbyState {
+export function buildLobbyStateFromSessionRecord(record: SessionRecord, currentLobby: LobbyState): LobbyState {
   return {
     ...currentLobby,
     id: record.id,
@@ -377,7 +373,7 @@ export function buildSessionRoster(
   })
 
   return {
-    participants: lobby.memberPlayerIds.map((playerId) => {
+    participants: lobby.memberPlayerIds.map(playerId => {
       const queueEntry = queueEntryByPlayerId.get(playerId)
       const partyIds = queueEntry?.partyIds?.filter(partyId => partyId !== playerId)
       return {

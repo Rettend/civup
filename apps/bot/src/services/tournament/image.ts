@@ -1,8 +1,13 @@
-import type { TournamentLeaderboardImageData, TournamentOpponentCardData, TournamentOpponentCardPlayer, TournamentResultImageData } from './index.ts'
 import type { TournamentEmojiIcon } from '../../constants/tournament-emoji-icons.ts'
-import { getLeader } from '@civup/game'
+import type {
+  TournamentLeaderboardImageData,
+  TournamentOpponentCardData,
+  TournamentOpponentCardPlayer,
+  TournamentResultImageData,
+} from './index.ts'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import resvgWasm from '@resvg/resvg-wasm/index_bg.wasm'
+import { getLeader } from '@civup/game'
 import { LEADER_EMOJI_IDS } from '../../constants/leader-emojis.ts'
 import { TOURNAMENT_EMOJI_ICONS } from '../../constants/tournament-emoji-icons.ts'
 import { avatarKey, fetchDiscordImageDataUri, loadAvatarDataUris as loadAvatarData } from '../image/avatar.ts'
@@ -36,7 +41,7 @@ interface AvatarPlayer {
   avatarUrl: string | null
 }
 
-type InlineTextSegment = { type: 'text', value: string } | { type: 'emoji', value: string, icon: TournamentEmojiIcon }
+type InlineTextSegment = { type: 'text'; value: string } | { type: 'emoji'; value: string; icon: TournamentEmojiIcon }
 type TournamentBracketPairing = TournamentLeaderboardImageData['pairings'][number] & { projected?: boolean }
 
 interface BracketAdvanceSlot {
@@ -71,9 +76,17 @@ export async function renderTournamentOpponentsSvg(data: TournamentOpponentCardD
 export async function renderTournamentLeaderboardSvg(data: TournamentLeaderboardImageData): Promise<string> {
   if (data.pairings.length > 0) return renderBracketLeaderboardSvg(data)
   const topRows = data.standings.slice(0, 20)
-  const players = topRows.flatMap(row => row.playerId ? [{ playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }] : [])
+  const players = topRows.flatMap(row =>
+    row.playerId ? [{ playerId: row.playerId, displayName: row.displayName, avatarUrl: row.avatarUrl }] : [],
+  )
   const avatarData = await loadAvatarData(players)
-  return leaderboardSvgShell(getLeaderboardImageHeight(topRows.length), 'STANDINGS', renderStandingRows(topRows, avatarData, 0), players, data.tournamentName)
+  return leaderboardSvgShell(
+    getLeaderboardImageHeight(topRows.length),
+    'STANDINGS',
+    renderStandingRows(topRows, avatarData, 0),
+    players,
+    data.tournamentName,
+  )
 }
 
 export async function renderTournamentResultSvg(data: TournamentResultImageData): Promise<string> {
@@ -88,10 +101,13 @@ async function renderSvgToPng(svg: string): Promise<Uint8Array> {
   const fontBuffers = await ensureFontBuffersReady()
   return new Resvg(svg, {
     fitTo: { mode: 'width', value: IMAGE_WIDTH },
-    font: fontBuffers.length > 0
-      ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
-      : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
-  }).render().asPng()
+    font:
+      fontBuffers.length > 0
+        ? { fontBuffers, defaultFontFamily: 'Inter', sansSerifFamily: 'Inter' }
+        : { loadSystemFonts: true, defaultFontFamily: 'Arial', sansSerifFamily: 'Arial' },
+  })
+    .render()
+    .asPng()
 }
 
 const LEADERBOARD_START_Y = 154
@@ -113,7 +129,13 @@ const BRACKET_LEFT_PAD = 120
 const BRACKET_BOTTOM_PAD = 64
 const BRACKET_ROUND_ORDER = ['quarterfinal', 'semifinal', 'final'] as const
 
-function leaderboardSvgShell(height: number, title: string, body: string, players: AvatarPlayer[], subtitle?: string): string {
+function leaderboardSvgShell(
+  height: number,
+  title: string,
+  body: string,
+  players: AvatarPlayer[],
+  subtitle?: string,
+): string {
   const subtitleText = subtitle?.trim()
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${height}" viewBox="0 0 ${IMAGE_WIDTH} ${height}" font-family="Inter, Arial, sans-serif">
@@ -134,12 +156,18 @@ function leaderboardSvgShell(height: number, title: string, body: string, player
 
 function getLeaderboardImageHeight(playerCount: number): number {
   const rowCount = Math.ceil(Math.max(1, playerCount) / 2)
-  return Math.max(IMAGE_HEIGHT, LEADERBOARD_START_Y + ((rowCount - 1) * LEADERBOARD_ROW_STEP) + LEADERBOARD_ROW_HEIGHT + 64)
+  return Math.max(
+    IMAGE_HEIGHT,
+    LEADERBOARD_START_Y + (rowCount - 1) * LEADERBOARD_ROW_STEP + LEADERBOARD_ROW_HEIGHT + 64,
+  )
 }
 
 function getBracketImageHeight(firstRoundCount: number): number {
   const totalMatchH = BRACKET_MATCH_H + BRACKET_MATCH_VERTICAL_GAP
-  return Math.max(IMAGE_HEIGHT, BRACKET_START_Y + (firstRoundCount * totalMatchH) - BRACKET_MATCH_VERTICAL_GAP + BRACKET_BOTTOM_PAD)
+  return Math.max(
+    IMAGE_HEIGHT,
+    BRACKET_START_Y + firstRoundCount * totalMatchH - BRACKET_MATCH_VERTICAL_GAP + BRACKET_BOTTOM_PAD,
+  )
 }
 
 async function renderBracketLeaderboardSvg(data: TournamentLeaderboardImageData): Promise<string> {
@@ -153,14 +181,25 @@ async function renderBracketLeaderboardSvg(data: TournamentLeaderboardImageData)
   return leaderboardSvgShell(height, 'PLAYOFFS', body, players, data.tournamentName)
 }
 
-function collectBracketPlayers(pairings: TournamentBracketPairing[], champion: TournamentOpponentCardPlayer | null): AvatarPlayer[] {
+function collectBracketPlayers(
+  pairings: TournamentBracketPairing[],
+  champion: TournamentOpponentCardPlayer | null,
+): AvatarPlayer[] {
   const players: AvatarPlayer[] = []
   for (const pairing of pairings) {
     if (pairing.playerOneId) {
-      players.push({ playerId: pairing.playerOneId, displayName: pairing.playerOneDisplayName, avatarUrl: pairing.playerOneAvatarUrl })
+      players.push({
+        playerId: pairing.playerOneId,
+        displayName: pairing.playerOneDisplayName,
+        avatarUrl: pairing.playerOneAvatarUrl,
+      })
     }
     if (pairing.playerTwoId) {
-      players.push({ playerId: pairing.playerTwoId, displayName: pairing.playerTwoDisplayName, avatarUrl: pairing.playerTwoAvatarUrl })
+      players.push({
+        playerId: pairing.playerTwoId,
+        displayName: pairing.playerTwoDisplayName,
+        avatarUrl: pairing.playerTwoAvatarUrl,
+      })
     }
   }
   if (champion) players.push(champion)
@@ -186,7 +225,10 @@ function buildDisplayBracketPairings(pairings: TournamentBracketPairing[]): Tour
   return displayPairings
 }
 
-function projectNextBracketRound(sourcePairings: TournamentBracketPairing[], nextRound: string): TournamentBracketPairing[] {
+function projectNextBracketRound(
+  sourcePairings: TournamentBracketPairing[],
+  nextRound: string,
+): TournamentBracketPairing[] {
   const projected: TournamentBracketPairing[] = []
   let hasKnownWinner = false
 
@@ -220,10 +262,20 @@ function projectNextBracketRound(sourcePairings: TournamentBracketPairing[], nex
 function getBracketPairingWinnerSlot(pairing: TournamentBracketPairing): BracketAdvanceSlot | null {
   if (!pairing.winnerDisplayName) return null
   if (pairing.winnerDisplayName === pairing.playerOneDisplayName) {
-    return { seed: pairing.seedOne, playerId: pairing.playerOneId, displayName: pairing.playerOneDisplayName, avatarUrl: pairing.playerOneAvatarUrl }
+    return {
+      seed: pairing.seedOne,
+      playerId: pairing.playerOneId,
+      displayName: pairing.playerOneDisplayName,
+      avatarUrl: pairing.playerOneAvatarUrl,
+    }
   }
   if (pairing.winnerDisplayName === pairing.playerTwoDisplayName) {
-    return { seed: pairing.seedTwo, playerId: pairing.playerTwoId, displayName: pairing.playerTwoDisplayName, avatarUrl: pairing.playerTwoAvatarUrl }
+    return {
+      seed: pairing.seedTwo,
+      playerId: pairing.playerTwoId,
+      displayName: pairing.playerTwoDisplayName,
+      avatarUrl: pairing.playerTwoAvatarUrl,
+    }
   }
   return null
 }
@@ -251,7 +303,7 @@ function groupPairingsByRound(pairings: TournamentBracketPairing[]): BracketRoun
     if (roundPairings) groups.push({ round, pairings: roundPairings })
   }
   for (const [round, roundPairings] of byRound) {
-    if (!BRACKET_ROUND_ORDER.includes(round as typeof BRACKET_ROUND_ORDER[number])) {
+    if (!BRACKET_ROUND_ORDER.includes(round as (typeof BRACKET_ROUND_ORDER)[number])) {
       groups.push({ round, pairings: roundPairings })
     }
   }
@@ -277,7 +329,7 @@ function renderBracket(
 
   for (let roundIndex = 0; roundIndex < roundGroups.length; roundIndex++) {
     const group = roundGroups[roundIndex]!
-    const roundX = BRACKET_LEFT_PAD + (roundIndex * roundW)
+    const roundX = BRACKET_LEFT_PAD + roundIndex * roundW
     const roundLabel = formatBracketRoundLabel(group.round)
     svg += `<text x="${roundX + matchW / 2}" y="${BRACKET_START_Y - 18}" text-anchor="middle" fill="${COLORS.muted}" font-size="24" font-weight="900" letter-spacing="2">${escapeXml(roundLabel)}</text>`
 
@@ -298,8 +350,8 @@ function renderBracket(
   for (let roundIndex = 0; roundIndex < matchCenters.length - 1; roundIndex++) {
     const fromCenters = matchCenters[roundIndex]!
     const toCenters = matchCenters[roundIndex + 1]!
-    const fromX = BRACKET_LEFT_PAD + (roundIndex * roundW) + matchW
-    const toX = BRACKET_LEFT_PAD + ((roundIndex + 1) * roundW)
+    const fromX = BRACKET_LEFT_PAD + roundIndex * roundW + matchW
+    const toX = BRACKET_LEFT_PAD + (roundIndex + 1) * roundW
     const midX = (fromX + toX) / 2
 
     for (let i = 0; i < fromCenters.length; i += 2) {
@@ -312,8 +364,7 @@ function renderBracket(
       if (bottomY != null) {
         svg += `<path d="M${fromX + 4},${topY} H${midX} V${targetY} H${toX - 4}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
         svg += `<path d="M${fromX + 4},${bottomY} H${midX} V${targetY}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
-      }
-      else {
+      } else {
         svg += `<line x1="${fromX + 4}" y1="${topY}" x2="${toX - 4}" y2="${targetY}" stroke="${COLORS.borderSubtle}" stroke-width="2" />`
       }
     }
@@ -321,12 +372,12 @@ function renderBracket(
 
   if (champion) {
     const lastRoundIndex = roundGroups.length - 1
-    const lastX = BRACKET_LEFT_PAD + (lastRoundIndex * roundW)
+    const lastX = BRACKET_LEFT_PAD + lastRoundIndex * roundW
     const lastCenters = matchCenters[lastRoundIndex]
     const finalCenterY = lastCenters?.[0] ?? BRACKET_START_Y + bracketH / 2
     const trophySize = 58
-    const trophyX = lastX + (matchW / 2) - (trophySize / 2)
-    const trophyY = Math.max(BRACKET_START_Y + 18, finalCenterY - (BRACKET_MATCH_H / 2) - trophySize - 18)
+    const trophyX = lastX + matchW / 2 - trophySize / 2
+    const trophyY = Math.max(BRACKET_START_Y + 18, finalCenterY - BRACKET_MATCH_H / 2 - trophySize - 18)
     svg += renderTrophyIcon(trophyX, trophyY, trophySize)
   }
 
@@ -354,26 +405,42 @@ function renderBracketMatch(
   svg += `<rect x="${x}" y="${y}" width="${width}" height="${BRACKET_MATCH_H}" rx="${r}" fill="none" stroke="${COLORS.borderSubtle}" stroke-width="1.5" />`
   svg += `<line x1="${x}" y1="${y + BRACKET_SLOT_H}" x2="${x + width}" y2="${y + BRACKET_SLOT_H}" stroke="${COLORS.borderSubtle}" stroke-width="1" />`
 
-  svg += renderBracketSlot({
-    seed: pairing.seedOne,
-    playerId: pairing.playerOneId,
-    displayName: pairing.playerOneDisplayName,
-    avatarUrl: pairing.playerOneAvatarUrl,
-    score: pairing.playerOneScore,
-    showScore: showScores,
-    isWinner: p1IsWinner,
-    isLoser: isDecided && !p1IsWinner,
-  }, x, y, width, r, 'top', avatarData)
-  svg += renderBracketSlot({
-    seed: pairing.seedTwo,
-    playerId: pairing.playerTwoId,
-    displayName: pairing.playerTwoDisplayName,
-    avatarUrl: pairing.playerTwoAvatarUrl,
-    score: pairing.playerTwoScore,
-    showScore: showScores,
-    isWinner: p2IsWinner,
-    isLoser: isDecided && !p2IsWinner,
-  }, x, y + BRACKET_SLOT_H, width, r, 'bottom', avatarData)
+  svg += renderBracketSlot(
+    {
+      seed: pairing.seedOne,
+      playerId: pairing.playerOneId,
+      displayName: pairing.playerOneDisplayName,
+      avatarUrl: pairing.playerOneAvatarUrl,
+      score: pairing.playerOneScore,
+      showScore: showScores,
+      isWinner: p1IsWinner,
+      isLoser: isDecided && !p1IsWinner,
+    },
+    x,
+    y,
+    width,
+    r,
+    'top',
+    avatarData,
+  )
+  svg += renderBracketSlot(
+    {
+      seed: pairing.seedTwo,
+      playerId: pairing.playerTwoId,
+      displayName: pairing.playerTwoDisplayName,
+      avatarUrl: pairing.playerTwoAvatarUrl,
+      score: pairing.playerTwoScore,
+      showScore: showScores,
+      isWinner: p2IsWinner,
+      isLoser: isDecided && !p2IsWinner,
+    },
+    x,
+    y + BRACKET_SLOT_H,
+    width,
+    r,
+    'bottom',
+    avatarData,
+  )
 
   return svg
 }
@@ -405,23 +472,33 @@ function renderBracketSlot(
   let svg = ''
 
   if (slot.isWinner) {
-    const hlPath = position === 'top'
-      ? `M${x + r},${y} H${x + width - r} A${r},${r} 0 0 1 ${x + width},${y + r} V${y + BRACKET_SLOT_H} H${x} V${y + r} A${r},${r} 0 0 1 ${x + r},${y}`
-      : `M${x},${y} H${x + width} V${y + BRACKET_SLOT_H - r} A${r},${r} 0 0 1 ${x + width - r},${y + BRACKET_SLOT_H} H${x + r} A${r},${r} 0 0 1 ${x},${y + BRACKET_SLOT_H - r} Z`
+    const hlPath =
+      position === 'top'
+        ? `M${x + r},${y} H${x + width - r} A${r},${r} 0 0 1 ${x + width},${y + r} V${y + BRACKET_SLOT_H} H${x} V${y + r} A${r},${r} 0 0 1 ${x + r},${y}`
+        : `M${x},${y} H${x + width} V${y + BRACKET_SLOT_H - r} A${r},${r} 0 0 1 ${x + width - r},${y + BRACKET_SLOT_H} H${x + r} A${r},${r} 0 0 1 ${x},${y + BRACKET_SLOT_H - r} Z`
     svg += `<path d="${hlPath}" fill="${COLORS.accentDim}" />`
   }
 
   if (isTbd) {
     svg += `<text x="${x + 51}" y="${textY}" text-anchor="middle" fill="${COLORS.subtle}" font-size="18" font-weight="700">—</text>`
     svg += `<text x="${x + 76}" y="${textY}" fill="${COLORS.subtle}" font-size="20" font-weight="700" letter-spacing="2">TBD</text>`
-  }
-  else {
+  } else {
     const player: AvatarPlayer = { playerId: slot.playerId, displayName: slot.displayName, avatarUrl: slot.avatarUrl }
     const avatarSize = 30
     svg += `<text x="${x + 14}" y="${textY}" fill="${seedColor}" font-size="17" font-weight="900">${slot.seed}</text>`
-    svg += renderAvatar(player, x + 36, y + 9, avatarSize, avatarClipId(player), avatarData.get(avatarKey(player)), seedColor, false)
+    svg += renderAvatar(
+      player,
+      x + 36,
+      y + 9,
+      avatarSize,
+      avatarClipId(player),
+      avatarData.get(avatarKey(player)),
+      seedColor,
+      false,
+    )
     svg += renderInlineText(slot.displayName, x + 76, textY, width - 124, 21, slot.isWinner ? 900 : 700, nameColor)
-    if (slot.showScore) svg += `<text x="${x + width - 18}" y="${scoreY}" text-anchor="middle" fill="${scoreColor}" font-size="24" font-weight="900">${slot.score}</text>`
+    if (slot.showScore)
+      svg += `<text x="${x + width - 18}" y="${scoreY}" text-anchor="middle" fill="${scoreColor}" font-size="24" font-weight="900">${slot.score}</text>`
   }
 
   return svg
@@ -434,20 +511,35 @@ function formatBracketRoundLabel(round: string): string {
   return round.replace(/_/g, ' ').toUpperCase()
 }
 
-function renderStandingRows(rows: Array<TournamentOpponentCardPlayer & { eligible?: boolean }>, avatarData: Map<string, string>, rankOffset: number): string {
+function renderStandingRows(
+  rows: Array<TournamentOpponentCardPlayer & { eligible?: boolean }>,
+  avatarData: Map<string, string>,
+  rankOffset: number,
+): string {
   if (rows.length === 0) {
     return `<text x="64" y="220" fill="${COLORS.muted}" font-size="34" font-weight="900">No standings yet</text>`
   }
 
   const rowCountPerColumn = Math.ceil(rows.length / 2)
-  return rows.map((row, index) => {
-    const rank = rankOffset + index + 1
-    const column = index >= rowCountPerColumn ? 1 : 0
-    const rowIndex = index % rowCountPerColumn
-    const x = 64 + (column * (LEADERBOARD_COLUMN_WIDTH + LEADERBOARD_COLUMN_GAP))
-    const y = LEADERBOARD_START_Y + (rowIndex * LEADERBOARD_ROW_STEP)
-    return renderStandingStyleRow(row, rank, x, y, LEADERBOARD_COLUMN_WIDTH, rank <= 8 && row.eligible === true, avatarData, index)
-  }).join('')
+  return rows
+    .map((row, index) => {
+      const rank = rankOffset + index + 1
+      const column = index >= rowCountPerColumn ? 1 : 0
+      const rowIndex = index % rowCountPerColumn
+      const x = 64 + column * (LEADERBOARD_COLUMN_WIDTH + LEADERBOARD_COLUMN_GAP)
+      const y = LEADERBOARD_START_Y + rowIndex * LEADERBOARD_ROW_STEP
+      return renderStandingStyleRow(
+        row,
+        rank,
+        x,
+        y,
+        LEADERBOARD_COLUMN_WIDTH,
+        rank <= 8 && row.eligible === true,
+        avatarData,
+        index,
+      )
+    })
+    .join('')
 }
 
 function statsSvgShell(body: string, players: AvatarPlayer[]): string {
@@ -459,9 +551,26 @@ function renderTournamentStatsBody(data: TournamentOpponentCardData, avatarData:
   return `
     ${renderPlayerStatsPanel(data.player, avatarData.get(avatarKey(data.player)))}
     <text x="584" y="168" fill="${COLORS.fg}" font-size="30" font-weight="900">${data.pairing ? 'Playoff match' : 'Recommended opponents'}</text>
-    ${rightRows.length > 0
-      ? rightRows.slice(0, 8).map((player, index) => renderStandingStyleRow(player, player.rank ?? index + 1, 584, 196 + (index * STATS_ROW_STEP), 552, false, avatarData, index, 'compact')).join('')
-      : `<text x="584" y="248" fill="${COLORS.muted}" font-size="28" font-weight="900">No linked opponents available</text>`}
+    ${
+      rightRows.length > 0
+        ? rightRows
+            .slice(0, 8)
+            .map((player, index) =>
+              renderStandingStyleRow(
+                player,
+                player.rank ?? index + 1,
+                584,
+                196 + index * STATS_ROW_STEP,
+                552,
+                false,
+                avatarData,
+                index,
+                'compact',
+              ),
+            )
+            .join('')
+        : `<text x="584" y="248" fill="${COLORS.muted}" font-size="28" font-weight="900">No linked opponents available</text>`
+    }
   `
 }
 
@@ -519,7 +628,9 @@ function renderStandingStyleRow(
   const rankColor = highlighted ? COLORS.accent : COLORS.muted
   const fill = highlighted
     ? 'rgba(200,170,110,0.13)'
-    : rowIndex % 2 === 0 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)'
+    : rowIndex % 2 === 0
+      ? 'rgba(255,255,255,0.045)'
+      : 'rgba(255,255,255,0.025)'
   return `
     <rect x="${x}" y="${y}" width="${width}" height="${rowHeight}" rx="16" fill="${fill}" />
     <text x="${x + rankX}" y="${y + rankY}" text-anchor="middle" fill="${rankColor}" font-size="${rankFont}" font-weight="900">#${rank}</text>
@@ -556,21 +667,26 @@ function resultSvgShell(data: TournamentResultImageData, body: string, players: 
 </svg>`
 }
 
-function renderResultRows(data: TournamentResultImageData, avatarData: Map<string, string>, leaderIconData: Map<string, string>): string {
+function renderResultRows(
+  data: TournamentResultImageData,
+  avatarData: Map<string, string>,
+  leaderIconData: Map<string, string>,
+): string {
   const ordered = [...data.players].sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))
   const rowX = 64
   const rowW = 1102
   const rowH = 178
   const chevron = 30
-  return ordered.map((player, index) => {
-    const y = index === 0 ? 166 : 386
-    const isWinner = player.placement === 1
-    const label = isWinner ? 'WIN' : 'LOSS'
-    const color = isWinner ? COLORS.win : COLORS.loss
-    const avatarId = avatarClipId(player)
-    const leaderIcon = player.civId ? leaderIconData.get(player.civId) : null
-    const rowPath = chevronRect(rowX, y, rowW, rowH, chevron)
-    return `
+  return ordered
+    .map((player, index) => {
+      const y = index === 0 ? 166 : 386
+      const isWinner = player.placement === 1
+      const label = isWinner ? 'WIN' : 'LOSS'
+      const color = isWinner ? COLORS.win : COLORS.loss
+      const avatarId = avatarClipId(player)
+      const leaderIcon = player.civId ? leaderIconData.get(player.civId) : null
+      const rowPath = chevronRect(rowX, y, rowW, rowH, chevron)
+      return `
       <path d="${rowPath}" fill="${isWinner ? 'rgba(10,200,185,0.06)' : 'rgba(239,68,68,0.05)'}" />
       <path d="${rowPath}" fill="url(#${isWinner ? 'winGlow' : 'lossGlow'})" />
       <rect x="${rowX}" y="${y}" width="5" height="${rowH}" fill="${color}" />
@@ -582,21 +698,31 @@ function renderResultRows(data: TournamentResultImageData, avatarData: Map<strin
       <text x="1018" y="${y + 100}" text-anchor="middle" fill="${COLORS.fg}" font-size="88" font-weight="900">#${player.placement ?? '?'}</text>
       <text x="1018" y="${y + 148}" text-anchor="middle" fill="${color}" font-size="38" font-weight="900" letter-spacing="2">${label}</text>
     `
-  }).join('')
+    })
+    .join('')
 }
 
 function chevronRect(x: number, y: number, w: number, h: number, d: number): string {
   return `M${x},${y} H${x + w - d} L${x + w},${y + h / 2} L${x + w - d},${y + h} H${x} Z`
 }
 
-function renderAvatar(player: AvatarPlayer, x: number, y: number, size: number, clipId: string, avatarDataUri?: string, strokeColor?: string, showStroke = true): string {
+function renderAvatar(
+  player: AvatarPlayer,
+  x: number,
+  y: number,
+  size: number,
+  clipId: string,
+  avatarDataUri?: string,
+  strokeColor?: string,
+  showStroke = true,
+): string {
   const center = size / 2
   const stroke = strokeColor ?? COLORS.accent
   const initials = getInitials(player.displayName)
   return `
     <circle cx="${x + center}" cy="${y + center}" r="${center}" fill="${COLORS.bg}" />
     ${avatarDataUri ? `<image href="${avatarDataUri}" x="${x}" y="${y}" width="${size}" height="${size}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />` : ''}
-    ${avatarDataUri ? '' : `<text x="${x + center}" y="${y + center + (size * 0.13)}" text-anchor="middle" fill="${stroke}" font-size="${Math.round(size * 0.34)}" font-weight="900">${escapeXml(initials)}</text>`}
+    ${avatarDataUri ? '' : `<text x="${x + center}" y="${y + center + size * 0.13}" text-anchor="middle" fill="${stroke}" font-size="${Math.round(size * 0.34)}" font-weight="900">${escapeXml(initials)}</text>`}
     ${showStroke ? `<circle cx="${x + center}" cy="${y + center}" r="${center + 1}" fill="none" stroke="${stroke}" stroke-width="3" />` : ''}
   `
 }
@@ -615,13 +741,15 @@ function buildAvatarClipDefs(players: AvatarPlayer[]): string {
 
 async function loadLeaderIconData(players: readonly { civId: string | null }[]): Promise<Map<string, string>> {
   const result = new Map<string, string>()
-  await Promise.all(players.map(async (player) => {
-    if (!player.civId || result.has(player.civId)) return
-    const url = getLeaderEmojiUrl(player.civId)
-    if (!url) return
-    const uri = await fetchDiscordImageDataUri(url).catch(() => null)
-    if (uri) result.set(player.civId, uri)
-  }))
+  await Promise.all(
+    players.map(async player => {
+      if (!player.civId || result.has(player.civId)) return
+      const url = getLeaderEmojiUrl(player.civId)
+      if (!url) return
+      const uri = await fetchDiscordImageDataUri(url).catch(() => null)
+      if (uri) result.set(player.civId, uri)
+    }),
+  )
   return result
 }
 
@@ -638,27 +766,29 @@ async function ensureResvgReady(): Promise<unknown> {
 async function initializeResvgWasm(): Promise<unknown> {
   try {
     return await initWasm(await resolveWasmInput(resvgWasm))
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof Error && error.message.includes('Already initialized')) return null
     throw error
   }
 }
 
 async function ensureFontBuffersReady(): Promise<Uint8Array[]> {
-  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes))
-    .then(values => values.filter((value): value is Uint8Array => value != null && value.length > 0))
+  fontBuffersReady ??= Promise.all(FONT_ASSET_SPECIFIERS.map(resolveFontAssetBytes)).then(values =>
+    values.filter((value): value is Uint8Array => value != null && value.length > 0),
+  )
   return fontBuffersReady
 }
 
-async function resolveFontAssetBytes(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<Uint8Array | null> {
+async function resolveFontAssetBytes(specifier: (typeof FONT_ASSET_SPECIFIERS)[number]): Promise<Uint8Array | null> {
   if (getBunFileApi()) return resolveAssetBytes(resolveImportAsset(specifier))
 
   const bundled = await resolveBundledFontAsset(specifier).catch(() => null)
   return resolveAssetBytes(bundled ?? resolveImportAsset(specifier))
 }
 
-async function resolveBundledFontAsset(specifier: typeof FONT_ASSET_SPECIFIERS[number]): Promise<string | URL | ArrayBuffer | Uint8Array> {
+async function resolveBundledFontAsset(
+  specifier: (typeof FONT_ASSET_SPECIFIERS)[number],
+): Promise<string | URL | ArrayBuffer | Uint8Array> {
   switch (specifier) {
     case '@fontsource/inter/files/inter-latin-400-normal.woff2':
       return (await import('@fontsource/inter/files/inter-latin-400-normal.woff2')).default
@@ -676,13 +806,14 @@ function resolveImportAsset(specifier: string): string | URL {
   try {
     const resolved = meta.resolve(specifier)
     return /^(https?:|file:)/.test(resolved) ? new URL(resolved) : resolved
-  }
-  catch {
+  } catch {
     return specifier
   }
 }
 
-async function resolveWasmInput(input: string | URL | WebAssembly.Module | ArrayBuffer): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
+async function resolveWasmInput(
+  input: string | URL | WebAssembly.Module | ArrayBuffer,
+): Promise<string | URL | WebAssembly.Module | ArrayBuffer> {
   if (typeof input !== 'string') return input
   if (/^(https?:|file:)/.test(input)) return input
 
@@ -699,8 +830,7 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   if (bun) {
     try {
       return new Uint8Array(await bun.file(input).arrayBuffer())
-    }
-    catch {
+    } catch {
       return null
     }
   }
@@ -708,14 +838,19 @@ async function resolveAssetBytes(input: string | URL | ArrayBuffer | Uint8Array)
   try {
     const response = await fetch(input)
     return response.ok ? new Uint8Array(await response.arrayBuffer()) : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
 function getBunFileApi(): { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } | null {
-  return (globalThis as typeof globalThis & { Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } } }).Bun ?? null
+  return (
+    (
+      globalThis as typeof globalThis & {
+        Bun?: { file: (path: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } }
+      }
+    ).Bun ?? null
+  )
 }
 
 function avatarClipId(player: AvatarPlayer): string {
@@ -728,8 +863,7 @@ function formatLeader(civId: string | null): string {
   try {
     const leader = getLeader(civId)
     return leader.name
-  }
-  catch {
+  } catch {
     return civId
   }
 }
@@ -738,8 +872,7 @@ function getLeaderInitials(civId: string | null): string {
   if (!civId) return '?'
   try {
     return getInitials(getLeader(civId).name)
-  }
-  catch {
+  } catch {
     return '?'
   }
 }
@@ -780,7 +913,15 @@ function truncateToWidth(value: string, maxWidth: number, fontSize: number, font
   return result.length > 0 ? `${result.trimEnd()}${suffix}` : suffix
 }
 
-function renderInlineText(value: string, x: number, y: number, maxWidth: number, fontSize: number, fontWeight: number, fill: string): string {
+function renderInlineText(
+  value: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  fontSize: number,
+  fontWeight: number,
+  fill: string,
+): string {
   const segments = splitInlineTextSegments(truncateToWidth(value, maxWidth, fontSize, fontWeight))
   let currentX = x
   let svg = ''
@@ -800,7 +941,7 @@ function renderInlineText(value: string, x: number, y: number, maxWidth: number,
     }
     flushText()
     const size = getEmojiRenderSize(fontSize)
-    svg += renderEmojiIcon(segment.icon, currentX, y - (fontSize * 0.84), size)
+    svg += renderEmojiIcon(segment.icon, currentX, y - fontSize * 0.84, size)
     currentX += getEmojiAdvance(fontSize)
   }
   flushText()
@@ -808,9 +949,14 @@ function renderInlineText(value: string, x: number, y: number, maxWidth: number,
 }
 
 function measureTextWidth(value: string, fontSize: number, fontWeight: number): number {
-  return splitInlineTextSegments(value).reduce((sum, segment) => (
-    sum + (segment.type === 'emoji' ? getEmojiAdvance(fontSize) : measurePlainTextWidth(segment.value, fontSize, fontWeight))
-  ), 0)
+  return splitInlineTextSegments(value).reduce(
+    (sum, segment) =>
+      sum +
+      (segment.type === 'emoji'
+        ? getEmojiAdvance(fontSize)
+        : measurePlainTextWidth(segment.value, fontSize, fontWeight)),
+    0,
+  )
 }
 
 function measurePlainTextWidth(value: string, fontSize: number, fontWeight: number): number {
@@ -895,9 +1041,5 @@ function getApproxCharWidth(char: string): number {
 }
 
 function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

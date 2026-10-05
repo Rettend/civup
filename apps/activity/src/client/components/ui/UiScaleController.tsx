@@ -1,11 +1,5 @@
 import { createEffect, createSignal, onSettled } from 'solid-js'
-import {
-  decreaseUiScale,
-  increaseUiScale,
-  isMiniView,
-  resetUiScale,
-  uiScale,
-} from '~/client/stores/ui-store'
+import { decreaseUiScale, increaseUiScale, isMiniView, resetUiScale, uiScale } from '~/client/stores/ui-store'
 
 const WHEEL_DELTA_PER_STEP = 100
 
@@ -13,22 +7,25 @@ export function UiScaleController() {
   let wheelDelta = 0
   const [viewportHeight, setViewportHeight] = createSignal(0)
 
-  createEffect(() => ({
-    scale: isMiniView() ? 1 : uiScale() / 100,
-    height: viewportHeight() || readViewportHeight(),
-  }), ({ scale, height }) => {
-    if (typeof document === 'undefined') return
+  createEffect(
+    () => ({
+      scale: isMiniView() ? 1 : uiScale() / 100,
+      height: viewportHeight() || readViewportHeight(),
+    }),
+    ({ scale, height }) => {
+      if (typeof document === 'undefined') return
 
-    const body = document.body
+      const body = document.body
 
-    body.style.setProperty('--civup-ui-scale', String(scale))
-    body.style.setProperty('--civup-ui-scale-inverse', String(1 / scale))
-    body.style.setProperty('--civup-scaled-viewport-height', `${height / scale}px`)
-    body.classList.toggle('civup-ui-scaled', scale !== 1)
+      body.style.setProperty('--civup-ui-scale', String(scale))
+      body.style.setProperty('--civup-ui-scale-inverse', String(1 / scale))
+      body.style.setProperty('--civup-scaled-viewport-height', `${height / scale}px`)
+      body.classList.toggle('civup-ui-scaled', scale !== 1)
 
-    if (scale === 1) body.style.removeProperty('zoom')
-    else body.style.setProperty('zoom', String(scale))
-  })
+      if (scale === 1) body.style.removeProperty('zoom')
+      else body.style.setProperty('zoom', String(scale))
+    },
+  )
 
   onSettled(() => {
     const handleViewportResize = () => setViewportHeight(readViewportHeight())
@@ -61,8 +58,7 @@ export function UiScaleController() {
       if (wheelDelta >= WHEEL_DELTA_PER_STEP) {
         decreaseUiScale()
         wheelDelta = 0
-      }
-      else if (wheelDelta <= -WHEEL_DELTA_PER_STEP) {
+      } else if (wheelDelta <= -WHEEL_DELTA_PER_STEP) {
         increaseUiScale()
         wheelDelta = 0
       }
@@ -97,7 +93,8 @@ function readViewportHeight() {
 
 function resolveScaleKeyAction(event: KeyboardEvent): 'increase' | 'decrease' | 'reset' | null {
   if (event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0') return 'reset'
-  if (event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract') return 'decrease'
+  if (event.key === '-' || event.key === '_' || event.code === 'Minus' || event.code === 'NumpadSubtract')
+    return 'decrease'
   if (event.key === '=' || event.key === '+' || event.code === 'Equal' || event.code === 'NumpadAdd') return 'increase'
   return null
 }

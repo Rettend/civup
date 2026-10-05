@@ -4,9 +4,18 @@ import { builtinEnvironments } from 'vitest/runtime'
 // Keep the native HTTP/body APIs together. Happy DOM supplies the DOM, not
 // replacements for the streamed Worker responses and ZIP bodies under test.
 const nativeKeys = [
-  'fetch', 'Headers', 'Request', 'Response', 'Blob', 'File', 'FormData',
-  'ReadableStream', 'TransformStream', 'WritableStream',
-  'AbortController', 'AbortSignal',
+  'fetch',
+  'Headers',
+  'Request',
+  'Response',
+  'Blob',
+  'File',
+  'FormData',
+  'ReadableStream',
+  'TransformStream',
+  'WritableStream',
+  'AbortController',
+  'AbortSignal',
 ] as const
 
 export default {
@@ -22,9 +31,8 @@ export default {
     // Workers accept stream request bodies without Node's required duplex flag.
     global.Request = class extends NativeRequest {
       constructor(input: RequestInfo | URL, init?: RequestInit & { duplex?: 'half' }) {
-        const requestInit: (RequestInit & { duplex?: 'half' }) | undefined = init?.body instanceof global.ReadableStream
-          ? { ...init, duplex: 'half' }
-          : init
+        const requestInit: (RequestInit & { duplex?: 'half' }) | undefined =
+          init?.body instanceof global.ReadableStream ? { ...init, duplex: 'half' } : init
         super(input, requestInit)
       }
     }

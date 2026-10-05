@@ -3,7 +3,7 @@ import { BinaryReader, concatBytes, indexOfBytes, readU32Le } from '../binary/re
 
 const CHUNK_SIZE = 65536
 const CIV6_MAGIC = [0x43, 0x49, 0x56, 0x36] as const
-const END_COMPRESSED = [0x00, 0x00, 0xFF, 0xFF, 0x02, 0x00, 0x00, 0x00] as const
+const END_COMPRESSED = [0x00, 0x00, 0xff, 0xff, 0x02, 0x00, 0x00, 0x00] as const
 
 const DATA_TYPES = {
   BOOLEAN: 1,
@@ -17,8 +17,8 @@ const DATA_TYPES = {
   COMPRESSED: 24,
 } as const
 
-const GAME_RANDOM_SEED_MARKER = 0x04EE548C
-const MAP_RANDOM_SEED_MARKER = 0x96C5C77C
+const GAME_RANDOM_SEED_MARKER = 0x04ee548c
+const MAP_RANDOM_SEED_MARKER = 0x96c5c77c
 
 export interface CivReplayCompressedBlob {
   index: number
@@ -90,7 +90,8 @@ class CivReplayPacketParser {
 
     this.reader.skip(4)
     const finalEnd = this.reader.indexOf(END_COMPRESSED)
-    if (finalEnd < 0) throw new Error(`Could not find final CivReplay compressed payload marker at offset ${this.reader.offset}`)
+    if (finalEnd < 0)
+      throw new Error(`Could not find final CivReplay compressed payload marker at offset ${this.reader.offset}`)
     const syntheticPacketLength = finalEnd - this.reader.offset + 4 + 12
     this.readCompressed(syntheticPacketLength)
 
@@ -134,7 +135,7 @@ class CivReplayPacketParser {
         this.readIntLike(header.marker)
         return
       case 0x15:
-      case 0x0D:
+      case 0x0d:
         this.reader.skip(8)
         return
       case 4:
@@ -176,7 +177,8 @@ class CivReplayPacketParser {
   private readCompressed(packetLength: number) {
     const sourceOffset = this.reader.offset
     let remaining = packetLength - 12
-    if (remaining <= 0) throw new Error(`Invalid CivReplay compressed packet length ${packetLength} at offset ${sourceOffset}`)
+    if (remaining <= 0)
+      throw new Error(`Invalid CivReplay compressed packet length ${packetLength} at offset ${sourceOffset}`)
 
     const chunks: Uint8Array[] = []
     while (remaining > 0) {
@@ -191,7 +193,7 @@ class CivReplayPacketParser {
     }
 
     const finalMarkerOffset = this.reader.offset - 4
-    if (readU32Le(this.bytes, finalMarkerOffset) !== 0xFFFF0000) {
+    if (readU32Le(this.bytes, finalMarkerOffset) !== 0xffff0000) {
       throw new Error(`Invalid CivReplay compressed final marker at offset ${finalMarkerOffset}`)
     }
 

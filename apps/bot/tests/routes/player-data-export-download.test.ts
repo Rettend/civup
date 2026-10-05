@@ -1,13 +1,13 @@
-import type { Database as SqliteDatabase } from 'bun:sqlite'
 import type { Env } from '../../src/env.ts'
+import type { Database as SqliteDatabase } from 'bun:sqlite'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { Hono } from 'hono'
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
   CIVUP_ACTIVITY_USER_ID_HEADER,
   CIVUP_INTERNAL_SECRET_HEADER,
 } from '@civup/utils'
-import { afterEach, describe, expect, test } from 'bun:test'
-import { Hono } from 'hono'
 import { registerUploadRoutes } from '../../src/routes/uploads.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -69,7 +69,7 @@ async function createHarness(withBucket = true) {
   const env: Env['Bindings'] = {
     DB: createSqliteD1Database(sqlite),
     KV: createTestKv(),
-    AUTOSAVE_UPLOADS: withBucket ? bucket as unknown as R2Bucket : undefined,
+    AUTOSAVE_UPLOADS: withBucket ? (bucket as unknown as R2Bucket) : undefined,
     DISCORD_APPLICATION_ID: '111111111111111111',
     DISCORD_PUBLIC_KEY: 'a'.repeat(64),
     DISCORD_TOKEN: 'token',
@@ -80,9 +80,10 @@ async function createHarness(withBucket = true) {
   return {
     bucket,
     request(method: 'GET' | 'POST', permissions?: string, body?: string) {
-      const url = method === 'POST'
-        ? 'https://bot.test/api/uploads/player-data-export?filename=export-2026-07-15.xlsx'
-        : 'https://bot.test/api/uploads/player-data-export/download'
+      const url =
+        method === 'POST'
+          ? 'https://bot.test/api/uploads/player-data-export?filename=export-2026-07-15.xlsx'
+          : 'https://bot.test/api/uploads/player-data-export/download'
       const headers = new Headers()
       if (permissions !== undefined) {
         headers.set(CIVUP_INTERNAL_SECRET_HEADER, SECRET)
@@ -116,9 +117,10 @@ class ExportBucketMock {
     const bytes = new Uint8Array(await new Response(value as BodyInit).arrayBuffer())
     const stored = {
       bytes,
-      contentType: options?.httpMetadata && 'contentType' in options.httpMetadata
-        ? options.httpMetadata.contentType ?? CONTENT_TYPE
-        : CONTENT_TYPE,
+      contentType:
+        options?.httpMetadata && 'contentType' in options.httpMetadata
+          ? (options.httpMetadata.contentType ?? CONTENT_TYPE)
+          : CONTENT_TYPE,
       filename: options?.customMetadata?.filename ?? 'export.xlsx',
     }
     this.objects.set(key, stored)

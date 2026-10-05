@@ -1,6 +1,9 @@
 import type { LobbySnapshot } from '../src/client/stores'
 import { describe, expect, test } from 'vitest'
-import { resolveOptimisticLobbyPlacementAction, resolvePendingJoinGhostSlot } from '../src/client/pages/draft-setup/helpers'
+import {
+  resolveOptimisticLobbyPlacementAction,
+  resolvePendingJoinGhostSlot,
+} from '../src/client/pages/draft-setup/helpers'
 
 const baseLobby: LobbySnapshot = {
   id: 'lobby-1',
@@ -12,12 +15,7 @@ const baseLobby: LobbySnapshot = {
   minRole: null,
   maxRole: null,
   lastArrange: null,
-  entries: [
-    { playerId: 'host-1', displayName: 'Host', avatarUrl: null },
-    null,
-    null,
-    null,
-  ],
+  entries: [{ playerId: 'host-1', displayName: 'Host', avatarUrl: null }, null, null, null],
   minPlayers: 4,
   targetSize: 4,
   draftConfig: {
@@ -47,27 +45,39 @@ const baseLobby: LobbySnapshot = {
 
 describe('resolvePendingJoinGhostSlot', () => {
   test('returns the predicted slot when a pending join is eligible', () => {
-    expect(resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    })).toBe(1)
+    expect(
+      resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
+        canJoin: true,
+        blockedReason: null,
+        pendingSlot: 1,
+      }),
+    ).toBe(1)
   })
 
   test('returns null when the pending join is blocked', () => {
-    expect(resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
-      canJoin: false,
-      blockedReason: 'This lobby requires at least Rank 2.',
-      pendingSlot: null,
-    })).toBeNull()
+    expect(
+      resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
+        canJoin: false,
+        blockedReason: 'This lobby requires at least Rank 2.',
+        pendingSlot: null,
+      }),
+    ).toBeNull()
   })
 
   test('uses the clicked empty slot for local spectator joins', () => {
-    expect(resolvePendingJoinGhostSlot(baseLobby, 'player-2', true, {
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    }, 2)).toBe(2)
+    expect(
+      resolvePendingJoinGhostSlot(
+        baseLobby,
+        'player-2',
+        true,
+        {
+          canJoin: true,
+          blockedReason: null,
+          pendingSlot: 1,
+        },
+        2,
+      ),
+    ).toBe(2)
   })
 
   test('returns null once the viewer is already in the lobby snapshot', () => {
@@ -81,11 +91,13 @@ describe('resolvePendingJoinGhostSlot', () => {
       ],
     }
 
-    expect(resolvePendingJoinGhostSlot(joinedLobby, 'player-2', true, {
-      canJoin: true,
-      blockedReason: null,
-      pendingSlot: 1,
-    })).toBeNull()
+    expect(
+      resolvePendingJoinGhostSlot(joinedLobby, 'player-2', true, {
+        canJoin: true,
+        blockedReason: null,
+        pendingSlot: 1,
+      }),
+    ).toBeNull()
   })
 })
 

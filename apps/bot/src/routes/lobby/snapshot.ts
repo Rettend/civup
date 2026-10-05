@@ -1,22 +1,32 @@
-import type { Database } from '@civup/db'
-import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
 import type { LeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import type { LobbyState } from '../../services/lobby/index.ts'
 import type { getRankedRoleConfig } from '../../services/ranked/roles.ts'
-import { canStartWithPlayerCount, MAX_LEADER_POOL_SIZE, playerCountOptions, startPlayerCountOptions, toBalanceLeaderboardMode } from '@civup/game'
+import type { Database } from '@civup/db'
+import type { CompetitiveTier, GameMode, QueueEntry } from '@civup/game'
+import {
+  canStartWithPlayerCount,
+  MAX_LEADER_POOL_SIZE,
+  playerCountOptions,
+  startPlayerCountOptions,
+  toBalanceLeaderboardMode,
+} from '@civup/game'
 import { MAX_CONFIG_TIMER_SECONDS } from '../../services/config/index.ts'
 import { getStoredLeaderboardModeSnapshot } from '../../services/leaderboard/snapshot.ts'
 import { filterQueueEntriesForLobby, normalizeLobbySlots } from '../../services/lobby/index.ts'
 import { attachLobbyBalanceRatings, buildLobbyLiveSnapshotFromParts } from '../../services/lobby/live-snapshot.ts'
 import { normalizeRankedRoleTierId } from '../../services/ranked/roles.ts'
-import { getOpenSessionLobbyProjectionsByChannel, getOpenSessionLobbyProjectionsByMode } from '../../services/session/index.ts'
+import {
+  getOpenSessionLobbyProjectionsByChannel,
+  getOpenSessionLobbyProjectionsByMode,
+} from '../../services/session/index.ts'
 
-export async function buildOpenLobbySnapshot(
-  kv: KVNamespace,
-  mode: GameMode,
-  lobby: LobbyState,
-) {
-  const balanceSnapshot = await getLobbyBalanceSnapshot(kv, mode, lobby.draftConfig.redDeath, lobby.draftConfig.civBlitz)
+export async function buildOpenLobbySnapshot(kv: KVNamespace, mode: GameMode, lobby: LobbyState) {
+  const balanceSnapshot = await getLobbyBalanceSnapshot(
+    kv,
+    mode,
+    lobby.draftConfig.redDeath,
+    lobby.draftConfig.civBlitz,
+  )
   const resolvedQueueEntries = buildLobbyQueueEntries(lobby)
   const resolvedSlots = normalizeLobbySlots(mode, lobby.slots, resolvedQueueEntries)
   return buildOpenLobbySnapshotFromParts(kv, mode, lobby, resolvedQueueEntries, resolvedSlots, balanceSnapshot)
@@ -44,18 +54,26 @@ export async function getLobbyBalanceSnapshot(
   return leaderboardMode ? await getStoredLeaderboardModeSnapshot(kv, leaderboardMode) : null
 }
 
-export function lobbyMinPlayerCount(mode: GameMode, targetSize: number, redDeath = false, permanentAlly = false): number {
+export function lobbyMinPlayerCount(
+  mode: GameMode,
+  targetSize: number,
+  redDeath = false,
+  permanentAlly = false,
+): number {
   return startPlayerCountOptions(mode, targetSize, { redDeath, permanentAlly })[0] ?? targetSize
 }
 
-export function canStartLobbyWithPlayerCount(mode: GameMode, playerCount: number, targetSize: number, redDeath = false, permanentAlly = false): boolean {
+export function canStartLobbyWithPlayerCount(
+  mode: GameMode,
+  playerCount: number,
+  targetSize: number,
+  redDeath = false,
+  permanentAlly = false,
+): boolean {
   return canStartWithPlayerCount(mode, playerCount, targetSize, { redDeath, permanentAlly })
 }
 
-export async function getUniqueOpenLobbyForChannel(
-  db: Database,
-  channelId: string,
-): Promise<LobbyState | null> {
+export async function getUniqueOpenLobbyForChannel(db: Database, channelId: string): Promise<LobbyState | null> {
   const openLobbies = (await getOpenSessionLobbyProjectionsByChannel(db, channelId))
     .filter(lobby => lobby.channelId === channelId && lobby.status === 'open')
     .sort((left, right) => right.updatedAt - left.updatedAt)
@@ -81,10 +99,7 @@ export async function resolveOpenLobbyFromBody(
   return openLobbies[0] ?? null
 }
 
-export function buildLobbyQueueEntries(
-  lobby: LobbyState,
-  queueEntries: QueueEntry[] = [],
-) {
+export function buildLobbyQueueEntries(lobby: LobbyState, queueEntries: QueueEntry[] = []) {
   return filterQueueEntriesForLobby(lobby, queueEntries)
 }
 

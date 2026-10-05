@@ -119,11 +119,7 @@ export function isDraftError(result: DraftResult | DraftError): result is DraftE
 }
 
 /** Swap the picked civs between two teammate seats after draft completion. */
-export function swapSeatPicks(
-  state: DraftState,
-  seatA: number,
-  seatB: number,
-): DraftSelection[] | DraftError {
+export function swapSeatPicks(state: DraftState, seatA: number, seatB: number): DraftSelection[] | DraftError {
   if (seatA === seatB) return { error: 'Cannot swap a seat with itself' }
   if (state.status !== 'complete') return { error: 'Draft is not complete' }
 
@@ -137,7 +133,7 @@ export function swapSeatPicks(
   const rightPick = state.picks.find(pick => pick.seatIndex === seatB)
   if (!leftPick || !rightPick) return { error: 'Both seats need a locked pick before swapping' }
 
-  return state.picks.map((pick) => {
+  return state.picks.map(pick => {
     if (pick.seatIndex === seatA) return { ...pick, civId: rightPick.civId }
     if (pick.seatIndex === seatB) return { ...pick, civId: leftPick.civId }
     return pick
@@ -145,11 +141,7 @@ export function swapSeatPicks(
 }
 
 /** Swap the completed draft choices between two teammate seats. */
-export function swapSeatDraftChoices(
-  state: DraftState,
-  seatA: number,
-  seatB: number,
-): DraftState | DraftError {
+export function swapSeatDraftChoices(state: DraftState, seatA: number, seatB: number): DraftState | DraftError {
   if (state.civBlitz) {
     const validation = validateSeatSwap(state, seatA, seatB)
     if (validation) return validation
@@ -213,19 +205,13 @@ function processStart(state: DraftState): DraftResult | DraftError {
 
   return {
     state: newState,
-    events: [
-      { type: 'DRAFT_STARTED' },
-      { type: 'STEP_ADVANCED', stepIndex: 0 },
-    ],
+    events: [{ type: 'DRAFT_STARTED' }, { type: 'STEP_ADVANCED', stepIndex: 0 }],
   }
 }
 
 // ── Cancel ──────────────────────────────────────────────────
 
-function processCancel(
-  state: DraftState,
-  reason: DraftCancelReason,
-): DraftResult | DraftError {
+function processCancel(state: DraftState, reason: DraftCancelReason): DraftResult | DraftError {
   if (state.status === 'cancelled') {
     return { error: 'Draft already cancelled' }
   }
@@ -324,10 +310,7 @@ function processBan(
     submissions: newSubmissions,
     // For blind bans, accumulate without removing from available
     pendingBlindBans: isBlind
-      ? [
-          ...state.pendingBlindBans,
-          ...civIds.map(civId => ({ civId, seatIndex, stepIndex: state.currentStepIndex })),
-        ]
+      ? [...state.pendingBlindBans, ...civIds.map(civId => ({ civId, seatIndex, stepIndex: state.currentStepIndex }))]
       : state.pendingBlindBans,
   }
 
@@ -336,11 +319,7 @@ function processBan(
 
 // ── Pick ────────────────────────────────────────────────────
 
-function processPick(
-  state: DraftState,
-  seatIndex: number,
-  civId: string,
-): DraftResult | DraftError {
+function processPick(state: DraftState, seatIndex: number, civId: string): DraftResult | DraftError {
   if (state.status !== 'active') {
     return { error: 'Draft is not active' }
   }
@@ -391,9 +370,7 @@ function processPick(
   const newSeatPicks = [...existingPicks, civId]
   const newSubmissions = { ...state.submissions, [seatIndex]: newSeatPicks }
   if (step.blind) {
-    const events: DraftEvent[] = [
-      { type: 'PICK_SUBMITTED', seatIndex, civId, blind: true },
-    ]
+    const events: DraftEvent[] = [{ type: 'PICK_SUBMITTED', seatIndex, civId, blind: true }]
     const activeSeats = getActiveSeats(step, state.seats.length)
     const fullySubmittedSeats = activeSeats.filter(seat => (newSubmissions[seat]?.length ?? 0) >= step.count).length
     const stepComplete = fullySubmittedSeats >= activeSeats.length
@@ -410,9 +387,7 @@ function processPick(
   }
 
   const newPicks = [...state.picks, { civId, seatIndex, stepIndex: state.currentStepIndex }]
-  const events: DraftEvent[] = [
-    { type: 'PICK_SUBMITTED', seatIndex, civId },
-  ]
+  const events: DraftEvent[] = [{ type: 'PICK_SUBMITTED', seatIndex, civId }]
 
   // Remove from available immediately (picks are never blind)
   const newAvailable = state.duplicateFactions
@@ -435,10 +410,13 @@ function processPick(
   }
 
   if (stepComplete) {
-    return advanceStep({
-      ...stateAfterPick,
-      submissions: {},
-    }, events)
+    return advanceStep(
+      {
+        ...stateAfterPick,
+        submissions: {},
+      },
+      events,
+    )
   }
 
   return { state: stateAfterPick, events }
@@ -461,7 +439,8 @@ function processCivBlitzSubmit(
   if (step.action !== 'pick' || !step.civBlitz) return { error: 'Current step is not a CivBlitz pick phase' }
   if (step.reveal) return { error: 'Current step is resolving CivBlitz conflicts' }
   if (!state.civBlitz) return { error: 'CivBlitz state is missing' }
-  if (!isSeatActive(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+  if (!isSeatActive(step, seatIndex, state.seats.length))
+    return { error: `Seat ${seatIndex} is not active in this step` }
   if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
 
   const categories = getCivBlitzStepCategories(step, seatIndex)
@@ -492,11 +471,7 @@ function processCivBlitzSubmit(
   return { state: nextState, events }
 }
 
-function processCivBlitzTimeout(
-  state: DraftState,
-  step: DraftStep,
-  random: RandomSource,
-): DraftResult | DraftError {
+function processCivBlitzTimeout(state: DraftState, step: DraftStep, random: RandomSource): DraftResult | DraftError {
   if (!state.civBlitz) return { error: 'CivBlitz state is missing' }
 
   let nextCivBlitz = state.civBlitz
@@ -518,7 +493,11 @@ function processCivBlitzTimeout(
       },
     }
     nextSubmissions[seatIndex] = ['__civblitz__']
-    events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: categories.map(category => autoKit[category]).filter(isString) })
+    events.push({
+      type: 'TIMEOUT_APPLIED',
+      seatIndex,
+      selections: categories.map(category => autoKit[category]).filter(isString),
+    })
   }
 
   return completeCivBlitzStep({ ...state, submissions: nextSubmissions, civBlitz: nextCivBlitz }, step, events, random)
@@ -533,7 +512,7 @@ function completeCivBlitzStep(
   const civBlitz = state.civBlitz
   if (!civBlitz) return { error: 'CivBlitz state is missing' }
 
-  const submitted = getActiveSeats(step, state.seats.length).map((seatIndex) => {
+  const submitted = getActiveSeats(step, state.seats.length).map(seatIndex => {
     return {
       seatIndex,
       stepIndex: state.currentStepIndex,
@@ -586,7 +565,9 @@ function completeCivBlitzStep(
     : null
   const nextLockedKits = priorityResolution?.lockedKits ?? lockedKits
   const redraftCategoriesBySeat = priorityResolution?.categoriesBySeat ?? conflicts.categoriesBySeat
-  const redraftSeatIndexes = Object.keys(redraftCategoriesBySeat).map(Number).sort((left, right) => left - right)
+  const redraftSeatIndexes = Object.keys(redraftCategoriesBySeat)
+    .map(Number)
+    .sort((left, right) => left - right)
   const conflictBans: CivBlitzSelection[] = resolveByPriority
     ? civBlitz.conflictBans
     : [...civBlitz.conflictBans, ...conflicts.conflictSelections]
@@ -605,9 +586,10 @@ function completeCivBlitzStep(
     reveal,
     conflictBans,
   }
-  const optionsBySeat = redraftSeatIndexes.length > 0
-    ? dealCivBlitzRedraftOptions(nextCivBlitz, redraftCategoriesBySeat, random)
-    : nextCivBlitz.optionsBySeat
+  const optionsBySeat =
+    redraftSeatIndexes.length > 0
+      ? dealCivBlitzRedraftOptions(nextCivBlitz, redraftCategoriesBySeat, random)
+      : nextCivBlitz.optionsBySeat
   const revealStep: DraftStep = {
     action: 'pick',
     seats: conflicts.conflictedSeatIndexes,
@@ -619,18 +601,19 @@ function completeCivBlitzStep(
     civBlitz: true,
     civBlitzCategoriesBySeat: conflicts.categoriesBySeat,
   }
-  const redraftStep: DraftStep | null = redraftSeatIndexes.length > 0
-    ? {
-        action: 'pick',
-        seats: redraftSeatIndexes,
-        count: 1,
-        timer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
-        blind: true,
-        blindPickRound: round + 1,
-        civBlitz: true,
-        civBlitzCategoriesBySeat: redraftCategoriesBySeat,
-      }
-    : null
+  const redraftStep: DraftStep | null =
+    redraftSeatIndexes.length > 0
+      ? {
+          action: 'pick',
+          seats: redraftSeatIndexes,
+          count: 1,
+          timer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
+          blind: true,
+          blindPickRound: round + 1,
+          civBlitz: true,
+          civBlitzCategoriesBySeat: redraftCategoriesBySeat,
+        }
+      : null
 
   return {
     state: {
@@ -648,41 +631,32 @@ function completeCivBlitzStep(
         optionsBySeat,
       },
     },
-    events: [
-      ...events,
-      revealedEvent,
-      { type: 'STEP_ADVANCED', stepIndex: nextStepIndex },
-    ],
+    events: [...events, revealedEvent, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }
 }
 
-function completeCivBlitzReveal(
-  state: DraftState,
-  _step: DraftStep,
-  _random: RandomSource,
-): DraftResult | DraftError {
+function completeCivBlitzReveal(state: DraftState, _step: DraftStep, _random: RandomSource): DraftResult | DraftError {
   const civBlitz = state.civBlitz
   const reveal = civBlitz?.reveal
   if (!civBlitz || !reveal) return { error: 'No CivBlitz reveal to resolve' }
 
-  return advanceStep({
-    ...state,
-    submissions: {},
-    civBlitz: {
-      ...civBlitz,
+  return advanceStep(
+    {
+      ...state,
       submissions: {},
-      reveal: null,
+      civBlitz: {
+        ...civBlitz,
+        submissions: {},
+        reveal: null,
+      },
     },
-  }, [])
+    [],
+  )
 }
 
 // ── Timeout ─────────────────────────────────────────────────
 
-function processTimeout(
-  state: DraftState,
-  blindBans: boolean,
-  random: RandomSource,
-): DraftResult | DraftError {
+function processTimeout(state: DraftState, blindBans: boolean, random: RandomSource): DraftResult | DraftError {
   if (state.status !== 'active') {
     return { error: 'Draft is not active' }
   }
@@ -701,7 +675,7 @@ function processTimeout(
     if (step.blind) return processBlindPickTimeout(state, step, random)
 
     if (state.dealtCivIds && state.dealtCivIds.length > 0) {
-      const timedOutSeat = activeSeats.find((seat) => {
+      const timedOutSeat = activeSeats.find(seat => {
         const existing = state.submissions[seat]
         const needed = step.count - (existing?.length ?? 0)
         return needed > 0
@@ -719,11 +693,13 @@ function processTimeout(
       const randomPick = timedOutPool[Math.floor(random() * timedOutPool.length)]
       if (!randomPick) return { error: 'Failed to resolve timeout pick' }
 
-      const timeoutEvents: DraftEvent[] = [{
-        type: 'TIMEOUT_APPLIED',
-        seatIndex: timedOutSeat,
-        selections: [randomPick],
-      }]
+      const timeoutEvents: DraftEvent[] = [
+        {
+          type: 'TIMEOUT_APPLIED',
+          seatIndex: timedOutSeat,
+          selections: [randomPick],
+        },
+      ]
 
       const nextState: DraftState = {
         ...state,
@@ -736,13 +712,16 @@ function processTimeout(
         dealtCivIdsBySeat: null,
       }
 
-      return advanceStep({
-        ...nextState,
-        submissions: {},
-      }, timeoutEvents)
+      return advanceStep(
+        {
+          ...nextState,
+          submissions: {},
+        },
+        timeoutEvents,
+      )
     }
 
-    const timedOutSeats = activeSeats.filter((seat) => {
+    const timedOutSeats = activeSeats.filter(seat => {
       const existing = state.submissions[seat]
       const needed = step.count - (existing?.length ?? 0)
       return needed > 0
@@ -795,19 +774,10 @@ function processTimeout(
   }
 
   // Complete the step with all submissions
-  return completeStep(
-    { ...state, availableCivIds: available },
-    newSubmissions,
-    events,
-    blindBans,
-  )
+  return completeStep({ ...state, availableCivIds: available }, newSubmissions, events, blindBans)
 }
 
-function processBlindPickTimeout(
-  state: DraftState,
-  step: DraftStep,
-  random: RandomSource,
-): DraftResult | DraftError {
+function processBlindPickTimeout(state: DraftState, step: DraftStep, random: RandomSource): DraftResult | DraftError {
   const submissions = { ...state.submissions }
   const events: DraftEvent[] = []
 
@@ -820,7 +790,9 @@ function processBlindPickTimeout(
     const selected = new Set(existing)
     for (let index = 0; index < needed; index++) {
       const submissionState = { ...state, submissions }
-      const pool = getTimeoutPickPool(state, seatIndex).filter(civId => !selected.has(civId) && !hasTeamCurrentPickSubmission(submissionState, seatIndex, civId))
+      const pool = getTimeoutPickPool(state, seatIndex).filter(
+        civId => !selected.has(civId) && !hasTeamCurrentPickSubmission(submissionState, seatIndex, civId),
+      )
       if (pool.length === 0) return { error: 'No leaders available for timeout pick' }
       const civId = pool[Math.floor(random() * pool.length)]
       if (!civId) return { error: 'Failed to resolve timeout pick' }
@@ -841,19 +813,22 @@ function completeBlindPickStep(
   submissions: Record<number, string[]>,
   events: DraftEvent[],
 ): DraftResult {
-  const submittedPicks = getActiveSeats(step, state.seats.length).flatMap((seatIndex) => {
+  const submittedPicks = getActiveSeats(step, state.seats.length).flatMap(seatIndex => {
     return (submissions[seatIndex] ?? []).map(civId => ({ civId, seatIndex, stepIndex: state.currentStepIndex }))
   })
 
   if (state.duplicateFactions) {
-    return advanceStep({
-      ...state,
-      submissions: {},
-      picks: [...state.picks, ...submittedPicks],
-      dealtCivIds: null,
-      dealtCivIdsBySeat: null,
-      blindPickReveal: null,
-    }, events)
+    return advanceStep(
+      {
+        ...state,
+        submissions: {},
+        picks: [...state.picks, ...submittedPicks],
+        dealtCivIds: null,
+        dealtCivIdsBySeat: null,
+        blindPickReveal: null,
+      },
+      events,
+    )
   }
 
   const picksByCivId = new Map<string, DraftSelection[]>()
@@ -863,9 +838,7 @@ function completeBlindPickStep(
     else picksByCivId.set(pick.civId, [pick])
   }
 
-  const conflictCivIds = [...picksByCivId.entries()]
-    .filter(([, picks]) => picks.length > 1)
-    .map(([civId]) => civId)
+  const conflictCivIds = [...picksByCivId.entries()].filter(([, picks]) => picks.length > 1).map(([civId]) => civId)
   const conflictCivIdSet = new Set(conflictCivIds)
   const uniquePicks = submittedPicks.filter(pick => !conflictCivIdSet.has(pick.civId))
   const conflictPicks = submittedPicks.filter(pick => conflictCivIdSet.has(pick.civId))
@@ -873,20 +846,31 @@ function completeBlindPickStep(
   if (conflictCivIds.length === 0) {
     const removedCivIds = new Set(uniquePicks.map(pick => pick.civId))
     const availableCivIds = state.availableCivIds.filter(civId => !removedCivIds.has(civId))
-    return advanceStep({
-      ...state,
-      submissions: {},
-      picks: [...state.picks, ...uniquePicks],
-      availableCivIds,
-      dealtCivIds: null,
-      dealtCivIdsBySeat: null,
-      blindPickReveal: null,
-    }, events)
+    return advanceStep(
+      {
+        ...state,
+        submissions: {},
+        picks: [...state.picks, ...uniquePicks],
+        availableCivIds,
+        dealtCivIds: null,
+        dealtCivIdsBySeat: null,
+        blindPickReveal: null,
+      },
+      events,
+    )
   }
 
-  const conflictedSeatIndexes = Array.from(new Set(conflictPicks.map(pick => pick.seatIndex))).sort((left, right) => left - right)
+  const conflictedSeatIndexes = Array.from(new Set(conflictPicks.map(pick => pick.seatIndex))).sort(
+    (left, right) => left - right,
+  )
   const round = step.blindPickRound ?? 0
-  const resolveByPriority = shouldResolveBlindPickConflictByPriority(state, uniquePicks, conflictPicks, conflictedSeatIndexes, round)
+  const resolveByPriority = shouldResolveBlindPickConflictByPriority(
+    state,
+    uniquePicks,
+    conflictPicks,
+    conflictedSeatIndexes,
+    round,
+  )
   const priorityLockedPicks = resolveByPriority
     ? resolveBlindPickPriorityWinners(conflictPicks, step.fallbackPickOrder)
     : []
@@ -911,9 +895,17 @@ function completeBlindPickStep(
     redraftTimer: step.timer || DEFAULT_PICK_TIMER_SECONDS,
   }
   const nextStepIndex = state.currentStepIndex + 1
-  const nextPickSteps = unresolvedSeatIndexes.length > 0
-    ? [createBlindPickRedraftStep(unresolvedSeatIndexes, round + 1, step.timer || DEFAULT_PICK_TIMER_SECONDS, step.fallbackPickOrder)]
-    : []
+  const nextPickSteps =
+    unresolvedSeatIndexes.length > 0
+      ? [
+          createBlindPickRedraftStep(
+            unresolvedSeatIndexes,
+            round + 1,
+            step.timer || DEFAULT_PICK_TIMER_SECONDS,
+            step.fallbackPickOrder,
+          ),
+        ]
+      : []
   const revealEvent: DraftEvent = {
     type: 'BLIND_PICKS_REVEALED',
     picks: submittedPicks,
@@ -944,7 +936,9 @@ function completeBlindPickStep(
         conflictedSeatIndexes,
         maxRedrafts: BLIND_PICK_MAX_REDRAFTS,
       },
-      blindPickBans: resolveByPriority ? (state.blindPickBans ?? []) : [...(state.blindPickBans ?? []), ...conflictPicks],
+      blindPickBans: resolveByPriority
+        ? (state.blindPickBans ?? [])
+        : [...(state.blindPickBans ?? []), ...conflictPicks],
     },
     events: [...events, revealEvent, { type: 'STEP_ADVANCED', stepIndex: nextStepIndex }],
   }
@@ -954,16 +948,24 @@ function completeBlindPickReveal(state: DraftState, _step: DraftStep): DraftResu
   const reveal = state.blindPickReveal
   if (!reveal) return { error: 'No blind pick reveal to resolve' }
 
-  return advanceStep({
-    ...state,
-    submissions: {},
-    dealtCivIds: null,
-    dealtCivIdsBySeat: null,
-    blindPickReveal: null,
-  }, [])
+  return advanceStep(
+    {
+      ...state,
+      submissions: {},
+      dealtCivIds: null,
+      dealtCivIdsBySeat: null,
+      blindPickReveal: null,
+    },
+    [],
+  )
 }
 
-function createBlindPickRedraftStep(seats: number[], round: number, timer: number, fallbackPickOrder: number[] | undefined): DraftStep {
+function createBlindPickRedraftStep(
+  seats: number[],
+  round: number,
+  timer: number,
+  fallbackPickOrder: number[] | undefined,
+): DraftStep {
   return {
     action: 'pick',
     seats: [...seats],
@@ -1005,7 +1007,10 @@ function shouldResolveBlindPickConflictByPriority(
   return redraftPoolSize < conflictedSeatIndexes.length
 }
 
-function resolveBlindPickPriorityWinners(conflictPicks: DraftSelection[], fallbackPickOrder: number[] | undefined): DraftSelection[] {
+function resolveBlindPickPriorityWinners(
+  conflictPicks: DraftSelection[],
+  fallbackPickOrder: number[] | undefined,
+): DraftSelection[] {
   const picksByCivId = new Map<string, DraftSelection[]>()
   for (const pick of conflictPicks) {
     const existing = picksByCivId.get(pick.civId)
@@ -1013,13 +1018,19 @@ function resolveBlindPickPriorityWinners(conflictPicks: DraftSelection[], fallba
     else picksByCivId.set(pick.civId, [pick])
   }
 
-  return [...picksByCivId.values()].flatMap((picks) => {
-    const winner = [...picks].sort((left, right) => compareSeatPriority(left.seatIndex, right.seatIndex, fallbackPickOrder))[0]
+  return [...picksByCivId.values()].flatMap(picks => {
+    const winner = [...picks].sort((left, right) =>
+      compareSeatPriority(left.seatIndex, right.seatIndex, fallbackPickOrder),
+    )[0]
     return winner ? [winner] : []
   })
 }
 
-function compareSeatPriority(leftSeatIndex: number, rightSeatIndex: number, fallbackPickOrder: number[] | undefined): number {
+function compareSeatPriority(
+  leftSeatIndex: number,
+  rightSeatIndex: number,
+  fallbackPickOrder: number[] | undefined,
+): number {
   const leftPriority = getSeatPriority(leftSeatIndex, fallbackPickOrder)
   const rightPriority = getSeatPriority(rightSeatIndex, fallbackPickOrder)
   if (leftPriority !== rightPriority) return leftPriority - rightPriority
@@ -1097,7 +1108,7 @@ function normalizeCivBlitzSubmission(
 function isCivBlitzStepComplete(state: DraftState, step: DraftStep): boolean {
   const civBlitz = state.civBlitz
   if (!civBlitz) return false
-  return getActiveSeats(step, state.seats.length).every((seatIndex) => {
+  return getActiveSeats(step, state.seats.length).every(seatIndex => {
     const submission = civBlitz.submissions[seatIndex]
     if (!submission) return false
     return getCivBlitzStepCategories(step, seatIndex).every(category => typeof submission[category] === 'string')
@@ -1115,7 +1126,9 @@ function buildRandomCivBlitzKit(
 
   const kit: CivBlitzPartialKit = {}
   for (const category of categories) {
-    const pool = options[category].filter(componentId => !isCivBlitzComponentConflictBanned(civBlitz, category, componentId))
+    const pool = options[category].filter(
+      componentId => !isCivBlitzComponentConflictBanned(civBlitz, category, componentId),
+    )
     if (pool.length === 0) return { error: `No CivBlitz ${formatCivBlitzCategory(category)} options available` }
     const componentId = pool[Math.floor(random() * pool.length)]
     if (!componentId) return { error: `Failed to resolve CivBlitz ${formatCivBlitzCategory(category)} timeout` }
@@ -1187,7 +1200,9 @@ function shouldResolveCivBlitzConflictByPriority(
     conflictBans: [...civBlitz.conflictBans, ...conflicts.conflictSelections],
   }
   for (const category of CIV_BLITZ_CATEGORIES) {
-    const seatCount = Object.values(conflicts.categoriesBySeat).filter(categories => categories.includes(category)).length
+    const seatCount = Object.values(conflicts.categoriesBySeat).filter(categories =>
+      categories.includes(category),
+    ).length
     if (seatCount === 0) continue
     if (getAvailableCivBlitzPool(nextCivBlitz, category).length < seatCount) return true
   }
@@ -1200,7 +1215,7 @@ function resolveCivBlitzPriorityConflicts(
   conflicts: ReturnType<typeof resolveCivBlitzSubmissionConflicts>,
   lockedKits: Record<number, CivBlitzPartialKit>,
   priorityOrder: number[],
-): { lockedKits: Record<number, CivBlitzPartialKit>, categoriesBySeat: Record<number, CivBlitzComponentCategory[]> } {
+): { lockedKits: Record<number, CivBlitzPartialKit>; categoriesBySeat: Record<number, CivBlitzComponentCategory[]> } {
   const nextLockedKits = cloneCivBlitzKits(lockedKits)
   const categoriesBySeat: Record<number, CivBlitzComponentCategory[]> = {}
 
@@ -1210,8 +1225,9 @@ function resolveCivBlitzPriorityConflicts(
 
     for (const componentId of conflictComponentIds) {
       const componentSubmissions = submissions.filter(submission => submission.kit[category] === componentId)
-      const winner = [...componentSubmissions]
-        .sort((left, right) => compareSeatPriority(left.seatIndex, right.seatIndex, priorityOrder))[0]
+      const winner = [...componentSubmissions].sort((left, right) =>
+        compareSeatPriority(left.seatIndex, right.seatIndex, priorityOrder),
+      )[0]
       if (!winner) continue
 
       nextLockedKits[winner.seatIndex] = {
@@ -1260,12 +1276,18 @@ function dealCivBlitzRedraftOptions(
 }
 
 function getAvailableCivBlitzPool(civBlitz: CivBlitzState, category: CivBlitzComponentCategory): string[] {
-  const conflictBanned = new Set(civBlitz.conflictBans.filter(selection => selection.category === category).map(selection => selection.componentId))
+  const conflictBanned = new Set(
+    civBlitz.conflictBans.filter(selection => selection.category === category).map(selection => selection.componentId),
+  )
   const locked = buildLockedCivBlitzComponentsByCategory(civBlitz)[category] ?? new Set<string>()
-  return civBlitz.componentPools[category].filter(componentId => !conflictBanned.has(componentId) && !locked.has(componentId))
+  return civBlitz.componentPools[category].filter(
+    componentId => !conflictBanned.has(componentId) && !locked.has(componentId),
+  )
 }
 
-function buildLockedCivBlitzComponentsByCategory(civBlitz: CivBlitzState): Record<CivBlitzComponentCategory, Set<string>> {
+function buildLockedCivBlitzComponentsByCategory(
+  civBlitz: CivBlitzState,
+): Record<CivBlitzComponentCategory, Set<string>> {
   const result = {
     civilizationAbility: new Set<string>(),
     leaderAbility: new Set<string>(),
@@ -1281,7 +1303,12 @@ function buildLockedCivBlitzComponentsByCategory(civBlitz: CivBlitzState): Recor
   return result
 }
 
-function isCivBlitzComponentLockedByOtherSeat(civBlitz: CivBlitzState, category: CivBlitzComponentCategory, componentId: string, seatIndex: number): boolean {
+function isCivBlitzComponentLockedByOtherSeat(
+  civBlitz: CivBlitzState,
+  category: CivBlitzComponentCategory,
+  componentId: string,
+  seatIndex: number,
+): boolean {
   for (const [rawSeatIndex, kit] of Object.entries(civBlitz.lockedKits)) {
     if (Number(rawSeatIndex) === seatIndex) continue
     if (kit[category] === componentId) return true
@@ -1289,8 +1316,14 @@ function isCivBlitzComponentLockedByOtherSeat(civBlitz: CivBlitzState, category:
   return false
 }
 
-function isCivBlitzComponentConflictBanned(civBlitz: CivBlitzState, category: CivBlitzComponentCategory, componentId: string): boolean {
-  return civBlitz.conflictBans.some(selection => selection.category === category && selection.componentId === componentId)
+function isCivBlitzComponentConflictBanned(
+  civBlitz: CivBlitzState,
+  category: CivBlitzComponentCategory,
+  componentId: string,
+): boolean {
+  return civBlitz.conflictBans.some(
+    selection => selection.category === category && selection.componentId === componentId,
+  )
 }
 
 function dealCivBlitzCategoryOptions(
@@ -1299,9 +1332,21 @@ function dealCivBlitzCategoryOptions(
   random: RandomSource,
 ): CivBlitzCategoryOptions {
   return {
-    civilizationAbility: pickRandomDistinct(componentPools.civilizationAbility, Math.min(optionCount, componentPools.civilizationAbility.length), random),
-    leaderAbility: pickRandomDistinct(componentPools.leaderAbility, Math.min(optionCount, componentPools.leaderAbility.length), random),
-    infrastructure: pickRandomDistinct(componentPools.infrastructure, Math.min(optionCount, componentPools.infrastructure.length), random),
+    civilizationAbility: pickRandomDistinct(
+      componentPools.civilizationAbility,
+      Math.min(optionCount, componentPools.civilizationAbility.length),
+      random,
+    ),
+    leaderAbility: pickRandomDistinct(
+      componentPools.leaderAbility,
+      Math.min(optionCount, componentPools.leaderAbility.length),
+      random,
+    ),
+    infrastructure: pickRandomDistinct(
+      componentPools.infrastructure,
+      Math.min(optionCount, componentPools.infrastructure.length),
+      random,
+    ),
     unit: pickRandomDistinct(componentPools.unit, Math.min(optionCount, componentPools.unit.length), random),
   }
 }
@@ -1326,7 +1371,9 @@ function cloneCivBlitzPools(pools: CivBlitzComponentPools): CivBlitzComponentPoo
   }
 }
 
-function cloneCivBlitzOptionsBySeat(optionsBySeat: Record<number, CivBlitzCategoryOptions>): Record<number, CivBlitzCategoryOptions> {
+function cloneCivBlitzOptionsBySeat(
+  optionsBySeat: Record<number, CivBlitzCategoryOptions>,
+): Record<number, CivBlitzCategoryOptions> {
   const cloned: Record<number, CivBlitzCategoryOptions> = {}
   for (const [rawSeatIndex, options] of Object.entries(optionsBySeat)) {
     cloned[Number(rawSeatIndex)] = {
@@ -1351,12 +1398,17 @@ function isCompleteCivBlitzKit(kit: CivBlitzPartialKit | undefined): boolean {
   return !!kit && CIV_BLITZ_CATEGORIES.every(category => typeof kit[category] === 'string')
 }
 
-function addCivBlitzCategory(existing: CivBlitzComponentCategory[] | undefined, category: CivBlitzComponentCategory): CivBlitzComponentCategory[] {
+function addCivBlitzCategory(
+  existing: CivBlitzComponentCategory[] | undefined,
+  category: CivBlitzComponentCategory,
+): CivBlitzComponentCategory[] {
   if (!existing) return [category]
   return existing.includes(category) ? existing : [...existing, category]
 }
 
-function sortCivBlitzCategoriesBySeat(categoriesBySeat: Record<number, CivBlitzComponentCategory[]>): Record<number, CivBlitzComponentCategory[]> {
+function sortCivBlitzCategoriesBySeat(
+  categoriesBySeat: Record<number, CivBlitzComponentCategory[]>,
+): Record<number, CivBlitzComponentCategory[]> {
   const sorted: Record<number, CivBlitzComponentCategory[]> = {}
   for (const [rawSeatIndex, categories] of Object.entries(categoriesBySeat)) {
     sorted[Number(rawSeatIndex)] = normalizeCivBlitzCategories(categories)
@@ -1381,7 +1433,10 @@ function isString(value: string | undefined): value is string {
   return typeof value === 'string'
 }
 
-function normalizeDraftProcessOptions(options: boolean | DraftProcessOptions): { blindBans: boolean, random: RandomSource } {
+function normalizeDraftProcessOptions(options: boolean | DraftProcessOptions): {
+  blindBans: boolean
+  random: RandomSource
+} {
   if (typeof options === 'boolean') {
     return {
       blindBans: options,
@@ -1418,10 +1473,7 @@ function isBlindBanStep(step: DraftStep, blindBans: boolean): boolean {
   return step.seats.length > 1
 }
 
-function normalizeCancelReason(
-  state: DraftState,
-  reason: DraftCancelReason,
-): DraftCancelReason {
+function normalizeCancelReason(state: DraftState, reason: DraftCancelReason): DraftCancelReason {
   if (state.status === 'waiting' && reason === 'scrub') return 'cancel'
   if (state.status !== 'waiting' && reason === 'cancel') return 'scrub'
   return reason
@@ -1503,10 +1555,7 @@ function completeStep(
 /**
  * Advance to the next step, or complete the draft.
  */
-function advanceStep(
-  state: DraftState,
-  events: DraftEvent[],
-): DraftResult {
+function advanceStep(state: DraftState, events: DraftEvent[]): DraftResult {
   const nextStepIndex = state.currentStepIndex + 1
 
   if (nextStepIndex >= state.steps.length) {
@@ -1556,7 +1605,7 @@ export function getPendingSeats(state: DraftState): number[] {
   if (step.reveal || step.count <= 0) return []
 
   const activeSeats = getActiveSeats(step, state.seats.length)
-  return activeSeats.filter((seat) => {
+  return activeSeats.filter(seat => {
     const submissions = state.submissions[seat]
     if (!submissions) return true
     return submissions.length < step.count
@@ -1585,7 +1634,7 @@ export function getPickSeatForPlayer(state: DraftState, seatIndex: number): numb
   if (!isSeatTeamCaptain(state.seats, seatIndex)) return null
 
   const activeSeats = getActiveSeats(step, state.seats.length)
-  const targetSeatIndex = activeSeats.find((candidateSeatIndex) => {
+  const targetSeatIndex = activeSeats.find(candidateSeatIndex => {
     const targetSeat = state.seats[candidateSeatIndex]
     if (!targetSeat || targetSeat.team == null || targetSeat.team !== ownSeat.team) return false
     return isSeatPendingForStep(state, step, candidateSeatIndex)
@@ -1638,11 +1687,7 @@ function processDoublePickFallbackTimeout(
   return {
     state: {
       ...state,
-      steps: [
-        ...state.steps.slice(0, nextStepIndex),
-        fallbackStep,
-        ...state.steps.slice(nextStepIndex),
-      ],
+      steps: [...state.steps.slice(0, nextStepIndex), fallbackStep, ...state.steps.slice(nextStepIndex)],
       currentStepIndex: nextStepIndex,
       submissions: {},
       dealtCivIds: null,

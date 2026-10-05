@@ -10,7 +10,7 @@ export function createSeededRandom(seed: string | number): RandomSource {
 
   let state = hash >>> 0
   return () => {
-    state = (state + 0x6D2B79F5) >>> 0
+    state = (state + 0x6d2b79f5) >>> 0
     let next = Math.imul(state ^ (state >>> 15), 1 | state)
     next ^= next + Math.imul(next ^ (next >>> 7), 61 | next)
     return ((next ^ (next >>> 14)) >>> 0) / 4294967296

@@ -66,12 +66,32 @@ export function setupTargetLabel(target: SystemChannelType): string {
 }
 
 export function parseSetupTarget(value: string): SystemChannelType | null {
-  if (value === 'draft' || value === 'archive' || value === 'leaderboard' || value === 'civ-leaderboard' || value === 'civ-leaderboard-all' || value === 'civ-leaderboard-duel' || value === 'civ-leaderboard-duo' || value === 'civ-leaderboard-squad' || value === 'commands' || value === 'tournament-draft' || value === 'tournament-archive' || value === 'tournament-leaderboard') return value
+  if (
+    value === 'draft' ||
+    value === 'archive' ||
+    value === 'leaderboard' ||
+    value === 'civ-leaderboard' ||
+    value === 'civ-leaderboard-all' ||
+    value === 'civ-leaderboard-duel' ||
+    value === 'civ-leaderboard-duo' ||
+    value === 'civ-leaderboard-squad' ||
+    value === 'commands' ||
+    value === 'tournament-draft' ||
+    value === 'tournament-archive' ||
+    value === 'tournament-leaderboard'
+  )
+    return value
   return null
 }
 
 export function isCivLeaderboardSetupTarget(target: SystemChannelType): boolean {
-  return target === 'civ-leaderboard' || target === 'civ-leaderboard-all' || target === 'civ-leaderboard-duel' || target === 'civ-leaderboard-duo' || target === 'civ-leaderboard-squad'
+  return (
+    target === 'civ-leaderboard' ||
+    target === 'civ-leaderboard-all' ||
+    target === 'civ-leaderboard-duel' ||
+    target === 'civ-leaderboard-duo' ||
+    target === 'civ-leaderboard-squad'
+  )
 }
 
 export function setupTargetCivModeScope(target: SystemChannelType): 'all' | 'duel' | 'duo' | 'squad' | null {
@@ -87,16 +107,17 @@ export function formatChannelMention(channelId: string | null): string {
   return `<#${channelId}>`
 }
 
-export function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string, color: string | null }> {
+export function buildResolvedRoleDisplayById(data: unknown): Map<string, { name: string; color: string | null }> {
   const resolved = (data as InteractionResolvedRoles | undefined)?.resolved?.roles
-  const displayById = new Map<string, { name: string, color: string | null }>()
+  const displayById = new Map<string, { name: string; color: string | null }>()
   if (!resolved) return displayById
 
   for (const [roleId, role] of Object.entries(resolved)) {
     const name = typeof role?.name === 'string' && role.name.trim().length > 0 ? role.name : roleId
-    const color = typeof role?.color === 'number' && Number.isFinite(role.color) && role.color > 0
-      ? `#${Math.round(role.color).toString(16).padStart(6, '0').toUpperCase()}`
-      : null
+    const color =
+      typeof role?.color === 'number' && Number.isFinite(role.color) && role.color > 0
+        ? `#${Math.round(role.color).toString(16).padStart(6, '0').toUpperCase()}`
+        : null
     displayById.set(roleId, { name, color })
   }
 
@@ -105,7 +126,18 @@ export function buildResolvedRoleDisplayById(data: unknown): Map<string, { name:
 
 export function buildRankedRoleUpdates(vars: AdminVar): Record<string, string | null> {
   const updates: Record<string, string | null> = {}
-  const roleInputs = [vars.role1, vars.role2, vars.role3, vars.role4, vars.role5, vars.role6, vars.role7, vars.role8, vars.role9, vars.role10]
+  const roleInputs = [
+    vars.role1,
+    vars.role2,
+    vars.role3,
+    vars.role4,
+    vars.role5,
+    vars.role6,
+    vars.role7,
+    vars.role8,
+    vars.role9,
+    vars.role10,
+  ]
   for (let index = 0; index < roleInputs.length; index++) {
     const roleId = roleInputs[index]
     if (!roleId) continue

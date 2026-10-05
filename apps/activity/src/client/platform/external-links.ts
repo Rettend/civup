@@ -10,7 +10,6 @@ export async function openExternalLink(url: string): Promise<boolean> {
     const { discordSdk } = await import('../discord')
     const response = await discordSdk.commands.openExternalLink({ url })
     if (response?.opened === true) return true
-  }
-  catch {}
+  } catch {}
   return false
 }

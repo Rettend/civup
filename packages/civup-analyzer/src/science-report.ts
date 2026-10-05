@@ -1,24 +1,26 @@
-import { Database } from 'bun:sqlite'
-import { analyzeAutosaveTimelineBytes } from './autosave-timeline.ts'
-import type { CivReplayCityStateCategory, CivReplayCityStateEnvoySnapshot, CivReplayCityStateResolver, CivReplayCityStateSnapshot } from './civreplay/city-states.ts'
-import { createCityStateResolver } from './civreplay/city-states.ts'
+import type {
+  CivReplayCityStateCategory,
+  CivReplayCityStateEnvoySnapshot,
+  CivReplayCityStateResolver,
+  CivReplayCityStateSnapshot,
+} from './civreplay/city-states.ts'
 import type { CivReplayCitySnapshot, CivReplayGovernorSnapshot, CivReplayPlayerSnapshot } from './civreplay/players.ts'
 import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
 import type { CivReplayTradeRouteKnownYieldSummary, CivReplayTradeRouteSummary } from './civreplay/trade-routes.ts'
+import type { HashResolver } from './hash.ts'
+import type { CivupOpeningDistrictAdjacencyChange, OpeningMapAnalysisData } from './opening-map-analysis.ts'
+import type { CivupTimelinePlayerSummary } from './types.ts'
+import { Database } from 'bun:sqlite'
+import { analyzeAutosaveTimelineBytes } from './autosave-timeline.ts'
+import { createCityStateResolver } from './civreplay/city-states.ts'
 import { analyzeCivReplaySnapshotsBytes } from './civreplay/snapshot.ts'
 import {
   KNOWN_TRADE_ROUTE_YIELDS_EXCLUDED,
   summarizeCivReplayKnownTradeRouteYields,
   summarizeCivReplayTradeRoutes,
 } from './civreplay/trade-routes.ts'
-import type { HashResolver } from './hash.ts'
-import type { CivupOpeningDistrictAdjacencyChange, OpeningMapAnalysisData } from './opening-map-analysis.ts'
 import { civHash, createHashResolver, formatHash } from './hash.ts'
-import {
-  buildDistrictAdjacencyChanges,
-  loadOpeningMapAnalysisData,
-} from './opening-map-analysis.ts'
-import type { CivupTimelinePlayerSummary } from './types.ts'
+import { buildDistrictAdjacencyChanges, loadOpeningMapAnalysisData } from './opening-map-analysis.ts'
 
 export interface AnalyzeScienceReportOptions {
   focus?: string | null
@@ -37,7 +39,7 @@ export interface CivupScienceReport {
   generatedAt: string
   turn: number | null
   saveName: string | null
-  hashResolution: { sources: string[], resolvedCount: number }
+  hashResolution: { sources: string[]; resolvedCount: number }
   cityStates: CivupScienceCityStates
   players: CivupSciencePlayer[]
   unsupported: string[]
@@ -171,12 +173,18 @@ const OWL_ROUTE_YIELDS_BY_CITY_STATE_CATEGORY: Record<CivReplayCityStateCategory
   industrial: { YIELD_PRODUCTION: 1 },
 }
 
-export function analyzeScienceReportBytes(source: string, bytes: Uint8Array, options: AnalyzeScienceReportOptions = {}): CivupScienceReport {
+export function analyzeScienceReportBytes(
+  source: string,
+  bytes: Uint8Array,
+  options: AnalyzeScienceReportOptions = {},
+): CivupScienceReport {
   const hashResolver = options.hashResolver ?? createHashResolver()
-  const cityStateResolver = options.cityStateResolver ?? createCityStateResolver({
-    typesDbPath: hashResolver.typesDbPath,
-    loadDefaultTypesDb: hashResolver.typesDbPath != null,
-  })
+  const cityStateResolver =
+    options.cityStateResolver ??
+    createCityStateResolver({
+      typesDbPath: hashResolver.typesDbPath,
+      loadDefaultTypesDb: hashResolver.typesDbPath != null,
+    })
   const timeline = analyzeAutosaveTimelineBytes(source, bytes, { limit: options.limit, failFast: options.failFast })
   const snapshots = analyzeCivReplaySnapshotsBytes(source, bytes, {
     limit: options.limit,
@@ -187,10 +195,22 @@ export function analyzeScienceReportBytes(source: string, bytes: Uint8Array, opt
   const snapshot = pickScienceSnapshot(snapshots, options.turn)
   const mapAnalysisData = loadOpeningMapAnalysisData(hashResolver)
   const scienceBuildings = loadScienceBuildingYields(hashResolver)
-  const majorPlayerIds = new Set(timeline.summary.players.map(player => player.slot).filter((slot): slot is number => slot != null))
+  const majorPlayerIds = new Set(
+    timeline.summary.players.map(player => player.slot).filter((slot): slot is number => slot != null),
+  )
   const teamByPlayerId = new Map(timeline.summary.players.map(player => [player.slot, player.team] as const))
   const players = selectSciencePlayers(snapshot.players.players, timeline.summary.players, majorPlayerIds, options)
-    .map(player => buildSciencePlayer(snapshot, player, timeline.summary.players, teamByPlayerId, hashResolver, mapAnalysisData, scienceBuildings))
+    .map(player =>
+      buildSciencePlayer(
+        snapshot,
+        player,
+        timeline.summary.players,
+        teamByPlayerId,
+        hashResolver,
+        mapAnalysisData,
+        scienceBuildings,
+      ),
+    )
     .sort(compareSciencePlayers)
 
   return {
@@ -217,25 +237,41 @@ export function formatScienceReportSummary(report: CivupScienceReport): string {
   lines.push('CivUp Science Report')
   lines.push(`source: ${report.source}`)
   lines.push(`turn: ${report.turn ?? '?'}${report.saveName ? ` | ${report.saveName}` : ''}`)
-  lines.push(`hash names: ${report.hashResolution.resolvedCount} resolved from ${report.hashResolution.sources.join(', ')}`)
-  lines.push(`city-states: scientific ${report.cityStates.scientificAliveCount}/${report.cityStates.scientificCount} alive${report.cityStates.scientific.length ? ` (${report.cityStates.scientific.map(formatScienceCityState).join('; ')})` : ''}`)
-  lines.push(`city-state envoys/suzerain: ${report.cityStates.unsupported.envoyCounts}; ${report.cityStates.unsupported.suzerain}`)
+  lines.push(
+    `hash names: ${report.hashResolution.resolvedCount} resolved from ${report.hashResolution.sources.join(', ')}`,
+  )
+  lines.push(
+    `city-states: scientific ${report.cityStates.scientificAliveCount}/${report.cityStates.scientificCount} alive${report.cityStates.scientific.length ? ` (${report.cityStates.scientific.map(formatScienceCityState).join('; ')})` : ''}`,
+  )
+  lines.push(
+    `city-state envoys/suzerain: ${report.cityStates.unsupported.envoyCounts}; ${report.cityStates.unsupported.suzerain}`,
+  )
   lines.push('')
   lines.push('Players')
   for (const player of report.players) {
-    lines.push(`  P${player.player.id} ${formatPlayerIdentity(player.player)} | science ${formatNumber(player.science)} | visible ${formatNumber(player.visibleScience)} | modifier/unattributed ${formatNumber(player.modifierScience)} | cities ${player.cityCount}, pop ${player.population}, campuses ${player.builtCampusCount}/${player.campusCount}, libraries ${player.libraryCount}, universities ${player.universityCount}, routes ${player.tradeRoutes.activeCount} known route science ${formatNullableNumber(player.knownTradeRouteYields.science)} | cs science ${formatNumber(player.cityStateYields.standardScientificBuildingScience + (player.cityStateYields.owlSuzerainRouteYields.YIELD_SCIENCE ?? 0))}`)
+    lines.push(
+      `  P${player.player.id} ${formatPlayerIdentity(player.player)} | science ${formatNumber(player.science)} | visible ${formatNumber(player.visibleScience)} | modifier/unattributed ${formatNumber(player.modifierScience)} | cities ${player.cityCount}, pop ${player.population}, campuses ${player.builtCampusCount}/${player.campusCount}, libraries ${player.libraryCount}, universities ${player.universityCount}, routes ${player.tradeRoutes.activeCount} known route science ${formatNullableNumber(player.knownTradeRouteYields.science)} | cs science ${formatNumber(player.cityStateYields.standardScientificBuildingScience + (player.cityStateYields.owlSuzerainRouteYields.YIELD_SCIENCE ?? 0))}`,
+    )
   }
 
   lines.push('')
   lines.push('Details')
   for (const player of report.players) {
     lines.push(`  P${player.player.id} ${formatPlayerIdentity(player.player)}`)
-    lines.push(`    policies: ${player.activePolicies.length ? player.activePolicies.map(formatTypeDisplayName).join(', ') : 'none decoded'}`)
-    if (player.sciencePolicies.length) lines.push(`    science-ish policies: ${player.sciencePolicies.map(formatTypeDisplayName).join(', ')}`)
-    lines.push(`    governors: ${player.governors.length ? player.governors.map(formatGovernor).join('; ') : 'none decoded'}`)
+    lines.push(
+      `    policies: ${player.activePolicies.length ? player.activePolicies.map(formatTypeDisplayName).join(', ') : 'none decoded'}`,
+    )
+    if (player.sciencePolicies.length)
+      lines.push(`    science-ish policies: ${player.sciencePolicies.map(formatTypeDisplayName).join(', ')}`)
+    lines.push(
+      `    governors: ${player.governors.length ? player.governors.map(formatGovernor).join('; ') : 'none decoded'}`,
+    )
     lines.push(`    city-state yields: ${formatScienceCityStateYieldSummary(player.cityStateYields)}`)
     lines.push('    top science cities:')
-    for (const city of player.cities.slice(0, 6)) lines.push(`      ${formatCityName(city.name)} pop ${city.population}: science ${formatNumber(city.science)} | visible ${formatNumber(city.visibleScience)} | modifier/unattributed ${formatNumber(city.modifierScience)} | campus ${city.builtCampusCount}/${city.campusCount} adj ${formatNumber(city.campusAdjacencyScience)} | cs buildings +${formatNumber(city.scientificCityStateScience)} | buildings ${formatScienceBuildings(city.scienceBuildings)}`)
+    for (const city of player.cities.slice(0, 6))
+      lines.push(
+        `      ${formatCityName(city.name)} pop ${city.population}: science ${formatNumber(city.science)} | visible ${formatNumber(city.visibleScience)} | modifier/unattributed ${formatNumber(city.modifierScience)} | campus ${city.builtCampusCount}/${city.campusCount} adj ${formatNumber(city.campusAdjacencyScience)} | cs buildings +${formatNumber(city.scientificCityStateScience)} | buildings ${formatScienceBuildings(city.scienceBuildings)}`,
+      )
     if (player.cities.length > 6) lines.push(`      ... ${player.cities.length - 6} more cities`)
     if (player.unsupported.length) lines.push(`    unsupported: ${player.unsupported.join('; ')}`)
   }
@@ -246,8 +282,16 @@ export function formatScienceReportSummary(report: CivupScienceReport): string {
   return `${lines.join('\n')}\n`
 }
 
-function pickScienceSnapshot(snapshots: readonly CivReplayTurnSnapshot[], requestedTurn: number | null | undefined): CivReplayTurnSnapshot {
-  if (snapshots.length === 0) throw new Error(requestedTurn == null ? 'science: no snapshots parsed' : `science: turn ${requestedTurn} not found or failed to parse`)
+function pickScienceSnapshot(
+  snapshots: readonly CivReplayTurnSnapshot[],
+  requestedTurn: number | null | undefined,
+): CivReplayTurnSnapshot {
+  if (snapshots.length === 0)
+    throw new Error(
+      requestedTurn == null
+        ? 'science: no snapshots parsed'
+        : `science: turn ${requestedTurn} not found or failed to parse`,
+    )
   return snapshots.at(-1)!
 }
 
@@ -257,14 +301,17 @@ function selectSciencePlayers(
   majorPlayerIds: ReadonlySet<number>,
   options: AnalyzeScienceReportOptions,
 ): CivReplayPlayerSnapshot[] {
-  let selected = players.filter(player => majorPlayerIds.size ? majorPlayerIds.has(player.id) : player.cities.length > 0)
+  let selected = players.filter(player =>
+    majorPlayerIds.size ? majorPlayerIds.has(player.id) : player.cities.length > 0,
+  )
   if (options.playerId != null) selected = selected.filter(player => player.id === options.playerId)
   if (options.focus) {
     const needle = normalize(options.focus)
     selected = selected.filter(player => {
       const metadata = metadataPlayers.find(item => item.slot === player.id) ?? null
-      return [metadata?.playerName, metadata?.leader, metadata?.civilization]
-        .some(value => normalize(value ?? '').includes(needle))
+      return [metadata?.playerName, metadata?.leader, metadata?.civilization].some(value =>
+        normalize(value ?? '').includes(needle),
+      )
     })
   }
   if (selected.length === 0) throw new Error('science: no matching players found')
@@ -285,18 +332,41 @@ function buildSciencePlayer(
   const hasNaturalPhilosophy = flattenPolicies(player).includes(NATURAL_PHILOSOPHY_HASH)
   const scientificCityStateBonuses = buildScientificCityStateBonuses(snapshot, player.id)
   const cities = player.cities
-    .map(city => buildScienceCity(city, player, adjacencyByCity, scienceBuildings, hasNaturalPhilosophy, scientificCityStateBonuses))
+    .map(city =>
+      buildScienceCity(
+        city,
+        player,
+        adjacencyByCity,
+        scienceBuildings,
+        hasNaturalPhilosophy,
+        scientificCityStateBonuses,
+      ),
+    )
     .sort(compareScienceCities)
   const science = sum(cities.map(city => city.science))
   const cityVisibleScience = sum(cities.map(city => city.visibleScience))
   const tradeRoutes = summarizeCivReplayTradeRoutes(player.tradeRoutes, hashResolver, teamByPlayerId)
-  const knownTradeRouteYields = summarizeCivReplayKnownTradeRouteYields(player, snapshot.players.players, hashResolver, {
-    districtYields: mapAnalysisData.tradeRouteDistrictYields,
-    policyYields: mapAnalysisData.tradeRoutePolicyYields,
-    unsupportedPolicyModifiers: mapAnalysisData.unsupportedTradeRoutePolicyModifiers,
-  })
-  const cityStateYields = buildScienceCityStateYieldSummary(snapshot, player, metadata?.leader ?? null, cities, scientificCityStateBonuses)
-  const visibleScience = cityVisibleScience + (knownTradeRouteYields.science ?? 0) + (cityStateYields.owlSuzerainRouteYields.YIELD_SCIENCE ?? 0)
+  const knownTradeRouteYields = summarizeCivReplayKnownTradeRouteYields(
+    player,
+    snapshot.players.players,
+    hashResolver,
+    {
+      districtYields: mapAnalysisData.tradeRouteDistrictYields,
+      policyYields: mapAnalysisData.tradeRoutePolicyYields,
+      unsupportedPolicyModifiers: mapAnalysisData.unsupportedTradeRoutePolicyModifiers,
+    },
+  )
+  const cityStateYields = buildScienceCityStateYieldSummary(
+    snapshot,
+    player,
+    metadata?.leader ?? null,
+    cities,
+    scientificCityStateBonuses,
+  )
+  const visibleScience =
+    cityVisibleScience +
+    (knownTradeRouteYields.science ?? 0) +
+    (cityStateYields.owlSuzerainRouteYields.YIELD_SCIENCE ?? 0)
   return {
     player: {
       id: player.id,
@@ -317,9 +387,16 @@ function buildSciencePlayer(
     libraryCount: countBuiltItem(player.cities, LIBRARY_HASH),
     universityCount: countBuiltItem(player.cities, UNIVERSITY_HASH),
     researchLabCount: countBuiltItem(player.cities, RESEARCH_LAB_HASH),
-    activePolicies: flattenPolicies(player).map(hash => resolveHashName(hash, hashResolver)).sort(),
-    sciencePolicies: flattenPolicies(player).map(hash => resolveHashName(hash, hashResolver)).filter(isSciencePolicyName).sort(),
-    governors: player.governors.map(governor => buildScienceGovernor(governor, player, hashResolver)).sort(compareGovernors),
+    activePolicies: flattenPolicies(player)
+      .map(hash => resolveHashName(hash, hashResolver))
+      .sort(),
+    sciencePolicies: flattenPolicies(player)
+      .map(hash => resolveHashName(hash, hashResolver))
+      .filter(isSciencePolicyName)
+      .sort(),
+    governors: player.governors
+      .map(governor => buildScienceGovernor(governor, player, hashResolver))
+      .sort(compareGovernors),
     tradeRoutes,
     knownTradeRouteYields,
     cityStateYields,
@@ -343,14 +420,22 @@ function buildScienceCity(
   const populationScience = city.population / 2
   const cityBuildings = scienceBuildings
     .map(building => ({ building, builtValue: getBuiltItemValue(city, building.hash) }))
-    .filter((item): item is { building: ScienceBuildingYield, builtValue: number } => item.builtValue != null && isBuiltItemValue(item.builtValue))
+    .filter(
+      (item): item is { building: ScienceBuildingYield; builtValue: number } =>
+        item.builtValue != null && isBuiltItemValue(item.builtValue),
+    )
     .map(item => ({ type: item.building.type, science: item.building.science, builtValue: item.builtValue }))
     .sort((left, right) => left.type.localeCompare(right.type))
   const scienceBuildingScience = sum(cityBuildings.map(building => building.science))
   const campusAdjacencyScience = adjacencyByCity.get(city.id) ?? 0
   const naturalPhilosophyScience = hasNaturalPhilosophy ? campusAdjacencyScience : 0
   const scientificCityStateScience = calculateScientificCityStateScience(city, scientificCityStateBonuses)
-  const visibleScience = populationScience + scienceBuildingScience + campusAdjacencyScience + naturalPhilosophyScience + scientificCityStateScience
+  const visibleScience =
+    populationScience +
+    scienceBuildingScience +
+    campusAdjacencyScience +
+    naturalPhilosophyScience +
+    scientificCityStateScience
   const campuses = player.districts.filter(district => district.cityId === city.id && district.type === CAMPUS_HASH)
   return {
     id: city.id,
@@ -372,18 +457,28 @@ function buildScienceCity(
   }
 }
 
-function buildScienceGovernor(governor: CivReplayGovernorSnapshot, player: CivReplayPlayerSnapshot, hashResolver: HashResolver): CivupScienceGovernor {
+function buildScienceGovernor(
+  governor: CivReplayGovernorSnapshot,
+  player: CivReplayPlayerSnapshot,
+  hashResolver: HashResolver,
+): CivupScienceGovernor {
   const city = player.cities.find(item => item.id === governor.city) ?? null
   return {
     id: governor.id,
     type: resolveHashName(governor.type, hashResolver),
     cityId: governor.city,
     cityName: city?.name ?? null,
-    promotions: governor.promotions.filter(item => item.value !== 0).map(item => resolveHashName(item.hash, hashResolver)).sort(),
+    promotions: governor.promotions
+      .filter(item => item.value !== 0)
+      .map(item => resolveHashName(item.hash, hashResolver))
+      .sort(),
   }
 }
 
-function buildScientificCityStateBonuses(snapshot: CivReplayTurnSnapshot, playerId: number): CivupScienceScientificCityStateEnvoy[] {
+function buildScientificCityStateBonuses(
+  snapshot: CivReplayTurnSnapshot,
+  playerId: number,
+): CivupScienceScientificCityStateEnvoy[] {
   return snapshot.cityStates.cityStates
     .filter(cityState => cityState.category === 'scientific' && cityState.alive)
     .map(cityState => {
@@ -413,7 +508,10 @@ function buildScienceCityStateYieldSummary(
   }
 }
 
-function calculateScientificCityStateScience(city: CivReplayCitySnapshot, bonuses: readonly CivupScienceScientificCityStateEnvoy[]): number {
+function calculateScientificCityStateScience(
+  city: CivReplayCitySnapshot,
+  bonuses: readonly CivupScienceScientificCityStateEnvoy[],
+): number {
   return sum(bonuses.map(bonus => calculateOneScientificCityStateScience(city, bonus.tier)))
 }
 
@@ -441,7 +539,11 @@ function scientificCityStateTier(envoys: number): number {
   return 0
 }
 
-function buildOwlSuzerainRouteYields(snapshot: CivReplayTurnSnapshot, player: CivReplayPlayerSnapshot, leaderType: string | null): Record<string, number> {
+function buildOwlSuzerainRouteYields(
+  snapshot: CivReplayTurnSnapshot,
+  player: CivReplayPlayerSnapshot,
+  leaderType: string | null,
+): Record<string, number> {
   if (leaderType !== OWL_LEADER_TYPE || player.tradeRoutes.length === 0) return {}
   const suzerainedCounts = new Map<CivReplayCityStateCategory, number>()
   for (const cityState of snapshot.cityStates.cityStates) {
@@ -453,7 +555,8 @@ function buildOwlSuzerainRouteYields(snapshot: CivReplayTurnSnapshot, player: Ci
   for (const [category, count] of suzerainedCounts) {
     const multiplier = count >= 2 ? 3 : 1
     const yields = OWL_ROUTE_YIELDS_BY_CITY_STATE_CATEGORY[category]
-    for (const [yieldType, amount] of Object.entries(yields)) addToMap(totals, yieldType, amount * multiplier * player.tradeRoutes.length)
+    for (const [yieldType, amount] of Object.entries(yields))
+      addToMap(totals, yieldType, amount * multiplier * player.tradeRoutes.length)
   }
   return Object.fromEntries([...totals].sort(([left], [right]) => left.localeCompare(right)))
 }
@@ -481,7 +584,8 @@ function buildScienceCityStates(snapshot: CivReplayTurnSnapshot): CivupScienceCi
     scientific,
     unsupported: {
       envoyCounts: 'envoy counts are decoded from city-state influence token tables',
-      suzerain: 'suzerain player is decoded from city-state influence token tables; quests/visibility are not decoded yet',
+      suzerain:
+        'suzerain player is decoded from city-state influence token tables; quests/visibility are not decoded yet',
     },
   }
 }
@@ -516,24 +620,26 @@ function loadScienceBuildingYields(hashResolver: HashResolver): ScienceBuildingY
   try {
     const db = new Database(hashResolver.typesDbPath, { readonly: true })
     try {
-      const rows = db.query<{ BuildingType: string | null, YieldChange: number | null }, []>(`
+      const rows = db
+        .query<{ BuildingType: string | null; YieldChange: number | null }, []>(`
         select BuildingType, YieldChange
         from Building_YieldChanges
         where YieldType = 'YIELD_SCIENCE'
           and BuildingType is not null
           and YieldChange is not null
-      `).all()
+      `)
+        .all()
       const loaded = rows
-        .filter((row): row is { BuildingType: string, YieldChange: number } => Boolean(row.BuildingType && row.YieldChange))
+        .filter((row): row is { BuildingType: string; YieldChange: number } =>
+          Boolean(row.BuildingType && row.YieldChange),
+        )
         .map(row => ({ hash: civHash(row.BuildingType), type: row.BuildingType, science: row.YieldChange }))
         .sort((left, right) => left.type.localeCompare(right.type))
       return loaded.length ? loaded : fallback
-    }
-    finally {
+    } finally {
       db.close()
     }
-  }
-  catch {
+  } catch {
     return fallback
   }
 }
@@ -578,10 +684,15 @@ function formatScienceCityState(cityState: CivupScienceCityState): string {
 
 function formatScienceCityStateInfluence(cityState: CivupScienceCityState): string {
   if (cityState.suzerainStatus === 'unknown' && cityState.envoys.length === 0) return ''
-  const suzerain = cityState.suzerainPlayerId == null
-    ? cityState.suzerainStatus === 'tied' ? `suz tied ${cityState.suzerainEnvoys ?? '?'}e` : 'no suz'
-    : `suz P${cityState.suzerainPlayerId} ${cityState.suzerainEnvoys ?? '?'}e`
-  const envoys = cityState.envoys.length ? `envoys ${cityState.envoys.map(item => `P${item.playerId}:${item.envoys}`).join(',')}` : 'envoys none'
+  const suzerain =
+    cityState.suzerainPlayerId == null
+      ? cityState.suzerainStatus === 'tied'
+        ? `suz tied ${cityState.suzerainEnvoys ?? '?'}e`
+        : 'no suz'
+      : `suz P${cityState.suzerainPlayerId} ${cityState.suzerainEnvoys ?? '?'}e`
+  const envoys = cityState.envoys.length
+    ? `envoys ${cityState.envoys.map(item => `P${item.playerId}:${item.envoys}`).join(',')}`
+    : 'envoys none'
   return ` ${suzerain}, ${envoys}`
 }
 
@@ -590,7 +701,9 @@ function formatScienceCityStateYieldSummary(summary: CivupScienceCityStateYieldS
   const routeYields = formatYields(summary.owlSuzerainRouteYields)
   if (routeYields !== 'none') pieces.push(`Owl suzerain routes ${routeYields}`)
   if (summary.scientificEnvoys.length) {
-    pieces.push(`scientific envoys ${summary.scientificEnvoys.map(item => `${item.displayName} ${item.envoys}e tier ${item.tier}${item.suzerain ? ' suz' : ''}`).join('; ')}`)
+    pieces.push(
+      `scientific envoys ${summary.scientificEnvoys.map(item => `${item.displayName} ${item.envoys}e tier ${item.tier}${item.suzerain ? ' suz' : ''}`).join('; ')}`,
+    )
   }
   return pieces.join('; ')
 }
@@ -610,7 +723,9 @@ function formatGovernor(governor: CivupScienceGovernor): string {
 
 function formatScienceBuildings(buildings: readonly CivupScienceBuilding[]): string {
   if (buildings.length === 0) return 'none'
-  return buildings.map(building => `${formatTypeDisplayName(building.type)} +${formatNumber(building.science)}`).join(', ')
+  return buildings
+    .map(building => `${formatTypeDisplayName(building.type)} +${formatNumber(building.science)}`)
+    .join(', ')
 }
 
 function formatCityName(value: string): string {

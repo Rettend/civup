@@ -11,7 +11,9 @@ export function projectLineupDisplayRating(players: PlayerRating[]): number {
 
   for (let iteration = 0; iteration < 32; iteration++) {
     const mid = (low + high) / 2
-    const comparisonTeam = players.map((player, index) => createComparisonPlayer(player.playerId || `cmp-${index + 1}`, mid, averageSigma))
+    const comparisonTeam = players.map((player, index) =>
+      createComparisonPlayer(player.playerId || `cmp-${index + 1}`, mid, averageSigma),
+    )
     const probability = predictWinProbabilities([players, comparisonTeam])[0] ?? 0.5
     if (probability >= 0.5) low = mid
     else high = mid
@@ -23,7 +25,7 @@ export function projectLineupDisplayRating(players: PlayerRating[]): number {
 function createComparisonPlayer(playerId: string, display: number, sigma: number): PlayerRating {
   return {
     playerId,
-    mu: DEFAULT_MU + ((display - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE),
+    mu: DEFAULT_MU + (display - DISPLAY_RATING_BASE) / DISPLAY_RATING_SCALE,
     sigma,
   }
 }

@@ -1,15 +1,21 @@
 import type { CloudflareTarget } from '../config/cloudflare-targets.ts'
-import type { BuildIdentity } from '../scripts/cloudflare-worker/artifacts.ts'
 import type { WorkerLifecycleRuntime, WorkerPlan } from '../scripts/cloudflare-worker.ts'
+import type { BuildIdentity } from '../scripts/cloudflare-worker/artifacts.ts'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
 import { cloudflareTargets } from '../config/cloudflare-targets.ts'
 import { createActivityCloudflareConfig, createBotCloudflareConfig } from '../config/cloudflare-workers.ts'
-import { browserBuildMetadataFile, buildStampRelativePath, createBotPrebuiltDeploymentConfig, stampWorkerArtifact, verifyWorkerArtifact } from '../scripts/cloudflare-worker/artifacts.ts'
 import { createWorkerPlan, executeWorkerPlan, parseWorkerRequest } from '../scripts/cloudflare-worker.ts'
+import {
+  browserBuildMetadataFile,
+  buildStampRelativePath,
+  createBotPrebuiltDeploymentConfig,
+  stampWorkerArtifact,
+  verifyWorkerArtifact,
+} from '../scripts/cloudflare-worker/artifacts.ts'
 import { fixtureLocalTargetsFile, fixturePplTarget } from './cloudflare-fixtures.ts'
 
 const temporaryDirectories: string[] = []
@@ -26,7 +32,12 @@ function temporaryDirectory(): string {
   return path
 }
 
-function identity(worker: 'bot' | 'activity' = 'activity', targetName: 'standard' | 'ppl' = 'standard', mode: 'development' | 'production' = 'production', target: CloudflareTarget = targetName === 'standard' ? cloudflareTargets.standard : fixturePplTarget): BuildIdentity {
+function identity(
+  worker: 'bot' | 'activity' = 'activity',
+  targetName: 'standard' | 'ppl' = 'standard',
+  mode: 'development' | 'production' = 'production',
+  target: CloudflareTarget = targetName === 'standard' ? cloudflareTargets.standard : fixturePplTarget,
+): BuildIdentity {
   return { worker, targetName, target, mode }
 }
 
@@ -35,10 +46,16 @@ function outputFixture(appRoot: string, build: BuildIdentity, browserId = build.
   const workerRoot = join(outputRoot, 'workers/default')
   const bundleRoot = join(workerRoot, 'bundle')
   mkdirSync(bundleRoot, { recursive: true })
-  const config = build.worker === 'bot' ? createBotCloudflareConfig(build.target) : createActivityCloudflareConfig(build.target)
+  const config =
+    build.worker === 'bot' ? createBotCloudflareConfig(build.target) : createActivityCloudflareConfig(build.target)
   const { entrypoint: _entrypoint, ...worker } = config.worker
   const modules: Record<string, { type: string }> = { 'index.js': { type: 'esm' } }
-  writeFileSync(join(bundleRoot, 'index.js'), build.worker === 'bot' ? 'class SessionDO {} class Activity {} class MaintenanceDO {} export { SessionDO, Activity, MaintenanceDO }' : 'export default { fetch() {} }')
+  writeFileSync(
+    join(bundleRoot, 'index.js'),
+    build.worker === 'bot'
+      ? 'class SessionDO {} class Activity {} class MaintenanceDO {} export { SessionDO, Activity, MaintenanceDO }'
+      : 'export default { fetch() {} }',
+  )
   if (build.worker === 'bot') {
     modules['renderer.wasm'] = { type: 'wasm' }
     writeFileSync(join(bundleRoot, 'renderer.wasm'), new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
@@ -47,25 +64,47 @@ function outputFixture(appRoot: string, build: BuildIdentity, browserId = build.
       modules[file] = { type: 'data' }
       writeFileSync(join(bundleRoot, file), 'font bytes')
     }
-  }
-  else {
+  } else {
     const assetsRoot = join(workerRoot, 'assets')
     mkdirSync(assetsRoot, { recursive: true })
-    writeFileSync(join(assetsRoot, 'index.html'), '<link rel="stylesheet" href="/client.css"><script src="client.js"></script>')
+    writeFileSync(
+      join(assetsRoot, 'index.html'),
+      '<link rel="stylesheet" href="/client.css"><script src="client.js"></script>',
+    )
     writeFileSync(join(assetsRoot, 'client.js'), `const discordApplicationId = '${browserId}'`)
     writeFileSync(join(assetsRoot, 'client.css'), '.grid{display:grid}.flex{display:flex}')
-    writeFileSync(join(assetsRoot, browserBuildMetadataFile), JSON.stringify({ target: build.targetName, mode: build.mode, browserApplicationId: browserId }))
+    writeFileSync(
+      join(assetsRoot, browserBuildMetadataFile),
+      JSON.stringify({ target: build.targetName, mode: build.mode, browserApplicationId: browserId }),
+    )
   }
-  writeFileSync(join(workerRoot, 'worker.config.json'), JSON.stringify({ ...worker, manifest: { type: 'complete', mainModule: 'index.js', modules } }))
-  writeFileSync(join(outputRoot, 'config.json'), JSON.stringify({ accountId: config.accountId, buildContext: { mode: build.mode, isPreview: false } }))
+  writeFileSync(
+    join(workerRoot, 'worker.config.json'),
+    JSON.stringify({ ...worker, manifest: { type: 'complete', mainModule: 'index.js', modules } }),
+  )
+  writeFileSync(
+    join(outputRoot, 'config.json'),
+    JSON.stringify({ accountId: config.accountId, buildContext: { mode: build.mode, isPreview: false } }),
+  )
   return { outputRoot, workerRoot, bundleRoot }
 }
 
 function fixturePlan(args: string[]) {
   const request = parseWorkerRequest(args)
-  const plan = createWorkerPlan(request, request.targetName === 'standard' ? cloudflareTargets.standard : fixturePplTarget)
+  const plan = createWorkerPlan(
+    request,
+    request.targetName === 'standard' ? cloudflareTargets.standard : fixturePplTarget,
+  )
   const appRoot = temporaryDirectory()
-  return { ...plan, appRoot, steps: plan.steps.map(step => step.kind === 'command' ? step : Object.assign({}, step, { path: join(appRoot, '.cloudflare', basename(step.path)) })) }
+  return {
+    ...plan,
+    appRoot,
+    steps: plan.steps.map(step =>
+      step.kind === 'command'
+        ? step
+        : Object.assign({}, step, { path: join(appRoot, '.cloudflare', basename(step.path)) }),
+    ),
+  }
 }
 
 function lifecycleRuntime(plan: WorkerPlan, events: string[], failBuild = false): WorkerLifecycleRuntime {
@@ -75,13 +114,27 @@ function lifecycleRuntime(plan: WorkerPlan, events: string[], failBuild = false)
       events.push(action)
       if (action === 'build') {
         if (failBuild) throw new Error('fixture build failed')
-        outputFixture(plan.appRoot, identity(plan.request.worker, plan.request.targetName, plan.request.mode, plan.target))
+        outputFixture(
+          plan.appRoot,
+          identity(plan.request.worker, plan.request.targetName, plan.request.mode, plan.target),
+        )
       }
     },
-    print() { events.push('print') },
-    invalidate(path) { events.push('invalidate'); if (existsSync(path)) rmSync(path) },
-    stamp(...args) { events.push('stamp'); return stampWorkerArtifact(...args) },
-    verify(...args) { events.push('verify'); return verifyWorkerArtifact(...args) },
+    print() {
+      events.push('print')
+    },
+    invalidate(path) {
+      events.push('invalidate')
+      if (existsSync(path)) rmSync(path)
+    },
+    stamp(...args) {
+      events.push('stamp')
+      return stampWorkerArtifact(...args)
+    },
+    verify(...args) {
+      events.push('verify')
+      return verifyWorkerArtifact(...args)
+    },
     writeBotConfig(path, target, artifact, root) {
       events.push('bot-deploy-config')
       const config = createBotPrebuiltDeploymentConfig(target, artifact, root)
@@ -100,9 +153,15 @@ function lifecycleRuntime(plan: WorkerPlan, events: string[], failBuild = false)
 describe('Worker lifecycle command selection', () => {
   test('requires an explicit target, restricts forwarded options, and never deploys development builds', () => {
     expect(() => parseWorkerRequest(['build', 'bot'])).toThrow('CIVUP_TARGET')
-    expect(() => parseWorkerRequest(['deploy', 'activity', '--target', 'standard', '--mode', 'development'])).toThrow('cannot be deployed')
-    expect(() => parseWorkerRequest(['live', 'activity', '--target', 'standard', '--', '--remote'])).toThrow('Unsupported')
-    expect(() => parseWorkerRequest(['build', 'activity', '--target', 'standard', '--prebuilt'])).toThrow('only supported')
+    expect(() => parseWorkerRequest(['deploy', 'activity', '--target', 'standard', '--mode', 'development'])).toThrow(
+      'cannot be deployed',
+    )
+    expect(() => parseWorkerRequest(['live', 'activity', '--target', 'standard', '--', '--remote'])).toThrow(
+      'Unsupported',
+    )
+    expect(() => parseWorkerRequest(['build', 'activity', '--target', 'standard', '--prebuilt'])).toThrow(
+      'only supported',
+    )
     expect(parseWorkerRequest(['build', 'bot', '--target', 'ppl']).mode).toBe('production')
     expect(parseWorkerRequest(['live', 'activity', '--target', 'standard', '--', '--force']).mode).toBe('development')
   })
@@ -114,7 +173,9 @@ describe('Worker lifecycle command selection', () => {
       expect(command.kind).toBe('command')
       if (command.kind !== 'command') throw new Error('Missing build command')
       expect(command.cmd[0]).toBe('node')
-      expect(command.cmd[3]!.replaceAll('\\', '/')).toEndWith(worker === 'bot' ? '/wrangler/bin/cf-wrangler.js' : '/vite-plus/bin/vp')
+      expect(command.cmd[3]!.replaceAll('\\', '/')).toEndWith(
+        worker === 'bot' ? '/wrangler/bin/cf-wrangler.js' : '/vite-plus/bin/vp',
+      )
       expect(command.cmd.slice(4)).toEqual(['build', '--mode', 'production'])
       expect(command.env.CLOUDFLARE_ACCOUNT_ID).toBe(fixturePplTarget.accountId)
       expect(command.env.CLOUDFLARE_ACCOUNT_ID).not.toBe(cloudflareTargets.standard.accountId)
@@ -132,7 +193,10 @@ describe('Worker lifecycle command selection', () => {
     expect(botCommand.cmd[botCommand.cmd.indexOf('--persist-to') + 1]).toBe(resolve('apps/bot/.wrangler/state'))
     expect(botCommand.cmd).not.toContain('--config')
     for (const action of ['preview', 'live'] as const) {
-      const activity = createWorkerPlan(parseWorkerRequest([action, 'activity', '--target', 'standard']), cloudflareTargets.standard)
+      const activity = createWorkerPlan(
+        parseWorkerRequest([action, 'activity', '--target', 'standard']),
+        cloudflareTargets.standard,
+      )
       expect(activity.steps.some(step => step.kind === 'verify')).toBe(action === 'preview')
       const command = activity.steps.find(step => step.kind === 'command')!
       if (command.kind !== 'command') throw new Error('Missing local command')
@@ -147,7 +211,14 @@ describe('Worker lifecycle command selection', () => {
       const plan = fixturePlan(['deploy', worker, '--target', 'standard'])
       const events: string[] = []
       await executeWorkerPlan(plan, lifecycleRuntime(plan, events))
-      expect(events).toEqual(['invalidate', 'build', 'stamp', 'verify', ...(worker === 'bot' ? ['bot-deploy-config'] : []), 'deploy'])
+      expect(events).toEqual([
+        'invalidate',
+        'build',
+        'stamp',
+        'verify',
+        ...(worker === 'bot' ? ['bot-deploy-config'] : []),
+        'deploy',
+      ])
       const command = plan.steps.at(-1)!
       if (command.kind !== 'command') throw new Error('Missing deploy command')
       expect(command.cmd).toContain(worker === 'bot' ? '--no-bundle' : '--prebuilt')
@@ -168,7 +239,9 @@ describe('Worker lifecycle command selection', () => {
     outputFixture(rebuild.appRoot, identity('bot', 'ppl'))
     stampWorkerArtifact(rebuild.appRoot, identity('bot', 'ppl'))
     events.length = 0
-    await expect(executeWorkerPlan(rebuild, lifecycleRuntime(rebuild, events, true))).rejects.toThrow('fixture build failed')
+    await expect(executeWorkerPlan(rebuild, lifecycleRuntime(rebuild, events, true))).rejects.toThrow(
+      'fixture build failed',
+    )
     expect(events).toEqual(['invalidate', 'build'])
     expect(existsSync(join(rebuild.appRoot, buildStampRelativePath))).toBe(false)
   })
@@ -181,11 +254,20 @@ describe('Worker lifecycle command selection', () => {
   })
 
   test('the actual CLI preview works offline and does not print inherited credentials', () => {
-    const result = spawnSync(process.execPath, ['scripts/cloudflare-worker.ts', 'deploy', 'bot', '--target', 'ppl', '--prebuilt', '--print-commands'], {
-      cwd: resolve('.'),
-      encoding: 'utf8',
-      env: { ...process.env, CIVUP_LOCAL_TARGETS_FILE: fixtureLocalTargetsFile, CLOUDFLARE_API_TOKEN: 'fixture-secret-do-not-print', DISCORD_TOKEN: 'fixture-secret-do-not-print' },
-    })
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/cloudflare-worker.ts', 'deploy', 'bot', '--target', 'ppl', '--prebuilt', '--print-commands'],
+      {
+        cwd: resolve('.'),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          CIVUP_LOCAL_TARGETS_FILE: fixtureLocalTargetsFile,
+          CLOUDFLARE_API_TOKEN: 'fixture-secret-do-not-print',
+          DISCORD_TOKEN: 'fixture-secret-do-not-print',
+        },
+      },
+    )
     expect(result.status).toBe(0)
     expect(result.stdout).not.toContain('fixture-secret-do-not-print')
     const plan = JSON.parse(result.stdout) as WorkerPlan
@@ -200,8 +282,13 @@ describe('checked Worker artifacts', () => {
       const root = temporaryDirectory()
       const fixture = outputFixture(root, identity())
       const assetsRoot = join(fixture.workerRoot, 'assets')
-      if (mutation === 'placeholder') writeFileSync(join(assetsRoot, 'client.css'), '#--unocss--{layer:__ALL__}.grid{display:grid}.flex{display:flex}')
-      if (mutation === 'utilities') writeFileSync(join(assetsRoot, 'client.css'), '@font-face { font-family: fixture; }')
+      if (mutation === 'placeholder')
+        writeFileSync(
+          join(assetsRoot, 'client.css'),
+          '#--unocss--{layer:__ALL__}.grid{display:grid}.flex{display:flex}',
+        )
+      if (mutation === 'utilities')
+        writeFileSync(join(assetsRoot, 'client.css'), '@font-face { font-family: fixture; }')
       if (mutation === 'link') writeFileSync(join(assetsRoot, 'index.html'), '<script src="client.js"></script>')
       expect(() => stampWorkerArtifact(root, identity())).toThrow('missing its layout styles')
     }
@@ -217,7 +304,11 @@ describe('checked Worker artifacts', () => {
     writeFileSync(configPath, JSON.stringify(config))
     const appRequire = createRequire(resolve('apps/bot/package.json'))
     const script = `const wrangler = require(${JSON.stringify(appRequire.resolve('wrangler'))}); const config = wrangler.unstable_readConfig({ config: process.argv[1] }, { hideWarnings: true }); console.log(JSON.stringify({ main: config.main, account: config.account_id, noBundle: config.no_bundle, baseDir: config.base_dir, additional: config.find_additional_modules, rules: config.rules, tags: config.migrations.map(item => item.tag), keepVars: config.keep_vars }));`
-    const result = spawnSync('node', ['-e', script, configPath], { cwd: root, encoding: 'utf8', env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } })
+    const result = spawnSync('node', ['-e', script, configPath], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
+    })
     expect(result.status).toBe(0)
     const parsed = JSON.parse(result.stdout)
     expect(parsed.main).toBe(artifact.entrypoint)
@@ -251,7 +342,9 @@ describe('checked Worker artifacts', () => {
     stampWorkerArtifact(root, identity())
     expect(() => verifyWorkerArtifact(root, identity('activity', 'ppl'))).toThrow('different target')
     const changedAccount = { ...cloudflareTargets.standard, accountId: fixturePplTarget.accountId }
-    expect(() => verifyWorkerArtifact(root, identity('activity', 'standard', 'production', changedAccount))).toThrow('different target')
+    expect(() => verifyWorkerArtifact(root, identity('activity', 'standard', 'production', changedAccount))).toThrow(
+      'different target',
+    )
   })
 
   test('rejects changed account, browser ID, settings, duplicate Workers, or missing Worker/assets', () => {
@@ -259,8 +352,23 @@ describe('checked Worker artifacts', () => {
       const root = temporaryDirectory()
       const fixture = outputFixture(root, identity())
       stampWorkerArtifact(root, identity())
-      if (mutation === 'account') writeFileSync(join(fixture.outputRoot, 'config.json'), JSON.stringify({ accountId: fixturePplTarget.accountId, buildContext: { mode: 'production', isPreview: false } }))
-      if (mutation === 'browser') writeFileSync(join(fixture.workerRoot, 'assets', browserBuildMetadataFile), JSON.stringify({ target: 'standard', mode: 'production', browserApplicationId: fixturePplTarget.discord.applicationId }))
+      if (mutation === 'account')
+        writeFileSync(
+          join(fixture.outputRoot, 'config.json'),
+          JSON.stringify({
+            accountId: fixturePplTarget.accountId,
+            buildContext: { mode: 'production', isPreview: false },
+          }),
+        )
+      if (mutation === 'browser')
+        writeFileSync(
+          join(fixture.workerRoot, 'assets', browserBuildMetadataFile),
+          JSON.stringify({
+            target: 'standard',
+            mode: 'production',
+            browserApplicationId: fixturePplTarget.discord.applicationId,
+          }),
+        )
       if (mutation === 'settings') {
         const path = join(fixture.workerRoot, 'worker.config.json')
         const worker = JSON.parse(readFileSync(path, 'utf8'))
@@ -284,8 +392,13 @@ describe('checked Worker artifacts', () => {
     stampWorkerArtifact(root, identity())
     writeFileSync(join(fixture.workerRoot, 'assets/extra.txt'), 'unverified extra asset')
     expect(() => verifyWorkerArtifact(root, identity())).toThrow('files changed')
-    const target = { ...cloudflareTargets.standard, discord: { ...cloudflareTargets.standard.discord, guildId: '123456789012345678' } }
-    expect(() => verifyWorkerArtifact(root, identity('activity', 'standard', 'production', target))).toThrow('settings changed')
+    const target = {
+      ...cloudflareTargets.standard,
+      discord: { ...cloudflareTargets.standard.discord, guildId: '123456789012345678' },
+    }
+    expect(() => verifyWorkerArtifact(root, identity('activity', 'standard', 'production', target))).toThrow(
+      'settings changed',
+    )
   })
 
   test('development artifacts cannot substitute for production, including dev Discord IDs', () => {

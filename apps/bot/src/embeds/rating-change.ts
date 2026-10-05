@@ -3,7 +3,8 @@ import { publicRatingPresentation } from '@civup/rating'
 
 export function formatPublicRatingSnapshotChange(snapshot: PublicRatingSnapshot): string | null {
   if (snapshot.ratingSystem !== 'rp') return null
-  if (!snapshot.publicRatingReady || snapshot.publicRatingBefore == null || snapshot.publicRatingAfter == null) return '`Rating pending`'
+  if (!snapshot.publicRatingReady || snapshot.publicRatingBefore == null || snapshot.publicRatingAfter == null)
+    return '`Rating pending`'
   const rating = publicRatingPresentation(snapshot.publicRatingBefore, snapshot.publicRatingAfter)
   return formatDisplayRatingChange(rating.before, rating.after)
 }

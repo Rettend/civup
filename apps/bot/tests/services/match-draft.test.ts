@@ -1,8 +1,16 @@
 import type { DraftInput, DraftSeat, DraftState } from '@civup/game'
-import { matchBans, matches, matchParticipants } from '@civup/db'
-import { civBlitz2v2, createDraft, default2v2, getCivBlitzRegistry, isDraftError, processDraftInput, swapSeatPicks } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { matchBans, matches, matchParticipants } from '@civup/db'
+import {
+  civBlitz2v2,
+  createDraft,
+  default2v2,
+  getCivBlitzRegistry,
+  isDraftError,
+  processDraftInput,
+  swapSeatPicks,
+} from '@civup/game'
 import { splitValuesForD1InsertLimit } from '../../src/services/match/draft.ts'
 import { activateDraftMatch, createDraftMatch } from '../../src/services/match/index.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -37,22 +45,16 @@ describe('draft match activation', () => {
       expect(result.match.status).toBe('active')
       expect(result.participants).toHaveLength(4)
 
-      const [storedMatch] = await db
-        .select()
-        .from(matches)
-        .where(eq(matches.id, matchId))
-        .limit(1)
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
       expect(storedMatch?.status).toBe('active')
-      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string } : null
+      const storedDraftData = storedMatch?.draftData
+        ? (JSON.parse(storedMatch.draftData) as { leaderDataVersion?: string })
+        : null
       expect(storedDraftData?.leaderDataVersion).toBe('beta')
 
-      const storedBans = await db
-        .select()
-        .from(matchBans)
-        .where(eq(matchBans.matchId, matchId))
+      const storedBans = await db.select().from(matchBans).where(eq(matchBans.matchId, matchId))
       expect(storedBans.length).toBeGreaterThan(0)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -88,16 +90,13 @@ describe('draft match activation', () => {
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      const [storedMatch] = await db
-        .select()
-        .from(matches)
-        .where(eq(matches.id, matchId))
-        .limit(1)
-      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { doublePickMetrics?: typeof metrics } : null
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      const storedDraftData = storedMatch?.draftData
+        ? (JSON.parse(storedMatch.draftData) as { doublePickMetrics?: typeof metrics })
+        : null
 
       expect(storedDraftData?.doublePickMetrics).toEqual(metrics)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -159,26 +158,28 @@ describe('draft match activation', () => {
       expect('error' in result).toBe(false)
       if ('error' in result) return
 
-      const expectedLeaderByPlayer = new Map(leaderAbilityComponents.map((component, index) => [
-        seats[index]!.playerId,
-        component.sourceLeaderId,
-      ]))
+      const expectedLeaderByPlayer = new Map(
+        leaderAbilityComponents.map((component, index) => [seats[index]!.playerId, component.sourceLeaderId]),
+      )
       const civByPlayer = new Map(result.participants.map(participant => [participant.playerId, participant.civId]))
       for (const seat of seats) {
         expect(civByPlayer.get(seat.playerId)).toBe(expectedLeaderByPlayer.get(seat.playerId))
       }
 
       const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
-      const storedCivByPlayer = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
+      const storedCivByPlayer = new Map(
+        storedParticipants.map(participant => [participant.playerId, participant.civId]),
+      )
       for (const seat of seats) {
         expect(storedCivByPlayer.get(seat.playerId)).toBe(expectedLeaderByPlayer.get(seat.playerId))
       }
 
       const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
-      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { civBlitz?: boolean } : null
+      const storedDraftData = storedMatch?.draftData
+        ? (JSON.parse(storedMatch.draftData) as { civBlitz?: boolean })
+        : null
       expect(storedDraftData?.civBlitz).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -204,10 +205,7 @@ describe('draft match activation', () => {
         hostId: seats[0]?.playerId ?? 'p1',
       })
       if ('error' in activated) throw new Error(activated.error)
-      const bansBeforeSync = await db
-        .select()
-        .from(matchBans)
-        .where(eq(matchBans.matchId, matchId))
+      const bansBeforeSync = await db.select().from(matchBans).where(eq(matchBans.matchId, matchId))
 
       const swappedPicks = swapSeatPicks(completedState, 0, 2)
       if ('error' in swappedPicks) throw new Error(swappedPicks.error)
@@ -229,14 +227,8 @@ describe('draft match activation', () => {
       expect(synced.alreadyActive).toBe(true)
       expect(sqlTracker.counts.rowsWritten).toBe(3)
 
-      const storedParticipants = await db
-        .select()
-        .from(matchParticipants)
-        .where(eq(matchParticipants.matchId, matchId))
-      const bansAfterSync = await db
-        .select()
-        .from(matchBans)
-        .where(eq(matchBans.matchId, matchId))
+      const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
+      const bansAfterSync = await db.select().from(matchBans).where(eq(matchBans.matchId, matchId))
       const civByPlayer = new Map(storedParticipants.map(participant => [participant.playerId, participant.civId]))
 
       expect(bansAfterSync).toEqual(bansBeforeSync)
@@ -245,22 +237,22 @@ describe('draft match activation', () => {
       expect(civByPlayer.get('p2')).toBe(completedState.picks.find(pick => pick.seatIndex === 1)?.civId ?? null)
       expect(civByPlayer.get('p4')).toBe(completedState.picks.find(pick => pick.seatIndex === 3)?.civId ?? null)
 
-      const [storedMatch] = await db
-        .select()
-        .from(matches)
-        .where(eq(matches.id, matchId))
-        .limit(1)
-      const storedDraftData = storedMatch?.draftData ? JSON.parse(storedMatch.draftData) as { state?: { picks?: DraftState['picks'] } } : null
+      const [storedMatch] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1)
+      const storedDraftData = storedMatch?.draftData
+        ? (JSON.parse(storedMatch.draftData) as { state?: { picks?: DraftState['picks'] } })
+        : null
       expect(storedDraftData?.state?.picks).toEqual(swappedPicks)
-    }
-    finally {
+    } finally {
       sqlTracker.restore()
       sqlite.close()
     }
   })
 
   test('splits 12 participant inserts to stay under the D1 variable limit', () => {
-    const chunks = splitValuesForD1InsertLimit(Array.from({ length: 12 }, (_value, index) => index), 9)
+    const chunks = splitValuesForD1InsertLimit(
+      Array.from({ length: 12 }, (_value, index) => index),
+      9,
+    )
 
     expect(chunks).toHaveLength(2)
     expect(chunks[0]).toHaveLength(11)
@@ -280,11 +272,14 @@ describe('draft match activation', () => {
           { playerId: 'p2', displayName: 'P2' },
         ],
       })
-      await db.update(matches).set({
-        status: 'cancelled',
-        completedAt: 1_700_000_000_000,
-        draftData: '{"old":true}',
-      }).where(eq(matches.id, matchId))
+      await db
+        .update(matches)
+        .set({
+          status: 'cancelled',
+          completedAt: 1_700_000_000_000,
+          draftData: '{"old":true}',
+        })
+        .where(eq(matches.id, matchId))
       await db.update(matchParticipants).set({ civId: 'old-civ' }).where(eq(matchParticipants.matchId, matchId))
       await db.insert(matchBans).values({
         matchId,
@@ -314,8 +309,7 @@ describe('draft match activation', () => {
       expect(storedParticipants.map(participant => participant.playerId).sort()).toEqual(['p2', 'p3'])
       expect(storedParticipants.every(participant => participant.civId == null)).toBe(true)
       expect(storedBans).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -333,16 +327,12 @@ describe('draft match activation', () => {
         seats,
       })
 
-      const storedParticipants = await db
-        .select()
-        .from(matchParticipants)
-        .where(eq(matchParticipants.matchId, matchId))
+      const storedParticipants = await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))
 
       expect(storedParticipants).toHaveLength(12)
       expect(storedParticipants.filter(participant => participant.team === 0)).toHaveLength(6)
       expect(storedParticipants.filter(participant => participant.team === 1)).toHaveLength(6)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -384,9 +374,8 @@ function buildCompleted2v2DraftState(matchId: string, seats: DraftSeat[]): Draft
     const step = state.steps[state.currentStepIndex]
     if (!step) throw new Error('Expected an active draft step')
 
-    const activeSeatIndices = step.seats === 'all'
-      ? Array.from({ length: state.seats.length }, (_value, index) => index)
-      : [...step.seats]
+    const activeSeatIndices =
+      step.seats === 'all' ? Array.from({ length: state.seats.length }, (_value, index) => index) : [...step.seats]
 
     if (step.action === 'ban') {
       const reserved = new Set<string>()

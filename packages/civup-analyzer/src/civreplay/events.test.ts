@@ -1,126 +1,198 @@
-import { expect, test } from 'bun:test'
 import type { CivReplayMapTileSnapshot } from './map.ts'
 import type { CivReplayCitySnapshot, CivReplayPlayerSnapshot, CivReplayUnitSnapshot } from './players.ts'
 import type { CivReplayTurnSnapshot } from './snapshot.ts'
+import { expect, test } from 'bun:test'
 import { attachCivReplaySnapshotEvents } from './events.ts'
 
 test('derives government, religion, hut, built item, and initial governor events', () => {
   const snapshots = [
-    snapshot(1, [player({
-      id: 0,
-      government: 1,
-      lastTurnChangeGovernment: 1,
-      policies: [[10], [], [], []],
-      pantheon: 0xFFFFFFFF,
-      goodyHuts: [{ hash: 99, value: 1 }],
-      cities: [city({ id: 5, religion: 0xFFFFFFFF, builtItems: [{ hash: 100, value: 0xFFFF }, { hash: 101, value: 77 }] })],
-    })]),
-    snapshot(2, [player({
-      id: 0,
-      government: 2,
-      lastTurnChangeGovernment: 2,
-      policies: [[10], [20], [], []],
-      pantheon: 3000,
-      goodyHuts: [{ hash: 99, value: 2 }, { hash: 98, value: 1 }],
-      governors: [{ id: 1, type: 200, player: 0, city: 5, turns: [], promotions: [{ hash: 300, value: 1 }] }],
-      cities: [city({ id: 5, religion: 4000, builtItems: [{ hash: 100, value: 1200 }, { hash: 101, value: 77 }, { hash: 102, value: 0xFFFF }] })],
-    })]),
+    snapshot(1, [
+      player({
+        id: 0,
+        government: 1,
+        lastTurnChangeGovernment: 1,
+        policies: [[10], [], [], []],
+        pantheon: 0xffffffff,
+        goodyHuts: [{ hash: 99, value: 1 }],
+        cities: [
+          city({
+            id: 5,
+            religion: 0xffffffff,
+            builtItems: [
+              { hash: 100, value: 0xffff },
+              { hash: 101, value: 77 },
+            ],
+          }),
+        ],
+      }),
+    ]),
+    snapshot(2, [
+      player({
+        id: 0,
+        government: 2,
+        lastTurnChangeGovernment: 2,
+        policies: [[10], [20], [], []],
+        pantheon: 3000,
+        goodyHuts: [
+          { hash: 99, value: 2 },
+          { hash: 98, value: 1 },
+        ],
+        governors: [{ id: 1, type: 200, player: 0, city: 5, turns: [], promotions: [{ hash: 300, value: 1 }] }],
+        cities: [
+          city({
+            id: 5,
+            religion: 4000,
+            builtItems: [
+              { hash: 100, value: 1200 },
+              { hash: 101, value: 77 },
+              { hash: 102, value: 0xffff },
+            ],
+          }),
+        ],
+      }),
+    ]),
   ]
 
   attachCivReplaySnapshotEvents(snapshots)
 
   expect(snapshots[0]!.events).toEqual([])
-  expect(snapshots[1]!.events.filter(event => event.type === 'governmentChanged')).toEqual([{
-    type: 'governmentChanged',
-    turn: 2,
-    playerId: 0,
-    previousGovernment: 1,
-    currentGovernment: 2,
-    previousLastTurnChangeGovernment: 1,
-    currentLastTurnChangeGovernment: 2,
-    previousPolicies: [[10], [], [], []],
-    currentPolicies: [[10], [20], [], []],
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'governmentChanged')).toEqual([
+    {
+      type: 'governmentChanged',
+      turn: 2,
+      playerId: 0,
+      previousGovernment: 1,
+      currentGovernment: 2,
+      previousLastTurnChangeGovernment: 1,
+      currentLastTurnChangeGovernment: 2,
+      previousPolicies: [[10], [], [], []],
+      currentPolicies: [[10], [20], [], []],
+    },
+  ])
   expect(snapshots[1]!.events.filter(event => event.type === 'goodyHutCategoryCountChanged')).toEqual([
     { type: 'goodyHutCategoryCountChanged', turn: 2, playerId: 0, categoryHash: 98, previousValue: 0, currentValue: 1 },
     { type: 'goodyHutCategoryCountChanged', turn: 2, playerId: 0, categoryHash: 99, previousValue: 1, currentValue: 2 },
   ])
-  expect(snapshots[1]!.events.filter(event => event.type === 'pantheonChanged')).toEqual([{
-    type: 'pantheonChanged',
-    turn: 2,
-    playerId: 0,
-    previousPantheon: null,
-    currentPantheon: 3000,
-  }])
-  expect(snapshots[1]!.events.filter(event => event.type === 'cityReligionChanged')).toEqual([{
-    type: 'cityReligionChanged',
-    turn: 2,
-    playerId: 0,
-    cityId: 5,
-    name: 'Capital',
-    x: 10,
-    y: 20,
-    previousReligion: null,
-    currentReligion: 4000,
-  }])
-  expect(snapshots[1]!.events.filter(event => event.type === 'cityBuiltItemCompleted')).toEqual([{
-    type: 'cityBuiltItemCompleted',
-    turn: 2,
-    playerId: 0,
-    cityId: 5,
-    name: 'Capital',
-    x: 10,
-    y: 20,
-    itemHash: 100,
-    previousValue: 0xFFFF,
-    currentValue: 1200,
-  }])
-  expect(snapshots[1]!.events.filter(event => event.type === 'governorAssigned')).toEqual([{
-    type: 'governorAssigned',
-    turn: 2,
-    playerId: 0,
-    governorId: 1,
-    governorType: 200,
-    previousCityId: null,
-    currentCityId: 5,
-    promotionHashes: [300],
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'pantheonChanged')).toEqual([
+    {
+      type: 'pantheonChanged',
+      turn: 2,
+      playerId: 0,
+      previousPantheon: null,
+      currentPantheon: 3000,
+    },
+  ])
+  expect(snapshots[1]!.events.filter(event => event.type === 'cityReligionChanged')).toEqual([
+    {
+      type: 'cityReligionChanged',
+      turn: 2,
+      playerId: 0,
+      cityId: 5,
+      name: 'Capital',
+      x: 10,
+      y: 20,
+      previousReligion: null,
+      currentReligion: 4000,
+    },
+  ])
+  expect(snapshots[1]!.events.filter(event => event.type === 'cityBuiltItemCompleted')).toEqual([
+    {
+      type: 'cityBuiltItemCompleted',
+      turn: 2,
+      playerId: 0,
+      cityId: 5,
+      name: 'Capital',
+      x: 10,
+      y: 20,
+      itemHash: 100,
+      previousValue: 0xffff,
+      currentValue: 1200,
+    },
+  ])
+  expect(snapshots[1]!.events.filter(event => event.type === 'governorAssigned')).toEqual([
+    {
+      type: 'governorAssigned',
+      turn: 2,
+      playerId: 0,
+      governorId: 1,
+      governorType: 200,
+      previousCityId: null,
+      currentCityId: 5,
+      promotionHashes: [300],
+    },
+  ])
   expect(snapshots[1]!.events.some(event => event.type === 'governorPromoted')).toBe(false)
 })
 
 test('keeps later governor promotions and ignores built item sentinels', () => {
   const snapshots = [
-    snapshot(1, [player({
-      governors: [{ id: 1, type: 200, player: 0, city: 5, turns: [], promotions: [{ hash: 300, value: 1 }] }],
-      cities: [city({ builtItems: [{ hash: 100, value: 700 }, { hash: 101, value: 0xFFFF }, { hash: 102, value: 0 }] })],
-    })]),
-    snapshot(2, [player({
-      governors: [{ id: 1, type: 200, player: 0, city: 6, turns: [], promotions: [{ hash: 300, value: 1 }, { hash: 301, value: 1 }] }],
-      cities: [city({ builtItems: [{ hash: 100, value: 900 }, { hash: 101, value: 0xFFFF }, { hash: 102, value: 0 }] })],
-    })]),
+    snapshot(1, [
+      player({
+        governors: [{ id: 1, type: 200, player: 0, city: 5, turns: [], promotions: [{ hash: 300, value: 1 }] }],
+        cities: [
+          city({
+            builtItems: [
+              { hash: 100, value: 700 },
+              { hash: 101, value: 0xffff },
+              { hash: 102, value: 0 },
+            ],
+          }),
+        ],
+      }),
+    ]),
+    snapshot(2, [
+      player({
+        governors: [
+          {
+            id: 1,
+            type: 200,
+            player: 0,
+            city: 6,
+            turns: [],
+            promotions: [
+              { hash: 300, value: 1 },
+              { hash: 301, value: 1 },
+            ],
+          },
+        ],
+        cities: [
+          city({
+            builtItems: [
+              { hash: 100, value: 900 },
+              { hash: 101, value: 0xffff },
+              { hash: 102, value: 0 },
+            ],
+          }),
+        ],
+      }),
+    ]),
   ]
 
   attachCivReplaySnapshotEvents(snapshots)
 
   expect(snapshots[1]!.events.some(event => event.type === 'cityBuiltItemCompleted')).toBe(false)
-  expect(snapshots[1]!.events.filter(event => event.type === 'governorAssigned')).toEqual([{
-    type: 'governorAssigned',
-    turn: 2,
-    playerId: 0,
-    governorId: 1,
-    governorType: 200,
-    previousCityId: 5,
-    currentCityId: 6,
-    promotionHashes: [300, 301],
-  }])
-  expect(snapshots[1]!.events.filter(event => event.type === 'governorPromoted')).toEqual([{
-    type: 'governorPromoted',
-    turn: 2,
-    playerId: 0,
-    governorId: 1,
-    governorType: 200,
-    promotionHash: 301,
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'governorAssigned')).toEqual([
+    {
+      type: 'governorAssigned',
+      turn: 2,
+      playerId: 0,
+      governorId: 1,
+      governorType: 200,
+      previousCityId: 5,
+      currentCityId: 6,
+      promotionHashes: [300, 301],
+    },
+  ])
+  expect(snapshots[1]!.events.filter(event => event.type === 'governorPromoted')).toEqual([
+    {
+      type: 'governorPromoted',
+      turn: 2,
+      playerId: 0,
+      governorId: 1,
+      governorType: 200,
+      promotionHash: 301,
+    },
+  ])
 })
 
 test('derives dedication changes, including same hash with a new record id', () => {
@@ -134,50 +206,62 @@ test('derives dedication changes, including same hash with a new record id', () 
 
   attachCivReplaySnapshotEvents(snapshots)
 
-  expect(snapshots[1]!.events.filter(event => event.type === 'dedicationChanged')).toEqual([{
-    type: 'dedicationChanged',
-    turn: 2,
-    playerId: 0,
-    previousHash: null,
-    currentHash: hash,
-    previousRecordId: null,
-    currentRecordId: 10,
-  }])
-  expect(snapshots[2]!.events.filter(event => event.type === 'dedicationChanged')).toEqual([{
-    type: 'dedicationChanged',
-    turn: 3,
-    playerId: 0,
-    previousHash: hash,
-    currentHash: hash,
-    previousRecordId: 10,
-    currentRecordId: 11,
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'dedicationChanged')).toEqual([
+    {
+      type: 'dedicationChanged',
+      turn: 2,
+      playerId: 0,
+      previousHash: null,
+      currentHash: hash,
+      previousRecordId: null,
+      currentRecordId: 10,
+    },
+  ])
+  expect(snapshots[2]!.events.filter(event => event.type === 'dedicationChanged')).toEqual([
+    {
+      type: 'dedicationChanged',
+      turn: 3,
+      playerId: 0,
+      previousHash: hash,
+      currentHash: hash,
+      previousRecordId: 10,
+      currentRecordId: 11,
+    },
+  ])
   expect(snapshots[3]!.events.some(event => event.type === 'dedicationChanged')).toBe(false)
 })
 
 test('derives age changes without emitting score-only changes', () => {
   const snapshots = [
-    snapshot(1, [player({ era: { age: 'normal', currentScore: 18, previousScore: 0, hasGoldenAge: false, hasDarkAge: false } })]),
-    snapshot(2, [player({ era: { age: 'normal', currentScore: 22, previousScore: 0, hasGoldenAge: false, hasDarkAge: false } })]),
-    snapshot(3, [player({ era: { age: 'golden', currentScore: 45, previousScore: 44, hasGoldenAge: true, hasDarkAge: false } })]),
+    snapshot(1, [
+      player({ era: { age: 'normal', currentScore: 18, previousScore: 0, hasGoldenAge: false, hasDarkAge: false } }),
+    ]),
+    snapshot(2, [
+      player({ era: { age: 'normal', currentScore: 22, previousScore: 0, hasGoldenAge: false, hasDarkAge: false } }),
+    ]),
+    snapshot(3, [
+      player({ era: { age: 'golden', currentScore: 45, previousScore: 44, hasGoldenAge: true, hasDarkAge: false } }),
+    ]),
   ]
 
   attachCivReplaySnapshotEvents(snapshots)
 
   expect(snapshots[1]!.events.some(event => event.type === 'ageChanged')).toBe(false)
-  expect(snapshots[2]!.events.filter(event => event.type === 'ageChanged')).toEqual([{
-    type: 'ageChanged',
-    turn: 3,
-    playerId: 0,
-    previousAge: 'normal',
-    currentAge: 'golden',
-    previousCurrentScore: 22,
-    currentCurrentScore: 45,
-    previousHasGoldenAge: false,
-    currentHasGoldenAge: true,
-    previousHasDarkAge: false,
-    currentHasDarkAge: false,
-  }])
+  expect(snapshots[2]!.events.filter(event => event.type === 'ageChanged')).toEqual([
+    {
+      type: 'ageChanged',
+      turn: 3,
+      playerId: 0,
+      previousAge: 'normal',
+      currentAge: 'golden',
+      previousCurrentScore: 22,
+      currentCurrentScore: 45,
+      previousHasGoldenAge: false,
+      currentHasGoldenAge: true,
+      previousHasDarkAge: false,
+      currentHasDarkAge: false,
+    },
+  ])
 })
 
 test('attributes created units from exact current-player city centers without map data', () => {
@@ -188,27 +272,29 @@ test('attributes created units from exact current-player city centers without ma
 
   attachCivReplaySnapshotEvents(snapshots)
 
-  expect(snapshots[1]!.events.filter(event => event.type === 'unitCreated')).toEqual([{
-    type: 'unitCreated',
-    turn: 2,
-    playerId: 0,
-    unitId: 1,
-    unitType: 100,
-    x: 10,
-    y: 20,
-    name: 'Warrior',
-    cityId: 5,
-    cityName: 'Capital',
-    cityX: 10,
-    cityY: 20,
-    creationMethod: 'producedOrChopped',
-    creationConfidence: 'high',
-    creationReason: 'previous city production was this unit type',
-    previousCityProductionType: 0,
-    currentCityProductionType: null,
-    previousCityProductionItems: [100],
-    currentCityProductionItems: [],
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'unitCreated')).toEqual([
+    {
+      type: 'unitCreated',
+      turn: 2,
+      playerId: 0,
+      unitId: 1,
+      unitType: 100,
+      x: 10,
+      y: 20,
+      name: 'Warrior',
+      cityId: 5,
+      cityName: 'Capital',
+      cityX: 10,
+      cityY: 20,
+      creationMethod: 'producedOrChopped',
+      creationConfidence: 'high',
+      creationReason: 'previous city production was this unit type',
+      previousCityProductionType: 0,
+      currentCityProductionType: null,
+      previousCityProductionItems: [100],
+      currentCityProductionItems: [],
+    },
+  ])
 })
 
 test('attributes created units from uniquely nearest owner city on map tiles with duplicate city ids', () => {
@@ -219,35 +305,41 @@ test('attributes created units from uniquely nearest owner city on map tiles wit
       player({ id: 0, cities: [currentPlayerCity], units: [] }),
       player({ id: 1, cities: [otherPlayerCity], units: [] }),
     ]),
-    snapshot(2, [
-      player({ id: 0, cities: [currentPlayerCity], units: [unit({ x: 11, y: 20 })] }),
-      player({ id: 1, cities: [otherPlayerCity], units: [] }),
-    ], [tile({ x: 11, y: 20, cityId: 5 })]),
+    snapshot(
+      2,
+      [
+        player({ id: 0, cities: [currentPlayerCity], units: [unit({ x: 11, y: 20 })] }),
+        player({ id: 1, cities: [otherPlayerCity], units: [] }),
+      ],
+      [tile({ x: 11, y: 20, cityId: 5 })],
+    ),
   ]
 
   attachCivReplaySnapshotEvents(snapshots)
 
-  expect(snapshots[1]!.events.filter(event => event.type === 'unitCreated')).toEqual([{
-    type: 'unitCreated',
-    turn: 2,
-    playerId: 0,
-    unitId: 1,
-    unitType: 100,
-    x: 11,
-    y: 20,
-    name: 'Warrior',
-    cityId: 5,
-    cityName: 'Capital',
-    cityX: 10,
-    cityY: 20,
-    creationMethod: 'likelyPurchasedOrGranted',
-    creationConfidence: 'high',
-    creationReason: 'unit appeared while city production stayed on another item',
-    previousCityProductionType: null,
-    currentCityProductionType: null,
-    previousCityProductionItems: [],
-    currentCityProductionItems: [],
-  }])
+  expect(snapshots[1]!.events.filter(event => event.type === 'unitCreated')).toEqual([
+    {
+      type: 'unitCreated',
+      turn: 2,
+      playerId: 0,
+      unitId: 1,
+      unitType: 100,
+      x: 11,
+      y: 20,
+      name: 'Warrior',
+      cityId: 5,
+      cityName: 'Capital',
+      cityX: 10,
+      cityY: 20,
+      creationMethod: 'likelyPurchasedOrGranted',
+      creationConfidence: 'high',
+      creationReason: 'unit appeared while city production stayed on another item',
+      previousCityProductionType: null,
+      currentCityProductionType: null,
+      previousCityProductionItems: [],
+      currentCityProductionItems: [],
+    },
+  ])
 })
 
 test('leaves created unit city attribution null for tied or non-current-owned tiles', () => {
@@ -259,16 +351,18 @@ test('leaves created unit city attribution null for tied or non-current-owned ti
       player({ id: 0, cities: [currentPlayerCity], units: [] }),
       player({ id: 1, cities: [tiedCity, otherOwnedCity], units: [] }),
     ]),
-    snapshot(2, [
-      player({ id: 0, cities: [currentPlayerCity], units: [
-        unit({ id: 1, x: 10, y: 20 }),
-        unit({ id: 2, x: 29, y: 20 }),
-      ] }),
-      player({ id: 1, cities: [tiedCity, otherOwnedCity], units: [] }),
-    ], [
-      tile({ x: 10, y: 20, cityId: 5 }),
-      tile({ x: 29, y: 20, cityId: 6 }),
-    ]),
+    snapshot(
+      2,
+      [
+        player({
+          id: 0,
+          cities: [currentPlayerCity],
+          units: [unit({ id: 1, x: 10, y: 20 }), unit({ id: 2, x: 29, y: 20 })],
+        }),
+        player({ id: 1, cities: [tiedCity, otherOwnedCity], units: [] }),
+      ],
+      [tile({ x: 10, y: 20, cityId: 5 }), tile({ x: 29, y: 20, cityId: 6 })],
+    ),
   ]
 
   attachCivReplaySnapshotEvents(snapshots)
@@ -319,7 +413,11 @@ test('leaves created unit city attribution null for tied or non-current-owned ti
   ])
 })
 
-function snapshot(turn: number, players: CivReplayPlayerSnapshot[], tiles: CivReplayMapTileSnapshot[] = []): CivReplayTurnSnapshot {
+function snapshot(
+  turn: number,
+  players: CivReplayPlayerSnapshot[],
+  tiles: CivReplayMapTileSnapshot[] = [],
+): CivReplayTurnSnapshot {
   return {
     index: turn,
     saveName: `AutoSave_${turn.toString().padStart(4, '0')}.Civ6Save`,

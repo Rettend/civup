@@ -1,13 +1,13 @@
 import type { Database } from '@civup/db'
 import type { PlayerRating, RatingUpdate } from '@civup/rating'
-import { createDb, playerRatings } from '@civup/db'
-import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
 import { Button, Command, Components, Embed } from 'discord-hono'
 import { and, eq, inArray } from 'drizzle-orm'
-import { getIdentity, getIdentityByUserId } from './identity.ts'
+import { createDb, playerRatings } from '@civup/db'
+import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
 import { upsertPlayerProfiles } from '../services/player/profile.ts'
 import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../services/response/ephemeral.ts'
 import { factory } from '../setup.ts'
+import { getIdentity, getIdentityByUserId } from './identity.ts'
 
 const USER_COMMAND_TYPE = 2
 const DUEL_MODE = 'duel'
@@ -31,45 +31,42 @@ export interface DuelEloPreview {
   targetWin: RatingUpdate
 }
 
-export const command_preview_elo = factory.command(
-  new Command('Preview Elo').type(USER_COMMAND_TYPE),
-  (c) => {
-    const targetId = getInteractionTargetId(c.interaction.data)
-    const viewer = getIdentity(c)
+export const command_preview_elo = factory.command(new Command('Preview Elo').type(USER_COMMAND_TYPE), c => {
+  const targetId = getInteractionTargetId(c.interaction.data)
+  const viewer = getIdentity(c)
 
-    if (!viewer) return c.flags('EPHEMERAL').res('Could not identify you.')
-    if (!targetId) return c.flags('EPHEMERAL').res('Could not identify the target player.')
-    if (targetId === viewer.userId) return c.flags('EPHEMERAL').res('Pick another player to preview duel Elo.')
+  if (!viewer) return c.flags('EPHEMERAL').res('Could not identify you.')
+  if (!targetId) return c.flags('EPHEMERAL').res('Could not identify the target player.')
+  if (targetId === viewer.userId) return c.flags('EPHEMERAL').res('Pick another player to preview duel Elo.')
 
-    return c.flags('EPHEMERAL').resDefer(async (c) => {
-      try {
-        const db = createDb(c.env.DB)
-        const target = getIdentityByUserId(c, targetId) ?? {
-          userId: targetId,
-          displayName: targetId,
-          avatarUrl: null,
-        }
+  return c.flags('EPHEMERAL').resDefer(async c => {
+    try {
+      const db = createDb(c.env.DB)
+      const target = getIdentityByUserId(c, targetId) ?? {
+        userId: targetId,
+        displayName: targetId,
+        avatarUrl: null,
+      }
 
-        await upsertPlayerProfiles(db, [viewer, target].map(identity => ({
+      await upsertPlayerProfiles(
+        db,
+        [viewer, target].map(identity => ({
           playerId: identity.userId,
           displayName: identity.displayName,
           avatarUrl: identity.avatarUrl,
-        })))
-        const embed = await duelEloPreviewEmbed(db, viewer, target)
-        await c.followup({ embeds: [embed], components: previewEloComponents(), allowed_mentions: { parse: [] } })
-      }
-      catch (error) {
-        console.error('Failed to build duel Elo preview:', error)
-        await c.followup({ content: 'Failed to build this Elo preview.', allowed_mentions: { parse: [] } })
-      }
-    })
-  },
-)
+        })),
+      )
+      const embed = await duelEloPreviewEmbed(db, viewer, target)
+      await c.followup({ embeds: [embed], components: previewEloComponents(), allowed_mentions: { parse: [] } })
+    } catch (error) {
+      console.error('Failed to build duel Elo preview:', error)
+      await c.followup({ content: 'Failed to build this Elo preview.', allowed_mentions: { parse: [] } })
+    }
+  })
+})
 
 export function previewEloComponents(): Components {
-  return new Components().row(
-    new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'),
-  )
+  return new Components().row(new Button(SHOW_EPHEMERAL_RESPONSE_BUTTON_ID, 'Show', 'Secondary'))
 }
 
 function getInteractionTargetId(data: unknown): string | null {
@@ -78,7 +75,11 @@ function getInteractionTargetId(data: unknown): string | null {
   return typeof targetId === 'string' && targetId.length > 0 ? targetId : null
 }
 
-export async function duelEloPreviewEmbed(db: Database, viewer: PreviewEloIdentity, target: PreviewEloIdentity): Promise<Embed> {
+export async function duelEloPreviewEmbed(
+  db: Database,
+  viewer: PreviewEloIdentity,
+  target: PreviewEloIdentity,
+): Promise<Embed> {
   const ratings = await loadDuelPreviewRatings(db, [viewer.userId, target.userId])
   const viewerRating = ratings.get(viewer.userId) ?? defaultPreviewRating(viewer.userId)
   const targetRating = ratings.get(target.userId) ?? defaultPreviewRating(target.userId)
@@ -87,7 +88,7 @@ export async function duelEloPreviewEmbed(db: Database, viewer: PreviewEloIdenti
   return new Embed()
     .title('Preview Elo (1v1)')
     .description(`${formatUserMention(viewer.userId)} vs ${formatUserMention(target.userId)}`)
-    .color(0xC8AA6E)
+    .color(0xc8aa6e)
     .fields(
       {
         name: 'Current Elo',
@@ -140,7 +141,10 @@ export function calculateDuelEloPreview(viewer: DuelEloPreviewInput, target: Due
   }
 }
 
-async function loadDuelPreviewRatings(db: Database, playerIds: readonly string[]): Promise<Map<string, DuelEloPreviewInput>> {
+async function loadDuelPreviewRatings(
+  db: Database,
+  playerIds: readonly string[],
+): Promise<Map<string, DuelEloPreviewInput>> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return new Map()
 
@@ -154,12 +158,17 @@ async function loadDuelPreviewRatings(db: Database, playerIds: readonly string[]
     .from(playerRatings)
     .where(and(eq(playerRatings.mode, DUEL_MODE), inArray(playerRatings.playerId, uniquePlayerIds)))
 
-  return new Map(rows.map(row => [row.playerId, {
-    playerId: row.playerId,
-    mu: row.mu,
-    sigma: row.sigma,
-    gamesPlayed: row.gamesPlayed,
-  }]))
+  return new Map(
+    rows.map(row => [
+      row.playerId,
+      {
+        playerId: row.playerId,
+        mu: row.mu,
+        sigma: row.sigma,
+        gamesPlayed: row.gamesPlayed,
+      },
+    ]),
+  )
 }
 
 function defaultPreviewRating(playerId: string): DuelEloPreviewInput {

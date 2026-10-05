@@ -1,7 +1,15 @@
 import type { CompetitiveTier, DraftState, GameMode, LeaderDataVersion } from '@civup/game'
 import type { PlayerRating } from '@civup/rating'
 import type { LobbyJoinEligibilitySnapshot, LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
-import { getDefaultLeaderPoolSize, getMaxLeaderPoolSize, getMinimumLeaderPoolSize, inferGameMode, MAX_LEADER_POOL_SIZE, slotToTeamIndex, toBalanceLeaderboardMode } from '@civup/game'
+import {
+  getDefaultLeaderPoolSize,
+  getMaxLeaderPoolSize,
+  getMinimumLeaderPoolSize,
+  inferGameMode,
+  MAX_LEADER_POOL_SIZE,
+  slotToTeamIndex,
+  toBalanceLeaderboardMode,
+} from '@civup/game'
 import { calculateRatings, createRating, predictWinProbabilities } from '@civup/rating'
 
 export const MAX_TIMER_MINUTES = 30
@@ -63,51 +71,54 @@ export interface LobbyBalanceSummary {
   teams: LobbyBalanceTeamSummary[]
 }
 
-export type OptimisticLobbyAction
-  = | {
-    kind: 'place-self'
-    targetSlot: number
-    baseRevision: number
-    expiresAt: number
-  }
+export type OptimisticLobbyAction =
   | {
-    kind: 'remove-self'
-    baseRevision: number
-    expiresAt: number
-  }
+      kind: 'place-self'
+      targetSlot: number
+      baseRevision: number
+      expiresAt: number
+    }
   | {
-    kind: 'move-player'
-    playerId: string
-    targetSlot: number
-    baseRevision: number
-    expiresAt: number
-  }
+      kind: 'remove-self'
+      baseRevision: number
+      expiresAt: number
+    }
   | {
-    kind: 'remove-player'
-    playerId: string
-    baseRevision: number
-    expiresAt: number
-  }
+      kind: 'move-player'
+      playerId: string
+      targetSlot: number
+      baseRevision: number
+      expiresAt: number
+    }
+  | {
+      kind: 'remove-player'
+      playerId: string
+      baseRevision: number
+      expiresAt: number
+    }
 
-export type PendingOptimisticLobbyAction
-  = | {
-    kind: 'place-self'
-    targetSlot: number
-  }
+export type PendingOptimisticLobbyAction =
   | {
-    kind: 'remove-self'
-  }
+      kind: 'place-self'
+      targetSlot: number
+    }
   | {
-    kind: 'move-player'
-    playerId: string
-    targetSlot: number
-  }
+      kind: 'remove-self'
+    }
   | {
-    kind: 'remove-player'
-    playerId: string
-  }
+      kind: 'move-player'
+      playerId: string
+      targetSlot: number
+    }
+  | {
+      kind: 'remove-player'
+      playerId: string
+    }
 
-export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUserId: string | null = null): LobbyBalanceSummary | null {
+export function buildLobbyBalanceSummary(
+  lobby: LobbySnapshot | null,
+  currentUserId: string | null = null,
+): LobbyBalanceSummary | null {
   if (!lobby) return null
 
   const mode = inferGameMode(lobby.mode)
@@ -143,12 +154,17 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
     .sort((left, right) => left[0] - right[0])
   if (activeTeams.length < 2) return null
 
-  const teamRatings = activeTeams.map(([, players]) => players.map(player => ({
-    playerId: player.playerId,
-    mu: player.mu,
-    sigma: player.sigma,
-    gamesPlayed: player.gamesPlayed,
-  } satisfies PlayerRating)))
+  const teamRatings = activeTeams.map(([, players]) =>
+    players.map(
+      player =>
+        ({
+          playerId: player.playerId,
+          mu: player.mu,
+          sigma: player.sigma,
+          gamesPlayed: player.gamesPlayed,
+        }) satisfies PlayerRating,
+    ),
+  )
   const probabilities = predictTeamProbabilities(teamRatings)
   if (!probabilities) return null
 
@@ -162,21 +178,24 @@ export function buildLobbyBalanceSummary(lobby: LobbySnapshot | null, currentUse
         playerCount: players.length,
         probability,
         uncertainty: estimateProbabilityUncertainty(teams, index, probability),
-        projectedWinDelta: lobby.entries.some(entry => entry?.balanceRating?.ratingSystem === 'rp') ? null : estimateProjectedWinDelta(teams, index, currentUserId),
+        projectedWinDelta: lobby.entries.some(entry => entry?.balanceRating?.ratingSystem === 'rp')
+          ? null
+          : estimateProjectedWinDelta(teams, index, currentUserId),
       }
     }),
   }
 }
 
-function estimateProjectedWinDelta(teams: LobbyBalancePlayer[][], winningTeamIndex: number, currentUserId: string | null): LobbyBalanceProjectedWinDelta | null {
+function estimateProjectedWinDelta(
+  teams: LobbyBalancePlayer[][],
+  winningTeamIndex: number,
+  currentUserId: string | null,
+): LobbyBalanceProjectedWinDelta | null {
   if (teams.length !== 2) return null
   if (!currentUserId) return null
 
   try {
-    const orderedTeams = [
-      teams[winningTeamIndex] ?? [],
-      teams[winningTeamIndex === 0 ? 1 : 0] ?? [],
-    ]
+    const orderedTeams = [teams[winningTeamIndex] ?? [], teams[winningTeamIndex === 0 ? 1 : 0] ?? []]
     const updates = calculateRatings({
       type: 'team',
       teams: orderedTeams.map(players => ({
@@ -191,8 +210,7 @@ function estimateProjectedWinDelta(teams: LobbyBalancePlayer[][], winningTeamInd
 
     const userUpdate = updates.find(update => update.playerId === currentUserId)
     return userUpdate ? { displayDelta: userUpdate.displayDelta } : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -203,31 +221,37 @@ function predictTeamProbabilities(teams: PlayerRating[][]): number[] | null {
     if (probabilities.length !== teams.length) return null
     if (probabilities.some(probability => typeof probability !== 'number' || !Number.isFinite(probability))) return null
     return probabilities.map(probability => Math.max(0, Math.min(1, probability)))
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
-function estimateProbabilityUncertainty(teams: LobbyBalancePlayer[][], focusTeam: number, baseProbability: number): number {
+function estimateProbabilityUncertainty(
+  teams: LobbyBalancePlayer[][],
+  focusTeam: number,
+  baseProbability: number,
+): number {
   // Use a one-sigma matchup shift instead of moving every player by full sigma.
   const playerUncertainties = teams.map(team => team.map(getPlayerPredictionUncertainty))
-  const combinedUncertainty = Math.sqrt(playerUncertainties.reduce(
-    (total, team) => total + team.reduce((teamTotal, uncertainty) => teamTotal + (uncertainty * uncertainty), 0),
-    0,
-  ))
+  const combinedUncertainty = Math.sqrt(
+    playerUncertainties.reduce(
+      (total, team) => total + team.reduce((teamTotal, uncertainty) => teamTotal + uncertainty * uncertainty, 0),
+      0,
+    ),
+  )
   if (combinedUncertainty <= 0) return 0
 
-  const optimistic = predictTeamProbabilities(adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, 1))
-  const pessimistic = predictTeamProbabilities(adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, -1))
+  const optimistic = predictTeamProbabilities(
+    adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, 1),
+  )
+  const pessimistic = predictTeamProbabilities(
+    adjustTeamRatings(teams, playerUncertainties, combinedUncertainty, focusTeam, -1),
+  )
   if (!optimistic || !pessimistic) return 0
 
   const optimisticProbability = optimistic[focusTeam] ?? baseProbability
   const pessimisticProbability = pessimistic[focusTeam] ?? baseProbability
-  return Math.max(
-    Math.abs(baseProbability - optimisticProbability),
-    Math.abs(baseProbability - pessimisticProbability),
-  )
+  return Math.max(Math.abs(baseProbability - optimisticProbability), Math.abs(baseProbability - pessimisticProbability))
 }
 
 function getPlayerPredictionUncertainty(player: LobbyBalancePlayer): number {
@@ -241,15 +265,17 @@ function adjustTeamRatings(
   focusTeam: number,
   direction: 1 | -1,
 ): PlayerRating[][] {
-  return teams.map((team, teamIndex) => team.map((player, playerIndex) => {
-    const playerUncertainty = playerUncertainties[teamIndex]?.[playerIndex] ?? 0
-    const shift = (playerUncertainty * playerUncertainty) / combinedUncertainty
-    return {
-      playerId: player.playerId,
-      mu: player.mu + ((teamIndex === focusTeam ? direction : -direction) * shift),
-      sigma: player.sigma,
-    }
-  }))
+  return teams.map((team, teamIndex) =>
+    team.map((player, playerIndex) => {
+      const playerUncertainty = playerUncertainties[teamIndex]?.[playerIndex] ?? 0
+      const shift = (playerUncertainty * playerUncertainty) / combinedUncertainty
+      return {
+        playerId: player.playerId,
+        mu: player.mu + (teamIndex === focusTeam ? direction : -direction) * shift,
+        sigma: player.sigma,
+      }
+    }),
+  )
 }
 
 export function resolveOptimisticLobbyPlacementAction(
@@ -339,13 +365,20 @@ export function getLeaderPoolSizeMaximum(version: LeaderDataVersion): number {
   return getMaxLeaderPoolSize(version)
 }
 
-export function supportsBlindBansControl(mode: GameMode, options: { redDeath?: boolean, targetSize?: number } = {}): boolean {
+export function supportsBlindBansControl(
+  mode: GameMode,
+  options: { redDeath?: boolean; targetSize?: number } = {},
+): boolean {
   if (options.redDeath) return false
   if (mode === '2v2') return options.targetSize === 4
   return true
 }
 
-export function parseLeaderPoolSizeInput(value: string, minimum: number, maximum: number = MAX_LEADER_POOL_INPUT): number | null | undefined {
+export function parseLeaderPoolSizeInput(
+  value: string,
+  minimum: number,
+  maximum: number = MAX_LEADER_POOL_INPUT,
+): number | null | undefined {
   const trimmed = value.trim()
   if (!trimmed) return null
 
@@ -361,7 +394,10 @@ export function formatLeaderPoolValue(
   playerCount: number,
   targetSize?: number,
 ): string {
-  return String(leaderPoolSize ?? getDefaultLeaderPoolSize(mode, resolveLeaderPoolDefaultPlayerCount(mode, playerCount, targetSize)))
+  return String(
+    leaderPoolSize ??
+      getDefaultLeaderPoolSize(mode, resolveLeaderPoolDefaultPlayerCount(mode, playerCount, targetSize)),
+  )
 }
 
 function resolveLeaderPoolDefaultPlayerCount(mode: GameMode, playerCount: number, targetSize?: number): number {
@@ -374,7 +410,10 @@ export function normalizeLobbyRankRoleValue(value: string): CompetitiveTier | nu
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function findRankedRoleOptionByTier(options: RankedRoleOptionSnapshot[], tier: CompetitiveTier): RankedRoleOptionSnapshot | null {
+export function findRankedRoleOptionByTier(
+  options: RankedRoleOptionSnapshot[],
+  tier: CompetitiveTier,
+): RankedRoleOptionSnapshot | null {
   return options.find(option => option.tier === tier) ?? null
 }
 
@@ -445,7 +484,10 @@ export function applyOptimisticLobbyAction(
       if (targetEntry && targetEntry.playerId !== playerId) return false
       entries[targetSlot] = {
         playerId,
-        displayName: typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0 ? currentUserDisplayName : 'You',
+        displayName:
+          typeof currentUserDisplayName === 'string' && currentUserDisplayName.trim().length > 0
+            ? currentUserDisplayName
+            : 'You',
         avatarUrl: currentUserAvatarUrl || null,
       }
       return true

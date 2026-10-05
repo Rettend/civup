@@ -41,8 +41,7 @@ export async function storeActivityLaunchTargetSelection(
       body: JSON.stringify(payload),
     })
     if (!response.ok) console.warn(`Activity launch target store failed: ${response.status} ${await response.text()}`)
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity launch target store failed', error)
   }
 }
@@ -64,8 +63,7 @@ export async function readActivityLaunchTargetSelection(
     const target = parseStoredActivityLaunchTargetSelection(body?.target ?? null)
     if (!target) return null
     return target.kind === 'overview' ? { kind: 'overview' } : { kind: target.kind, id: target.id }
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity launch target read failed', error)
     return null
   }
@@ -83,8 +81,7 @@ export async function clearActivityLaunchTargetSelection(
       method: 'DELETE',
       headers: activityLaunchTargetHeaders(internalSecret),
     })
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity launch target clear failed', error)
   }
 }
@@ -108,8 +105,7 @@ export async function storeActivityFollowTargetSelection(
       body: JSON.stringify(payload),
     })
     if (!response.ok) console.warn(`Activity follow target store failed: ${response.status} ${await response.text()}`)
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity follow target store failed', error)
   }
 }
@@ -130,8 +126,7 @@ export async function readActivityFollowTargetSelection(
     const body = await response.json<{ target?: unknown }>().catch(() => null)
     const target = parseStoredActivityFollowTargetSelection(body?.target ?? null)
     return target ? { kind: target.kind, id: target.id } : null
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity follow target read failed', error)
     return null
   }
@@ -149,8 +144,7 @@ export async function clearActivityFollowTargetSelection(
       method: 'DELETE',
       headers: activityLaunchTargetHeaders(internalSecret),
     })
-  }
-  catch (error) {
+  } catch (error) {
     console.warn('Activity follow target clear failed', error)
   }
 }
@@ -174,7 +168,11 @@ export function parseStoredActivityFollowTargetSelection(value: unknown): Stored
   return { kind: target.kind, id: target.id, updatedAt: target.updatedAt }
 }
 
-async function fetchActivityLaunchTarget(namespace: DurableObjectNamespace, userId: string, init: RequestInit): Promise<Response> {
+async function fetchActivityLaunchTarget(
+  namespace: DurableObjectNamespace,
+  userId: string,
+  init: RequestInit,
+): Promise<Response> {
   return fetchPartyServerDurableObject(namespace, {
     party: ACTIVITY_PARTYSERVER_NAMESPACE,
     room: activityLaunchTargetRoom(userId),
@@ -183,7 +181,12 @@ async function fetchActivityLaunchTarget(namespace: DurableObjectNamespace, user
   })
 }
 
-async function fetchActivityFollowTarget(namespace: DurableObjectNamespace, channelId: string, userId: string, init: RequestInit): Promise<Response> {
+async function fetchActivityFollowTarget(
+  namespace: DurableObjectNamespace,
+  channelId: string,
+  userId: string,
+  init: RequestInit,
+): Promise<Response> {
   return fetchPartyServerDurableObject(namespace, {
     party: ACTIVITY_PARTYSERVER_NAMESPACE,
     room: activityFollowTargetRoom(channelId, userId),

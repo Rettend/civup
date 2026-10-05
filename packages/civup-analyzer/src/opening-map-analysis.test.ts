@@ -1,9 +1,9 @@
-import { expect, test } from 'bun:test'
 import type { CivReplayMapSnapshot, CivReplayMapTileSnapshot } from './civreplay/map.ts'
 import type { CivReplayCitySnapshot, CivReplayDistrictSnapshot, CivReplayPlayerSnapshot } from './civreplay/players.ts'
 import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
 import type { HashResolver } from './hash.ts'
 import type { OpeningMapAnalysisData } from './opening-map-analysis.ts'
+import { expect, test } from 'bun:test'
 import { civHash, formatHash } from './hash.ts'
 import {
   buildDistrictAdjacencyChanges,
@@ -76,11 +76,31 @@ test('computes district adjacency changes and luxury ownership changes from map 
   expect(buildLuxuryOwnershipChanges(snapshots, 0, hashResolver, data)).toEqual([
     {
       turn: 2,
-      resources: [{ resourceType: 'RESOURCE_SPICES', x: 3, y: 2, cityId: 5, cityName: 'Capital', improved: false, improvementType: null }],
+      resources: [
+        {
+          resourceType: 'RESOURCE_SPICES',
+          x: 3,
+          y: 2,
+          cityId: 5,
+          cityName: 'Capital',
+          improved: false,
+          improvementType: null,
+        },
+      ],
     },
     {
       turn: 3,
-      resources: [{ resourceType: 'RESOURCE_SPICES', x: 3, y: 2, cityId: 5, cityName: 'Capital', improved: true, improvementType: 'IMPROVEMENT_PLANTATION' }],
+      resources: [
+        {
+          resourceType: 'RESOURCE_SPICES',
+          x: 3,
+          y: 2,
+          cityId: 5,
+          cityName: 'Capital',
+          improved: true,
+          improvementType: 'IMPROVEMENT_PLANTATION',
+        },
+      ],
     },
   ])
 })
@@ -91,23 +111,25 @@ test('flags district placements whose saved cost is below estimated full cost', 
     adjacencyRules: [],
     luxuryResourceHashes: new Set(),
     resourceClasses: new Map(),
-    districtDefinitions: new Map([[
-      'DISTRICT_CAMPUS',
-      {
-        districtType: 'DISTRICT_CAMPUS',
-        cost: 54,
-        prereqTech: 'TECH_WRITING',
-        prereqCivic: null,
-        requiresPlacement: true,
-        requiresPopulation: true,
-        cityCenter: false,
-        aqueduct: false,
-        internalOnly: false,
-        costProgressionModel: 'COST_PROGRESSION_NUM_UNDER_AVG_PLUS_TECH',
-        costProgressionParam1: 35,
-        maxPerPlayer: -1,
-      },
-    ]]),
+    districtDefinitions: new Map([
+      [
+        'DISTRICT_CAMPUS',
+        {
+          districtType: 'DISTRICT_CAMPUS',
+          cost: 54,
+          prereqTech: 'TECH_WRITING',
+          prereqCivic: null,
+          requiresPlacement: true,
+          requiresPopulation: true,
+          cityCenter: false,
+          aqueduct: false,
+          internalOnly: false,
+          costProgressionModel: 'COST_PROGRESSION_NUM_UNDER_AVG_PLUS_TECH',
+          costProgressionParam1: 35,
+          maxPerPlayer: -1,
+        },
+      ],
+    ]),
     districtReplacements: new Map(),
     gameSpeeds: new Map([['GAMESPEED_ONLINE', { gameSpeedType: 'GAMESPEED_ONLINE', costMultiplier: 50 }]]),
     progressionTotals: { tech: 100, civic: 100 },
@@ -116,27 +138,31 @@ test('flags district placements whose saved cost is below estimated full cost', 
     unsupportedTradeRoutePolicyModifiers: [],
   }
   const snapshot = openingSnapshot(1, 'none')
-  snapshot.players.players[0]!.districts.push(district({ globalId: 40, id: 2, cityId: 5, x: 3, y: 2, type: hash('DISTRICT_CAMPUS'), cost: 14 }))
+  snapshot.players.players[0]!.districts.push(
+    district({ globalId: 40, id: 2, cityId: 5, x: 3, y: 2, type: hash('DISTRICT_CAMPUS'), cost: 14 }),
+  )
 
-  expect(buildDistrictCostChanges([snapshot], 0, hashResolver, data, 'GAMESPEED_ONLINE')).toEqual([{
-    turn: 1,
-    cityId: 5,
-    cityName: 'Capital',
-    districtGlobalId: 40,
-    districtId: 2,
-    districtType: 'DISTRICT_CAMPUS',
-    canonicalDistrictType: 'DISTRICT_CAMPUS',
-    x: 3,
-    y: 2,
-    observedCost: 14,
-    estimatedFullCost: 27,
-    discountPercent: 0.4814814814814815,
-    likelyDiscounted: true,
-    completedTechCount: 0,
-    completedCivicCount: 0,
-    gameSpeed: 'GAMESPEED_ONLINE',
-    reason: 'observed saved cost is substantially below estimated full district cost',
-  }])
+  expect(buildDistrictCostChanges([snapshot], 0, hashResolver, data, 'GAMESPEED_ONLINE')).toEqual([
+    {
+      turn: 1,
+      cityId: 5,
+      cityName: 'Capital',
+      districtGlobalId: 40,
+      districtId: 2,
+      districtType: 'DISTRICT_CAMPUS',
+      canonicalDistrictType: 'DISTRICT_CAMPUS',
+      x: 3,
+      y: 2,
+      observedCost: 14,
+      estimatedFullCost: 27,
+      discountPercent: 0.4814814814814815,
+      likelyDiscounted: true,
+      completedTechCount: 0,
+      completedCivicCount: 0,
+      gameSpeed: 'GAMESPEED_ONLINE',
+      reason: 'observed saved cost is substantially below estimated full district cost',
+    },
+  ])
 })
 
 type ResourceState = 'none' | 'unimproved' | 'improved'
@@ -156,7 +182,9 @@ function openingSnapshot(turn: number, resourceState: ResourceState): CivReplayT
     player({
       id: 1,
       cities: [rivalCity],
-      districts: [district({ globalId: 30, id: 0, cityId: 5, x: 5, y: 4, type: hash('DISTRICT_CITY_CENTER'), built: 1 })],
+      districts: [
+        district({ globalId: 30, id: 0, cityId: 5, x: 5, y: 4, type: hash('DISTRICT_CITY_CENTER'), built: 1 }),
+      ],
     }),
   ]
   return {
@@ -332,7 +360,9 @@ function mapTile(overrides: Partial<CivReplayMapTileSnapshot> = {}): CivReplayMa
   }
 }
 
-function adjacencyRule(overrides: Partial<OpeningMapAnalysisData['adjacencyRules'][number]> = {}): OpeningMapAnalysisData['adjacencyRules'][number] {
+function adjacencyRule(
+  overrides: Partial<OpeningMapAnalysisData['adjacencyRules'][number]> = {},
+): OpeningMapAnalysisData['adjacencyRules'][number] {
   return {
     id: 'Harbor_Luxury',
     districtType: 'DISTRICT_HARBOR',

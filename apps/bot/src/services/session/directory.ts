@@ -1,7 +1,7 @@
-import type { Database } from '@civup/db'
 import type { SessionPhase, SessionRecord } from '../../session-runtime/session-record.ts'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
+import type { Database } from '@civup/db'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 
 type SessionDirectoryRow = typeof sessionDirectory.$inferSelect
 type SessionDirectoryMemberRow = typeof sessionDirectoryMembers.$inferSelect
@@ -29,9 +29,8 @@ export function isSessionAdmissionError(error: unknown): error is SessionAdmissi
 }
 
 export function formatSessionAdmissionError(error: SessionAdmissionError): string {
-  const players = error.playerIds.length > 0
-    ? error.playerIds.map(playerId => `<@${playerId}>`).join(', ')
-    : 'A requested player'
+  const players =
+    error.playerIds.length > 0 ? error.playerIds.map(playerId => `<@${playerId}>`).join(', ') : 'A requested player'
   return `${players} already ${error.playerIds.length === 1 ? 'has' : 'have'} a live session. Finish, cancel, or leave it before joining another one.`
 }
 
@@ -39,56 +38,66 @@ export async function repairStaleOpenSessionDirectoryMemberships(
   db: Database,
   playerIds: readonly string[],
   now: number = Date.now(),
-  options: { excludeSessionIds?: readonly string[], staleMs?: number } = {},
-): Promise<{ sessionIds: string[], playerIds: string[] }> {
+  options: { excludeSessionIds?: readonly string[]; staleMs?: number } = {},
+): Promise<{ sessionIds: string[]; playerIds: string[] }> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return { sessionIds: [], playerIds: [] }
 
   const excludedSessionIds = new Set(options.excludeSessionIds ?? [])
-  const candidates = await db.select({
-    sessionId: sessionDirectoryMembers.sessionId,
-    playerId: sessionDirectoryMembers.playerId,
-    updatedAt: sessionDirectory.updatedAt,
-    lastActivityAt: sessionDirectory.lastActivityAt,
-  })
+  const candidates = await db
+    .select({
+      sessionId: sessionDirectoryMembers.sessionId,
+      playerId: sessionDirectoryMembers.playerId,
+      updatedAt: sessionDirectory.updatedAt,
+      lastActivityAt: sessionDirectory.lastActivityAt,
+    })
     .from(sessionDirectoryMembers)
     .innerJoin(sessionDirectory, eq(sessionDirectory.sessionId, sessionDirectoryMembers.sessionId))
-    .where(and(
-      inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
-      isNull(sessionDirectoryMembers.leftAt),
-      eq(sessionDirectory.phase, 'open'),
-      isNull(sessionDirectory.matchId),
-    ))
+    .where(
+      and(
+        inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
+        isNull(sessionDirectoryMembers.leftAt),
+        eq(sessionDirectory.phase, 'open'),
+        isNull(sessionDirectory.matchId),
+      ),
+    )
 
-  const staleSessionIds = [...new Set(candidates
-    .filter(row => !excludedSessionIds.has(row.sessionId) && isStaleOpenDirectoryMembership(row, now, options.staleMs ?? SESSION_DIRECTORY_OPEN_STALE_MS))
-    .map(row => row.sessionId))]
+  const staleSessionIds = [
+    ...new Set(
+      candidates
+        .filter(
+          row =>
+            !excludedSessionIds.has(row.sessionId) &&
+            isStaleOpenDirectoryMembership(row, now, options.staleMs ?? SESSION_DIRECTORY_OPEN_STALE_MS),
+        )
+        .map(row => row.sessionId),
+    ),
+  ]
   if (staleSessionIds.length === 0) return { sessionIds: [], playerIds: [] }
 
-  const releasedRows = await db.select({
-    sessionId: sessionDirectoryMembers.sessionId,
-    playerId: sessionDirectoryMembers.playerId,
-  })
+  const releasedRows = await db
+    .select({
+      sessionId: sessionDirectoryMembers.sessionId,
+      playerId: sessionDirectoryMembers.playerId,
+    })
     .from(sessionDirectoryMembers)
-    .where(and(
-      inArray(sessionDirectoryMembers.sessionId, staleSessionIds),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
+    .where(and(inArray(sessionDirectoryMembers.sessionId, staleSessionIds), isNull(sessionDirectoryMembers.leftAt)))
 
-  await db.update(sessionDirectoryMembers)
+  await db
+    .update(sessionDirectoryMembers)
     .set({ leftAt: now, updatedAt: now })
-    .where(and(
-      inArray(sessionDirectoryMembers.sessionId, staleSessionIds),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
+    .where(and(inArray(sessionDirectoryMembers.sessionId, staleSessionIds), isNull(sessionDirectoryMembers.leftAt)))
 
-  await db.update(sessionDirectory)
+  await db
+    .update(sessionDirectory)
     .set({ phase: 'cancelled', version: sql`${sessionDirectory.version} + 1`, updatedAt: now, closedAt: now })
-    .where(and(
-      inArray(sessionDirectory.sessionId, staleSessionIds),
-      eq(sessionDirectory.phase, 'open'),
-      isNull(sessionDirectory.matchId),
-    ))
+    .where(
+      and(
+        inArray(sessionDirectory.sessionId, staleSessionIds),
+        eq(sessionDirectory.phase, 'open'),
+        isNull(sessionDirectory.matchId),
+      ),
+    )
 
   return {
     sessionIds: staleSessionIds,
@@ -104,13 +113,16 @@ export async function releaseSessionDirectoryMembers(
 ): Promise<void> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return
-  await db.update(sessionDirectoryMembers)
+  await db
+    .update(sessionDirectoryMembers)
     .set({ leftAt: now, updatedAt: now })
-    .where(and(
-      eq(sessionDirectoryMembers.sessionId, sessionId),
-      inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
+    .where(
+      and(
+        eq(sessionDirectoryMembers.sessionId, sessionId),
+        inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
+        isNull(sessionDirectoryMembers.leftAt),
+      ),
+    )
 }
 
 export async function restoreSessionDirectoryMembers(
@@ -121,19 +133,18 @@ export async function restoreSessionDirectoryMembers(
 ): Promise<void> {
   const uniquePlayerIds = [...new Set(playerIds)]
   if (uniquePlayerIds.length === 0) return
-  await db.update(sessionDirectoryMembers)
+  await db
+    .update(sessionDirectoryMembers)
     .set({ leftAt: null, updatedAt: now })
-    .where(and(
-      eq(sessionDirectoryMembers.sessionId, sessionId),
-      inArray(sessionDirectoryMembers.playerId, uniquePlayerIds),
-    ))
+    .where(
+      and(eq(sessionDirectoryMembers.sessionId, sessionId), inArray(sessionDirectoryMembers.playerId, uniquePlayerIds)),
+    )
 }
 
-export async function projectSessionRecord(
-  db: Database,
-  record: SessionRecord,
-): Promise<void> {
-  await runDirectoryProjectionTransaction(db, async (tx, hasTransactionalRollback) => projectSessionRecordTransaction(tx, record, !hasTransactionalRollback))
+export async function projectSessionRecord(db: Database, record: SessionRecord): Promise<void> {
+  await runDirectoryProjectionTransaction(db, async (tx, hasTransactionalRollback) =>
+    projectSessionRecordTransaction(tx, record, !hasTransactionalRollback),
+  )
 }
 
 async function projectSessionRecordTransaction(
@@ -141,7 +152,11 @@ async function projectSessionRecordTransaction(
   record: SessionRecord,
   useCompensatingRestore: boolean,
 ): Promise<void> {
-  const [currentDirectory] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, record.id)).limit(1)
+  const [currentDirectory] = await db
+    .select()
+    .from(sessionDirectory)
+    .where(eq(sessionDirectory.sessionId, record.id))
+    .limit(1)
   if (currentDirectory && record.version <= currentDirectory.version) return
   const snapshot = useCompensatingRestore
     ? await readDirectoryProjectionSnapshot(db, record.id, currentDirectory ?? null)
@@ -154,7 +169,8 @@ async function projectSessionRecordTransaction(
   try {
     await assertNoLiveMembershipConflicts(db, record.id, liveMemberIds)
 
-    const appliedRows = await db.insert(sessionDirectory)
+    const appliedRows = await db
+      .insert(sessionDirectory)
       .values({
         sessionId: record.id,
         phase: record.phase,
@@ -198,10 +214,9 @@ async function projectSessionRecordTransaction(
     if (!appliedRows.some(row => row.version === record.version)) return
 
     await reconcileDirectoryMembers(db, record.id, liveMemberIds, now)
-  }
-  catch (error) {
+  } catch (error) {
     if (snapshot) {
-      await restoreDirectoryProjectionSnapshot(db, snapshot).catch((restoreError) => {
+      await restoreDirectoryProjectionSnapshot(db, snapshot).catch(restoreError => {
         console.error('[session-directory] failed to restore projection snapshot after projection error', restoreError)
       })
     }
@@ -214,7 +229,10 @@ async function readDirectoryProjectionSnapshot(
   sessionId: string,
   directory: SessionDirectoryRow | null,
 ): Promise<DirectoryProjectionSnapshot> {
-  const members = await db.select().from(sessionDirectoryMembers).where(eq(sessionDirectoryMembers.sessionId, sessionId))
+  const members = await db
+    .select()
+    .from(sessionDirectoryMembers)
+    .where(eq(sessionDirectoryMembers.sessionId, sessionId))
   return { sessionId, directory, members }
 }
 
@@ -225,7 +243,8 @@ async function restoreDirectoryProjectionSnapshot(db: Database, snapshot: Direct
     return
   }
 
-  await db.insert(sessionDirectory)
+  await db
+    .insert(sessionDirectory)
     .values(snapshot.directory)
     .onConflictDoUpdate({
       target: sessionDirectory.sessionId,
@@ -264,7 +283,9 @@ async function assertNoLiveMembershipConflicts(
   let externalConflicts = conflicts.filter(row => row.sessionId !== sessionId)
   if (externalConflicts.length === 0) return
 
-  const repaired = await repairStaleOpenSessionDirectoryMemberships(db, uniqueLiveMemberIds, Date.now(), { excludeSessionIds: [sessionId] })
+  const repaired = await repairStaleOpenSessionDirectoryMemberships(db, uniqueLiveMemberIds, Date.now(), {
+    excludeSessionIds: [sessionId],
+  })
   if (repaired.sessionIds.length > 0) {
     console.warn('[session-directory] repaired stale open admission lock', {
       sessionIds: repaired.sessionIds,
@@ -285,16 +306,14 @@ async function assertNoLiveMembershipConflicts(
 async function readLiveMembershipConflicts(
   db: Database,
   playerIds: readonly string[],
-): Promise<Array<{ playerId: string, sessionId: string }>> {
-  return await db.select({
-    playerId: sessionDirectoryMembers.playerId,
-    sessionId: sessionDirectoryMembers.sessionId,
-  })
+): Promise<Array<{ playerId: string; sessionId: string }>> {
+  return await db
+    .select({
+      playerId: sessionDirectoryMembers.playerId,
+      sessionId: sessionDirectoryMembers.sessionId,
+    })
     .from(sessionDirectoryMembers)
-    .where(and(
-      inArray(sessionDirectoryMembers.playerId, [...playerIds]),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
+    .where(and(inArray(sessionDirectoryMembers.playerId, [...playerIds]), isNull(sessionDirectoryMembers.leftAt)))
 }
 
 function isStaleOpenDirectoryMembership(
@@ -305,16 +324,18 @@ function isStaleOpenDirectoryMembership(
   return now - Math.max(row.updatedAt, row.lastActivityAt) >= staleMs
 }
 
-async function runDirectoryProjectionTransaction<T>(db: Database, operation: (tx: Database, hasTransactionalRollback: boolean) => Promise<T>): Promise<T> {
-  const sqlite = (db as Database & { $client?: { exec?: (query: string) => unknown, query?: unknown } }).$client
+async function runDirectoryProjectionTransaction<T>(
+  db: Database,
+  operation: (tx: Database, hasTransactionalRollback: boolean) => Promise<T>,
+): Promise<T> {
+  const sqlite = (db as Database & { $client?: { exec?: (query: string) => unknown; query?: unknown } }).$client
   if (sqlite && typeof sqlite.exec === 'function' && typeof sqlite.query === 'function') {
     sqlite.exec('BEGIN')
     try {
       const result = await operation(db, true)
       sqlite.exec('COMMIT')
       return result
-    }
-    catch (error) {
+    } catch (error) {
       sqlite.exec('ROLLBACK')
       throw error
     }
@@ -337,14 +358,12 @@ async function reconcileDirectoryMembers(
   now: number,
 ): Promise<void> {
   const uniqueLiveMemberIds = [...new Set(liveMemberIds)]
-  const existingLiveRows = await db.select({
-    playerId: sessionDirectoryMembers.playerId,
-  })
+  const existingLiveRows = await db
+    .select({
+      playerId: sessionDirectoryMembers.playerId,
+    })
     .from(sessionDirectoryMembers)
-    .where(and(
-      eq(sessionDirectoryMembers.sessionId, sessionId),
-      isNull(sessionDirectoryMembers.leftAt),
-    ))
+    .where(and(eq(sessionDirectoryMembers.sessionId, sessionId), isNull(sessionDirectoryMembers.leftAt)))
 
   const nextLiveMemberIdSet = new Set(uniqueLiveMemberIds)
   const departedPlayerIds = existingLiveRows
@@ -353,19 +372,23 @@ async function reconcileDirectoryMembers(
   const existingLiveMemberIdSet = new Set(existingLiveRows.map(row => row.playerId))
 
   if (departedPlayerIds.length > 0) {
-    await db.update(sessionDirectoryMembers)
+    await db
+      .update(sessionDirectoryMembers)
       .set({ leftAt: now, updatedAt: now })
-      .where(and(
-        eq(sessionDirectoryMembers.sessionId, sessionId),
-        inArray(sessionDirectoryMembers.playerId, departedPlayerIds),
-        isNull(sessionDirectoryMembers.leftAt),
-      ))
+      .where(
+        and(
+          eq(sessionDirectoryMembers.sessionId, sessionId),
+          inArray(sessionDirectoryMembers.playerId, departedPlayerIds),
+          isNull(sessionDirectoryMembers.leftAt),
+        ),
+      )
   }
 
   for (const playerId of uniqueLiveMemberIds) {
     if (existingLiveMemberIdSet.has(playerId)) continue
     try {
-      await db.insert(sessionDirectoryMembers)
+      await db
+        .insert(sessionDirectoryMembers)
         .values({
           sessionId,
           playerId,
@@ -382,8 +405,7 @@ async function reconcileDirectoryMembers(
             updatedAt: now,
           },
         })
-    }
-    catch (error) {
+    } catch (error) {
       if (isLiveMembershipUniquenessError(error)) {
         throw new SessionAdmissionError('Player already has a live session', [playerId])
       }
@@ -394,10 +416,14 @@ async function reconcileDirectoryMembers(
 
 function isLiveMembershipUniquenessError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  if (message.includes('session_directory_members_live_player_idx')
-    || message.includes('session_directory_members.player_id')
-    || message.includes('UNIQUE constraint failed')
-    || message.includes('constraint failed')) { return true }
+  if (
+    message.includes('session_directory_members_live_player_idx') ||
+    message.includes('session_directory_members.player_id') ||
+    message.includes('UNIQUE constraint failed') ||
+    message.includes('constraint failed')
+  ) {
+    return true
+  }
 
   const cause = error && typeof error === 'object' && 'cause' in error ? (error as { cause?: unknown }).cause : null
   return cause != null && cause !== error && isLiveMembershipUniquenessError(cause)

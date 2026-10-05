@@ -1,3 +1,5 @@
+import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
+import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import type {
   DraftDoublePickMetrics,
   DraftEvent,
@@ -10,8 +12,6 @@ import type {
   RevealedMapVoteSeatBallot,
 } from '@civup/game'
 import type { DraftRuntimeConfig } from '@civup/session'
-import type { DraftLifecyclePayload } from './draft-lifecycle-events.ts'
-import type { MapVoteSelectionUpdateResult, StoredMapVoteState } from './map-vote-room-state.ts'
 import {
   createMapVoteRng,
   DEFAULT_MAP_VOTE_SELECTION,
@@ -65,29 +65,29 @@ export interface RepeatDraftRoomSnapshot {
   doublePickMetrics: DraftDoublePickMetrics
 }
 
-export type RoomEffect
-  = | { type: 'set-alarm', at: number }
-    | { type: 'delete-alarm' }
-    | { type: 'schedule-swap-alarm' }
-    | { type: 'broadcast-update', events: DraftEvent[] }
-    | { type: 'sync-draft-lifecycle', payload: DraftLifecyclePayload, delivery: 'await' | 'background' }
-    | { type: 'schedule-debug-active-bots', blindBans: boolean }
-    | { type: 'schedule-debug-map-vote-bots' }
-    | { type: 'close-connections', reason: string }
+export type RoomEffect =
+  | { type: 'set-alarm'; at: number }
+  | { type: 'delete-alarm' }
+  | { type: 'schedule-swap-alarm' }
+  | { type: 'broadcast-update'; events: DraftEvent[] }
+  | { type: 'sync-draft-lifecycle'; payload: DraftLifecyclePayload; delivery: 'await' | 'background' }
+  | { type: 'schedule-debug-active-bots'; blindBans: boolean }
+  | { type: 'schedule-debug-map-vote-bots' }
+  | { type: 'close-connections'; reason: string }
 
-export type RoomCommand
-  = | ApplyDraftResultCommand
-    | UpdatePreviewsCommand
-    | UpdateConfigCommand
-    | ApplyLeaderSwapCommand
-    | SetSwapDisconnectFinalizeAtCommand
-    | ClearSwapDisconnectFinalizeAtCommand
-    | FinalizeCompletedDraftCommand
-    | StartMapVoteCommand
-    | UpdateMapVoteSelectionCommand
-    | ConfirmMapVoteCommand
-    | FinishMapVoteVotingCommand
-    | FinishMapVoteRevealCommand
+export type RoomCommand =
+  | ApplyDraftResultCommand
+  | UpdatePreviewsCommand
+  | UpdateConfigCommand
+  | ApplyLeaderSwapCommand
+  | SetSwapDisconnectFinalizeAtCommand
+  | ClearSwapDisconnectFinalizeAtCommand
+  | FinalizeCompletedDraftCommand
+  | StartMapVoteCommand
+  | UpdateMapVoteSelectionCommand
+  | ConfirmMapVoteCommand
+  | FinishMapVoteVotingCommand
+  | FinishMapVoteRevealCommand
 
 export interface RoomTransition<TResponse = void> {
   room: RoomRecord
@@ -182,9 +182,10 @@ export function createRoomRecord(
     swapDisconnectFinalizeAt: overrides.swapDisconnectFinalizeAt ?? null,
     swapSafetyEndsAt: overrides.swapSafetyEndsAt ?? null,
     mapVote,
-    lifecycleEventSequence: typeof overrides.lifecycleEventSequence === 'number' && Number.isFinite(overrides.lifecycleEventSequence)
-      ? overrides.lifecycleEventSequence
-      : 0,
+    lifecycleEventSequence:
+      typeof overrides.lifecycleEventSequence === 'number' && Number.isFinite(overrides.lifecycleEventSequence)
+        ? overrides.lifecycleEventSequence
+        : 0,
     repeatDraft: overrides.repeatDraft ?? null,
     doublePickMetrics: normalizeDoublePickMetrics(overrides.doublePickMetrics, state),
   }
@@ -199,25 +200,26 @@ export function normalizeStoredRoomRecord(value: unknown): RoomRecord | null {
   return createRoomRecord(
     raw.config,
     raw.state,
-    raw.mapVote && typeof raw.mapVote === 'object'
-      ? raw.mapVote
-      : { ...EMPTY_STORED_MAP_VOTE_STATE },
+    raw.mapVote && typeof raw.mapVote === 'object' ? raw.mapVote : { ...EMPTY_STORED_MAP_VOTE_STATE },
     {
       timerEndsAt: typeof raw.timerEndsAt === 'number' && Number.isFinite(raw.timerEndsAt) ? raw.timerEndsAt : null,
-      alarmStepIndex: typeof raw.alarmStepIndex === 'number' && Number.isFinite(raw.alarmStepIndex) ? raw.alarmStepIndex : -1,
+      alarmStepIndex:
+        typeof raw.alarmStepIndex === 'number' && Number.isFinite(raw.alarmStepIndex) ? raw.alarmStepIndex : -1,
       completedAt: typeof raw.completedAt === 'number' && Number.isFinite(raw.completedAt) ? raw.completedAt : null,
       cancelledAt: typeof raw.cancelledAt === 'number' && Number.isFinite(raw.cancelledAt) ? raw.cancelledAt : null,
-      previews: sanitizeDraftPreviews(
-        raw.state,
-        raw.previews ?? createEmptyDraftPreviews(),
-      ),
+      previews: sanitizeDraftPreviews(raw.state, raw.previews ?? createEmptyDraftPreviews()),
       swapWindowOpen: raw.swapWindowOpen === true,
       swapState: raw.swapState ?? null,
-      swapDisconnectFinalizeAt: typeof raw.swapDisconnectFinalizeAt === 'number' && Number.isFinite(raw.swapDisconnectFinalizeAt) ? raw.swapDisconnectFinalizeAt : null,
-      swapSafetyEndsAt: typeof raw.swapSafetyEndsAt === 'number' && Number.isFinite(raw.swapSafetyEndsAt) ? raw.swapSafetyEndsAt : null,
-      lifecycleEventSequence: typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
-        ? raw.lifecycleEventSequence
-        : 0,
+      swapDisconnectFinalizeAt:
+        typeof raw.swapDisconnectFinalizeAt === 'number' && Number.isFinite(raw.swapDisconnectFinalizeAt)
+          ? raw.swapDisconnectFinalizeAt
+          : null,
+      swapSafetyEndsAt:
+        typeof raw.swapSafetyEndsAt === 'number' && Number.isFinite(raw.swapSafetyEndsAt) ? raw.swapSafetyEndsAt : null,
+      lifecycleEventSequence:
+        typeof raw.lifecycleEventSequence === 'number' && Number.isFinite(raw.lifecycleEventSequence)
+          ? raw.lifecycleEventSequence
+          : 0,
       repeatDraft: normalizeRepeatDraftRoomSnapshot(raw.repeatDraft, raw.doublePickMetrics),
       doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics, raw.state),
     },
@@ -233,25 +235,15 @@ function normalizeRepeatDraftRoomSnapshot(value: unknown, fallbackMetrics?: unkn
   return {
     reason: raw.reason,
     state: raw.state,
-    mapVote: raw.mapVote && typeof raw.mapVote === 'object'
-      ? raw.mapVote
-      : { ...EMPTY_STORED_MAP_VOTE_STATE },
-    previews: sanitizeDraftPreviews(
-      raw.state,
-      raw.previews ?? createEmptyDraftPreviews(),
-    ),
+    mapVote: raw.mapVote && typeof raw.mapVote === 'object' ? raw.mapVote : { ...EMPTY_STORED_MAP_VOTE_STATE },
+    previews: sanitizeDraftPreviews(raw.state, raw.previews ?? createEmptyDraftPreviews()),
     doublePickMetrics: normalizeDoublePickMetrics(raw.doublePickMetrics ?? fallbackMetrics, raw.state),
   }
 }
 
-export function applyDraftResultCommand(
-  room: RoomRecord,
-  command: ApplyDraftResultCommand,
-): RoomTransition {
+export function applyDraftResultCommand(room: RoomRecord, command: ApplyDraftResultCommand): RoomTransition {
   const format = draftFormatMap.get(room.config.formatId)
-  const stepAdvanced = command.events.some(
-    event => event.type === 'STEP_ADVANCED' || event.type === 'DRAFT_STARTED',
-  )
+  const stepAdvanced = command.events.some(event => event.type === 'STEP_ADVANCED' || event.type === 'DRAFT_STARTED')
   const nextState = assignDealtCivIds(command.nextState, room.config, command.random)
   let nextRoom: RoomRecord = {
     ...room,
@@ -275,8 +267,7 @@ export function applyDraftResultCommand(
         timerEndsAt: command.now + step.timer * 1000,
       }
       alarmEffect = { type: 'set-alarm', at: nextRoom.timerEndsAt! }
-    }
-    else {
+    } else {
       nextRoom = {
         ...nextRoom,
         alarmStepIndex: -1,
@@ -311,12 +302,8 @@ export function applyDraftResultCommand(
         kind: 'DraftCompleted',
       })
       nextRoom = lifecycleSync.room
-      effects.push(
-        lifecycleSync.effect,
-        { type: 'broadcast-update', events: command.events },
-      )
-    }
-    else {
+      effects.push(lifecycleSync.effect, { type: 'broadcast-update', events: command.events })
+    } else {
       nextRoom = clearSwapWindowState(nextRoom)
       alarmEffect = { type: 'delete-alarm' }
       const lifecycleSync = createCompleteLifecycleSync(nextRoom, {
@@ -331,18 +318,18 @@ export function applyDraftResultCommand(
         { type: 'close-connections', reason: 'Draft closed' },
       )
     }
-  }
-  else if (nextState.status === 'cancelled') {
+  } else if (nextState.status === 'cancelled') {
     const cancelledAt = nextRoom.cancelledAt ?? command.now
-    const repeatDraft = nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
-      ? {
-          reason: nextState.cancelReason,
-          state: room.state,
-          mapVote: room.mapVote,
-          previews: sanitizeDraftPreviews(room.state, room.previews),
-          doublePickMetrics: nextRoom.doublePickMetrics,
-        } satisfies RepeatDraftRoomSnapshot
-      : null
+    const repeatDraft =
+      nextState.cancelReason === 'timeout' || nextState.cancelReason === 'revert'
+        ? ({
+            reason: nextState.cancelReason,
+            state: room.state,
+            mapVote: room.mapVote,
+            previews: sanitizeDraftPreviews(room.state, room.previews),
+            doublePickMetrics: nextRoom.doublePickMetrics,
+          } satisfies RepeatDraftRoomSnapshot)
+        : null
     nextRoom = {
       ...clearSwapWindowState(nextRoom),
       alarmStepIndex: -1,
@@ -364,16 +351,14 @@ export function applyDraftResultCommand(
         { type: 'broadcast-update', events: command.events },
         { type: 'close-connections', reason: 'Draft closed' },
       )
-    }
-    else {
+    } else {
       effects.push(
         { type: 'broadcast-update', events: command.events },
         { type: 'close-connections', reason: 'Draft closed' },
         lifecycleSync.effect,
       )
     }
-  }
-  else {
+  } else {
     nextRoom = { ...clearSwapWindowState(nextRoom), repeatDraft: null }
     effects.push({ type: 'broadcast-update', events: command.events })
   }
@@ -388,45 +373,35 @@ export function applyDraftResultCommand(
   return createTransition(nextRoom, effects)
 }
 
-export function updatePreviewsCommand(
-  room: RoomRecord,
-  command: UpdatePreviewsCommand,
-): RoomTransition {
-  return createTransition({
-    ...room,
-    previews: command.previews,
-  }, [
-    { type: 'broadcast-update', events: [] },
-  ])
+export function updatePreviewsCommand(room: RoomRecord, command: UpdatePreviewsCommand): RoomTransition {
+  return createTransition(
+    {
+      ...room,
+      previews: command.previews,
+    },
+    [{ type: 'broadcast-update', events: [] }],
+  )
 }
 
-export function updateConfigCommand(
-  room: RoomRecord,
-  command: UpdateConfigCommand,
-): RoomTransition {
-  return createTransition({
-    ...room,
-    state: command.nextState,
-    config: command.nextConfig,
-    previews: sanitizeDraftPreviews(command.nextState, room.previews),
-  }, [
-    { type: 'broadcast-update', events: [] },
-  ])
+export function updateConfigCommand(room: RoomRecord, command: UpdateConfigCommand): RoomTransition {
+  return createTransition(
+    {
+      ...room,
+      state: command.nextState,
+      config: command.nextConfig,
+      previews: sanitizeDraftPreviews(command.nextState, room.previews),
+    },
+    [{ type: 'broadcast-update', events: [] }],
+  )
 }
 
-export function applyLeaderSwapCommand(
-  room: RoomRecord,
-  command: ApplyLeaderSwapCommand,
-): RoomTransition {
+export function applyLeaderSwapCommand(room: RoomRecord, command: ApplyLeaderSwapCommand): RoomTransition {
   const nextRoom: RoomRecord = {
     ...room,
     state: command.nextState,
     swapState: command.swapState,
   }
-  const effects: RoomEffect[] = [
-    { type: 'schedule-swap-alarm' },
-    { type: 'broadcast-update', events: [] },
-  ]
+  const effects: RoomEffect[] = [{ type: 'schedule-swap-alarm' }, { type: 'broadcast-update', events: [] }]
 
   return createTransition(nextRoom, effects)
 }
@@ -435,24 +410,26 @@ export function setSwapDisconnectFinalizeAtCommand(
   room: RoomRecord,
   command: SetSwapDisconnectFinalizeAtCommand,
 ): RoomTransition {
-  return createTransition({
-    ...room,
-    swapDisconnectFinalizeAt: command.disconnectFinalizeAt,
-  }, [
-    { type: 'schedule-swap-alarm' },
-  ])
+  return createTransition(
+    {
+      ...room,
+      swapDisconnectFinalizeAt: command.disconnectFinalizeAt,
+    },
+    [{ type: 'schedule-swap-alarm' }],
+  )
 }
 
 export function clearSwapDisconnectFinalizeAtCommand(
   room: RoomRecord,
   _command: ClearSwapDisconnectFinalizeAtCommand,
 ): RoomTransition {
-  return createTransition({
-    ...room,
-    swapDisconnectFinalizeAt: null,
-  }, [
-    { type: 'schedule-swap-alarm' },
-  ])
+  return createTransition(
+    {
+      ...room,
+      swapDisconnectFinalizeAt: null,
+    },
+    [{ type: 'schedule-swap-alarm' }],
+  )
 }
 
 export function finalizeCompletedDraftCommand(
@@ -478,33 +455,37 @@ export function finalizeCompletedDraftCommand(
   })
   nextRoom = lifecycleSync.room
 
-  return createTransition(nextRoom, [
-    { type: 'delete-alarm' },
-    lifecycleSync.effect,
-    { type: 'broadcast-update', events: [] },
-    { type: 'close-connections', reason: 'Draft closed' },
-  ], true)
+  return createTransition(
+    nextRoom,
+    [
+      { type: 'delete-alarm' },
+      lifecycleSync.effect,
+      { type: 'broadcast-update', events: [] },
+      { type: 'close-connections', reason: 'Draft closed' },
+    ],
+    true,
+  )
 }
 
-export function startMapVoteCommand(
-  room: RoomRecord,
-  command: StartMapVoteCommand,
-): RoomTransition {
+export function startMapVoteCommand(room: RoomRecord, command: StartMapVoteCommand): RoomTransition {
   const endsAt = command.now + MAP_VOTE_VOTING_DURATION_MS
-  return createTransition({
-    ...room,
-    mapVote: {
-      ...room.mapVote,
-      phase: 'voting',
-      endsAt,
+  return createTransition(
+    {
+      ...room,
+      mapVote: {
+        ...room.mapVote,
+        phase: 'voting',
+        endsAt,
+      },
+      timerEndsAt: null,
+      alarmStepIndex: -1,
     },
-    timerEndsAt: null,
-    alarmStepIndex: -1,
-  }, [
-    { type: 'set-alarm', at: endsAt },
-    { type: 'broadcast-update', events: [] },
-    { type: 'schedule-debug-map-vote-bots' },
-  ])
+    [
+      { type: 'set-alarm', at: endsAt },
+      { type: 'broadcast-update', events: [] },
+      { type: 'schedule-debug-map-vote-bots' },
+    ],
+  )
 }
 
 export function updateMapVoteSelectionCommand(
@@ -516,10 +497,14 @@ export function updateMapVoteSelectionCommand(
     return createTransition(room, [], nextMapVote)
   }
 
-  return createTransition({
-    ...room,
-    mapVote: nextMapVote,
-  }, [], nextMapVote)
+  return createTransition(
+    {
+      ...room,
+      mapVote: nextMapVote,
+    },
+    [],
+    nextMapVote,
+  )
 }
 
 export function confirmMapVoteCommand(
@@ -548,9 +533,7 @@ export function confirmMapVoteCommand(
   }
 
   if (!command.state.seats.every((_, index) => nextRoom.mapVote.confirmations[index] === true)) {
-    return createTransition(nextRoom, [
-      { type: 'broadcast-update', events: [] },
-    ], 'ok')
+    return createTransition(nextRoom, [{ type: 'broadcast-update', events: [] }], 'ok')
   }
 
   const revealTransition = buildMapVoteRevealTransition(nextRoom, command.state, command.now)
@@ -577,14 +560,18 @@ export function finishMapVoteRevealCommand(
     return createTransition(room, [], false)
   }
 
-  return createTransition({
-    ...room,
-    mapVote: {
-      ...room.mapVote,
-      phase: 'done',
-      endsAt: null,
+  return createTransition(
+    {
+      ...room,
+      mapVote: {
+        ...room.mapVote,
+        phase: 'done',
+        endsAt: null,
+      },
     },
-  }, [], true)
+    [],
+    true,
+  )
 }
 
 export function createEmptySwapState(): LeaderSwapState {
@@ -593,9 +580,7 @@ export function createEmptySwapState(): LeaderSwapState {
   }
 }
 
-export function normalizeStoredSwapState(
-  value: unknown,
-): LeaderSwapState {
+export function normalizeStoredSwapState(value: unknown): LeaderSwapState {
   if (!value || typeof value !== 'object') return createEmptySwapState()
 
   const raw = value as {
@@ -603,15 +588,11 @@ export function normalizeStoredSwapState(
   }
 
   return {
-    completedSwaps: Array.isArray(raw.completedSwaps)
-      ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest)
-      : [],
+    completedSwaps: Array.isArray(raw.completedSwaps) ? raw.completedSwaps.flatMap(normalizeCompletedSwapRequest) : [],
   }
 }
 
-export function normalizeRoomSwapState(
-  room: Pick<RoomRecord, 'swapState'>,
-): LeaderSwapState {
+export function normalizeRoomSwapState(room: Pick<RoomRecord, 'swapState'>): LeaderSwapState {
   return normalizeStoredSwapState(room.swapState)
 }
 
@@ -641,19 +622,22 @@ function buildMapVoteRevealTransition(room: RoomRecord, state: DraftState, now: 
   const rng = createMapVoteRng(seed)
   const endsAt = now + MAP_VOTE_REVEAL_DURATION_MS
 
-  return createTransition({
-    ...room,
-    mapVote: {
-      ...room.mapVote,
-      phase: 'reveal',
-      endsAt,
-      revealedVotes,
-      result: resolveMapVoteWinner(revealedVotes, rng, seed),
+  return createTransition(
+    {
+      ...room,
+      mapVote: {
+        ...room.mapVote,
+        phase: 'reveal',
+        endsAt,
+        revealedVotes,
+        result: resolveMapVoteWinner(revealedVotes, rng, seed),
+      },
     },
-  }, [
-    { type: 'set-alarm', at: endsAt },
-    { type: 'broadcast-update', events: [] },
-  ])
+    [
+      { type: 'set-alarm', at: endsAt },
+      { type: 'broadcast-update', events: [] },
+    ],
+  )
 }
 
 function createCompleteLifecycleSync(
@@ -664,7 +648,7 @@ function createCompleteLifecycleSync(
     finalized?: boolean
     kind: 'DraftCompleted' | 'DraftFinalized'
   },
-): { room: RoomRecord, effect: RoomEffect } {
+): { room: RoomRecord; effect: RoomEffect } {
   const eventSequence = room.lifecycleEventSequence + 1
   const payload: DraftLifecyclePayload = {
     eventId: createDraftLifecycleEventId(room.state.matchId, eventSequence),
@@ -691,7 +675,7 @@ function createCancelledLifecycleSync(
     cancelledAt: number
     delivery: 'await' | 'background'
   },
-): { room: RoomRecord, effect: RoomEffect } {
+): { room: RoomRecord; effect: RoomEffect } {
   const eventSequence = room.lifecycleEventSequence + 1
   const payload: DraftLifecyclePayload = {
     eventId: createDraftLifecycleEventId(room.state.matchId, eventSequence),
@@ -716,7 +700,7 @@ function createLifecycleSyncEffect(
   room: RoomRecord,
   payload: DraftLifecyclePayload,
   delivery: 'await' | 'background',
-): { room: RoomRecord, effect: RoomEffect } {
+): { room: RoomRecord; effect: RoomEffect } {
   return {
     room: {
       ...room,
@@ -740,22 +724,17 @@ function applyDoublePickMetricUpdate(
   events: DraftEvent[],
   metrics: DraftDoublePickMetrics,
 ): DraftDoublePickMetrics {
-  const previousStep = previousState.status === 'active'
-    ? previousState.steps[previousState.currentStepIndex]
-    : null
+  const previousStep = previousState.status === 'active' ? previousState.steps[previousState.currentStepIndex] : null
   if (!previousStep) return metrics
 
   let nextMetrics = metrics
   const timeoutCancelled = nextState.status === 'cancelled' && nextState.cancelReason === 'timeout'
 
   if (isDoublePickStep(previousState, previousStep)) {
-    const nextStep = nextState.status === 'active'
-      ? nextState.steps[nextState.currentStepIndex]
-      : null
+    const nextStep = nextState.status === 'active' ? nextState.steps[nextState.currentStepIndex] : null
     if (nextStep?.fallbackForStepIndex === previousState.currentStepIndex) {
       nextMetrics = incrementDoublePickMetric(nextMetrics, 'fallbackStarted')
-    }
-    else if (timeoutCancelled && getPendingSeats(previousState, previousStep).length === 2) {
+    } else if (timeoutCancelled && getPendingSeats(previousState, previousStep).length === 2) {
       nextMetrics = incrementDoublePickMetric(nextMetrics, 'bothMissedTimeouts')
     }
   }
@@ -780,7 +759,7 @@ function incrementDoublePickMetric(
 }
 
 function normalizeDoublePickMetrics(value: unknown, state: DraftState): DraftDoublePickMetrics {
-  const raw = value && typeof value === 'object' ? value as Partial<DraftDoublePickMetrics> : {}
+  const raw = value && typeof value === 'object' ? (value as Partial<DraftDoublePickMetrics>) : {}
   return {
     groups: normalizeMetricCount(raw.groups, countDoublePickSteps(state)),
     fallbackStarted: normalizeMetricCount(raw.fallbackStarted, 0),
@@ -804,13 +783,16 @@ function isDoublePickFallbackStep(step: DraftState['steps'][number]): boolean {
 }
 
 function getPendingSeats(state: DraftState, step: DraftState['steps'][number]): number[] {
-  const activeSeats = step.seats === 'all'
-    ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex)
-    : step.seats
+  const activeSeats =
+    step.seats === 'all' ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex) : step.seats
   return activeSeats.filter(seatIndex => (state.submissions[seatIndex]?.length ?? 0) < step.count)
 }
 
-function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null, random: RandomSource = Math.random): DraftState {
+function assignDealtCivIds(
+  state: DraftState,
+  config: DraftRuntimeConfig | null,
+  random: RandomSource = Math.random,
+): DraftState {
   if (!config || !isRedDeathDraftConfig(config)) {
     if (state.dealtCivIds == null && state.dealtCivIdsBySeat == null) return state
     return { ...state, dealtCivIds: null, dealtCivIdsBySeat: null }
@@ -833,9 +815,8 @@ function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null,
   }
 
   if (step.blind) {
-    const activeSeats = step.seats === 'all'
-      ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex)
-      : step.seats
+    const activeSeats =
+      step.seats === 'all' ? Array.from({ length: state.seats.length }, (_, seatIndex) => seatIndex) : step.seats
     const current = state.dealtCivIdsBySeat ?? {}
     if (activeSeats.every(seatIndex => (current[seatIndex]?.length ?? 0) > 0)) return state
 
@@ -843,7 +824,11 @@ function assignDealtCivIds(state: DraftState, config: DraftRuntimeConfig | null,
     const nextBySeat: Record<number, string[]> = { ...current }
     for (const seatIndex of activeSeats) {
       if ((nextBySeat[seatIndex]?.length ?? 0) > 0) continue
-      nextBySeat[seatIndex] = pickRandomDistinct(state.availableCivIds, Math.min(dealSize, state.availableCivIds.length), random)
+      nextBySeat[seatIndex] = pickRandomDistinct(
+        state.availableCivIds,
+        Math.min(dealSize, state.availableCivIds.length),
+        random,
+      )
     }
 
     return {

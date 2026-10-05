@@ -238,11 +238,13 @@ describe('ui-store helpers', () => {
   })
 
   test('updaters use staged values and synchronize the selected leader atomically', () => {
-    const seen: { selected: string | null, picks: string[] }[] = []
+    const seen: { selected: string | null; picks: string[] }[] = []
     const dispose = createRoot(stop => {
       createEffect(
         () => ({ selected: selectedLeader(), picks: [...pickSelections()] }),
-        value => { seen.push(value) },
+        value => {
+          seen.push(value)
+        },
       )
       return stop
     })
@@ -265,8 +267,9 @@ describe('ui-store helpers', () => {
       expect(seen).toEqual([{ selected: 'civ-1-updated-pick', picks: ['civ-1-updated-pick'] }])
       expect(gridExpanded()).toBe(false)
       expect(uiScale()).toBe(100)
+    } finally {
+      dispose()
     }
-    finally { dispose() }
   })
 
   test('a staged result lock blocks subsequent placements and reset unlocks them', () => {

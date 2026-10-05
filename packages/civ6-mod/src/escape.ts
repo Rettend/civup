@@ -1,5 +1,5 @@
 export function sqlString(value: string): string {
-  return `'${value.replaceAll('\'', '\'\'')}'`
+  return `'${value.replaceAll("'", "''")}'`
 }
 
 export function xmlEscape(value: string): string {
@@ -8,5 +8,5 @@ export function xmlEscape(value: string): string {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
-    .replaceAll('\'', '&apos;')
+    .replaceAll("'", '&apos;')
 }

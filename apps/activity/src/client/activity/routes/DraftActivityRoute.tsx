@@ -1,6 +1,11 @@
 import { useParams } from '@solidjs/router'
 import { DraftPage } from '../../pages/draft'
-import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
+import {
+  ActivityErrorPage,
+  ActivityLoadingPage,
+  ActivityRedirectingPage,
+  useActivityController,
+} from '../activity-context'
 
 export default function DraftActivityRoute() {
   const activity = useActivityController()

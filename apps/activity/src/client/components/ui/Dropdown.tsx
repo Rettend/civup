@@ -54,7 +54,7 @@ export function Dropdown(props: DropdownProps) {
     setOpen(false)
   }
 
-  const handleKeyDown: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent> = (event) => {
+  const handleKeyDown: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent> = event => {
     if (props.disabled) return
 
     if (event.key === 'Escape') {
@@ -92,23 +92,18 @@ export function Dropdown(props: DropdownProps) {
   return (
     <div class="flex flex-col gap-1.5">
       {props.label && (
-        <label class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">
-          {props.label}
-        </label>
+        <label class="text-[11px] text-fg-subtle tracking-wider font-semibold pl-0.5 uppercase">{props.label}</label>
       )}
-      <div
-        ref={containerRef}
-        class={cn('relative', props.class)}
-        onFocusOut={handleBlur}
-        onKeyDown={handleKeyDown}
-      >
+      <div ref={containerRef} class={cn('relative', props.class)} onFocusOut={handleBlur} onKeyDown={handleKeyDown}>
         {/* Trigger */}
         <button
           type="button"
           tabindex={0}
           aria-label={props.ariaLabel ?? props.label}
           disabled={props.disabled}
-          onClick={() => { if (!props.disabled) setOpen(prev => !prev) }}
+          onClick={() => {
+            if (!props.disabled) setOpen(prev => !prev)
+          }}
           class={cn(
             'w-full flex items-center justify-between gap-2',
             'text-sm text-fg px-3.5 py-2.5 rounded-lg',

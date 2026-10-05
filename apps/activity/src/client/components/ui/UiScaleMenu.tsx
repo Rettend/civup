@@ -1,5 +1,5 @@
-import { createSignal, onSettled, Show } from 'solid-js'
 import { Portal } from '@solidjs/web'
+import { createSignal, onSettled, Show } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import {
   decreaseUiScale,
@@ -25,7 +25,7 @@ const PANEL_HEIGHT = 112
 const PANEL_GAP = 8
 const VIEWPORT_PADDING = 8
 
-export function FloatingUiScaleMenu(props: { class?: string, disabled?: boolean }) {
+export function FloatingUiScaleMenu(props: { class?: string; disabled?: boolean }) {
   return (
     <div class={cn('fixed bottom-4 right-4 sm:bottom-5 sm:right-5', props.class ?? 'z-40')}>
       <UiScaleMenu
@@ -41,7 +41,7 @@ export function UiScaleMenu(props: UiScaleMenuProps) {
   let buttonRef: HTMLButtonElement | undefined
   let panelRef: HTMLDivElement | undefined
   const [open, setOpen] = createSignal(false)
-  const [panelPosition, setPanelPosition] = createSignal<{ left: number, top: number } | null>(null)
+  const [panelPosition, setPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const scaleLabel = () => `${uiScale()}%`
   const canDecrease = () => uiScale() > UI_SCALE_MIN
   const canIncrease = () => uiScale() < UI_SCALE_MAX
@@ -68,9 +68,8 @@ export function UiScaleMenu(props: UiScaleMenuProps) {
     const left = Math.min(Math.max(VIEWPORT_PADDING, rect.right - PANEL_WIDTH), maxLeft)
     const belowTop = rect.bottom + PANEL_GAP
     const aboveTop = rect.top - PANEL_HEIGHT - PANEL_GAP
-    const top = belowTop + PANEL_HEIGHT <= window.innerHeight - VIEWPORT_PADDING
-      ? belowTop
-      : Math.max(VIEWPORT_PADDING, aboveTop)
+    const top =
+      belowTop + PANEL_HEIGHT <= window.innerHeight - VIEWPORT_PADDING ? belowTop : Math.max(VIEWPORT_PADDING, aboveTop)
     setPanelPosition({ left, top })
   }
 
@@ -212,7 +211,9 @@ function IconButton(props: {
       title={props.title}
       aria-label={props.title}
       disabled={props.disabled}
-      onClick={() => { if (!props.disabled) props.onClick() }}
+      onClick={() => {
+        if (!props.disabled) props.onClick()
+      }}
     >
       <span class={cn(props.iconClass, 'text-sm')} />
     </button>

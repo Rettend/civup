@@ -2,7 +2,15 @@ import type { JSX } from '@solidjs/web'
 import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
 import { FloatingUiScaleMenu } from '~/client/components/ui/UiScaleMenu'
-import { connectionError, connectionStatus, draftStore, isMapVotePhase, isMiniView, sendStart, userId } from '~/client/stores'
+import {
+  connectionError,
+  connectionStatus,
+  draftStore,
+  isMapVotePhase,
+  isMiniView,
+  sendStart,
+  userId,
+} from '~/client/stores'
 
 type ReportResultStatus = 'idle' | 'submitting' | 'done'
 
@@ -33,9 +41,11 @@ export function DraftPage(props: DraftPageProps) {
   }
   const shouldRenderDraftView = () => {
     const status = connectionStatus()
-    return status === 'connected'
-      || (status === 'reconnecting' && hasDraftState())
-      || (hasTerminalState() && (status === 'error' || status === 'disconnected'))
+    return (
+      status === 'connected' ||
+      (status === 'reconnecting' && hasDraftState()) ||
+      (hasTerminalState() && (status === 'error' || status === 'disconnected'))
+    )
   }
   const isWaitingForDraftStart = () => draftStore.state?.status === 'waiting' && !isMapVotePhase()
   const shouldShowDraftView = () => draftStore.state != null && (isMiniView() || !isWaitingForDraftStart())
@@ -62,16 +72,22 @@ export function DraftPage(props: DraftPageProps) {
     setSubmittingReportMatchId(null)
   }
 
-  createEffect(() => props.autoStart && !autoStartSent()
-    && connectionStatus() === 'connected'
-    && draftStore.state?.status === 'waiting'
-    && !isMapVotePhase() && amHost(), (shouldStart) => {
-    if (!shouldStart) return
-    const sent = sendStart()
-    if (!sent) return
+  createEffect(
+    () =>
+      props.autoStart &&
+      !autoStartSent() &&
+      connectionStatus() === 'connected' &&
+      draftStore.state?.status === 'waiting' &&
+      !isMapVotePhase() &&
+      amHost(),
+    shouldStart => {
+      if (!shouldStart) return
+      const sent = sendStart()
+      if (!sent) return
 
-    setAutoStartSent(true)
-  })
+      setAutoStartSent(true)
+    },
+  )
 
   return (
     <Switch>
@@ -92,19 +108,23 @@ export function DraftPage(props: DraftPageProps) {
         <>
           <Show
             when={shouldShowDraftView()}
-            fallback={hasDraftState()
-              ? autoStartSent() || (props.autoStart && amHost())
-                ? <AutoStartingDraftScreen />
-                : (
-                    <WaitingForDraftStartScreen
-                      isHost={amHost()}
-                      onStart={() => {
-                        const sent = sendStart()
-                        if (sent) setAutoStartSent(true)
-                      }}
-                    />
-                  )
-              : <JoiningDraftRoomScreen />}
+            fallback={
+              hasDraftState() ? (
+                autoStartSent() || (props.autoStart && amHost()) ? (
+                  <AutoStartingDraftScreen />
+                ) : (
+                  <WaitingForDraftStartScreen
+                    isHost={amHost()}
+                    onStart={() => {
+                      const sent = sendStart()
+                      if (sent) setAutoStartSent(true)
+                    }}
+                  />
+                )
+              ) : (
+                <JoiningDraftRoomScreen />
+              )
+            }
           >
             <DraftView
               matchId={props.matchId}
@@ -141,9 +161,7 @@ export function DraftPage(props: DraftPageProps) {
         <DraftStatusShell>
           <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
             <div class="text-lg text-danger font-bold mb-2">Connection Error</div>
-            <div class="text-sm text-fg-muted">
-              {connectionError() ?? 'Failed to connect to draft room'}
-            </div>
+            <div class="text-sm text-fg-muted">{connectionError() ?? 'Failed to connect to draft room'}</div>
           </div>
         </DraftStatusShell>
       </Match>
@@ -202,7 +220,7 @@ function AutoStartingDraftScreen() {
   )
 }
 
-function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => void }) {
+function WaitingForDraftStartScreen(props: { isHost: boolean; onStart: () => void }) {
   return (
     <DraftStatusShell>
       <div class="p-6 text-center border border-border-subtle rounded-lg bg-bg-subtle flex flex-col gap-3 max-w-md items-center">

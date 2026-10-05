@@ -17,8 +17,20 @@ interface SwitchProps {
 }
 
 export function Switch(local: SwitchProps) {
-  const rest = omit(local, 'label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'inactiveTone', 'onChange', 'class')
-  const resolve = <T,>(value: MaybeAccessor<T> | undefined) => typeof value === 'function' ? (value as Accessor<T>)() : value
+  const rest = omit(
+    local,
+    'label',
+    'description',
+    'ariaLabel',
+    'checked',
+    'disabled',
+    'tone',
+    'inactiveTone',
+    'onChange',
+    'class',
+  )
+  const resolve = <T,>(value: MaybeAccessor<T> | undefined) =>
+    typeof value === 'function' ? (value as Accessor<T>)() : value
   const checked = createMemo(() => resolve(local.checked) ?? false)
   const disabled = createMemo(() => resolve(local.disabled) ?? false)
   const ariaLabel = createMemo(() => resolve(local.ariaLabel))
@@ -40,7 +52,8 @@ export function Switch(local: SwitchProps) {
   }
 
   const inactiveTrackClass = () => {
-    if (local.inactiveTone === 'purple') return 'bg-[#a78bfa]/18 border-[#a78bfa]/60 shadow-[0_0_8px_rgba(167,139,250,0.22),inset_0_1px_0_rgba(196,181,253,0.22)] group-hover:border-[#a78bfa]/75'
+    if (local.inactiveTone === 'purple')
+      return 'bg-[#a78bfa]/18 border-[#a78bfa]/60 shadow-[0_0_8px_rgba(167,139,250,0.22),inset_0_1px_0_rgba(196,181,253,0.22)] group-hover:border-[#a78bfa]/75'
     return 'bg-bg-muted border-border-subtle group-hover:border-border'
   }
 
@@ -64,7 +77,9 @@ export function Switch(local: SwitchProps) {
       aria-label={ariaLabel()}
       aria-checked={checked() ? 'true' : 'false'}
       disabled={disabled()}
-      onClick={() => { if (!disabled()) local.onChange?.(!checked()) }}
+      onClick={() => {
+        if (!disabled()) local.onChange?.(!checked())
+      }}
       class={cn(
         'group flex items-center gap-3 w-full text-left',
         disabled() ? 'opacity-50 cursor-default' : 'cursor-pointer opacity-100',
@@ -75,15 +90,9 @@ export function Switch(local: SwitchProps) {
       {(local.label || local.description) && (
         <div class="flex flex-1 flex-col gap-0.5 min-w-0">
           {local.label && (
-            <span class="text-[11px] text-fg-subtle tracking-wider font-semibold uppercase">
-              {local.label}
-            </span>
+            <span class="text-[11px] text-fg-subtle tracking-wider font-semibold uppercase">{local.label}</span>
           )}
-          {local.description && (
-            <span class="text-xs text-fg-subtle/80 leading-snug">
-              {local.description}
-            </span>
-          )}
+          {local.description && <span class="text-xs text-fg-subtle/80 leading-snug">{local.description}</span>}
         </div>
       )}
 
@@ -93,9 +102,7 @@ export function Switch(local: SwitchProps) {
           'relative flex-shrink-0 w-10 h-5.5 rounded-full',
           'transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
           'border',
-          checked()
-            ? activeTrackClass()
-            : inactiveTrackClass(),
+          checked() ? activeTrackClass() : inactiveTrackClass(),
         )}
       >
         {/* Thumb */}
@@ -103,9 +110,7 @@ export function Switch(local: SwitchProps) {
           class={cn(
             'absolute top-1/2 -translate-y-1/2 size-3.5 rounded-full',
             'transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
-            checked()
-              ? activeThumbClass()
-              : inactiveThumbClass(),
+            checked() ? activeThumbClass() : inactiveThumbClass(),
           )}
         />
       </div>

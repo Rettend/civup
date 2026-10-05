@@ -13,29 +13,25 @@ interface CssBuildResult {
 
 function buildFixture(): CssBuildResult {
   const script = fileURLToPath(new URL('./activity-css.fixture.node.ts', import.meta.url))
-  const result = spawnSync(
-    'node',
-    ['--experimental-import-meta-resolve', script],
-    {
-      cwd: fileURLToPath(new URL('../', import.meta.url)),
-      encoding: 'utf8',
-      timeout: 120_000,
-      // Do not inherit Cloudflare or Discord credentials into the build fixture.
-      env: {
-        PATH: process.env.PATH,
-        SystemRoot: process.env.SystemRoot,
-        HOME: process.env.TEMP,
-        USERPROFILE: process.env.TEMP,
-        TEMP: process.env.TEMP,
-        TMP: process.env.TMP,
-        CF_TELEMETRY: 'false',
-        WRANGLER_SEND_METRICS: 'false',
-        CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
-        CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
-        DO_NOT_TRACK: '1',
-      },
+  const result = spawnSync('node', ['--experimental-import-meta-resolve', script], {
+    cwd: fileURLToPath(new URL('../', import.meta.url)),
+    encoding: 'utf8',
+    timeout: 120_000,
+    // Do not inherit Cloudflare or Discord credentials into the build fixture.
+    env: {
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      HOME: process.env.TEMP,
+      USERPROFILE: process.env.TEMP,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      CF_TELEMETRY: 'false',
+      WRANGLER_SEND_METRICS: 'false',
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
+      DO_NOT_TRACK: '1',
     },
-  )
+  })
   expect(result.status, result.stderr || String(result.error ?? '')).toBe(0)
   return JSON.parse(result.stdout.trim().split('\n').at(-1)!) as CssBuildResult
 }

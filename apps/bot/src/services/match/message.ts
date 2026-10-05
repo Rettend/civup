@@ -1,14 +1,10 @@
 import type { Database } from '@civup/db'
-import { matchMessageMappings } from '@civup/db'
 import { asc, eq } from 'drizzle-orm'
+import { matchMessageMappings } from '@civup/db'
 
 const MATCH_MESSAGE_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
-export async function storeMatchMessageMapping(
-  db: Database,
-  messageId: string,
-  matchId: string,
-): Promise<void> {
+export async function storeMatchMessageMapping(db: Database, messageId: string, matchId: string): Promise<void> {
   const now = Date.now()
   const expiresAt = now + MATCH_MESSAGE_TTL_MS
 
@@ -45,10 +41,7 @@ export async function storeMatchMessageMapping(
   })
 }
 
-export async function getMatchIdForMessage(
-  db: Database,
-  messageId: string,
-): Promise<string | null> {
+export async function getMatchIdForMessage(db: Database, messageId: string): Promise<string | null> {
   const now = Date.now()
   const [row] = await db
     .select({
@@ -66,17 +59,11 @@ export async function getMatchIdForMessage(
   return null
 }
 
-export async function clearMatchMessageMapping(
-  db: Database,
-  messageId: string,
-): Promise<void> {
+export async function clearMatchMessageMapping(db: Database, messageId: string): Promise<void> {
   await db.delete(matchMessageMappings).where(eq(matchMessageMappings.messageId, messageId))
 }
 
-export async function listMatchMessageIds(
-  db: Database,
-  matchId: string,
-): Promise<string[]> {
+export async function listMatchMessageIds(db: Database, matchId: string): Promise<string[]> {
   const rows = await db
     .select({
       messageId: matchMessageMappings.messageId,

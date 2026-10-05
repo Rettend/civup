@@ -1,20 +1,26 @@
-import type { Database } from '@civup/db'
-import { matches, matchParticipants, playerRatings, seasonRatingStates, tournamentMatches } from '@civup/db'
-import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { resolveSeasonSelection } from './selection.ts'
-import { SeasonSelectionError } from './selection.ts'
+import type { Database } from '@civup/db'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { matches, matchParticipants, playerRatings, seasonRatingStates, tournamentMatches } from '@civup/db'
 import { getStoredGameModeContext } from '../match/draft-data.ts'
 import { projectPublicRatingDecay } from './decay.ts'
+import { SeasonSelectionError } from './selection.ts'
 
 export type SelectedSeason = Awaited<ReturnType<typeof resolveSeasonSelection>>
 
 export async function loadSelectedSeasonRatings(db: Database, selected: SelectedSeason, playerIds: readonly string[]) {
   if (playerIds.length === 0) return []
   const season = selected.season
-  if (selected.ratingSeason?.ratingSystem === 'rp' && !selected.ratingSeason.publicReadsEnabled) throw new SeasonSelectionError('Ratings for this season are not ready to display yet.')
+  if (selected.ratingSeason?.ratingSystem === 'rp' && !selected.ratingSeason.publicReadsEnabled)
+    throw new SeasonSelectionError('Ratings for this season are not ready to display yet.')
   const historical = season != null && !season.active
   const storedRatings = historical
-    ? (await db.select().from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))).map(row => ({
+    ? (
+        await db
+          .select()
+          .from(seasonRatingStates)
+          .where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))
+      ).map(row => ({
         ...row,
         gamesPlayed: row.seasonGames,
         wins: row.seasonWins,
@@ -25,37 +31,60 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
         effectiveWinsVsTier1: row.evidence.effectiveWinsVsTier1 ?? 0,
         effectiveWinsVsTier2Plus: row.evidence.effectiveWinsVsTier2Plus ?? 0,
       }))
-    : await db.select().from(playerRatings).where(inArray(playerRatings.playerId, [...playerIds]))
+    : await db
+        .select()
+        .from(playerRatings)
+        .where(inArray(playerRatings.playerId, [...playerIds]))
   const ratings = await projectPublicRatingDecay(db, storedRatings, Date.now(), selected.ratingSeason)
   if (!season && !selected.allTime) return ratings
   // Isolated reports and corrections already maintain these counters atomically.
   // Reading a player's stats must not walk their match history again.
   if (season?.isolatedRatingsEnabled) {
-    const counts = historical ? storedRatings.map(row => ({ playerId: row.playerId, mode: row.mode, seasonGames: row.gamesPlayed, seasonWins: row.wins }))
-      : await db.select({ playerId: seasonRatingStates.playerId, mode: seasonRatingStates.mode,
-        seasonGames: seasonRatingStates.seasonGames, seasonWins: seasonRatingStates.seasonWins,
-      }).from(seasonRatingStates).where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))
+    const counts = historical
+      ? storedRatings.map(row => ({
+          playerId: row.playerId,
+          mode: row.mode,
+          seasonGames: row.gamesPlayed,
+          seasonWins: row.wins,
+        }))
+      : await db
+          .select({
+            playerId: seasonRatingStates.playerId,
+            mode: seasonRatingStates.mode,
+            seasonGames: seasonRatingStates.seasonGames,
+            seasonWins: seasonRatingStates.seasonWins,
+          })
+          .from(seasonRatingStates)
+          .where(and(eq(seasonRatingStates.seasonId, season.id), inArray(seasonRatingStates.playerId, [...playerIds])))
     const byKey = new Map(counts.map(row => [`${row.playerId}:${row.mode}`, row]))
     return ratings.map(row => {
-      if (season.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
+      if (season.ratingSystem === 'rp' && row.publicRating == null)
+        throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
       const count = byKey.get(`${row.playerId}:${row.mode}`)
-      const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
+      const lifetimeGamesPlayed =
+        (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
       return { ...row, lifetimeGamesPlayed, gamesPlayed: count?.seasonGames ?? 0, wins: count?.seasonWins ?? 0 }
     })
   }
-  const counts = await db.select({
-    matchId: matches.id,
-    playerId: matchParticipants.playerId,
-    placement: matchParticipants.placement,
-    gameMode: matches.gameMode,
-    draftData: matches.draftData,
-  }).from(matchParticipants).innerJoin(matches, eq(matches.id, matchParticipants.matchId)).where(and(
-    inArray(matchParticipants.playerId, [...playerIds]),
-    eq(matches.status, 'completed'),
-    season ? eq(matches.seasonId, season.id) : undefined,
-    sql`not exists (select 1 from ${tournamentMatches} where ${tournamentMatches.matchId} = ${matches.id} or ${tournamentMatches.sessionId} = ${matches.id})`,
-  ))
-  const countByKey = new Map<string, { gamesPlayed: number, wins: number }>()
+  const counts = await db
+    .select({
+      matchId: matches.id,
+      playerId: matchParticipants.playerId,
+      placement: matchParticipants.placement,
+      gameMode: matches.gameMode,
+      draftData: matches.draftData,
+    })
+    .from(matchParticipants)
+    .innerJoin(matches, eq(matches.id, matchParticipants.matchId))
+    .where(
+      and(
+        inArray(matchParticipants.playerId, [...playerIds]),
+        eq(matches.status, 'completed'),
+        season ? eq(matches.seasonId, season.id) : undefined,
+        sql`not exists (select 1 from ${tournamentMatches} where ${tournamentMatches.matchId} = ${matches.id} or ${tournamentMatches.sessionId} = ${matches.id})`,
+      ),
+    )
+  const countByKey = new Map<string, { gamesPlayed: number; wins: number }>()
   const seen = new Set<string>()
   for (const row of counts) {
     const mode = getStoredGameModeContext(row.gameMode, row.draftData)?.leaderboardMode
@@ -70,8 +99,9 @@ export async function loadSelectedSeasonRatings(db: Database, selected: Selected
       countByKey.set(key, count)
     }
   }
-  return ratings.map((row) => {
-    if (selected.ratingSeason?.ratingSystem === 'rp' && row.publicRating == null) throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
+  return ratings.map(row => {
+    if (selected.ratingSeason?.ratingSystem === 'rp' && row.publicRating == null)
+      throw new SeasonSelectionError('Some ratings are missing for this season. Ask a server admin to check them.')
     const count = countByKey.get(`${row.playerId}:${row.mode}`)
     const lifetimeGamesPlayed = (row as { evidence?: Record<string, number> }).evidence?.gamesPlayed ?? row.gamesPlayed
     return { ...row, lifetimeGamesPlayed, gamesPlayed: Number(count?.gamesPlayed ?? 0), wins: Number(count?.wins ?? 0) }

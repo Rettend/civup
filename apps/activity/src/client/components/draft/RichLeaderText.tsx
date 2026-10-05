@@ -34,7 +34,7 @@ export function RichLeaderText(props: RichLeaderTextProps) {
   return (
     <span class={cn('inline', props.class)}>
       <For each={parts()}>
-        {(part) => {
+        {part => {
           const token = part.match(/^:([a-z0-9_]+):$/)?.[1]
           if (!token) return part
 

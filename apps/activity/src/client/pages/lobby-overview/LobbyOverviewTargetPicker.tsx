@@ -1,6 +1,6 @@
 import type { ActivityTargetOption } from '~/client/stores'
-import { formatModeLabel } from '@civup/game'
 import { createMemo, createSignal, For, Show } from 'solid-js'
+import { formatModeLabel } from '@civup/game'
 import { MiniFrame } from '~/client/components/draft/MiniLayout'
 import { activityTargetOptionKey } from '~/client/lib/activity-targets'
 import { cn } from '~/client/lib/css'
@@ -38,11 +38,11 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
     <MiniFrame title="Lobby Overview" titleAccent="gold">
       <Show
         when={visibleOptions().length > 0}
-        fallback={(
+        fallback={
           <div class="px-4 text-center border border-border-subtle rounded-lg bg-bg-subtle/90 flex flex-1 items-center justify-center">
             <span class="text-[10px] text-fg-muted">No active lobbies</span>
           </div>
-        )}
+        }
       >
         <div class="flex flex-1 flex-col gap-1.5 min-h-0 overflow-hidden">
           <div class="gap-1.5 grid grid-cols-2">
@@ -53,10 +53,11 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
                     <span class="text-[10px] text-fg tracking-[0.14em] font-bold truncate">
                       {formatTargetModeLabel(option)}
                     </span>
-                    <span class={cn(
-                      'text-[6px] font-semibold uppercase shrink-0',
-                      getStatusMeta(getOptionStatus(option)).iconColorClass,
-                    )}
+                    <span
+                      class={cn(
+                        'text-[6px] font-semibold uppercase shrink-0',
+                        getStatusMeta(getOptionStatus(option)).iconColorClass,
+                      )}
                     >
                       {formatMiniTargetStatus(option)}
                     </span>
@@ -64,9 +65,7 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
 
                   <div class="text-[10px] text-fg-muted leading-none flex gap-1 items-center justify-between">
                     <span>
-                      {option.participantCount}
-                      /
-                      {option.targetSize}
+                      {option.participantCount}/{option.targetSize}
                     </span>
                     <Show when={option.isHost || option.isMember}>
                       <span class="text-[8px] text-accent tracking-[0.1em] font-semibold uppercase">
@@ -81,12 +80,8 @@ function LobbyOverviewTargetPickerMini(props: LobbyOverviewTargetPickerProps) {
 
           <Show when={hiddenCount() > 0 || props.error}>
             <div class="text-[9px] leading-none px-1 flex gap-2 items-center justify-between">
-              <span class="text-fg-muted/80">
-                {hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}
-              </span>
-              <Show when={props.error}>
-                {error => <span class="text-danger truncate">{error()}</span>}
-              </Show>
+              <span class="text-fg-muted/80">{hiddenCount() > 0 ? `+${hiddenCount()} more` : ''}</span>
+              <Show when={props.error}>{error => <span class="text-danger truncate">{error()}</span>}</Show>
             </div>
           </Show>
         </div>
@@ -102,10 +97,11 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
   const visibleOptions = createMemo(() => {
     const activeFilter = filter()
     if (activeFilter === 'all') return props.options
-    if (activeFilter === 'open') return props.options.filter((option) => {
-      const status = getOptionStatus(option)
-      return status === 'open' || status === 'closed'
-    })
+    if (activeFilter === 'open')
+      return props.options.filter(option => {
+        const status = getOptionStatus(option)
+        return status === 'open' || status === 'closed'
+      })
     return props.options.filter(option => getOptionStatus(option) === activeFilter)
   })
 
@@ -122,14 +118,14 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
 
       <Show
         when={props.options.length > 0}
-        fallback={(
+        fallback={
           <div class="px-6 py-8 text-center border border-border-subtle rounded-2xl bg-bg-subtle/90">
             <div class="mx-auto mb-3 border border-border-subtle rounded-full bg-bg-muted/40 flex h-12 w-12 items-center justify-center">
               <span class="i-ph:squares-four-duotone text-xl text-fg-subtle" />
             </div>
             <div class="text-base text-fg font-semibold">No active lobbies</div>
           </div>
-        )}
+        }
       >
         <div class="flex flex-col gap-4">
           <div class="mx-auto p-1 border border-border-subtle rounded-2xl bg-bg-subtle/75 grid grid-cols-4 gap-1 w-full max-w-lg">
@@ -143,9 +139,7 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
                   onClick={() => setFilter(item.key)}
                   class={cn(
                     'rounded-xl px-2 py-2 flex gap-1.5 min-w-0 items-center justify-center transition-colors',
-                    filter() === item.key
-                      ? item.activeClass
-                      : 'text-fg-muted hover:text-fg hover:bg-bg-muted/60',
+                    filter() === item.key ? item.activeClass : 'text-fg-muted hover:text-fg hover:bg-bg-muted/60',
                   )}
                 >
                   <span class={cn(item.icon, 'text-base shrink-0')} />
@@ -157,18 +151,18 @@ function LobbyOverviewTargetPickerFull(props: LobbyOverviewTargetPickerProps) {
 
           <Show
             when={visibleOptions().length > 0}
-            fallback={(
+            fallback={
               <div class="px-6 py-8 text-center border border-border-subtle rounded-2xl bg-bg-subtle/80">
                 <span class="text-sm text-fg-muted">No lobbies</span>
               </div>
-            )}
+            }
           >
             <div
               class="gap-3 grid"
               style={{ 'grid-template-columns': 'repeat(auto-fill, minmax(min(100%, 17rem), 1fr))' }}
             >
               <For each={visibleOptions()}>
-                {(option) => {
+                {option => {
                   const selected = () => props.selectedKey === activityTargetOptionKey(option)
 
                   return (
@@ -213,9 +207,7 @@ function OverviewTargetCard(props: {
         'group relative flex min-h-[156px] flex-col overflow-visible rounded-xl border p-3 text-left transition-all duration-150 cursor-pointer',
         meta().surfaceClass,
         'disabled:opacity-60 disabled:cursor-wait',
-        props.selected
-          ? cn('ring-2', meta().selectedRingClass)
-          : 'hover:ring-1 hover:ring-white/15',
+        props.selected ? cn('ring-2', meta().selectedRingClass) : 'hover:ring-1 hover:ring-white/15',
       )}
     >
       <div class="flex gap-3 items-center justify-between">
@@ -233,22 +225,23 @@ function OverviewTargetCard(props: {
 
       <Show
         when={players().length > 0}
-        fallback={(
+        fallback={
           <div class="mt-3 px-2 py-2 border border-border-subtle rounded-lg bg-white/4 flex gap-2 items-center">
             <span class="i-ph:user-bold text-sm text-fg-subtle" />
             <span class="text-xs text-fg-muted font-mono tabular-nums">{props.option.participantCount}</span>
           </div>
-        )}
+        }
       >
         <Show
           when={showAvatarPreview()}
-          fallback={(
-            <div class={cn('mt-3 gap-1.5 grid', players().length > 4 ? 'grid-cols-3' : 'grid-cols-2')} data-overview-name-grid>
-              <For each={namePreviewPlayers()}>
-                {player => <PlayerPreviewPill player={player} />}
-              </For>
+          fallback={
+            <div
+              class={cn('mt-3 gap-1.5 grid', players().length > 4 ? 'grid-cols-3' : 'grid-cols-2')}
+              data-overview-name-grid
+            >
+              <For each={namePreviewPlayers()}>{player => <PlayerPreviewPill player={player} />}</For>
             </div>
-          )}
+          }
         >
           <PlayerAvatarTeamPreview players={avatarPreviewPlayers()} />
         </Show>
@@ -264,9 +257,7 @@ function OverviewTargetCard(props: {
 
         <span class="text-sm text-fg-muted font-mono inline-flex gap-1 items-center tabular-nums shrink-0">
           <span class="i-ph:users-duotone text-base" />
-          {props.option.participantCount}
-          /
-          {props.option.targetSize}
+          {props.option.participantCount}/{props.option.targetSize}
         </span>
       </div>
     </button>
@@ -290,9 +281,7 @@ function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
       <For each={columns()}>
         {column => (
           <div class="flex flex-wrap gap-1.5 min-w-0 items-center content-start">
-            <For each={column}>
-              {player => <PlayerPreviewAvatar player={player} />}
-            </For>
+            <For each={column}>{player => <PlayerPreviewAvatar player={player} />}</For>
           </div>
         )}
       </For>
@@ -302,9 +291,17 @@ function PlayerAvatarTeamPreview(props: { players: OverviewPlayer[] }) {
 
 function PlayerPreviewAvatar(props: { player: OverviewPlayer }) {
   return (
-    <span class="group/avatar relative inline-flex" role="img" aria-label={props.player.displayName} data-overview-player-avatar>
+    <span
+      class="group/avatar relative inline-flex"
+      role="img"
+      aria-label={props.player.displayName}
+      data-overview-player-avatar
+    >
       <PlayerAvatarBubble player={props.player} />
-      <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-border-subtle bg-bg-elevated/96 px-2.5 py-1 text-[10px] text-fg shadow-[0_8px_20px_rgba(0,0,0,0.32)] opacity-0 transition-opacity duration-100 group-hover/avatar:duration-0 group-hover/avatar:opacity-100 group-focus-visible/avatar:duration-0 group-focus-visible/avatar:opacity-100" role="tooltip">
+      <span
+        class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full border border-border-subtle bg-bg-elevated/96 px-2.5 py-1 text-[10px] text-fg shadow-[0_8px_20px_rgba(0,0,0,0.32)] opacity-0 transition-opacity duration-100 group-hover/avatar:duration-0 group-hover/avatar:opacity-100 group-focus-visible/avatar:duration-0 group-focus-visible/avatar:opacity-100"
+        role="tooltip"
+      >
         {props.player.displayName}
         <span class="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-border-subtle bg-bg-elevated/96" />
       </span>
@@ -317,11 +314,13 @@ function PlayerAvatarBubble(props: { player: OverviewPlayer }) {
     <span class="rounded-full h-7 w-7 shrink-0 flex items-center justify-center overflow-hidden">
       <Show
         when={props.player.avatarUrl}
-        fallback={(
+        fallback={
           <span class="rounded-full flex h-6 w-6 items-center justify-center">
-            <span class="text-[8px] text-fg-subtle font-bold leading-none">{getInitials(props.player.displayName)}</span>
+            <span class="text-[8px] text-fg-subtle font-bold leading-none">
+              {getInitials(props.player.displayName)}
+            </span>
           </span>
-        )}
+        }
       >
         {avatarUrl => <img src={avatarUrl()} alt="" class="rounded-full h-6 w-6 object-cover" />}
       </Show>
@@ -343,8 +342,7 @@ function splitPlayersForAvatarColumns(players: OverviewPlayer[]): [OverviewPlaye
     if (typeof player.team === 'number') {
       const columnIndex = player.team % 2 === 0 ? 0 : 1
       columns[columnIndex].push(player)
-    }
-    else {
+    } else {
       ungrouped.push(player)
     }
   }

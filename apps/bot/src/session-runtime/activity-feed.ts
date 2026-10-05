@@ -1,12 +1,23 @@
-import type { Connection, ConnectionContext } from 'partyserver'
-import type { StoredActivityFollowTargetSelection, StoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
+import type {
+  StoredActivityFollowTargetSelection,
+  StoredActivityLaunchTargetSelection,
+} from '../services/activity/launch-target.ts'
 import type { ActivityOverviewSnapshot, LobbySnapshot } from '../services/activity/session-state.ts'
 import type { SessionRecord } from './session-record.ts'
+import type { Connection, ConnectionContext } from 'partyserver'
+import { Server } from 'partyserver'
 import { createDb } from '@civup/db'
 import { CIVUP_ACTIVITY_USER_ID_HEADER, isAuthorizedInternalRequest } from '@civup/utils'
-import { Server } from 'partyserver'
-import { parseStoredActivityFollowTargetSelection, parseStoredActivityLaunchTargetSelection } from '../services/activity/launch-target.ts'
-import { attachTournamentLobbySnapshot, buildActivityOverviewSnapshotFromDirectory, buildLobbySnapshotFromSessionRecord, mergeActivityOverviewSnapshotForSessionUpdate } from '../services/activity/session-state.ts'
+import {
+  parseStoredActivityFollowTargetSelection,
+  parseStoredActivityLaunchTargetSelection,
+} from '../services/activity/launch-target.ts'
+import {
+  attachTournamentLobbySnapshot,
+  buildActivityOverviewSnapshotFromDirectory,
+  buildLobbySnapshotFromSessionRecord,
+  mergeActivityOverviewSnapshotForSessionUpdate,
+} from '../services/activity/session-state.ts'
 
 interface ActivityFeedEnv extends Cloudflare.Env {
   DB?: D1Database
@@ -15,10 +26,10 @@ interface ActivityFeedEnv extends Cloudflare.Env {
   ALLOWED_DISCORD_GUILD_ID?: string
 }
 
-export type ActivityFeedMessage
-  = | { type: 'overview', snapshot: ActivityOverviewSnapshot | null }
-    | { type: 'lobby', lobbyId: string, snapshot: LobbySnapshot | null }
-    | { type: 'error', message: string }
+export type ActivityFeedMessage =
+  | { type: 'overview'; snapshot: ActivityOverviewSnapshot | null }
+  | { type: 'lobby'; lobbyId: string; snapshot: LobbySnapshot | null }
+  | { type: 'error'; message: string }
 
 interface PublishSessionUpdateRequest {
   record?: SessionRecord
@@ -45,8 +56,7 @@ export class Activity extends Server<ActivityFeedEnv> {
     let body: PublishSessionUpdateRequest
     try {
       body = await req.json<PublishSessionUpdateRequest>()
-    }
-    catch {
+    } catch {
       return json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -60,7 +70,9 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async handleActivityLaunchTargetRequest(req: Request): Promise<Response> {
     switch (req.method) {
       case 'GET': {
-        const stored = await this.ctx.storage.get<StoredActivityLaunchTargetSelection>(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY)
+        const stored = await this.ctx.storage.get<StoredActivityLaunchTargetSelection>(
+          ACTIVITY_LAUNCH_TARGET_STORAGE_KEY,
+        )
         const target = parseStoredActivityLaunchTargetSelection(stored ?? null)
         if (!target && stored) await this.ctx.storage.delete(ACTIVITY_LAUNCH_TARGET_STORAGE_KEY)
         return json({ target })
@@ -69,8 +81,7 @@ export class Activity extends Server<ActivityFeedEnv> {
         let body: unknown
         try {
           body = await req.json()
-        }
-        catch {
+        } catch {
           return json({ error: 'Invalid JSON payload' }, 400)
         }
         const target = parseStoredActivityLaunchTargetSelection(body)
@@ -89,7 +100,9 @@ export class Activity extends Server<ActivityFeedEnv> {
   private async handleActivityFollowTargetRequest(req: Request): Promise<Response> {
     switch (req.method) {
       case 'GET': {
-        const stored = await this.ctx.storage.get<StoredActivityFollowTargetSelection>(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY)
+        const stored = await this.ctx.storage.get<StoredActivityFollowTargetSelection>(
+          ACTIVITY_FOLLOW_TARGET_STORAGE_KEY,
+        )
         const target = parseStoredActivityFollowTargetSelection(stored ?? null)
         if (!target && stored) await this.ctx.storage.delete(ACTIVITY_FOLLOW_TARGET_STORAGE_KEY)
         return json({ target })
@@ -98,8 +111,7 @@ export class Activity extends Server<ActivityFeedEnv> {
         let body: unknown
         try {
           body = await req.json()
-        }
-        catch {
+        } catch {
           return json({ error: 'Invalid JSON payload' }, 400)
         }
         const target = parseStoredActivityFollowTargetSelection(body)
@@ -209,8 +221,7 @@ function sendConnectionMessage(connection: Connection, message: string): boolean
   try {
     connection.send(message)
     return true
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof Error && error.message.includes("Can't call WebSocket send() after close")) return false
     throw error
   }
@@ -229,8 +240,7 @@ function readActivityChannelId(request: Request): string | null {
   try {
     const channelId = decodeURIComponent(encoded).trim()
     return channelId.length > 0 ? channelId : null
-  }
-  catch {
+  } catch {
     return null
   }
 }

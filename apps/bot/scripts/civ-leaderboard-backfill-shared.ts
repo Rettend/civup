@@ -58,9 +58,12 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
   const before = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
   if (options.command === 'preview') {
-    const historical = source === 'history' && options.includeHistoricalPreview !== false
-      ? await withProgress(options, 'scanning historical preview', () => buildCivLeaderboardSnapshotFromD1(options.db))
-      : undefined
+    const historical =
+      source === 'history' && options.includeHistoricalPreview !== false
+        ? await withProgress(options, 'scanning historical preview', () =>
+            buildCivLeaderboardSnapshotFromD1(options.db),
+          )
+        : undefined
     const result: ScriptResult = {
       mode: 'preview',
       source,
@@ -81,51 +84,65 @@ export async function runCivLeaderboardBackfill(options: CivLeaderboardBackfillO
   }
 
   if (!options.execute) {
-    printResult({
-      mode: 'apply',
-      source,
-      target: options.target,
-      config: options.config,
-      database: options.database,
-      before,
-      message: `Dry run only. Run ${options.applyHint} to mutate D1 and KV.`,
-    }, options.json)
+    printResult(
+      {
+        mode: 'apply',
+        source,
+        target: options.target,
+        config: options.config,
+        database: options.database,
+        before,
+        message: `Dry run only. Run ${options.applyHint} to mutate D1 and KV.`,
+      },
+      options.json,
+    )
     return
   }
 
   const updatedAt = Date.now()
   options.onProgress?.('loading display config')
   const config = await getStoredCivLeaderboardDisplayConfig(options.kv)
-  options.onProgress?.(source === 'contributions' ? 'rebuilding aggregates from contribution rows' : 'rebuilding contribution rows from match history')
-  const backfill = source === 'contributions'
-    ? await repairCivLeaderboardStatsFromContributions(options.db, updatedAt, config)
-    : await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt, config)
+  options.onProgress?.(
+    source === 'contributions'
+      ? 'rebuilding aggregates from contribution rows'
+      : 'rebuilding contribution rows from match history',
+  )
+  const backfill =
+    source === 'contributions'
+      ? await repairCivLeaderboardStatsFromContributions(options.db, updatedAt, config)
+      : await backfillCivLeaderboardStatsFromHistory(options.db, updatedAt, config)
   options.onProgress?.('writing scoped KV snapshots')
   const snapshots = await rebuildCivLeaderboardSnapshots(options.db, options.kv, undefined, updatedAt)
   options.onProgress?.('marking civ leaderboards dirty')
-  await markLeaderboardsDirty(options.db, `script:civ-leaderboard:${source}`, { civ: true, now: dirtyTimestampBefore(updatedAt) })
+  await markLeaderboardsDirty(options.db, `script:civ-leaderboard:${source}`, {
+    civ: true,
+    now: dirtyTimestampBefore(updatedAt),
+  })
   const snapshot = snapshots.get('all') ?? backfill.snapshot
   options.onProgress?.('loading final status')
   const after = await getCivLeaderboardStatsStatus(options.db, options.kv)
 
-  printResult({
-    mode: 'apply',
-    source,
-    target: options.target,
-    config: options.config,
-    database: options.database,
-    before,
-    backfill: {
-      scannedCompletedMatchCount: backfill.scannedCompletedMatchCount,
-      scannedParticipantRowCount: backfill.scannedParticipantRowCount,
-      contributionRowCount: backfill.contributionRowCount,
-      civRowCount: backfill.civRowCount,
-      completedMatchCount: backfill.snapshot.completedMatchCount,
-      snapshotRowCount: snapshot.rows.length,
-      snapshotUpdatedAt: snapshot.updatedAt,
+  printResult(
+    {
+      mode: 'apply',
+      source,
+      target: options.target,
+      config: options.config,
+      database: options.database,
+      before,
+      backfill: {
+        scannedCompletedMatchCount: backfill.scannedCompletedMatchCount,
+        scannedParticipantRowCount: backfill.scannedParticipantRowCount,
+        contributionRowCount: backfill.contributionRowCount,
+        civRowCount: backfill.civRowCount,
+        completedMatchCount: backfill.snapshot.completedMatchCount,
+        snapshotRowCount: snapshot.rows.length,
+        snapshotUpdatedAt: snapshot.updatedAt,
+      },
+      after,
     },
-    after,
-  }, options.json)
+    options.json,
+  )
 }
 
 function printResult(result: ScriptResult, json: boolean): void {
@@ -166,7 +183,11 @@ function dirtyTimestampBefore(value: number): number {
   return Math.max(0, Math.round(value) - 1)
 }
 
-async function withProgress<T>(options: CivLeaderboardBackfillOptions, label: string, run: () => Promise<T>): Promise<T> {
+async function withProgress<T>(
+  options: CivLeaderboardBackfillOptions,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> {
   options.onProgress?.(label)
   return run()
 }

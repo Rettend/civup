@@ -14,7 +14,14 @@ import {
   verifyActivitySession,
   verifyCivBlitzDownloadTicket,
 } from '@civup/utils'
-import { BROWSER_SESSION_COOKIE, clearBrowserSessionCookie, handleBrowserOAuthRequest, hasExactBrowserOrigin, readCookie, resolveBrowserAccessConfiguration } from './browser-auth.ts'
+import {
+  BROWSER_SESSION_COOKIE,
+  clearBrowserSessionCookie,
+  handleBrowserOAuthRequest,
+  hasExactBrowserOrigin,
+  readCookie,
+  resolveBrowserAccessConfiguration,
+} from './browser-auth.ts'
 import { exchangeDiscordAuthorizationCode, loadDiscordIdentity } from './discord-auth.ts'
 
 interface Env {
@@ -71,17 +78,16 @@ export default {
         return await handleCivBlitzDownloadTicket(request, url, env)
       }
       if (
-        url.pathname.startsWith('/api/activity/')
-        || url.pathname.startsWith('/api/match/')
-        || url.pathname.startsWith('/api/lobby/')
-        || url.pathname.startsWith('/api/lobby-ranks/')
-        || url.pathname.startsWith('/api/uploads/')
+        url.pathname.startsWith('/api/activity/') ||
+        url.pathname.startsWith('/api/match/') ||
+        url.pathname.startsWith('/api/lobby/') ||
+        url.pathname.startsWith('/api/lobby-ranks/') ||
+        url.pathname.startsWith('/api/uploads/')
       ) {
         return await handleMatchProxy(request, url, env)
       }
       return serveSpaNavigation(request, url, env)
-    }
-    catch (error) {
+    } catch (error) {
       console.error('[activity:req:error]', request.method, url.pathname, error)
       throw error
     }
@@ -118,8 +124,7 @@ async function handleDevLog(request: Request): Promise<Response> {
       status: 204,
       headers: { 'Cache-Control': 'no-store' },
     })
-  }
-  catch (err) {
+  } catch (err) {
     console.warn('[activity-dev-log] Invalid payload', err)
     return json({ error: 'Invalid dev log payload' }, 400)
   }
@@ -200,8 +205,7 @@ async function handleMatchProxy(request: Request, url: URL, env: Env): Promise<R
         'Cache-Control': 'no-store',
       },
     })
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Match lookup proxy error:', { targetUrl, err })
     return json({ error: 'Match lookup proxy failed' }, 502)
   }
@@ -225,7 +229,11 @@ async function handleCivBlitzDownloadTicket(request: Request, url: URL, env: Env
   return response
 }
 
-async function resolveMatchProxySession(request: Request, url: URL, env: Env): Promise<ActivityProxySession | Response> {
+async function resolveMatchProxySession(
+  request: Request,
+  url: URL,
+  env: Env,
+): Promise<ActivityProxySession | Response> {
   const matchId = request.method === 'GET' ? getCivBlitzDownloadMatchId(url.pathname) : null
   const ticket = matchId ? url.searchParams.get(CIVUP_CIVBLITZ_DOWNLOAD_TICKET_QUERY_PARAM) : null
   if (!matchId) return requireActivitySession(request, env)
@@ -258,13 +266,13 @@ function isNullBodyStatus(status: number): boolean {
 }
 
 function shouldStreamProxyResponse(request: Request, url: URL, response: Response): boolean {
-  return request.method.toUpperCase() === 'GET'
-    && response.ok
-    && (
-      (url.pathname.startsWith('/api/uploads/') && url.pathname.endsWith('/download'))
-      || url.pathname === '/api/activity/admin/player-data-export'
-      || /^\/api\/match\/[^/]+\/civblitz\/download$/.test(url.pathname)
-    )
+  return (
+    request.method.toUpperCase() === 'GET' &&
+    response.ok &&
+    ((url.pathname.startsWith('/api/uploads/') && url.pathname.endsWith('/download')) ||
+      url.pathname === '/api/activity/admin/player-data-export' ||
+      /^\/api\/match\/[^/]+\/civblitz\/download$/.test(url.pathname))
+  )
 }
 
 function streamProxyResponse(response: Response): Response {
@@ -298,8 +306,7 @@ async function handlePartyProxy(request: Request, url: URL, env: Env): Promise<R
     if ('error' in proxy) return proxy.error
     targetUrl = proxy.targetUrl
     return proxy.response
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Party proxy error:', { targetUrl, err })
     return json({ error: 'Party proxy failed' }, 502)
   }
@@ -310,7 +317,7 @@ async function fetchBotUpstream(
   targetPath: string,
   env: Env,
   session: ActivityProxySession,
-): Promise<{ response: Response, targetUrl: string } | { error: Response }> {
+): Promise<{ response: Response; targetUrl: string } | { error: Response }> {
   if (isDev({ viteDev: getImportMetaDev(), host: request.url })) {
     const targetUrl = `http://127.0.0.1:8787${targetPath}`
     return { response: await fetch(buildProxyRequest(targetUrl, request, env, session)), targetUrl }
@@ -333,9 +340,7 @@ function buildPartyProxyTargetPath(url: URL): string {
   const room = slashIndex === -1 ? roomAndRest : roomAndRest.slice(0, slashIndex)
   if (!room) return targetPath
 
-  const namespace = url.searchParams.has('accessToken') || !isLikelyDiscordSnowflake(room)
-    ? 'session'
-    : 'activity'
+  const namespace = url.searchParams.has('accessToken') || !isLikelyDiscordSnowflake(room) ? 'session' : 'activity'
   return `/parties/${namespace}/${roomAndRest}`
 }
 
@@ -348,13 +353,7 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
   const internalSecret = env.CIVUP_SECRET?.trim() ?? ''
 
   const headers = new Headers()
-  for (const name of [
-    'accept',
-    'accept-language',
-    'content-length',
-    'content-type',
-    'user-agent',
-  ]) {
+  for (const name of ['accept', 'accept-language', 'content-length', 'content-type', 'user-agent']) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)
   }
@@ -372,7 +371,12 @@ function buildProxyRequest(targetUrl: string, request: Request, env: Env, sessio
     const connection = request.headers.get('connection')
     if (connection) headers.set('connection', connection)
 
-    for (const name of ['sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol', 'sec-websocket-extensions']) {
+    for (const name of [
+      'sec-websocket-key',
+      'sec-websocket-version',
+      'sec-websocket-protocol',
+      'sec-websocket-extensions',
+    ]) {
       const value = request.headers.get(name)
       if (value) headers.set(name, value)
     }
@@ -395,17 +399,17 @@ function shouldWarnForMatchProxy(method: string, pathname: string, status: numbe
   if (status !== 404 || method.toUpperCase() !== 'GET') return true
 
   return !(
-    pathname.startsWith('/api/activity/')
-    || pathname.startsWith('/api/match/')
-    || pathname.startsWith('/api/lobby/')
-    || pathname.startsWith('/api/lobby-ranks/')
-    || pathname.startsWith('/api/uploads/')
+    pathname.startsWith('/api/activity/') ||
+    pathname.startsWith('/api/match/') ||
+    pathname.startsWith('/api/lobby/') ||
+    pathname.startsWith('/api/lobby-ranks/') ||
+    pathname.startsWith('/api/uploads/')
   )
 }
 
 async function handleTokenExchange(request: Request, env: Env): Promise<Response> {
   try {
-    const body = await request.json<{ code: string, redirectUri?: string }>()
+    const body = await request.json<{ code: string; redirectUri?: string }>()
 
     if (!body.code || typeof body.code !== 'string') {
       return json({ error: 'Missing or invalid "code" in request body' }, 400)
@@ -461,8 +465,7 @@ async function handleTokenExchange(request: Request, env: Env): Promise<Response
     })
     response.headers.set('Cache-Control', 'no-store')
     return response
-  }
-  catch (err) {
+  } catch (err) {
     console.error('Token exchange error:', err)
     return json({ error: 'Internal server error' }, 500)
   }
@@ -493,7 +496,11 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
   }
 }
 
-function validateCookieAuthenticatedRequest(request: Request, session: ActivityProxySession, env: Env): Response | null {
+function validateCookieAuthenticatedRequest(
+  request: Request,
+  session: ActivityProxySession,
+  env: Env,
+): Response | null {
   if (session.source !== 'cookie') return null
   const method = request.method.toUpperCase()
   const isWebSocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
@@ -527,8 +534,7 @@ function decodePathMatch(pattern: RegExp, pathname: string): string | null {
   if (!encoded) return null
   try {
     return decodeURIComponent(encoded)
-  }
-  catch {
+  } catch {
     return null
   }
 }

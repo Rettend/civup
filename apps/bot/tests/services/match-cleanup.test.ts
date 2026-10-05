@@ -1,9 +1,16 @@
-import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
-import { createLobby, getExistingTestLobbyRuntime, getLobbyById, setLobbyMemberPlayerIds, setLobbyStatus, startTestSessionDraft } from '../helpers/lobby-runtime.ts'
+import {
+  createLobby,
+  getExistingTestLobbyRuntime,
+  getLobbyById,
+  setLobbyMemberPlayerIds,
+  setLobbyStatus,
+  startTestSessionDraft,
+} from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
@@ -16,7 +23,7 @@ describe('match cleanup reconciliation', () => {
   test('clears live lobbies whose backing match is already completed', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const requests: Array<{ url: string, init?: RequestInit }> = []
+    const requests: Array<{ url: string; init?: RequestInit }> = []
 
     globalThis.fetch = (async (input, init) => {
       requests.push({ url: String(input), init })
@@ -46,15 +53,37 @@ describe('match cleanup reconciliation', () => {
         draftData: null,
       })
       await db.insert(matchParticipants).values([
-        { matchId, playerId: 'host', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-        { matchId, playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+        {
+          matchId,
+          playerId: 'host',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
+        {
+          matchId,
+          playerId: 'player-2',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: null,
+          ratingBeforeSigma: null,
+          ratingAfterMu: null,
+          ratingAfterSigma: null,
+        },
       ])
 
       const withMembers = await setLobbyMemberPlayerIds(kv, lobby.id, ['host', 'player-2'], lobby)
       const draftingLobby = await startTestSessionDraft(kv, lobby.id, withMembers ?? lobby)
       const activeLobby = await setLobbyStatus(kv, lobby.id, 'active', draftingLobby!)
 
-      const result = await pruneAbandonedMatches(db, kv, { sessionNamespace: getExistingTestLobbyRuntime(kv).sessionNamespace })
+      const result = await pruneAbandonedMatches(db, kv, {
+        sessionNamespace: getExistingTestLobbyRuntime(kv).sessionNamespace,
+      })
 
       expect(result.removedMatchIds).toEqual([])
       expect(result.clearedLiveLobbyMatchIds).toEqual([matchId])
@@ -64,8 +93,7 @@ describe('match cleanup reconciliation', () => {
       const editRequest = requests.find(request => request.init?.method === 'PATCH')
       expect(editRequest).toBeDefined()
       expect(String(editRequest?.init?.body)).toContain('RESULT REPORTED')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -90,8 +118,28 @@ describe('match cleanup reconciliation', () => {
         draftData: null,
       })
       await db.insert(matchParticipants).values([
-        { matchId, playerId: 'host', team: 0, civId: null, placement: 1, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 26, ratingAfterSigma: 8 },
-        { matchId, playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: 25, ratingBeforeSigma: 8.333, ratingAfterMu: 24, ratingAfterSigma: 8 },
+        {
+          matchId,
+          playerId: 'host',
+          team: 0,
+          civId: null,
+          placement: 1,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 26,
+          ratingAfterSigma: 8,
+        },
+        {
+          matchId,
+          playerId: 'player-2',
+          team: 1,
+          civId: null,
+          placement: 2,
+          ratingBeforeMu: 25,
+          ratingBeforeSigma: 8.333,
+          ratingAfterMu: 24,
+          ratingAfterSigma: 8,
+        },
       ])
       await db.insert(matchBans).values({ matchId, civId: 'rome', bannedBy: 'host', phase: 0 })
       await db.insert(playerRatingEvents).values({
@@ -116,14 +164,16 @@ describe('match cleanup reconciliation', () => {
         updatedAt: 2,
       })
 
-      const result = await pruneAbandonedMatches(db, kv, { staleCancelledMs: 0, allowDirectTerminalWriteForTests: true })
+      const result = await pruneAbandonedMatches(db, kv, {
+        staleCancelledMs: 0,
+        allowDirectTerminalWriteForTests: true,
+      })
 
       expect(result.removedMatchIds).toEqual([])
       expect(await db.select().from(matches).where(eq(matches.id, matchId))).toHaveLength(1)
       expect(await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId))).toHaveLength(2)
       expect(await db.select().from(matchBans).where(eq(matchBans.matchId, matchId))).toHaveLength(1)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -144,7 +194,9 @@ describe('match cleanup reconciliation', () => {
         draftData: null,
       }))
 
-      await db.insert(players).values({ id: 'rated-player', displayName: 'Rated Player', avatarUrl: null, createdAt: 1 })
+      await db
+        .insert(players)
+        .values({ id: 'rated-player', displayName: 'Rated Player', avatarUrl: null, createdAt: 1 })
       await db.insert(matches).values(staleMatchRows)
       await db.insert(playerRatingEvents).values({
         matchId: ratedMatchId,
@@ -168,14 +220,16 @@ describe('match cleanup reconciliation', () => {
         updatedAt: 2,
       })
 
-      const result = await pruneAbandonedMatches(db, kv, { staleCancelledMs: 0, allowDirectTerminalWriteForTests: true })
+      const result = await pruneAbandonedMatches(db, kv, {
+        staleCancelledMs: 0,
+        allowDirectTerminalWriteForTests: true,
+      })
 
       expect(result.removedMatchIds).toHaveLength(staleMatchRows.length - 1)
       expect(result.removedMatchIds).not.toContain(ratedMatchId)
       const remaining = await db.select({ id: matches.id }).from(matches)
       expect(remaining).toEqual([{ id: ratedMatchId }])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -203,8 +257,7 @@ describe('match cleanup reconciliation', () => {
 
       expect(result.removedMatchIds).toEqual([matchId])
       expect(await db.select().from(matches).where(eq(matches.id, matchId))).toEqual([])
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })

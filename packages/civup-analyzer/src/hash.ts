@@ -1,6 +1,6 @@
+import { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
 
 const CRC32_TABLE = createCrc32Table()
 
@@ -345,13 +345,13 @@ export interface CreateHashResolverOptions {
 
 export function crc32(value: Uint8Array | string): number {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
-  let crc = 0xFFFFFFFF
-  for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xFF]! ^ (crc >>> 8)
-  return (crc ^ 0xFFFFFFFF) >>> 0
+  let crc = 0xffffffff
+  for (const byte of bytes) crc = CRC32_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
 }
 
 export function civHash(type: string): number {
-  return (~crc32(type)) >>> 0
+  return ~crc32(type) >>> 0
 }
 
 export function resolveCoreType(hash: number): string | null {
@@ -377,8 +377,7 @@ export function createHashResolver(options: CreateHashResolverOptions = {}): Has
       addTypes(names, loaded)
       sources.push(dbPath)
       typesDbPath = dbPath
-    }
-    catch {
+    } catch {
       sources.push(`${dbPath} (failed)`)
     }
   }
@@ -406,7 +405,7 @@ function createCrc32Table(): Uint32Array {
   const table = new Uint32Array(256)
   for (let index = 0; index < table.length; index += 1) {
     let crc = index
-    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xEDB88320 ^ (crc >>> 1) : crc >>> 1
+    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1
     table[index] = crc >>> 0
   }
   return table
@@ -419,7 +418,7 @@ function addTypes(names: Map<number, string>, types: Iterable<string>) {
 function findDefaultTypesDbPath(): string | null {
   const localAppData = process.env.LOCALAPPDATA
   if (!localAppData) return null
-  return join(localAppData, 'Firaxis Games', 'Sid Meier\'s Civilization VI', 'Cache', 'DebugGameplay.sqlite')
+  return join(localAppData, 'Firaxis Games', "Sid Meier's Civilization VI", 'Cache', 'DebugGameplay.sqlite')
 }
 
 function loadTypesFromSqlite(dbPath: string): string[] {
@@ -427,8 +426,7 @@ function loadTypesFromSqlite(dbPath: string): string[] {
   try {
     const rows = db.query<{ Type: string }, []>('select Type from Types where Type is not null').all()
     return rows.map(row => row.Type).filter(type => type.length > 0)
-  }
-  finally {
+  } finally {
     db.close()
   }
 }

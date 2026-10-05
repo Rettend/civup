@@ -1,7 +1,11 @@
-import { playerRatings, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { playerRatings, players } from '@civup/db'
 import { runRankedRoleMaintenance } from '../../src/maintenance/ranked-role-maintenance.ts'
-import { getCurrentRankAssignments, getRankedRolesDirtyState, markRankedRolesDirty } from '../../src/services/ranked/role-sync.ts'
+import {
+  getCurrentRankAssignments,
+  getRankedRolesDirtyState,
+  markRankedRolesDirty,
+} from '../../src/services/ranked/role-sync.ts'
 import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
@@ -26,41 +30,48 @@ describe('ranked role maintenance', () => {
   test('bounds Discord work across guilds and only clears dirty state after a full sync', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const playerIds = Array.from({ length: 17 }, (_value, index) => `103010000000000${String(index + 1).padStart(2, '0')}`)
+    const playerIds = Array.from(
+      { length: 17 },
+      (_value, index) => `103010000000000${String(index + 1).padStart(2, '0')}`,
+    )
     await setRankedRoleCurrentRoles(kv, GUILD_ID, ROLE_IDS)
     await setRankedRoleCurrentRoles(kv, SECOND_GUILD_ID, ROLE_IDS)
-    await db.insert(players).values(playerIds.map((playerId, index) => ({
-      id: playerId,
-      displayName: `Player ${index + 1}`,
-      avatarUrl: null,
-      createdAt: NOW + index,
-    })))
-    await db.insert(playerRatings).values(playerIds.flatMap((playerId, index) => [
-      {
-        playerId,
-        mode: 'ffa',
-        mu: 40 - index / 10,
-        sigma: 6,
-        gamesPlayed: 10,
-        wins: 5,
-        effectiveGames: 10,
-        lastPlayedAt: NOW,
-      },
-      {
-        playerId,
-        mode: 'global',
-        mu: 40 - index / 10,
-        sigma: 6,
-        gamesPlayed: 10,
-        wins: 5,
-        effectiveGames: 10,
-        lastPlayedAt: NOW,
-      },
-    ]))
+    await db.insert(players).values(
+      playerIds.map((playerId, index) => ({
+        id: playerId,
+        displayName: `Player ${index + 1}`,
+        avatarUrl: null,
+        createdAt: NOW + index,
+      })),
+    )
+    await db.insert(playerRatings).values(
+      playerIds.flatMap((playerId, index) => [
+        {
+          playerId,
+          mode: 'ffa',
+          mu: 40 - index / 10,
+          sigma: 6,
+          gamesPlayed: 10,
+          wins: 5,
+          effectiveGames: 10,
+          lastPlayedAt: NOW,
+        },
+        {
+          playerId,
+          mode: 'global',
+          mu: 40 - index / 10,
+          sigma: 6,
+          gamesPlayed: 10,
+          wins: 5,
+          effectiveGames: 10,
+          lastPlayedAt: NOW,
+        },
+      ]),
+    )
     await markRankedRolesDirty(kv, 'test')
 
     const fetchedMemberIdsByGuild = new Map<string, Set<string>>()
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async input => {
       const request = input instanceof Request ? input : new Request(input)
       const pathname = new URL(request.url).pathname
       if (request.method === 'GET' && pathname.endsWith('/roles')) {

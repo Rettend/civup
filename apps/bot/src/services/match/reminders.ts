@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
-import { matches, sessionDirectory } from '@civup/db'
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm'
+import { matches, sessionDirectory } from '@civup/db'
 import { createChannelMessage, createDmChannel } from '../discord/index.ts'
 import { kvMget } from '../kv/batch.ts'
 import { getCompletedAtFromDraftData, getHostIdFromDraftData, getStoredGameModeContext } from './draft-data.ts'
@@ -68,8 +68,7 @@ export async function sendOverdueHostReportReminders(
       await sendReminderDm(token, hostId, buildReminderContent(pendingStage.introPrefix, gameContext.label, reportLink))
       await markReminderStagesThrough(kv, match.id, pendingStage.key)
       sentCount += 1
-    }
-    catch (error) {
+    } catch (error) {
       console.error(`[cron] Failed to send host report reminder for match ${match.id}:`, error)
     }
   }
@@ -82,9 +81,12 @@ async function resolvePendingReminderStage(
   matchId: string,
   elapsedMs: number,
 ): Promise<(typeof REPORT_REMINDER_STAGES)[number] | null> {
-  const reminderStates = await kvMget(kv, REPORT_REMINDER_STAGES.map(stage => ({
-    key: reminderKey(matchId, stage.key),
-  })))
+  const reminderStates = await kvMget(
+    kv,
+    REPORT_REMINDER_STAGES.map(stage => ({
+      key: reminderKey(matchId, stage.key),
+    })),
+  )
   let pendingStage: (typeof REPORT_REMINDER_STAGES)[number] | null = null
 
   for (let index = 0; index < REPORT_REMINDER_STAGES.length; index++) {
@@ -122,19 +124,19 @@ async function sendReminderDm(token: string, hostId: string, content: string): P
 }
 
 async function getMatchReportLink(db: Database, matchId: string): Promise<string | null> {
-  const [session] = await db.select({
-    guildId: sessionDirectory.guildId,
-    channelId: sessionDirectory.channelId,
-    messageId: sessionDirectory.messageId,
-  })
+  const [session] = await db
+    .select({
+      guildId: sessionDirectory.guildId,
+      channelId: sessionDirectory.channelId,
+      messageId: sessionDirectory.messageId,
+    })
     .from(sessionDirectory)
-    .where(and(
-      or(
-        eq(sessionDirectory.matchId, matchId),
-        eq(sessionDirectory.sessionId, matchId),
+    .where(
+      and(
+        or(eq(sessionDirectory.matchId, matchId), eq(sessionDirectory.sessionId, matchId)),
+        inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
       ),
-      inArray(sessionDirectory.phase, ['draft', 'swap', 'active']),
-    ))
+    )
     .orderBy(desc(sessionDirectory.updatedAt))
     .limit(1)
 

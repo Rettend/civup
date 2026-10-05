@@ -1,17 +1,14 @@
 import type { CivReplayTradeRouteSnapshot, CivReplayUnitTradeRouteOperationSnapshot } from './trade-routes.ts'
-import { CivReplayStateReader } from './state-reader.ts'
-import {
-  buildCivReplayTradeRoutes,
-  UNITOPERATION_MAKE_TRADE_ROUTE,
-} from './trade-routes.ts'
 import { civHash, CIV_REPLAY_DEDICATION_TYPE_NAMES } from '../hash.ts'
+import { CivReplayStateReader } from './state-reader.ts'
+import { buildCivReplayTradeRoutes, UNITOPERATION_MAKE_TRADE_ROUTE } from './trade-routes.ts'
 
 const TERRITORY_BUILDER = [...new TextEncoder().encode('TerritoryBuilder')] as const
-const END_IA_STUFF = [0xBA, 0xF1, 0xBF, 0x93] as const
-const END_PLAYER_STUFF = [0xBC, 0x0A, 0x2B, 0xDE] as const
-const DEDICATION_RECORD_MARKER = 0x4D0D7B8C
-const DEDICATION_RECORD_MARKER_BYTES = [0x8C, 0x7B, 0x0D, 0x4D] as const
-const DEDICATION_SELECTION_BLOCK_MARKER_BYTES = [0x40, 0, 0, 0, 0x1E, 0, 0, 0] as const
+const END_IA_STUFF = [0xba, 0xf1, 0xbf, 0x93] as const
+const END_PLAYER_STUFF = [0xbc, 0x0a, 0x2b, 0xde] as const
+const DEDICATION_RECORD_MARKER = 0x4d0d7b8c
+const DEDICATION_RECORD_MARKER_BYTES = [0x8c, 0x7b, 0x0d, 0x4d] as const
+const DEDICATION_SELECTION_BLOCK_MARKER_BYTES = [0x40, 0, 0, 0, 0x1e, 0, 0, 0] as const
 const ERA_GOLDEN_AGE_FLAGS_RELATIVE_OFFSET = -136
 const ERA_DARK_AGE_FLAGS_RELATIVE_OFFSET = -68
 const ERA_SCORE_PLAYER_ROW_MARKER = 30
@@ -233,9 +230,8 @@ export function parseCivReplayPlayers(bytes: Uint8Array): CivReplayPlayersSnapsh
     if (playerIndex < internalPlayerCount - 1) {
       try {
         skipToNextPlayerHeader(reader)
-      }
-      catch (error) {
-        if (player.id === 0x3E || player.id === 0x3F) break
+      } catch (error) {
+        if (player.id === 0x3e || player.id === 0x3f) break
         const message = error instanceof Error ? error.message : 'unknown player-boundary error'
         throw new Error(`players: after player index ${playerIndex} id ${player.id}: ${message}`)
       }
@@ -278,7 +274,7 @@ function parsePlayerCityBlock(reader: CivReplayStateReader): CivReplayPlayerSnap
   const goodyHuts = readMap(reader)
   reader.skip(4)
   skipMap(reader)
-  expectU32(reader, 0x0C, 'diplo favor marker')
+  expectU32(reader, 0x0c, 'diplo favor marker')
   const diploFavor = reader.readU32()
   reader.skip(20)
 
@@ -333,7 +329,9 @@ function attachCivReplayDedications(bytes: Uint8Array, players: CivReplayPlayerS
   const selectionBlock = scanCivReplayDedicationSelectionBlock(bytes)
   const selections = selectionBlock?.selections ?? new Map<number, CivReplayDedicationSelectionSnapshot>()
   const records = scanCivReplayDedicationRecords(bytes)
-  const eras = selectionBlock ? parseCivReplayEraSnapshots(bytes, selectionBlock) : new Map<number, CivReplayEraSnapshot>()
+  const eras = selectionBlock
+    ? parseCivReplayEraSnapshots(bytes, selectionBlock)
+    : new Map<number, CivReplayEraSnapshot>()
   for (const player of players) {
     const selection = selections.get(player.id)
     const record = records.get(player.id)
@@ -353,11 +351,15 @@ function attachCivReplayDedications(bytes: Uint8Array, players: CivReplayPlayerS
 function scanCivReplayDedicationRecords(bytes: Uint8Array): Map<number, CivReplayDedicationRecordSnapshot> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const dedications = new Map<number, CivReplayDedicationRecordSnapshot>()
-  for (let offset = indexOfBytes(bytes, DEDICATION_RECORD_MARKER_BYTES); offset >= 0 && offset + 24 <= view.byteLength; offset = indexOfBytes(bytes, DEDICATION_RECORD_MARKER_BYTES, offset + 1)) {
+  for (
+    let offset = indexOfBytes(bytes, DEDICATION_RECORD_MARKER_BYTES);
+    offset >= 0 && offset + 24 <= view.byteLength;
+    offset = indexOfBytes(bytes, DEDICATION_RECORD_MARKER_BYTES, offset + 1)
+  ) {
     if (view.getUint32(offset, true) !== DEDICATION_RECORD_MARKER) continue
     if (view.getUint32(offset + 4, true) !== 2) continue
     const playerId = view.getUint32(offset + 8, true)
-    if (playerId > 0x3F) continue
+    if (playerId > 0x3f) continue
     if (view.getUint32(offset + 12, true) !== 5) continue
     const hash = view.getUint32(offset + 16, true)
     if (!KNOWN_DEDICATION_HASHES.has(hash)) continue
@@ -371,14 +373,21 @@ function scanCivReplayDedicationRecords(bytes: Uint8Array): Map<number, CivRepla
 function scanCivReplayDedicationSelectionBlock(bytes: Uint8Array): CivReplayDedicationSelectionBlockSnapshot | null {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let best: CivReplayDedicationSelectionBlockSnapshot | null = null
-  for (let offset = indexOfBytes(bytes, DEDICATION_SELECTION_BLOCK_MARKER_BYTES); offset >= 0 && offset + 8 <= view.byteLength; offset = indexOfBytes(bytes, DEDICATION_SELECTION_BLOCK_MARKER_BYTES, offset + 1)) {
+  for (
+    let offset = indexOfBytes(bytes, DEDICATION_SELECTION_BLOCK_MARKER_BYTES);
+    offset >= 0 && offset + 8 <= view.byteLength;
+    offset = indexOfBytes(bytes, DEDICATION_SELECTION_BLOCK_MARKER_BYTES, offset + 1)
+  ) {
     const parsed = parseDedicationSelectionBlock(view, offset)
     if (parsed && (!best || parsed.selections.size > best.selections.size)) best = parsed
   }
   return best
 }
 
-function parseDedicationSelectionBlock(view: DataView, offset: number): CivReplayDedicationSelectionBlockSnapshot | null {
+function parseDedicationSelectionBlock(
+  view: DataView,
+  offset: number,
+): CivReplayDedicationSelectionBlockSnapshot | null {
   let cursor = offset
   const read = () => {
     if (cursor + 4 > view.byteLength) return null
@@ -409,12 +418,16 @@ function parseDedicationSelectionBlock(view: DataView, offset: number): CivRepla
       selectedHashes.push(hash)
     }
     if (read() !== 0) return null
-    if (selectedHashes.length > 0) selections.set(playerId, { hash: selectedHashes[0]!, selectedHashes, availableHashes })
+    if (selectedHashes.length > 0)
+      selections.set(playerId, { hash: selectedHashes[0]!, selectedHashes, availableHashes })
   }
   return { offset, endOffset: cursor, selections }
 }
 
-function parseCivReplayEraSnapshots(bytes: Uint8Array, selectionBlock: CivReplayDedicationSelectionBlockSnapshot): Map<number, CivReplayEraSnapshot> {
+function parseCivReplayEraSnapshots(
+  bytes: Uint8Array,
+  selectionBlock: CivReplayDedicationSelectionBlockSnapshot,
+): Map<number, CivReplayEraSnapshot> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const goldenAgeFlags = parsePlayerBoolArray(bytes, selectionBlock.offset + ERA_GOLDEN_AGE_FLAGS_RELATIVE_OFFSET)
   const darkAgeFlags = parsePlayerBoolArray(bytes, selectionBlock.offset + ERA_DARK_AGE_FLAGS_RELATIVE_OFFSET)
@@ -425,8 +438,8 @@ function parseCivReplayEraSnapshots(bytes: Uint8Array, selectionBlock: CivReplay
   for (let playerId = 0; playerId < 64; playerId += 1) {
     const currentScore = currentScores?.scores.get(playerId) ?? null
     const previousScore = previousScores?.scores.get(playerId) ?? null
-    const hasGoldenAge = goldenAgeFlags ? goldenAgeFlags[playerId] ?? false : null
-    const hasDarkAge = darkAgeFlags ? darkAgeFlags[playerId] ?? false : null
+    const hasGoldenAge = goldenAgeFlags ? (goldenAgeFlags[playerId] ?? false) : null
+    const hasDarkAge = darkAgeFlags ? (darkAgeFlags[playerId] ?? false) : null
     const selectedCount = selectionBlock.selections.get(playerId)?.selectedHashes.length ?? 0
     eras.set(playerId, {
       currentScore,
@@ -507,7 +520,10 @@ function indexOfBytes(bytes: Uint8Array, pattern: readonly number[], from = 0): 
   return -1
 }
 
-function parsePlayerPostCityProgression(reader: CivReplayStateReader, cities: CivReplayCitySnapshot[]): CivReplayPostCitySnapshot {
+function parsePlayerPostCityProgression(
+  reader: CivReplayStateReader,
+  cities: CivReplayCitySnapshot[],
+): CivReplayPostCitySnapshot {
   reader.skip(4)
   skipFixedArray(reader, 4)
   reader.skip(8)
@@ -695,13 +711,13 @@ function parsePlayerPostCityProgression(reader: CivReplayStateReader, cities: Ci
 
   count = reader.readU32()
   for (let index = 0; index < count; index += 1) {
-    expectU32(reader, 0x2D, 'tourism marker')
+    expectU32(reader, 0x2d, 'tourism marker')
     reader.skip(8)
   }
   reader.skip(4)
   count = reader.readU32()
   for (let index = 0; index < count; index += 1) {
-    expectU32(reader, 0x2D, 'tourism marker')
+    expectU32(reader, 0x2d, 'tourism marker')
     reader.skip(9)
   }
   reader.skip(16)
@@ -763,7 +779,8 @@ function parsePlayerPostCityProgression(reader: CivReplayStateReader, cities: Ci
   reader.skip(13)
 
   const strategicResourceCount = reader.readU32()
-  if (strategicResourceCount > 128) throw new Error(`players: invalid strategic resource count ${strategicResourceCount}`)
+  if (strategicResourceCount > 128)
+    throw new Error(`players: invalid strategic resource count ${strategicResourceCount}`)
   for (let index = 0; index < strategicResourceCount; index += 1) {
     reader.skip(4)
     expectU32(reader, 0x03, 'strategic resource marker')
@@ -964,7 +981,7 @@ function parseCity(reader: CivReplayStateReader): CivReplayCitySnapshot {
   const currentProductionItems: number[] = []
   let currentProductionType: number | null = null
   for (let index = 0; index < count; index += 1) {
-    expectU32(reader, 0x2C0F4A46, 'city current production marker')
+    expectU32(reader, 0x2c0f4a46, 'city current production marker')
     reader.skip(4)
     reader.skip(4)
     currentProductionType = reader.readU32()
@@ -1024,7 +1041,12 @@ function parseCity(reader: CivReplayStateReader): CivReplayCitySnapshot {
   }
 }
 
-function parsePostTechCityYields(reader: CivReplayStateReader, cities: CivReplayCitySnapshot[], civics: CivReplayProgressionSnapshot, techs: CivReplayProgressionSnapshot): CivReplayPostYieldSnapshot {
+function parsePostTechCityYields(
+  reader: CivReplayStateReader,
+  cities: CivReplayCitySnapshot[],
+  civics: CivReplayProgressionSnapshot,
+  techs: CivReplayProgressionSnapshot,
+): CivReplayPostYieldSnapshot {
   skipMap(reader)
   skipFixedArray(reader, 8)
   reader.skip(16)
@@ -1212,11 +1234,18 @@ function parsePostTechCityYields(reader: CivReplayStateReader, cities: CivReplay
   reader.skip(4)
 
   const cityYieldCount = reader.readU32()
-  if (cityYieldCount > cities.length) throw new Error(`players: city yield count ${cityYieldCount} exceeds parsed city count ${cities.length}`)
+  if (cityYieldCount > cities.length)
+    throw new Error(`players: city yield count ${cityYieldCount} exceeds parsed city count ${cities.length}`)
   for (let index = 0; index < cityYieldCount; index += 1) parseCityYield(reader, cities[index]!)
 
   const postYield = parsePostYieldProgressionTail(reader, civics, techs)
-  return { units, governors, improvements: postYield.improvements, influenceTokensReceived, maintenance: postYield.maintenance }
+  return {
+    units,
+    governors,
+    improvements: postYield.improvements,
+    influenceTokensReceived,
+    maintenance: postYield.maintenance,
+  }
 }
 
 function skipCityTail(reader: CivReplayStateReader) {
@@ -1314,13 +1343,15 @@ function skipToNextPlayerHeader(reader: CivReplayStateReader) {
     from = sentinel + 1
   }
 
-  throw new Error(`players: could not find next player header from offset ${reader.offset}; candidates ${candidates.slice(0, 6).join('; ')}`)
+  throw new Error(
+    `players: could not find next player header from offset ${reader.offset}; candidates ${candidates.slice(0, 6).join('; ')}`,
+  )
 }
 
 function isPlayerHeader(reader: CivReplayStateReader, offset: number): boolean {
   if (offset + 12 > reader.length) return false
   const playerId = reader.peekU32(offset)
-  return playerId <= 0x3F && reader.peekU32(offset + 4) === 47 && reader.peekU32(offset + 8) === playerId
+  return playerId <= 0x3f && reader.peekU32(offset + 4) === 47 && reader.peekU32(offset + 8) === playerId
 }
 
 function formatHeaderCandidate(reader: CivReplayStateReader, sentinel: number, offset: number): string {
@@ -1351,8 +1382,7 @@ function tryFinishPlayerAtSentinel(source: CivReplayStateReader, sentinel: numbe
     skipArray(reader, { separatorBytes: 0 })
     skipArray(reader, { separatorBytes: 0 })
     return reader.offset
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -1392,7 +1422,7 @@ function skipUnitPosition(reader: CivReplayStateReader) {
 
 function parseDistrict(reader: CivReplayStateReader): CivReplayDistrictSnapshot {
   const globalId = reader.readU32()
-  expectU32(reader, 0x0F, 'district marker')
+  expectU32(reader, 0x0f, 'district marker')
   const id = reader.readU16()
   reader.skip(2)
   const x = reader.readU32()
@@ -1551,7 +1581,14 @@ function parseGovernor(reader: CivReplayStateReader, expectedIndex: number): Civ
   const promotions = readMap(reader, 1)
   reader.skip(4)
   reader.skip(1)
-  return { id, type, player, city, turns, promotions: mapToHashValues(promotions).filter(promotion => promotion.value === 1) }
+  return {
+    id,
+    type,
+    player,
+    city,
+    turns,
+    promotions: mapToHashValues(promotions).filter(promotion => promotion.value === 1),
+  }
 }
 
 function parseCityYield(reader: CivReplayStateReader, city: CivReplayCitySnapshot) {
@@ -1628,7 +1665,11 @@ function parseCityYield(reader: CivReplayStateReader, city: CivReplayCitySnapsho
   skipMap(reader)
 }
 
-function parsePostYieldProgressionTail(reader: CivReplayStateReader, civics: CivReplayProgressionSnapshot, techs: CivReplayProgressionSnapshot): { improvements: CivReplayImprovementSnapshot[], maintenance: number | null } {
+function parsePostYieldProgressionTail(
+  reader: CivReplayStateReader,
+  civics: CivReplayProgressionSnapshot,
+  techs: CivReplayProgressionSnapshot,
+): { improvements: CivReplayImprovementSnapshot[]; maintenance: number | null } {
   reader.skip(4)
   skipFixedArray(reader, 4)
   reader.skip(8)
@@ -1667,7 +1708,8 @@ function parsePostYieldProgressionTail(reader: CivReplayStateReader, civics: Civ
   reader.skip(1844)
 
   const diplomaticPlayerCount = reader.readU32()
-  if (diplomaticPlayerCount !== 64) throw new Error(`players: expected diplomatic state count 64, got ${diplomaticPlayerCount}`)
+  if (diplomaticPlayerCount !== 64)
+    throw new Error(`players: expected diplomatic state count 64, got ${diplomaticPlayerCount}`)
   for (let playerIndex = 0; playerIndex < diplomaticPlayerCount; playerIndex += 1) {
     reader.skip(8)
     expectU32(reader, playerIndex, 'diplomatic state player index')
@@ -1702,7 +1744,7 @@ function parsePostYieldProgressionTail(reader: CivReplayStateReader, civics: Civ
   for (let index = 0; index < count; index += 1) {
     expectU32(reader, 0x05, 'diplomatic state marker')
     const value = reader.peekU32()
-    if (value === 0xFFFFFFFF) reader.skip(21)
+    if (value === 0xffffffff) reader.skip(21)
     else {
       reader.skip(8)
       skipMap(reader)
@@ -1953,25 +1995,25 @@ function skipOperationTree(reader: CivReplayStateReader) {
 
 function unitOperationSize(operation: number): number {
   switch (operation) {
-    case 0x580F2F68:
-    case 0xB2CCA377:
-    case 0x9C0B44C6:
-    case 0x09D0292A:
-    case 0x886FFCD1:
-    case 0x7FA205D1:
-    case 0xCFB9B561:
-    case 0xC8CE5DFB:
-    case 0x1F633B1E:
-    case 0x852CE4DF:
+    case 0x580f2f68:
+    case 0xb2cca377:
+    case 0x9c0b44c6:
+    case 0x09d0292a:
+    case 0x886ffcd1:
+    case 0x7fa205d1:
+    case 0xcfb9b561:
+    case 0xc8ce5dfb:
+    case 0x1f633b1e:
+    case 0x852ce4df:
       return 44
-    case 0x8374D954:
+    case 0x8374d954:
       return 56
-    case 0x98ECA9EA:
+    case 0x98eca9ea:
       return 48
-    case 0x1D60E778:
-    case 0x4885D724:
-    case 0x08CA367F:
-    case 0x06E68AEF:
+    case 0x1d60e778:
+    case 0x4885d724:
+    case 0x08ca367f:
+    case 0x06e68aef:
       return 40
     default:
       return 32
@@ -2037,7 +2079,7 @@ function readMapFloat(reader: CivReplayStateReader): Map<number, number> {
 
 function readFixedPoint(reader: CivReplayStateReader): number {
   const value = reader.readU32()
-  return Math.floor(value / 256) + (value & 0xFF) / 256
+  return Math.floor(value / 256) + (value & 0xff) / 256
 }
 
 function skipMap(reader: CivReplayStateReader, valueSize = 4) {
@@ -2046,22 +2088,30 @@ function skipMap(reader: CivReplayStateReader, valueSize = 4) {
   reader.skip(count * (4 + valueSize))
 }
 
-function skipArray(reader: CivReplayStateReader, options: { valueSize?: number, separatorBytes?: number, countSize?: 1 | 2 | 3 | 4 } = {}) {
+function skipArray(
+  reader: CivReplayStateReader,
+  options: { valueSize?: number; separatorBytes?: number; countSize?: 1 | 2 | 3 | 4 } = {},
+) {
   const valueSize = options.valueSize ?? 4
   const separatorBytes = options.separatorBytes ?? 1
   const count = reader.readCount(options.countSize ?? 4)
-  if (count > 200000) throw new Error(`players: invalid array count ${count} at offset ${reader.offset - (options.countSize ?? 4)}`)
+  if (count > 200000)
+    throw new Error(`players: invalid array count ${count} at offset ${reader.offset - (options.countSize ?? 4)}`)
   for (let index = 0; index < count; index += 1) {
     const value = reader.readCount(valueSize as 1 | 2 | 3 | 4)
     if (value !== 0) reader.skip(separatorBytes)
   }
 }
 
-function readArrayValues(reader: CivReplayStateReader, options: { valueSize?: number, separatorBytes?: number, countSize?: 1 | 2 | 3 | 4 } = {}): number[] {
+function readArrayValues(
+  reader: CivReplayStateReader,
+  options: { valueSize?: number; separatorBytes?: number; countSize?: 1 | 2 | 3 | 4 } = {},
+): number[] {
   const valueSize = options.valueSize ?? 4
   const separatorBytes = options.separatorBytes ?? 1
   const count = reader.readCount(options.countSize ?? 4)
-  if (count > 200000) throw new Error(`players: invalid array count ${count} at offset ${reader.offset - (options.countSize ?? 4)}`)
+  if (count > 200000)
+    throw new Error(`players: invalid array count ${count} at offset ${reader.offset - (options.countSize ?? 4)}`)
   const values: number[] = []
   for (let index = 0; index < count; index += 1) {
     const value = reader.readCount(valueSize as 1 | 2 | 3 | 4)
@@ -2076,29 +2126,25 @@ function mergeMapInto(source: Map<number, number>, target: Map<number, number>) 
 }
 
 function mapToHashValues(map: Map<number, number>): CivReplayHashValue[] {
-  return [...map]
-    .map(([hash, value]) => ({ hash, value }))
-    .sort((left, right) => left.hash - right.hash)
+  return [...map].map(([hash, value]) => ({ hash, value })).sort((left, right) => left.hash - right.hash)
 }
 
 function mapToHashBoolValues(map: Map<number, boolean>): CivReplayHashBoolValue[] {
-  return [...map]
-    .map(([hash, value]) => ({ hash, value }))
-    .sort((left, right) => left.hash - right.hash)
+  return [...map].map(([hash, value]) => ({ hash, value })).sort((left, right) => left.hash - right.hash)
 }
 
 function mapToHashFloatValues(map: Map<number, number>): CivReplayHashFloatValue[] {
-  return [...map]
-    .map(([hash, value]) => ({ hash, value }))
-    .sort((left, right) => left.hash - right.hash)
+  return [...map].map(([hash, value]) => ({ hash, value })).sort((left, right) => left.hash - right.hash)
 }
 
 function expectU32(reader: CivReplayStateReader, expected: number, label: string) {
   const actual = reader.readU32()
-  if (actual !== expected) throw new Error(`players: expected ${label} 0x${expected.toString(16)}, got 0x${actual.toString(16)}`)
+  if (actual !== expected)
+    throw new Error(`players: expected ${label} 0x${expected.toString(16)}, got 0x${actual.toString(16)}`)
 }
 
 function expectMapCount(reader: CivReplayStateReader, expected: number, label: string) {
   const actual = reader.peekU32()
-  if (actual !== expected) throw new Error(`players: expected ${label} count 0x${expected.toString(16)}, got 0x${actual.toString(16)}`)
+  if (actual !== expected)
+    throw new Error(`players: expected ${label} count 0x${expected.toString(16)}, got 0x${actual.toString(16)}`)
 }

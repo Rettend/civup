@@ -15,8 +15,14 @@ afterEach(() => {
 describe('browser Discord OAuth', () => {
   test('starts canonical OAuth with random state, S256 PKCE, exact callback, scopes, and a signed cookie', async () => {
     const env = createEnv()
-    const first = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/session-1')}`), env)
-    const second = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/session-1')}`), env)
+    const first = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/session-1')}`),
+      env,
+    )
+    const second = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/session-1')}`),
+      env,
+    )
 
     expect(first.status).toBe(302)
     const authorization = new URL(first.headers.get('Location')!)
@@ -25,7 +31,9 @@ describe('browser Discord OAuth', () => {
     expect(authorization.searchParams.get('scope')).toBe('identify guilds guilds.members.read')
     expect(authorization.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authorization.searchParams.get('code_challenge')).toMatch(/^[\w-]{43}$/)
-    expect(authorization.searchParams.get('state')).not.toBe(new URL(second.headers.get('Location')!).searchParams.get('state'))
+    expect(authorization.searchParams.get('state')).not.toBe(
+      new URL(second.headers.get('Location')!).searchParams.get('state'),
+    )
     expect(first.headers.get('Set-Cookie')).toContain(`${OAUTH_TRANSACTION_COOKIE}=`)
     expect(first.headers.get('Set-Cookie')).toContain('Max-Age=600')
     expect(first.headers.get('Set-Cookie')).toContain('HttpOnly')
@@ -35,7 +43,10 @@ describe('browser Discord OAuth', () => {
   })
 
   test('canonicalizes OAuth entry before setting a host-only cookie', async () => {
-    const response = await activityWorker.fetch(new Request(`https://other.example/api/auth/discord?returnTo=${encodeURIComponent('/web/channel/1')}`), createEnv())
+    const response = await activityWorker.fetch(
+      new Request(`https://other.example/api/auth/discord?returnTo=${encodeURIComponent('/web/channel/1')}`),
+      createEnv(),
+    )
     expect(response.status).toBe(307)
     expect(response.headers.get('Location')).toBe(`${ORIGIN}/api/auth/discord?returnTo=%2Fweb%2Fchannel%2F1`)
     expect(response.headers.has('Set-Cookie')).toBe(false)
@@ -43,18 +54,22 @@ describe('browser Discord OAuth', () => {
 
   test('accepts the configured HTTPS host when Cloudflare Tunnel forwards it to local HTTP', async () => {
     const returnTo = encodeURIComponent('/web/session/session-1')
-    const forwarded = await activityWorker.fetch(new Request(
-      `http://civup-activity.example.com/api/auth/discord?returnTo=${returnTo}`,
-      { headers: { 'X-Forwarded-Proto': 'https' } },
-    ), createEnv())
+    const forwarded = await activityWorker.fetch(
+      new Request(`http://civup-activity.example.com/api/auth/discord?returnTo=${returnTo}`, {
+        headers: { 'X-Forwarded-Proto': 'https' },
+      }),
+      createEnv(),
+    )
     expect(forwarded.status).toBe(302)
     expect(new URL(forwarded.headers.get('Location')!).origin).toBe('https://discord.com')
     expect(forwarded.headers.get('Set-Cookie')).toContain(`${OAUTH_TRANSACTION_COOKIE}=`)
 
-    const wrongHost = await activityWorker.fetch(new Request(
-      `http://other.example/api/auth/discord?returnTo=${returnTo}`,
-      { headers: { 'X-Forwarded-Proto': 'https' } },
-    ), createEnv())
+    const wrongHost = await activityWorker.fetch(
+      new Request(`http://other.example/api/auth/discord?returnTo=${returnTo}`, {
+        headers: { 'X-Forwarded-Proto': 'https' },
+      }),
+      createEnv(),
+    )
     expect(wrongHost.status).toBe(307)
     expect(wrongHost.headers.get('Location')).toBe(`${ORIGIN}/api/auth/discord?returnTo=%2Fweb%2Fsession%2Fsession-1`)
   })
@@ -69,7 +84,10 @@ describe('browser Discord OAuth', () => {
 
   test('completes OAuth with PKCE, verifies guild membership, and stores only the signed session cookie', async () => {
     const env = createEnv()
-    const start = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/stable-session')}`), env)
+    const start = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/stable-session')}`),
+      env,
+    )
     const authorization = new URL(start.headers.get('Location')!)
     const transactionCookie = cookiePair(start.headers.get('Set-Cookie')!, OAUTH_TRANSACTION_COOKIE)
     const requests: Request[] = []
@@ -89,23 +107,28 @@ describe('browser Discord OAuth', () => {
       })
     }) as typeof fetch
 
-    const callback = await activityWorker.fetch(new Request(
-      `${ORIGIN}/api/auth/discord/callback?code=oauth-code&state=${encodeURIComponent(authorization.searchParams.get('state')!)}`,
-      { headers: { Cookie: transactionCookie } },
-    ), env)
+    const callback = await activityWorker.fetch(
+      new Request(
+        `${ORIGIN}/api/auth/discord/callback?code=oauth-code&state=${encodeURIComponent(authorization.searchParams.get('state')!)}`,
+        { headers: { Cookie: transactionCookie } },
+      ),
+      env,
+    )
 
     expect(callback.status).toBe(303)
     expect(callback.headers.get('Location')).toBe('/web/session/stable-session')
     expect(callback.headers.get('Set-Cookie')).toContain(`${BROWSER_SESSION_COOKIE}=`)
     expect(callback.headers.get('Set-Cookie')).not.toContain('provider-secret')
     const browserSession = cookiePair(callback.headers.get('Set-Cookie')!, BROWSER_SESSION_COOKIE).split('=')[1]!
-    await expect(verifyActivitySession('browser-auth-secret', browserSession)).resolves.toEqual(expect.objectContaining({
-      sub: '111111111111111111',
-      name: 'PPL Player',
-      avatarUrl: `https://cdn.discordapp.com/guilds/${GUILD_ID}/users/111111111111111111/avatars/guild-avatar.png?size=128`,
-      guildId: GUILD_ID,
-      guildPermissions: '32',
-    }))
+    await expect(verifyActivitySession('browser-auth-secret', browserSession)).resolves.toEqual(
+      expect.objectContaining({
+        sub: '111111111111111111',
+        name: 'PPL Player',
+        avatarUrl: `https://cdn.discordapp.com/guilds/${GUILD_ID}/users/111111111111111111/avatars/guild-avatar.png?size=128`,
+        guildId: GUILD_ID,
+        guildPermissions: '32',
+      }),
+    )
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain('code_verifier=')
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(`${ORIGIN}/api/auth/discord/callback`)}`)
@@ -115,63 +138,93 @@ describe('browser Discord OAuth', () => {
 
   test('guild rejection and callback errors render a terminal no-store retry page without redirecting', async () => {
     const env = createEnv()
-    const start = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`), env)
+    const start = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`),
+      env,
+    )
     const authorization = new URL(start.headers.get('Location')!)
     const transactionCookie = cookiePair(start.headers.get('Set-Cookie')!, OAUTH_TRANSACTION_COOKIE)
-    globalThis.fetch = (async (input: RequestInfo | URL) => String(input).includes('/oauth2/token')
-      ? Response.json({ access_token: 'provider-secret' })
-      : new Response('not a member', { status: 404 })) as typeof fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) =>
+      String(input).includes('/oauth2/token')
+        ? Response.json({ access_token: 'provider-secret' })
+        : new Response('not a member', { status: 404 })) as typeof fetch
 
-    const response = await activityWorker.fetch(new Request(
-      `${ORIGIN}/api/auth/discord/callback?code=oauth-code&state=${authorization.searchParams.get('state')}`,
-      { headers: { Cookie: transactionCookie } },
-    ), env)
+    const response = await activityWorker.fetch(
+      new Request(
+        `${ORIGIN}/api/auth/discord/callback?code=oauth-code&state=${authorization.searchParams.get('state')}`,
+        { headers: { Cookie: transactionCookie } },
+      ),
+      env,
+    )
     expect(response.status).toBe(400)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.headers.get('Location')).toBeNull()
     expect(await response.text()).toContain('Try Discord sign-in again')
 
-    const cancelStart = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`), env)
+    const cancelStart = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`),
+      env,
+    )
     const cancelAuthorization = new URL(cancelStart.headers.get('Location')!)
-    const cancelled = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord/callback?error=access_denied&state=${cancelAuthorization.searchParams.get('state')}`, {
-      headers: { Cookie: cookiePair(cancelStart.headers.get('Set-Cookie')!, OAUTH_TRANSACTION_COOKIE) },
-    }), env)
+    const cancelled = await activityWorker.fetch(
+      new Request(
+        `${ORIGIN}/api/auth/discord/callback?error=access_denied&state=${cancelAuthorization.searchParams.get('state')}`,
+        {
+          headers: { Cookie: cookiePair(cancelStart.headers.get('Set-Cookie')!, OAUTH_TRANSACTION_COOKIE) },
+        },
+      ),
+      env,
+    )
     expect(cancelled.status).toBe(400)
     expect(cancelled.headers.get('Set-Cookie')).toContain('Max-Age=0')
   })
 
   test('fails closed for mismatched, tampered, expired, and replayed transaction state', async () => {
     const env = createEnv()
-    const start = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`), env)
+    const start = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord?returnTo=${encodeURIComponent('/web/session/s1')}`),
+      env,
+    )
     const authorization = new URL(start.headers.get('Location')!)
     const transactionCookie = cookiePair(start.headers.get('Set-Cookie')!, OAUTH_TRANSACTION_COOKIE)
 
-    const mismatch = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=wrong`, {
-      headers: { Cookie: transactionCookie },
-    }), env)
+    const mismatch = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=wrong`, {
+        headers: { Cookie: transactionCookie },
+      }),
+      env,
+    )
     expect(mismatch.status).toBe(400)
     expect(await mismatch.text()).toContain('state did not match')
 
-    const tampered = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`, {
-      headers: { Cookie: `${transactionCookie}x` },
-    }), env)
+    const tampered = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`, {
+        headers: { Cookie: `${transactionCookie}x` },
+      }),
+      env,
+    )
     expect(tampered.status).toBe(400)
     expect(await tampered.text()).toContain('missing, expired, or invalid')
 
     const now = Date.now
     Date.now = () => now() + 11 * 60 * 1000
     try {
-      const expired = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`, {
-        headers: { Cookie: transactionCookie },
-      }), env)
+      const expired = await activityWorker.fetch(
+        new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`, {
+          headers: { Cookie: transactionCookie },
+        }),
+        env,
+      )
       expect(expired.status).toBe(400)
       expect(await expired.text()).toContain('missing, expired, or invalid')
-    }
-    finally {
+    } finally {
       Date.now = now
     }
 
-    const replayWithoutClearedCookie = await activityWorker.fetch(new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`), env)
+    const replayWithoutClearedCookie = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/auth/discord/callback?code=x&state=${authorization.searchParams.get('state')}`),
+      env,
+    )
     expect(replayWithoutClearedCookie.status).toBe(400)
   })
 
@@ -188,16 +241,20 @@ describe('browser Discord OAuth', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init)
       requests.push(request)
-      if (request.url.endsWith('/oauth2/token')) return Response.json({ access_token: 'embedded-provider-token', expires_in: 3600 })
+      if (request.url.endsWith('/oauth2/token'))
+        return Response.json({ access_token: 'embedded-provider-token', expires_in: 3600 })
       if (request.url.includes('/users/@me/guilds?')) return Response.json([{ id: GUILD_ID, permissions: '8' }])
       return Response.json({ user: { id: '111111111111111111', username: 'Player', avatar: null } })
     }) as typeof fetch
 
-    const response = await activityWorker.fetch(new Request(`${ORIGIN}/api/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: 'embedded-code', redirectUri: 'ignored-client-value' }),
-    }), createEnv())
+    const response = await activityWorker.fetch(
+      new Request(`${ORIGIN}/api/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'embedded-code', redirectUri: 'ignored-client-value' }),
+      }),
+      createEnv(),
+    )
     expect(response.status).toBe(200)
     const payload = await response.json<any>()
     expect(payload.access_token).toBe('embedded-provider-token')

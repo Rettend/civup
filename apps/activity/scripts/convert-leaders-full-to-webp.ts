@@ -24,16 +24,7 @@ async function main(): Promise<void> {
     const inputPath = resolve(PORTRAITS_DIR, pngFile)
     const outputPath = resolve(PORTRAITS_DIR, pngFile.replace(/\.png$/i, '.webp'))
 
-    const result = Bun.spawnSync([
-      'cwebp',
-      '-quiet',
-      '-mt',
-      '-q',
-      quality.toString(),
-      inputPath,
-      '-o',
-      outputPath,
-    ])
+    const result = Bun.spawnSync(['cwebp', '-quiet', '-mt', '-q', quality.toString(), inputPath, '-o', outputPath])
 
     if (result.exitCode !== 0) {
       const error = result.stderr.toString('utf8').trim()

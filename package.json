@@ -1,11 +1,11 @@
 {
   "name": "civup",
-  "type": "module",
   "private": true,
-  "packageManager": "bun@1.4.2",
-  "engines": {
-    "node": "^24.11.0"
-  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "dev:new": "bun scripts/dev.ts --rebuild-activity",
@@ -83,14 +83,14 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "overrides": {
     "vite@>=8": "catalog:",
     "vitest": "catalog:"
   },
+  "engines": {
+    "node": "^24.11.0"
+  },
+  "packageManager": "bun@1.4.2",
   "catalog": {
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
     "vite-plus": "1.0.0",

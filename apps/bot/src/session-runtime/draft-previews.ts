@@ -1,4 +1,14 @@
-import type { CivBlitzComponentCategory, DraftAction, DraftError, DraftEvent, DraftPreviewState, DraftResult, DraftState, DraftStep, RandomSource } from '@civup/game'
+import type {
+  CivBlitzComponentCategory,
+  DraftAction,
+  DraftError,
+  DraftEvent,
+  DraftPreviewState,
+  DraftResult,
+  DraftState,
+  DraftStep,
+  RandomSource,
+} from '@civup/game'
 import { getCivBlitzStepCategories, getCurrentStep, isDraftError, processDraftInput } from '@civup/game'
 
 export function createEmptyDraftPreviews(): DraftPreviewState {
@@ -19,14 +29,13 @@ export function sanitizeDraftPreviews(state: DraftState, previews: DraftPreviewS
   if (!step) return createEmptyDraftPreviews()
 
   const available = new Set(state.availableCivIds)
-  const sanitizedBans = step.action === 'ban'
-    ? sanitizeBanPreviewMap(state, step, previews.bans, available)
-    : {}
-  const sanitizedPicks = step.action === 'pick' && !step.reveal
-    ? step.civBlitz
-      ? sanitizeCivBlitzPreviewMap(state, step, previews.picks)
-      : sanitizePickPreviewMap(state, step, previews.picks, available)
-    : {}
+  const sanitizedBans = step.action === 'ban' ? sanitizeBanPreviewMap(state, step, previews.bans, available) : {}
+  const sanitizedPicks =
+    step.action === 'pick' && !step.reveal
+      ? step.civBlitz
+        ? sanitizeCivBlitzPreviewMap(state, step, previews.picks)
+        : sanitizePickPreviewMap(state, step, previews.picks, available)
+      : {}
 
   return {
     bans: sanitizedBans,
@@ -50,7 +59,8 @@ export function applyDraftPreview(
 
   if (action === 'ban') {
     if (step.action !== 'ban') return { error: 'Current step is not a ban phase' }
-    if (!isSeatInStep(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+    if (!isSeatInStep(step, seatIndex, state.seats.length))
+      return { error: `Seat ${seatIndex} is not active in this step` }
     if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
 
     const normalized = normalizePreviewSelections(civIds, new Set(state.availableCivIds), step.count)
@@ -63,7 +73,8 @@ export function applyDraftPreview(
   if (step.action !== 'pick' || step.reveal) return { error: 'Current step is not a pick phase' }
 
   if (step.civBlitz) {
-    if (!isSeatInStep(step, seatIndex, state.seats.length)) return { error: `Seat ${seatIndex} is not active in this step` }
+    if (!isSeatInStep(step, seatIndex, state.seats.length))
+      return { error: `Seat ${seatIndex} is not active in this step` }
     if (state.submissions[seatIndex]) return { error: `Seat ${seatIndex} has already submitted for this step` }
 
     return sanitizeDraftPreviews(state, {
@@ -88,7 +99,8 @@ export function resolveTimeoutWithPreviews(
   const step = getCurrentStep(state)
   if (!step) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
 
-  if (step.action === 'pick' && (step.blind || step.reveal)) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
+  if (step.action === 'pick' && (step.blind || step.reveal))
+    return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
 
   return step.action === 'ban'
     ? resolveBanTimeoutWithPreviews(state, step, blindBans, previews.bans, random)
@@ -184,12 +196,7 @@ function sanitizeBanPreviewMap(
   for (const seatIndex of getActiveSeats(step, state.seats.length)) {
     if (state.submissions[seatIndex]) continue
 
-    const civIds = normalizePreviewSelections(
-      previews[seatIndex] ?? [],
-      available,
-      step.count,
-      restrictedReserved,
-    )
+    const civIds = normalizePreviewSelections(previews[seatIndex] ?? [], available, step.count, restrictedReserved)
     if (civIds.length === 0) continue
     sanitized[seatIndex] = civIds
   }
@@ -297,14 +304,18 @@ function resolvePickTimeoutWithPreviews(
     if (!previewResult) continue
 
     appliedPreviewPick = true
-    events.push({ type: 'TIMEOUT_APPLIED', seatIndex, selections: [previewResult.civId] }, ...previewResult.result.events)
+    events.push(
+      { type: 'TIMEOUT_APPLIED', seatIndex, selections: [previewResult.civId] },
+      ...previewResult.result.events,
+    )
     nextState = previewResult.result.state
 
     if (nextState.status !== 'active' || nextState.currentStepIndex !== state.currentStepIndex) break
   }
 
   if (!appliedPreviewPick) return processDraftInput(state, { type: 'TIMEOUT' }, { blindBans, random })
-  if (nextState.status !== 'active' || nextState.currentStepIndex !== state.currentStepIndex) return { state: nextState, events }
+  if (nextState.status !== 'active' || nextState.currentStepIndex !== state.currentStepIndex)
+    return { state: nextState, events }
   if (getPendingSeats(step, nextState).length === 0) return { state: nextState, events }
 
   const timeoutResult = processDraftInput(nextState, { type: 'TIMEOUT' }, { blindBans, random })
@@ -321,7 +332,7 @@ function applyPreviewPickTimeout(
   blindBans: boolean,
   seatIndex: number,
   civIds: string[],
-): { civId: string, result: DraftResult } | null {
+): { civId: string; result: DraftResult } | null {
   for (const civId of buildPickCandidates(null, civIds)) {
     const result = processDraftInput(state, { type: 'PICK', seatIndex, civId }, blindBans)
     if (!isDraftError(result)) return { civId, result }
@@ -337,7 +348,7 @@ function buildTimeoutBanSelections(
   reserved: Set<string> | null,
   random: RandomSource,
 ): string[] {
-  const available = state.availableCivIds.filter((civId) => {
+  const available = state.availableCivIds.filter(civId => {
     if (reserved?.has(civId)) return false
     return true
   })
@@ -371,7 +382,7 @@ function getActiveSeats(step: DraftStep, seatCount: number): number[] {
 }
 
 function getPendingSeats(step: DraftStep, state: DraftState): number[] {
-  return getActiveSeats(step, state.seats.length).filter((seatIndex) => {
+  return getActiveSeats(step, state.seats.length).filter(seatIndex => {
     const submitted = state.submissions[seatIndex]?.length ?? 0
     return submitted < step.count
   })

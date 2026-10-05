@@ -51,43 +51,49 @@ export function DraftView(props: DraftViewProps) {
   const [modDownloadPending, setModDownloadPending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
 
-  const steamLobbyLink = () => state() ? draftStore.steamLobbyLink : props.steamLobbyLink ?? null
+  const steamLobbyLink = () => (state() ? draftStore.steamLobbyLink : (props.steamLobbyLink ?? null))
 
-  createEffect(() => {
-    const current = state()
-    if (!current || current.status === 'cancelled') return null
+  createEffect(
+    () => {
+      const current = state()
+      if (!current || current.status === 'cancelled') return null
 
-    const leaderIds = new Set(current.availableCivIds)
-    for (const selection of current.bans) leaderIds.add(selection.civId)
-    for (const selection of current.pendingBlindBans) leaderIds.add(selection.civId)
-    for (const selection of current.blindPickBans ?? []) leaderIds.add(selection.civId)
-    for (const selection of current.picks) leaderIds.add(selection.civId)
-    for (const selections of Object.values(draftStore.previews.bans)) {
-      for (const civId of selections) leaderIds.add(civId)
-    }
-    for (const selections of Object.values(draftStore.previews.picks)) {
-      for (const civId of selections) leaderIds.add(civId)
-    }
+      const leaderIds = new Set(current.availableCivIds)
+      for (const selection of current.bans) leaderIds.add(selection.civId)
+      for (const selection of current.pendingBlindBans) leaderIds.add(selection.civId)
+      for (const selection of current.blindPickBans ?? []) leaderIds.add(selection.civId)
+      for (const selection of current.picks) leaderIds.add(selection.civId)
+      for (const selections of Object.values(draftStore.previews.bans)) {
+        for (const civId of selections) leaderIds.add(civId)
+      }
+      for (const selections of Object.values(draftStore.previews.picks)) {
+        for (const civId of selections) leaderIds.add(civId)
+      }
 
-    return { leaderIds, version: draftStore.leaderDataVersion }
-  }, (portraits) => {
-    if (portraits) preloadLeaderFullPortraitIds(portraits.leaderIds, portraits.version)
-  })
+      return { leaderIds, version: draftStore.leaderDataVersion }
+    },
+    portraits => {
+      if (portraits) preloadLeaderFullPortraitIds(portraits.leaderIds, portraits.version)
+    },
+  )
 
-  createEffect(() => state()?.status === 'cancelled' && state()?.cancelReason === 'scrub' && Boolean(props.onSwitchTarget), (shouldRedirect) => {
-    if (!shouldRedirect) {
-      if (!scrubRedirectTimeout) return
-      clearTimeout(scrubRedirectTimeout)
-      scrubRedirectTimeout = null
-      return
-    }
-    if (scrubRedirectTimeout) return
+  createEffect(
+    () => state()?.status === 'cancelled' && state()?.cancelReason === 'scrub' && Boolean(props.onSwitchTarget),
+    shouldRedirect => {
+      if (!shouldRedirect) {
+        if (!scrubRedirectTimeout) return
+        clearTimeout(scrubRedirectTimeout)
+        scrubRedirectTimeout = null
+        return
+      }
+      if (scrubRedirectTimeout) return
 
-    scrubRedirectTimeout = setTimeout(() => {
-      scrubRedirectTimeout = null
-      props.onSwitchTarget?.()
-    }, 5000)
-  })
+      scrubRedirectTimeout = setTimeout(() => {
+        scrubRedirectTimeout = null
+        props.onSwitchTarget?.()
+      }, 5000)
+    },
+  )
 
   onSettled(() => () => {
     if (!scrubRedirectTimeout) return
@@ -104,17 +110,20 @@ export function DraftView(props: DraftViewProps) {
   let lastFlashedStep = -1
   let turnFlashTimeout: ReturnType<typeof setTimeout> | null = null
 
-  createEffect(() => isMyPickTurn() ? state()?.currentStepIndex : undefined, (stepIdx) => {
-    if (stepIdx == null) return
-    if (stepIdx === lastFlashedStep) return
-    lastFlashedStep = stepIdx
-    if (turnFlashTimeout) clearTimeout(turnFlashTimeout)
-    setShowTurnFlash(true)
-    turnFlashTimeout = setTimeout(() => {
-      setShowTurnFlash(false)
-      turnFlashTimeout = null
-    }, 550)
-  })
+  createEffect(
+    () => (isMyPickTurn() ? state()?.currentStepIndex : undefined),
+    stepIdx => {
+      if (stepIdx == null) return
+      if (stepIdx === lastFlashedStep) return
+      lastFlashedStep = stepIdx
+      if (turnFlashTimeout) clearTimeout(turnFlashTimeout)
+      setShowTurnFlash(true)
+      turnFlashTimeout = setTimeout(() => {
+        setShowTurnFlash(false)
+        turnFlashTimeout = null
+      }, 550)
+    },
+  )
 
   onSettled(() => () => {
     if (turnFlashTimeout) {
@@ -123,7 +132,7 @@ export function DraftView(props: DraftViewProps) {
     }
   })
 
-  createEffect(isMiniView, (mini) => {
+  createEffect(isMiniView, mini => {
     if (!mini) return
     setGridOpen(false)
   })
@@ -132,53 +141,65 @@ export function DraftView(props: DraftViewProps) {
   const isMapVoteReveal = () => mapVotePhase() === 'reveal'
   const canReviewCompleteDraft = () => state()?.status === 'complete' && !isHiddenDraftComplete()
   const isCompleteCivBlitz = () => state()?.status === 'complete' && state()?.civBlitz != null
-  const canDownloadCivBlitzMod = () => isCompleteCivBlitz()
-    && state()?.civBlitz?.excludeBbgExpanded === true
-    && !isSpectator()
+  const canDownloadCivBlitzMod = () =>
+    isCompleteCivBlitz() && state()?.civBlitz?.excludeBbgExpanded === true && !isSpectator()
 
-  createEffect(() => ({
-    token: state() && isMapVoteVoting() ? `${draftStore.initVersion}:${state()!.matchId}:map-vote` : null,
-    mini: isMiniView(),
-    openedToken: autoOpenedMapVoteToken(),
-  }), ({ token, mini, openedToken }) => {
-    if (!token) {
-      setAutoOpenedMapVoteToken(null)
-      return
-    }
-    if (mini || openedToken === token) return
+  createEffect(
+    () => ({
+      token: state() && isMapVoteVoting() ? `${draftStore.initVersion}:${state()!.matchId}:map-vote` : null,
+      mini: isMiniView(),
+      openedToken: autoOpenedMapVoteToken(),
+    }),
+    ({ token, mini, openedToken }) => {
+      if (!token) {
+        setAutoOpenedMapVoteToken(null)
+        return
+      }
+      if (mini || openedToken === token) return
 
-    setGridOpen(true)
-    setAutoOpenedMapVoteToken(token)
-  })
+      setGridOpen(true)
+      setAutoOpenedMapVoteToken(token)
+    },
+  )
 
-  createEffect(() => isMapVoteReveal() && gridOpen(), (close) => {
-    if (!close) return
-    setGridOpen(false)
-  })
+  createEffect(
+    () => isMapVoteReveal() && gridOpen(),
+    close => {
+      if (!close) return
+      setGridOpen(false)
+    },
+  )
 
-  createEffect(() => {
-    const current = state()
-    const seatIndex = draftStore.seatIndex
-    if (!current || current.status !== 'active' || seatIndex == null) return { reset: true, token: null }
-    if (isMiniView() || isMapVotePhase() || !canOpenLeaderGrid() || !isMyTurn() || hasSubmitted()) return { reset: false, token: null }
+  createEffect(
+    () => {
+      const current = state()
+      const seatIndex = draftStore.seatIndex
+      if (!current || current.status !== 'active' || seatIndex == null) return { reset: true, token: null }
+      if (isMiniView() || isMapVotePhase() || !canOpenLeaderGrid() || !isMyTurn() || hasSubmitted())
+        return { reset: false, token: null }
 
-    const step = currentStep()
-    const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
-    if (step?.action === 'pick' && (targetSeatIndex == null || targetSeatIndex !== seatIndex)) return { reset: false, token: null }
+      const step = currentStep()
+      const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
+      if (step?.action === 'pick' && (targetSeatIndex == null || targetSeatIndex !== seatIndex))
+        return { reset: false, token: null }
 
-    const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
-    return { reset: false, token: autoOpenedGridToken() === nextToken ? null : nextToken }
-  }, ({ reset, token }) => {
-    if (reset) setAutoOpenedGridToken(null)
-    if (!token) return
-    setGridOpen(true)
-    setAutoOpenedGridToken(token)
-  })
+      const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
+      return { reset: false, token: autoOpenedGridToken() === nextToken ? null : nextToken }
+    },
+    ({ reset, token }) => {
+      if (reset) setAutoOpenedGridToken(null)
+      if (!token) return
+      setGridOpen(true)
+      setAutoOpenedGridToken(token)
+    },
+  )
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'
   const canSaveSteamLobbyLink = () => draftStore.seatIndex != null && Boolean(props.lobbyId) && Boolean(props.lobbyMode)
-  const canToggleOverlay = () => isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete() || canReviewCompleteDraft()
-  const showOverlayToggle = () => state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete() || canReviewCompleteDraft()
+  const canToggleOverlay = () =>
+    isMapVoteVoting() || canOpenLeaderGrid() || isHiddenDraftComplete() || canReviewCompleteDraft()
+  const showOverlayToggle = () =>
+    state()?.status === 'active' || isMapVoteVoting() || isHiddenDraftComplete() || canReviewCompleteDraft()
   const overlayToggleLabel = () => {
     if (isMapVoteVoting()) return gridOpen() ? 'Close map vote' : 'Open map vote'
     return gridOpen() ? 'Close leader grid' : 'Open leader grid'
@@ -200,8 +221,7 @@ export function DraftView(props: DraftViewProps) {
       }
 
       updateDraftSteamLobbyLink(result.lobby.steamLobbyLink)
-    }
-    finally {
+    } finally {
       setSteamLobbySavePending(false)
     }
   }
@@ -211,11 +231,9 @@ export function DraftView(props: DraftViewProps) {
     setModDownloadPending(true)
     try {
       await openCivBlitzModDownload(props.matchId)
-    }
-    catch (error) {
+    } catch (error) {
       console.error('Failed to open the match mod download:', error)
-    }
-    finally {
+    } finally {
       setModDownloadPending(false)
     }
   }
@@ -223,11 +241,8 @@ export function DraftView(props: DraftViewProps) {
   return (
     <Show
       when={state()?.status === 'cancelled'}
-      fallback={(
-        <Show
-          when={!isMiniView()}
-          fallback={<MiniView />}
-        >
+      fallback={
+        <Show when={!isMiniView()} fallback={<MiniView />}>
           <Show when={isActiveOrComplete()}>
             {/* Active + Complete draft view */}
             <div class="text-fg font-sans bg-bg flex flex-col h-screen relative overflow-hidden">
@@ -247,7 +262,13 @@ export function DraftView(props: DraftViewProps) {
               <div class="flex flex-1 min-h-0 relative z-0">
                 <FloatingUiScaleMenu class={gridOpen() ? 'z-5' : 'z-40'} disabled={gridOpen()} />
                 <SlotStrip />
-                <Show when={(state()?.status === 'active' && !isMapVotePhase()) || isHiddenDraftComplete() || canReviewCompleteDraft()}>
+                <Show
+                  when={
+                    (state()?.status === 'active' && !isMapVotePhase()) ||
+                    isHiddenDraftComplete() ||
+                    canReviewCompleteDraft()
+                  }
+                >
                   <LeaderGridOverlay />
                 </Show>
                 <Show when={isMapVoteVoting()}>
@@ -293,14 +314,20 @@ export function DraftView(props: DraftViewProps) {
                 <Show when={state()?.status === 'complete'}>
                   <div class="flex pointer-events-none inset-x-0 top-16 justify-center absolute z-50">
                     <div class="px-4 py-2 border border-border-subtle rounded-lg bg-bg-subtle/80 flex flex-col gap-2 pointer-events-auto shadow-2xl shadow-black/50 items-center backdrop-blur-sm">
-                      <span class="text-base text-accent font-bold">{isCompleteCivBlitz() ? 'Draft complete' : 'You can close the activity!'}</span>
+                      <span class="text-base text-accent font-bold">
+                        {isCompleteCivBlitz() ? 'Draft complete' : 'You can close the activity!'}
+                      </span>
                       <Show
                         when={isCompleteCivBlitz()}
                         fallback={<span class="text-sm text-fg/80">Don't forget to report the result</span>}
                       >
                         <Show
                           when={state()?.civBlitz?.excludeBbgExpanded === true}
-                          fallback={<span class="text-sm text-fg/80">Shared mod download is not available for BBG Expanded drafts.</span>}
+                          fallback={
+                            <span class="text-sm text-fg/80">
+                              Shared mod download is not available for BBG Expanded drafts.
+                            </span>
+                          }
                         >
                           <Show when={!isSpectator()}>
                             <button
@@ -309,7 +336,13 @@ export function DraftView(props: DraftViewProps) {
                               disabled={!canDownloadCivBlitzMod() || modDownloadPending()}
                               onClick={() => void handleModDownload()}
                             >
-                              <span class={modDownloadPending() ? 'i-ph-spinner-gap-bold animate-spin' : 'i-ph-download-simple-bold'} />
+                              <span
+                                class={
+                                  modDownloadPending()
+                                    ? 'i-ph-spinner-gap-bold animate-spin'
+                                    : 'i-ph-download-simple-bold'
+                                }
+                              />
                               {modDownloadPending() ? 'Opening download...' : 'Download leaders mod'}
                             </button>
                             <span class="text-xs text-fg/70">Everyone installs this same mod.</span>
@@ -329,28 +362,24 @@ export function DraftView(props: DraftViewProps) {
               <Show when={showTurnFlash()}>
                 <div
                   class="anim-turn-flash pointer-events-none inset-0 absolute z-0"
-                  style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(200, 170, 110, 0.5) 100%)' }}
+                  style={{
+                    background: 'radial-gradient(ellipse at center, transparent 30%, rgba(200, 170, 110, 0.5) 100%)',
+                  }}
                 />
               </Show>
             </div>
           </Show>
         </Show>
-      )}
+      }
     >
       <Show when={!isMiniView()} fallback={<MiniView />}>
-        <CancelledDraftScreen
-          steamLobbyLink={steamLobbyLink()}
-          onSwitchTarget={props.onSwitchTarget}
-        />
+        <CancelledDraftScreen steamLobbyLink={steamLobbyLink()} onSwitchTarget={props.onSwitchTarget} />
       </Show>
     </Show>
   )
 }
 
-function CancelledDraftScreen(props: {
-  steamLobbyLink: string | null
-  onSwitchTarget?: () => void
-}) {
+function CancelledDraftScreen(props: { steamLobbyLink: string | null; onSwitchTarget?: () => void }) {
   const state = () => draftStore.state
   const reason = () => state()?.cancelReason ?? 'scrub'
 

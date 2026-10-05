@@ -10,7 +10,9 @@ export const NO_ACTIVITY_ADMIN_CAPABILITIES: ActivityAdminCapabilities = {
   playerDataExport: false,
 }
 
-export async function fetchActivityAdminCapabilities(fetchImpl: typeof fetch = fetch): Promise<ActivityAdminCapabilities> {
+export async function fetchActivityAdminCapabilities(
+  fetchImpl: typeof fetch = fetch,
+): Promise<ActivityAdminCapabilities> {
   try {
     const response = await fetchImpl('/api/activity/admin/capabilities', {
       cache: 'no-store',
@@ -25,8 +27,7 @@ export async function fetchActivityAdminCapabilities(fetchImpl: typeof fetch = f
       autosaveCatalog: record.autosaveCatalog === true,
       playerDataExport: record.playerDataExport === true,
     }
-  }
-  catch {
+  } catch {
     return NO_ACTIVITY_ADMIN_CAPABILITIES
   }
 }

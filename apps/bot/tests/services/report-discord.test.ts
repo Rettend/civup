@@ -1,9 +1,13 @@
 import type { LobbyState } from '../../src/services/lobby/index.ts'
-import { matches, players } from '@civup/db'
 import { afterEach, describe, expect, test } from 'bun:test'
+import { matches, players } from '@civup/db'
 import { storeMatchMessageMapping } from '../../src/services/match/message.ts'
 import { syncReportedMatchDiscordMessages } from '../../src/services/match/report-discord.ts'
-import { createTournament, createTournamentMatchLink, markTournamentMatchDrafting } from '../../src/services/tournament/index.ts'
+import {
+  createTournament,
+  createTournamentMatchLink,
+  markTournamentMatchDrafting,
+} from '../../src/services/tournament/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const originalFetch = globalThis.fetch
@@ -46,7 +50,9 @@ describe('reported match Discord sync', () => {
           return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
         }
         if (request.method === 'POST' && request.url.includes('/channels/archive-channel/messages')) {
-          return new Response(JSON.stringify({ id: 'archive-message' }), { headers: { 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({ id: 'archive-message' }), {
+            headers: { 'Content-Type': 'application/json' },
+          })
         }
 
         return new Response('unexpected request', { status: 500 })
@@ -60,8 +66,28 @@ describe('reported match Discord sync', () => {
         reportedMode: '1v1',
         reportedRedDeath: false,
         participants: [
-          { matchId: 'match-1', playerId: 'player-1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-          { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+          {
+            matchId: 'match-1',
+            playerId: 'player-1',
+            team: 0,
+            civId: null,
+            placement: 1,
+            ratingBeforeMu: null,
+            ratingBeforeSigma: null,
+            ratingAfterMu: null,
+            ratingAfterSigma: null,
+          },
+          {
+            matchId: 'match-1',
+            playerId: 'player-2',
+            team: 1,
+            civId: null,
+            placement: 2,
+            ratingBeforeMu: null,
+            ratingBeforeSigma: null,
+            ratingAfterMu: null,
+            ratingAfterSigma: null,
+          },
         ],
         lobby: buildCompletedLobby(),
       })
@@ -74,8 +100,7 @@ describe('reported match Discord sync', () => {
       expect(calls).toContain('PATCH https://discord.com/api/v10/channels/lobby-channel/messages/lobby-message')
       expect(calls).toContain('PATCH https://discord.com/api/v10/channels/draft-channel/messages/draft-message')
       expect(calls).toContain('POST https://discord.com/api/v10/channels/archive-channel/messages')
-    }
-    finally {
+    } finally {
       console.error = originalConsoleError
       sqlite.close()
     }
@@ -84,7 +109,7 @@ describe('reported match Discord sync', () => {
   test('routes tournament reports to the tournament archive channel', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
-    const calls: Array<{ method: string, url: string, contentType: string | null }> = []
+    const calls: Array<{ method: string; url: string; contentType: string | null }> = []
 
     try {
       await db.insert(players).values([
@@ -112,11 +137,16 @@ describe('reported match Discord sync', () => {
         const request = input instanceof Request ? input : new Request(input, init)
         calls.push({ method: request.method, url: request.url, contentType: request.headers.get('content-type') })
 
-        if (request.method === 'PATCH' && request.url.includes('/channels/tournament-draft-channel/messages/draft-message')) {
+        if (
+          request.method === 'PATCH' &&
+          request.url.includes('/channels/tournament-draft-channel/messages/draft-message')
+        ) {
           return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
         }
         if (request.method === 'POST' && request.url.includes('/channels/tournament-archive-channel/messages')) {
-          return new Response(JSON.stringify({ id: 'archive-message' }), { headers: { 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({ id: 'archive-message' }), {
+            headers: { 'Content-Type': 'application/json' },
+          })
         }
 
         return new Response('unexpected request', { status: 500 })
@@ -130,17 +160,41 @@ describe('reported match Discord sync', () => {
         reportedMode: '1v1',
         reportedRedDeath: false,
         participants: [
-          { matchId: 'match-1', playerId: 'player-1', team: 0, civId: null, placement: 1, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
-          { matchId: 'match-1', playerId: 'player-2', team: 1, civId: null, placement: 2, ratingBeforeMu: null, ratingBeforeSigma: null, ratingAfterMu: null, ratingAfterSigma: null },
+          {
+            matchId: 'match-1',
+            playerId: 'player-1',
+            team: 0,
+            civId: null,
+            placement: 1,
+            ratingBeforeMu: null,
+            ratingBeforeSigma: null,
+            ratingAfterMu: null,
+            ratingAfterSigma: null,
+          },
+          {
+            matchId: 'match-1',
+            playerId: 'player-2',
+            team: 1,
+            civId: null,
+            placement: 2,
+            ratingBeforeMu: null,
+            ratingBeforeSigma: null,
+            ratingAfterMu: null,
+            ratingAfterSigma: null,
+          },
         ],
       })
 
       expect(result.archiveMessageCreated).toBe(true)
       expect(result.errors).toEqual([])
-      expect(calls).toContainEqual(expect.objectContaining({ method: 'POST', url: 'https://discord.com/api/v10/channels/tournament-archive-channel/messages' }))
+      expect(calls).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          url: 'https://discord.com/api/v10/channels/tournament-archive-channel/messages',
+        }),
+      )
       expect(calls.every(call => call.contentType?.startsWith('multipart/form-data'))).toBe(true)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })

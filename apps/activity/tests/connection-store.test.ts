@@ -1,6 +1,6 @@
 import type { DraftState, MapVoteSnapshot } from '@civup/game'
-import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'vitest'
+import { createDraft, default2v2, EMPTY_MAP_VOTE_SNAPSHOT, isDraftError, processDraftInput } from '@civup/game'
 import { shouldForceReconnectForStaleDraft } from '../src/client/lib/stale-draft'
 import { isFatalSocketClose, isUnauthorizedSocketClose } from '../src/client/stores/connection-store'
 
@@ -14,7 +14,12 @@ function create2v2Seats() {
 }
 
 function createActiveState(): DraftState {
-  const waiting = createDraft('connection-store-test', default2v2, create2v2Seats(), Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`))
+  const waiting = createDraft(
+    'connection-store-test',
+    default2v2,
+    create2v2Seats(),
+    Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`),
+  )
   const result = processDraftInput(waiting, { type: 'START' })
   if (isDraftError(result)) throw new Error(result.error)
   return result.state
@@ -35,91 +40,112 @@ describe('stale draft reconnect watchdog', () => {
     const state = createActiveState()
     const timerEndsAt = 10_000
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state,
-      timerEndsAt,
-      lastSocketActivityAt: timerEndsAt - 1,
-      nowMs: timerEndsAt + 5_001,
-    })).toBe(true)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state,
+        timerEndsAt,
+        lastSocketActivityAt: timerEndsAt - 1,
+        nowMs: timerEndsAt + 5_001,
+      }),
+    ).toBe(true)
   })
 
   test('does not reconnect when the socket showed activity after the timer expired', () => {
     const state = createActiveState()
     const timerEndsAt = 10_000
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state,
-      timerEndsAt,
-      lastSocketActivityAt: timerEndsAt + 1,
-      nowMs: timerEndsAt + 5_001,
-    })).toBe(false)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state,
+        timerEndsAt,
+        lastSocketActivityAt: timerEndsAt + 1,
+        nowMs: timerEndsAt + 5_001,
+      }),
+    ).toBe(false)
   })
 
   test('reconnects when a map vote timer stays expired without newer socket activity', () => {
     const mapVoteEndsAt = 10_000
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state: null,
-      timerEndsAt: null,
-      mapVote: createVotingMapVote(mapVoteEndsAt),
-      lastSocketActivityAt: mapVoteEndsAt - 1,
-      nowMs: mapVoteEndsAt + 5_001,
-    })).toBe(true)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state: null,
+        timerEndsAt: null,
+        mapVote: createVotingMapVote(mapVoteEndsAt),
+        lastSocketActivityAt: mapVoteEndsAt - 1,
+        nowMs: mapVoteEndsAt + 5_001,
+      }),
+    ).toBe(true)
   })
 
   test('forces at most one reconnect per stale timer value', () => {
     const state = createActiveState()
     const timerEndsAt = 10_000
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state,
-      timerEndsAt,
-      lastSocketActivityAt: timerEndsAt - 1,
-      nowMs: timerEndsAt + 5_001,
-      lastForcedReconnectTimerEndsAt: null,
-    })).toBe(true)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state,
+        timerEndsAt,
+        lastSocketActivityAt: timerEndsAt - 1,
+        nowMs: timerEndsAt + 5_001,
+        lastForcedReconnectTimerEndsAt: null,
+      }),
+    ).toBe(true)
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state,
-      timerEndsAt,
-      lastSocketActivityAt: timerEndsAt - 1,
-      nowMs: timerEndsAt + 50_000,
-      lastForcedReconnectTimerEndsAt: timerEndsAt,
-    })).toBe(false)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state,
+        timerEndsAt,
+        lastSocketActivityAt: timerEndsAt - 1,
+        nowMs: timerEndsAt + 50_000,
+        lastForcedReconnectTimerEndsAt: timerEndsAt,
+      }),
+    ).toBe(false)
   })
 
   test('does not reconnect outside an active timed draft step', () => {
     const active = createActiveState()
-    const waiting = createDraft('connection-store-waiting-test', default2v2, create2v2Seats(), Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`))
+    const waiting = createDraft(
+      'connection-store-waiting-test',
+      default2v2,
+      create2v2Seats(),
+      Array.from({ length: 40 }, (_, i) => `civ-${i + 1}`),
+    )
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'reconnecting',
-      state: active,
-      timerEndsAt: 10_000,
-      lastSocketActivityAt: 0,
-      nowMs: 20_000,
-    })).toBe(false)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'reconnecting',
+        state: active,
+        timerEndsAt: 10_000,
+        lastSocketActivityAt: 0,
+        nowMs: 20_000,
+      }),
+    ).toBe(false)
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state: waiting,
-      timerEndsAt: 10_000,
-      lastSocketActivityAt: 0,
-      nowMs: 20_000,
-    })).toBe(false)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state: waiting,
+        timerEndsAt: 10_000,
+        lastSocketActivityAt: 0,
+        nowMs: 20_000,
+      }),
+    ).toBe(false)
 
-    expect(shouldForceReconnectForStaleDraft({
-      connectionStatus: 'connected',
-      state: active,
-      timerEndsAt: null,
-      lastSocketActivityAt: 0,
-      nowMs: 20_000,
-    })).toBe(false)
+    expect(
+      shouldForceReconnectForStaleDraft({
+        connectionStatus: 'connected',
+        state: active,
+        timerEndsAt: null,
+        lastSocketActivityAt: 0,
+        nowMs: 20_000,
+      }),
+    ).toBe(false)
   })
 })
 

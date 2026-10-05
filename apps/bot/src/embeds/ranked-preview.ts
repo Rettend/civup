@@ -1,10 +1,18 @@
-import type { RankedPreviewBandSummary, RankedPreviewModeSummary, RankedPreviewSummary } from '../services/ranked/role-sync.ts'
+import type {
+  RankedPreviewBandSummary,
+  RankedPreviewModeSummary,
+  RankedPreviewSummary,
+} from '../services/ranked/role-sync.ts'
+import { Embed } from 'discord-hono'
 import { formatLeaderboardModeLabel } from '@civup/game'
 import { PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
-import { Embed } from 'discord-hono'
-import { formatRankedRoleSlotLabel, getConfiguredDivisionLabel, getConfiguredRankedRoleLabel } from '../services/ranked/roles.ts'
+import {
+  formatRankedRoleSlotLabel,
+  getConfiguredDivisionLabel,
+  getConfiguredRankedRoleLabel,
+} from '../services/ranked/roles.ts'
 
-const RANKED_PREVIEW_COLOR = 0xC8AA6E
+const RANKED_PREVIEW_COLOR = 0xc8aa6e
 
 export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
   if (summary.ratingSystem === 'rp') return publicRankedPreviewEmbeds(summary)
@@ -15,16 +23,14 @@ export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
       .fields(...buildConfiguredBandFields(summary)),
   ]
 
-  const modeEmbeds = summary.modes
-    .filter(hasModeCutoffData)
-    .map((mode) => {
-      const embed = new Embed()
-        .title(`${formatLeaderboardModeLabel(mode.mode, mode.mode)} - ${mode.rankedCount} ranked`)
-        .color(RANKED_PREVIEW_COLOR)
+  const modeEmbeds = summary.modes.filter(hasModeCutoffData).map(mode => {
+    const embed = new Embed()
+      .title(`${formatLeaderboardModeLabel(mode.mode, mode.mode)} - ${mode.rankedCount} ranked`)
+      .color(RANKED_PREVIEW_COLOR)
 
-      embed.fields(...buildModeCutoffFields(mode))
-      return embed
-    })
+    embed.fields(...buildModeCutoffFields(mode))
+    return embed
+  })
 
   const lastEmbed = modeEmbeds[modeEmbeds.length - 1] ?? embeds[0]
   lastEmbed?.footer({ text: summary.dirty ? 'Pending ranked sync' : 'Up to date' })
@@ -34,31 +40,44 @@ export function rankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
 }
 
 function publicRankedPreviewEmbeds(summary: RankedPreviewSummary): Embed[] {
-  const fields = [...new Set(PUBLIC_RATING_BANDS.map(band => band.tier))].map((tier) => {
+  const fields = [...new Set(PUBLIC_RATING_BANDS.map(band => band.tier))].map(tier => {
     const bands = PUBLIC_RATING_BANDS.filter(band => band.tier === tier)
     const roleId = summary.bands.find(band => band.tier === tier)?.roleId
     return {
       name: getConfiguredRankedRoleLabel(summary.config, bands[0]!.tier)!,
-      value: bands.map((band) => {
-        const next = PUBLIC_RATING_BANDS[PUBLIC_RATING_BANDS.indexOf(band) + 1]
-        const range = next ? `${band.minimum}–${next.minimum - 1} RP` : `${band.minimum}+ RP`
-        const division = rankDivisionSuffix(band.division)
-        const divisionRoleId = summary.config.divisionPolicy?.roleIdsByMinimum[band.minimum]
-        const label = divisionRoleId ? `<@&${divisionRoleId}>` : roleId ? `<@&${roleId}>${division}` : getConfiguredDivisionLabel(summary.config, band.minimum)
-        const padding = division ? '\u2009\u200A'.repeat(3 - division.trim().length) : ''
-        return `${label}${padding} ${range}`
-      }).join('\n'),
+      value: bands
+        .map(band => {
+          const next = PUBLIC_RATING_BANDS[PUBLIC_RATING_BANDS.indexOf(band) + 1]
+          const range = next ? `${band.minimum}–${next.minimum - 1} RP` : `${band.minimum}+ RP`
+          const division = rankDivisionSuffix(band.division)
+          const divisionRoleId = summary.config.divisionPolicy?.roleIdsByMinimum[band.minimum]
+          const label = divisionRoleId
+            ? `<@&${divisionRoleId}>`
+            : roleId
+              ? `<@&${roleId}>${division}`
+              : getConfiguredDivisionLabel(summary.config, band.minimum)
+          const padding = division ? '\u2009\u200A'.repeat(3 - division.trim().length) : ''
+          return `${label}${padding} ${range}`
+        })
+        .join('\n'),
       inline: true,
     }
   })
-  return [new Embed().title('Rank Ladder').color(RANKED_PREVIEW_COLOR).fields(...fields)]
+  return [
+    new Embed()
+      .title('Rank Ladder')
+      .color(RANKED_PREVIEW_COLOR)
+      .fields(...fields),
+  ]
 }
 
 function hasModeCutoffData(mode: RankedPreviewModeSummary): boolean {
   return mode.rankedCount > 0 && mode.tiers.length > 0
 }
 
-function buildConfiguredBandFields(summary: RankedPreviewSummary): Array<{ name: string, value: string, inline?: boolean }> {
+function buildConfiguredBandFields(
+  summary: RankedPreviewSummary,
+): Array<{ name: string; value: string; inline?: boolean }> {
   return [
     {
       name: 'Role',
@@ -83,7 +102,9 @@ function buildConfiguredBandFields(summary: RankedPreviewSummary): Array<{ name:
   ]
 }
 
-function buildModeCutoffFields(mode: RankedPreviewModeSummary): Array<{ name: string, value: string, inline?: boolean }> {
+function buildModeCutoffFields(
+  mode: RankedPreviewModeSummary,
+): Array<{ name: string; value: string; inline?: boolean }> {
   return [
     {
       name: 'Role',

@@ -1,11 +1,11 @@
 import type { SessionRecord } from '../../src/session-runtime/session-record.ts'
-import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
 import { and, eq, isNull } from 'drizzle-orm'
-import { projectSessionRecord, SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
-import { getOpenSessionLobbyProjectionsByChannel } from '../../src/services/session/lobby-projection.ts'
+import { sessionDirectory, sessionDirectoryMembers } from '@civup/db'
 import { getActivitySessionById } from '../../src/services/activity/session-state.ts'
+import { projectSessionRecord, SESSION_DIRECTORY_OPEN_STALE_MS } from '../../src/services/session/directory.ts'
 import { isSessionAdmissionError } from '../../src/services/session/index.ts'
+import { getOpenSessionLobbyProjectionsByChannel } from '../../src/services/session/lobby-projection.ts'
 import { createLobby, setLobbyStatus } from '../helpers/lobby-runtime.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
@@ -22,7 +22,11 @@ describe('session directory admission', () => {
       db,
     })
 
-    const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    const [directoryRow] = await db
+      .select()
+      .from(sessionDirectory)
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+      .limit(1)
     expect(directoryRow).toMatchObject({
       sessionId: lobby.id,
       phase: 'open',
@@ -57,10 +61,15 @@ describe('session directory admission', () => {
       db,
     })
 
-    const [directoryRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, lobby.id)).limit(1)
+    const [directoryRow] = await db
+      .select()
+      .from(sessionDirectory)
+      .where(eq(sessionDirectory.sessionId, lobby.id))
+      .limit(1)
     const configWithoutBlindBans = JSON.parse(directoryRow!.configJson) as Record<string, unknown>
     delete configWithoutBlindBans.blindBans
-    await db.update(sessionDirectory)
+    await db
+      .update(sessionDirectory)
       .set({ configJson: JSON.stringify(configWithoutBlindBans) })
       .where(eq(sessionDirectory.sessionId, lobby.id))
 
@@ -94,8 +103,7 @@ describe('session directory admission', () => {
         db,
       })
       throw new Error('Expected duplicate live session admission to fail')
-    }
-    catch (error) {
+    } catch (error) {
       expect(isSessionAdmissionError(error)).toBe(true)
     }
 
@@ -125,15 +133,13 @@ describe('session directory admission', () => {
       try {
         await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'], updatedAt: now + 1 }))
         throw new Error('Expected duplicate live admission to fail')
-      }
-      catch (error) {
+      } catch (error) {
         expect(isSessionAdmissionError(error)).toBe(true)
       }
 
       const secondRows = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'second'))
       expect(secondRows).toHaveLength(0)
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -146,24 +152,29 @@ describe('session directory admission', () => {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['p2'], updatedAt: now }))
 
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['p1', 'p2'], updatedAt: now + 1 }))
+        await projectSessionRecord(
+          db,
+          buildSessionRecord({ id: 'second', playerIds: ['p1', 'p2'], updatedAt: now + 1 }),
+        )
         throw new Error('Expected partial live admission to fail')
-      }
-      catch (error) {
+      } catch (error) {
         expect(isSessionAdmissionError(error)).toBe(true)
       }
 
       expect(await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'second'))).toHaveLength(0)
-      expect(await db.select().from(sessionDirectoryMembers).where(and(
-        eq(sessionDirectoryMembers.sessionId, 'second'),
-        isNull(sessionDirectoryMembers.leftAt),
-      ))).toHaveLength(0)
-      expect(await db.select().from(sessionDirectoryMembers).where(and(
-        eq(sessionDirectoryMembers.playerId, 'p1'),
-        isNull(sessionDirectoryMembers.leftAt),
-      ))).toHaveLength(0)
-    }
-    finally {
+      expect(
+        await db
+          .select()
+          .from(sessionDirectoryMembers)
+          .where(and(eq(sessionDirectoryMembers.sessionId, 'second'), isNull(sessionDirectoryMembers.leftAt))),
+      ).toHaveLength(0)
+      expect(
+        await db
+          .select()
+          .from(sessionDirectoryMembers)
+          .where(and(eq(sessionDirectoryMembers.playerId, 'p1'), isNull(sessionDirectoryMembers.leftAt))),
+      ).toHaveLength(0)
+    } finally {
       sqlite.close()
     }
   })
@@ -173,17 +184,31 @@ describe('session directory admission', () => {
 
     try {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
-      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+      await projectSessionRecord(
+        db,
+        buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }),
+      )
 
-      const [activeRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
+      const [activeRow] = await db
+        .select()
+        .from(sessionDirectory)
+        .where(eq(sessionDirectory.sessionId, 'first'))
+        .limit(1)
       expect(activeRow).toMatchObject({ sessionId: 'first', phase: 'active', closedAt: null })
-      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual([])
+      expect(
+        (await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(
+          row => row.sessionId,
+        ),
+      ).toEqual([])
 
       await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
 
-      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['second'])
-    }
-    finally {
+      expect(
+        (await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(
+          row => row.sessionId,
+        ),
+      ).toEqual(['second'])
+    } finally {
       sqlite.close()
     }
   })
@@ -193,17 +218,27 @@ describe('session directory admission', () => {
 
     try {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
-      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'swap', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+      await projectSessionRecord(
+        db,
+        buildSessionRecord({ id: 'first', phase: 'swap', matchId: 'first', version: 2, playerIds: ['host-1'] }),
+      )
 
       const [swapRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
       expect(swapRow).toMatchObject({ sessionId: 'first', phase: 'swap', closedAt: null })
-      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual([])
+      expect(
+        (await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(
+          row => row.sessionId,
+        ),
+      ).toEqual([])
 
       await projectSessionRecord(db, buildSessionRecord({ id: 'second', playerIds: ['host-1'] }))
 
-      expect((await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(row => row.sessionId)).toEqual(['second'])
-    }
-    finally {
+      expect(
+        (await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))).map(
+          row => row.sessionId,
+        ),
+      ).toEqual(['second'])
+    } finally {
       sqlite.close()
     }
   })
@@ -213,16 +248,22 @@ describe('session directory admission', () => {
 
     try {
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', playerIds: ['host-1'] }))
-      await projectSessionRecord(db, buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }))
+      await projectSessionRecord(
+        db,
+        buildSessionRecord({ id: 'first', phase: 'active', matchId: 'first', version: 2, playerIds: ['host-1'] }),
+      )
 
       await projectSessionRecord(db, buildSessionRecord({ id: 'first', version: 1, playerIds: ['host-1'] }))
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
       expect(liveMembers.map(row => row.sessionId)).toEqual([])
-      const [firstRow] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'first')).limit(1)
+      const [firstRow] = await db
+        .select()
+        .from(sessionDirectory)
+        .where(eq(sessionDirectory.sessionId, 'first'))
+        .limit(1)
       expect(firstRow).toMatchObject({ phase: 'active', version: 2 })
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -231,26 +272,31 @@ describe('session directory admission', () => {
     const { db, sqlite } = await createTestDatabase()
 
     try {
-      await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }))
+      await projectSessionRecord(
+        db,
+        buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }),
+      )
 
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'second-open', playerIds: ['host-1'], updatedAt: Date.now() }))
+        await projectSessionRecord(
+          db,
+          buildSessionRecord({ id: 'second-open', playerIds: ['host-1'], updatedAt: Date.now() }),
+        )
         throw new Error('Expected fresh open admission to block')
-      }
-      catch (error) {
+      } catch (error) {
         expect(isSessionAdmissionError(error)).toBe(true)
       }
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
       expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
 
-      const [freshMember] = await db.select().from(sessionDirectoryMembers).where(and(
-        eq(sessionDirectoryMembers.sessionId, 'fresh-open'),
-        eq(sessionDirectoryMembers.playerId, 'host-1'),
-      )).limit(1)
+      const [freshMember] = await db
+        .select()
+        .from(sessionDirectoryMembers)
+        .where(and(eq(sessionDirectoryMembers.sessionId, 'fresh-open'), eq(sessionDirectoryMembers.playerId, 'host-1')))
+        .limit(1)
       expect(freshMember?.leftAt).toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -260,28 +306,39 @@ describe('session directory admission', () => {
 
     try {
       const staleAt = Date.now() - SESSION_DIRECTORY_OPEN_STALE_MS - 1
-      await projectSessionRecord(db, buildSessionRecord({ id: 'stale-open', playerIds: ['host-1', 'player-2'], updatedAt: staleAt }))
+      await projectSessionRecord(
+        db,
+        buildSessionRecord({ id: 'stale-open', playerIds: ['host-1', 'player-2'], updatedAt: staleAt }),
+      )
 
       const originalConsoleWarn = console.warn
       console.warn = () => {}
       try {
-        await projectSessionRecord(db, buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }))
-      }
-      finally {
+        await projectSessionRecord(
+          db,
+          buildSessionRecord({ id: 'fresh-open', playerIds: ['host-1'], updatedAt: Date.now() }),
+        )
+      } finally {
         console.warn = originalConsoleWarn
       }
 
       const liveMembers = await db.select().from(sessionDirectoryMembers).where(isNull(sessionDirectoryMembers.leftAt))
       expect(liveMembers.map(row => row.sessionId)).toEqual(['fresh-open'])
 
-      const staleMembers = await db.select().from(sessionDirectoryMembers).where(eq(sessionDirectoryMembers.sessionId, 'stale-open'))
+      const staleMembers = await db
+        .select()
+        .from(sessionDirectoryMembers)
+        .where(eq(sessionDirectoryMembers.sessionId, 'stale-open'))
       expect(staleMembers.map(row => row.leftAt == null)).toEqual([false, false])
 
-      const [staleDirectory] = await db.select().from(sessionDirectory).where(eq(sessionDirectory.sessionId, 'stale-open')).limit(1)
+      const [staleDirectory] = await db
+        .select()
+        .from(sessionDirectory)
+        .where(eq(sessionDirectory.sessionId, 'stale-open'))
+        .limit(1)
       expect(staleDirectory).toMatchObject({ phase: 'cancelled', version: 2 })
       expect(staleDirectory?.closedAt).not.toBeNull()
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })

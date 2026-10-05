@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { handleSetup } from '../../src/commands/admin/setup.ts'
 import { buildSettingsPanel, updateSettingsPreference } from '../../src/commands/settings.ts'
-import { buildBrowserChannelUrl, buildBrowserSessionUrl, getBrowserAccessState, resetBrowserAccessStateCache, resolveBrowserAccessConfig, resolveInteractionLaunchMode } from '../../src/services/activity/browser-access.ts'
+import {
+  buildBrowserChannelUrl,
+  buildBrowserSessionUrl,
+  getBrowserAccessState,
+  resetBrowserAccessStateCache,
+  resolveBrowserAccessConfig,
+  resolveInteractionLaunchMode,
+} from '../../src/services/activity/browser-access.ts'
 import { respondWithPreferredLaunch } from '../../src/services/activity/launch-response.ts'
 
 const ROLE_ID = '123456789012345678'
@@ -19,8 +26,16 @@ describe('browser preference role', () => {
     const kv = createKv()
     const env = configuredEnv(kv.namespace)
 
-    await expect(resolveInteractionLaunchMode(env, undefined)).resolves.toEqual({ ok: true, mode: 'activity', config: null })
-    await expect(resolveInteractionLaunchMode(env, undefined)).resolves.toEqual({ ok: true, mode: 'activity', config: null })
+    await expect(resolveInteractionLaunchMode(env, undefined)).resolves.toEqual({
+      ok: true,
+      mode: 'activity',
+      config: null,
+    })
+    await expect(resolveInteractionLaunchMode(env, undefined)).resolves.toEqual({
+      ok: true,
+      mode: 'activity',
+      config: null,
+    })
     expect(kv.getCount).toBe(1)
   })
 
@@ -33,7 +48,12 @@ describe('browser preference role', () => {
   })
 
   test('requires a valid public origin and builds credential-free canonical URLs', async () => {
-    expect(await resolveBrowserAccessConfig({ ...configuredEnv(createEnabledKv().namespace), ACTIVITY_PUBLIC_ORIGIN: undefined })).toBeNull()
+    expect(
+      await resolveBrowserAccessConfig({
+        ...configuredEnv(createEnabledKv().namespace),
+        ACTIVITY_PUBLIC_ORIGIN: undefined,
+      }),
+    ).toBeNull()
     const config = await resolveBrowserAccessConfig(configuredEnv(createEnabledKv().namespace))
     expect(config).not.toBeNull()
     expect(buildBrowserSessionUrl(config!, 'session/id')).toBe('https://activity.example.com/web/session/session%2Fid')
@@ -41,7 +61,9 @@ describe('browser preference role', () => {
   })
 
   test('renders a persistent settings panel with both idempotent mode buttons', async () => {
-    const payload = JSON.parse(JSON.stringify(await buildSettingsPanel(configuredEnv(createEnabledKv().namespace), [ROLE_ID])))
+    const payload = JSON.parse(
+      JSON.stringify(await buildSettingsPanel(configuredEnv(createEnabledKv().namespace), [ROLE_ID])),
+    )
     expect(payload.embeds[0].description).toContain('Current launch mode: **Web browser**')
     expect(payload.components[0].components).toEqual([
       expect.objectContaining({ label: 'Discord Activity', style: 2 }),
@@ -69,12 +91,14 @@ describe('browser preference role', () => {
       activityUserId: 'player-1',
       activityTarget: { kind: 'match', id: 'match-1' },
     })
-    const payload = await browserResponse.json() as any
-    expect(payload.components[0].components[0]).toEqual(expect.objectContaining({
-      label: 'Open in Browser',
-      style: 5,
-      url: 'https://activity.example.com/web/session/canonical-session',
-    }))
+    const payload = (await browserResponse.json()) as any
+    expect(payload.components[0].components[0]).toEqual(
+      expect.objectContaining({
+        label: 'Open in Browser',
+        style: 5,
+        url: 'https://activity.example.com/web/session/canonical-session',
+      }),
+    )
     expect(payload.embeds).toBeUndefined()
     expect(JSON.stringify(payload)).not.toContain('activitySession')
     expect(browserCalls).toEqual([])
@@ -105,14 +129,16 @@ describe('browser preference role', () => {
       const request = new Request(input, init)
       requests.push(request)
       if (request.method === 'GET') {
-        return Response.json([{
-          id: ROLE_ID,
-          name: 'Legacy Browser',
-          permissions: '0',
-          managed: false,
-          hoist: false,
-          mentionable: false,
-        }])
+        return Response.json([
+          {
+            id: ROLE_ID,
+            name: 'Legacy Browser',
+            permissions: '0',
+            managed: false,
+            hoist: false,
+            mentionable: false,
+          },
+        ])
       }
       return Response.json({ id: ROLE_ID, name: 'Web Browser' })
     }) as typeof fetch
@@ -188,7 +214,7 @@ function createEnabledKv() {
   return createKv({ enabled: true, preferenceRoleId: ROLE_ID })
 }
 
-function createKv(initialState?: { enabled: boolean, preferenceRoleId: string | null }) {
+function createKv(initialState?: { enabled: boolean; preferenceRoleId: string | null }) {
   const values = new Map<string, string>()
   if (initialState) values.set('system:browser-access', JSON.stringify(initialState))
   const result = {

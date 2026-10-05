@@ -1,11 +1,18 @@
-import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
-import { seasonReset } from '@civup/rating'
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { matches, matchParticipants, playerRatings, players, seasonPeakModeRanks, seasonPeakRanks } from '@civup/db'
+import { seasonReset } from '@civup/rating'
 import { createDraftMatch } from '../../src/services/match/index.ts'
 import { recalculateLeaderboardMode } from '../../src/services/match/ratings.ts'
 import { previewRankedRoles, syncRankedRoles } from '../../src/services/ranked/role-sync.ts'
-import { endSeason, getActiveSeason, startSeason, syncSeasonPeakModeRanks, syncSeasonPeakRanks, syncSeasonPeaksForPlayers } from '../../src/services/season/index.ts'
+import {
+  endSeason,
+  getActiveSeason,
+  startSeason,
+  syncSeasonPeakModeRanks,
+  syncSeasonPeakRanks,
+  syncSeasonPeaksForPlayers,
+} from '../../src/services/season/index.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const NOW = 1_700_000_000_000
@@ -245,11 +252,7 @@ describe('season services', () => {
     })
     expect(third.skipped).toBe(1)
 
-    const [peak] = await db
-      .select()
-      .from(seasonPeakRanks)
-      .where(eq(seasonPeakRanks.playerId, PLAYER_ID))
-      .limit(1)
+    const [peak] = await db.select().from(seasonPeakRanks).where(eq(seasonPeakRanks.playerId, PLAYER_ID)).limit(1)
 
     expect(peak?.tier).toBe(TIER_4)
     expect(peak?.sourceMode).toBe('ffa')
@@ -335,10 +338,7 @@ describe('season services', () => {
       now: NOW,
     })
 
-    const peakRows = await db
-      .select()
-      .from(seasonPeakRanks)
-      .where(eq(seasonPeakRanks.seasonId, season.id))
+    const peakRows = await db.select().from(seasonPeakRanks).where(eq(seasonPeakRanks.seasonId, season.id))
 
     expect(peakRows).toHaveLength(1)
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
@@ -396,15 +396,9 @@ describe('season services', () => {
     expect(result.seasonId).toBe(season.id)
     expect(result.overall.inserted).toBe(1)
 
-    const peakRows = await db
-      .select()
-      .from(seasonPeakRanks)
-      .where(eq(seasonPeakRanks.seasonId, season.id))
+    const peakRows = await db.select().from(seasonPeakRanks).where(eq(seasonPeakRanks.seasonId, season.id))
 
-    const peakModeRows = await db
-      .select()
-      .from(seasonPeakModeRanks)
-      .where(eq(seasonPeakModeRanks.seasonId, season.id))
+    const peakModeRows = await db.select().from(seasonPeakModeRanks).where(eq(seasonPeakModeRanks.seasonId, season.id))
 
     expect(peakRows).toHaveLength(1)
     expect(peakRows[0]?.playerId).toBe(HERO_ID)
@@ -420,7 +414,7 @@ async function seedPlayers(
   db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
   mode: 'duel' | 'duo' | 'squad' | 'ffa' | 'red-death',
   count: number,
-  options: { prefix: string, lastPlayedAt: number, gamesPlayed?: number },
+  options: { prefix: string; lastPlayedAt: number; gamesPlayed?: number },
 ): Promise<void> {
   for (let index = 1; index <= count; index++) {
     const playerId = playerIdFor(options.prefix, index)
@@ -436,13 +430,19 @@ async function seedPlayers(
   }
 }
 
-async function seedPlayerIdentity(db: Awaited<ReturnType<typeof createTestDatabase>>['db'], playerId: string): Promise<void> {
-  await db.insert(players).values({
-    id: playerId,
-    displayName: playerId,
-    avatarUrl: null,
-    createdAt: NOW,
-  }).onConflictDoNothing()
+async function seedPlayerIdentity(
+  db: Awaited<ReturnType<typeof createTestDatabase>>['db'],
+  playerId: string,
+): Promise<void> {
+  await db
+    .insert(players)
+    .values({
+      id: playerId,
+      displayName: playerId,
+      avatarUrl: null,
+      createdAt: NOW,
+    })
+    .onConflictDoNothing()
 }
 
 async function seedRating(
@@ -468,10 +468,13 @@ async function seedRating(
     winsVsTier2Plus: row.winsVsTier2Plus ?? 0,
   }
 
-  await db.insert(playerRatings).values(values).onConflictDoUpdate({
-    target: [playerRatings.playerId, playerRatings.mode],
-    set: values,
-  })
+  await db
+    .insert(playerRatings)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [playerRatings.playerId, playerRatings.mode],
+      set: values,
+    })
 }
 
 function playerIdFor(prefix: string, index: number): string {

@@ -1,6 +1,12 @@
 /* eslint-disable no-console */
 import { inflateRawSync } from 'node:zlib'
-import { parseAutosaveZipIndex, parseCiv6SaveMetadata, parseZipEntries, pickLatestAutosaveZipEntry, readZipEntryData } from '../packages/civ6-save-metadata/src/index.ts'
+import {
+  parseAutosaveZipIndex,
+  parseCiv6SaveMetadata,
+  parseZipEntries,
+  pickLatestAutosaveZipEntry,
+  readZipEntryData,
+} from '../packages/civ6-save-metadata/src/index.ts'
 
 interface CliOptions {
   path: string | null
@@ -27,11 +33,17 @@ const zipResult = isCiv6SavePath(options.path)
   : parseAutosaveZipIndex(bytes, { includeEntries: options.includeEntries })
 const metadata = options.includeMetadata ? parseMetadata(bytes, options.path) : null
 
-console.log(JSON.stringify({
-  source: options.path,
-  ...zipResult,
-  ...(metadata ? { metadata } : {}),
-}, null, options.compact ? 0 : 2))
+console.log(
+  JSON.stringify(
+    {
+      source: options.path,
+      ...zipResult,
+      ...(metadata ? { metadata } : {}),
+    },
+    null,
+    options.compact ? 0 : 2,
+  ),
+)
 
 function parseMetadata(bytes: Uint8Array, sourcePath: string) {
   if (isCiv6SavePath(sourcePath)) return parseCiv6SaveMetadata(bytes)

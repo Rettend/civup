@@ -1,7 +1,17 @@
 import type { MiniSeatItem } from './MiniLayout'
-import { formatModeLabel, inferGameMode } from '@civup/game'
 import { createEffect, createSignal } from 'solid-js'
-import { draftNow, draftStore, isMapVotePhase, isRedDeathDraft, mapVotePhase, mapVoteRevealEndsAt, mapVoteVotingEndsAt, phaseAccent, phaseLabel } from '~/client/stores'
+import { formatModeLabel, inferGameMode } from '@civup/game'
+import {
+  draftNow,
+  draftStore,
+  isMapVotePhase,
+  isRedDeathDraft,
+  mapVotePhase,
+  mapVoteRevealEndsAt,
+  mapVoteVotingEndsAt,
+  phaseAccent,
+  phaseLabel,
+} from '~/client/stores'
 import { MiniFrame, MiniSeatGrid } from './MiniLayout'
 
 /** Minimized PiP view */
@@ -10,28 +20,34 @@ export function MiniView() {
   const accent = () => phaseAccent()
 
   const [remaining, setRemaining] = createSignal(0)
-  createEffect(() => ({
-    endsAt: isMapVotePhase()
-       ? (mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt())
-       : draftStore.timerEndsAt,
-    now: draftNow(),
-  }), ({ endsAt, now }) => {
-    if (endsAt == null) {
-      setRemaining(0)
-      return
-    }
+  createEffect(
+    () => ({
+      endsAt: isMapVotePhase()
+        ? mapVotePhase() === 'voting'
+          ? mapVoteVotingEndsAt()
+          : mapVoteRevealEndsAt()
+        : draftStore.timerEndsAt,
+      now: draftNow(),
+    }),
+    ({ endsAt, now }) => {
+      if (endsAt == null) {
+        setRemaining(0)
+        return
+      }
 
-    const tick = () => setRemaining(Math.max(0, endsAt - draftNow()))
-    setRemaining(Math.max(0, endsAt - now))
-    const interval = setInterval(tick, 100)
-    return () => clearInterval(interval)
-  })
+      const tick = () => setRemaining(Math.max(0, endsAt - draftNow()))
+      setRemaining(Math.max(0, endsAt - now))
+      const interval = setInterval(tick, 100)
+      return () => clearInterval(interval)
+    },
+  )
 
-  const modeLabel = () => formatModeLabel(inferGameMode(state()?.formatId), '', {
-    redDeath: isRedDeathDraft(),
-    compactRedDeath: true,
-    targetSize: state()?.seats.length,
-  })
+  const modeLabel = () =>
+    formatModeLabel(inferGameMode(state()?.formatId), '', {
+      redDeath: isRedDeathDraft(),
+      compactRedDeath: true,
+      targetSize: state()?.seats.length,
+    })
   const timerLabel = () => {
     if (!isMapVotePhase() && (state()?.status !== 'active' || draftStore.timerEndsAt == null)) return null
 
@@ -69,14 +85,14 @@ export function MiniView() {
     const step = current.steps[current.currentStepIndex]
     if (!step) return new Set<number>()
 
-    const activeSeats = step.seats === 'all'
-      ? current.seats.map((_, seatIndex) => seatIndex)
-      : step.seats
+    const activeSeats = step.seats === 'all' ? current.seats.map((_, seatIndex) => seatIndex) : step.seats
 
-    return new Set(activeSeats.filter((seatIndex) => {
-      const submittedCount = current.submissions[seatIndex]?.length ?? 0
-      return submittedCount < step.count
-    }))
+    return new Set(
+      activeSeats.filter(seatIndex => {
+        const submittedCount = current.submissions[seatIndex]?.length ?? 0
+        return submittedCount < step.count
+      }),
+    )
   }
 
   const seatItems = (): MiniSeatItem[] => {
@@ -84,7 +100,9 @@ export function MiniView() {
     if (!current) return []
 
     const picksBySeat = new Map(current.picks.map(pick => [pick.seatIndex, pick.civId]))
-    const previewPicksBySeat = new Map(Object.entries(draftStore.previews.picks).map(([seatIndex, civIds]) => [Number(seatIndex), civIds[0] ?? null]))
+    const previewPicksBySeat = new Map(
+      Object.entries(draftStore.previews.picks).map(([seatIndex, civIds]) => [Number(seatIndex), civIds[0] ?? null]),
+    )
     const activeSeats = activeSeatSet()
 
     return current.seats.map((seat, seatIndex) => ({
@@ -101,15 +119,14 @@ export function MiniView() {
   const columns = () => {
     const items = seatItems()
     if (items.some(item => item.team != null)) {
-      const teamIndices = Array.from(new Set(items.flatMap(item => item.team == null ? [] : [item.team]))).sort((a, b) => a - b)
+      const teamIndices = Array.from(new Set(items.flatMap(item => (item.team == null ? [] : [item.team])))).sort(
+        (a, b) => a - b,
+      )
       const teamColumns = teamIndices.map(team => items.filter(item => item.team === team))
 
       if (teamColumns.length > 2) {
         const midpoint = Math.ceil(teamColumns.length / 2)
-        return [
-          teamColumns.slice(0, midpoint).flat(),
-          teamColumns.slice(midpoint).flat(),
-        ]
+        return [teamColumns.slice(0, midpoint).flat(), teamColumns.slice(midpoint).flat()]
       }
 
       return teamColumns
@@ -120,16 +137,8 @@ export function MiniView() {
   }
 
   return (
-    <MiniFrame
-      modeLabel={modeLabel()}
-      title={title()}
-      titleAccent={titleAccent()}
-      rightLabel={timerLabel()}
-    >
-      <MiniSeatGrid
-        columns={columns()}
-        activeTone={accent()}
-      />
+    <MiniFrame modeLabel={modeLabel()} title={title()} titleAccent={titleAccent()} rightLabel={timerLabel()}>
+      <MiniSeatGrid columns={columns()} activeTone={accent()} />
     </MiniFrame>
   )
 }

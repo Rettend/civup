@@ -12,7 +12,7 @@ export interface FakeSessionWebSocket {
   connection: WebSocket
   messages: unknown[]
   attachment: unknown
-  closed: { code: number, reason: string } | null
+  closed: { code: number; reason: string } | null
 }
 
 export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): TestSessionNamespace {
@@ -70,7 +70,7 @@ export function createTestSessionNamespace(env: Partial<Cloudflare.Env> = {}): T
 export function createFakeSessionWebSocket(initialAttachment: unknown = null): FakeSessionWebSocket {
   const messages: unknown[] = []
   let attachment = initialAttachment
-  let closed: { code: number, reason: string } | null = null
+  let closed: { code: number; reason: string } | null = null
   let readyState = 1
   const connection = {
     send(message: string) {

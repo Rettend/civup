@@ -1,4 +1,5 @@
 import type { MapVoteMapId, RevealedMapVoteSeatBallot } from '@civup/game'
+import { createMemo } from 'solid-js'
 import {
   DEFAULT_MAP_VOTE_SELECTION,
   isMapVoteSelectionConfirmable,
@@ -7,7 +8,6 @@ import {
   MAX_MAP_VOTE_MAP_PICKS,
   normalizeMapVoteSelection,
 } from '@civup/game'
-import { createMemo } from 'solid-js'
 import { sendMapVoteConfirm, sendMapVoteSelection } from './connection-store'
 import { draftStore } from './draft-store'
 
@@ -26,10 +26,12 @@ export const mapVoteWinningType = () => draftStore.mapVote.result?.mapType ?? nu
 export const mapVoteWinningScript = () => draftStore.mapVote.result?.mapScript ?? null
 export const mapVoteWinningTypeCandidate = () => draftStore.mapVote.result?.mapTypeWinner ?? null
 export const mapVoteWinningScriptCandidate = () => draftStore.mapVote.result?.mapScriptWinner ?? null
-export const mapVoteVotingEndsAt = () => mapVotePhase() === 'voting' ? draftStore.mapVote.endsAt : null
-export const mapVoteRevealEndsAt = () => mapVotePhase() === 'reveal' ? draftStore.mapVote.endsAt : null
+export const mapVoteVotingEndsAt = () => (mapVotePhase() === 'voting' ? draftStore.mapVote.endsAt : null)
+export const mapVoteRevealEndsAt = () => (mapVotePhase() === 'reveal' ? draftStore.mapVote.endsAt : null)
 
-export const isMapVotePhase = createMemo(() => mapVotePhase() === 'voting' || mapVotePhase() === 'reveal', { lazy: true })
+export const isMapVotePhase = createMemo(() => mapVotePhase() === 'voting' || mapVotePhase() === 'reveal', {
+  lazy: true,
+})
 
 interface MapVoteSelectionUpdate {
   selection: { maps: MapVoteMapId[] }
@@ -43,7 +45,8 @@ interface MapVoteSelectionResult {
 }
 
 function buildMapVoteSelectionUpdate(partial: { maps?: MapVoteMapId[] | null }): MapVoteSelectionUpdate | null {
-  if (draftStore.mapVote.phase !== 'voting' || draftStore.mapVote.hasConfirmed || draftStore.seatIndex == null) return null
+  if (draftStore.mapVote.phase !== 'voting' || draftStore.mapVote.hasConfirmed || draftStore.seatIndex == null)
+    return null
 
   const currentSelection = normalizeMapVoteSelection(draftStore.mapVote.selection ?? DEFAULT_MAP_VOTE_SELECTION)
   const nextSelection = normalizeMapVoteSelection({
@@ -64,11 +67,16 @@ function toggleRankedChoice<T extends string>(current: readonly T[], id: T, max:
   return [...current, id]
 }
 
-export const mapVoteReadyToConfirm = createMemo(() => {
-  return mapVotePhase() === 'voting'
-    && isMapVoteSelectionConfirmable(draftStore.mapVote.selection)
-    && !mapVoteHasConfirmed()
-}, { lazy: true })
+export const mapVoteReadyToConfirm = createMemo(
+  () => {
+    return (
+      mapVotePhase() === 'voting' &&
+      isMapVoteSelectionConfirmable(draftStore.mapVote.selection) &&
+      !mapVoteHasConfirmed()
+    )
+  },
+  { lazy: true },
+)
 
 export function getSeatMapVote(seatIndex: number): RevealedMapVoteSeatBallot | null {
   return mapVoteSeatVotes().find(vote => vote.seatIndex === seatIndex) ?? null

@@ -1,5 +1,10 @@
 import type { AdminCommandContext } from './types.ts'
-import { getServerConfigRows, parseServerConfigKey, SERVER_CONFIG_KEYS, setServerConfigValue } from '../../services/config/index.ts'
+import {
+  getServerConfigRows,
+  parseServerConfigKey,
+  SERVER_CONFIG_KEYS,
+  setServerConfigValue,
+} from '../../services/config/index.ts'
 import { sendTransientEphemeralResponse } from './shared.ts'
 
 export function handleConfig(c: AdminCommandContext) {
@@ -9,7 +14,11 @@ export function handleConfig(c: AdminCommandContext) {
 
   if (rawKey && !key) {
     return c.flags('EPHEMERAL').resDefer(async (c: AdminCommandContext) => {
-      await sendTransientEphemeralResponse(c, `Unknown config key. Supported keys: ${SERVER_CONFIG_KEYS.map(item => `\`${item}\``).join(', ')}.`, 'error')
+      await sendTransientEphemeralResponse(
+        c,
+        `Unknown config key. Supported keys: ${SERVER_CONFIG_KEYS.map(item => `\`${item}\``).join(', ')}.`,
+        'error',
+      )
     })
   }
 

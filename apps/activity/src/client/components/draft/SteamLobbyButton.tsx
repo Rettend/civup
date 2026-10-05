@@ -65,7 +65,12 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
   }
 
   const shouldCopyOnPrimaryAction = () => {
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) return true
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches
+    )
+      return true
     return isMobileLayout()
   }
 
@@ -79,7 +84,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     const link = props.steamLobbyLink
     if (!link) return
 
-    if (!await openExternalLink(link)) await copyLink()
+    if (!(await openExternalLink(link))) await copyLink()
   }
 
   // ── Dropdown logic ────────────────────
@@ -136,7 +141,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     else openDropdown()
   }
 
-  const handleContextMenu: JSX.EventHandler<HTMLButtonElement, MouseEvent> = (event) => {
+  const handleContextMenu: JSX.EventHandler<HTMLButtonElement, MouseEvent> = event => {
     if (canEdit()) return
     event.preventDefault()
     if (!props.steamLobbyLink) {
@@ -154,7 +159,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     }, BLUR_CLOSE_DELAY_MS)
   }
 
-  const handleInputKeyDown: JSX.EventHandler<HTMLInputElement, KeyboardEvent> = (event) => {
+  const handleInputKeyDown: JSX.EventHandler<HTMLInputElement, KeyboardEvent> = event => {
     if (event.key === 'Enter') {
       event.preventDefault()
       saveAndClose()

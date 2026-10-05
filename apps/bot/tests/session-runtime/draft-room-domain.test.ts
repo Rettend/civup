@@ -1,7 +1,13 @@
 import type { DraftInput, DraftSeat, DraftState } from '@civup/game'
-import { allLeaderIds, createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
 import { describe, expect, test } from 'bun:test'
-import { applyDraftResultCommand, applyLeaderSwapCommand, createRoomRecord, finalizeCompletedDraftCommand, normalizeStoredRoomRecord } from '../../src/session-runtime/draft-room-domain.ts'
+import { allLeaderIds, createDraft, draftFormatMap, isDraftError, processDraftInput } from '@civup/game'
+import {
+  applyDraftResultCommand,
+  applyLeaderSwapCommand,
+  createRoomRecord,
+  finalizeCompletedDraftCommand,
+  normalizeStoredRoomRecord,
+} from '../../src/session-runtime/draft-room-domain.ts'
 import { EMPTY_STORED_MAP_VOTE_STATE } from '../../src/session-runtime/map-vote-room-state.ts'
 
 describe('draft room domain', () => {
@@ -23,13 +29,17 @@ describe('draft room domain', () => {
     state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
     state = applyDraftInput(state, { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! }, format.blindBans)
 
-    const room = createRoomRecord({
-      matchId: 'match-double-metrics',
-      hostId: 'a1',
-      formatId: 'default-2v2',
-      seats,
-      civPool: allLeaderIds.slice(0, 24),
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'match-double-metrics',
+        hostId: 'a1',
+        formatId: 'default-2v2',
+        seats,
+        civPool: allLeaderIds.slice(0, 24),
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
 
     const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
     expect(isDraftError(timedOut)).toBe(false)
@@ -50,7 +60,11 @@ describe('draft room domain', () => {
       fallbackTimeouts: 0,
     })
 
-    const fallbackPick = processDraftInput(timedOut.state, { type: 'PICK', seatIndex: 3, civId: allLeaderIds[8]! }, format.blindBans)
+    const fallbackPick = processDraftInput(
+      timedOut.state,
+      { type: 'PICK', seatIndex: 3, civId: allLeaderIds[8]! },
+      format.blindBans,
+    )
     expect(isDraftError(fallbackPick)).toBe(false)
     if (isDraftError(fallbackPick)) return
 
@@ -87,13 +101,17 @@ describe('draft room domain', () => {
     state = applyDraftInput(state, { type: 'BAN', seatIndex: 1, civIds: allLeaderIds.slice(3, 6) }, format.blindBans)
     state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
 
-    const room = createRoomRecord({
-      matchId: 'match-double-timeout',
-      hostId: 'a1',
-      formatId: 'default-2v2',
-      seats,
-      civPool: allLeaderIds.slice(0, 24),
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'match-double-timeout',
+        hostId: 'a1',
+        formatId: 'default-2v2',
+        seats,
+        civPool: allLeaderIds.slice(0, 24),
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
     const timedOut = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
     expect(isDraftError(timedOut)).toBe(false)
     if (isDraftError(timedOut)) return
@@ -138,13 +156,17 @@ describe('draft room domain', () => {
     state = applyDraftInput(state, { type: 'PICK', seatIndex: 0, civId: allLeaderIds[6]! }, format.blindBans)
     state = applyDraftInput(state, { type: 'PICK', seatIndex: 1, civId: allLeaderIds[7]! }, format.blindBans)
 
-    const room = createRoomRecord({
-      matchId: 'match-double-repeat',
-      hostId: 'a1',
-      formatId: 'default-2v2',
-      seats,
-      civPool: allLeaderIds.slice(0, 24),
-    }, state, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'match-double-repeat',
+        hostId: 'a1',
+        formatId: 'default-2v2',
+        seats,
+        civPool: allLeaderIds.slice(0, 24),
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
 
     const fallback = processDraftInput(state, { type: 'TIMEOUT' }, format.blindBans)
     expect(isDraftError(fallback)).toBe(false)
@@ -209,23 +231,28 @@ describe('draft room domain', () => {
         stepIndex: seatIndex,
       })),
     }
-    const swappedPicks = state.picks.map((pick) => {
+    const swappedPicks = state.picks.map(pick => {
       if (pick.seatIndex === 0) return { ...pick, civId: state.picks[2]!.civId }
       if (pick.seatIndex === 2) return { ...pick, civId: state.picks[0]!.civId }
       return pick
     })
-    const room = createRoomRecord({
-      matchId: 'match-swap',
-      hostId: 'a1',
-      formatId: 'default-2v2',
-      seats,
-      civPool: allLeaderIds.slice(0, 12),
-    }, state, EMPTY_STORED_MAP_VOTE_STATE, {
-      completedAt: 100,
-      swapWindowOpen: true,
-      swapState: { completedSwaps: [] },
-      swapSafetyEndsAt: 1_000,
-    })
+    const room = createRoomRecord(
+      {
+        matchId: 'match-swap',
+        hostId: 'a1',
+        formatId: 'default-2v2',
+        seats,
+        civPool: allLeaderIds.slice(0, 12),
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+      {
+        completedAt: 100,
+        swapWindowOpen: true,
+        swapState: { completedSwaps: [] },
+        swapSafetyEndsAt: 1_000,
+      },
+    )
 
     const transition = applyLeaderSwapCommand(room, {
       type: 'apply-leader-swap',
@@ -235,10 +262,7 @@ describe('draft room domain', () => {
 
     expect(transition.room.state.picks).toEqual(swappedPicks)
     expect(transition.room.swapState).toEqual({ completedSwaps: [{ fromSeat: 0, toSeat: 2 }] })
-    expect(transition.effects.map(effect => effect.type)).toEqual([
-      'schedule-swap-alarm',
-      'broadcast-update',
-    ])
+    expect(transition.effects.map(effect => effect.type)).toEqual(['schedule-swap-alarm', 'broadcast-update'])
   })
 
   test('persists draft completion before broadcasting an open swap window', () => {
@@ -252,7 +276,11 @@ describe('draft room domain', () => {
     expect(format).toBeDefined()
     if (!format) return
 
-    const started = applyDraftInput(createDraft('match-complete-swap', format, seats, allLeaderIds.slice(0, 12)), { type: 'START' }, format.blindBans)
+    const started = applyDraftInput(
+      createDraft('match-complete-swap', format, seats, allLeaderIds.slice(0, 12)),
+      { type: 'START' },
+      format.blindBans,
+    )
     const completeState: DraftState = {
       ...started,
       status: 'complete',
@@ -263,13 +291,17 @@ describe('draft room domain', () => {
         stepIndex: seatIndex,
       })),
     }
-    const room = createRoomRecord({
-      matchId: 'match-complete-swap',
-      hostId: 'a1',
-      formatId: 'default-2v2',
-      seats,
-      civPool: allLeaderIds.slice(0, 12),
-    }, started, EMPTY_STORED_MAP_VOTE_STATE)
+    const room = createRoomRecord(
+      {
+        matchId: 'match-complete-swap',
+        hostId: 'a1',
+        formatId: 'default-2v2',
+        seats,
+        civPool: allLeaderIds.slice(0, 12),
+      },
+      started,
+      EMPTY_STORED_MAP_VOTE_STATE,
+    )
 
     const transition = applyDraftResultCommand(room, {
       type: 'apply-draft-result',
@@ -301,21 +333,26 @@ describe('draft room domain', () => {
         stepIndex: seatIndex,
       })),
     }
-    const room = createRoomRecord({
-      matchId: 'match-1',
-      hostId: 'p1',
-      formatId: 'default-1v1',
-      leaderDataVersion: 'beta',
-      seats,
-      civPool: allLeaderIds.slice(0, 8),
-    }, state, EMPTY_STORED_MAP_VOTE_STATE, {
-      completedAt: 100,
-      swapWindowOpen: true,
-      swapState: { completedSwaps: [] },
-      swapSafetyEndsAt: 1_000,
-      timerEndsAt: 1_000,
-      alarmStepIndex: 2,
-    })
+    const room = createRoomRecord(
+      {
+        matchId: 'match-1',
+        hostId: 'p1',
+        formatId: 'default-1v1',
+        leaderDataVersion: 'beta',
+        seats,
+        civPool: allLeaderIds.slice(0, 8),
+      },
+      state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+      {
+        completedAt: 100,
+        swapWindowOpen: true,
+        swapState: { completedSwaps: [] },
+        swapSafetyEndsAt: 1_000,
+        timerEndsAt: 1_000,
+        alarmStepIndex: 2,
+      },
+    )
 
     const transition = finalizeCompletedDraftCommand(room, {
       type: 'finalize-completed-draft',
@@ -353,7 +390,9 @@ describe('draft room domain', () => {
     expect(format).toBeDefined()
     if (!format) return
 
-    const started = processDraftInput(createDraft('match-1', format, seats, allLeaderIds.slice(0, 8)), { type: 'START' })
+    const started = processDraftInput(createDraft('match-1', format, seats, allLeaderIds.slice(0, 8)), {
+      type: 'START',
+    })
     expect(isDraftError(started)).toBe(false)
     if (isDraftError(started)) return
 
@@ -367,25 +406,30 @@ describe('draft room domain', () => {
         stepIndex: seatIndex,
       })),
     }
-    const room = createRoomRecord({
-      matchId: 'match-1',
-      hostId: 'p1',
-      formatId: 'default-1v1',
-      leaderDataVersion: 'beta',
-      seats,
-      civPool: allLeaderIds.slice(0, 8),
-    }, started.state, {
-      enabled: true,
-      phase: 'voting',
-      endsAt: 1_000,
-      selections: {},
-      confirmations: {},
-      revealedVotes: null,
-      result: null,
-    }, {
-      timerEndsAt: 1_000,
-      alarmStepIndex: 0,
-    })
+    const room = createRoomRecord(
+      {
+        matchId: 'match-1',
+        hostId: 'p1',
+        formatId: 'default-1v1',
+        leaderDataVersion: 'beta',
+        seats,
+        civPool: allLeaderIds.slice(0, 8),
+      },
+      started.state,
+      {
+        enabled: true,
+        phase: 'voting',
+        endsAt: 1_000,
+        selections: {},
+        confirmations: {},
+        revealedVotes: null,
+        result: null,
+      },
+      {
+        timerEndsAt: 1_000,
+        alarmStepIndex: 0,
+      },
+    )
 
     const transition = applyDraftResultCommand(room, {
       type: 'apply-draft-result',
@@ -419,7 +463,9 @@ describe('draft room domain', () => {
     expect(format).toBeDefined()
     if (!format) return
 
-    const started = processDraftInput(createDraft('match-1', format, seats, allLeaderIds.slice(0, 8)), { type: 'START' })
+    const started = processDraftInput(createDraft('match-1', format, seats, allLeaderIds.slice(0, 8)), {
+      type: 'START',
+    })
     expect(isDraftError(started)).toBe(false)
     if (isDraftError(started)) return
 
@@ -427,16 +473,21 @@ describe('draft room domain', () => {
     expect(isDraftError(cancelled)).toBe(false)
     if (isDraftError(cancelled)) return
 
-    const room = createRoomRecord({
-      matchId: 'match-1',
-      hostId: 'p1',
-      formatId: 'default-1v1',
-      seats,
-      civPool: allLeaderIds.slice(0, 8),
-    }, started.state, EMPTY_STORED_MAP_VOTE_STATE, {
-      timerEndsAt: 1_000,
-      alarmStepIndex: 0,
-    })
+    const room = createRoomRecord(
+      {
+        matchId: 'match-1',
+        hostId: 'p1',
+        formatId: 'default-1v1',
+        seats,
+        civPool: allLeaderIds.slice(0, 8),
+      },
+      started.state,
+      EMPTY_STORED_MAP_VOTE_STATE,
+      {
+        timerEndsAt: 1_000,
+        alarmStepIndex: 0,
+      },
+    )
 
     const transition = applyDraftResultCommand(room, {
       type: 'apply-draft-result',

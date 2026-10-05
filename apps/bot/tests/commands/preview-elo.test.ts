@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { calculateDuelEloPreview, command_preview_elo, duelEloPreviewEmbed, previewEloComponents } from '../../src/commands/preview-elo.ts'
+import {
+  calculateDuelEloPreview,
+  command_preview_elo,
+  duelEloPreviewEmbed,
+  previewEloComponents,
+} from '../../src/commands/preview-elo.ts'
 import { SHOW_EPHEMERAL_RESPONSE_BUTTON_ID } from '../../src/services/response/ephemeral.ts'
 import { factory } from '../../src/setup.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
@@ -7,7 +12,9 @@ import { createTestDatabase } from '../helpers/test-env.ts'
 describe('preview elo command', () => {
   test('registers as a user context command', () => {
     const [commandBuilder] = factory.getCommands([command_preview_elo])
-    const command = commandBuilder?.toJSON() as { name?: string, type?: number, description?: string, options?: unknown[] } | undefined
+    const command = commandBuilder?.toJSON() as
+      | { name?: string; type?: number; description?: string; options?: unknown[] }
+      | undefined
 
     expect(command?.name).toBe('Preview Elo')
     expect(command?.type).toBe(2)
@@ -18,12 +25,14 @@ describe('preview elo command', () => {
   test('uses the shared show button component', () => {
     const components = previewEloComponents().toJSON()
 
-    expect(components[0]?.components?.[0]).toEqual(expect.objectContaining({
-      custom_id: `${SHOW_EPHEMERAL_RESPONSE_BUTTON_ID};`,
-      label: 'Show',
-      style: 2,
-      type: 2,
-    }))
+    expect(components[0]?.components?.[0]).toEqual(
+      expect.objectContaining({
+        custom_id: `${SHOW_EPHEMERAL_RESPONSE_BUTTON_ID};`,
+        label: 'Show',
+        style: 2,
+        type: 2,
+      }),
+    )
   })
 
   test('calculates both duel outcomes from the viewer perspective', () => {
@@ -43,11 +52,13 @@ describe('preview elo command', () => {
   test('renders an embed with fallback duel ratings', async () => {
     const { db, sqlite } = await createTestDatabase()
 
-    const embed = (await duelEloPreviewEmbed(
-      db,
-      { userId: 'viewer', displayName: 'Viewer', avatarUrl: null },
-      { userId: 'target', displayName: 'Target', avatarUrl: null },
-    )).toJSON()
+    const embed = (
+      await duelEloPreviewEmbed(
+        db,
+        { userId: 'viewer', displayName: 'Viewer', avatarUrl: null },
+        { userId: 'target', displayName: 'Target', avatarUrl: null },
+      )
+    ).toJSON()
 
     expect(embed.title).toBe('Preview Elo (1v1)')
     expect(embed.description).toBe('<@viewer> vs <@target>')

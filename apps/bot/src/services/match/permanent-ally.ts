@@ -7,7 +7,7 @@ export interface PermanentAllyParticipantRow {
   placement: number | null
 }
 
-type EffectivePermanentAllyRow<T extends PermanentAllyParticipantRow> = T & { team: number, placement: number }
+type EffectivePermanentAllyRow<T extends PermanentAllyParticipantRow> = T & { team: number; placement: number }
 
 export function buildPermanentAllyFfaEffectiveRows<T extends PermanentAllyParticipantRow>(
   participantRows: readonly T[],
@@ -18,11 +18,13 @@ export function buildPermanentAllyFfaEffectiveRows<T extends PermanentAllyPartic
   const pairedRows = buildPlacementPairs(participantRows)
   if ('error' in pairedRows) return pairedRows
 
-  return pairedRows.flatMap((teamRows, teamIndex) => teamRows.map(row => ({
-    ...row,
-    team: teamIndex,
-    placement: row.placement!,
-  })))
+  return pairedRows.flatMap((teamRows, teamIndex) =>
+    teamRows.map(row => ({
+      ...row,
+      team: teamIndex,
+      placement: row.placement!,
+    })),
+  )
 }
 
 export function buildPermanentAllyFfaPlacementByPlayerId(
@@ -35,7 +37,7 @@ export function buildPermanentAllyFfaPlacementByPlayerId(
 
 export function calculatePermanentAllyFfaRatingUpdates(
   participantRows: readonly PermanentAllyParticipantRow[],
-  resolveRating: (playerId: string) => { mu: number, sigma: number },
+  resolveRating: (playerId: string) => { mu: number; sigma: number },
 ): RatingUpdate[] | { error: string } {
   const effectiveRows = buildPermanentAllyFfaEffectiveRows(participantRows)
   if ('error' in effectiveRows) return effectiveRows
@@ -46,11 +48,13 @@ export function calculatePermanentAllyFfaRatingUpdates(
     teams: teams.map((teamRows, teamIndex) => {
       const ratings = teamRows.map(row => resolveRating(row.playerId))
       return {
-        players: [{
-          playerId: `permanent-ally-pair:${teamIndex}`,
-          mu: average(ratings.map(rating => rating.mu)),
-          sigma: average(ratings.map(rating => rating.sigma)),
-        }],
+        players: [
+          {
+            playerId: `permanent-ally-pair:${teamIndex}`,
+            mu: average(ratings.map(rating => rating.mu)),
+            sigma: average(ratings.map(rating => rating.sigma)),
+          },
+        ],
       }
     }),
   })
@@ -85,7 +89,9 @@ export function calculatePermanentAllyFfaRatingUpdates(
   return updates
 }
 
-function buildPlacementPairs<T extends PermanentAllyParticipantRow>(participantRows: readonly T[]): T[][] | { error: string } {
+function buildPlacementPairs<T extends PermanentAllyParticipantRow>(
+  participantRows: readonly T[],
+): T[][] | { error: string } {
   const byPlacement = new Map<number, T[]>()
   for (const participant of participantRows) {
     const placement = participant.placement
@@ -97,11 +103,14 @@ function buildPlacementPairs<T extends PermanentAllyParticipantRow>(participantR
 
   const pairs = [...byPlacement.entries()].sort((left, right) => left[0] - right[0])
 
-  if (pairs.some(([, rows]) => rows.length !== 2)) return { error: 'Permanent Ally FFA placements must have exactly two players each.' }
+  if (pairs.some(([, rows]) => rows.length !== 2))
+    return { error: 'Permanent Ally FFA placements must have exactly two players each.' }
   return pairs.map(([, rows]) => [...rows].sort((left, right) => left.playerId.localeCompare(right.playerId)))
 }
 
-function groupEffectiveRowsByTeam<T extends PermanentAllyParticipantRow>(rows: EffectivePermanentAllyRow<T>[]): EffectivePermanentAllyRow<T>[][] {
+function groupEffectiveRowsByTeam<T extends PermanentAllyParticipantRow>(
+  rows: EffectivePermanentAllyRow<T>[],
+): EffectivePermanentAllyRow<T>[][] {
   const byTeam = new Map<number, EffectivePermanentAllyRow<T>[]>()
   for (const row of rows) {
     const teamRows = byTeam.get(row.team) ?? []

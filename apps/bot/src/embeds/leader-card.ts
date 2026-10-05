@@ -1,12 +1,12 @@
+import type { SeasonSelection } from '../services/season/selection.ts'
 import type { Database } from '@civup/db'
 import type { GameMode } from '@civup/game'
-import { matches, matchParticipants, tournamentMatches } from '@civup/db'
-import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
 import { Embed } from 'discord-hono'
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import { matches, matchParticipants, tournamentMatches } from '@civup/db'
+import { formatLeaderboardModeLabel, formatModeLabel, getLeader } from '@civup/game'
 import { leaderEmojiImageUrl, leaderEmojiMention } from '../constants/leader-emojis.ts'
 import { listTopPlayerCivRankings } from '../services/leaderboard/player-civ-stats.ts'
-import type { SeasonSelection } from '../services/season/selection.ts'
 import { resolveSeasonSelection } from '../services/season/selection.ts'
 
 export type LeaderStatsModeFilter = 'all' | GameMode
@@ -19,7 +19,7 @@ const MATCHUP_VOLUME_BONUS_FULL_GAMES = 25
 const MATCH_ID_BATCH_SIZE = 90
 const LEADER_MODE_ORDER = ['duel', 'duo', 'squad', 'ffa'] as const
 
-type LeaderMode = typeof LEADER_MODE_ORDER[number]
+type LeaderMode = (typeof LEADER_MODE_ORDER)[number]
 
 interface TargetLeaderRow {
   matchId: string
@@ -61,7 +61,12 @@ interface MatchCountSummary {
   modes: Map<string, number>
 }
 
-export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter = 'all', seasonSelection: SeasonSelection = 'current'): Promise<Embed> {
+export async function leaderStatsEmbed(
+  db: Database,
+  leaderId: string,
+  modeFilter: LeaderStatsModeFilter = 'all',
+  seasonSelection: SeasonSelection = 'current',
+): Promise<Embed> {
   const leader = resolveLeader(leaderId)
   const selected = await resolveSeasonSelection(db, seasonSelection)
   const seasonId = selected.season?.id ?? null
@@ -70,11 +75,14 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
     loadCompletedMatchCounts(db, modeFilter, seasonId),
     listTopPlayerCivRankings(db, { seasonId, mode: modeFilter === 'all' ? null : modeFilter }, leaderId, TOP_LIMIT),
   ])
-  const participantRows = await loadParticipantRows(db, targetRows.map(row => row.matchId))
+  const participantRows = await loadParticipantRows(
+    db,
+    targetRows.map(row => row.matchId),
+  )
   const stats = buildLeaderStats(targetRows, participantRows, matchCounts)
   const modeLabel = modeFilter === 'all' ? null : formatModeLabel(modeFilter, modeFilter)
 
-  const fields: Array<{ name: string, value: string, inline?: boolean }> = [
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
       name: 'Overview',
       value: formatOverview(stats.total),
@@ -88,11 +96,27 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
 
   fields.push(
     { name: 'Most Faced', value: formatRelationList(sortByGames(stats.against).slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Best Against', value: formatRelationList(sortByPerformance(stats.against, 'desc').slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Worst Against', value: formatRelationList(sortByPerformance(stats.against, 'asc').slice(0, TOP_LIMIT)), inline: false },
+    {
+      name: 'Best Against',
+      value: formatRelationList(sortByPerformance(stats.against, 'desc').slice(0, TOP_LIMIT)),
+      inline: false,
+    },
+    {
+      name: 'Worst Against',
+      value: formatRelationList(sortByPerformance(stats.against, 'asc').slice(0, TOP_LIMIT)),
+      inline: false,
+    },
     { name: 'Most With', value: formatRelationList(sortByGames(stats.with).slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Best With', value: formatRelationList(sortByPerformance(stats.with, 'desc').slice(0, TOP_LIMIT)), inline: false },
-    { name: 'Worst With', value: formatRelationList(sortByPerformance(stats.with, 'asc').slice(0, TOP_LIMIT)), inline: false },
+    {
+      name: 'Best With',
+      value: formatRelationList(sortByPerformance(stats.with, 'desc').slice(0, TOP_LIMIT)),
+      inline: false,
+    },
+    {
+      name: 'Worst With',
+      value: formatRelationList(sortByPerformance(stats.with, 'asc').slice(0, TOP_LIMIT)),
+      inline: false,
+    },
   )
 
   const emoji = leaderEmojiMention(leaderId)
@@ -101,14 +125,19 @@ export async function leaderStatsEmbed(db: Database, leaderId: string, modeFilte
   const embed = new Embed()
     .title(`Leader Stats${selected.season || selected.allTime ? ` - ${selected.label}` : ''}`)
     .description([leaderName, leader.civilization, modeLabel].filter(Boolean).join(' - '))
-    .color(0xC8AA6E)
+    .color(0xc8aa6e)
     .fields(...fields)
 
   if (thumbnailUrl) embed.thumbnail({ url: thumbnailUrl })
   return embed
 }
 
-async function loadTargetLeaderRows(db: Database, leaderId: string, modeFilter: LeaderStatsModeFilter, seasonId: string | null): Promise<TargetLeaderRow[]> {
+async function loadTargetLeaderRows(
+  db: Database,
+  leaderId: string,
+  modeFilter: LeaderStatsModeFilter,
+  seasonId: string | null,
+): Promise<TargetLeaderRow[]> {
   const conditions = [
     eq(matchParticipants.civId, leaderId),
     eq(matches.status, 'completed'),
@@ -135,21 +164,27 @@ async function loadParticipantRows(db: Database, matchIds: readonly string[]): P
   const uniqueMatchIds = [...new Set(matchIds)]
   const rows: MatchParticipantRow[] = []
   for (const batch of chunk(uniqueMatchIds, MATCH_ID_BATCH_SIZE)) {
-    rows.push(...await db
-      .select({
-        matchId: matchParticipants.matchId,
-        playerId: matchParticipants.playerId,
-        team: matchParticipants.team,
-        placement: matchParticipants.placement,
-        civId: matchParticipants.civId,
-      })
-      .from(matchParticipants)
-      .where(inArray(matchParticipants.matchId, batch)))
+    rows.push(
+      ...(await db
+        .select({
+          matchId: matchParticipants.matchId,
+          playerId: matchParticipants.playerId,
+          team: matchParticipants.team,
+          placement: matchParticipants.placement,
+          civId: matchParticipants.civId,
+        })
+        .from(matchParticipants)
+        .where(inArray(matchParticipants.matchId, batch))),
+    )
   }
   return rows
 }
 
-async function loadCompletedMatchCounts(db: Database, modeFilter: LeaderStatsModeFilter, seasonId: string | null): Promise<MatchCountSummary> {
+async function loadCompletedMatchCounts(
+  db: Database,
+  modeFilter: LeaderStatsModeFilter,
+  seasonId: string | null,
+): Promise<MatchCountSummary> {
   const conditions = [
     eq(matches.status, 'completed'),
     eligibleStoredMatchCondition(),
@@ -248,7 +283,7 @@ function formatOverview(total: TotalStat): string {
   ].join('\n')
 }
 
-function formatModeFields(modes: readonly ModeStat[]): Array<{ name: string, value: string, inline: true }> {
+function formatModeFields(modes: readonly ModeStat[]): Array<{ name: string; value: string; inline: true }> {
   return modes.map(mode => ({
     name: formatLeaderboardModeLabel(mode.mode, mode.mode),
     value: formatModeStat(mode),
@@ -273,7 +308,10 @@ function formatRelationList(stats: readonly RelationStat[]): string {
 function formatBestPlayerList(stats: Awaited<ReturnType<typeof listTopPlayerCivRankings>>): string {
   if (stats.length === 0) return 'Not enough player data'
   return stats
-    .map(stat => `${formatRank(stat.adjustedWinRateRank)} ${formatRecord(stat.wins, stat.picks)} ${formatPlayerName(stat.displayName, stat.playerId)}`)
+    .map(
+      stat =>
+        `${formatRank(stat.adjustedWinRateRank)} ${formatRecord(stat.wins, stat.picks)} ${formatPlayerName(stat.displayName, stat.playerId)}`,
+    )
     .join('\n')
 }
 
@@ -287,7 +325,9 @@ function formatPlayerName(displayName: string | null, playerId: string): string 
 }
 
 function sortByGames(stats: readonly RelationStat[]): RelationStat[] {
-  return [...stats].sort((left, right) => right.games - left.games || right.wins - left.wins || left.civId.localeCompare(right.civId))
+  return [...stats].sort(
+    (left, right) => right.games - left.games || right.wins - left.wins || left.civId.localeCompare(right.civId),
+  )
 }
 
 function sortByPerformance(stats: readonly RelationStat[], direction: 'asc' | 'desc'): RelationStat[] {
@@ -296,7 +336,12 @@ function sortByPerformance(stats: readonly RelationStat[], direction: 'asc' | 'd
   return eligible.sort((left, right) => compareByPerformance(left, right, baseline, direction))
 }
 
-function compareByPerformance(left: RelationStat, right: RelationStat, baseline: number, direction: 'asc' | 'desc'): number {
+function compareByPerformance(
+  left: RelationStat,
+  right: RelationStat,
+  baseline: number,
+  direction: 'asc' | 'desc',
+): number {
   const leftScore = relationPerformanceScore(left, baseline, direction)
   const rightScore = relationPerformanceScore(right, baseline, direction)
   const scoreDiff = direction === 'desc' ? rightScore - leftScore : leftScore - rightScore
@@ -317,7 +362,7 @@ function relationPerformanceScore(stat: RelationStat, baseline: number, directio
 }
 
 function relationAdjustedWinRate(stat: RelationStat, baseline: number): number {
-  return (stat.wins + (baseline * MATCHUP_PERFORMANCE_PRIOR_GAMES)) / (stat.games + MATCHUP_PERFORMANCE_PRIOR_GAMES)
+  return (stat.wins + baseline * MATCHUP_PERFORMANCE_PRIOR_GAMES) / (stat.games + MATCHUP_PERFORMANCE_PRIOR_GAMES)
 }
 
 function relationWinRate(stats: readonly RelationStat[]): number {
@@ -345,8 +390,7 @@ function formatLeaderName(civId: string): string {
 function resolveLeader(civId: string) {
   try {
     return getLeader(civId)
-  }
-  catch {
+  } catch {
     return getLeader(civId, 'beta')
   }
 }

@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { spawnSync } from 'bun'
-import { cloudflareSecretKeys, resolveCloudflareTarget, resolveCloudflareTargetName } from '../config/cloudflare-targets'
+import {
+  cloudflareSecretKeys,
+  resolveCloudflareTarget,
+  resolveCloudflareTargetName,
+} from '../config/cloudflare-targets'
 
 export function parseEnvFile(contents: string): Record<string, string> {
   const result: Record<string, string> = Object.create(null)
@@ -19,9 +23,8 @@ export function parseEnvFile(contents: string): Record<string, string> {
     if (!key) continue
     const value = line.slice(separator + 1).trim()
     const quote = value[0]
-    result[key] = value.length >= 2 && (quote === '"' || quote === '\'') && value.at(-1) === quote
-      ? value.slice(1, -1)
-      : value
+    result[key] =
+      value.length >= 2 && (quote === '"' || quote === "'") && value.at(-1) === quote ? value.slice(1, -1) : value
   }
   return result
 }
@@ -46,7 +49,9 @@ export function secretUploadCommand(worker: CloudflareWorker, target: Cloudflare
 function main(): number {
   const [worker, sourceFile, ...args] = process.argv.slice(2)
   if ((worker !== 'bot' && worker !== 'activity') || !sourceFile) {
-    throw new Error('Usage: bun scripts/upload-worker-secrets.ts <bot|activity> <env-file> --target <standard|ppl> [--dry-run|--print-commands]')
+    throw new Error(
+      'Usage: bun scripts/upload-worker-secrets.ts <bot|activity> <env-file> --target <standard|ppl> [--dry-run|--print-commands]',
+    )
   }
 
   let targetName = process.env.CIVUP_TARGET
@@ -57,8 +62,7 @@ function main(): number {
     if (argument === '--target') {
       targetName = args[++i]
       if (!targetName || targetName.startsWith('--')) throw new Error('--target requires standard or ppl.')
-    }
-    else if (argument === '--dry-run') dryRun = true
+    } else if (argument === '--dry-run') dryRun = true
     else if (argument === '--print-commands') printCommands = true
     else throw new Error(`Unknown secret upload option: ${argument}`)
   }
@@ -67,14 +71,18 @@ function main(): number {
   const target = resolveCloudflareTarget(name, { localTargetsFile: process.env.CIVUP_LOCAL_TARGETS_FILE })
   const cmd = secretUploadCommand(worker, target)
   if (printCommands) {
-    console.log(JSON.stringify({ target: name, accountId: target.accountId, worker: target.workers[worker], cmd }, null, 2))
+    console.log(
+      JSON.stringify({ target: name, accountId: target.accountId, worker: target.workers[worker], cmd }, null, 2),
+    )
     return 0
   }
 
   const sourcePath = resolve(process.cwd(), sourceFile)
   if (!existsSync(sourcePath)) throw new Error(`Secret source file not found: ${sourcePath}`)
   const selected = selectWorkerSecrets(worker, parseEnvFile(readFileSync(sourcePath, 'utf8')))
-  console.log(`[secrets] ${dryRun ? 'validated' : 'uploading'} ${Object.keys(selected).join(', ')} for ${name}/${worker}`)
+  console.log(
+    `[secrets] ${dryRun ? 'validated' : 'uploading'} ${Object.keys(selected).join(', ')} for ${name}/${worker}`,
+  )
   if (dryRun) return 0
 
   // Avoid discovering another target's project config. Only the chosen account
@@ -90,8 +98,7 @@ function main(): number {
       stderr: 'inherit',
     })
     return result.exitCode ?? 1
-  }
-  finally {
+  } finally {
     rmSync(cwd, { recursive: true, force: true })
   }
 }
@@ -99,8 +106,7 @@ function main(): number {
 if (import.meta.main) {
   try {
     process.exitCode = main()
-  }
-  catch (error) {
+  } catch (error) {
     console.error(`[secrets] ${error instanceof Error ? error.message : 'Secret upload failed'}`)
     process.exitCode = 1
   }

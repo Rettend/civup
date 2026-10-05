@@ -4,7 +4,7 @@ import { Show } from 'solid-js'
 type DraftSetupActionsState = ReturnType<typeof useDraftSetupState>['actions']
 type DraftSetupStatusState = ReturnType<typeof useDraftSetupState>['status']
 
-export function DraftSetupActions(props: { actions: DraftSetupActionsState, status: DraftSetupStatusState }) {
+export function DraftSetupActions(props: { actions: DraftSetupActionsState; status: DraftSetupStatusState }) {
   const actions = () => props.actions
   const status = () => props.status
 
@@ -22,7 +22,10 @@ export function DraftSetupActions(props: { actions: DraftSetupActionsState, stat
               >
                 {actions().pending.start() ? 'Starting' : 'Start Draft'}
               </button>
-              <button class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 shrink-0 whitespace-nowrap" onClick={() => void actions().cancel()}>
+              <button
+                class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 shrink-0 whitespace-nowrap"
+                onClick={() => void actions().cancel()}
+              >
                 Cancel Draft
               </button>
             </div>
@@ -33,7 +36,7 @@ export function DraftSetupActions(props: { actions: DraftSetupActionsState, stat
   )
 }
 
-function GuestActions(props: { actions: DraftSetupActionsState, status: DraftSetupStatusState }) {
+function GuestActions(props: { actions: DraftSetupActionsState; status: DraftSetupStatusState }) {
   const actions = () => props.actions
   const status = () => props.status
   return (
@@ -77,7 +80,12 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
     <div class="flex max-w-full flex-wrap gap-3 items-center justify-center">
       <button
         class="text-sm text-bg font-bold px-8 py-2.5 rounded-lg bg-accent cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-default hover:brightness-110 shrink-0 whitespace-nowrap"
-        disabled={!actions().canStartLobby() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+        disabled={
+          !actions().canStartLobby() ||
+          actions().pending.start() ||
+          actions().pending.repeat() ||
+          actions().pending.lobbyAction()
+        }
         onClick={() => void actions().startLobbyDraft()}
       >
         {actions().pending.start() ? 'Starting' : 'Start Draft'}
@@ -86,17 +94,33 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
         {repeatDraft => (
           <button
             class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0 whitespace-nowrap"
-            title={repeatDraft().kind === 'resume' ? 'Resume the reverted draft' : 'Repeat the previous completed draft'}
-            disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+            title={
+              repeatDraft().kind === 'resume' ? 'Resume the reverted draft' : 'Repeat the previous completed draft'
+            }
+            disabled={
+              actions().pending.cancel() ||
+              actions().pending.start() ||
+              actions().pending.repeat() ||
+              actions().pending.lobbyAction()
+            }
             onClick={() => void actions().repeatLobbyDraft()}
           >
-            {actions().pending.repeat() ? 'Repeating' : repeatDraft().kind === 'resume' ? 'Resume Draft' : 'Repeat Draft'}
+            {actions().pending.repeat()
+              ? 'Repeating'
+              : repeatDraft().kind === 'resume'
+                ? 'Resume Draft'
+                : 'Repeat Draft'}
           </button>
         )}
       </Show>
       <button
         class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0 whitespace-nowrap"
-        disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+        disabled={
+          actions().pending.cancel() ||
+          actions().pending.start() ||
+          actions().pending.repeat() ||
+          actions().pending.lobbyAction()
+        }
         onClick={() => void actions().cancel()}
       >
         {actions().pending.cancel() ? 'Cancelling' : 'Cancel Lobby'}
@@ -106,7 +130,12 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0"
           title={actions().randomizeButtonTitle()}
           aria-label={actions().randomizeButtonLabel()}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+          disabled={
+            actions().pending.cancel() ||
+            actions().pending.start() ||
+            actions().pending.repeat() ||
+            actions().pending.lobbyAction()
+          }
           onClick={() => void actions().randomizeLobby()}
         >
           <span class="i-ph:shuffle-simple-bold text-lg" />
@@ -117,7 +146,12 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
           class="text-fg-muted border border-border rounded-lg bg-bg-muted/25 flex h-10 w-10 cursor-pointer transition-colors items-center justify-center hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0"
           title={`Auto-balance ${actions().arrangeTargetLabel()}`}
           aria-label={`Auto-balance ${actions().arrangeTargetLabel()}`}
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+          disabled={
+            actions().pending.cancel() ||
+            actions().pending.start() ||
+            actions().pending.repeat() ||
+            actions().pending.lobbyAction()
+          }
           onClick={() => void actions().balanceLobby()}
         >
           <span class="i-ph:scales-bold text-lg" />
@@ -126,7 +160,12 @@ function HostLobbyActions(props: { actions: DraftSetupActionsState }) {
       <Show when={actions().fillTestPlayersAvailable()}>
         <button
           class="text-sm text-fg-muted px-6 py-2.5 border border-border rounded-lg bg-bg-muted/25 cursor-pointer transition-colors hover:text-fg hover:border-border-hover hover:bg-bg-muted/50 disabled:opacity-60 disabled:cursor-default shrink-0 whitespace-nowrap"
-          disabled={actions().pending.cancel() || actions().pending.start() || actions().pending.repeat() || actions().pending.lobbyAction()}
+          disabled={
+            actions().pending.cancel() ||
+            actions().pending.start() ||
+            actions().pending.repeat() ||
+            actions().pending.lobbyAction()
+          }
           onClick={() => void actions().fillTestPlayers()}
         >
           Fill Test Players

@@ -21,8 +21,7 @@ function getAssetRevision(url: string): string | undefined {
 
   try {
     return __ASSET_REVISION_MAP__[decodeURI(url)]
-  }
-  catch {
+  } catch {
     return undefined
   }
 }

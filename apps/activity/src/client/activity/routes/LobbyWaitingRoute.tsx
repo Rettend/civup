@@ -1,9 +1,14 @@
-import type { Accessor } from 'solid-js'
 import type { ActivityState } from '../activity-context'
+import type { Accessor } from 'solid-js'
 import { useParams } from '@solidjs/router'
 import { Match, Show, Switch } from 'solid-js'
 import { DraftSetupPage } from '../../pages/draft-setup'
-import { ActivityErrorPage, ActivityLoadingPage, ActivityRedirectingPage, useActivityController } from '../activity-context'
+import {
+  ActivityErrorPage,
+  ActivityLoadingPage,
+  ActivityRedirectingPage,
+  useActivityController,
+} from '../activity-context'
 
 export default function LobbyWaitingRoute() {
   const activity = useActivityController()

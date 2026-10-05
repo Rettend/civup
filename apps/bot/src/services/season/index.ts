@@ -1,14 +1,22 @@
+import type { DbBatchItem } from '../db/batch.ts'
 import type { Database } from '@civup/db'
-import { runUnbufferedRatingMutation } from './maintenance.ts'
 import type { CompetitiveTier, LeaderboardMode } from '@civup/game'
-import { matches, playerRatingEvents, playerRatings, seasonPeakModeRanks, seasonPeakRanks, seasonRatingStates, seasons } from '@civup/db'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import {
+  matches,
+  playerRatingEvents,
+  playerRatings,
+  seasonPeakModeRanks,
+  seasonPeakRanks,
+  seasonRatingStates,
+  seasons,
+} from '@civup/db'
 import { competitiveTierRank, parseLeaderboardMode } from '@civup/game'
 import { DEFAULT_SEASON_RESET_FACTOR, DEFAULT_SIGMA, displayRating } from '@civup/rating'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { runDbBatch } from '../db/batch.ts'
 import { clearAllLeaderboardModeSnapshots } from '../leaderboard/snapshot.ts'
 import { normalizeRankedRoleTierId } from '../ranked/roles.ts'
-import { runDbBatch } from '../db/batch.ts'
-import type { DbBatchItem } from '../db/batch.ts'
+import { runUnbufferedRatingMutation } from './maintenance.ts'
 import { prepareSeasonStandingsWrite } from './standings.ts'
 
 export interface SeasonPeakCandidate {
@@ -57,11 +65,7 @@ export async function getActiveSeason(db: Database) {
 }
 
 export async function getLatestSeason(db: Database) {
-  const [season] = await db
-    .select()
-    .from(seasons)
-    .orderBy(desc(seasons.seasonNumber))
-    .limit(1)
+  const [season] = await db.select().from(seasons).orderBy(desc(seasons.seasonNumber)).limit(1)
 
   return season ?? null
 }
@@ -91,18 +95,27 @@ export async function startSeason(...args: Parameters<typeof startSeasonImpl>) {
   return result
 }
 
-async function startSeasonImpl(db: Database, input: { now?: number, kv?: KVNamespace, seasonNumber?: number, softReset?: boolean } = {}) {
+async function startSeasonImpl(
+  db: Database,
+  input: { now?: number; kv?: KVNamespace; seasonNumber?: number; softReset?: boolean } = {},
+) {
   const existing = await getActiveSeason(db)
   if (existing) throw new Error(`Cannot start a new season while **${existing.name}** is still active.`)
 
   const now = input.now ?? Date.now()
   const latestSeason = await getLatestSeason(db)
-  if (latestSeason?.ratingSystem === 'rp' || latestSeason?.isolatedRatingsEnabled) throw new Error('RP seasons require the reviewed season transition workflow; the legacy reset cannot change frozen ratings.')
+  if (latestSeason?.ratingSystem === 'rp' || latestSeason?.isolatedRatingsEnabled)
+    throw new Error(
+      'RP seasons require the reviewed season transition workflow; the legacy reset cannot change frozen ratings.',
+    )
   const nextSeasonNumber = (latestSeason?.seasonNumber ?? 0) + 1
   const seasonNumber = input.seasonNumber ?? nextSeasonNumber
-  if (!Number.isSafeInteger(seasonNumber) || seasonNumber < 1) throw new Error('Season number must be a positive integer.')
+  if (!Number.isSafeInteger(seasonNumber) || seasonNumber < 1)
+    throw new Error('Season number must be a positive integer.')
   if (seasonNumber < nextSeasonNumber) {
-    throw new Error(`Cannot start ${formatSeasonName(seasonNumber)} because ${formatSeasonName(nextSeasonNumber)} is the next available season.`)
+    throw new Error(
+      `Cannot start ${formatSeasonName(seasonNumber)} because ${formatSeasonName(nextSeasonNumber)} is the next available season.`,
+    )
   }
 
   const softReset = input.softReset ?? true
@@ -119,9 +132,11 @@ async function startSeasonImpl(db: Database, input: { now?: number, kv?: KVNames
 
   const queries: DbBatchItem[] = [db.insert(seasons).values(season)]
   if (softReset) {
-    queries.push(db.update(playerRatings).set({
-      sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
-    }))
+    queries.push(
+      db.update(playerRatings).set({
+        sigma: sql<number>`${playerRatings.sigma} + (${DEFAULT_SIGMA} - ${playerRatings.sigma}) * ${DEFAULT_SEASON_RESET_FACTOR}`,
+      }),
+    )
   }
   await runDbBatch(db, queries)
   if (input.kv) {
@@ -142,37 +157,58 @@ export async function endSeason(...args: Parameters<typeof endSeasonImpl>) {
 async function endSeasonImpl(db: Database, input: { now?: number } = {}) {
   const existing = await getActiveSeason(db)
   if (!existing) throw new Error('There is no active season to end.')
-  if (existing.ratingSystem === 'rp' || existing.isolatedRatingsEnabled) throw new Error('RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.')
+  if (existing.ratingSystem === 'rp' || existing.isolatedRatingsEnabled)
+    throw new Error(
+      'RP seasons require the reviewed season transition workflow; the legacy close cannot finalize them.',
+    )
 
   const endsAt = input.now ?? Date.now()
-  if (!Number.isSafeInteger(endsAt) || endsAt < existing.startsAt) throw new Error('Season close must not precede its opening.')
-  const closingSnapshot = db.insert(seasonRatingStates).select(db.select({
-    seasonId: sql<string>`${existing.id}`.as('season_id'),
-    playerId: playerRatings.playerId,
-    mode: playerRatings.mode,
-    mu: playerRatings.mu,
-    sigma: playerRatings.sigma,
-    publicRating: sql<number | null>`null`.as('public_rating'),
-    publicBadge: sql<number | null>`null`.as('public_badge'),
-    publicDecay: sql<null>`null`.as('public_decay'),
-    managedTier: sql<string | null>`null`.as('managed_tier'),
-    seasonGames: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.gamesDelta} else 0 end), 0)`.as('season_games'),
-    seasonWins: sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.winsDelta} else 0 end), 0)`.as('season_wins'),
-    evidence: sql<Record<string, number>>`json_object(
+  if (!Number.isSafeInteger(endsAt) || endsAt < existing.startsAt)
+    throw new Error('Season close must not precede its opening.')
+  const closingSnapshot = db.insert(seasonRatingStates).select(
+    db
+      .select({
+        seasonId: sql<string>`${existing.id}`.as('season_id'),
+        playerId: playerRatings.playerId,
+        mode: playerRatings.mode,
+        mu: playerRatings.mu,
+        sigma: playerRatings.sigma,
+        publicRating: sql<number | null>`null`.as('public_rating'),
+        publicBadge: sql<number | null>`null`.as('public_badge'),
+        publicDecay: sql<null>`null`.as('public_decay'),
+        managedTier: sql<string | null>`null`.as('managed_tier'),
+        seasonGames:
+          sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.gamesDelta} else 0 end), 0)`.as(
+            'season_games',
+          ),
+        seasonWins:
+          sql<number>`coalesce(sum(case when ${matches.seasonId} = ${existing.id} and ${matches.status} = 'completed' then ${playerRatingEvents.winsDelta} else 0 end), 0)`.as(
+            'season_wins',
+          ),
+        evidence: sql<Record<string, number>>`json_object(
       'gamesPlayed', ${playerRatings.gamesPlayed}, 'wins', ${playerRatings.wins},
       'importedGames', ${playerRatings.importedGames}, 'effectiveGames', ${playerRatings.effectiveGames},
       'winsVsTier1', ${playerRatings.winsVsTier1}, 'winsVsTier2Plus', ${playerRatings.winsVsTier2Plus},
-      'effectiveWinsVsTier1', ${playerRatings.effectiveWinsVsTier1}, 'effectiveWinsVsTier2Plus', ${playerRatings.effectiveWinsVsTier2Plus})`.as('evidence'),
-    lastPlayedAt: playerRatings.lastPlayedAt,
-    revision: sql<number>`0`.as('revision'),
-    updatedAt: sql<number>`${endsAt}`.as('updated_at'),
-  }).from(playerRatings)
-    .leftJoin(playerRatingEvents, and(eq(playerRatingEvents.playerId, playerRatings.playerId), eq(playerRatingEvents.mode, playerRatings.mode)))
-    .leftJoin(matches, eq(matches.id, playerRatingEvents.matchId))
-    .groupBy(playerRatings.playerId, playerRatings.mode))
-  await runDbBatch(db, [closingSnapshot, db.update(seasons)
-    .set({ active: false, endsAt, finalizedAt: endsAt })
-    .where(eq(seasons.id, existing.id)), prepareSeasonStandingsWrite(db, existing.id)])
+      'effectiveWinsVsTier1', ${playerRatings.effectiveWinsVsTier1}, 'effectiveWinsVsTier2Plus', ${playerRatings.effectiveWinsVsTier2Plus})`.as(
+          'evidence',
+        ),
+        lastPlayedAt: playerRatings.lastPlayedAt,
+        revision: sql<number>`0`.as('revision'),
+        updatedAt: sql<number>`${endsAt}`.as('updated_at'),
+      })
+      .from(playerRatings)
+      .leftJoin(
+        playerRatingEvents,
+        and(eq(playerRatingEvents.playerId, playerRatings.playerId), eq(playerRatingEvents.mode, playerRatings.mode)),
+      )
+      .leftJoin(matches, eq(matches.id, playerRatingEvents.matchId))
+      .groupBy(playerRatings.playerId, playerRatings.mode),
+  )
+  await runDbBatch(db, [
+    closingSnapshot,
+    db.update(seasons).set({ active: false, endsAt, finalizedAt: endsAt }).where(eq(seasons.id, existing.id)),
+    prepareSeasonStandingsWrite(db, existing.id),
+  ])
 
   return {
     ...existing,
@@ -182,8 +218,12 @@ async function endSeasonImpl(db: Database, input: { now?: number } = {}) {
   }
 }
 
-export async function syncSeasonPeakRanks(...args: Parameters<typeof syncSeasonPeakRanksImpl>): Promise<SeasonPeakSyncResult> {
-  const result = await runUnbufferedRatingMutation(args[0], 'season:overall-peaks', () => syncSeasonPeakRanksImpl(...args))
+export async function syncSeasonPeakRanks(
+  ...args: Parameters<typeof syncSeasonPeakRanksImpl>
+): Promise<SeasonPeakSyncResult> {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:overall-peaks', () =>
+    syncSeasonPeakRanksImpl(...args),
+  )
   if ('error' in result) throw new Error(result.error)
   return result
 }
@@ -211,14 +251,17 @@ async function syncSeasonPeakRanksImpl(
   const existingRows = await db
     .select()
     .from(seasonPeakRanks)
-    .where(and(
-      eq(seasonPeakRanks.seasonId, input.seasonId),
-      inArray(seasonPeakRanks.playerId, activeCandidates.map(candidate => candidate.playerId)),
-    ))
+    .where(
+      and(
+        eq(seasonPeakRanks.seasonId, input.seasonId),
+        inArray(
+          seasonPeakRanks.playerId,
+          activeCandidates.map(candidate => candidate.playerId),
+        ),
+      ),
+    )
 
-  const existingByPlayerId = new Map(
-    existingRows.map(row => [row.playerId, row]),
-  )
+  const existingByPlayerId = new Map(existingRows.map(row => [row.playerId, row]))
 
   let inserted = 0
   let updated = 0
@@ -257,10 +300,7 @@ async function syncSeasonPeakRanksImpl(
         sourceMode: candidate.sourceMode,
         achievedAt: now,
       })
-      .where(and(
-        eq(seasonPeakRanks.seasonId, input.seasonId),
-        eq(seasonPeakRanks.playerId, candidate.playerId),
-      ))
+      .where(and(eq(seasonPeakRanks.seasonId, input.seasonId), eq(seasonPeakRanks.playerId, candidate.playerId)))
 
     updated += 1
   }
@@ -273,8 +313,12 @@ async function syncSeasonPeakRanksImpl(
   }
 }
 
-export async function syncSeasonPeakModeRanks(...args: Parameters<typeof syncSeasonPeakModeRanksImpl>): Promise<SeasonPeakSyncResult> {
-  const result = await runUnbufferedRatingMutation(args[0], 'season:mode-peaks', () => syncSeasonPeakModeRanksImpl(...args))
+export async function syncSeasonPeakModeRanks(
+  ...args: Parameters<typeof syncSeasonPeakModeRanksImpl>
+): Promise<SeasonPeakSyncResult> {
+  const result = await runUnbufferedRatingMutation(args[0], 'season:mode-peaks', () =>
+    syncSeasonPeakModeRanksImpl(...args),
+  )
   if ('error' in result) throw new Error(result.error)
   return result
 }
@@ -289,7 +333,7 @@ async function syncSeasonPeakModeRanksImpl(
   },
 ): Promise<SeasonPeakSyncResult> {
   const now = input.now ?? Date.now()
-  const activeCandidates = input.candidates.filter((candidate) => {
+  const activeCandidates = input.candidates.filter(candidate => {
     const activeModes = input.activeModesByPlayerId.get(candidate.playerId)
     return activeModes?.has(candidate.mode) ?? false
   })
@@ -305,15 +349,21 @@ async function syncSeasonPeakModeRanksImpl(
   const existingRows = await db
     .select()
     .from(seasonPeakModeRanks)
-    .where(and(
-      eq(seasonPeakModeRanks.seasonId, input.seasonId),
-      inArray(seasonPeakModeRanks.playerId, activeCandidates.map(candidate => candidate.playerId)),
-      inArray(seasonPeakModeRanks.mode, activeCandidates.map(candidate => candidate.mode)),
-    ))
+    .where(
+      and(
+        eq(seasonPeakModeRanks.seasonId, input.seasonId),
+        inArray(
+          seasonPeakModeRanks.playerId,
+          activeCandidates.map(candidate => candidate.playerId),
+        ),
+        inArray(
+          seasonPeakModeRanks.mode,
+          activeCandidates.map(candidate => candidate.mode),
+        ),
+      ),
+    )
 
-  const existingByKey = new Map(
-    existingRows.map(row => [`${row.playerId}:${row.mode}`, row]),
-  )
+  const existingByKey = new Map(existingRows.map(row => [`${row.playerId}:${row.mode}`, row]))
 
   let inserted = 0
   let updated = 0
@@ -348,11 +398,13 @@ async function syncSeasonPeakModeRanksImpl(
         rating: candidate.rating,
         achievedAt: now,
       })
-      .where(and(
-        eq(seasonPeakModeRanks.seasonId, input.seasonId),
-        eq(seasonPeakModeRanks.playerId, candidate.playerId),
-        eq(seasonPeakModeRanks.mode, candidate.mode),
-      ))
+      .where(
+        and(
+          eq(seasonPeakModeRanks.seasonId, input.seasonId),
+          eq(seasonPeakModeRanks.playerId, candidate.playerId),
+          eq(seasonPeakModeRanks.mode, candidate.mode),
+        ),
+      )
 
     updated += 1
   }
@@ -366,7 +418,9 @@ async function syncSeasonPeakModeRanksImpl(
 }
 
 export async function syncSeasonPeaksForPlayers(...args: Parameters<typeof syncSeasonPeaksForPlayersImpl>) {
-  const result = await runUnbufferedRatingMutation(args[0], 'season:player-peaks', () => syncSeasonPeaksForPlayersImpl(...args))
+  const result = await runUnbufferedRatingMutation(args[0], 'season:player-peaks', () =>
+    syncSeasonPeaksForPlayersImpl(...args),
+  )
   if ('error' in result) throw new Error(result.error)
   return result
 }
@@ -435,7 +489,7 @@ async function syncSeasonPeaksForPlayersImpl(
   }
 
   const overallCandidates = playerIds
-    .map((playerId) => {
+    .map(playerId => {
       const preview = previewByPlayerId.get(playerId)
       if (!preview || preview.managed === false) return null
       return {
@@ -447,7 +501,7 @@ async function syncSeasonPeaksForPlayersImpl(
     .filter((candidate): candidate is SeasonPeakCandidate => candidate !== null)
 
   const modeCandidates = ratings
-    .map((row) => {
+    .map(row => {
       const mode = parseLeaderboardMode(row.mode)
       if (!mode) return null
       const preview = previewByPlayerId.get(row.playerId)
@@ -485,7 +539,7 @@ async function syncSeasonPeaksForPlayersImpl(
 
 function isBetterSeasonModePeak(
   candidate: SeasonModePeakCandidate,
-  existing: { tier: string | null, rating: number },
+  existing: { tier: string | null; rating: number },
 ): boolean {
   const candidateRank = candidate.tier ? competitiveTierRank(candidate.tier) : -1
   const existingTier = normalizeRankedRoleTierId(existing.tier)

@@ -1,7 +1,7 @@
 import type { Database } from '@civup/db'
+import { sql } from 'drizzle-orm'
 import { players } from '@civup/db'
 import { api, ApiError, buildDiscordAvatarUrl } from '@civup/utils'
-import { sql } from 'drizzle-orm'
 
 interface DiscordUserResponse {
   id: string
@@ -24,9 +24,10 @@ export async function fetchDiscordPlayerProfile(token: string, playerId: string)
 
     if (typeof data.id !== 'string') return null
 
-    const displayName = (typeof data.global_name === 'string' && data.global_name.trim().length > 0)
-      ? data.global_name
-      : (typeof data.username === 'string' && data.username.trim().length > 0)
+    const displayName =
+      typeof data.global_name === 'string' && data.global_name.trim().length > 0
+        ? data.global_name
+        : typeof data.username === 'string' && data.username.trim().length > 0
           ? data.username
           : data.id
 
@@ -35,8 +36,7 @@ export async function fetchDiscordPlayerProfile(token: string, playerId: string)
       displayName,
       avatarUrl: buildDiscordAvatarUrl(data.id, data.avatar ?? null),
     }
-  }
-  catch (err: unknown) {
+  } catch (err: unknown) {
     console.error(`Failed to fetch Discord user ${playerId}: ${err instanceof ApiError ? err.status : err}`)
     return null
   }
@@ -52,12 +52,14 @@ export async function upsertPlayerProfiles(db: Database, profiles: PlayerProfile
   const now = Date.now()
   await db
     .insert(players)
-    .values(profiles.map(profile => ({
-      id: profile.playerId,
-      displayName: profile.displayName,
-      avatarUrl: profile.avatarUrl,
-      createdAt: now,
-    })))
+    .values(
+      profiles.map(profile => ({
+        id: profile.playerId,
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+        createdAt: now,
+      })),
+    )
     .onConflictDoUpdate({
       target: players.id,
       set: {
@@ -68,11 +70,7 @@ export async function upsertPlayerProfiles(db: Database, profiles: PlayerProfile
     })
 }
 
-export async function syncPlayerProfileFromDiscord(
-  db: Database,
-  token: string,
-  playerId: string,
-): Promise<void> {
+export async function syncPlayerProfileFromDiscord(db: Database, token: string, playerId: string): Promise<void> {
   const profile = await fetchDiscordPlayerProfile(token, playerId)
   if (!profile) return
   await upsertPlayerProfile(db, profile)

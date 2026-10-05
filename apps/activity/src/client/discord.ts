@@ -1,6 +1,6 @@
 import type { CommandResponse } from '@discord/embedded-app-sdk'
-import { api, ApiError } from '@civup/utils'
 import { DiscordSDK } from '@discord/embedded-app-sdk'
+import { api, ApiError } from '@civup/utils'
 import { cacheActivitySessionToken, clearActivitySessionToken, getActivitySessionToken } from './lib/activity-session'
 import { relayDevLog } from './lib/dev-log'
 
@@ -41,8 +41,7 @@ function getSessionStorage(): Storage | null {
 
   try {
     return window.sessionStorage
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -66,8 +65,7 @@ function readCachedTokenFromStorage(storage: Storage | null): CachedToken | null
     }
 
     return cached
-  }
-  catch {
+  } catch {
     storage.removeItem(AUTH_TOKEN_CACHE_KEY)
     return null
   }
@@ -78,8 +76,7 @@ function writeCachedTokenToStorage(storage: Storage | null, payload: CachedToken
 
   try {
     storage.setItem(AUTH_TOKEN_CACHE_KEY, JSON.stringify(payload))
-  }
-  catch {}
+  } catch {}
 }
 
 function clearCachedTokenFromStorage(storage: Storage | null) {
@@ -87,8 +84,7 @@ function clearCachedTokenFromStorage(storage: Storage | null) {
 
   try {
     storage.removeItem(AUTH_TOKEN_CACHE_KEY)
-  }
-  catch {}
+  } catch {}
 }
 
 function readCachedToken(): string | null {
@@ -99,11 +95,8 @@ function readCachedToken(): string | null {
 }
 
 function cacheToken(accessToken: string, expiresIn?: number) {
-  const expiresAt = Date.now() + (
-    typeof expiresIn === 'number' && expiresIn > 0
-      ? expiresIn * 1000
-      : FALLBACK_TOKEN_LIFETIME_MS
-  )
+  const expiresAt =
+    Date.now() + (typeof expiresIn === 'number' && expiresIn > 0 ? expiresIn * 1000 : FALLBACK_TOKEN_LIFETIME_MS)
 
   const payload: CachedToken = { accessToken, expiresAt }
   writeCachedTokenToStorage(getSessionStorage(), payload)
@@ -126,8 +119,7 @@ function describeError(error: unknown): string {
   try {
     const serialized = JSON.stringify(error)
     if (serialized && serialized !== '{}') return serialized
-  }
-  catch {}
+  } catch {}
   return 'Unknown error'
 }
 
@@ -151,14 +143,12 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     try {
       relayDevLog('info', 'Using cached Discord access token')
       return await authenticateWithToken(cachedToken)
-    }
-    catch (error) {
+    } catch (error) {
       relayDevLog('warn', 'Cached Discord access token failed, clearing it', error)
       clearCachedToken()
       clearActivitySessionToken()
     }
-  }
-  else if (cachedToken) {
+  } else if (cachedToken) {
     relayDevLog('info', 'Cached Discord token missing paired activity session, refreshing token exchange')
     clearCachedToken()
     clearActivitySessionToken()
@@ -173,15 +163,10 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       response_type: 'code',
       state: '',
       prompt: 'none',
-      scope: [
-        'identify',
-        'guilds',
-        'guilds.members.read',
-      ],
+      scope: ['identify', 'guilds', 'guilds.members.read'],
     })
     code = response.code
-  }
-  catch (error) {
+  } catch (error) {
     const payload = error as AuthorizeErrorPayload
     relayDevLog('error', 'Discord authorize command failed', {
       redirectUri,
@@ -199,16 +184,14 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       code,
       redirectUri,
     })
-  }
-  catch (err: unknown) {
+  } catch (err: unknown) {
     if (!(err instanceof ApiError)) throw err
 
     const errPayload = err.data as TokenExchangeResponse | undefined
     const detail = errPayload?.detail ?? errPayload?.error
     const retryAfter = err.headers?.get('Retry-After') ?? errPayload?.retry_after
-    const rateLimited = err.status === 429
-      || errPayload?.rate_limited === true
-      || (detail ? /rate limit/i.test(detail) : false)
+    const rateLimited =
+      err.status === 429 || errPayload?.rate_limited === true || (detail ? /rate limit/i.test(detail) : false)
 
     if (rateLimited) {
       const retryHint = retryAfter
@@ -217,9 +200,9 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
       throw new Error(`Discord token exchange is rate limited.${retryHint}`)
     }
 
-    throw new Error(detail
-      ? `Token exchange failed: ${err.status} (${detail})`
-      : `Token exchange failed: ${err.status}`)
+    throw new Error(
+      detail ? `Token exchange failed: ${err.status} (${detail})` : `Token exchange failed: ${err.status}`,
+    )
   }
 
   if (!payload.access_token) {
@@ -246,11 +229,11 @@ export async function setupDiscordSdk(): Promise<Auth> {
   if (authenticatedSession) return authenticatedSession
   if (setupInFlight) return setupInFlight
   setupInFlight = setupDiscordSdkInternal()
-    .then((auth) => {
+    .then(auth => {
       authenticatedSession = auth
       return auth
     })
-    .catch((error) => {
+    .catch(error => {
       relayDevLog('error', 'Discord SDK setup failed', error)
       throw new Error(describeError(error))
     })

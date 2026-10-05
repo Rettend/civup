@@ -1,10 +1,14 @@
-import type { LeaderboardMode } from '@civup/game'
-import type { Database } from '@civup/db'
 import type { LeaderboardSnapshotRow } from '../services/leaderboard/snapshot.ts'
+import type { Database } from '@civup/db'
+import type { LeaderboardMode } from '@civup/game'
+import { Command, Option } from 'discord-hono'
 import { createDb } from '@civup/db'
 import { LEADERBOARD_MODE_CHOICES, parseLeaderboardMode } from '@civup/game'
-import { Command, Option } from 'discord-hono'
-import { createChannelMessageWithFile, createInteractionFollowupMessageWithFile, editOriginalInteractionResponseWithFile } from '../services/discord/index.ts'
+import {
+  createChannelMessageWithFile,
+  createInteractionFollowupMessageWithFile,
+  editOriginalInteractionResponseWithFile,
+} from '../services/discord/index.ts'
 import { loadAvatarDataUris } from '../services/image/avatar.ts'
 import { getKvStore } from '../services/kv/batch.ts'
 import { buildPlayerLeaderboardImageDataBatch, renderPlayerLeaderboardPng } from '../services/leaderboard/image.ts'
@@ -27,24 +31,23 @@ type LeaderboardCommandResult = { content: string } | { images: LeaderboardComma
 
 export const command_leaderboard = factory.command<Var>(
   new Command('leaderboard', 'Show the top players').options(
-    new Option('mode', 'Leaderboard track')
-      .required()
-      .choices(...LEADERBOARD_MODE_CHOICES),
+    new Option('mode', 'Leaderboard track').required().choices(...LEADERBOARD_MODE_CHOICES),
   ),
-  async (c) => {
+  async c => {
     const requestedMode = parseLeaderboardMode(c.var.mode)
     if (!requestedMode) return c.res('Pick a leaderboard mode.')
 
     const kv = getKvStore(c.env)
     const commandsChannelId = await getSystemChannel(kv, 'commands')
     const interactionChannelId = c.interaction.channel?.id ?? c.interaction.channel_id ?? null
-    const shouldRedirect = !!c.interaction.guild_id
-      && !!commandsChannelId
-      && !!interactionChannelId
-      && interactionChannelId !== commandsChannelId
+    const shouldRedirect =
+      !!c.interaction.guild_id &&
+      !!commandsChannelId &&
+      !!interactionChannelId &&
+      interactionChannelId !== commandsChannelId
     const responder = shouldRedirect ? c.flags('EPHEMERAL') : c
 
-    return responder.resDefer(async (c) => {
+    return responder.resDefer(async c => {
       const result = await buildLeaderboardCommandImages(createDb(c.env.DB), kv, requestedMode)
 
       if ('content' in result) {
@@ -63,8 +66,7 @@ export const command_leaderboard = factory.command<Var>(
               data: image.data,
             })
           }
-        }
-        catch (error) {
+        } catch (error) {
           console.error(`Failed to post redirected leaderboard output to ${commandsChannelId}:`, error)
           await sendTransientEphemeralResponse(c, `Failed to post in <#${commandsChannelId}>.`, 'error')
           return
@@ -103,13 +105,14 @@ export async function buildLeaderboardCommandImages(
   requestedMode: LeaderboardMode,
 ): Promise<LeaderboardCommandResult> {
   const snapshot = await getStoredLeaderboardModeSnapshot(kv, requestedMode)
-  if (!snapshot) return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
+  if (!snapshot)
+    return { content: 'Leaderboard snapshot is not available yet. Ask a moderator to run a leaderboard refresh.' }
   return { images: await buildLeaderboardCommandImagesForModes(db, [{ mode: requestedMode, rows: snapshot.rows }]) }
 }
 
 async function buildLeaderboardCommandImagesForModes(
   db: Database,
-  inputs: readonly { mode: LeaderboardMode, rows: readonly LeaderboardSnapshotRow[] }[],
+  inputs: readonly { mode: LeaderboardMode; rows: readonly LeaderboardSnapshotRow[] }[],
 ): Promise<LeaderboardCommandImage[]> {
   const imageData = await buildPlayerLeaderboardImageDataBatch(db, inputs)
   const avatarData = await loadAvatarDataUris(imageData.flatMap(data => data.rows))

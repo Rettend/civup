@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { calculatePublicRatingTransition, PUBLIC_RATING_FORMULA_VERSION } from '../src/public-rating.ts'
 import { recordPublicRatingDecayGame, settlePublicRatingDecay } from '../src/decay.ts'
+import { calculatePublicRatingTransition, PUBLIC_RATING_FORMULA_VERSION } from '../src/public-rating.ts'
 
 const DAY = 86_400_000
 const policy = { version: 'rp-decay-v1', enabledAt: DAY }
@@ -29,7 +29,11 @@ test('each native game adds 14 days without exceeding 60 or resetting an exhaust
 })
 
 test('no retroactive penalty, reads are repeatable, and a genuine loss can go below the decay floor', () => {
-  expect(settlePublicRatingDecay(1800, null, policy.enabledAt - 1, policy)).toEqual({ rating: 1800, state: null, delta: 0 })
+  expect(settlePublicRatingDecay(1800, null, policy.enabledAt - 1, policy)).toEqual({
+    rating: 1800,
+    state: null,
+    delta: 0,
+  })
   const a = settlePublicRatingDecay(1600, null, at(80), policy)
   expect(settlePublicRatingDecay(a.rating, a.state, at(80), policy)).toMatchObject({ rating: a.rating, delta: 0 })
   expect(settlePublicRatingDecay(1480, a.state, at(90), policy).rating).toBe(1480)
@@ -40,7 +44,14 @@ test('no retroactive penalty, reads are repeatable, and a genuine loss can go be
 })
 
 test('recovery uses the returning player’s own RP gap, not an opponent-funded transfer', () => {
-  const input = { formulaVersion: PUBLIC_RATING_FORMULA_VERSION, hiddenMuBefore: 40, hiddenMuAfterRaw: 40.4, hiddenSigmaBefore: 3, targetRating: 1600, sourceWeight: 1 }
+  const input = {
+    formulaVersion: PUBLIC_RATING_FORMULA_VERSION,
+    hiddenMuBefore: 40,
+    hiddenMuAfterRaw: 40.4,
+    hiddenSigmaBefore: 3,
+    targetRating: 1600,
+    sourceWeight: 1,
+  }
   const normal = calculatePublicRatingTransition({ ...input, priorRating: 1600 })
   const returning = calculatePublicRatingTransition({ ...input, priorRating: 1500 })
   expect(returning.delta).toBeGreaterThan(normal.delta)

@@ -1,5 +1,5 @@
-import { matches, matchParticipants, playerCivStats, playerRatings, players } from '@civup/db'
 import { describe, expect, test } from 'bun:test'
+import { matches, matchParticipants, playerCivStats, playerRatings, players } from '@civup/db'
 import { leaderStatsEmbed } from '../../src/embeds/leader-card.ts'
 import { createTestDatabase } from '../helpers/test-env.ts'
 
@@ -24,7 +24,7 @@ describe('leader stats embed', () => {
       const json = embed.toJSON() as {
         description?: string
         thumbnail?: { url?: string }
-        fields?: Array<{ name: string, value: string, inline?: boolean }>
+        fields?: Array<{ name: string; value: string; inline?: boolean }>
       }
       const fields = json.fields ?? []
 
@@ -50,8 +50,7 @@ describe('leader stats embed', () => {
         inline: true,
       })
       expect(field(fields, 'Best Players')?.value).toBe('Not enough player data')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
 
@@ -155,15 +154,14 @@ describe('leader stats embed', () => {
       })
 
       const embed = await leaderStatsEmbed(db, 'rome-trajan')
-      const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
+      const json = embed.toJSON() as { fields?: Array<{ name: string; value: string; inline?: boolean }> }
       const bestPlayers = field(json.fields ?? [], 'Best Players')
 
       expect(bestPlayers?.value.split('\n')[0]).toContain('High Elo Strong')
       expect(bestPlayers?.value.split('\n')[0]).toContain('`#1 `')
       expect(bestPlayers?.value.split('\n')[1]).toContain('Perfect Sample')
       expect(bestPlayers?.value.split('\n')[1]).toContain('`#2 `')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
@@ -227,7 +225,7 @@ describe('leader stats embed', () => {
       await seedRelationSeries('japan-hojo-tokimune', 2, 0)
 
       const embed = await leaderStatsEmbed(db, 'china-yongle')
-      const json = embed.toJSON() as { fields?: Array<{ name: string, value: string, inline?: boolean }> }
+      const json = embed.toJSON() as { fields?: Array<{ name: string; value: string; inline?: boolean }> }
       const bestAgainstLine = field(json.fields ?? [], 'Best Against')?.value.split('\n')[0] ?? ''
       const worstAgainstLine = field(json.fields ?? [], 'Worst Against')?.value.split('\n')[0] ?? ''
 
@@ -235,13 +233,12 @@ describe('leader stats embed', () => {
       expect(bestAgainstLine).toContain('5/7  71%')
       expect(worstAgainstLine).toContain('Hammurabi')
       expect(worstAgainstLine).toContain('0/6   0%')
-    }
-    finally {
+    } finally {
       sqlite.close()
     }
   })
 })
 
-function field(fields: Array<{ name: string, value: string, inline?: boolean }>, name: string) {
+function field(fields: Array<{ name: string; value: string; inline?: boolean }>, name: string) {
   return fields.find(field => field.name === name)
 }

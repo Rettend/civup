@@ -1,9 +1,8 @@
-import type { Context, Hono } from 'hono'
 import type { Env } from '../env.ts'
 import type { MultipartCleanupRecovery, MultipartUploadRow, UploadDb } from '../services/uploads/multipart.ts'
-import { autosaveUploads, createDb } from '@civup/db'
+import type { Context, Hono } from 'hono'
 import { desc, eq, sql } from 'drizzle-orm'
-import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
+import { autosaveUploads, createDb } from '@civup/db'
 import { parseAndStoreAutosaveUploadMetadata } from '../services/uploads/metadata.ts'
 import {
   claimMultipartOperation,
@@ -26,6 +25,7 @@ import {
   MAX_PLAYER_DATA_EXPORT_BYTES,
   MULTIPART_AUTOSAVE_PART_BYTES,
 } from '../services/uploads/policy.ts'
+import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
 
 const UPLOADS_NOT_CONFIGURED_ERROR = 'Saved game uploads are not configured'
 const EXPORTS_NOT_CONFIGURED_ERROR = 'Data exports are not configured'
@@ -74,7 +74,7 @@ interface AutosaveUploadCompletePayload {
 }
 
 export function registerUploadRoutes(app: Hono<Env>) {
-  app.post('/api/uploads/player-data-export', async (c) => {
+  app.post('/api/uploads/player-data-export', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -100,14 +100,15 @@ export function registerUploadRoutes(app: Hono<Env>) {
         httpMetadata: { contentType: PLAYER_DATA_EXPORT_CONTENT_TYPE },
         customMetadata: { filename },
       })
-    }
-    catch (error) {
+    } catch (error) {
       console.error('[player-data-export] failed to store workbook', { key, userId: auth.identity.userId }, error)
       return c.json({ error: 'Export workbook could not be prepared for download' }, 502)
     }
 
     if (object.size > MAX_PLAYER_DATA_EXPORT_BYTES) {
-      await bucket.delete(key).catch(error => console.error('[player-data-export] failed to remove oversized workbook', { key }, error))
+      await bucket
+        .delete(key)
+        .catch(error => console.error('[player-data-export] failed to remove oversized workbook', { key }, error))
       return c.json({ error: 'Export workbook is too large' }, 413)
     }
 
@@ -115,7 +116,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     return c.json({ ok: true, filename, size: object.size })
   })
 
-  app.get('/api/uploads/player-data-export/download', async (c) => {
+  app.get('/api/uploads/player-data-export/download', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -131,13 +132,13 @@ export function registerUploadRoutes(app: Hono<Env>) {
       'Content-Disposition': buildPlayerDataExportDisposition(filename),
       'Content-Length': String(object.size),
       'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
-      ETag: object.httpEtag,
+      'ETag': object.httpEtag,
     })
     object.writeHttpMetadata(headers)
     return new Response(object.body, { headers })
   })
 
-  app.get('/api/uploads/autosaves', async (c) => {
+  app.get('/api/uploads/autosaves', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -180,7 +181,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     return c.json({ uploads })
   })
 
-  app.get('/api/uploads/autosaves/:id/download', async (c) => {
+  app.get('/api/uploads/autosaves/:id/download', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -221,7 +222,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
       'Content-Disposition': buildAttachmentDisposition(row.fileName),
       'Content-Length': String(object.size),
       'Content-Type': 'application/zip',
-      ETag: object.httpEtag,
+      'ETag': object.httpEtag,
     })
     object.writeHttpMetadata(headers)
     // eslint-disable-next-line no-console
@@ -229,7 +230,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     return new Response(object.body, { headers })
   })
 
-  app.post('/api/uploads/autosaves/init', async (c) => {
+  app.post('/api/uploads/autosaves/init', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -239,8 +240,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     let body: AutosaveUploadInitPayload
     try {
       body = await c.req.json<AutosaveUploadInitPayload>()
-    }
-    catch {
+    } catch {
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
 
@@ -286,8 +286,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
       storedBytes = Number(usage?.storedBytes ?? 0)
       storedObjectCount = Number(usage?.storedObjectCount ?? 0)
       activeUploadCount = Number(usage?.activeUploadCount ?? 0)
-    }
-    catch (error) {
+    } catch (error) {
       console.error('[autosave-upload] failed to check uploader limits', { userId }, error)
       return c.json({ error: 'Saved game upload limits could not be checked' }, 500)
     }
@@ -299,7 +298,10 @@ export function registerUploadRoutes(app: Hono<Env>) {
       return c.json({ error: 'Your 100 saved-game upload limit is full; ask an admin to delete an older upload' }, 413)
     }
     if (storedBytes + fileSizeBytes > MAX_AUTOSAVE_STORAGE_BYTES_PER_USER) {
-      return c.json({ error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' }, 413)
+      return c.json(
+        { error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' },
+        413,
+      )
     }
 
     try {
@@ -321,17 +323,22 @@ export function registerUploadRoutes(app: Hono<Env>) {
         parseStatus: 'pending',
         parseError: null,
       })
-    }
-    catch (error) {
+    } catch (error) {
       const limit = classifyAutosaveUploadInitLimitError(error)
       if (limit === 'active') {
         return c.json({ error: 'Finish or cancel your current saved-game upload before starting another' }, 429)
       }
       if (limit === 'count') {
-        return c.json({ error: 'Your 100 saved-game upload limit is full; ask an admin to delete an older upload' }, 413)
+        return c.json(
+          { error: 'Your 100 saved-game upload limit is full; ask an admin to delete an older upload' },
+          413,
+        )
       }
       if (limit === 'quota') {
-        return c.json({ error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' }, 413)
+        return c.json(
+          { error: 'Your 2 GiB saved-game storage quota is full; ask an admin to delete an older upload' },
+          413,
+        )
       }
       console.error('[autosave-upload] failed to create initializing catalog row', { id: uploadId, key }, error)
       return c.json({ error: 'Saved game upload could not be started' }, 500)
@@ -342,18 +349,27 @@ export function registerUploadRoutes(app: Hono<Env>) {
       multipartUpload = await bucket.createMultipartUpload(key, {
         httpMetadata: { contentType },
       })
-    }
-    catch (error) {
+    } catch (error) {
       console.warn('[autosave-upload] multipart initialization failed', { id: uploadId, key }, error)
       const row = await getMultipartUploadRow(db, uploadId)
       if (row) {
-        const cleanup = await cleanupAutosaveUpload(bucket, db, row, { forceInitializingOperationId: initializationOperationId })
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
+          forceInitializingOperationId: initializationOperationId,
+        })
         if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
       }
       return c.json({ error: 'Saved game upload could not be started' }, 502)
     }
 
-    if (!await recordInitializedMultipartUpload(db, uploadId, initializationOperationId, multipartUpload.uploadId, 'pending_upload')) {
+    if (
+      !(await recordInitializedMultipartUpload(
+        db,
+        uploadId,
+        initializationOperationId,
+        multipartUpload.uploadId,
+        'pending_upload',
+      ))
+    ) {
       console.error('[autosave-upload] failed to record initialized multipart upload', { id: uploadId, key })
       let abortedLocally = false
       let cleanupPersisted = await recordInitializedMultipartUpload(
@@ -365,7 +381,11 @@ export function registerUploadRoutes(app: Hono<Env>) {
       )
 
       if (!cleanupPersisted) {
-        abortedLocally = await abortMultipartUpload(multipartUpload, { id: uploadId, key, action: 'initialization recovery' }, 3)
+        abortedLocally = await abortMultipartUpload(
+          multipartUpload,
+          { id: uploadId, key, action: 'initialization recovery' },
+          3,
+        )
         if (!abortedLocally) {
           cleanupPersisted = await recordInitializedMultipartUpload(
             db,
@@ -381,24 +401,31 @@ export function registerUploadRoutes(app: Hono<Env>) {
       if (cleanupPersisted && row) {
         const cleanup = await cleanupAutosaveUpload(bucket, db, row)
         if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
-      }
-      else if (abortedLocally && row) {
+      } else if (abortedLocally && row) {
         const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
           forceInitializingOperationId: initializationOperationId,
           storageAlreadyCleaned: true,
         })
         if (!cleanup.ok) scheduleUploadCleanup(c, uploadId, cleanup.recovery)
-      }
-      else if (row) {
-        console.error('[autosave-upload] could not persist or abort initialized multipart upload', { id: uploadId, key })
-        c.executionCtx.waitUntil(recoverUnrecordedInitializedMultipartUpload(
-          c.env,
-          uploadId,
-          initializationOperationId,
-          multipartUpload,
-        ).catch(backgroundError =>
-          console.error('[autosave-upload] unrecorded initialization cleanup failed', { id: uploadId, key }, backgroundError),
-        ))
+      } else if (row) {
+        console.error('[autosave-upload] could not persist or abort initialized multipart upload', {
+          id: uploadId,
+          key,
+        })
+        c.executionCtx.waitUntil(
+          recoverUnrecordedInitializedMultipartUpload(
+            c.env,
+            uploadId,
+            initializationOperationId,
+            multipartUpload,
+          ).catch(backgroundError =>
+            console.error(
+              '[autosave-upload] unrecorded initialization cleanup failed',
+              { id: uploadId, key },
+              backgroundError,
+            ),
+          ),
+        )
       }
       return c.json({ error: 'Saved game upload initialization cleanup failed' }, 502)
     }
@@ -416,7 +443,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     })
   })
 
-  app.put('/api/uploads/autosaves/:id/parts/:partNumber', async (c) => {
+  app.put('/api/uploads/autosaves/:id/parts/:partNumber', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -461,7 +488,9 @@ export function registerUploadRoutes(app: Hono<Env>) {
         bucket,
         db,
         row,
-        contentLength > expectedPartSize ? 'Upload part is larger than expected' : 'Upload part is smaller than expected',
+        contentLength > expectedPartSize
+          ? 'Upload part is larger than expected'
+          : 'Upload part is smaller than expected',
         contentLength > expectedPartSize ? 413 : 400,
       )
     }
@@ -489,14 +518,17 @@ export function registerUploadRoutes(app: Hono<Env>) {
         etag: part.etag,
       })
       return c.json({ ok: true, partNumber: part.partNumber, etag: part.etag })
-    }
-    catch (error) {
-      console.warn('[autosave-upload] multipart part upload failed', {
-        id,
-        partNumber,
-        expectedPartSize,
-        bytesRead: countedBody.bytesRead,
-      }, error)
+    } catch (error) {
+      console.warn(
+        '[autosave-upload] multipart part upload failed',
+        {
+          id,
+          partNumber,
+          expectedPartSize,
+          bytesRead: countedBody.bytesRead,
+        },
+        error,
+      )
       const cleanup = await cleanupAutosaveUpload(bucket, db, row)
       if (!cleanup.ok) {
         if (cleanup.status === 502) scheduleUploadCleanup(c, id, cleanup.recovery)
@@ -508,7 +540,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     }
   })
 
-  app.post('/api/uploads/autosaves/:id/complete', async (c) => {
+  app.post('/api/uploads/autosaves/:id/complete', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -554,8 +586,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     let completePayload: AutosaveUploadCompletePayload
     try {
       completePayload = await c.req.json<AutosaveUploadCompletePayload>()
-    }
-    catch {
+    } catch {
       await releaseMultipartCompletionClaim(db, id, operationId)
       return c.json({ error: 'Invalid JSON payload' }, 400)
     }
@@ -570,7 +601,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
       const upload = bucket.resumeMultipartUpload(row.r2Key, row.multipartUploadId)
       const object = await upload.complete(parts)
       if (object.size !== row.fileSizeBytes) return cleanupInvalidCompletedUpload(c, bucket, db, row)
-      if (!await finalizeCompletedMultipartRow(db, row, object, operationId)) {
+      if (!(await finalizeCompletedMultipartRow(db, row, object, operationId))) {
         const reconciled = await reconcileCompletedMultipartObject(bucket, db, row)
         if (reconciled.kind === 'completed') return reconciledUploadResponse(c, row, reconciled)
         if (reconciled.kind === 'mismatch') return cleanupInvalidCompletedUpload(c, bucket, db, row)
@@ -586,15 +617,17 @@ export function registerUploadRoutes(app: Hono<Env>) {
       })
       c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
       return c.json({ ok: true, id, size: object.size, etag: object.etag })
-    }
-    catch (error) {
+    } catch (error) {
       console.warn('[autosave-upload] complete multipart upload failed', { id, key: row.r2Key }, error)
       let reconciled
       try {
         reconciled = await reconcileCompletedMultipartObject(bucket, db, row)
-      }
-      catch (reconcileError) {
-        console.error('[autosave-upload] could not reconcile failed multipart completion', { id, key: row.r2Key }, reconcileError)
+      } catch (reconcileError) {
+        console.error(
+          '[autosave-upload] could not reconcile failed multipart completion',
+          { id, key: row.r2Key },
+          reconcileError,
+        )
         return c.json({ error: 'Multipart upload completion is being recovered' }, 502)
       }
       if (reconciled.kind === 'completed') {
@@ -607,7 +640,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     }
   })
 
-  app.post('/api/uploads/autosaves/:id/abort', async (c) => {
+  app.post('/api/uploads/autosaves/:id/abort', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
 
@@ -631,7 +664,9 @@ export function registerUploadRoutes(app: Hono<Env>) {
         return c.json({ ok: true, completed: true })
       }
       if (existingObject.kind === 'mismatch') {
-        const cleanup = await cleanupAutosaveUpload(bucket, db, row, { forceCompletingOperationId: row.multipartOperationId ?? undefined })
+        const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
+          forceCompletingOperationId: row.multipartOperationId ?? undefined,
+        })
         if (!cleanup.ok) {
           if (cleanup.status === 502) scheduleUploadCleanup(c, id, cleanup.recovery)
           return c.json({ error: cleanup.error }, cleanup.status)
@@ -668,7 +703,7 @@ export function registerUploadRoutes(app: Hono<Env>) {
     return c.json({ ok: true, aborted: true })
   })
 
-  app.post('/api/uploads/autosaves/:id/reparse', async (c) => {
+  app.post('/api/uploads/autosaves/:id/reparse', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -684,16 +719,13 @@ export function registerUploadRoutes(app: Hono<Env>) {
 
     if (!row) return c.json({ error: 'Upload not found' }, 404)
 
-    await db
-      .update(autosaveUploads)
-      .set({ parseStatus: 'pending', parseError: null })
-      .where(eq(autosaveUploads.id, id))
+    await db.update(autosaveUploads).set({ parseStatus: 'pending', parseError: null }).where(eq(autosaveUploads.id, id))
 
     c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, id, row.r2Key))
     return c.json({ ok: true })
   })
 
-  app.delete('/api/uploads/autosaves/:id', async (c) => {
+  app.delete('/api/uploads/autosaves/:id', async c => {
     const auth = requireAuthenticatedActivity(c)
     if (!auth.ok) return auth.response
     if (!hasAuthenticatedActivityAdminPermission(c.env, auth.identity)) return c.json({ error: 'Forbidden' }, 403)
@@ -714,21 +746,23 @@ export function registerUploadRoutes(app: Hono<Env>) {
     await db.delete(autosaveUploads).where(eq(autosaveUploads.id, id))
     return c.json({ ok: true })
   })
-
 }
 
 async function abortMultipartUpload(
   upload: R2MultipartUpload,
-  context: { id: string, key: string, action: string },
+  context: { id: string; key: string; action: string },
   attempts = 1,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       await upload.abort()
       return true
-    }
-    catch (error) {
-      console.error(`[autosave-upload] failed to abort multipart upload after ${context.action}`, { id: context.id, key: context.key }, error)
+    } catch (error) {
+      console.error(
+        `[autosave-upload] failed to abort multipart upload after ${context.action}`,
+        { id: context.id, key: context.key },
+        error,
+      )
     }
   }
   return false
@@ -742,7 +776,7 @@ function completedUploadResponse(c: Context<Env>, row: MultipartUploadRow) {
 function reconciledUploadResponse(
   c: Context<Env>,
   row: MultipartUploadRow,
-  reconciled: { object: R2Object, newlyFinalized: boolean },
+  reconciled: { object: R2Object; newlyFinalized: boolean },
 ) {
   scheduleMetadataParseIfNewlyFinalized(c, row, reconciled.newlyFinalized)
   return c.json({ ok: true, id: row.id, size: reconciled.object.size, etag: reconciled.object.etag })
@@ -775,16 +809,15 @@ async function respondToExistingMultipartCompletion(
   return c.json({ error: 'Upload state changed; retry completion' }, 409)
 }
 
-function scheduleMetadataParseIfNewlyFinalized(c: Context<Env>, row: MultipartUploadRow, newlyFinalized: boolean): void {
+function scheduleMetadataParseIfNewlyFinalized(
+  c: Context<Env>,
+  row: MultipartUploadRow,
+  newlyFinalized: boolean,
+): void {
   if (newlyFinalized) c.executionCtx.waitUntil(parseAndStoreAutosaveUploadMetadata(c.env, row.id, row.r2Key))
 }
 
-async function cleanupInvalidCompletedUpload(
-  c: Context<Env>,
-  bucket: R2Bucket,
-  db: UploadDb,
-  row: MultipartUploadRow,
-) {
+async function cleanupInvalidCompletedUpload(c: Context<Env>, bucket: R2Bucket, db: UploadDb, row: MultipartUploadRow) {
   const cleanup = await cleanupAutosaveUpload(bucket, db, row, {
     forceCompletingOperationId: row.multipartOperationId ?? undefined,
   })
@@ -796,9 +829,11 @@ async function cleanupInvalidCompletedUpload(
 }
 
 function scheduleUploadCleanup(c: Context<Env>, id: string, recovery?: MultipartCleanupRecovery): void {
-  c.executionCtx.waitUntil(retryAutosaveUploadCleanup(c.env, id, 3, recovery).catch(error =>
-    console.error('[autosave-upload] background cleanup retry failed', { id }, error),
-  ))
+  c.executionCtx.waitUntil(
+    retryAutosaveUploadCleanup(c.env, id, 3, recovery).catch(error =>
+      console.error('[autosave-upload] background cleanup retry failed', { id }, error),
+    ),
+  )
 }
 
 async function cleanupInvalidMultipartPart(
@@ -852,22 +887,24 @@ function createExactLengthUploadStream(body: ReadableStream<Uint8Array>, expecte
     bytesRead: 0,
     mismatch: null,
   }
-  counted.stream = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      counted.bytesRead += chunk.byteLength
-      if (counted.bytesRead > expectedBytes) {
-        counted.mismatch = 'long'
-        throw new Error(`Upload part exceeds expected size ${expectedBytes}`)
-      }
-      controller.enqueue(chunk)
-    },
-    flush() {
-      if (counted.bytesRead !== expectedBytes) {
-        counted.mismatch = counted.bytesRead > expectedBytes ? 'long' : 'short'
-        throw new Error(`Upload part size ${counted.bytesRead} does not match expected size ${expectedBytes}`)
-      }
-    },
-  }))
+  counted.stream = body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        counted.bytesRead += chunk.byteLength
+        if (counted.bytesRead > expectedBytes) {
+          counted.mismatch = 'long'
+          throw new Error(`Upload part exceeds expected size ${expectedBytes}`)
+        }
+        controller.enqueue(chunk)
+      },
+      flush() {
+        if (counted.bytesRead !== expectedBytes) {
+          counted.mismatch = counted.bytesRead > expectedBytes ? 'long' : 'short'
+          throw new Error(`Upload part size ${counted.bytesRead} does not match expected size ${expectedBytes}`)
+        }
+      },
+    }),
+  )
   return counted
 }
 
@@ -888,7 +925,8 @@ function normalizeMultipartUploadedParts(value: unknown, fileSizeBytes: number):
     if (!item || typeof item !== 'object') return null
     const partNumber = (item as { partNumber?: unknown }).partNumber
     const etag = (item as { etag?: unknown }).etag
-    if (typeof partNumber !== 'number' || !Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > 10_000) return null
+    if (typeof partNumber !== 'number' || !Number.isSafeInteger(partNumber) || partNumber < 1 || partNumber > 10_000)
+      return null
     if (typeof etag !== 'string' || etag.trim().length === 0) return null
     if (seen.has(partNumber)) return null
     seen.add(partNumber)
@@ -905,12 +943,9 @@ function normalizeUploadSize(value: unknown): number | null {
 }
 
 function buildAutosaveUploadKey(now: Date, userId: string, uploadId: string, safeFileName: string): string {
-  return [
-    'autosaves',
-    now.toISOString().slice(0, 10),
-    sanitizeKeySegment(userId),
-    `${uploadId}-${safeFileName}`,
-  ].join('/')
+  return ['autosaves', now.toISOString().slice(0, 10), sanitizeKeySegment(userId), `${uploadId}-${safeFileName}`].join(
+    '/',
+  )
 }
 
 function isZipFileName(value: string): boolean {
@@ -939,10 +974,11 @@ function playerDataExportKey(userId: string): string {
 }
 
 function sanitizePlayerDataExportFileName(value: string | null | undefined): string {
-  const sanitized = value
-    ?.trim()
-    .replace(/[^A-Za-z0-9._-]+/g, '_')
-    .slice(0, 120) ?? ''
+  const sanitized =
+    value
+      ?.trim()
+      .replace(/[^A-Za-z0-9._-]+/g, '_')
+      .slice(0, 120) ?? ''
   if (sanitized.toLowerCase().endsWith('.xlsx')) return sanitized
   return `export-${new Date().toISOString().slice(0, 10)}.xlsx`
 }
@@ -954,7 +990,11 @@ function normalizeContentType(value: string | undefined): string {
 }
 
 function normalizeMetadataValue(value: string | null | undefined): string | null {
-  const normalized = value?.trim().replace(/[^\x20-\x7E]/g, '_').slice(0, 200) ?? ''
+  const normalized =
+    value
+      ?.trim()
+      .replace(/[^\x20-\x7E]/g, '_')
+      .slice(0, 200) ?? ''
   return normalized.length > 0 ? normalized : null
 }
 
@@ -969,8 +1009,9 @@ function classifyAutosaveUploadInitLimitError(error: unknown): 'active' | 'count
   if (message.includes('autosave_upload_count_quota_exceeded')) return 'count'
   if (message.includes('autosave_upload_quota_exceeded')) return 'quota'
   if (
-    message.includes('autosave_uploads_active_uploader_idx')
-    || message.includes('unique constraint failed: autosave_uploads.uploader_user_id')
-  ) return 'active'
+    message.includes('autosave_uploads_active_uploader_idx') ||
+    message.includes('unique constraint failed: autosave_uploads.uploader_user_id')
+  )
+    return 'active'
   return null
 }

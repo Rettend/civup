@@ -1,5 +1,10 @@
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public data?: unknown, public headers?: Headers) {
+  constructor(
+    message: string,
+    public status: number,
+    public data?: unknown,
+    public headers?: Headers,
+  ) {
     super(message)
     this.name = 'ApiError'
   }
@@ -19,8 +24,7 @@ async function request<T>(url: string, init: ApiRequestInit = {}): Promise<T> {
   if (init.body !== null && init.body !== undefined) {
     if (isBodyInit(init.body)) {
       body = init.body
-    }
-    else {
+    } else {
       body = JSON.stringify(init.body)
       if (!headers.has('Content-Type')) {
         headers.set('Content-Type', 'application/json')
@@ -42,12 +46,10 @@ async function request<T>(url: string, init: ApiRequestInit = {}): Promise<T> {
           errorMessage = String(data.error)
         }
         errorData = data
-      }
-      catch {
+      } catch {
         if (text.length < 500) errorMessage = text
       }
-    }
-    catch {}
+    } catch {}
     throw new ApiError(errorMessage, res.status, errorData, res.headers)
   }
 
@@ -55,23 +57,29 @@ async function request<T>(url: string, init: ApiRequestInit = {}): Promise<T> {
 
   const parse = init.parse ?? 'json'
   switch (parse) {
-    case 'json': return res.json() as T
-    case 'text': return res.text() as T
-    case 'blob': return res.blob() as T
-    case 'arrayBuffer': return res.arrayBuffer() as T
-    case 'response': return res as T
-    default: return res.json() as T
+    case 'json':
+      return res.json() as T
+    case 'text':
+      return res.text() as T
+    case 'blob':
+      return res.blob() as T
+    case 'arrayBuffer':
+      return res.arrayBuffer() as T
+    case 'response':
+      return res as T
+    default:
+      return res.json() as T
   }
 }
 
 function isBodyInit(body: unknown): body is RequestInit['body'] {
   return (
-    typeof body === 'string'
-    || body instanceof FormData
-    || body instanceof URLSearchParams
-    || body instanceof Blob
-    || body instanceof ArrayBuffer
-    || ArrayBuffer.isView(body)
+    typeof body === 'string' ||
+    body instanceof FormData ||
+    body instanceof URLSearchParams ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
   )
 }
 

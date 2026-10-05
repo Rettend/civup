@@ -15,7 +15,10 @@ const target = {
 
 describe('Cloudflare admin commands', () => {
   test('keeps target identity and storage location independent', () => {
-    const local = cloudflareAdminCommand('migrate', 'ppl', target, { location: 'local', persistenceDirectory: 'test-state' })
+    const local = cloudflareAdminCommand('migrate', 'ppl', target, {
+      location: 'local',
+      persistenceDirectory: 'test-state',
+    })
     expect(local.env.CLOUDFLARE_ACCOUNT_ID).toBe('fixture-account')
     expect(local.cmd).toContain('fixture-database')
     expect(local.cmd).toContain('--local')
@@ -27,7 +30,9 @@ describe('Cloudflare admin commands', () => {
   })
 
   test('registers the chosen Discord application and guild', () => {
-    const plan = cloudflareAdminCommand('register', 'standard', target, { localTargetsFile: 'tests/cloudflare-targets.fixture.json' })
+    const plan = cloudflareAdminCommand('register', 'standard', target, {
+      localTargetsFile: 'tests/cloudflare-targets.fixture.json',
+    })
     expect(plan.env.DISCORD_APPLICATION_ID).toBe('fixture-application')
     expect(plan.env.ALLOWED_DISCORD_GUILD_ID).toBe('fixture-guild')
     expect(plan.cmd).toContain('--env-file=.prod.secrets')
@@ -48,13 +53,16 @@ describe('Cloudflare admin commands', () => {
     const directory = mkdtempSync(join(temporaryRoot, 'civup-provisioning-'))
     const file = join(directory, 'targets.json')
     writeFileSync(file, JSON.stringify({ ppl: { accountId: '1'.repeat(32), d1: { name: 'fixture-database' } } }))
-    const run = (action: string, extra: string[] = []) => spawnSync(process.execPath, [
-      '--no-env-file', 'scripts/cloudflare-admin.ts', action, '--target', 'ppl', '--print-commands', ...extra,
-    ], {
-      cwd: resolve('.'),
-      encoding: 'utf8',
-      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, CIVUP_LOCAL_TARGETS_FILE: file },
-    })
+    const run = (action: string, extra: string[] = []) =>
+      spawnSync(
+        process.execPath,
+        ['--no-env-file', 'scripts/cloudflare-admin.ts', action, '--target', 'ppl', '--print-commands', ...extra],
+        {
+          cwd: resolve('.'),
+          encoding: 'utf8',
+          env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, CIVUP_LOCAL_TARGETS_FILE: file },
+        },
+      )
     try {
       for (const action of ['d1-create', 'kv-create']) {
         const result = run(action)
@@ -64,8 +72,7 @@ describe('Cloudflare admin commands', () => {
         expect(plan.cmd.at(-1)).toBe('fixture-database')
       }
       expect(run('migrate', ['--local']).status).toBe(1)
-    }
-    finally {
+    } finally {
       rmSync(directory, { recursive: true, force: true })
     }
   })
