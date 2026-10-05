@@ -1,5 +1,5 @@
-import type { JSX } from 'solid-js'
-import { createSignal, onCleanup, Show } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { createSignal, onSettled, Show } from 'solid-js'
 import { copyTextToClipboard } from '~/client/lib/clipboard'
 import { cn } from '~/client/lib/css'
 import { openExternalLink } from '~/client/platform/external-links'
@@ -177,7 +177,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
     return shouldCopyOnPrimaryAction() ? 'Copy Steam link' : 'Open Steam link'
   }
 
-  onCleanup(() => {
+  onSettled(() => () => {
     clearCopiedTimeout()
     clearBlurTimeout()
     clearMissingLinkHintTimeout()
@@ -231,7 +231,7 @@ export function SteamLobbyButton(props: SteamLobbyButtonProps) {
               type="text"
               value={inputValue()}
               placeholder="steam://joinlobby/289070/..."
-              readOnly={!canSave()}
+              readonly={!canSave()}
               disabled={props.savePending}
               class={cn(
                 'w-64 text-sm text-fg px-3 py-2 rounded-md',

@@ -1,10 +1,11 @@
 import type { Database } from '@civup/db'
 import type { SQL } from 'drizzle-orm'
+import type { DbBatchItem } from '../db/batch.ts'
 import { matchParticipants, matchPlayerCivStatContributions, matches, playerCivStats, playerRatings, players, seasonRatingStates, seasons, tournamentMatches } from '@civup/db'
 import { redDeathLeaderMap } from '@civup/game'
 import { DEFAULT_MU, DEFAULT_SIGMA, displayRating } from '@civup/rating'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
-import { runDbBatch, type DbBatchItem } from '../db/batch.ts'
+import { runDbBatch } from '../db/batch.ts'
 
 export const PLAYER_CIV_MIN_RANK_GAMES = 5
 export const PLAYER_CIV_SERVER_AVG_MIN_GAMES = 10

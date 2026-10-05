@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, onSettled, Show } from 'solid-js'
 import { openCivBlitzModDownload } from '~/client/lib/civblitz-mod-download'
 import { cn } from '~/client/lib/css'
 import { preloadLeaderFullPortraitIds } from '~/client/lib/leader-full-portrait'
@@ -50,18 +50,12 @@ export function DraftView(props: DraftViewProps) {
   const [steamLobbySavePending, setSteamLobbySavePending] = createSignal(false)
   const [modDownloadPending, setModDownloadPending] = createSignal(false)
   let scrubRedirectTimeout: ReturnType<typeof setTimeout> | null = null
-  const hostId = () => draftStore.hostId
-  const amHost = () => {
-    const currentUserId = userId()
-    if (!currentUserId) return false
-    return currentUserId === hostId()
-  }
 
   const steamLobbyLink = () => state() ? draftStore.steamLobbyLink : props.steamLobbyLink ?? null
 
   createEffect(() => {
     const current = state()
-    if (!current || current.status === 'cancelled') return
+    if (!current || current.status === 'cancelled') return null
 
     const leaderIds = new Set(current.availableCivIds)
     for (const selection of current.bans) leaderIds.add(selection.civId)
@@ -75,12 +69,13 @@ export function DraftView(props: DraftViewProps) {
       for (const civId of selections) leaderIds.add(civId)
     }
 
-    preloadLeaderFullPortraitIds(leaderIds, draftStore.leaderDataVersion)
+    return { leaderIds, version: draftStore.leaderDataVersion }
+  }, (portraits) => {
+    if (portraits) preloadLeaderFullPortraitIds(portraits.leaderIds, portraits.version)
   })
 
-  createEffect(() => {
-    const current = state()
-    if (current?.status !== 'cancelled' || current.cancelReason !== 'scrub' || !props.onSwitchTarget) {
+  createEffect(() => state()?.status === 'cancelled' && state()?.cancelReason === 'scrub' && Boolean(props.onSwitchTarget), (shouldRedirect) => {
+    if (!shouldRedirect) {
       if (!scrubRedirectTimeout) return
       clearTimeout(scrubRedirectTimeout)
       scrubRedirectTimeout = null
@@ -94,7 +89,7 @@ export function DraftView(props: DraftViewProps) {
     }, 5000)
   })
 
-  onCleanup(() => {
+  onSettled(() => () => {
     if (!scrubRedirectTimeout) return
     clearTimeout(scrubRedirectTimeout)
     scrubRedirectTimeout = null
@@ -109,11 +104,8 @@ export function DraftView(props: DraftViewProps) {
   let lastFlashedStep = -1
   let turnFlashTimeout: ReturnType<typeof setTimeout> | null = null
 
-  createEffect(() => {
-    if (!isMyPickTurn()) return
-    const s = draftStore.state
-    if (!s) return
-    const stepIdx = s.currentStepIndex
+  createEffect(() => isMyPickTurn() ? state()?.currentStepIndex : undefined, (stepIdx) => {
+    if (stepIdx == null) return
     if (stepIdx === lastFlashedStep) return
     lastFlashedStep = stepIdx
     if (turnFlashTimeout) clearTimeout(turnFlashTimeout)
@@ -124,15 +116,15 @@ export function DraftView(props: DraftViewProps) {
     }, 550)
   })
 
-  onCleanup(() => {
+  onSettled(() => () => {
     if (turnFlashTimeout) {
       clearTimeout(turnFlashTimeout)
       turnFlashTimeout = null
     }
   })
 
-  createEffect(() => {
-    if (!isMiniView()) return
+  createEffect(isMiniView, (mini) => {
+    if (!mini) return
     setGridOpen(false)
   })
 
@@ -144,49 +136,43 @@ export function DraftView(props: DraftViewProps) {
     && state()?.civBlitz?.excludeBbgExpanded === true
     && !isSpectator()
 
-  createEffect(() => {
-    const current = state()
-    if (!current || !isMapVoteVoting()) {
+  createEffect(() => ({
+    token: state() && isMapVoteVoting() ? `${draftStore.initVersion}:${state()!.matchId}:map-vote` : null,
+    mini: isMiniView(),
+    openedToken: autoOpenedMapVoteToken(),
+  }), ({ token, mini, openedToken }) => {
+    if (!token) {
       setAutoOpenedMapVoteToken(null)
       return
     }
-    if (isMiniView()) return
-
-    const nextToken = `${draftStore.initVersion}:${current.matchId}:map-vote`
-    if (autoOpenedMapVoteToken() === nextToken) return
+    if (mini || openedToken === token) return
 
     setGridOpen(true)
-    setAutoOpenedMapVoteToken(nextToken)
+    setAutoOpenedMapVoteToken(token)
   })
 
-  createEffect(() => {
-    if (!isMapVoteReveal()) return
-    if (!gridOpen()) return
+  createEffect(() => isMapVoteReveal() && gridOpen(), (close) => {
+    if (!close) return
     setGridOpen(false)
   })
 
   createEffect(() => {
     const current = state()
     const seatIndex = draftStore.seatIndex
-    if (!current || current.status !== 'active' || seatIndex == null) {
-      setAutoOpenedGridToken(null)
-      return
-    }
-    if (isMiniView()) return
-    if (isMapVotePhase()) return
-    if (!canOpenLeaderGrid()) return
-    if (!isMyTurn() || hasSubmitted()) return
+    if (!current || current.status !== 'active' || seatIndex == null) return { reset: true, token: null }
+    if (isMiniView() || isMapVotePhase() || !canOpenLeaderGrid() || !isMyTurn() || hasSubmitted()) return { reset: false, token: null }
 
     const step = currentStep()
     const targetSeatIndex = step?.action === 'pick' ? currentPickTargetSeatIndex() : seatIndex
-    if (step?.action === 'pick' && targetSeatIndex == null) return
-    if (step?.action === 'pick' && targetSeatIndex !== seatIndex) return
+    if (step?.action === 'pick' && (targetSeatIndex == null || targetSeatIndex !== seatIndex)) return { reset: false, token: null }
 
     const nextToken = `${draftStore.initVersion}:${current.matchId}:${current.currentStepIndex}:${seatIndex}:${targetSeatIndex ?? seatIndex}`
-    if (autoOpenedGridToken() === nextToken) return
-
+    return { reset: false, token: autoOpenedGridToken() === nextToken ? null : nextToken }
+  }, ({ reset, token }) => {
+    if (reset) setAutoOpenedGridToken(null)
+    if (!token) return
     setGridOpen(true)
-    setAutoOpenedGridToken(nextToken)
+    setAutoOpenedGridToken(token)
   })
 
   const isActiveOrComplete = () => isMapVotePhase() || state()?.status === 'active' || state()?.status === 'complete'

@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit"
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "@civup/game": "workspace:*"

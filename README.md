@@ -6,12 +6,15 @@ This page is the setup guide. See the [Manual](MANUAL.md) for features and the [
 
 ## What you need
 
-- [Bun](https://bun.sh/)
+- [Bun](https://bun.sh/) 1.4.2
+- Node.js 24 (the repository pins 24.21.0 in `.node-version`)
 - a Cloudflare account
 - `cloudflared` for local tunnels
 - two Discord apps: one for development and one for production
 
 No privileged Discord Gateway intents are needed.
+
+Bun installs dependencies and runs workspace scripts. Vite+ and Cloudflare commands run under Node.
 
 ## Discord apps
 
@@ -62,7 +65,7 @@ Use the development app only with local tunnels. Use the production app only wit
    bun run bot:l:migrate
    ```
 
-   Local D1, KV, R2, and Durable Objects are created by Wrangler. They do not need remote resources.
+   Local D1, KV, R2, and Durable Objects use `apps/bot/.wrangler/state`. Development and maintenance commands share this directory; they do not need remote resources. `DRIZZLE_DB_URL` can select an explicit SQLite file for Drizzle.
 
 5. Start the bot, Activity, and tunnel before saving the Discord endpoint.
 
@@ -81,20 +84,28 @@ Use the development app only with local tunnels. Use the production app only wit
 
 `bun run dev` reuses the last Activity build. `bun run dev:live` uses Vite live mode.
 
+Pass `--no-tunnel` to run only the local Workers. Add `--print-commands` to inspect the commands without starting them:
+
+```bash
+bun run dev:live --no-tunnel --print-commands
+```
+
 ## Production setup
 
 ### 1. Fill public config
 
-Pick the Cloudflare account first. Confirm it with `bunx wrangler whoami`, then fill both standard Wrangler files:
+Pick the Cloudflare account first, then fill its public settings in `config/cloudflare-targets.ts`. Both Workers read this data:
 
-- `apps/bot/wrangler.jsonc`
-- `apps/activity/wrangler.json`
+- `apps/bot/cloudflare.config.ts`
+- `apps/activity/cloudflare.config.ts`
 
-The account ID, guild ID, and Activity origin must match. The Activity `DISCORD_CLIENT_ID` and bot `DISCORD_APPLICATION_ID` must be the production app ID, and the bot `DISCORD_PUBLIC_KEY` must be that app's 64-character public key.
+Set the account ID, guild ID, Activity origin, and Discord application ID and public key. The configs derive both Workers' public variables and service binding from these values. Keep secrets in the secret files.
 
 Find or change the account's `workers.dev` subdomain on the Cloudflare **Workers & Pages** page under **Your subdomain**. With the checked-in Worker names, the Activity origin is `https://civup-activity.<account subdomain>.workers.dev`.
 
-Keep the Activity `BOT` service binding pointed at the bot Worker's `name`. Activity-to-bot traffic uses this binding; Discord interactions still use the bot Worker's public URL.
+`deploy:prod` selects the `standard` target. PPL uses `config/cloudflare-targets.local.json`, which is git-ignored; copy the adjacent example when setting up that target. Both targets use the same Worker names in different accounts. Selecting a target does not select remote storage: migration and maintenance commands choose local or remote separately.
+
+Authenticate with `bunx cf auth login`. The retained Wrangler adapters also need authentication: use `bunx wrangler login`, or supply `CLOUDFLARE_API_TOKEN` for both tools. Commands select the account from the target settings.
 
 ### 2. Create Cloudflare storage
 
@@ -105,13 +116,15 @@ bun run bot:d1:create
 bun run bot:kv:create
 ```
 
+Copy the returned database and namespace IDs into the selected target settings. These commands do not edit configuration files.
+
 Autosave uploads are optional. To enable this niche feature, keep the `AUTOSAVE_UPLOADS` R2 binding and create its bucket once:
 
 ```bash
 bun run bot:r2:create
 ```
 
-Otherwise, remove the `r2_buckets` block. The rest of the bot works normally and `/admin health` reports only a warning. Durable Objects are created automatically when the bot Worker deploys.
+Otherwise, remove the target's `r2` entry. The rest of the bot works normally and `/admin health` reports only a warning. Durable Objects are created automatically when the bot Worker deploys.
 
 ### 3. Upload the small secret set
 
@@ -122,7 +135,7 @@ cp apps/bot/.prod.secrets.example apps/bot/.prod.secrets
 cp apps/activity/.prod.secrets.example apps/activity/.prod.secrets
 ```
 
-The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Its file also contains the public `DISCORD_APPLICATION_ID` and `ALLOWED_DISCORD_GUILD_ID` values used by command registration; keep them in sync with `apps/bot/wrangler.jsonc`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. The sync commands filter these files to the actual Worker secrets, so public registration values are not uploaded over same-named Wrangler vars. Vite reads the browser client ID from `apps/activity/wrangler.json`. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
+The bot Worker secrets are `DISCORD_TOKEN` and `CIVUP_SECRET`. Activity secrets are `DISCORD_CLIENT_SECRET` and `CIVUP_SECRET`. Upload commands select only these keys and send their values over stdin. Registration and production Activity builds take their public Discord IDs from the selected target. Generate `CIVUP_SECRET` with `bunx @rttnd/gau secret` and use the same value for both Workers.
 
 ```bash
 bun run bot:secrets:prod
@@ -137,7 +150,7 @@ For the first deployment, run:
 bun run deploy:prod
 ```
 
-The command keeps the existing order: remote D1 migration, bot deploy, Activity build, then Activity deploy. Check the public Wrangler values before running it.
+The command runs remote D1 migrations, builds and deploys the bot, then builds and deploys the Activity. Each deployment checks that its prebuilt files belong to the selected target. Inspect the sequence without running it with `bun run deploy:prod --print-commands`.
 
 After both URLs exist:
 
@@ -169,6 +182,28 @@ bun run bot:l:migrate
 bun run bot:register
 bun run bot:kv:local
 ```
+
+## Builds and checks
+
+```bash
+bun install --frozen-lockfile
+bun run check
+bun run lint
+bun run format:check
+bun run test
+bun run --filter civup-bot build
+bun run --filter civup-activity build:prod
+```
+
+Build commands only create local files. Activity's plain `build` uses the development Discord app; `build:prod` uses standard settings and `build:ppl` uses local PPL settings.
+
+Activity tests run through Vite+ and Vitest with the Solid compiler. Bot and package tests use Bun. `bun run test:cov` writes separate reports under `coverage/`; `bun run test:ui` opens the Activity test UI. Use `lint:fix` and `format` to apply lint and formatting changes.
+
+`bun run test:cloudflare:local` checks migrations and D1/KV operations in temporary storage with fixture identities. It does not use the development database or remote resources.
+
+The `tsc` command uses native TypeScript 7. The `typescript` dependency supplies TypeScript 6's JavaScript API for lint plugins that still need it.
+
+Wrangler remains installed for bot bundling and operations the pinned `cf` cannot preserve: the bot's tagged Durable Object migrations and `keep_vars`, stdin secret uploads, and complete remote KV listing. Local D1 typed bindings and SQL scripts use Miniflare where `cf` would lose values or results; local KV listing also uses Miniflare. These adapters consume the shared target data. Generated configuration and build output live under ignored `.cloudflare` directories.
 
 ## Local cron triggers
 

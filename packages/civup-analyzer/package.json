@@ -13,7 +13,8 @@
   "scripts": {
     "civup": "bun src/cli.ts",
     "test": "bun test",
-    "check": "tsgo --noEmit"
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=../../coverage/analyzer",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
     "@civup/civ6-save-metadata": "workspace:*"

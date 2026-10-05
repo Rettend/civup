@@ -6,7 +6,7 @@ import {
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE } from '../src/server/browser-auth'
 

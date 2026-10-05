@@ -1,21 +1,22 @@
 import { Database } from 'bun:sqlite'
 import { analyzeAutosaveTimelineBytes } from './autosave-timeline.ts'
-import { createCityStateResolver, type CivReplayCityStateCategory, type CivReplayCityStateEnvoySnapshot, type CivReplayCityStateResolver, type CivReplayCityStateSnapshot } from './civreplay/city-states.ts'
+import type { CivReplayCityStateCategory, CivReplayCityStateEnvoySnapshot, CivReplayCityStateResolver, CivReplayCityStateSnapshot } from './civreplay/city-states.ts'
+import { createCityStateResolver } from './civreplay/city-states.ts'
 import type { CivReplayCitySnapshot, CivReplayGovernorSnapshot, CivReplayPlayerSnapshot } from './civreplay/players.ts'
-import { analyzeCivReplaySnapshotsBytes, type CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
+import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
+import type { CivReplayTradeRouteKnownYieldSummary, CivReplayTradeRouteSummary } from './civreplay/trade-routes.ts'
+import { analyzeCivReplaySnapshotsBytes } from './civreplay/snapshot.ts'
 import {
   KNOWN_TRADE_ROUTE_YIELDS_EXCLUDED,
   summarizeCivReplayKnownTradeRouteYields,
   summarizeCivReplayTradeRoutes,
-  type CivReplayTradeRouteKnownYieldSummary,
-  type CivReplayTradeRouteSummary,
 } from './civreplay/trade-routes.ts'
-import { civHash, createHashResolver, formatHash, type HashResolver } from './hash.ts'
+import type { HashResolver } from './hash.ts'
+import type { CivupOpeningDistrictAdjacencyChange, OpeningMapAnalysisData } from './opening-map-analysis.ts'
+import { civHash, createHashResolver, formatHash } from './hash.ts'
 import {
   buildDistrictAdjacencyChanges,
   loadOpeningMapAnalysisData,
-  type CivupOpeningDistrictAdjacencyChange,
-  type OpeningMapAnalysisData,
 } from './opening-map-analysis.ts'
 import type { CivupTimelinePlayerSummary } from './types.ts'
 

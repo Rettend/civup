@@ -1,16 +1,15 @@
+import type { CloudflareD1Result } from '../../../scripts/cloudflare-client.ts'
 /* eslint-disable no-console */
-import { existsSync, readdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { resolve } from 'node:path'
 import process from 'node:process'
 import { redDeathLeaderMap } from '@civup/game'
-import { Database as SqliteDatabase } from 'bun:sqlite'
+import { createMaintenanceClient } from './maintenance-cloudflare.ts'
 
 type Action = 'estimate' | 'apply'
 
 interface Options {
   action: Action
-  config: string
+  config?: string
+  target?: string
   database: string
   remote: boolean
   yes: boolean
@@ -29,16 +28,6 @@ interface Estimate {
   d1RowsRead?: number
 }
 
-interface WranglerResult {
-  results?: Array<Record<string, unknown>>
-  success?: boolean
-  error?: string
-  meta?: {
-    rows_read?: number
-  }
-}
-
-let localD1SqlitePath: string | null = null
 let lastProgressLength = 0
 
 const usage = [
@@ -47,8 +36,8 @@ const usage = [
   'Flags:',
   '  --local             Use local D1 storage (default)',
   '  --remote            Use remote D1 storage',
-  '  --config <path>     Wrangler config (default: apps/bot/wrangler.jsonc)',
-  '  --database <name>   D1 database name (default: civup)',
+  '  --target <name>     Select standard or ppl (default: CIVUP_TARGET or standard)',
+  '  --database <id>     Assert the selected database name or ID; cannot retarget it',
   '  --batch-size <n>    Matches per apply batch (default: 500)',
   '  --verify            Run a full estimate after apply',
   '  --yes               Required for remote apply',
@@ -65,8 +54,7 @@ const options = parseOptions(Bun.argv.slice(2))
 if (options.action === 'estimate') {
   const estimate = await estimateBackfill(options)
   printEstimate(options, estimate)
-}
-else {
+} else {
   if (options.remote && !options.yes) {
     console.error('Remote apply requires --yes.')
     process.exit(1)
@@ -85,8 +73,7 @@ else {
   if (options.verify) {
     const after = await estimateBackfill(options)
     printEstimate(options, after)
-  }
-  else {
+  } else {
     console.log('Skipped post-apply verification to save D1 reads. Run estimate when needed.')
   }
 }
@@ -238,9 +225,8 @@ function buildEligibleWhereClause(): string {
 
 function buildEligibleParticipantWhereClause(): string {
   const redDeathLeaderIds = [...redDeathLeaderMap.keys()]
-  const redDeathClause = redDeathLeaderIds.length > 0
-    ? `and mp.civ_id not in (${redDeathLeaderIds.map(sqlString).join(', ')})`
-    : ''
+  const redDeathClause =
+    redDeathLeaderIds.length > 0 ? `and mp.civ_id not in (${redDeathLeaderIds.map(sqlString).join(', ')})` : ''
 
   return `${buildEligibleMatchWhereClause()}
       and mp.civ_id is not null
@@ -262,24 +248,18 @@ function buildEligibleMatchWhereClause(): string {
       end = 1`
 }
 
-async function readEstimate(options: Options): Promise<{ metrics: Record<string, number>, d1RowsRead?: number }> {
+async function readEstimate(options: Options): Promise<{ metrics: Record<string, number>; d1RowsRead?: number }> {
   const sql = buildEstimateSql()
   if (options.remote) {
     return readRemoteEstimate(options)
   }
 
-  const db = openLocalD1Database(true)
-  try {
-    return {
-      metrics: rowsToMetrics(db.query(sql).all() as Array<Record<string, unknown>>),
-    }
-  }
-  finally {
-    db.close()
-  }
+  const { client } = createMaintenanceClient(options, 'local')
+  const [result] = await client.d1Query(sql)
+  return { metrics: rowsToMetrics(result!.results), d1RowsRead: normalizeCount(result!.meta.rows_read) }
 }
 
-async function readRemoteEstimate(options: Options): Promise<{ metrics: Record<string, number>, d1RowsRead?: number }> {
+async function readRemoteEstimate(options: Options): Promise<{ metrics: Record<string, number>; d1RowsRead?: number }> {
   const metrics: Record<string, number> = {}
   let d1RowsRead = 0
 
@@ -309,7 +289,13 @@ async function applyMissingContributions(options: Options, updatedAt: number, es
   }
 }
 
-function renderProgress(input: { processed: number, total: number, batch: number, totalBatches: number, startedAt: number }): void {
+function renderProgress(input: {
+  processed: number
+  total: number
+  batch: number
+  totalBatches: number
+  startedAt: number
+}): void {
   const width = 28
   const ratio = input.total > 0 ? input.processed / input.total : 1
   const filled = Math.max(0, Math.min(width, Math.round(width * ratio)))
@@ -333,7 +319,7 @@ function formatDuration(ms: number): string {
   return minutes > 0 ? `${minutes}m${String(seconds).padStart(2, '0')}s` : `${seconds}s`
 }
 
-function buildRemoteEstimateQueries(): Array<{ metric: string, sql: string }> {
+function buildRemoteEstimateQueries(): Array<{ metric: string; sql: string }> {
   return [
     {
       metric: 'eligible_leader_matches',
@@ -367,150 +353,18 @@ function buildRemoteEstimateQueries(): Array<{ metric: string, sql: string }> {
 }
 
 async function executeApplySql(options: Options, sql: string): Promise<void> {
-  if (options.remote) {
-    await executeRemoteSql(options, sql)
-    return
-  }
-
-  const db = openLocalD1Database(false)
-  try {
-    db.exec(sql)
-  }
-  finally {
-    db.close()
-  }
+  const { client } = createMaintenanceClient(options, options.remote ? 'remote' : 'local')
+  // Keep aggregate and contribution statements in one atomic D1 batch.
+  await client.d1Batch(sql.split(';\n').map(sql => ({ sql })))
 }
 
-async function executeRemoteSql(options: Options, sql: string): Promise<WranglerResult[]> {
-  const command = normalizeWranglerSql(sql)
-  const sqlFile = resolve(tmpdir(), `civup-player-civ-backfill-${Date.now()}-${Math.random().toString(36).slice(2)}.sql`)
-  await Bun.write(sqlFile, command)
-  const args = [
-    'x',
-    'wrangler',
-    'd1',
-    'execute',
-    options.database,
-    '--config',
-    options.config,
-    options.remote ? '--remote' : '--local',
-    '--file',
-    sqlFile,
-    '--json',
-  ]
-  const proc = Bun.spawn(['bun', ...args], { stdout: 'pipe', stderr: 'pipe' })
-  let stdout = ''
-  let stderr = ''
-  let exitCode = 0
-  try {
-    [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ])
-  }
-  finally {
-    rmSync(sqlFile, { force: true })
-  }
-
-  if (exitCode !== 0) {
-    if (stderr.trim()) console.error(stderr.trim())
-    if (stdout.trim()) console.error(stdout.trim())
-    throw new Error(`wrangler d1 execute failed with exit code ${exitCode}`)
-  }
-
-  const parsed = parseWranglerJson(stdout)
-  const failed = parsed.find(entry => entry.success === false)
-  if (failed) throw new Error(failed.error ?? 'wrangler d1 execute failed')
-  return parsed
-}
-
-async function executeRemoteCommandSql(options: Options, sql: string): Promise<WranglerResult[]> {
-  const command = normalizeWranglerSql(sql)
-  const args = [
-    'x',
-    'wrangler',
-    'd1',
-    'execute',
-    options.database,
-    '--config',
-    options.config,
-    options.remote ? '--remote' : '--local',
-    '--command',
-    command,
-    '--json',
-  ]
-  const proc = Bun.spawn(['bun', ...args], { stdout: 'pipe', stderr: 'pipe' })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-
-  if (exitCode !== 0) {
-    if (stderr.trim()) console.error(stderr.trim())
-    if (stdout.trim()) console.error(stdout.trim())
-    throw new Error(`wrangler d1 execute failed with exit code ${exitCode}`)
-  }
-
-  const parsed = parseWranglerJson(stdout)
-  const failed = parsed.find(entry => entry.success === false)
-  if (failed) throw new Error(failed.error ?? 'wrangler d1 execute failed')
-  return parsed
-}
-
-function parseWranglerJson(stdout: string): WranglerResult[] {
-  const trimmed = stdout.trim()
-  const jsonStart = trimmed.indexOf('[')
-  if (jsonStart < 0) throw new Error(`wrangler returned non-JSON output: ${trimmed}`)
-  return JSON.parse(trimmed.slice(jsonStart)) as WranglerResult[]
-}
-
-function openLocalD1Database(readonly: boolean): SqliteDatabase {
-  return readonly
-    ? new SqliteDatabase(resolveLocalD1SqlitePath(), { readonly: true })
-    : new SqliteDatabase(resolveLocalD1SqlitePath())
-}
-
-function resolveLocalD1SqlitePath(): string {
-  if (localD1SqlitePath) return localD1SqlitePath
-
-  const d1Dir = resolve(import.meta.dir, '../.wrangler/state/v3/d1/miniflare-D1DatabaseObject')
-  if (!existsSync(d1Dir)) throw new Error(`Local D1 directory not found: ${d1Dir}`)
-
-  for (const file of readdirSync(d1Dir)) {
-    if (!file.endsWith('.sqlite') || file === 'metadata.sqlite') continue
-    const sqlitePath = resolve(d1Dir, file)
-    const db = new SqliteDatabase(sqlitePath, { readonly: true })
-    try {
-      const tables = new Set((db
-        .query("select name from sqlite_master where type = 'table'")
-        .all() as Array<{ name: string }>).map(row => row.name))
-      if (tables.has('matches') && tables.has('match_participants') && tables.has('player_civ_stats')) {
-        localD1SqlitePath = sqlitePath
-        return sqlitePath
-      }
-    }
-    finally {
-      db.close()
-    }
-  }
-
-  throw new Error(`Could not find a local D1 SQLite file in ${d1Dir}`)
-}
-
-function normalizeWranglerSql(sql: string): string {
-  const normalized = sql
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .join(' ')
-  return normalized.endsWith(';') ? normalized : `${normalized};`
+async function executeRemoteCommandSql(options: Options, sql: string): Promise<CloudflareD1Result[]> {
+  return createMaintenanceClient(options, 'remote').client.d1Query(sql)
 }
 
 function printEstimate(options: Options, estimate: Estimate): void {
-  console.log(`Target: ${options.database} (${options.remote ? 'remote' : 'local'})`)
-  console.log(`Config: ${options.config}`)
+  const { provenance } = createMaintenanceClient(options, options.remote ? 'remote' : 'local')
+  console.log(`Target: ${JSON.stringify(provenance)}`)
   console.log(`Eligible leader matches: ${estimate.eligibleLeaderMatches}`)
   console.log(`Eligible leader participant rows: ${estimate.eligibleLeaderParticipantRows}`)
   console.log(`Missing contribution matches: ${estimate.missingContributionMatches}`)
@@ -533,7 +387,6 @@ function parseOptions(args: string[]): Options {
 
   const options: Options = {
     action,
-    config: resolve(import.meta.dir, '../wrangler.jsonc'),
     database: 'civup',
     remote: false,
     yes: false,
@@ -542,7 +395,7 @@ function parseOptions(args: string[]): Options {
   }
 
   for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]
+    const arg = args[index]!
     if (!arg.startsWith('--')) continue
 
     switch (arg) {
@@ -557,7 +410,14 @@ function parseOptions(args: string[]): Options {
       case '--config': {
         const value = args[index + 1]
         if (!value) throw new Error('Missing --config value.')
-        options.config = resolve(process.cwd(), value)
+        options.config = value
+        index += 1
+        break
+      }
+      case '--target': {
+        const value = args[index + 1]
+        if (!value) throw new Error('Missing --target value.')
+        options.target = value
         index += 1
         break
       }
@@ -572,7 +432,8 @@ function parseOptions(args: string[]): Options {
         const value = args[index + 1]
         if (!value) throw new Error('Missing --batch-size value.')
         const batchSize = Number(value)
-        if (!Number.isSafeInteger(batchSize) || batchSize <= 0) throw new Error('--batch-size must be a positive integer.')
+        if (!Number.isSafeInteger(batchSize) || batchSize <= 0)
+          throw new Error('--batch-size must be a positive integer.')
         options.batchSize = batchSize
         index += 1
         break

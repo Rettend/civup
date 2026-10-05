@@ -1,10 +1,10 @@
 import type { Database } from '@civup/db'
-import type { LeaderDataVersion } from '@civup/game'
+import type { DbBatchItem } from '../db/batch.ts'
 import { civStatPoolTotals, civStats, civStatTotals, matchCivStatContributions, matches, matchParticipants, tournamentMatches } from '@civup/db'
 import { getLeader, getLeaderIds, liveLeaderDataVersionLabel, parseGameMode, redDeathLeaderMap, toLeaderboardMode } from '@civup/game'
 import { and, eq, inArray, not, or, sql } from 'drizzle-orm'
 import { kvMdelete, kvMget, kvMput } from '../kv/batch.ts'
-import { runDbBatch, type DbBatchItem } from '../db/batch.ts'
+import { runDbBatch } from '../db/batch.ts'
 import { readCivReleaseSnapshots } from './civ-release.ts'
 
 export type CivLeaderboardSource = 'live' | 'beta'
@@ -140,13 +140,6 @@ export interface ContributionRow {
   modeScope: string
   completedAt: number
   visible: boolean
-}
-
-interface CivPoolTotalRow {
-  modeScope: CivLeaderboardModeScope
-  poolKey: string
-  poolCivIds: string[]
-  completedMatchCount: number
 }
 
 const CIV_LEADERBOARD_SNAPSHOT_KEY = 'leaderboard:civ:snapshot:distinct-bans-v1'
@@ -1457,11 +1450,6 @@ function getAggregatesMap(
 
 function emptySnapshot(modeScope: CivLeaderboardModeScope, label: string, updatedAt: number, historyInitialized: boolean): CivLeaderboardSnapshot {
   return { updatedAt, historyInitialized, label, modeScope, completedMatchCount: 0, rows: [] }
-}
-
-async function countContributionRows(db: Database): Promise<number> {
-  const [row] = await db.select({ count: sql<number>`count(*)` }).from(matchCivStatContributions)
-  return normalizeCount(row?.count)
 }
 
 function normalizeCompletedAt(value: unknown): number {

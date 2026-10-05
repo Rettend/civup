@@ -1,5 +1,5 @@
-import type { JSX } from 'solid-js'
-import { splitProps } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 const variants = {
@@ -15,8 +15,8 @@ interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant
 }
 
-export function Badge(props: BadgeProps) {
-  const [local, rest] = splitProps(props, ['variant', 'class', 'children'])
+export function Badge(local: BadgeProps) {
+  const rest = omit(local, 'variant', 'class', 'children')
 
   return (
     <span

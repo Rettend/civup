@@ -550,7 +550,7 @@ function completeCivBlitzStep(
       const conflictIds = conflicts.conflictComponentIdsByCategory[category]
       if (conflictIds?.has(componentId)) continue
       lockedKits[submission.seatIndex] = {
-        ...(lockedKits[submission.seatIndex] ?? {}),
+        ...lockedKits[submission.seatIndex],
         [category]: componentId,
       }
     }
@@ -1215,7 +1215,7 @@ function resolveCivBlitzPriorityConflicts(
       if (!winner) continue
 
       nextLockedKits[winner.seatIndex] = {
-        ...(nextLockedKits[winner.seatIndex] ?? {}),
+        ...nextLockedKits[winner.seatIndex],
         [category]: componentId,
       }
 

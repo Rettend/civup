@@ -3,7 +3,7 @@ import type { CurrentRankAssignment, RankedRolePreview } from './role-sync.ts'
 import type { RankedRoleConfig } from './roles.ts'
 import type { DivisionRolePreparation } from './division-role-preparation.ts'
 import { divisionRankPolicies, divisionRankSources, divisionRankStates, players, seasonPeakDivisionRanks, seasonPeakRanks, seasons } from '@civup/db'
-import { isOverallRankPolicyVersion, nextOverallRankChangeAt, ONE_DIVISION_RANK_POLICY_VERSION, OVERALL_RANK_POLICY_VERSION, PUBLIC_RATING_BANDS } from '@civup/rating'
+import { isOverallRankPolicyVersion, nextOverallRankChangeAt, OVERALL_RANK_POLICY_VERSION, PUBLIC_RATING_BANDS } from '@civup/rating'
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
 import { addGuildMemberRole, DiscordApiError, fetchGuildChannelRoleOverwriteIds, fetchGuildMember, fetchGuildMemberPage, fetchGuildRoles, removeGuildMemberRole } from '../discord/index.ts'
 import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
@@ -16,7 +16,11 @@ import { publishPendingDivisionPlayers } from './division-projection.ts'
 
 type Policy = typeof divisionRankPolicies.$inferSelect
 type Result = Awaited<ReturnType<typeof previewOverallDivisionRanks>>[number]
-type StoredConfig = { config: RankedRoleConfig, preparation: DivisionRolePreparation, membershipScopePrepared?: boolean }
+interface StoredConfig {
+  config: RankedRoleConfig
+  preparation: DivisionRolePreparation
+  membershipScopePrepared?: boolean
+}
 
 export async function getDivisionRankPolicy(db: Database, guildId: string) {
   const [policy] = await db.select().from(divisionRankPolicies).where(eq(divisionRankPolicies.guildId, guildId)).limit(1)

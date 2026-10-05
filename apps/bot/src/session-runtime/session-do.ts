@@ -1,8 +1,7 @@
 import type { CompetitiveTier, DraftDoublePickMetrics, DraftPreviewState, DraftSeat, DraftSelection, DraftState, GameMode, LeaderDataVersion, QueueEntry } from '@civup/game'
 import type { SessionServerMessage } from '@civup/session'
 import type { LobbyArrangeMarker, LobbyDraftConfig, LobbyState } from '../services/lobby/types.ts'
-import type { ParticipantRow } from '../services/match/types.ts'
-import type { SubstituteMatchPlayerInput } from '../services/match/types.ts'
+import type { ParticipantRow, SubstituteMatchPlayerInput } from '../services/match/types.ts'
 import type { ActiveSubstitution } from './active-substitution.ts'
 import { ACTIVE_SUBSTITUTION_KEY, prepareActiveSubstitution, projectActiveSubstitution } from './active-substitution.ts'
 import { runUnbufferedRatingMutation } from '../services/season/maintenance.ts'
@@ -1134,7 +1133,7 @@ export class SessionDO extends SessionDraftRuntime<SessionDOEnv> {
 
     return {
       ...runtime.config,
-      ...(sourceConfig ?? {}),
+      ...sourceConfig,
       matchId: record.id,
       hostId: record.hostId,
       formatId: state.formatId,

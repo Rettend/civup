@@ -1,8 +1,9 @@
 import type { Database } from '@civup/db'
+import type { CivAggregate, CivLeaderboardDisplayConfig, CivLeaderboardModeScope, ContributionRow } from './civ-snapshot.ts'
 import { civReleaseDirty, civReleaseMembers, civReleaseProjections, leaderboardDirtyStates, matchCivStatContributions, matches } from '@civup/db'
 import { and, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm'
 import { runAtomicSeasonBatch, seasonSourceGuard } from '../season/report.ts'
-import { CIV_LEADERBOARD_MODE_SCOPES, contributionVisibleCondition, eligibleCivContributionCondition, snapshotFromAggregates, snapshotFromContributionRows, type CivAggregate, type CivLeaderboardDisplayConfig, type CivLeaderboardModeScope, type ContributionRow } from './civ-snapshot.ts'
+import { CIV_LEADERBOARD_MODE_SCOPES, contributionVisibleCondition, eligibleCivContributionCondition, snapshotFromAggregates, snapshotFromContributionRows } from './civ-snapshot.ts'
 
 type Member = typeof civReleaseMembers.$inferSelect
 type Aggregates = Record<string, { count: number, rows: Record<string, CivAggregate> }>

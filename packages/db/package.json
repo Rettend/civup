@@ -9,7 +9,7 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit",
+    "check": "tsc --noEmit",
     "generate": "drizzle-kit generate",
     "studio": "drizzle-kit studio"
   },

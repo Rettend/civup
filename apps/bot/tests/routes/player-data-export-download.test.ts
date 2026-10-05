@@ -91,7 +91,8 @@ async function createHarness(withBucket = true) {
         headers.set(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER, permissions)
       }
       if (method === 'POST') headers.set('Content-Type', CONTENT_TYPE)
-      return app.fetch(new Request(url, { method, headers, body: method === 'POST' ? body : undefined }), env)
+      const init = method === 'POST' ? { method, headers, body } : { method, headers }
+      return app.fetch(new Request(url, init), env)
     },
   }
 }

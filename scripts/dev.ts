@@ -5,11 +5,14 @@ import process from 'node:process'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'bun'
+import { resolveCloudflareTarget } from '../config/cloudflare-targets.ts'
+import { verifyWorkerArtifact } from './cloudflare-worker/artifacts.ts'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const botRoot = resolve(repoRoot, 'apps', 'bot')
 const activityRoot = resolve(repoRoot, 'apps', 'activity')
-const activityPreviewEntry = resolve(activityRoot, 'dist', 'client', 'index.html')
+const activityPreviewEntry = resolve(activityRoot, '.cloudflare', 'output', 'v0', 'workers', 'default', 'assets', 'index.html')
+const workerAdapter = resolve(repoRoot, 'scripts/cloudflare-worker.ts')
 
 interface Service {
   name: string
@@ -25,14 +28,14 @@ const noTunnel = process.argv.includes('--no-tunnel')
 const printCommands = process.argv.includes('--print-commands')
 
 const activityCommand = activityLive
-  ? ['bun', 'run', 'dev:live', '--force', '--strictPort']
-  : ['bun', 'run', 'preview']
+  ? ['bun', workerAdapter, 'live', 'activity', '--target', 'standard', '--', '--force', '--strictPort']
+  : ['bun', workerAdapter, 'preview', 'activity', '--target', 'standard']
 
 const services: Service[] = [
   {
     name: 'bot',
     cwd: botRoot,
-    cmd: ['bun', 'run', 'dev'],
+    cmd: ['bun', workerAdapter, 'dev', 'bot', '--target', 'standard'],
   },
   {
     name: 'activity',
@@ -50,11 +53,23 @@ if (printCommands) {
 let shuttingDown = false
 
 if (rebuildActivity) {
-  runCommand('activity build', ['bun', 'run', 'build'], activityRoot)
+  runCommand('activity build', ['bun', workerAdapter, 'build', 'activity', '--target', 'standard', '--mode', 'development'], activityRoot)
 }
 else if (!activityLive && !existsSync(activityPreviewEntry)) {
   console.error('[dev] Activity preview bundle is missing. Run `bun run dev:new` or `bun run a:dev:new` first.')
   process.exit(1)
+}
+
+// Check cached output before starting the bot or tunnel. A production build or
+// a partial failed build is not a usable development preview.
+if (!activityLive) {
+  try {
+    verifyWorkerArtifact(activityRoot, { targetName: 'standard', target: resolveCloudflareTarget('standard'), worker: 'activity', mode: 'development' })
+  }
+  catch (error) {
+    console.error(`[dev] ${error instanceof Error ? error.message : 'Activity preview build could not be checked.'} Run \`bun run dev:new\` to rebuild it.`)
+    process.exit(1)
+  }
 }
 
 function killProcessTree(pid: number) {
@@ -77,9 +92,8 @@ function shutdown(code: number) {
   if (shuttingDown) return
   shuttingDown = true
 
-  for (const { proc } of processes) {
+  for (const { proc } of processes)
     if (proc.pid) killProcessTree(proc.pid)
-  }
 
   process.exit(code)
 }
@@ -181,7 +195,7 @@ function flushOutputBuffer(name: string, buffer: string, isError: boolean, flush
 
 function sanitizeOutput(text: string): string {
   return text
-    // eslint-disable-next-line no-control-regex, regexp/no-obscure-range
+    // eslint-disable-next-line no-control-regex
     .replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
     .replace(/\r/g, '\n')
 }

@@ -3,7 +3,7 @@ import {
   CIVUP_INTERNAL_SECRET_HEADER,
   createActivitySession,
 } from '@civup/utils'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'vitest'
 import activityWorker from '../src/server'
 
 const SECRET = 'server-party-proxy-secret'

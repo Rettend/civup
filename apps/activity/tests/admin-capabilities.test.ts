@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../src/client/lib/admin-capabilities'
 
 describe('Activity admin capabilities', () => {

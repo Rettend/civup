@@ -1,19 +1,21 @@
 {
   "name": "@civup/game",
-  "type": "module",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "bun@1.4.2",
+  "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=../../coverage/game",
+    "check": "tsc --noEmit",
     "sync:bbg-live": "bun ./scripts/sync-bbg-leaders.ts live",
     "sync:bbg-beta": "bun ./scripts/sync-bbg-leaders.ts beta",
     "sync:bbg": "bun run sync:bbg-live && bun run sync:bbg-beta"
   },
   "dependencies": {
     "@civup/utils": "workspace:*"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

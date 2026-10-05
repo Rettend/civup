@@ -1,8 +1,8 @@
 import type { CompetitiveTier } from '@civup/game'
+import type { OverallRankPolicyVersion } from '@civup/rating'
 import { competitiveTierMeetsMaximum, competitiveTierMeetsMinimum, competitiveTierNumber, competitiveTierRank, isCompetitiveTier } from '@civup/game'
 import { DiscordApiError } from '../discord/index.ts'
-import { PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
-import { isOverallRankPolicyVersion, type OverallRankPolicyVersion } from '@civup/rating'
+import { isOverallRankPolicyVersion, PUBLIC_RATING_BANDS, rankDivisionSuffix } from '@civup/rating'
 
 export interface RankedRoleTierConfig {
   roleId: string | null

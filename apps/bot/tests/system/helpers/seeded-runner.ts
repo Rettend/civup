@@ -82,7 +82,7 @@ export async function runSeededSystemSequence(
     await expectMatchState(world, {
       matchId: started.matchId,
       status: 'drafting',
-      participantPlayerIds: [...players.map(player => player.id)].sort(),
+      participantPlayerIds: players.map(player => player.id).sort(),
       civsAssigned: false,
       placementsAssigned: false,
     })

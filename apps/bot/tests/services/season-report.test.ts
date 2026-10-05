@@ -1,6 +1,6 @@
 import type { Database } from '@civup/db'
-import { matches, matchParticipants, matchPlayerCivStatContributions, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingDecayPolicies, publicRatingSeeds, seasonMatchReports, seasonRatingCheckpoints, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
-import { calibratePublicRatings, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
+import { divisionRankPolicies, divisionRankStates, divisionQualityCredits, matches, matchParticipants, matchPlayerCivStatContributions, playerCivStats, playerRatingEvents, playerRatings, players, publicRatingCalibrations, publicRatingDecayPolicies, publicRatingSeeds, seasonMatchReports, seasonRatingCheckpoints, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
+import { calibratePublicRatings, ONE_DIVISION_RANK_POLICY_VERSION, PUBLIC_RATING_BANDS, PUBLIC_RATING_FORMULA_VERSION } from '@civup/rating'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { prepareSeasonReport, runAtomicSeasonBatch } from '../../src/services/season/report.ts'
@@ -10,8 +10,6 @@ import { initializeQualityCheckpointPage } from '../../src/services/ranked/quali
 import { initializeSeasonCheckpointPage } from '../../src/services/season/checkpoints.ts'
 import { cancelMatchByModerator, resolveMatchByModerator } from '../../src/services/match/moderation.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
-import { divisionRankPolicies, divisionRankStates, divisionQualityCredits } from '@civup/db'
-import { ONE_DIVISION_RANK_POLICY_VERSION, PUBLIC_RATING_BANDS } from '@civup/rating'
 
 async function setup() {
   const fixture = await createTestDatabase()

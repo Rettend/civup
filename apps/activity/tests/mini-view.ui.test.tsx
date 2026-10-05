@@ -1,9 +1,9 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
 import type { DraftState } from '@civup/game'
-import { cleanup, render, screen } from '@solidjs/testing-library'
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, TEST_LEADER_IDS } from './ui-fixtures'
+import { cleanup, screen } from '@solidjs/testing-library'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { createActiveDraftState, createCancelledDraftState, createCompleteDraftState, createWaitingDraftState, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
 import { resetUiMocks, uiMockState } from './ui-mocks'
 
 const { DraftPage } = await import('../src/client/pages/draft')

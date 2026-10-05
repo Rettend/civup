@@ -3,6 +3,8 @@ import type { SQL } from 'drizzle-orm'
 import type { DbBatchItem } from '../db/batch.ts'
 import type { ParticipantRow } from '../match/types.ts'
 import type { StoredRatingSummaryRow } from '../match/report.ts'
+import type { DivisionRatingInput, DivisionEventInput } from '../ranked/atomic-divisions.ts'
+import type { RatingCheckpoint } from './checkpoints.ts'
 import { divisionRankPolicies, divisionRankStates, matches, matchParticipants, playerRatingEvents, playerRatings, publicRatingCalibrations, publicRatingSeeds, seasonMatchReports, seasonRatingConfigurations, seasonRatingStates, seasons } from '@civup/db'
 import { advancePublicRatingBadge, calculatePublicRatingTransition, createRating, PUBLIC_RATING_START, publicRatingTarget, recordPublicRatingDecayGame, settlePublicRatingDecay } from '@civup/rating'
 import { and, eq, inArray, sql } from 'drizzle-orm'
@@ -11,9 +13,9 @@ import { buildMatchEvidenceByPlayerId, buildRatingScopeUpdateQueries } from '../
 import { seasonMutationError } from './policy.ts'
 import { markRatingMutationUncertain } from './maintenance.ts'
 import { loadPublicRatingDecayPolicy, samePublicRatingDecay } from './decay.ts'
-import { prepareAtomicDivisionUpdates, type DivisionRatingInput, type DivisionEventInput } from '../ranked/atomic-divisions.ts'
+import { prepareAtomicDivisionUpdates } from '../ranked/atomic-divisions.ts'
 import { notifyDivisionDelivery } from '../ranked/division-delivery.ts'
-import { writeRatingCheckpoints, type RatingCheckpoint } from './checkpoints.ts'
+import { writeRatingCheckpoints } from './checkpoints.ts'
 
 export interface PreparedSeasonReport {
   queries: DbBatchItem[]

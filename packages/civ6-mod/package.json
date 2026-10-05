@@ -8,9 +8,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsgo --noEmit",
+    "check": "tsc --noEmit",
     "generate": "bun ./scripts/generate-catalog.ts",
     "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=../../coverage/civ6-mod",
     "vendor:upstream": "bun ./scripts/vendor-upstream.ts"
   },
   "dependencies": {

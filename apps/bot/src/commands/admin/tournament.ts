@@ -1,11 +1,12 @@
 import type { AdminCommandContext } from './types.ts'
+import type { TournamentPlayerImportRow } from '../../services/tournament/index.ts'
 import { createDb } from '@civup/db'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { Modal, TextInput } from 'discord-hono'
 import { ephemeralResponseEmbed } from '../../embeds/response.ts'
 import { fetchGuildMember, isDiscordApiError } from '../../services/discord/index.ts'
 import { getKvStore } from '../../services/kv/batch.ts'
-import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament, type TournamentPlayerImportRow } from '../../services/tournament/index.ts'
+import { buildTournamentStandings, createTournament, createTournamentCut, DEFAULT_TOURNAMENT_MIN_GAMES, DEFAULT_TOURNAMENT_REMATCH_POLICY, DEFAULT_TOURNAMENT_TOP_CUT, getCurrentTournament, importTournamentPlayers, isSupportedTournamentTopCut, normalizeTournamentPositiveInteger, normalizeTournamentRematchPolicy, parseTournamentPlayersCsv, refreshTournamentLeaderboard, startTournament, SUPPORTED_TOURNAMENT_TOP_CUTS, updateTournament } from '../../services/tournament/index.ts'
 import { factory } from '../../setup.ts'
 import { getInteractionUserId, sendEphemeralResponse, sendTransientEphemeralResponse } from './shared.ts'
 

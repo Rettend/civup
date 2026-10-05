@@ -1,12 +1,12 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { render, screen, waitFor } from '@solidjs/testing-library'
+import { screen, waitFor } from '@solidjs/testing-library'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { createActiveDraftState, createCompleteDraftState, TEST_LEADER_IDS } from './ui-fixtures'
-import { resetUiMocks, storeSpies, uiMockState } from './ui-mocks'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createActiveDraftState, createCompleteDraftState, renderUi as render, TEST_LEADER_IDS } from './ui-fixtures'
+import { resetUiMocks, storeSpies, uiMockState, updateUiMocks } from './ui-mocks'
 
-const onSwitchTarget = mock(() => {})
+const onSwitchTarget = vi.fn(() => {})
 
 const { DraftHeader } = await import('../src/client/components/draft/DraftHeader')
 
@@ -14,6 +14,23 @@ describe('DraftHeader UI', () => {
   beforeEach(() => {
     resetUiMocks()
     onSwitchTarget.mockClear()
+  })
+
+  test('flashes on an active phase change and clears the timeout on disposal', async () => {
+    vi.useFakeTimers()
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+    const { container, unmount } = render(() => <DraftHeader />)
+    expect(container.querySelector('.anim-phase-flash')).toBeNull()
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1 })
+    expect(container.querySelector('.anim-phase-flash')).toBeTruthy()
+    await vi.advanceTimersByTimeAsync(220)
+    expect(container.querySelector('.anim-phase-flash')).toBeNull()
+
+    uiMockState.draftState = createActiveDraftState({ currentStepIndex: 0 })
+    expect(container.querySelector('.anim-phase-flash')).toBeTruthy()
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   test('keeps active revert pending after confirmation', async () => {
@@ -35,13 +52,16 @@ describe('DraftHeader UI', () => {
     await user.click(screen.getByRole('button', { name: 'Lobby Overview' }))
     expect(onSwitchTarget).toHaveBeenCalledTimes(1)
 
-    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    const revertButton = screen.getByRole('button', { name: 'Revert' }) as HTMLButtonElement
+    await user.click(revertButton)
     expect(storeSpies.sendRevert).toHaveBeenCalledTimes(0)
 
-    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    await user.click(revertButton)
     await waitFor(() => expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1))
 
-    await user.click(screen.getByRole('button', { name: 'Revert' }))
+    expect(revertButton.disabled).toBe(true)
+    expect(revertButton.getAttribute('aria-label')).toBe('Reverting')
+    await user.click(revertButton)
     await user.click(screen.getByRole('button', { name: 'Scrub' }))
     expect(storeSpies.sendRevert).toHaveBeenCalledTimes(1)
     expect(storeSpies.sendScrub).toHaveBeenCalledTimes(0)
@@ -56,13 +76,16 @@ describe('DraftHeader UI', () => {
 
     render(() => <DraftHeader steamLobbyLink="steam://joinlobby/289070/example" onSwitchTarget={onSwitchTarget} />)
 
-    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    const scrubButton = screen.getByRole('button', { name: 'Scrub' }) as HTMLButtonElement
+    await user.click(scrubButton)
     expect(storeSpies.sendScrub).toHaveBeenCalledTimes(0)
 
-    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    await user.click(scrubButton)
     await waitFor(() => expect(storeSpies.sendScrub).toHaveBeenCalledTimes(1))
 
-    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    expect(scrubButton.disabled).toBe(true)
+    expect(scrubButton.getAttribute('aria-label')).toBe('Scrubbing')
+    await user.click(scrubButton)
     await user.click(screen.getByRole('button', { name: 'Revert' }))
     expect(storeSpies.sendScrub).toHaveBeenCalledTimes(1)
     expect(storeSpies.sendRevert).toHaveBeenCalledTimes(0)
@@ -92,7 +115,7 @@ describe('DraftHeader UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'voting'
     uiMockState.mapVoteVotingEndsAt = Date.now() + 90_000
 
@@ -154,7 +177,7 @@ describe('DraftHeader UI', () => {
     uiMockState.userId = 'host-1'
     uiMockState.draftHostId = 'host-1'
     uiMockState.draftState = createActiveDraftState({ currentStepIndex: 1, formatId: '2v2' })
-    uiMockState.draftState.status = 'waiting'
+    updateUiMocks(draft => { draft.draftState!.status = 'waiting' })
     uiMockState.mapVotePhase = 'reveal'
     uiMockState.mapVoteRevealEndsAt = Date.now() + 10_000
 
@@ -208,7 +231,7 @@ describe('DraftHeader UI', () => {
     await user.click(screen.getByRole('button', { name: 'Scrub' }))
     expect(storeSpies.scrubMatchResult).toHaveBeenCalledTimes(0)
 
-    await user.click(screen.getByRole('button', { name: 'Scrub' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm Scrub' }))
 
     await waitFor(() => expect(storeSpies.scrubMatchResult).toHaveBeenCalledWith('match-1', 'host-1'))
   })

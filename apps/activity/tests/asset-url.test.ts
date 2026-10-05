@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { resolveAssetUrl } from '../src/client/lib/asset-url'
 
 describe('resolveAssetUrl', () => {

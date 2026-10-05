@@ -1,5 +1,5 @@
 import type { Accessor } from 'solid-js'
-import { createMemo, splitProps } from 'solid-js'
+import { createMemo, omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 type MaybeAccessor<T> = T | Accessor<T>
@@ -16,8 +16,8 @@ interface SwitchProps {
   class?: string
 }
 
-export function Switch(props: SwitchProps) {
-  const [local, rest] = splitProps(props, ['label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'inactiveTone', 'onChange', 'class'])
+export function Switch(local: SwitchProps) {
+  const rest = omit(local, 'label', 'description', 'ariaLabel', 'checked', 'disabled', 'tone', 'inactiveTone', 'onChange', 'class')
   const resolve = <T,>(value: MaybeAccessor<T> | undefined) => typeof value === 'function' ? (value as Accessor<T>)() : value
   const checked = createMemo(() => resolve(local.checked) ?? false)
   const disabled = createMemo(() => resolve(local.disabled) ?? false)
@@ -62,7 +62,7 @@ export function Switch(props: SwitchProps) {
       type="button"
       role="switch"
       aria-label={ariaLabel()}
-      aria-checked={checked()}
+      aria-checked={checked() ? 'true' : 'false'}
       disabled={disabled()}
       onClick={() => { if (!disabled()) local.onChange?.(!checked()) }}
       class={cn(

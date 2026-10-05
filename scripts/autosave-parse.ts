@@ -29,7 +29,7 @@ const metadata = options.includeMetadata ? parseMetadata(bytes, options.path) : 
 
 console.log(JSON.stringify({
   source: options.path,
-  ...(zipResult ?? {}),
+  ...zipResult,
   ...(metadata ? { metadata } : {}),
 }, null, options.compact ? 0 : 2))
 

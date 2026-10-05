@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun"]
+  },
+  "include": [
+    "vite.config.ts",
+    "apps/activity/vite.config.ts",
+    "apps/activity/vitest.config.ts",
+    "apps/activity/uno.config.ts",
+    "apps/activity/cloudflare.config.ts",
+    "apps/bot/cloudflare.config.ts",
+    "apps/bot/wrangler.config.ts",
+    "config/*.ts",
+    "packages/db/drizzle.config.ts",
+    "scripts/check-player-copy.ts",
+    "scripts/cloudflare*.ts",
+    "scripts/cloudflare-*/**/*.ts",
+    "scripts/deploy.ts",
+    "scripts/dev.ts",
+    "scripts/upload-worker-secrets.ts",
+    "scripts/player-copy/*.ts",
+    "tests/*.ts"
+  ]
+}

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { browserChannelPath, browserPracticePath, browserSessionPath, parseBrowserLaunchRoute, parseBrowserReturnPath, shouldWatchChannelFeed } from '../src/client/activity/route-policy'
 
 describe('browser route policy', () => {

@@ -636,11 +636,6 @@ function escapeMarkdown(value: string): string {
   return value.replace(/([\\*_`~|])/g, '\\$1')
 }
 
-function normalizeCount(value: unknown): number {
-  const numeric = typeof value === 'number' ? value : Number(value ?? 0)
-  return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : 0
-}
-
 function chunk<T>(values: T[], size: number): T[][] {
   const chunks: T[][] = []
   for (let index = 0; index < values.length; index += size) chunks.push(values.slice(index, index + size))

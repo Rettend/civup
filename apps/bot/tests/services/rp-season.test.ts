@@ -13,6 +13,7 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 import { endSeason, startSeason } from '../../src/services/season/index.ts'
 import { loadSelectedSeasonRatings } from '../../src/services/season/ratings.ts'
 import { listTopPlayerCivRankings } from '../../src/services/leaderboard/player-civ-stats.ts'
+import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'
 
 const calibration = calibratePublicRatings({ version: 'global-test-v1', scope: 'global', sourceDigest: 'fixture', qualifiedHiddenScores: Array.from({ length: 101 }, (_, index) => index) })
 const cutoff = 1000
@@ -306,4 +307,3 @@ describe('RP season isolation', () => {
     finally { sqlite.close() }
   })
 })
-import { refreshHistoricalStandings } from '../../src/services/season/standings.ts'

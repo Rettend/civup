@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node", "bun"]
+  },
+  "include": [
+    "src/globals.d.ts",
+    "scripts/backfill-civ-leaderboard.ts",
+    "scripts/backfill-player-civ-stats.ts",
+    "scripts/generate-tournament-emoji-icons.ts",
+    "scripts/kv-local.ts",
+    "scripts/local-storage.ts",
+    "scripts/maintenance-cloudflare.ts",
+    "scripts/prepare-rating-read-models.ts",
+    "scripts/seed-dev-leaders.ts",
+    "tests/maintenance-targets.test.ts",
+    "tests/ppl-leader-rank-cache.test.ts"
+  ]
+}

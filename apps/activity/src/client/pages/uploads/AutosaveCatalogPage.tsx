@@ -1,7 +1,7 @@
 import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import type { Leader } from '@civup/game'
 import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } from '@civup/game'
-import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import { useActivityController } from '~/client/activity/activity-context'
 import { Dropdown } from '~/client/components/ui/Dropdown'
 import { buildActivitySessionHeaders, getActivitySessionToken } from '~/client/lib/activity-session'
@@ -98,7 +98,7 @@ export default function AutosaveCatalogPage() {
   let loaded = false
   let disposed = false
 
-  onCleanup(() => {
+  onSettled(() => () => {
     disposed = true
   })
 
@@ -127,11 +127,10 @@ export default function AutosaveCatalogPage() {
     }
   }
 
-  createEffect(() => {
-    const state = activity.state()
-    if (loaded || state.status === 'loading') return
+  createEffect(() => ({ status: activity.state().status, allowed: activity.canViewAutosaveCatalog() }), ({ status, allowed }) => {
+    if (loaded || status === 'loading') return
     loaded = true
-    if (!activity.canViewAutosaveCatalog()) {
+    if (!allowed) {
       setError('Forbidden')
       return
     }
@@ -325,7 +324,7 @@ export default function AutosaveCatalogPage() {
           <Show when={loading() && !hasLoaded()}>
             <For each={[0, 1, 2, 3]}>{() => <CatalogCardSkeleton />}</For>
           </Show>
-          <Index each={filteredUploads()}>
+          <For each={filteredUploads()} keyed={false}>
             {item => {
               const row = () => item().row
               const action = () => pendingAction()
@@ -398,7 +397,7 @@ export default function AutosaveCatalogPage() {
               </article>
               )
             }}
-          </Index>
+          </For>
         </div>
 
         <Show when={!loading() && !error() && filteredUploads().length === 0}>
@@ -457,20 +456,21 @@ function CatalogCardSkeleton() {
 }
 
 function PlayerColumns(props: { leaders: CatalogLeaderCard[] }) {
-  const columns = splitPlayerColumns(props.leaders)
-  if (!columns) {
-    return <div class="grid gap-1"><For each={props.leaders}>{leader => <PlayerRow leader={leader} />}</For></div>
-  }
+  const columns = createMemo(() => splitPlayerColumns(props.leaders))
 
   return (
-    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+    <Show when={columns()} fallback={<div class="grid gap-1"><For each={props.leaders}>{leader => <PlayerRow leader={leader} />}</For></div>}>
+      {resolved => (
+      <div class="grid grid-cols-2 gap-x-3 gap-y-1">
       <div class="grid min-w-0 gap-1">
-        <For each={columns.left}>{leader => <PlayerRow leader={leader} />}</For>
+        <For each={resolved().left}>{leader => <PlayerRow leader={leader} />}</For>
       </div>
       <div class="grid min-w-0 gap-1">
-        <For each={columns.right}>{leader => <PlayerRow leader={leader} />}</For>
+        <For each={resolved().right}>{leader => <PlayerRow leader={leader} />}</For>
       </div>
-    </div>
+      </div>
+      )}
+    </Show>
   )
 }
 
