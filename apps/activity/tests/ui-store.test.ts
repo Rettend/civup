@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { createEffect, createRoot, flush } from 'solid-js'
+import { beforeEach, describe, expect, test } from 'vitest'
 import {
   banSelections,
   banSelectionStepToken,
@@ -29,6 +30,7 @@ import {
   setPickSelections,
   setSearchQuery,
   setSelectedLeader,
+  setResultSelectionsLocked,
   setUiScale,
   tagFilters,
   toggleBanSelection,
@@ -53,6 +55,7 @@ describe('ui-store helpers', () => {
     setGridExpanded(false)
     setGridViewMode('grid')
     resetUiScale()
+    flush()
   })
 
   test('toggleBanSelection enforces max selection count', () => {
@@ -60,9 +63,11 @@ describe('ui-store helpers', () => {
     toggleBanSelection('civ-2', 2)
     toggleBanSelection('civ-3', 2)
 
+    flush()
     expect(banSelections()).toEqual(['civ-1', 'civ-2'])
 
     toggleBanSelection('civ-1', 2)
+    flush()
     expect(banSelections()).toEqual(['civ-2'])
   })
 
@@ -80,6 +85,7 @@ describe('ui-store helpers', () => {
 
     clearSelections()
 
+    flush()
     expect(selectedLeader()).toBeNull()
     expect(pickSelections()).toEqual([])
     expect(banSelections()).toEqual([])
@@ -97,15 +103,19 @@ describe('ui-store helpers', () => {
 
   test('toggleTagFilter updates category buckets and active count', () => {
     toggleTagFilter('econ:gold')
+    flush()
     expect(tagFilters().econ).toContain('econ:gold')
 
     toggleTagFilter('win:science')
+    flush()
     expect(tagFilters().win).toContain('win:science')
 
     toggleTagFilter('econ:gold')
+    flush()
     expect(tagFilters().econ).not.toContain('econ:gold')
 
     clearTagFilters()
+    flush()
     expect(tagFilters().econ).toEqual([])
     expect(tagFilters().win).toEqual([])
     expect(tagFilters().spike).toEqual([])
@@ -117,9 +127,11 @@ describe('ui-store helpers', () => {
     toggleFfaPlacement(0)
     toggleFfaPlacement(3)
     toggleFfaPlacement(5)
+    flush()
     expect(ffaPlacementOrder()).toEqual([0, 3, 5])
 
     toggleFfaPlacement(3)
+    flush()
     expect(ffaPlacementOrder()).toEqual([0, 5])
   })
 
@@ -127,12 +139,15 @@ describe('ui-store helpers', () => {
     expect(selectedWinningTeam()).toBeNull()
 
     selectWinningTeam(0)
+    flush()
     expect(selectedWinningTeam()).toBe(0)
 
     selectWinningTeam(0)
+    flush()
     expect(selectedWinningTeam()).toBeNull()
 
     selectWinningTeam(1)
+    flush()
     expect(selectedWinningTeam()).toBe(1)
   })
 
@@ -143,20 +158,24 @@ describe('ui-store helpers', () => {
 
     clearResultSelections()
 
+    flush()
     expect(ffaPlacementOrder()).toEqual([])
     expect(selectedWinningTeam()).toBeNull()
   })
 
   test('togglePickSelection keeps only one selected pick', () => {
     togglePickSelection('civ-9')
+    flush()
     expect(selectedLeader()).toBe('civ-9')
     expect(pickSelections()).toEqual(['civ-9'])
 
     togglePickSelection('civ-10')
+    flush()
     expect(pickSelections()).toEqual(['civ-10'])
     expect(selectedLeader()).toBe('civ-10')
 
     togglePickSelection('civ-10')
+    flush()
     expect(pickSelections()).toEqual([])
     expect(selectedLeader()).toBeNull()
   })
@@ -164,6 +183,7 @@ describe('ui-store helpers', () => {
   test('setPickSelections normalizes preview state down to one pick', () => {
     setPickSelections(['civ-9', 'civ-10'])
 
+    flush()
     expect(pickSelections()).toEqual(['civ-9'])
     expect(selectedLeader()).toBe('civ-9')
   })
@@ -175,6 +195,7 @@ describe('ui-store helpers', () => {
     setGridExpanded(true)
     setGridViewMode('list')
 
+    flush()
     expect(gridExpanded()).toBe(true)
     expect(gridViewMode()).toBe('list')
   })
@@ -184,9 +205,11 @@ describe('ui-store helpers', () => {
     toggleLeaderFavorite('civ-9')
     toggleLeaderFavorite('civ-7')
 
+    flush()
     expect(favoriteLeaderIds()).toEqual(['civ-9'])
 
     toggleLeaderFavorite('civ-9')
+    flush()
     expect(favoriteLeaderIds()).toEqual([])
   })
 
@@ -197,16 +220,88 @@ describe('ui-store helpers', () => {
     expect(normalizeUiScale(UI_SCALE_DEFAULT + UI_SCALE_STEP / 2)).toBe(UI_SCALE_DEFAULT + UI_SCALE_STEP)
 
     setUiScale(83)
+    flush()
     expect(uiScale()).toBe(80)
 
     increaseUiScale()
+    flush()
     expect(uiScale()).toBe(90)
 
     decreaseUiScale()
     decreaseUiScale()
+    flush()
     expect(uiScale()).toBe(UI_SCALE_MIN)
 
     resetUiScale()
+    flush()
     expect(uiScale()).toBe(UI_SCALE_DEFAULT)
+  })
+
+  test('updaters use staged values and synchronize the selected leader atomically', () => {
+    const seen: { selected: string | null, picks: string[] }[] = []
+    const dispose = createRoot(stop => {
+      createEffect(
+        () => ({ selected: selectedLeader(), picks: [...pickSelections()] }),
+        value => { seen.push(value) },
+      )
+      return stop
+    })
+    try {
+      flush()
+      seen.length = 0
+      setSearchQuery('a')
+      setSearchQuery(prev => `${prev}b`)
+      setSearchQuery(prev => `${prev}c`)
+      setSelectedLeader('civ-1')
+      setSelectedLeader(prev => `${prev}-updated`)
+      setPickSelections(prev => [`${prev[0]}-pick`, 'ignored'])
+      setGridExpanded(prev => !prev)
+      setGridExpanded(prev => !prev)
+      setUiScale(80)
+      increaseUiScale()
+      increaseUiScale()
+      flush()
+      expect(searchQuery()).toBe('abc')
+      expect(seen).toEqual([{ selected: 'civ-1-updated-pick', picks: ['civ-1-updated-pick'] }])
+      expect(gridExpanded()).toBe(false)
+      expect(uiScale()).toBe(100)
+    }
+    finally { dispose() }
+  })
+
+  test('a staged result lock blocks subsequent placements and reset unlocks them', () => {
+    setResultSelectionsLocked(true)
+    toggleFfaPlacement(1)
+    selectWinningTeam(1)
+    flush()
+    expect(ffaPlacementOrder()).toEqual([])
+    expect(selectedWinningTeam()).toBeNull()
+    clearResultSelections()
+    toggleFfaPlacement(2)
+    selectWinningTeam(0)
+    flush()
+    expect(ffaPlacementOrder()).toEqual([2])
+    expect(selectedWinningTeam()).toBe(0)
+  })
+
+  test('resetting transient selections retains the saved preference shape and key', () => {
+    setGridExpanded(true)
+    setGridViewMode('multi-list')
+    setUiScale(120)
+    toggleLeaderFavorite('civ-9')
+    setSelectedLeader('civ-9')
+    setSearchQuery('Lincoln')
+    clearSelections()
+    flush()
+    expect(selectedLeader()).toBeNull()
+    expect(searchQuery()).toBe('')
+    expect(JSON.parse(localStorage.getItem('civup:activity:ui')!)).toEqual({
+      gridExpanded: true,
+      gridViewMode: 'multi-list',
+      favoriteLeaderIds: ['civ-9'],
+      uiScale: 120,
+    })
+    expect(gridViewMode()).toBe('multi-list')
+    expect(favoriteLeaderIds()).toEqual(['civ-9'])
   })
 })

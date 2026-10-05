@@ -3,7 +3,7 @@ import type { DraftTimerConfig, LobbyModeValue, RankRoleSetDetail } from './help
 import type { DraftSetupPageProps, EditableConfigField, LobbyEditableDraftConfig } from './types'
 import type { LobbySnapshot, RankedRoleOptionSnapshot } from '~/client/stores'
 import { canStartWithPlayerCount, CIV_BLITZ_DEFAULT_OPTION_COUNT, CIV_BLITZ_MIN_OPTION_COUNT, formatModeLabel, GAME_MODE_CHOICES, getCivBlitzOptionCountMaximum, inferGameMode, isMapVoteSupportedForMode, isUnrankedMode, maxPlayerCount, normalizeAvailableLeaderDataVersion, normalizeCompetitiveTierBounds, requiresRedDeathDuplicateFactions } from '@civup/game'
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createMemo, createSignal, onSettled, snapshot, untrack } from 'solid-js'
 import { createOptimisticState } from '~/client/lib/optimistic-state'
 import {
   canFillLobbyWithTestPlayers,
@@ -92,19 +92,22 @@ export function useDraftSetupConfigState(input: {
   const [duplicateFactionsPending, setDuplicateFactionsPending] = createSignal(false)
   const [closedPending, setClosedPending] = createSignal(false)
   const [closedOverride, setClosedOverride] = createSignal<boolean | null>(null)
-  const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(input.props.lobby ? buildEditableLobbyDraftConfig(input.props.lobby) : null)
-  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(input.props.prefetchedRankedRoleOptions ?? [])
-  const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(input.props.prefetchedFillTestPlayersAvailable ?? false)
-  let fillTestPlayersAvailabilityKey: string | null = null
-  let rankedRoleOptionsFetchKey: string | null = null
-  let lobbyConfigSnapshotId: string | null = input.props.lobby?.id ?? null
-  let lobbyConfigSnapshotRevision: number | null = input.props.lobby?.revision ?? null
+  const initialLobby = untrack(() => input.props.lobby ?? null)
+  const [lobbyTimerConfig, setLobbyTimerConfig] = createSignal<LobbyEditableDraftConfig | null>(untrack(() => initialLobby ? buildEditableLobbyDraftConfig(initialLobby) : null))
+  const [rankedRoleOptions, setRankedRoleOptions] = createSignal<RankedRoleOptionSnapshot[]>(untrack(() => input.props.prefetchedRankedRoleOptions ?? []))
+  const [fillTestPlayersAvailable, setFillTestPlayersAvailable] = createSignal(untrack(() => input.props.prefetchedFillTestPlayersAvailable ?? false))
+  let lobbyConfigSnapshotId: string | null = untrack(() => initialLobby?.id ?? null)
+  let lobbyConfigSnapshotRevision: number | null = untrack(() => initialLobby?.revision ?? null)
   let clampedField: EditableConfigField | null = null
   let configPersistQueue: Promise<void> = Promise.resolve()
   let editingFocusVersion = 0
+  let disposed = false
+  onSettled(() => () => { disposed = true })
 
   createEffect(() => {
     const lobby = input.currentLobby()
+    return lobby ? { id: lobby.id, revision: lobby.revision, config: buildEditableLobbyDraftConfig(lobby) } : null
+  }, (lobby) => {
     if (!lobby) {
       lobbyConfigSnapshotId = null
       lobbyConfigSnapshotRevision = null
@@ -115,74 +118,62 @@ export function useDraftSetupConfigState(input: {
     if (lobbyConfigSnapshotId === lobby.id && lobbyConfigSnapshotRevision != null && lobby.revision <= lobbyConfigSnapshotRevision) return
     lobbyConfigSnapshotId = lobby.id
     lobbyConfigSnapshotRevision = lobby.revision
-    setLobbyTimerConfig(buildEditableLobbyDraftConfig(lobby))
+    setLobbyTimerConfig(lobby.config)
   })
 
-  createEffect(() => {
-    if (input.props.prefetchedRankedRoleOptions == null) return
-    setRankedRoleOptions(input.props.prefetchedRankedRoleOptions)
-  })
-
-  createEffect(() => {
+  const rankedRoleRequest = createMemo(() => {
     const lobby = input.currentLobby()
-    if (!lobby) {
-      rankedRoleOptionsFetchKey = null
+    return !lobby ? null : input.props.prefetchedRankedRoleOptions ?? `${lobby.mode}:${lobby.id}`
+  })
+  createEffect(rankedRoleRequest, (request) => {
+    if (request == null) {
       setRankedRoleOptions([])
       return
     }
-    if (input.props.prefetchedRankedRoleOptions != null) {
-      rankedRoleOptionsFetchKey = null
-      setRankedRoleOptions(input.props.prefetchedRankedRoleOptions)
+    if (typeof request !== 'string') {
+      setRankedRoleOptions(request)
       return
     }
 
-    const nextFetchKey = `${lobby.mode}:${lobby.id}`
-    if (rankedRoleOptionsFetchKey === nextFetchKey) return
-    rankedRoleOptionsFetchKey = nextFetchKey
-
-    if (isUnrankedMode(inferGameMode(lobby.mode))) {
+    const separator = request.indexOf(':')
+    const mode = request.slice(0, separator)
+    const id = request.slice(separator + 1)
+    if (isUnrankedMode(inferGameMode(mode))) {
       setRankedRoleOptions([])
       return
     }
 
     let cancelled = false
     void (async () => {
-      const snapshot = await fetchLobbyRankedRoles(lobby.mode, lobby.id)
+      const snapshot = await fetchLobbyRankedRoles(mode, id)
       if (cancelled) return
       setRankedRoleOptions(snapshot?.options ?? [])
     })()
-    onCleanup(() => { cancelled = true })
+    return () => { cancelled = true }
   })
 
-  createEffect(() => {
-    if (input.props.prefetchedFillTestPlayersAvailable == null) return
-    setFillTestPlayersAvailable(input.props.prefetchedFillTestPlayersAvailable)
-  })
-
-  createEffect(() => {
+  const fillTestPlayersRequest = createMemo(() => {
     const lobby = input.currentLobby()
-    if (!lobby) {
-      fillTestPlayersAvailabilityKey = null
+    return !lobby ? null : input.props.prefetchedFillTestPlayersAvailable ?? `${lobby.mode}:${lobby.id}`
+  })
+  createEffect(fillTestPlayersRequest, (request) => {
+    if (request == null) {
       setFillTestPlayersAvailable(false)
       return
     }
-    if (input.props.prefetchedFillTestPlayersAvailable != null) {
-      fillTestPlayersAvailabilityKey = null
-      setFillTestPlayersAvailable(input.props.prefetchedFillTestPlayersAvailable)
+    if (typeof request === 'boolean') {
+      setFillTestPlayersAvailable(request)
       return
     }
 
-    const nextFetchKey = `${lobby.mode}:${lobby.id}`
-    if (fillTestPlayersAvailabilityKey === nextFetchKey) return
-    fillTestPlayersAvailabilityKey = nextFetchKey
-
+    const mode = request.slice(0, request.indexOf(':'))
     let cancelled = false
     void (async () => {
-      const available = await canFillLobbyWithTestPlayers(lobby.mode)
+      const available = await canFillLobbyWithTestPlayers(mode)
       if (cancelled) return
       setFillTestPlayersAvailable(available)
     })()
-    onCleanup(() => { cancelled = true })
+    return () => { cancelled = true }
   })
 
   const draftConfig = (): LobbyEditableDraftConfig => {
@@ -315,36 +306,37 @@ export function useDraftSetupConfigState(input: {
   const supportsMapVoteToggle = () => input.isLobbyMode() && !isTournamentLobby() && isMapVoteSupportedForMode(input.lobbyMode(), { redDeath: isRedDeathLobbyMode() })
   const supportsBlindBansToggle = () => input.isLobbyMode() && !isTournamentLobby() && supportsBlindBansControl(input.lobbyMode(), { redDeath: isRedDeathLobbyMode(), targetSize: input.currentLobby()?.targetSize })
   const supportsBlindPicksToggle = () => input.isLobbyMode() && !isTournamentLobby()
-  const focusedTextInputField = (): EditableConfigField | null => {
+  const focusedTextInputField = (poolLabel: string): EditableConfigField | null => {
     if (typeof document === 'undefined') return null
     const activeElement = document.activeElement
     if (!(activeElement instanceof HTMLInputElement)) return null
     const ariaLabel = activeElement.getAttribute('aria-label')
     if (ariaLabel === 'Ban Timer (minutes)') return 'ban'
     if (ariaLabel === 'Pick Timer (minutes)') return 'pick'
-    if (ariaLabel === poolInputLabel()) return 'leaderPool'
+    if (ariaLabel === poolLabel) return 'leaderPool'
     return null
   }
 
-  createEffect(() => {
-    const config = optimisticTimerConfig.value()
-    const activeField = editingField() ?? focusedTextInputField()
+  createEffect(() => ({
+    config: optimisticTimerConfig.value(),
+    activeField: editingField(),
+    civBlitz: isCivBlitzLobbyMode(),
+    redDeath: isRedDeathLobbyMode(),
+    poolLabel: poolInputLabel(),
+  }), ({ config, activeField: editing, civBlitz, redDeath, poolLabel }) => {
+    const activeField = editing ?? focusedTextInputField(poolLabel)
     if (activeField !== 'ban') setBanMinutes(timerSecondsToMinutesInput(config.banTimerSeconds))
     if (activeField !== 'pick') setPickMinutes(timerSecondsToMinutesInput(config.pickTimerSeconds))
-    if (activeField !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(isCivBlitzLobbyMode() ? config.civBlitzOptionCount : isRedDeathLobbyMode() ? config.dealOptionsSize : config.leaderPoolSize))
+    if (activeField !== 'leaderPool') setLeaderPoolInput(leaderPoolSizeToInput(civBlitz ? config.civBlitzOptionCount : redDeath ? config.dealOptionsSize : config.leaderPoolSize))
   })
-  createEffect(() => {
-    if (optimisticTimerConfig.status() === 'error') input.showErrorMessage(optimisticTimerConfig.error() ?? 'Failed to save changes.')
+  createEffect(() => optimisticTimerConfig.status() === 'error' ? optimisticTimerConfig.error() ?? 'Failed to save changes.' : null, (error) => {
+    if (error) input.showErrorMessage(error)
   })
-  createEffect(() => {
-    const override = closedOverride()
-    if (override == null) return
-    if (draftConfig().closed === override) setClosedOverride(null)
+  createEffect(() => closedOverride() != null && draftConfig().closed === closedOverride(), (confirmed) => {
+    if (confirmed) setClosedOverride(null)
   })
-  createEffect(() => {
-    const override = civBlitzExcludeBbgExpandedOverride()
-    if (override == null) return
-    if (draftConfig().civBlitzExcludeBbgExpanded === override) setCivBlitzExcludeBbgExpandedOverride(null)
+  createEffect(() => civBlitzExcludeBbgExpandedOverride() != null && draftConfig().civBlitzExcludeBbgExpanded === civBlitzExcludeBbgExpandedOverride(), (confirmed) => {
+    if (confirmed) setCivBlitzExcludeBbgExpandedOverride(null)
   })
   const enqueueConfigPersist = (persist: () => Promise<void>) => {
     const queued = configPersistQueue.catch(() => {}).then(persist)
@@ -358,6 +350,7 @@ export function useDraftSetupConfigState(input: {
 
   const commitDraftConfig = async (nextConfig: LobbyEditableDraftConfig, options: { preserveConfigMessage?: boolean, targetSize?: number } = {}) => {
     const currentUserId = userId()
+    const targetLobby = snapshot(input.currentLobby())
     if (!currentUserId) {
       optimisticTimerConfig.clearError()
       input.showErrorMessage('Could not identify your Discord user. Reopen the activity.')
@@ -365,9 +358,10 @@ export function useDraftSetupConfigState(input: {
     }
     if (!options.preserveConfigMessage) input.clearConfigMessage()
     const committed = await optimisticTimerConfig.commit(nextConfig, () => enqueueConfigPersist(async () => {
-      const lobby = input.currentLobby()
+      if (disposed) return
+      const lobby = targetLobby
       if (lobby) {
-        const payload = isTournamentLobby()
+        const payload = lobby.tournament?.configLocked === true
           ? {
               banTimerSeconds: nextConfig.banTimerSeconds,
               pickTimerSeconds: nextConfig.pickTimerSeconds,
@@ -402,7 +396,11 @@ export function useDraftSetupConfigState(input: {
         })
         if (!result.ok) throw new Error(result.error)
         const savedConfig = buildEditableLobbyDraftConfig(result.lobby)
-        if (sameLobbyDraftConfig(optimisticTimerConfig.value(), nextConfig)) {
+        const currentLobby = input.currentLobby()
+        if (!disposed && currentLobby?.id === result.lobby.id
+          && currentLobby.mode === result.lobby.mode
+          && (lobbyConfigSnapshotRevision == null || result.lobby.revision >= lobbyConfigSnapshotRevision)
+          && sameLobbyDraftConfig(optimisticTimerConfig.value(), nextConfig)) {
           lobbyConfigSnapshotId = result.lobby.id
           lobbyConfigSnapshotRevision = result.lobby.revision
           setLobbyTimerConfig(savedConfig)
@@ -411,15 +409,17 @@ export function useDraftSetupConfigState(input: {
       }
       await sendConfig(nextConfig.banTimerSeconds, nextConfig.pickTimerSeconds)
     }), {
-      syncTimeoutMs: input.currentLobby() ? 9000 : 5000,
+      syncTimeoutMs: targetLobby ? 9000 : 5000,
       syncTimeoutMessage: 'Save not confirmed. Please try again.',
     })
     return committed
   }
 
-  const saveConfigEdits = async () => {
-    const activeField = editingField()
+  const saveConfigEdits = async (activeField = editingField()) => {
     const activeFocusVersion = editingFocusVersion
+    // Blur may normalize an input in the same event. Read the committed edits.
+    await Promise.resolve()
+    if (disposed) return false
     try {
       if (!input.amHost()) return true
 
@@ -475,7 +475,7 @@ export function useDraftSetupConfigState(input: {
       setEditingField(current => current === activeField && editingFocusVersion === activeFocusVersion ? null : current)
     }
   }
-  const saveConfigOnBlur = () => saveConfigEdits()
+  const saveConfigOnBlur = (field: EditableConfigField) => saveConfigEdits(field)
   const flushPendingConfigEdits = async () => {
     const saved = await saveConfigEdits()
     if (!saved) return false

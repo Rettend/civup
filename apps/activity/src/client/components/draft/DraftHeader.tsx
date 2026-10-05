@@ -1,5 +1,5 @@
 import { formatMapVoteResultLabel, formatMapVoteResultTitle, MAP_SCRIPT_BY_ID, MAP_TYPE_BY_ID } from '@civup/game'
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, onSettled, Show, untrack } from 'solid-js'
 import { cn } from '~/client/lib/css'
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import {
@@ -50,7 +50,7 @@ interface DraftHeaderProps {
 }
 
 type ResultStatus = 'idle' | 'submitting:result' | 'processing:result' | 'submitting:scrub' | 'submitting:revert' | 'done'
-type ResultNotice = { message: string, tone: 'info' | 'error' }
+interface ResultNotice { message: string, tone: 'info' | 'error' }
 
 /** Header bar: bans on left/right, phase label centered, timer with shrinking line */
 export function DraftHeader(props: DraftHeaderProps) {
@@ -146,8 +146,7 @@ export function DraftHeader(props: DraftHeaderProps) {
     return mapVotePhase() === 'voting' ? mapVoteVotingEndsAt() : mapVoteRevealEndsAt()
   }
 
-  createEffect(() => {
-    const endsAt = timerEndsAt()
+  createEffect(() => ({ endsAt: timerEndsAt(), now: draftNow() }), ({ endsAt, now }) => {
     if (endsAt == null) {
       setRemaining(0)
       return
@@ -155,9 +154,9 @@ export function DraftHeader(props: DraftHeaderProps) {
     const nextEndsAt = endsAt
 
     function tick() { setRemaining(Math.max(0, nextEndsAt - draftNow())) }
-    tick()
+    setRemaining(Math.max(0, nextEndsAt - now))
     const interval = setInterval(tick, 100)
-    onCleanup(() => clearInterval(interval))
+    return () => clearInterval(interval)
   })
 
   const seconds = () => Math.ceil(remaining() / 1000)
@@ -176,9 +175,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   const isExpired = () => timerEndsAt() != null && remaining() <= 0
 
   // Brief phase flash on ban/pick transitions
-  createEffect(on(accent, (next, prev) => {
-    const s = state()
-    if (!prev || prev === next || !s || s.status !== 'active') return
+  createEffect(() => ({ accent: accent(), active: state()?.status === 'active' }), (next, prev) => {
+    if (!prev || prev.accent === next.accent || !next.active) return
 
     clearPhaseFlashTimeout()
     setPhaseFlash(true)
@@ -186,9 +184,9 @@ export function DraftHeader(props: DraftHeaderProps) {
       setPhaseFlash(false)
       phaseFlashTimeout = null
     }, 220)
-  }, { defer: true }))
+  })
 
-  onCleanup(() => {
+  onSettled(() => () => {
     clearPhaseFlashTimeout()
     clearArmedHostActionTimeout()
     setResultSelectionsLocked(false)
@@ -204,14 +202,13 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
   const resultLocked = () => visibleResultStatus() !== 'idle'
 
-  createEffect(() => {
-    setResultSelectionsLocked(resultLocked())
-    if (visibleResultStatus() === 'done') setResultNotice(null)
+  createEffect(() => ({ locked: resultLocked(), status: visibleResultStatus() }), ({ locked, status }) => {
+    setResultSelectionsLocked(locked)
+    if (status === 'done') setResultNotice(null)
   })
 
-  let lastResultMatchId = state()?.matchId ?? null
-  createEffect(() => {
-    const matchId = state()?.matchId ?? null
+  let lastResultMatchId = untrack(() => state()?.matchId ?? null)
+  createEffect(() => state()?.matchId ?? null, (matchId) => {
     if (matchId === lastResultMatchId) return
     lastResultMatchId = matchId
     setResultStatus('idle')
@@ -223,9 +220,8 @@ export function DraftHeader(props: DraftHeaderProps) {
   })
 
   let hasTrackedResultStatus = false
-  let lastDraftStatus = state()?.status
-  createEffect(() => {
-    const status = state()?.status
+  let lastDraftStatus = untrack(() => state()?.status)
+  createEffect(() => state()?.status, (status) => {
     if (hasTrackedResultStatus && status === lastDraftStatus) return
     hasTrackedResultStatus = true
     lastDraftStatus = status
@@ -237,11 +233,11 @@ export function DraftHeader(props: DraftHeaderProps) {
     clearHiddenDraftLeaderSelections()
   })
 
-  createEffect(on(
+  createEffect(
     () => `${state()?.status ?? 'none'}:${state()?.currentStepIndex ?? -1}:${isMapVotePhase() ? mapVotePhase() : 'draft'}`,
     () => disarmHostAction(),
     { defer: true },
-  ))
+  )
 
   const handleReportFailure = (
     matchId: string,
@@ -454,7 +450,7 @@ export function DraftHeader(props: DraftHeaderProps) {
   }
 
   function HostActionButton(props: { action: DraftHostAction, label: string, iconClass: string, iconOnly: boolean }) {
-    const loadingLabel = props.action === 'revert' ? 'Reverting' : 'Scrubbing'
+    const loadingLabel = () => props.action === 'revert' ? 'Reverting' : 'Scrubbing'
 
     return (
       <button
@@ -468,11 +464,11 @@ export function DraftHeader(props: DraftHeaderProps) {
             : 'border-border text-fg-muted hover:border-border-hover hover:bg-bg-muted/50',
         )}
         disabled={pendingHostAction() != null || !canManageDraftPhase()}
-        title={pendingHostAction() === props.action ? loadingLabel : props.label}
-        aria-label={pendingHostAction() === props.action ? loadingLabel : props.label}
+        title={pendingHostAction() === props.action ? loadingLabel() : props.label}
+        aria-label={pendingHostAction() === props.action ? loadingLabel() : props.label}
         onClick={() => confirmHostAction(props.action)}
       >
-        <Show when={props.iconOnly} fallback={pendingHostAction() === props.action ? loadingLabel : props.label}>
+        <Show when={props.iconOnly} fallback={pendingHostAction() === props.action ? loadingLabel() : props.label}>
           <span class={pendingHostAction() === props.action ? 'i-gg:spinner text-sm text-accent animate-spin' : cn(props.iconClass, 'text-sm')} />
         </Show>
       </button>

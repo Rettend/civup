@@ -2,7 +2,6 @@ import type { Database } from '@civup/db'
 import type { LobbyState } from '../lobby/types.ts'
 import type { ParticipantRow } from '../match/types.ts'
 import { leaderboardMessageStates, matchParticipants, players, tournamentCutPairings, tournamentMatches, tournamentPlayers, tournaments } from '@civup/db'
-import { Embed } from 'discord-hono'
 import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { createChannelMessageWithFile, deleteChannelMessage, editChannelMessageWithFile, isDiscordApiError } from '../discord/index.ts'
@@ -1660,42 +1659,6 @@ function buildTournamentRankByPlayerId(standings: TournamentStandingRow[]): Map<
 
 function getTournamentRank(rankByPlayerId: Map<string, number>, playerId: string | null): number | null {
   return playerId ? rankByPlayerId.get(playerId) ?? null : null
-}
-
-function buildTournamentLeaderboardEmbed(
-  tournament: typeof tournaments.$inferSelect,
-  standings: TournamentStandingRow[],
-  pairings: Array<typeof tournamentCutPairings.$inferSelect>,
-): Embed {
-  const embed = new Embed()
-    .title(tournament.name)
-    .color(0xC8AA6E)
-
-  const standingLines = standings.slice(0, 16).map((row, index) => {
-    const seed = row.seed ? `#${row.seed} ` : ''
-    const record = `${row.wins}-${row.losses}`
-    const games = row.eligible ? `${row.games}` : `${row.games}/${tournament.minGames}`
-    return `${index + 1}. ${seed}${row.displayName} ${record} (${games})`
-  })
-
-  const fields: Array<{ name: string, value: string, inline: boolean }> = [
-    { name: tournament.status === 'top_cut' ? 'Playoffs' : 'Standings', value: standingLines.join('\n') || 'No players imported.', inline: false },
-  ]
-
-  const finalPairing = pairings.find(pairing => pairing.round === 'final' && pairing.status === 'reported' && pairing.winnerId)
-  if (tournament.status === 'completed' && finalPairing?.winnerId) {
-    fields.unshift({ name: 'Champion', value: `<@${finalPairing.winnerId}>`, inline: false })
-  }
-
-  if (pairings.length > 0) {
-    const pairingLines = pairings
-      .sort((left, right) => compareCutPairingsForDisplay(left, right, getCutSizeFromPairings(pairings)))
-      .slice(0, 8)
-      .map(pairing => `#${pairing.seedOne} <@${pairing.playerOneId}> vs #${pairing.seedTwo} <@${pairing.playerTwoId}>`)
-    fields.push({ name: 'Pairings', value: pairingLines.join('\n') || 'No pairings.', inline: false })
-  }
-
-  return embed.fields(...fields)
 }
 
 function compareCutPairingsForDisplay(left: typeof tournamentCutPairings.$inferSelect, right: typeof tournamentCutPairings.$inferSelect, cutSize: number): number {

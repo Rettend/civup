@@ -161,7 +161,7 @@ export async function clearLobbyById(
   kv: KVNamespace,
   lobbyId: string,
   currentLobby?: LobbyState | null,
-  options?: {
+  _options?: {
     syncActivityOverview?: boolean
   },
 ): Promise<void> {

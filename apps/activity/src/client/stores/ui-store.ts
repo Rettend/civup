@@ -1,7 +1,6 @@
 import type { TagFilterState } from '~/client/lib/leader-tags'
 import { makePersisted } from '@solid-primitives/storage'
-import { createMemo } from 'solid-js'
-import { createStore, unwrap } from 'solid-js/store'
+import { createMemo, createStore, snapshot } from 'solid-js'
 import { countActiveTagFilters, createEmptyTagFilters, getTagCategory } from '~/client/lib/leader-tags'
 import { currentStep } from './draft-store'
 
@@ -67,7 +66,7 @@ const [persistedUiStateBase, setPersistedUiStateBase] = createStore<UiPersistedS
 const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateBase, setPersistedUiStateBase], {
   name: 'civup:activity:ui',
   storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  serialize: value => JSON.stringify(unwrap(value)),
+  serialize: value => JSON.stringify(snapshot(value)),
   deserialize: value => normalizePersistedUiState(JSON.parse(value)),
 })
 
@@ -75,7 +74,7 @@ export const pickSelections = () => uiState.pickSelections
 export const selectedLeader = () => uiState.selectedLeader
 export const searchQuery = () => uiState.searchQuery
 export const tagFilters = () => uiState.tagFilters
-export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()))
+export const activeTagFilterCount = createMemo(() => countActiveTagFilters(tagFilters()), { lazy: true })
 export const banSelections = () => uiState.banSelections
 export const banSelectionStepToken = () => uiState.banSelectionStepToken
 export const isRandomSelected = () => uiState.isRandomSelected
@@ -94,39 +93,39 @@ export const resultSelectionsLocked = () => uiState.resultSelectionsLocked
 export const hiddenDraftLeaderSelections = () => uiState.hiddenDraftLeaderSelections
 
 export function setSearchQuery(next: string | ((prev: string) => string)) {
-  setUiState('searchQuery', next)
+  setUiState(s => { s.searchQuery = resolveUpdate(next, s.searchQuery) })
 }
 
 export function setTagFilters(next: TagFilterState | ((prev: TagFilterState) => TagFilterState)) {
-  setUiState('tagFilters', next)
+  setUiState(s => { s.tagFilters = resolveUpdate(next, s.tagFilters) })
 }
 
 export function setBanSelections(next: string[] | ((prev: string[]) => string[])) {
-  setUiState('banSelections', next)
+  setUiState(s => { s.banSelections = resolveUpdate(next, s.banSelections) })
 }
 
 export function setBanSelectionStepToken(next: string | null | ((prev: string | null) => string | null)) {
-  setUiState('banSelectionStepToken', next)
+  setUiState(s => { s.banSelectionStepToken = resolveUpdate(next, s.banSelectionStepToken) })
 }
 
 export function setIsRandomSelected(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState('isRandomSelected', next)
+  setUiState(s => { s.isRandomSelected = resolveUpdate(next, s.isRandomSelected) })
 }
 
 export function setGridOpen(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState('gridOpen', next)
+  setUiState(s => { s.gridOpen = resolveUpdate(next, s.gridOpen) })
 }
 
 export function setGridExpanded(next: boolean | ((prev: boolean) => boolean)) {
-  setPersistedUiState('gridExpanded', next)
+  setPersistedUiState(s => { s.gridExpanded = resolveUpdate(next, s.gridExpanded) })
 }
 
 export function setGridViewMode(next: GridViewMode | ((prev: GridViewMode) => GridViewMode)) {
-  setPersistedUiState('gridViewMode', next)
+  setPersistedUiState(s => { s.gridViewMode = resolveUpdate(next, s.gridViewMode) })
 }
 
 export function setUiScale(next: number | ((prev: number) => number)) {
-  setPersistedUiState('uiScale', prev => normalizeUiScale(typeof next === 'function' ? next(prev) : next))
+  setPersistedUiState(s => { s.uiScale = normalizeUiScale(resolveUpdate(next, s.uiScale)) })
 }
 
 export function increaseUiScale() {
@@ -142,40 +141,40 @@ export function resetUiScale() {
 }
 
 export function setDetailLeaderId(next: string | null | ((prev: string | null) => string | null)) {
-  setUiState('detailLeaderId', next)
+  setUiState(s => { s.detailLeaderId = resolveUpdate(next, s.detailLeaderId) })
 }
 
 export function setIsMiniView(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState('isMiniView', next)
+  setUiState(s => { s.isMiniView = resolveUpdate(next, s.isMiniView) })
 }
 
 export function setIsMobileLayout(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState('isMobileLayout', next)
+  setUiState(s => { s.isMobileLayout = resolveUpdate(next, s.isMobileLayout) })
 }
 
 export function setFfaPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
-  setUiState('ffaPlacementOrder', next)
+  setUiState(s => { s.ffaPlacementOrder = resolveUpdate(next, s.ffaPlacementOrder) })
 }
 
 export function setTeamPlacementOrder(next: number[] | ((prev: number[]) => number[])) {
-  setUiState('teamPlacementOrder', next)
+  setUiState(s => { s.teamPlacementOrder = resolveUpdate(next, s.teamPlacementOrder) })
 }
 
 export function setResultSelectionsLocked(next: boolean | ((prev: boolean) => boolean)) {
-  setUiState('resultSelectionsLocked', next)
+  setUiState(s => { s.resultSelectionsLocked = resolveUpdate(next, s.resultSelectionsLocked) })
 }
 
 export function toggleHiddenDraftLeaderSelection(civId: string, maxSelections: number) {
   if (civId.length === 0 || maxSelections <= 0) return
-  setUiState('hiddenDraftLeaderSelections', (prev) => {
-    if (prev.includes(civId)) return prev.filter(id => id !== civId)
-    if (prev.length >= maxSelections) return prev
-    return [...prev, civId]
+  setUiState(s => {
+    const prev = s.hiddenDraftLeaderSelections
+    if (prev.includes(civId)) s.hiddenDraftLeaderSelections = prev.filter(id => id !== civId)
+    else if (prev.length < maxSelections) s.hiddenDraftLeaderSelections = [...prev, civId]
   })
 }
 
 export function clearHiddenDraftLeaderSelections() {
-  setUiState('hiddenDraftLeaderSelections', [])
+  setUiState(s => { s.hiddenDraftLeaderSelections = [] })
 }
 
 // ── Phase Accent ───────────────────────────────────────────
@@ -185,19 +184,19 @@ export const phaseAccent = createMemo(() => {
   const step = currentStep()
   if (!step) return 'gold' as const
   return step.action === 'ban' ? ('red' as const) : ('gold' as const)
-})
+}, { lazy: true })
 
 /** CSS color value for the current phase accent */
 export const phaseAccentColor = createMemo(() => {
   return phaseAccent() === 'red' ? 'var(--danger)' : 'var(--accent)'
-})
+}, { lazy: true })
 
 /** Header tint class for phase mood */
 export const phaseHeaderBg = createMemo(() => {
   const step = currentStep()
   if (!step) return 'bg-bg-subtle'
   return step.action === 'ban' ? 'bg-[var(--phase-ban-bg)]' : 'bg-bg-subtle'
-})
+}, { lazy: true })
 
 // ── Actions ────────────────────────────────────────────────
 
@@ -214,28 +213,37 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 
 /** Clear all UI selection state (called on step advance) */
 export function clearSelections() {
-  setPickSelections([])
-  setBanSelections([])
-  setBanSelectionStepToken(null)
-  setIsRandomSelected(false)
-  setSearchQuery('')
-  setTagFilters(createEmptyTagFilters())
-  setDetailLeaderId(null)
-  clearResultSelections()
+  setUiState(s => {
+    s.pickSelections = []
+    s.selectedLeader = null
+    s.banSelections = []
+    s.banSelectionStepToken = null
+    s.isRandomSelected = false
+    s.searchQuery = ''
+    s.tagFilters = createEmptyTagFilters()
+    s.detailLeaderId = null
+    s.ffaPlacementOrder = []
+    s.teamPlacementOrder = []
+    s.resultSelectionsLocked = false
+  })
 }
 
 /** Replace the single selected pick. */
 export function setSelectedLeader(next: string | null | ((prev: string | null) => string | null)) {
-  const resolved = typeof next === 'function' ? next(selectedLeader()) : next
-  setPickSelections(resolved ? [resolved] : [])
+  setUiState(s => {
+    const resolved = resolveUpdate(next, s.selectedLeader)
+    s.pickSelections = resolved ? [resolved] : []
+    s.selectedLeader = resolved || null
+  })
 }
 
 /** Replace the current pick selection and keep the primary pick signal in sync. */
 export function setPickSelections(next: string[] | ((prev: string[]) => string[])) {
-  const resolved = typeof next === 'function' ? next(pickSelections()) : next
-  const normalized = normalizePickSelections(resolved)
-  setUiState('pickSelections', normalized)
-  setUiState('selectedLeader', normalized[0] ?? null)
+  setUiState(s => {
+    const normalized = normalizePickSelections(resolveUpdate(next, s.pickSelections))
+    s.pickSelections = normalized
+    s.selectedLeader = normalized[0] ?? null
+  })
 }
 
 /** Toggle the single selected pick. */
@@ -251,9 +259,10 @@ export function toggleTagFilter(tag: string) {
   const category = getTagCategory(tag)
   if (!category) return
 
-  const current = tagFilters()[category]
-  const hasTag = current.includes(tag)
-  setUiState('tagFilters', category, hasTag ? current.filter(t => t !== tag) : [...current, tag])
+  setUiState(s => {
+    const current = s.tagFilters[category]
+    s.tagFilters[category] = current.includes(tag) ? current.filter(t => t !== tag) : [...current, tag]
+  })
 }
 
 /** Clear all selected tag filters */
@@ -273,24 +282,23 @@ export function isLeaderFavorited(leaderId: string): boolean {
 
 /** Toggle a leader in the persisted favorites list. */
 export function toggleLeaderFavorite(leaderId: string) {
-  setPersistedUiState('favoriteLeaderIds', (prev) => {
-    if (prev.includes(leaderId)) return prev.filter(id => id !== leaderId)
-    return normalizeIdList([...prev, leaderId])
+  setPersistedUiState(s => {
+    const prev = s.favoriteLeaderIds
+    s.favoriteLeaderIds = prev.includes(leaderId) ? prev.filter(id => id !== leaderId) : normalizeIdList([...prev, leaderId])
   })
 }
 
 /** Clear all persisted favorite leaders. */
 export function clearLeaderFavorites() {
-  setPersistedUiState('favoriteLeaderIds', [])
+  setPersistedUiState(s => { s.favoriteLeaderIds = [] })
 }
 
 /** Toggle a seat in the FFA placement order */
 export function toggleFfaPlacement(seatIndex: number) {
-  if (resultSelectionsLocked()) return
-  setFfaPlacementOrder((prev) => {
-    const idx = prev.indexOf(seatIndex)
-    if (idx >= 0) return prev.filter(idx => idx !== seatIndex)
-    return [...prev, seatIndex]
+  setUiState(s => {
+    if (s.resultSelectionsLocked) return
+    const prev = s.ffaPlacementOrder
+    s.ffaPlacementOrder = prev.includes(seatIndex) ? prev.filter(value => value !== seatIndex) : [...prev, seatIndex]
   })
 }
 
@@ -301,17 +309,19 @@ export function clearFfaPlacements() {
 
 /** Select or clear the winning team for team-mode result reporting. */
 export function selectWinningTeam(team: 0 | 1) {
-  if (resultSelectionsLocked()) return
-  setTeamPlacementOrder(prev => (prev[0] === team && prev.length === 1 ? [] : [team]))
+  setUiState(s => {
+    if (s.resultSelectionsLocked) return
+    s.teamPlacementOrder = s.teamPlacementOrder[0] === team && s.teamPlacementOrder.length === 1 ? [] : [team]
+  })
 }
 
 /** Toggle a team in the ordered result placement list. */
 export function toggleTeamPlacement(team: number) {
-  if (resultSelectionsLocked()) return
-  setTeamPlacementOrder((prev) => {
+  setUiState(s => {
+    if (s.resultSelectionsLocked) return
+    const prev = s.teamPlacementOrder
     const index = prev.indexOf(team)
-    if (index >= 0) return prev.filter(value => value !== team)
-    return [...prev, team]
+    s.teamPlacementOrder = index >= 0 ? prev.filter(value => value !== team) : [...prev, team]
   })
 }
 
@@ -322,9 +332,15 @@ export function clearWinningTeam() {
 
 /** Clear all post-draft result selection state. */
 export function clearResultSelections() {
-  setFfaPlacementOrder([])
-  setTeamPlacementOrder([])
-  setResultSelectionsLocked(false)
+  setUiState(s => {
+    s.ffaPlacementOrder = []
+    s.teamPlacementOrder = []
+    s.resultSelectionsLocked = false
+  })
+}
+
+function resolveUpdate<T>(next: T | ((prev: T) => T), prev: T): T {
+  return typeof next === 'function' ? (next as (prev: T) => T)(prev) : next
 }
 
 function normalizePickSelections(civIds: string[]): string[] {

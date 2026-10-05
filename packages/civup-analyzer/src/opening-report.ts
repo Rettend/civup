@@ -18,7 +18,8 @@ import type {
   CivReplayUnitLostEvent,
   CivReplayUnitUpgradedEvent,
 } from './civreplay/events.ts'
-import { createCityStateResolver, type CivReplayCityStateCategory, type CivReplayCityStateEnvoySnapshot, type CivReplayCityStateResolver, type CivReplayCityStateSnapshot, type CivReplayCityStateStatus } from './civreplay/city-states.ts'
+import type { CivReplayCityStateCategory, CivReplayCityStateEnvoySnapshot, CivReplayCityStateResolver, CivReplayCityStateSnapshot, CivReplayCityStateStatus } from './civreplay/city-states.ts'
+import { createCityStateResolver } from './civreplay/city-states.ts'
 import {
   KNOWN_TRADE_ROUTE_YIELDS_DESCRIPTION,
   KNOWN_TRADE_ROUTE_YIELDS_EXCLUDED,
@@ -31,16 +32,14 @@ import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
 import type { CivupTimelinePlayerSummary } from './types.ts'
 import { analyzeAutosaveTimelineBytes } from './autosave-timeline.ts'
 import { analyzeCivReplaySnapshotsBytes } from './civreplay/snapshot.ts'
-import { createHashResolver, formatHash, resolveCivReplayDedicationDisplayName, type HashResolver } from './hash.ts'
+import type { HashResolver } from './hash.ts'
+import type { CivupOpeningDistrictCostChange, CivupOpeningDistrictAdjacencyChange, CivupOpeningLuxuryOwnershipChange, OpeningMapAnalysisData } from './opening-map-analysis.ts'
+import { createHashResolver, formatHash, resolveCivReplayDedicationDisplayName } from './hash.ts'
 import {
   buildDistrictCostChanges,
   buildDistrictAdjacencyChanges,
   buildLuxuryOwnershipChanges,
   loadOpeningMapAnalysisData,
-  type CivupOpeningDistrictCostChange,
-  type CivupOpeningDistrictAdjacencyChange,
-  type CivupOpeningLuxuryOwnershipChange,
-  type OpeningMapAnalysisData,
 } from './opening-map-analysis.ts'
 
 export interface AnalyzeOpeningReportOptions {

@@ -30,7 +30,7 @@ export function playerDecayEmbed(input: {
     const hasDecay = bank && (bank.active || decay.rating >= PUBLIC_RATING_DECAY.floor)
     return {
       name: publicEra ? `${label} · ${visiblePublicRating(decay.rating).toLocaleString('en-US')} RP` : label,
-      value: hasDecay ? `Bank: ${days}/60 days${days === 0 ? ` ⚠️${bank.active ? ' \`−2 RP/day\`' : ''}` : ''}` : 'No decay',
+      value: hasDecay ? `Bank: ${days}/60 days${days === 0 ? ` ⚠️${bank.active ? ' `−2 RP/day`' : ''}` : ''}` : 'No decay',
       inline: false,
     }
   })

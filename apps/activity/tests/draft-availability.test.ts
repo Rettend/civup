@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { isDraftCardUnavailable } from '../src/client/components/draft/draftAvailability'
 import { createActiveDraftState, TEST_LEADER_IDS } from './ui-fixtures'
 

@@ -1,3 +1,4 @@
+import type { ZipByteReader, ZipEntry } from './zip-index.ts'
 import { describe, expect, test } from 'bun:test'
 import { deflateSync } from 'fflate'
 import {
@@ -7,8 +8,6 @@ import {
   MAX_CIV6_SAVE_UNCOMPRESSED_BYTES,
   parseZipEntries,
   readZipEntryDataFromReader,
-  type ZipByteReader,
-  type ZipEntry,
 } from './zip-index.ts'
 
 describe('bounded zip metadata reads', () => {

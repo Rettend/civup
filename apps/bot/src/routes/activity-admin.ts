@@ -344,6 +344,8 @@ function isBoundedParentId(value: unknown): value is string | null {
     typeof value === 'string'
     && value.length > 0
     && value.length <= MAX_PARENT_ID_LENGTH
+    // Reject control characters in cursor IDs rather than passing them to the database.
+    // eslint-disable-next-line no-control-regex
     && !/[\u0000-\u001F\u007F]/.test(value)
   )
 }

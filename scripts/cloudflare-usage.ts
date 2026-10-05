@@ -820,10 +820,10 @@ async function queryDurableObjectsUsage(
       }
     `
 
-    const response = await queryGraphQl(apiToken, query)
+    const response = await queryGraphQl<{ viewer?: { accounts?: Record<string, unknown>[] } }>(apiToken, query)
     if (response.errors?.length) continue
 
-    const account = response.data?.viewer?.accounts?.[0] as Record<string, unknown> | undefined
+    const account = response.data?.viewer?.accounts?.[0]
     const rows = account?.[fieldName]
     if (!Array.isArray(rows)) continue
 

@@ -1,5 +1,5 @@
-import type { Database } from '@civup/db'
-import { divisionRankPolicies, divisionRankStates } from '@civup/db'
+import type { Database, divisionRankPolicies } from '@civup/db'
+import { divisionRankStates } from '@civup/db'
 import { OVERALL_RANK_POLICY_VERSION } from '@civup/rating'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { calculateDueDivisionRanks } from './division-rank-runtime.ts'

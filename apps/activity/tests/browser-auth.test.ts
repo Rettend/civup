@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'vitest'
 import { verifyActivitySession } from '@civup/utils'
 import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE, OAUTH_TRANSACTION_COOKIE, validateBrowserReturnPath } from '../src/server/browser-auth'
@@ -201,7 +201,7 @@ describe('browser Discord OAuth', () => {
     expect(response.status).toBe(200)
     const payload = await response.json<any>()
     expect(payload.access_token).toBe('embedded-provider-token')
-    expect(payload.activity_session_token).toStartWith('session.v2.')
+    expect(payload.activity_session_token).toMatch(/^session\.v2\./)
     const tokenBody = await requests[0]!.clone().text()
     expect(tokenBody).toContain(`redirect_uri=${encodeURIComponent(ORIGIN)}`)
     expect(tokenBody).not.toContain('code_verifier')

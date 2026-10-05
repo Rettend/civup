@@ -1,4 +1,4 @@
-import type { JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { getLeader } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'

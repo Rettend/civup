@@ -1,11 +1,12 @@
-/** @jsxImportSource solid-js */
+/** @jsxImportSource @solidjs/web */
 
-import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library'
+import { screen, waitFor } from '@solidjs/testing-library'
+import { fireUiEvent as fireEvent, renderUi as render } from './ui-fixtures'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { clipboardSpies, discordSpies, resetUiMocks, uiMockState } from './ui-mocks'
 
-const onSaveSteamLink = mock(() => {})
+const onSaveSteamLink = vi.fn(() => {})
 
 const { SteamLobbyButton } = await import('../src/client/components/draft/SteamLobbyButton')
 

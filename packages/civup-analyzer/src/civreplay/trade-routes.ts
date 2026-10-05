@@ -1,4 +1,5 @@
-import { civHash, formatHash, type HashResolver } from '../hash.ts'
+import type { HashResolver } from '../hash.ts'
+import { civHash, formatHash } from '../hash.ts'
 import type { CivReplayHashFloatValue, CivReplayPlayerSnapshot } from './players.ts'
 
 export const UNITOPERATION_MAKE_TRADE_ROUTE = civHash('UNITOPERATION_MAKE_TRADE_ROUTE')

@@ -1,4 +1,4 @@
-import type { JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { createEffect, createSignal, Match, Show, Switch } from 'solid-js'
 import { DraftView } from '~/client/components/draft'
 import { FloatingUiScaleMenu } from '~/client/components/ui/UiScaleMenu'
@@ -62,13 +62,11 @@ export function DraftPage(props: DraftPageProps) {
     setSubmittingReportMatchId(null)
   }
 
-  createEffect(() => {
-    if (!props.autoStart || autoStartSent()) return
-    if (connectionStatus() !== 'connected') return
-    if (draftStore.state?.status !== 'waiting') return
-    if (isMapVotePhase()) return
-    if (!amHost()) return
-
+  createEffect(() => props.autoStart && !autoStartSent()
+    && connectionStatus() === 'connected'
+    && draftStore.state?.status === 'waiting'
+    && !isMapVotePhase() && amHost(), (shouldStart) => {
+    if (!shouldStart) return
     const sent = sendStart()
     if (!sent) return
 
@@ -216,7 +214,7 @@ function WaitingForDraftStartScreen(props: { isHost: boolean, onStart: () => voi
           <button
             type="button"
             class="text-sm text-black font-semibold px-4 py-1.5 rounded bg-accent cursor-pointer transition-colors hover:bg-accent/85"
-            onClick={props.onStart}
+            onClick={() => props.onStart()}
           >
             Start Draft
           </button>

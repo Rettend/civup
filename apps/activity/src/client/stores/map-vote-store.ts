@@ -29,7 +29,7 @@ export const mapVoteWinningScriptCandidate = () => draftStore.mapVote.result?.ma
 export const mapVoteVotingEndsAt = () => mapVotePhase() === 'voting' ? draftStore.mapVote.endsAt : null
 export const mapVoteRevealEndsAt = () => mapVotePhase() === 'reveal' ? draftStore.mapVote.endsAt : null
 
-export const isMapVotePhase = createMemo(() => mapVotePhase() === 'voting' || mapVotePhase() === 'reveal')
+export const isMapVotePhase = createMemo(() => mapVotePhase() === 'voting' || mapVotePhase() === 'reveal', { lazy: true })
 
 interface MapVoteSelectionUpdate {
   selection: { maps: MapVoteMapId[] }
@@ -68,7 +68,7 @@ export const mapVoteReadyToConfirm = createMemo(() => {
   return mapVotePhase() === 'voting'
     && isMapVoteSelectionConfirmable(draftStore.mapVote.selection)
     && !mapVoteHasConfirmed()
-})
+}, { lazy: true })
 
 export function getSeatMapVote(seatIndex: number): RevealedMapVoteSeatBallot | null {
   return mapVoteSeatVotes().find(vote => vote.seatIndex === seatIndex) ?? null

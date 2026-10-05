@@ -1,9 +1,8 @@
+import type { CivReplayTradeRouteSnapshot, CivReplayUnitTradeRouteOperationSnapshot } from './trade-routes.ts'
 import { CivReplayStateReader } from './state-reader.ts'
 import {
   buildCivReplayTradeRoutes,
   UNITOPERATION_MAKE_TRADE_ROUTE,
-  type CivReplayTradeRouteSnapshot,
-  type CivReplayUnitTradeRouteOperationSnapshot,
 } from './trade-routes.ts'
 import { civHash, CIV_REPLAY_DEDICATION_TYPE_NAMES } from '../hash.ts'
 
@@ -1542,7 +1541,7 @@ function parseGovernor(reader: CivReplayStateReader, expectedIndex: number): Civ
   reader.skip(62)
   reader.skip(4)
   reader.skip(4)
-  let count = reader.readU32()
+  const count = reader.readU32()
   const turns: number[] = []
   for (let index = 0; index < count; index += 1) {
     reader.skip(4)

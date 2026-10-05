@@ -1,4 +1,4 @@
-import { splitProps } from 'solid-js'
+import { omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface SliderProps {
@@ -20,8 +20,8 @@ interface SliderProps {
   class?: string
 }
 
-export function Slider(props: SliderProps) {
-  const [local, rest] = splitProps(props, ['value', 'min', 'max', 'step', 'ariaLabel', 'disabled', 'onInput', 'class'])
+export function Slider(local: SliderProps) {
+  const rest = omit(local, 'value', 'min', 'max', 'step', 'ariaLabel', 'disabled', 'onInput', 'class')
 
   const progress = () => {
     const range = local.max - local.min

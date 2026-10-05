@@ -1,7 +1,6 @@
 import type { DraftEvent, DraftPreviewState, DraftSelection, DraftState, DraftStep, LeaderDataVersion, LeaderSwapState, MapVoteSnapshot } from '@civup/game'
 import { EMPTY_MAP_VOTE_SNAPSHOT, getPickSeatForPlayer, inferGameMode, isCivBlitzFormatId, isRedDeathFormatId } from '@civup/game'
-import { createSignal } from 'solid-js'
-import { createStore, produce } from 'solid-js/store'
+import { createSignal, createStore } from 'solid-js'
 
 const EMPTY_DRAFT_PREVIEWS: DraftPreviewState = {
   bans: {},
@@ -70,6 +69,7 @@ const [draftStore, setDraftStore] = createStore<DraftStore>({
 })
 
 const [serverTimeOffsetMs, setServerTimeOffsetMs] = createSignal(0)
+let scheduledServerTimeOffsetMs = 0
 
 export { draftStore }
 
@@ -91,9 +91,8 @@ export function initDraft(
   permanentAlly = false,
   hiddenDraft = false,
 ) {
-  clearSwapFlash()
-  const nextInitVersion = draftStore.initVersion + 1
-  setDraftStore({
+  clearSwapFlashTimeout()
+  setDraftStore(s => ({
     state,
     leaderDataVersion,
     hostId,
@@ -109,14 +108,15 @@ export function initDraft(
     hiddenDraft,
     mapVote,
     swapFlashSeatIndices: [],
-    initVersion: nextInitVersion,
-  })
+    initVersion: s.initVersion + 1,
+  }))
 }
 
 export function resetDraft() {
-  clearSwapFlash()
+  clearSwapFlashTimeout()
   setServerTimeOffsetMs(0)
-  setDraftStore({
+  scheduledServerTimeOffsetMs = 0
+  setDraftStore(() => ({
     state: null,
     leaderDataVersion: 'live',
     hostId: null,
@@ -133,16 +133,23 @@ export function resetDraft() {
     mapVote: EMPTY_MAP_VOTE_SNAPSHOT,
     swapFlashSeatIndices: [],
     initVersion: 0,
-  })
+  }))
 }
 
 export function syncDraftServerTime(serverNow: number | null | undefined, receivedAt: number = Date.now()): void {
   if (typeof serverNow !== 'number' || !Number.isFinite(serverNow)) return
-  setServerTimeOffsetMs(serverNow - receivedAt)
+  const offsetMs = serverNow - receivedAt
+  setServerTimeOffsetMs(offsetMs)
+  scheduledServerTimeOffsetMs = offsetMs
 }
 
 export function draftNow(localNow: number = Date.now()): number {
   return localNow + serverTimeOffsetMs()
+}
+
+/** Imperative clock reads include queued resets/syncs without subscribing. */
+export function getScheduledDraftNow(localNow: number = Date.now()): number {
+  return localNow + scheduledServerTimeOffsetMs
 }
 
 export function updateDraft(
@@ -159,9 +166,9 @@ export function updateDraft(
   permanentAlly = false,
   hiddenDraft = false,
 ) {
-  const flashSeats = swapState ? findChangedPickSeats(draftStore.state?.picks ?? [], state.picks) : []
-
-  setDraftStore(produce((s) => {
+  let flashSeats: number[] = []
+  setDraftStore(s => {
+    flashSeats = swapState ? findChangedPickSeats(s.state?.picks ?? [], state.picks) : []
     s.state = state
     s.leaderDataVersion = leaderDataVersion
     s.hostId = hostId
@@ -176,36 +183,37 @@ export function updateDraft(
     s.hiddenDraft = hiddenDraft
     s.mapVote = mapVote
     if (flashSeats.length > 0) s.swapFlashSeatIndices = flashSeats
-  }))
+  })
 
   if (flashSeats.length === 0) return
 
   clearSwapFlashTimeout()
   swapFlashTimeout = setTimeout(() => {
-    setDraftStore('swapFlashSeatIndices', [])
+    setDraftStore(s => { s.swapFlashSeatIndices = [] })
     swapFlashTimeout = null
   }, SWAP_FLASH_DURATION_MS)
 }
 
 export function updateDraftSteamLobbyLink(steamLobbyLink: string | null) {
-  setDraftStore('steamLobbyLink', steamLobbyLink)
+  setDraftStore(s => { s.steamLobbyLink = steamLobbyLink })
 }
 
 export function updateDraftPreviews(previews: DraftPreviewState) {
-  setDraftStore('previews', previews)
+  setDraftStore(s => { s.previews = previews })
 }
 
 /** Optimistically show a pick for this client's seat until server update arrives. */
 export function setOptimisticSeatPick(civId: string): void {
-  const s = draftStore.state
-  const seat = currentPickTargetSeatIndex()
-  if (!s || s.status !== 'active' || seat == null) return
-
-  const step = s.steps[s.currentStepIndex]
-  if (!step || step.action !== 'pick') return
-  if ((s.submissions[seat]?.length ?? 0) >= step.count) return
-
-  setDraftStore('optimisticSeatPicks', seat, step.blind ? BLIND_PICK_SUBMISSION_PLACEHOLDER : civId)
+  setDraftStore(draft => {
+    const state = draft.state
+    if (!state || state.status !== 'active' || draft.seatIndex == null) return
+    const seat = getPickSeatForPlayer(state, draft.seatIndex)
+    if (seat == null) return
+    const step = state.steps[state.currentStepIndex]
+    if (!step || step.action !== 'pick') return
+    if ((state.submissions[seat]?.length ?? 0) >= step.count) return
+    draft.optimisticSeatPicks[seat] = step.blind ? BLIND_PICK_SUBMISSION_PLACEHOLDER : civId
+  })
 }
 
 export function getOptimisticSeatPick(seatIndex: number): string | null {
@@ -411,11 +419,6 @@ function hasCompleteCivBlitzKit(seatIndex: number): boolean {
 export function currentStepDuration(): number {
   const step = currentStep()
   return step?.timer ?? 0
-}
-
-function clearSwapFlash() {
-  clearSwapFlashTimeout()
-  setDraftStore('swapFlashSeatIndices', [])
 }
 
 function clearSwapFlashTimeout() {

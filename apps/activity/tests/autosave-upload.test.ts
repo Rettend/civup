@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { getAutosaveUploadErrorMessage, planAutosaveMultipartParts, uploadAutosaveMultipart } from '../src/client/lib/autosave-upload'
 
 const MIB = 1024 * 1024

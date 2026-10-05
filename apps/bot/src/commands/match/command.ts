@@ -580,7 +580,6 @@ export const command_match = factory.command<MatchVar>(
       // ── status ──────────────────────────────────────────
       case 'status': {
         return c.resDefer(async (c) => {
-          const kv = getKvStore(c.env)
           const db = createDb(c.env.DB)
           const modes = GAME_MODES
           const lines: string[] = []

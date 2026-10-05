@@ -1,14 +1,20 @@
 import { describe, expect, test } from 'bun:test'
-import { allLeaderIds, CIV_BLITZ_MAX_OPTION_COUNT, getCivBlitzComponentIds, getCivBlitzOptionCountMaximum, getCivBlitzRegistry, getFaction, getLeader, getLeaders } from '../src/index.ts'
+import {
+  allLeaderIds,
+  betaLeaderDataVersionLabel,
+  CIV_BLITZ_MAX_OPTION_COUNT,
+  getCivBlitzComponentIds,
+  getCivBlitzOptionCountMaximum,
+  getCivBlitzRegistry,
+  getFaction,
+  getLeader,
+  getLeaders,
+  hasBetaLeaderData,
+} from '../src/index.ts'
 import { leaders as betaLeaders } from '../src/leaders-beta.ts'
 import { leaders as liveLeaders } from '../src/leaders.ts'
 
-const betaOnlyLeaderIds = [
-  'austria-maria-theresa',
-  'goths-theodoric',
-  'poland-stanislaw-ii',
-  'taino-anacaona',
-]
+const formerBetaOnlyLeaderIds = ['austria-maria-theresa', 'goths-theodoric', 'poland-stanislaw-ii', 'taino-anacaona']
 
 const bbgExpandedLeaderIds = [
   'austria-maria-theresa',
@@ -48,18 +54,22 @@ const undraftableCivBlitzComponentIds = [
 ]
 
 describe('leader registry', () => {
-  test('beta roster preserves live leader order and includes beta-only leaders', () => {
+  test('retired beta requests preserve live leader order and include the promoted leaders', () => {
     const betaLeaderIds = getLeaders('beta').map(leader => leader.id)
 
-    expect(betaLeaderIds.filter(id => allLeaderIds.includes(id))).toEqual(allLeaderIds)
-    expect(betaOnlyLeaderIds.every(id => betaLeaderIds.includes(id))).toBe(true)
-    expect(betaOnlyLeaderIds.some(id => allLeaderIds.includes(id))).toBe(false)
+    expect(hasBetaLeaderData).toBe(false)
+    expect(betaLeaderDataVersionLabel).toBeNull()
+    expect(getLeaders('beta')).toBe(liveLeaders)
+    expect(betaLeaderIds).toEqual(allLeaderIds)
+    expect(formerBetaOnlyLeaderIds.every(id => betaLeaderIds.includes(id))).toBe(true)
+    expect(formerBetaOnlyLeaderIds.every(id => allLeaderIds.includes(id))).toBe(true)
   })
 
   test('versioned lookup returns matching live and beta leader entries', () => {
     const liveLeader = getLeader('america-abraham-lincoln')
     const betaLeader = getLeader('america-abraham-lincoln', 'beta')
 
+    expect(betaLeader).toBe(liveLeader)
     expect(betaLeader.id).toBe(liveLeader.id)
     expect(betaLeader.name).toBe(liveLeader.name)
     expect(betaLeader.civilization).toBe(liveLeader.civilization)
@@ -155,9 +165,18 @@ describe('leader registry', () => {
     const ahiram = getLeader('phoenicia-ahiram')
     const spearthrowerOwl = getLeader('teotihuacan-spearthrower-owl')
 
-    expect(olympias.ability.description).toContain('Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population')
-    expect(ahiram.ability.description).toContain('International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold')
-    expect(spearthrowerOwl.ability.description).toContain('Pochteca Enclave and the Chancery')
+    expect(olympias.ability.description).toContain(
+      'Cities with a Basilikoi and Holy Site give 0.5 :science: science per :citizen: population',
+    )
+    expect(ahiram.ability.description).toContain(
+      'International :traderoute: trade routes provides +0.5 :production: Production and +2 :gold: Gold',
+    )
+    expect(spearthrowerOwl.ability.description).toContain(
+      '+1 :traderoute: Trade route capacity when completing the Pochteca Enclave and its buildings',
+    )
+    expect(spearthrowerOwl.ability.description).toContain(
+      '+100% :production: Production for buildings in the Pochteca Enclave',
+    )
   })
 
   test('all live and beta leaders have resolved civilization and leader abilities', () => {

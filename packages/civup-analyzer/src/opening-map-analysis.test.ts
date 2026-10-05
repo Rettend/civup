@@ -2,12 +2,13 @@ import { expect, test } from 'bun:test'
 import type { CivReplayMapSnapshot, CivReplayMapTileSnapshot } from './civreplay/map.ts'
 import type { CivReplayCitySnapshot, CivReplayDistrictSnapshot, CivReplayPlayerSnapshot } from './civreplay/players.ts'
 import type { CivReplayTurnSnapshot } from './civreplay/snapshot.ts'
-import { civHash, formatHash, type HashResolver } from './hash.ts'
+import type { HashResolver } from './hash.ts'
+import type { OpeningMapAnalysisData } from './opening-map-analysis.ts'
+import { civHash, formatHash } from './hash.ts'
 import {
   buildDistrictAdjacencyChanges,
   buildDistrictCostChanges,
   buildLuxuryOwnershipChanges,
-  type OpeningMapAnalysisData,
 } from './opening-map-analysis.ts'
 
 test('computes district adjacency changes and luxury ownership changes from map tiles', () => {

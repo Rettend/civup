@@ -1,5 +1,5 @@
 import type { Env } from '../env.ts'
-import { createDb } from '@civup/db'
+import { createDb, divisionRankPolicies } from '@civup/db'
 import { DurableObject } from 'cloudflare:workers'
 import { MaintenanceQueue } from './maintenance-queue.ts'
 import { generateCivBlitzModResponse } from './civblitz-maintenance.ts'
@@ -13,7 +13,6 @@ import type { DivisionRolePreparation } from '../services/ranked/division-role-p
 import { DIVISION_MAINTENANCE_PROTOCOL } from './division-protocol.ts'
 import { nextDivisionWakeAt } from '../services/ranked/division-projection.ts'
 import { refreshRankedPopulation } from '../services/ranked/division-refresh.ts'
-import { divisionRankPolicies } from '@civup/db'
 import { eq } from 'drizzle-orm'
 
 export class MaintenanceDO extends DurableObject<Env['Bindings']> {

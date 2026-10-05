@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 function isParticipant(userId: string | null, seats: Array<{ playerId: string }>): boolean {
   if (!userId) return false

@@ -1,5 +1,6 @@
 import type { Database as CivupDatabase } from '@civup/db'
 import { readdir } from 'node:fs/promises'
+import { URL } from 'node:url'
 import { schema } from '@civup/db'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'

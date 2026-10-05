@@ -1,5 +1,5 @@
 import type { Leader } from '@civup/game'
-import type { JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'

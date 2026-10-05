@@ -1,4 +1,5 @@
-import type { Accessor, JSX } from 'solid-js'
+import type { Accessor } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import type { PlayerDataExportState } from '../lib/player-data-export'
 import type { ActivityLaunchSelection, ActivityTargetOption, LobbyJoinEligibilitySnapshot, LobbySnapshot } from '../stores'
 import { createContext, useContext } from 'solid-js'
@@ -50,9 +51,7 @@ export interface ActivityControllerContextValue {
 export const ActivityControllerContext = createContext<ActivityControllerContextValue>()
 
 export function useActivityController(): ActivityControllerContextValue {
-  const context = useContext(ActivityControllerContext)
-  if (!context) throw new Error('Activity controller context is missing')
-  return context
+  return useContext(ActivityControllerContext)
 }
 
 export function ActivityLoadingPage(): JSX.Element {

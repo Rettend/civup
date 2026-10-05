@@ -1,5 +1,5 @@
-import type { JSX } from 'solid-js'
-import { createSignal, splitProps } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { createSignal, omit } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
 interface HorizontalScrollerProps extends JSX.HTMLAttributes<HTMLDivElement> {
@@ -7,8 +7,8 @@ interface HorizontalScrollerProps extends JSX.HTMLAttributes<HTMLDivElement> {
   viewportRef?: (element: HTMLDivElement) => void
 }
 
-export function HorizontalScroller(props: HorizontalScrollerProps) {
-  const [local, rest] = splitProps(props, ['children', 'class', 'contentClass', 'viewportRef'])
+export function HorizontalScroller(local: HorizontalScrollerProps) {
+  const rest = omit(local, 'children', 'class', 'contentClass', 'viewportRef')
   const [isDragging, setIsDragging] = createSignal(false)
   let viewport: HTMLDivElement | undefined
   let pointerId: number | null = null

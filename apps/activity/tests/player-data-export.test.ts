@@ -1,6 +1,6 @@
 import type { PlayerDataExportEstimate, PlayerDataExportSource } from '../src/client/lib/player-data-export'
 import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   buildPlayerDataWorksheets,
   createPlayerDataExport,
@@ -179,7 +179,8 @@ describe('Activity player data export', () => {
 
   test('rejects exports that would use unsafe browser memory before building the workbook', async () => {
     const source = emptySource()
-    source.bans = new Array(500_001).fill(ban('m1'))
+    const entry = ban('m1')
+    source.bans = Array.from({ length: 500_001 }, () => entry)
 
     await expect(createPlayerDataWorkbook(source)).rejects.toThrow('too large to build safely')
   })

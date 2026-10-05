@@ -45,17 +45,16 @@ export function DraftTimeline() {
     if (entry.kind === 'hidden') return false
     return entry.stepIndex < visibleCurrentStepIndex()
   }
-  let currentStepRef: HTMLSpanElement | undefined
+  let viewport: HTMLDivElement | undefined
 
-  createEffect(() => {
-    state()?.currentStepIndex
-    isMapVotePhase()
-    currentStepRef?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  createEffect(() => [visibleCurrentStepIndex(), isMapVotePhase(), timelineSteps()], () => {
+    const element = viewport?.querySelector<HTMLSpanElement>('[data-current-step="true"]')
+    if (element?.isConnected) element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   })
 
   return (
     <Show when={timelineSteps().length > 0}>
-      <HorizontalScroller class="px-4 py-1.5" contentClass="flex w-full items-center justify-center gap-1 whitespace-nowrap">
+      <HorizontalScroller viewportRef={element => { viewport = element }} class="px-4 py-1.5" contentClass="flex w-full items-center justify-center gap-1 whitespace-nowrap">
         <For each={timelineSteps()}>
           {(entry, idx) => {
             const isCurrent = () => isCurrentEntry(entry)
@@ -73,10 +72,7 @@ export function DraftTimeline() {
                   <div class={cn('h-px w-3 shrink-0', isPast() ? 'bg-fg-muted/50' : 'bg-fg-muted/30')} />
                 </Show>
                 <span
-                  ref={(element) => {
-                    if (!isCurrent()) return
-                    currentStepRef = element
-                  }}
+                  data-current-step={isCurrent() ? 'true' : 'false'}
                   class={cn(
                     'shrink-0 rounded inline-flex items-center overflow-hidden text-[10px] font-bold tracking-wide uppercase leading-none whitespace-nowrap',
                     isCurrent() && isBan() && 'bg-danger/20 text-danger',

@@ -1,9 +1,10 @@
 import type { CivBlitzCategoryOptions, CivBlitzComponent, CivBlitzComponentCategory, CivBlitzPartialKit, Leader } from '@civup/game'
+import type { JSX } from '@solidjs/web'
 import type { LeaderListNeighborState } from './LeaderCard'
 import type { LeaderTagCategory } from '~/client/lib/leader-tags'
 import { CIV_BLITZ_CATEGORIES, factions, getCivBlitzRegistry, getCivBlitzStepCategories, getLeaders, searchFactions, searchLeaders } from '@civup/game'
 import { throttle } from '@solid-primitives/scheduled'
-import { createEffect, createMemo, createRenderEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Match, onSettled, Show, Switch, untrack } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
 import { cn } from '~/client/lib/css'
 import {
@@ -362,6 +363,36 @@ function computeCivBlitzListNeighborMap(
   return map
 }
 
+function MeasuredColumns(props: {
+  children: JSX.Element
+  class: string
+  style?: JSX.CSSProperties
+  civBlitz?: boolean
+  onColumnsChange: (columns: number) => void
+  onMouseLeave: () => void
+}) {
+  let element: HTMLDivElement | undefined
+  onSettled(() => {
+    const el = element
+    if (!el?.isConnected) return
+    const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    const update = () => {
+      if (!el.isConnected) return
+      props.onColumnsChange(props.civBlitz
+        ? (el.clientWidth >= CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM * remPx ? 4 : 2)
+        : Math.max(1, Math.floor(el.clientWidth / (11 * remPx))))
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      props.onColumnsChange(1)
+    }
+  })
+  return <div ref={element} class={props.class} style={props.style} onMouseLeave={() => props.onMouseLeave()}>{props.children}</div>
+}
+
 /** Collapsible leader grid overlay */
 export function LeaderGridOverlay() {
   const state = () => draftStore.state
@@ -402,7 +433,7 @@ export function LeaderGridOverlay() {
   let wideWangAudio: HTMLAudioElement | null = null
   let wideWangRevealTimeouts: Array<ReturnType<typeof setTimeout>> = []
   let civBlitzScrollTop = 0
-  let civBlitzScrollDraftVersion = draftStore.initVersion
+  let civBlitzScrollDraftVersion = untrack(() => draftStore.initVersion)
 
   const clearWideWangRevealTimeouts = () => {
     for (const timeout of wideWangRevealTimeouts) clearTimeout(timeout)
@@ -482,14 +513,13 @@ export function LeaderGridOverlay() {
     toggleTagFilter(tag)
   }
 
-  onCleanup(() => {
+  onSettled(() => () => {
     sendThrottledBanPreview.clear()
     sendThrottledPickPreview.clear()
     stopWideWangEasterEgg()
   })
 
-  createEffect(() => {
-    const initVersion = draftStore.initVersion
+  createEffect(() => draftStore.initVersion, (initVersion) => {
     if (civBlitzScrollDraftVersion === initVersion) return
     civBlitzScrollDraftVersion = initVersion
     civBlitzScrollTop = 0
@@ -509,7 +539,7 @@ export function LeaderGridOverlay() {
   const singleClickShowsDetail = () => panelsDocked()
   const overlayEntranceClass = () => skipNextOverlayAnimation ? '' : 'anim-overlay-in'
 
-  onMount(() => {
+  onSettled(() => {
     const viewport = window.visualViewport
     const syncPanelLayout = () => {
       const width = viewport?.width ?? window.innerWidth
@@ -520,10 +550,10 @@ export function LeaderGridOverlay() {
     window.addEventListener('resize', syncPanelLayout)
     viewport?.addEventListener('resize', syncPanelLayout)
 
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('resize', syncPanelLayout)
       viewport?.removeEventListener('resize', syncPanelLayout)
-    })
+    }
   })
 
   const tooltipPosition = createMemo<TooltipPosition>(() => {
@@ -539,150 +569,139 @@ export function LeaderGridOverlay() {
   const allEntries = createMemo(() => isRedDeathDraft() ? factions : allLeaders())
   const filterTagOptions = createMemo(() => getFilterTagOptions(allLeaders()))
 
-  createEffect(() => {
-    searchQuery()
-    tagFilters()
-    filteredLeaders()
-    clearHoverTooltip()
+  createEffect(() => !canOpenLeaderGrid() && !reportAssignmentMode() && !completeReviewMode() && gridOpen(), (close) => {
+    if (close) setGridOpen(false)
   })
 
-  createEffect(() => {
-    if (canOpenLeaderGrid() || reportAssignmentMode() || completeReviewMode()) return
-    if (gridOpen()) setGridOpen(false)
-  })
-
-  createRenderEffect(() => {
+  const banHydration = createMemo(() => {
     const current = state()
     const currentStep = step()
     const seatIndex = ownSeatIndex()
     const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
-
-    if (!current || current.status !== 'active' || seatIndex == null || currentStep?.action !== 'ban') {
-      if (banSelections().length > 0) setBanSelections([])
-      if (banSelectionStepToken() !== null) setBanSelectionStepToken(null)
-      if (hydratedBanPreviewToken() !== null) setHydratedBanPreviewToken(null)
+    const local = [...banSelections()]
+    return {
+      active: !!current && current.status === 'active' && seatIndex != null && currentStep?.action === 'ban',
+      token: hydrationToken,
+      local,
+      server: seatIndex == null ? [] : (draftStore.previews.bans[seatIndex] ?? []).filter(isBanSelectionAvailable),
+      pruned: local.filter(isBanSelectionAvailable),
+      selectionToken: banSelectionStepToken(),
+      hydratedToken: hydratedBanPreviewToken(),
+    }
+  })
+  createEffect(banHydration, ({ active, token, local, server, pruned, selectionToken, hydratedToken }) => {
+    if (!active) {
+      if (local.length > 0) setBanSelections([])
+      if (selectionToken !== null) setBanSelectionStepToken(null)
+      if (hydratedToken !== null) setHydratedBanPreviewToken(null)
       return
     }
-
-    const localBanSelections = banSelections()
-    const serverBanPreview = (draftStore.previews.bans[seatIndex] ?? []).filter(isBanSelectionAvailable)
-    if (banSelectionStepToken() !== hydrationToken) {
-      if (!sameCivIdList(localBanSelections, serverBanPreview)) {
-        setBanSelections([...serverBanPreview])
+    if (selectionToken !== token) {
+      if (!sameCivIdList(local, server)) {
+        setBanSelections(server)
       }
-      setBanSelectionStepToken(hydrationToken)
-      setHydratedBanPreviewToken(serverBanPreview.length > 0 ? hydrationToken : null)
+      setBanSelectionStepToken(token)
+      setHydratedBanPreviewToken(server.length > 0 ? token : null)
       return
     }
-
-    const prunedLocalBanSelections = localBanSelections.filter(isBanSelectionAvailable)
-    if (!sameCivIdList(localBanSelections, prunedLocalBanSelections)) {
-      setBanSelections(prunedLocalBanSelections)
+    if (!sameCivIdList(local, pruned)) {
+      setBanSelections(pruned)
       clearHoverTooltip()
       return
     }
 
-    if (prunedLocalBanSelections.length === 0 && serverBanPreview.length > 0 && hydratedBanPreviewToken() !== hydrationToken) {
-      setBanSelections([...serverBanPreview])
-      setHydratedBanPreviewToken(hydrationToken)
+    if (pruned.length === 0 && server.length > 0 && hydratedToken !== token) {
+      setBanSelections(server)
+      setHydratedBanPreviewToken(token)
     }
   })
 
-  createEffect(() => {
+  const pickHydration = createMemo(() => {
     const current = state()
     const currentStep = step()
     const seatIndex = currentStep?.action === 'pick' ? pickSelectionSeatIndex() : ownSeatIndex()
     const hydrationToken = current && seatIndex != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${seatIndex}` : null
 
-    if (!current || current.status !== 'active' || seatIndex == null) {
-      if (pickSelections().length > 0) setPickSelections([])
+    const available = new Set(current?.availableCivIds ?? [])
+    const duplicate = current != null && allowsDuplicateDraftPicks(current)
+    const local = [...pickSelections()]
+    return {
+      active: !!current && current.status === 'active' && seatIndex != null && currentStep?.action === 'pick' && !current.picks.some(pick => pick.seatIndex === seatIndex),
+      token: hydrationToken,
+      seatIndex,
+      local,
+      pruned: duplicate ? local : local.filter(civId => available.has(civId)),
+      server: seatIndex == null ? [] : (draftStore.previews.picks[seatIndex] ?? []).filter(civId => duplicate || available.has(civId)),
+      hydratedToken: hydratedPickPreviewToken(),
+    }
+  })
+  createEffect(pickHydration, ({ active, token, seatIndex, local, pruned, server, hydratedToken }) => {
+    if (!active) {
+      if (local.length > 0) setPickSelections([])
       return
     }
-
-    if (currentStep?.action !== 'pick') {
-      if (pickSelections().length > 0) setPickSelections([])
+    if (!sameCivIdList(local, pruned)) {
+      setPickSelections(pruned)
       return
     }
-
-    if (current.picks.some(pick => pick.seatIndex === seatIndex)) {
-      if (pickSelections().length > 0) setPickSelections([])
-      return
-    }
-
-    const available = new Set(current.availableCivIds)
-    const allowsDuplicatePicks = allowsDuplicateDraftPicks(current)
-    const localPickSelections = pickSelections()
-    const prunedLocalSelections = allowsDuplicatePicks
-      ? localPickSelections
-      : localPickSelections.filter(civId => available.has(civId))
-    if (!sameCivIdList(localPickSelections, prunedLocalSelections)) {
-      setPickSelections(prunedLocalSelections)
-      return
-    }
-
-    const serverPickPreview = (draftStore.previews.picks[seatIndex] ?? []).filter(civId => allowsDuplicatePicks || available.has(civId))
-    const seatContextChanged = parseHydrationSeatIndex(hydratedPickPreviewToken()) !== seatIndex
+    const seatContextChanged = parseHydrationSeatIndex(hydratedToken) !== seatIndex
     if (seatContextChanged) {
-      setPickSelections([...serverPickPreview])
-      if (hydrationToken) setHydratedPickPreviewToken(hydrationToken)
+      setPickSelections(server)
+      if (token) setHydratedPickPreviewToken(token)
       return
     }
-    if (localPickSelections.length === 0 && serverPickPreview.length > 0 && hydratedPickPreviewToken() !== hydrationToken) {
-      setPickSelections([...serverPickPreview])
-      setHydratedPickPreviewToken(hydrationToken)
+    if (local.length === 0 && server.length > 0 && hydratedToken !== token) {
+      setPickSelections(server)
+      setHydratedPickPreviewToken(token)
     }
   })
 
-  createEffect(() => {
+  const previewToSend = (): { action: 'ban' | 'pick', civIds: string[] } | null => {
     const current = state()
     const currentStep = step()
     const seatIndex = ownSeatIndex()
-    if (!current || current.status !== 'active' || seatIndex == null || !currentStep) {
-      sendThrottledBanPreview.clear()
-      sendThrottledPickPreview.clear()
-      return
-    }
+    if (!current || current.status !== 'active' || seatIndex == null || !currentStep) return null
 
     if (currentStep.action === 'ban') {
-      sendThrottledPickPreview.clear()
-      const nextPreview = isMyTurn() && !hasSubmitted() ? banSelections() : []
-      if (shouldSuppressPreviewClear('ban', nextPreview)) {
-        sendThrottledBanPreview.clear()
-        return
-      }
-      sendThrottledBanPreview(nextPreview)
-      return
+      const hydration = banHydration()
+      if (hydration.selectionToken !== hydration.token
+        || !sameCivIdList(hydration.local, hydration.pruned)
+        || (hydration.local.length === 0 && hydration.server.length > 0 && hydration.hydratedToken !== hydration.token)) return null
+      return { action: 'ban', civIds: isMyTurn() && !hasSubmitted() ? [...banSelections()] : [] }
     }
 
     if (currentStep.action === 'pick' && currentStep.civBlitz) {
-      sendThrottledBanPreview.clear()
-      const seatIndex = ownSeatIndex()
       const selections = civBlitzSelections()
-      const hydrationToken = currentCivBlitzSelectionToken()
-      if (seatIndex != null && civBlitzSelectionContextToken() !== hydrationToken && !hasCivBlitzKitEntries(selections) && getPreviewPicksForSeat(seatIndex).length > 0) {
-        sendThrottledPickPreview.clear()
-        return
-      }
-      const categories = seatIndex == null ? [] : getCivBlitzStepCategories(currentStep, seatIndex)
-      const nextPreview = isMyTurn() && !hasSubmitted()
+      const hydration = civBlitzHydration()
+      if (!hasSubmitted() && (!hydration.active
+        || hydration.contextToken !== hydration.token
+        || !sameCivBlitzKit(hydration.local, hydration.pruned)
+        || (!hasCivBlitzKitEntries(hydration.local) && hasCivBlitzKitEntries(hydration.server) && hydration.hydratedToken !== hydration.token))) return null
+      const categories = getCivBlitzStepCategories(currentStep, seatIndex)
+      const civIds = isMyTurn() && !hasSubmitted()
         ? categories.flatMap(category => selections[category] ? [selections[category]!] : [])
         : []
-      if (shouldSuppressPreviewClear('pick', nextPreview)) {
-        sendThrottledPickPreview.clear()
-        return
-      }
-      sendThrottledPickPreview(nextPreview)
-      return
+      return { action: 'pick', civIds }
     }
 
-    sendThrottledBanPreview.clear()
-    const nextPreview = canSendPickPreview() ? pickSelections() : []
-    if (shouldSuppressPreviewClear('pick', nextPreview)) {
+    const hydration = pickHydration()
+    if (hydration.active && (parseHydrationSeatIndex(hydration.hydratedToken) !== hydration.seatIndex
+      || !sameCivIdList(hydration.local, hydration.pruned)
+      || (hydration.local.length === 0 && hydration.server.length > 0 && hydration.hydratedToken !== hydration.token))) return null
+    return { action: 'pick', civIds: canSendPickPreview() ? [...pickSelections()] : [] }
+  }
+  const sendHydratedPreview = (preview: ReturnType<typeof previewToSend>) => {
+    if (!preview) {
+      sendThrottledBanPreview.clear()
       sendThrottledPickPreview.clear()
       return
     }
-    sendThrottledPickPreview(nextPreview)
-  })
+    const send = preview.action === 'ban' ? sendThrottledBanPreview : sendThrottledPickPreview
+    const other = preview.action === 'ban' ? sendThrottledPickPreview : sendThrottledBanPreview
+    other.clear()
+    if (shouldSuppressPreviewClear(preview.action, preview.civIds)) send.clear()
+    else send(preview.civIds)
+  }
 
   const draftLeaderPoolIds = createMemo(() => {
     if (reportAssignmentMode()) return new Set(allEntries().map(entry => entry.id))
@@ -716,6 +735,8 @@ export function LeaderGridOverlay() {
   })
 
   const ghostCount = createMemo(() => Math.max(0, draftLeaderPoolIds().size - filteredLeaders().length))
+
+  createEffect(() => [searchQuery(), filteredLeaders()], clearHoverTooltip)
 
   const showRandomInList = () => state()?.status === 'active' && !reportAssignmentMode() && !isRedDeathDraft() && !showWideWangTranscript()
   const [multiListColumns, setMultiListColumns] = createSignal(1)
@@ -868,55 +889,58 @@ export function LeaderGridOverlay() {
 
   const civBlitzHeaderCount = () => state()?.civBlitz?.optionCount ?? civBlitzOptionsForSeat()?.[civBlitzCategoriesForSeat()[0]!]?.length ?? 0
 
-  createRenderEffect(() => {
+  const civBlitzHydration = createMemo(() => {
     const current = state()
     const currentStep = step()
     const seatIndex = ownSeatIndex()
-    const clearCivBlitzState = (clearDetails: boolean) => {
-      if (hasCivBlitzKitEntries(civBlitzSelections())) setCivBlitzSelections({})
-      if (civBlitzSelectionContextToken() !== null) setCivBlitzSelectionContextToken(null)
-      if (hydratedCivBlitzPreviewToken() !== null) setHydratedCivBlitzPreviewToken(null)
-      if (clearDetails && civBlitzDetailComponentId() != null) setCivBlitzDetailComponentId(null)
-    }
-
-    if (!current || !currentStep?.civBlitz || current.status !== 'active' || seatIndex == null || hasSubmitted()) {
-      clearCivBlitzState(!(current?.status === 'complete' && current.civBlitz))
-      return
-    }
-
     const options = civBlitzOptionsForSeat()
     const categories = civBlitzCategoriesForSeat()
-    if (!options || categories.length === 0) {
-      clearCivBlitzState(true)
+    const local = civBlitzSelections()
+    return {
+      active: !!current && !!currentStep?.civBlitz && current.status === 'active' && seatIndex != null && !hasSubmitted() && !!options && categories.length > 0,
+      clearDetails: !(current?.status === 'complete' && current.civBlitz),
+      token: currentCivBlitzSelectionToken(),
+      contextToken: civBlitzSelectionContextToken(),
+      hydratedToken: hydratedCivBlitzPreviewToken(),
+      detailId: civBlitzDetailComponentId(),
+      local,
+      pruned: options ? pruneCivBlitzKit(local, categories, options) : {},
+      server: seatIndex != null && options ? buildCivBlitzPreviewKit(getPreviewPicksForSeat(seatIndex), categories, options) : {},
+    }
+  })
+  createEffect(civBlitzHydration, ({ active, clearDetails, token, contextToken, hydratedToken, detailId, local, pruned, server }) => {
+    const clearCivBlitzState = (clearDetails: boolean) => {
+      if (hasCivBlitzKitEntries(local)) setCivBlitzSelections({})
+      if (contextToken !== null) setCivBlitzSelectionContextToken(null)
+      if (hydratedToken !== null) setHydratedCivBlitzPreviewToken(null)
+      if (clearDetails && detailId != null) setCivBlitzDetailComponentId(null)
+    }
+
+    if (!active) {
+      clearCivBlitzState(clearDetails)
       return
     }
 
-    const hydrationToken = currentCivBlitzSelectionToken()
-    const localSelections = civBlitzSelections()
-    const prunedLocalSelections = pruneCivBlitzKit(localSelections, categories, options)
-    const serverPreviewSelections = buildCivBlitzPreviewKit(getPreviewPicksForSeat(seatIndex), categories, options)
-
-    if (civBlitzSelectionContextToken() !== hydrationToken) {
-      if (!sameCivBlitzKit(localSelections, serverPreviewSelections)) setCivBlitzSelections(serverPreviewSelections)
-      setCivBlitzSelectionContextToken(hydrationToken)
-      setHydratedCivBlitzPreviewToken(hasCivBlitzKitEntries(serverPreviewSelections) ? hydrationToken : null)
+    if (contextToken !== token) {
+      if (!sameCivBlitzKit(local, server)) setCivBlitzSelections(server)
+      setCivBlitzSelectionContextToken(token)
+      setHydratedCivBlitzPreviewToken(hasCivBlitzKitEntries(server) ? token : null)
       return
     }
 
-    if (!sameCivBlitzKit(localSelections, prunedLocalSelections)) {
-      setCivBlitzSelections(prunedLocalSelections)
+    if (!sameCivBlitzKit(local, pruned)) {
+      setCivBlitzSelections(pruned)
       return
     }
 
-    if (!hasCivBlitzKitEntries(localSelections) && hasCivBlitzKitEntries(serverPreviewSelections) && hydratedCivBlitzPreviewToken() !== hydrationToken) {
-      setCivBlitzSelections(serverPreviewSelections)
-      setHydratedCivBlitzPreviewToken(hydrationToken)
+    if (!hasCivBlitzKitEntries(local) && hasCivBlitzKitEntries(server) && hydratedToken !== token) {
+      setCivBlitzSelections(server)
+      setHydratedCivBlitzPreviewToken(token)
     }
   })
 
-  createEffect(() => {
-    const componentId = civBlitzDetailComponentId()
-    if (componentId && !civBlitzOptionIdsForSeat().includes(componentId)) setCivBlitzDetailComponentId(null)
+  createEffect(() => Boolean(civBlitzDetailComponentId() && !civBlitzOptionIdsForSeat().includes(civBlitzDetailComponentId()!)), (invalid) => {
+    if (invalid) setCivBlitzDetailComponentId(null)
   })
 
   const canConfirmCivBlitz = () => {
@@ -1135,8 +1159,7 @@ export function LeaderGridOverlay() {
     setHoverTooltip(null)
   }
 
-  createEffect(() => {
-    const tooltip = hoverTooltip()
+  createEffect(hoverTooltip, (tooltip) => {
     if (!tooltip) return
 
     const raf = requestAnimationFrame(() => {
@@ -1147,33 +1170,22 @@ export function LeaderGridOverlay() {
       setTooltipSize(prev => prev.width === width && prev.height === height ? prev : { width, height })
     })
 
-    onCleanup(() => cancelAnimationFrame(raf))
+    return () => cancelAnimationFrame(raf)
   })
 
-  createEffect(() => {
-    if (panelsDocked() || !gridExpanded()) return
-    if (!filtersOpen() || !hasGridDetail()) return
-    setFiltersOpen(false)
+  createEffect(() => !panelsDocked() && gridExpanded() && filtersOpen() && hasGridDetail(), (close) => {
+    if (close) setFiltersOpen(false)
   })
 
-  createEffect(() => {
-    if (reportAssignmentMode()) {
-      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
-      return
-    }
-
-    if (isRedDeathDraft()) {
-      if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
-      return
-    }
-
-    if (isWideWangQuery(searchQuery())) {
-      if (wideWangVisibleLineCount() === 0) startWideWangEasterEgg()
-      return
-    }
-
-    if (wideWangVisibleLineCount() > 0) stopWideWangEasterEgg()
+  createEffect(() => ({
+    enabled: !reportAssignmentMode() && !isRedDeathDraft() && isWideWangQuery(searchQuery()),
+    visible: wideWangVisibleLineCount() > 0,
+  }), ({ enabled, visible }) => {
+    if (enabled && !visible) startWideWangEasterEgg()
+    else if (!enabled && visible) stopWideWangEasterEgg()
   })
+
+  createEffect(previewToSend, sendHydratedPreview)
 
   const renderFilterPanel = (className: string) => (
     <div class={cn('grid-panel-glow border border-border rounded-lg bg-bg-subtle flex min-h-0 flex-col shadow-2xl overflow-hidden', className)}>
@@ -1247,7 +1259,7 @@ export function LeaderGridOverlay() {
     )
   }
 
-  const renderCivBlitzListSection = (category: CivBlitzComponentCategory, componentIds: string[], stickyHeader: boolean) => (
+  const renderCivBlitzListSection = (category: CivBlitzComponentCategory, componentIds: () => string[], stickyHeader: boolean) => (
     <section class="min-w-0">
       <div
         class={cn(
@@ -1259,7 +1271,7 @@ export function LeaderGridOverlay() {
         {CIV_BLITZ_CATEGORY_LABELS[category]}
       </div>
       <div class="flex flex-col">
-        <For each={componentIds}>
+        <For each={componentIds()}>
           {componentId => renderCivBlitzListOption(category, componentId)}
         </For>
       </div>
@@ -1418,22 +1430,8 @@ export function LeaderGridOverlay() {
         <Show when={isCivBlitzDraft()} fallback={(
           <Switch>
             <Match when={gridViewMode() === 'multi-list'}>
-              <div
-                ref={(el) => {
-                  const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-                  const colWidth = 11 * remPx
-                  const update = () => {
-                    if (!el.isConnected) return
-                    setMultiListColumns(Math.max(1, Math.floor(el.clientWidth / colWidth)))
-                  }
-                  update()
-                  const observer = new ResizeObserver(update)
-                  observer.observe(el)
-                  onCleanup(() => {
-                    observer.disconnect()
-                    setMultiListColumns(1)
-                  })
-                }}
+              <MeasuredColumns
+                onColumnsChange={setMultiListColumns}
                 class="columns-[11rem]"
                 style={{ 'column-gap': '0' }}
                 onMouseLeave={() => setHoveredListIndex(null)}
@@ -1470,7 +1468,7 @@ export function LeaderGridOverlay() {
                     </div>
                   )}
                 </For>
-              </div>
+              </MeasuredColumns>
             </Match>
             <Match when={gridViewMode() === 'list'}>
               <div class="flex flex-col" onMouseLeave={() => setHoveredListIndex(null)}>
@@ -1536,33 +1534,21 @@ export function LeaderGridOverlay() {
             {resolvedOptions => (
               <Switch>
                 <Match when={gridViewMode() === 'multi-list'}>
-                  <div
-                    ref={(el) => {
-                      const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-                      const update = () => {
-                        if (!el.isConnected) return
-                        setMultiListColumns(el.clientWidth >= CIV_BLITZ_MULTI_LIST_FOUR_COLUMN_MIN_WIDTH_REM * remPx ? 4 : 2)
-                      }
-                      update()
-                      const observer = new ResizeObserver(update)
-                      observer.observe(el)
-                      onCleanup(() => {
-                        observer.disconnect()
-                        setMultiListColumns(1)
-                      })
-                    }}
+                  <MeasuredColumns
+                    civBlitz
+                    onColumnsChange={setMultiListColumns}
                     class={cn('grid gap-0', civBlitzMultiListGridClass())}
                     onMouseLeave={() => setHoveredListIndex(null)}
                   >
                     <For each={civBlitzCategoriesForSeat()}>
-                      {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], false)}
+                      {category => renderCivBlitzListSection(category, () => resolvedOptions()[category] ?? [], false)}
                     </For>
-                  </div>
+                  </MeasuredColumns>
                 </Match>
                 <Match when={gridViewMode() === 'list'}>
                   <div class="flex flex-col gap-2" onMouseLeave={() => setHoveredListIndex(null)}>
                     <For each={civBlitzCategoriesForSeat()}>
-                      {category => renderCivBlitzListSection(category, resolvedOptions()[category] ?? [], true)}
+                      {category => renderCivBlitzListSection(category, () => resolvedOptions()[category] ?? [], true)}
                     </For>
                   </div>
                 </Match>
@@ -1822,7 +1808,7 @@ function CivBlitzOptionCard(props: {
       onContextMenu={handleContextMenu}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
-      onMouseLeave={props.onHoverLeave}
+      onMouseLeave={() => props.onHoverLeave?.()}
     >
       <div
         class={cn(
@@ -1910,7 +1896,7 @@ function CivBlitzOptionListItem(props: {
       onContextMenu={handleContextMenu}
       onMouseEnter={handleHoverMove}
       onMouseMove={handleHoverMove}
-      onMouseLeave={props.onHoverLeave}
+      onMouseLeave={() => props.onHoverLeave?.()}
     >
       <div class={cn('shrink-0 h-7 w-7 rounded-full bg-bg-subtle relative overflow-hidden', props.picked && !props.selected && 'opacity-25')}>
         <Show
@@ -1957,7 +1943,7 @@ function WideWangTranscriptBanner(props: {
               disabled={!props.canUseRandom}
               active={props.randomSelected}
               accent={props.accent}
-              onClick={props.onRandomClick}
+              onClick={() => props.onRandomClick()}
             />
           )}
         >
@@ -1966,7 +1952,7 @@ function WideWangTranscriptBanner(props: {
             disabled={!props.canUseRandom}
             active={props.randomSelected}
             accent={props.accent}
-            onClick={props.onRandomClick}
+            onClick={() => props.onRandomClick()}
           />
         </Show>
       </div>
@@ -1978,7 +1964,7 @@ function WideWangTranscriptBanner(props: {
               const visible = () => props.visibleLineCount > index()
               return (
                 <p
-                  aria-hidden={!visible()}
+                  aria-hidden={visible() ? 'false' : 'true'}
                   class={cn(
                     'text-sm text-fg leading-relaxed font-medium',
                     visible() ? 'visible' : 'invisible',

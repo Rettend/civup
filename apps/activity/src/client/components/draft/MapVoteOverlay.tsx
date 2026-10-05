@@ -1,5 +1,5 @@
 import type { MapVoteMapOption } from '@civup/game'
-import type { JSXElement } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { MAP_VOTE_MAPS } from '@civup/game'
 import { For, Show } from 'solid-js'
 import { resolveAssetUrl } from '~/client/lib/asset-url'
@@ -48,7 +48,7 @@ export function MapVoteOverlay() {
   )
 }
 
-function MapVotePanelFrame(props: { children: JSXElement, footer?: JSXElement, footerClass?: string, bodyClass?: string }) {
+function MapVotePanelFrame(props: { children: JSX.Element, footer?: JSX.Element, footerClass?: string, bodyClass?: string }) {
   const expandLabel = () => gridExpanded() ? 'Restore map vote size' : 'Expand map vote'
 
   return (
@@ -125,7 +125,7 @@ function VotePanel() {
   )
 }
 
-function MapOptionSection(props: { title: string, gridClass: string, children: JSXElement }) {
+function MapOptionSection(props: { title: string, gridClass: string, children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2">
       <div class="text-sm text-white leading-none font-semibold px-1">{props.title}</div>

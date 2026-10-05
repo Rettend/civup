@@ -1,4 +1,4 @@
-import type { JSX } from 'solid-js'
+import type { JSX } from '@solidjs/web'
 import { createSignal, For } from 'solid-js'
 import { cn } from '~/client/lib/css'
 
@@ -105,7 +105,7 @@ export function Dropdown(props: DropdownProps) {
         {/* Trigger */}
         <button
           type="button"
-          tabIndex={0}
+          tabindex={0}
           aria-label={props.ariaLabel ?? props.label}
           disabled={props.disabled}
           onClick={() => { if (!props.disabled) setOpen(prev => !prev) }}

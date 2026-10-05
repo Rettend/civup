@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { createCellGridLayout, createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } from '../src/client/lib/seat-grid'
 
 describe('seat-grid helpers', () => {

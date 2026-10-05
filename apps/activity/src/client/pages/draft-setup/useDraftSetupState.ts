@@ -2,7 +2,7 @@ import type { OptimisticLobbyAction, PendingOptimisticLobbyAction, PlayerRow, Ra
 import type { DraftSetupPageProps } from './types'
 import type { LobbyArrangeStrategy, LobbySnapshot } from '~/client/stores'
 import { formatLeaderPoolRankLabel, formatModeLabel, inferGameMode, isTeamMode as isTeamGameMode, slotToTeamIndex } from '@civup/game'
-import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createMemo, createSignal, onSettled, untrack } from 'solid-js'
 import {
   arrangeLobbySlots,
   cancelLobby,
@@ -36,7 +36,7 @@ const CONFIG_MESSAGE_TIMEOUT_MS = 4000
 
 export function useDraftSetupState(props: DraftSetupPageProps) {
   const state = () => draftStore.state
-  const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(null)
+  const [lobbyState, setLobbyState] = createSignal<LobbySnapshot | null>(untrack(() => props.lobby ?? null))
   const [configMessage, setConfigMessage] = createSignal<string | null>(null)
   const [configMessageTone, setConfigMessageTone] = createSignal<'error' | 'info' | 'warning' | null>(null)
   const [rankRoleSetDetail, setRankRoleSetDetail] = createSignal<RankRoleSetDetail | null>(null)
@@ -60,9 +60,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     })
   }
 
-  createRenderEffect(() => {
-    applyLobbySnapshot(props.lobby ?? null)
-  })
+  createEffect(() => props.lobby ?? null, applyLobbySnapshot)
 
   const clearOptimisticLobbyAction = () => {
     if (optimisticLobbyActionTimeout) {
@@ -77,28 +75,28 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   createEffect(() => {
     const action = optimisticLobbyAction()
-    if (!action) return
+    if (!action) return false
 
     const lobby = lobbyState()
     const currentUserId = userId()
     if (!lobby || !currentUserId || lobby.status !== 'open') {
-      clearOptimisticLobbyAction()
-      return
+      return true
     }
 
     if (lobby.revision > action.baseRevision || Date.now() > action.expiresAt) {
-      clearOptimisticLobbyAction()
-      return
+      return true
     }
 
     if (action.kind === 'place-self' || action.kind === 'remove-self') {
       const currentSlot = lobby.entries.findIndex(entry => entry?.playerId === currentUserId)
       if (action.kind === 'place-self' && currentSlot === action.targetSlot) {
-        clearOptimisticLobbyAction()
-        return
+        return true
       }
-      if (action.kind === 'remove-self' && currentSlot < 0) clearOptimisticLobbyAction()
+      if (action.kind === 'remove-self' && currentSlot < 0) return true
     }
+    return false
+  }, (clear) => {
+    if (clear) clearOptimisticLobbyAction()
   })
 
   const startOptimisticLobbyAction = (action: PendingOptimisticLobbyAction) => {
@@ -148,7 +146,7 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
     scheduleConfigMessageClear()
   }
 
-  onCleanup(() => {
+  onSettled(() => () => {
     clearOptimisticLobbyAction()
     clearPendingArrangeStrategy()
     if (configMessageTimeout) clearTimeout(configMessageTimeout)
@@ -248,20 +246,20 @@ export function useDraftSetupState(props: DraftSetupPageProps) {
 
   createEffect(() => {
     const slot = pendingPlaceSelfSlot()
-    if (slot == null) return
+    if (slot == null) return false
 
     const lobby = currentLobby()
     const currentUserId = userId()
     if (!lobby || !currentUserId || props.joinEligibility?.canJoin === false) {
-      setPendingPlaceSelfSlot(null)
-      return
+      return true
     }
     if (lobby.entries.some(entry => entry?.playerId === currentUserId)) {
-      setPendingPlaceSelfSlot(null)
-      return
+      return true
     }
     const targetEntry = lobby.entries[slot] ?? null
-    if (targetEntry && targetEntry.playerId !== currentUserId) setPendingPlaceSelfSlot(null)
+    return Boolean(targetEntry && targetEntry.playerId !== currentUserId)
+  }, (clear) => {
+    if (clear) setPendingPlaceSelfSlot(null)
   })
 
   const arrangeTargetLabel = () => isTeamGameMode(lobbyMode()) ? 'teams' : 'seat order'
