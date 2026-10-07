@@ -108,10 +108,28 @@ describe('Map vote UI', () => {
     ))
 
     expect(screen.queryByRole('button', { name: 'East vs West' })).toBeNull()
-    expect(screen.getAllByText('EvW')).toHaveLength(4)
+    expect(screen.getAllByText('EvW')).toHaveLength(5)
 
     fireEvent.click(screen.getByRole('button', { name: /Inland Sea.*EvW|EvW.*Inland Sea/ }))
 
     await waitFor(() => expect(uiMockState.mapVoteSelectedMaps).toEqual(['inland-sea-east-vs-west']))
+  })
+
+  test('offers regular Pangaea variants at the end of the map list', async () => {
+    render(() => (
+      <DraftPage matchId="match-1" autoStart={false} steamLobbyLink={null} lobbyId="lobby-1" lobbyMode="teamers" />
+    ))
+
+    const standard = screen.getByRole('button', { name: 'Pangaea Pangaea' })
+    const eastVsWest = screen.getByRole('button', { name: 'Pangaea EvW Pangaea' })
+    expect(Array.from(standard.parentElement!.children).slice(-2)).toEqual([standard, eastVsWest])
+
+    fireEvent.click(standard)
+    fireEvent.click(eastVsWest)
+
+    await waitFor(() => expect(uiMockState.mapVoteSelectedMaps).toEqual(['pangaea', 'pangaea-east-vs-west']))
+    expect(storeSpies.sendMapVoteSelection).toHaveBeenLastCalledWith({
+      maps: ['pangaea', 'pangaea-east-vs-west'],
+    })
   })
 })

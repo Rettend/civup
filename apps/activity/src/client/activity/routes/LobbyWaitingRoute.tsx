@@ -37,9 +37,9 @@ export default function LobbyWaitingRoute() {
 }
 
 function LobbyWaitingFallback(props: { state: Accessor<ActivityState> }) {
-  const errorMessage = () => {
+  const errorState = () => {
     const state = props.state()
-    return state.status === 'error' ? state.message : ''
+    return state.status === 'error' ? state : null
   }
 
   return (
@@ -48,7 +48,7 @@ function LobbyWaitingFallback(props: { state: Accessor<ActivityState> }) {
         <ActivityLoadingPage />
       </Match>
       <Match when={props.state().status === 'error'}>
-        <ActivityErrorPage message={errorMessage()} />
+        <ActivityErrorPage message={errorState()?.message ?? ''} onRetry={errorState()?.onRetry} />
       </Match>
     </Switch>
   )

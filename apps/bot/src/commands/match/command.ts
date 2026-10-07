@@ -368,6 +368,10 @@ export const command_match = factory.command<MatchVar>(
             const lobbyById = await getLobbyById(kv, targetId)
             const lobbyByMatch =
               lobbyById?.matchId === targetId ? lobbyById : await getSessionLobbyProjectionByMatch(db, targetId)
+            if (!lobbyById && !lobbyByMatch) {
+              await sendTransientEphemeralResponse(c, 'Could not find that lobby or match.', 'error')
+              return
+            }
             if (lobbyById?.hostId !== identity.userId) {
               if (!lobbyByMatch || lobbyByMatch.hostId !== identity.userId) {
                 await sendTransientEphemeralResponse(c, 'You can only cancel your own hosted lobby or match.', 'error')

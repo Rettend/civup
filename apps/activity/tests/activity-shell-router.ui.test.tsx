@@ -17,6 +17,7 @@ import { ApiError } from '@civup/utils'
 import { useActivityController } from '../src/client/activity/activity-context'
 import App, { ActivityRouter } from '../src/client/App'
 import { BrowserLaunchValidationError } from '../src/client/platform/browser-platform'
+import { fetchActivityLaunchSnapshot } from '../src/client/stores/connection-store'
 
 interface OwnedSocket {
   id: string
@@ -358,17 +359,88 @@ afterEach(() => {
   expect(console.warn).not.toHaveBeenCalled()
   expect(vi.mocked(console.error).mock.calls).toEqual(expectedLaunchErrors)
   expect(mocks.relayDevLog.mock.calls).toEqual(
-    expectedLaunchErrors.map(([label, error]) => [
-      'error',
-      label === 'Browser app setup failed:' ? 'Browser app setup failed' : 'Activity app setup failed',
-      error,
-    ]),
+    expectedLaunchErrors
+      .filter(([label]) => label !== 'Failed to fetch activity launch snapshot:')
+      .map(([label, error]) => [
+        'error',
+        label === 'Browser app setup failed:' ? 'Browser app setup failed' : 'Activity app setup failed',
+        error,
+      ]),
   )
 })
 
 afterAll(() => mocks.dispose())
 
 describe('the rendered Activity router and shell', () => {
+  test.each(['/', '/lobby/lobby-1', '/draft/match-1'])(
+    'offers a retry when the initial lobby request fails at %s and opens the lobby after retrying',
+    async path => {
+      window.history.replaceState(null, '', path)
+      const pendingRetry = deferred<Response>()
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ error: 'Database implementation details' }, { status: 503 }))
+        .mockImplementationOnce(() => pendingRetry.promise)
+      vi.stubGlobal('fetch', fetch)
+      mocks.launch.mockImplementation(fetchActivityLaunchSnapshot)
+      mocks.overviewOptions = [lobbySelection().option]
+      expectedLaunchErrors.push([
+        'Failed to fetch activity launch snapshot:',
+        expect.objectContaining({ status: 503, message: 'Database implementation details' }),
+      ])
+
+      render(() => <App />)
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1), { timeout: 10000 })
+      await screen.findByText('Could not load your lobby. Try again.')
+      expect(screen.queryByText('Connecting to CivUp...')).toBeNull()
+      expect(screen.queryByText('Database implementation details')).toBeNull()
+      expect(mocks.watch).not.toHaveBeenCalled()
+      expect(mocks.connect).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      expect(screen.getByText('Connecting to CivUp...')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+      pendingRetry.resolve(Response.json(snapshot(lobbySelection())))
+
+      await heading('Lobby lobby-1')
+      expect(window.location.pathname).toBe('/lobby/lobby-1')
+      expect(mocks.discord).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        '/api/activity/launch/channel-1/player-1',
+        '/api/activity/launch/channel-1/player-1',
+      ])
+      expect(mocks.watches.filter(watch => !watch.closed)).toHaveLength(1)
+    },
+  )
+
+  test('keeps the launch error actionable when retrying also fails', async () => {
+    const error = new TypeError('Network implementation details')
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(Response.json(snapshot(matchSelection())))
+    vi.stubGlobal('fetch', fetch)
+    mocks.launch.mockImplementation(fetchActivityLaunchSnapshot)
+    expectedLaunchErrors.push(
+      ['Failed to fetch activity launch snapshot:', error],
+      ['Failed to fetch activity launch snapshot:', error],
+    )
+
+    render(() => <App />)
+    await screen.findByRole('button', { name: 'Retry' })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await screen.findByText('Could not load your lobby. Try again.')
+    expect(screen.queryByText('Network implementation details')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await heading('Draft match-1')
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(mocks.discord).toHaveBeenCalledTimes(1)
+    expect(mocks.sockets.filter(socket => !socket.closed).map(socket => socket.id)).toEqual(['session-1'])
+  })
+
   test.each([new Error('SDK implementation details'), 'Unexpected SDK response', null])(
     'shows a launch message instead of arbitrary Discord errors (%s)',
     async error => {

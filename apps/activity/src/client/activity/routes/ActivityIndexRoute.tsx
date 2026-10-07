@@ -10,7 +10,7 @@ export default function ActivityIndexRoute() {
   const renderRoute = () => {
     const state = activity.state()
     if (state.status === 'loading') return <ActivityLoadingPage />
-    if (state.status === 'error') return <ActivityErrorPage message={state.message} />
+    if (state.status === 'error') return <ActivityErrorPage message={state.message} onRetry={state.onRetry} />
     return <ActivityRedirectingPage />
   }
 

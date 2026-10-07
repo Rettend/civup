@@ -14,7 +14,7 @@ export default function DraftActivityRoute() {
   const renderRoute = () => {
     const state = activity.state()
     if (state.status === 'loading') return <ActivityLoadingPage />
-    if (state.status === 'error') return <ActivityErrorPage message={state.message} />
+    if (state.status === 'error') return <ActivityErrorPage message={state.message} onRetry={state.onRetry} />
     if (state.status !== 'authenticated' || state.matchId !== params.matchId) return <ActivityRedirectingPage />
     return (
       <DraftPage
