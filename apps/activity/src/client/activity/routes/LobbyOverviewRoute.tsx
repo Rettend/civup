@@ -11,7 +11,7 @@ export default function LobbyOverviewRoute() {
   const renderRoute = () => {
     const state = activity.state()
     if (state.status === 'loading') return <ActivityLoadingPage />
-    if (state.status === 'error') return <ActivityErrorPage message={state.message} />
+    if (state.status === 'error') return <ActivityErrorPage message={state.message} onRetry={state.onRetry} />
     if (state.status !== 'overview') return <ActivityRedirectingPage />
     return (
       <LobbyOverviewPage

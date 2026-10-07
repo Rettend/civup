@@ -4,15 +4,47 @@ import {
   DEFAULT_MAP_VOTE_SELECTION,
   formatMapVoteResultLabel,
   formatMapVoteResultTitle,
+  getMapVoteMapIdForResult,
   isMapVoteSelectionConfirmable,
   isMapVoteSupportedForMode,
   MAP_VOTE_MAP_BY_ID,
+  MAP_VOTE_MAP_IDS,
+  MAP_VOTE_MAPS,
   normalizeMapVoteEnabled,
   normalizeMapVoteSelection,
   resolveMapVoteWinner,
 } from '../src/map-vote.ts'
 
 describe('map vote helpers', () => {
+  test('appends regular Pangaea variants and reuses Pangaea Ultima art', () => {
+    expect(MAP_VOTE_MAP_IDS.slice(-2)).toEqual(['pangaea', 'pangaea-east-vs-west'])
+    expect(MAP_VOTE_MAPS.slice(-2).map(option => option.id)).toEqual(['pangaea', 'pangaea-east-vs-west'])
+    for (const id of ['pangaea', 'pangaea-east-vs-west'] as const) {
+      expect(MAP_VOTE_MAP_BY_ID[id].name).toBe('Pangaea')
+      expect(MAP_VOTE_MAP_BY_ID[id].imageUrl).toBe(MAP_VOTE_MAP_BY_ID['pangaea-ultima'].imageUrl)
+    }
+    expect(MAP_VOTE_MAP_BY_ID['pangaea-east-vs-west'].badgeRight).toBe('EvW')
+  })
+
+  test('resolves regular Pangaea votes separately from Pangaea Ultima in both variants', () => {
+    for (const mapType of ['standard', 'east-vs-west'] as const) {
+      const id = mapType === 'standard' ? 'pangaea' : 'pangaea-east-vs-west'
+      const selection = normalizeMapVoteSelection({ maps: [id] })
+      expect(selection).toEqual({ maps: [id] })
+      const result = resolveMapVoteWinner([selection], () => 0, 'pangaea')
+      expect(result.mapType).toBe(mapType)
+      expect(result.mapScript).toBe('pangaea')
+      expect(getMapVoteMapIdForResult(result.mapType, result.mapScript)).toBe(id)
+      expect(normalizeMapVoteSelection({ mapTypes: [mapType], mapScripts: ['pangaea'] })).toEqual(selection)
+      expect(formatMapVoteResultTitle(result.mapType, result.mapScript)).toBe(
+        mapType === 'standard' ? 'Pangaea Standard' : 'Pangaea East vs West',
+      )
+      expect(formatMapVoteResultLabel(result.mapType, result.mapScript)).toBe(
+        mapType === 'standard' ? 'Pangaea Stnd' : 'Pangaea EvW',
+      )
+    }
+  })
+
   test('Rich Riverlands resolves as its own map and reuses Rich Highlands art', () => {
     const selection = normalizeMapVoteSelection({ maps: ['rich-riverlands'] })
     expect(selection).toEqual({ maps: ['rich-riverlands'] })

@@ -761,9 +761,9 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       return
     }
     const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
-    if (!snapshot) return
 
     if (
+      disposed ||
       !shouldApplyActivityLaunchSnapshotRefresh({
         requestVersion,
         latestRequestVersion: launchSnapshotRequestVersion,
@@ -776,6 +776,21 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
         liveStateRevision,
       })
     ) {
+      return
+    }
+
+    if (!snapshot) {
+      if (state().status === 'loading') {
+        setState({
+          status: 'error',
+          message: 'Could not load your lobby. Try again.',
+          onRetry: () => {
+            if (disposed || refreshInFlight || state().status !== 'error') return
+            setState({ status: 'loading' })
+            void requestActivityLaunchSnapshotRefresh()
+          },
+        })
+      }
       return
     }
 

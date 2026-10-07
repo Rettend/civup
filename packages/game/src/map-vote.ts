@@ -17,6 +17,7 @@ export const MAP_SCRIPT_IDS = [
   'inland-sea',
   'continents',
   'random',
+  'pangaea',
 ] as const
 export type MapScriptId = (typeof MAP_SCRIPT_IDS)[number]
 
@@ -36,6 +37,8 @@ export const MAP_VOTE_MAP_IDS = [
   'inland-sea-east-vs-west',
   'continents',
   'continents-east-vs-west',
+  'pangaea',
+  'pangaea-east-vs-west',
 ] as const
 export type MapVoteMapId = (typeof MAP_VOTE_MAP_IDS)[number]
 
@@ -160,6 +163,7 @@ export const MAP_SCRIPTS: readonly MapScriptOption[] = [
   { id: 'inland-sea', name: 'Inland Sea', imageUrl: '/assets/maps/Map_Inland_Sea.webp' },
   { id: 'continents', name: 'Continents', imageUrl: '/assets/maps/Map_Continents.webp' },
   { id: 'random', name: 'Random', icon: 'i-ph-dice-five-bold' },
+  { id: 'pangaea', name: 'Pangaea', imageUrl: '/assets/maps/Map_Pangaea.webp' },
 ]
 
 export const MAP_VOTE_MAPS: readonly MapVoteMapOption[] = [
@@ -263,6 +267,21 @@ export const MAP_VOTE_MAPS: readonly MapVoteMapOption[] = [
     mapScript: 'continents',
     badgeRight: 'EvW',
     imageUrl: '/assets/maps/Map_Continents.webp',
+  },
+  {
+    id: 'pangaea',
+    name: 'Pangaea',
+    mapType: 'standard',
+    mapScript: 'pangaea',
+    imageUrl: '/assets/maps/Map_Pangaea.webp',
+  },
+  {
+    id: 'pangaea-east-vs-west',
+    name: 'Pangaea',
+    mapType: 'east-vs-west',
+    mapScript: 'pangaea',
+    badgeRight: 'EvW',
+    imageUrl: '/assets/maps/Map_Pangaea.webp',
   },
 ]
 

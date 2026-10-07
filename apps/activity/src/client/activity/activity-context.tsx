@@ -7,11 +7,12 @@ import type {
 } from '../stores'
 import type { JSX } from '@solidjs/web'
 import type { Accessor } from 'solid-js'
-import { createContext, useContext } from 'solid-js'
+import { createContext, Show, useContext } from 'solid-js'
+import { Button } from '../components/ui/Button'
 
 export type ActivityState =
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; onRetry?: () => void }
   | { status: 'overview' }
   | {
       status: 'lobby-waiting'
@@ -75,12 +76,17 @@ export function ActivityLoadingPage(): JSX.Element {
   )
 }
 
-export function ActivityErrorPage(props: { message: string }): JSX.Element {
+export function ActivityErrorPage(props: { message: string; onRetry?: () => void }): JSX.Element {
   return (
     <main class="text-fg font-sans bg-bg flex min-h-screen items-center justify-center">
       <div class="p-6 text-center rounded-lg bg-bg-subtle max-w-md">
         <div class="text-lg text-danger font-bold mb-2">Connection Failed</div>
         <div class="text-sm text-fg-muted">{props.message}</div>
+        <Show when={props.onRetry}>
+          <Button type="button" class="mt-4" onClick={() => props.onRetry?.()}>
+            Retry
+          </Button>
+        </Show>
       </div>
     </main>
   )
