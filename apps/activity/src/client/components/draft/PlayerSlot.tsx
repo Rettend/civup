@@ -23,6 +23,7 @@ import { createSeatGridLayout, findSeatGridPosition, getSeatAtGridPosition } fro
 import { getVisualSeatOrder } from '~/client/lib/seat-order'
 import {
   BLIND_PICK_SUBMISSION_PLACEHOLDER,
+  canSendPickPreview,
   canSwapLeadersWith,
   draftNow,
   draftStore,
@@ -33,6 +34,7 @@ import {
   getSeatMapVote,
   gridOpen,
   hiddenDraftLeaderSelections,
+  hydratedPickPreviewToken,
   isHiddenDraftComplete,
   isMapVotePhase,
   isMobileLayout,
@@ -44,6 +46,7 @@ import {
   mapVoteWinningScriptCandidate,
   mapVoteWinningTypeCandidate,
   phaseAccent,
+  pickSelections,
   resultSelectionsLocked,
   seatJustSwapped,
   selectWinningTeam,
@@ -253,7 +256,15 @@ export function PlayerSlot(props: PlayerSlotProps) {
   }
   const previewLeader = (): Leader | null => {
     if (filled()) return null
-    const civId = getPreviewPickForSeat(props.seatIndex)
+    const current = state()
+    const ownSeat = draftStore.seatIndex
+    const ownPreviewToken =
+      current && ownSeat != null ? `${draftStore.initVersion}:${current.currentStepIndex}:${ownSeat}` : null
+    // An empty hydrated local selection is a clear, not a reason to restore an older echo.
+    const civId =
+      props.seatIndex === ownSeat && canSendPickPreview() && hydratedPickPreviewToken() === ownPreviewToken
+        ? (pickSelections()[0] ?? null)
+        : getPreviewPickForSeat(props.seatIndex)
     if (!civId) return null
     try {
       return getLeader(civId, draftStore.leaderDataVersion)

@@ -6,6 +6,7 @@ import { currentStep } from './draft-store'
 
 interface UiMemoryState {
   pickSelections: string[]
+  hydratedPickPreviewToken: string | null
   selectedLeader: string | null
   searchQuery: string
   tagFilters: TagFilterState
@@ -40,6 +41,7 @@ interface UiPersistedState {
 
 const [uiState, setUiState] = createStore<UiMemoryState>({
   pickSelections: [],
+  hydratedPickPreviewToken: null,
   selectedLeader: null,
   searchQuery: '',
   tagFilters: createEmptyTagFilters(),
@@ -71,6 +73,7 @@ const [persistedUiState, setPersistedUiState] = makePersisted([persistedUiStateB
 })
 
 export const pickSelections = () => uiState.pickSelections
+export const hydratedPickPreviewToken = () => uiState.hydratedPickPreviewToken
 export const selectedLeader = () => uiState.selectedLeader
 export const searchQuery = () => uiState.searchQuery
 export const tagFilters = () => uiState.tagFilters
@@ -256,6 +259,7 @@ export function toggleBanSelection(civId: string, maxBans: number) {
 export function clearSelections() {
   setUiState(s => {
     s.pickSelections = []
+    s.hydratedPickPreviewToken = null
     s.selectedLeader = null
     s.banSelections = []
     s.banSelectionStepToken = null
@@ -284,6 +288,13 @@ export function setPickSelections(next: string[] | ((prev: string[]) => string[]
     const normalized = normalizePickSelections(resolveUpdate(next, s.pickSelections))
     s.pickSelections = normalized
     s.selectedLeader = normalized[0] ?? null
+  })
+}
+
+/** Marks the draft init, step, and seat whose local pick selection was hydrated. */
+export function setHydratedPickPreviewToken(token: string | null) {
+  setUiState(s => {
+    s.hydratedPickPreviewToken = token
   })
 }
 

@@ -138,6 +138,7 @@ interface MockState {
   selectedLeaderId: string | null
   detailLeaderId: string | null
   pickSelections: string[]
+  hydratedPickPreviewToken: string | null
   banSelections: string[]
   banSelectionStepToken: string | null
   isRandomSelected: boolean
@@ -331,6 +332,7 @@ function defaults(): MockState {
     selectedLeaderId: null,
     detailLeaderId: null,
     pickSelections: [],
+    hydratedPickPreviewToken: null,
     banSelections: [],
     banSelectionStepToken: null,
     isRandomSelected: false,
@@ -488,6 +490,7 @@ function setPickSelections(next: string[]) {
 function clearSelections() {
   setPickSelections([])
   setUiMockState(draft => {
+    draft.hydratedPickPreviewToken = null
     draft.banSelections = []
     draft.banSelectionStepToken = null
     draft.isRandomSelected = false
@@ -752,6 +755,7 @@ vi.doMock('~/client/stores', () => ({
   gridViewMode: () => uiMockState.gridViewMode,
   hasSubmitted,
   hiddenDraftLeaderSelections: () => uiMockState.hiddenDraftLeaderSelections,
+  hydratedPickPreviewToken: () => uiMockState.hydratedPickPreviewToken,
   isHiddenDraftComplete,
   isHiddenDraftMode,
   isCivBlitzDraft: () => uiMockState.isCivBlitzDraft,
@@ -863,6 +867,10 @@ vi.doMock('~/client/stores', () => ({
     return { changed: true, readyToConfirm: nextMaps.length > 0 }
   },
   setPickSelections,
+  setHydratedPickPreviewToken: (token: string | null) =>
+    setUiMockState(draft => {
+      draft.hydratedPickPreviewToken = token
+    }),
   setResultSelectionsLocked: (next: boolean) =>
     setUiMockState(draft => {
       draft.resultSelectionsLocked = next

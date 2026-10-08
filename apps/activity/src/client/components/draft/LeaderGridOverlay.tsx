@@ -48,6 +48,7 @@ import {
   getPreviewPicksForSeat,
   hasSubmitted,
   hiddenDraftLeaderSelections,
+  hydratedPickPreviewToken,
   isHiddenDraftComplete,
   isCivBlitzDraft,
   isMyTurn,
@@ -67,6 +68,7 @@ import {
   setGridExpanded,
   setGridOpen,
   setGridViewMode,
+  setHydratedPickPreviewToken,
   setIsRandomSelected,
   setPickSelections,
   setSearchQuery,
@@ -454,7 +456,6 @@ export function LeaderGridOverlay() {
   const [filtersOpen, setFiltersOpen] = createSignal(false)
   const [panelsDocked, setPanelsDocked] = createSignal(false)
   const [tooltipSize, setTooltipSize] = createSignal({ width: 224, height: 96 })
-  const [hydratedPickPreviewToken, setHydratedPickPreviewToken] = createSignal<string | null>(null)
   const [hydratedBanPreviewToken, setHydratedBanPreviewToken] = createSignal<string | null>(null)
   const [civBlitzSelectionContextToken, setCivBlitzSelectionContextToken] = createSignal<string | null>(null)
   const [hydratedCivBlitzPreviewToken, setHydratedCivBlitzPreviewToken] = createSignal<string | null>(null)
@@ -678,6 +679,9 @@ export function LeaderGridOverlay() {
         current.status === 'active' &&
         seatIndex != null &&
         currentStep?.action === 'pick' &&
+        !currentStep.reveal &&
+        !currentStep.civBlitz &&
+        !hasSubmitted() &&
         !current.picks.some(pick => pick.seatIndex === seatIndex),
       token: hydrationToken,
       seatIndex,
@@ -693,6 +697,7 @@ export function LeaderGridOverlay() {
   createEffect(pickHydration, ({ active, token, seatIndex, local, pruned, server, hydratedToken }) => {
     if (!active) {
       if (local.length > 0) setPickSelections([])
+      if (hydratedToken !== null) setHydratedPickPreviewToken(null)
       return
     }
     if (!sameCivIdList(local, pruned)) {
@@ -705,10 +710,8 @@ export function LeaderGridOverlay() {
       if (token) setHydratedPickPreviewToken(token)
       return
     }
-    if (local.length === 0 && server.length > 0 && hydratedToken !== token) {
-      setPickSelections(server)
-      setHydratedPickPreviewToken(token)
-    }
+    if (local.length === 0 && server.length > 0 && hydratedToken !== token) setPickSelections(server)
+    if (hydratedToken !== token) setHydratedPickPreviewToken(token)
   })
 
   const previewToSend = (): { action: 'ban' | 'pick'; civIds: string[] } | null => {
