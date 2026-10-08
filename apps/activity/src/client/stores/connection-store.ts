@@ -10,12 +10,15 @@ import type {
 import type { SessionClientMessage, SessionServerMessage } from '@civup/session'
 import PartySocket from 'partysocket'
 import { createSignal, latest } from 'solid-js'
-import { api, ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
+import { ApiError, CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import {
-  buildActivitySessionHeaders,
-  clearActivitySessionToken,
-  getActivitySessionToken,
-} from '../lib/activity-session'
+  activityApiGet,
+  activityApiPost,
+  activityFetch,
+  ensureActivitySession,
+  refreshActivitySession,
+} from '../lib/activity-request'
+import { getActivitySessionToken } from '../lib/activity-session'
 import { relayDevLog } from '../lib/dev-log'
 import { getReconnectWatchdogTimerEndsAt, shouldForceReconnectForStaleDraft } from '../lib/stale-draft'
 import { getAuthTransport } from '../platform/runtime'
@@ -283,10 +286,14 @@ const SOCKET_FATAL_CLOSE_MIN = 4000
 const SOCKET_FATAL_CLOSE_MAX = 5000
 const STALE_DRAFT_RECONNECT_CHECK_MS = 1_000
 const SESSION_SOCKET_MAX_RETRIES = 12
+const SOCKET_AUTH_PROBE_TIMEOUT_MS = 5_000
+const SOCKET_AUTH_ERROR = 'Reopen the activity to sign in again.'
+const SESSION_SOCKET_ERROR = 'Reopen the activity to reconnect.'
 
 // ── Socket ─────────────────────────────────────────────────
 
 let socket: PartySocket | null = null
+let socketAuthRecovery: ReturnType<typeof createSocketAuthRecovery> | null = null
 let currentSessionConnection: {
   target: SessionSocketTarget
   sessionId: string
@@ -328,6 +335,8 @@ export function connectToSession(
   stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
+  socketAuthRecovery?.stop()
+  socketAuthRecovery = null
   previousSocket?.close()
   rejectPendingConfigAck()
   lastSentPreviewKeys = {}
@@ -342,33 +351,44 @@ export function connectToSession(
   setConnectionError(null)
   setConnectionCloseReason(null)
 
-  const activitySessionToken = getActivitySessionToken()
-  if (getAuthTransport() === 'token' && !activitySessionToken) {
-    setConnectionStatus('error')
-    setConnectionError('Missing activity session. Reopen the activity.')
-    return
-  }
-
   currentSessionConnection = { target, sessionId, sessionAccessToken, onStateChanged: options.onStateChanged }
   startStaleDraftReconnectWatchdog()
 
-  const query: Record<string, string> = {}
-  if (getAuthTransport() === 'token' && activitySessionToken)
-    query[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = activitySessionToken
-  if (sessionAccessToken) query.accessToken = sessionAccessToken
-
+  const authRecovery = createSocketAuthRecovery(
+    () => nextSocket,
+    () => socket === nextSocket,
+    () => abandonSocket('error', SOCKET_AUTH_ERROR, null),
+    sessionAccessToken,
+  )
   const nextSocket = new PartySocket({
     host: target.host,
     party: 'session',
     prefix: target.prefix ?? 'api/parties',
     room: sessionId,
-    query,
+    query: authRecovery.query,
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
   socket = nextSocket
+  socketAuthRecovery = authRecovery
+
+  function abandonSocket(status: 'disconnected' | 'error', error: string | null, closeReason: string | null) {
+    if (socket !== nextSocket) return
+    socket = null
+    socketAuthRecovery = null
+    authRecovery.stop()
+    stopSocketReconnects(nextSocket, 'connection stopped')
+    stopStaleDraftReconnectWatchdog()
+    rejectPendingConfigAck()
+    currentSessionConnection = null
+    lastSocketActivityAt = 0
+    setConnectionStatus(status)
+    setConnectionError(error)
+    setConnectionCloseReason(closeReason)
+  }
 
   nextSocket.addEventListener('open', () => {
     if (socket !== nextSocket) return
+    authRecovery.opened()
     lastSocketActivityAt = Date.now() + socketServerTimeOffsetMs
     lastServerErrorMessage = null
     setConnectionStatus('connected')
@@ -381,6 +401,7 @@ export function connectToSession(
     const receivedAt = Date.now()
     try {
       const msg = JSON.parse(event.data as string) as SessionServerMessage
+      if (msg.type !== 'error') authRecovery.authenticated()
       if (msg.type === 'init' || msg.type === 'update') {
         syncDraftServerTime(msg.serverNow, receivedAt)
         if (typeof msg.serverNow === 'number' && Number.isFinite(msg.serverNow))
@@ -402,51 +423,43 @@ export function connectToSession(
     const closeReason = typeof event.reason === 'string' && event.reason.length > 0 ? event.reason : null
     const reason = closeReason ?? (typeof event.type === 'string' ? event.type : '-')
 
-    if (code !== 1000) {
-      if (isFatalSocketClose(code)) {
-        socket = null
-        stopSocketReconnects(nextSocket, `fatal close ${code}`)
-      }
-      if (code === 4401) clearActivitySessionToken()
-
-      relayDevLog('warn', 'Session socket closed unexpectedly', {
-        code,
-        reason,
-        sessionId,
-        retryCount: nextSocket.retryCount,
-        target: describeSessionSocketTarget(target),
-      })
-
-      if (shouldRetrySessionSocket(nextSocket, code)) {
-        setConnectionStatus('reconnecting')
-        setConnectionError(null)
-        return
-      }
-
-      socket = null
-      stopStaleDraftReconnectWatchdog()
+    if (code === 4401 && authRecovery.refresh()) {
       rejectPendingConfigAck()
-      currentSessionConnection = null
-      lastSocketActivityAt = 0
-      setConnectionStatus('error')
-      setConnectionError(formatSessionSocketCloseError(code, reason, lastServerErrorMessage))
-      setConnectionCloseReason(closeReason)
+      setConnectionStatus('reconnecting')
+      setConnectionError(null)
+      setConnectionCloseReason(null)
       return
     }
 
-    socket = null
-    stopStaleDraftReconnectWatchdog()
-    rejectPendingConfigAck()
-    currentSessionConnection = null
-    lastSocketActivityAt = 0
-    setConnectionStatus('disconnected')
-    setConnectionCloseReason(closeReason)
+    if (code === 1000 && !nextSocket.shouldReconnect) {
+      abandonSocket('disconnected', null, closeReason)
+      return
+    }
+
+    relayDevLog('warn', 'Session socket closed unexpectedly', {
+      code,
+      reason,
+      sessionId,
+      retryCount: nextSocket.retryCount,
+      target: describeSessionSocketTarget(target),
+    })
+
+    // PartySocket emits a synthetic 1000 close before its error event. It also
+    // retries remote clean closes, so neither one ends this wrapper's lifetime.
+    if (!isFatalSocketClose(code) && authRecovery.shouldRetry()) {
+      setConnectionStatus('reconnecting')
+      setConnectionError(null)
+      return
+    }
+
+    abandonSocket('error', formatSessionSocketCloseError(code, lastServerErrorMessage), closeReason)
   })
 
   nextSocket.addEventListener('error', () => {
     if (socket !== nextSocket) return
 
-    if (shouldRetrySessionSocket(nextSocket)) {
+    if (authRecovery.shouldRetry()) {
+      authRecovery.probe()
       relayDevLog('warn', 'Session socket connection interrupted', {
         sessionId,
         retryCount: nextSocket.retryCount,
@@ -461,14 +474,7 @@ export function connectToSession(
       sessionId,
       target: describeSessionSocketTarget(target),
     })
-    socket = null
-    stopStaleDraftReconnectWatchdog()
-    rejectPendingConfigAck()
-    currentSessionConnection = null
-    lastSocketActivityAt = 0
-    setConnectionStatus('error')
-    setConnectionError('WebSocket connection failed')
-    setConnectionCloseReason(null)
+    abandonSocket('error', SESSION_SOCKET_ERROR, null)
   })
 }
 
@@ -476,6 +482,8 @@ export function disconnect() {
   stopStaleDraftReconnectWatchdog()
   const previousSocket = socket
   socket = null
+  socketAuthRecovery?.stop()
+  socketAuthRecovery = null
   previousSocket?.close()
   currentSessionConnection = null
   lastSocketActivityAt = 0
@@ -549,40 +557,49 @@ function stopStaleDraftReconnectWatchdog() {
 /** Directory/session-owned push drives overview updates. */
 export function watchLobbyState(target: SessionSocketTarget, options: LobbyStateWatchOptions): LobbyStateWatch {
   let closed = false
-  const activitySessionToken = getActivitySessionToken()
-  if (getAuthTransport() === 'token' && !activitySessionToken) {
-    queueMicrotask(() => {
-      if (!closed) options.onError?.('Missing activity session. Reopen the activity.')
-    })
-    return {
-      close: () => {
-        closed = true
-      },
-    }
-  }
-
-  const activitySocket = new PartySocket({
+  let activitySocket: PartySocket | null = null
+  const authRecovery = createSocketAuthRecovery(
+    () => nextSocket,
+    () => !closed && activitySocket === nextSocket,
+    () => abandonSocket(SOCKET_AUTH_ERROR),
+  )
+  const nextSocket = new PartySocket({
     host: target.host,
     party: 'activity',
     prefix: target.prefix ?? 'api/parties',
     room: options.channelId,
-    query:
-      getAuthTransport() === 'token' && activitySessionToken
-        ? { [CIVUP_ACTIVITY_SESSION_QUERY_PARAM]: activitySessionToken }
-        : {},
+    query: authRecovery.query,
     maxRetries: SESSION_SOCKET_MAX_RETRIES,
   })
+  activitySocket = nextSocket
 
-  activitySocket.addEventListener('open', () => {
+  function close() {
     if (closed) return
+    closed = true
+    const previousSocket = activitySocket
+    activitySocket = null
+    authRecovery.stop()
+    previousSocket?.close()
+  }
+
+  function abandonSocket(message: string) {
+    if (closed) return
+    close()
+    options.onError?.(message)
+  }
+
+  nextSocket.addEventListener('open', () => {
+    if (closed) return
+    authRecovery.opened()
     options.onConnected?.()
   })
 
-  activitySocket.addEventListener('message', event => {
+  nextSocket.addEventListener('message', event => {
     if (closed) return
     try {
       const message = JSON.parse(event.data as string) as Record<string, unknown>
       if (message.type === 'overview') {
+        authRecovery.authenticated()
         options.onStateChanged({
           type: 'overview',
           snapshot: isActivityOverviewSnapshot(message.snapshot) ? message.snapshot : null,
@@ -590,6 +607,7 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
         return
       }
       if (message.type === 'lobby' && typeof message.lobbyId === 'string') {
+        authRecovery.authenticated()
         options.onStateChanged({
           type: 'lobby',
           lobbyId: message.lobbyId,
@@ -606,23 +624,25 @@ export function watchLobbyState(target: SessionSocketTarget, options: LobbyState
     }
   })
 
-  activitySocket.addEventListener('close', () => {
+  nextSocket.addEventListener('close', event => {
     if (closed) return
     options.onDisconnected?.()
-  })
-
-  activitySocket.addEventListener('error', () => {
     if (closed) return
-    options.onError?.('Activity updates disconnected')
+    if (event.code === 4401 && authRecovery.refresh()) return
+    if (!isFatalSocketClose(event.code) && authRecovery.shouldRetry()) return
+    abandonSocket(formatSessionSocketCloseError(event.code, null))
   })
 
-  return {
-    close: () => {
-      if (closed) return
-      closed = true
-      activitySocket.close()
-    },
-  }
+  nextSocket.addEventListener('error', () => {
+    if (closed) return
+    if (authRecovery.shouldRetry()) {
+      authRecovery.probe()
+      return
+    }
+    abandonSocket(SESSION_SOCKET_ERROR)
+  })
+
+  return { close }
 }
 
 function isActivityOverviewSnapshot(value: unknown): value is ActivityOverviewSnapshot {
@@ -738,21 +758,6 @@ export function sendConfig(banTimerSeconds: number | null, pickTimerSeconds: num
 }
 
 // ── Bot API ────────────────────────────────────────────────
-
-function activityApiGet<T>(url: string): Promise<T> {
-  return api.get<T>(url, { headers: buildActivitySessionHeaders() })
-}
-
-function activityApiPost<T>(url: string, body: unknown): Promise<T> {
-  return api.post<T>(url, body, { headers: buildActivitySessionHeaders() })
-}
-
-function activityFetch(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, {
-    ...init,
-    headers: buildActivitySessionHeaders(init?.headers),
-  })
-}
 
 /** Fetch match ID for a channel from the bot API */
 export async function fetchMatchForChannel(channelId: string): Promise<string | null> {
@@ -1262,26 +1267,17 @@ function shouldDisconnectAfterState(status: string, swapState: unknown): boolean
   return swapState == null
 }
 
-function formatSessionSocketCloseError(
-  code: number,
-  reason: string,
-  serverError: { message: string; at: number } | null,
-): string {
-  if (code === 4401) {
-    return 'Activity session expired. Reopen the activity.'
-  }
+function formatSessionSocketCloseError(code: number, serverError: { message: string; at: number } | null): string {
+  if (code === 4401) return SOCKET_AUTH_ERROR
 
   if (code === 4403) {
     const recentServerError = serverError && Date.now() - serverError.at <= 2_000 ? serverError.message.trim() : ''
-    if (recentServerError.length > 0) {
-      return /reopen the activity\.?$/i.test(recentServerError)
-        ? recentServerError
-        : `${recentServerError}. Reopen the activity.`
-    }
-    return 'Session access token is invalid or expired. Reopen the activity.'
+    if (recentServerError === 'Session access token is invalid or expired') return SESSION_SOCKET_ERROR
+    if (recentServerError.length > 0) return recentServerError
+    return 'Could not open this activity.'
   }
 
-  return `WebSocket closed (${code}${reason ? `: ${reason}` : ''})`
+  return SESSION_SOCKET_ERROR
 }
 
 function formatConfigAckError(message: string): Error {
@@ -1317,10 +1313,140 @@ function describeSessionSocketTarget(target: SessionSocketTarget): string {
   return `${target.label ?? 'socket'}:${target.host}/${target.prefix ?? 'api/parties'}`
 }
 
-function shouldRetrySessionSocket(currentSocket: PartySocket, code?: number): boolean {
-  if (!currentSocket.shouldReconnect) return false
-  if (typeof code === 'number' && isFatalSocketClose(code)) return false
-  return true
+/** One auth check/renewal per interruption, shared by every automatic retry. */
+function createSocketAuthRecovery(
+  getSocket: () => PartySocket,
+  isCurrent: () => boolean,
+  onAuthError: () => void,
+  sessionAccessToken: string | null = null,
+) {
+  let stopped = false
+  let episode = 0
+  let lastAttemptRetryCount = -1
+  let lastActivitySessionToken: string | null = null
+  let renewalAttempted = false
+  let probeAttempted = false
+  let recoveryInFlight: Promise<void> | null = null
+  let probeController: AbortController | null = null
+
+  const isActive = () => !stopped && isCurrent()
+  const isCurrentEpisode = (startedEpisode: number) => isActive() && episode === startedEpisode
+
+  function shouldRetry() {
+    const currentSocket = getSocket()
+    // _handleClose schedules the next attempt BEFORE delivering the event.
+    // retryCount === maxRetries can therefore mean the final attempt is queued,
+    // not exhausted. shouldReconnect alone stays true even after exhaustion.
+    return (
+      currentSocket.shouldReconnect &&
+      (currentSocket.retryCount < SESSION_SOCKET_MAX_RETRIES || lastAttemptRetryCount < SESSION_SOCKET_MAX_RETRIES)
+    )
+  }
+
+  async function query(): Promise<Record<string, string>> {
+    if (!isActive()) return {}
+    lastAttemptRetryCount = getSocket().retryCount
+    try {
+      await recoveryInFlight
+      if (!isActive()) return {}
+      const token = await ensureActivitySession()
+      if (!isActive()) return {}
+      if (getAuthTransport() === 'token' && !token) throw new Error('No Activity session after renewal')
+      if (probeAttempted && token && lastActivitySessionToken && token !== lastActivitySessionToken)
+        renewalAttempted = true
+      lastActivitySessionToken = token
+      const nextQuery: Record<string, string> = {}
+      if (getAuthTransport() === 'token' && token) nextQuery[CIVUP_ACTIVITY_SESSION_QUERY_PARAM] = token
+      if (sessionAccessToken) nextQuery.accessToken = sessionAccessToken
+      return nextQuery
+    } catch (error) {
+      if (isActive()) {
+        relayDevLog('error', 'Socket Activity session renewal failed', error)
+        onAuthError()
+      }
+      // Closing the wrapper prevents PartySocket from constructing a WebSocket
+      // after this asynchronous query settles, including cancellation mid-renewal.
+      return {}
+    }
+  }
+
+  function refresh(): boolean {
+    if (!isActive() || getAuthTransport() !== 'token' || renewalAttempted || !shouldRetry()) return false
+    renewalAttempted = true
+    const startedEpisode = episode
+    recoveryInFlight = refreshActivitySession(lastActivitySessionToken)
+      .then(token => {
+        if (!isCurrentEpisode(startedEpisode)) return
+        if (!token) {
+          onAuthError()
+          return
+        }
+      })
+      .catch(error => {
+        if (!isCurrentEpisode(startedEpisode)) return
+        relayDevLog('error', 'Socket Activity session rejection recovery failed', error)
+        onAuthError()
+      })
+    return true
+  }
+
+  function probe() {
+    if (!isActive() || getAuthTransport() !== 'token' || probeAttempted || renewalAttempted) return
+    probeAttempted = true
+    const startedEpisode = episode
+    const rejectedToken = getActivitySessionToken()
+    const controller = new AbortController()
+    probeController = controller
+    // WebSocket upgrade failures hide their HTTP status. This protected GET only
+    // renews OAuth when the Activity guard marks a rejected session; ordinary
+    // network failures, successful probes and unmarked 401s never force renewal.
+    const aborted = new Promise<void>(resolve =>
+      controller.signal.addEventListener('abort', () => resolve(), { once: true }),
+    )
+    const timeout = setTimeout(() => controller.abort(), SOCKET_AUTH_PROBE_TIMEOUT_MS)
+    recoveryInFlight = Promise.race([
+      activityApiGet('/api/auth/me', { cache: 'no-store', signal: controller.signal }),
+      aborted,
+    ])
+      .then(() => {
+        if (!isCurrentEpisode(startedEpisode)) return
+        const token = getActivitySessionToken()
+        if (token && token !== rejectedToken) renewalAttempted = true
+      })
+      .catch(error => {
+        if (!isCurrentEpisode(startedEpisode) || controller.signal.aborted) return
+        relayDevLog('warn', 'Socket Activity session probe failed', error)
+        if (error instanceof ApiError && error.status === 401 && !getActivitySessionToken()) onAuthError()
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (probeController === controller) probeController = null
+      })
+  }
+
+  function opened() {
+    episode += 1
+    probeController?.abort()
+    probeController = null
+    recoveryInFlight = null
+  }
+
+  function authenticated() {
+    // An upgrade can open and immediately close with 4401. Only session data
+    // confirms recovery, preventing repeated OAuth exchanges for rejected tokens.
+    renewalAttempted = false
+    probeAttempted = false
+  }
+
+  function stop() {
+    stopped = true
+    episode += 1
+    probeController?.abort()
+    probeController = null
+    recoveryInFlight = null
+  }
+
+  return { query, shouldRetry, refresh, probe, opened, authenticated, stop }
 }
 
 function stopSocketReconnects(currentSocket: PartySocket, reason: string): void {

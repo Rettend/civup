@@ -17,7 +17,7 @@ import type { JSX } from '@solidjs/web'
 import { useLocation, useNavigate } from '@solidjs/router'
 import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js'
 import { createEffect, createSignal, onSettled, Show, untrack } from 'solid-js'
-import { buildActivitySessionHeaders } from '../lib/activity-session'
+import { activityFetch } from '../lib/activity-request'
 import {
   activityTargetOptionKey,
   activityTargetsMatch,
@@ -1088,9 +1088,9 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
   const uploadAutosaveFileMultipart = async (file: File) => {
     const current = state()
-    const initResponse = await fetch('/api/uploads/autosaves/init', {
+    const initResponse = await activityFetch('/api/uploads/autosaves/init', {
       method: 'POST',
-      headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         fileName: file.name,
         fileSizeBytes: file.size,
@@ -1107,9 +1107,8 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
 
     const partSizeBytes = normalizeAutosaveMultipartPartSize(initPayload.partSizeBytes)
     if (partSizeBytes == null) {
-      await fetch(`/api/uploads/autosaves/${encodeURIComponent(initPayload.id)}/abort`, {
+      await activityFetch(`/api/uploads/autosaves/${encodeURIComponent(initPayload.id)}/abort`, {
         method: 'POST',
-        headers: buildActivitySessionHeaders(),
       }).catch(() => null)
       throw new Error('Upload init returned an invalid multipart response')
     }
