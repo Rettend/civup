@@ -1,6 +1,7 @@
 import { BlobWriter, TextReader, ZipWriter } from '@zip.js/zip.js'
 import { getLeader } from '@civup/game'
 import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
+import { activityFetch } from './activity-request'
 import { buildActivitySessionHeaders, getActivitySessionToken } from './activity-session'
 
 export const PLAYER_DATA_EXPORT_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -150,12 +151,11 @@ export interface PublishedPlayerDataExport {
   url: string
 }
 
-export async function fetchPlayerDataExportEstimate(
-  fetchImpl: typeof fetch = fetch,
-): Promise<PlayerDataExportEstimate> {
-  const response = await fetchImpl(EXPORT_ESTIMATE_ENDPOINT, {
+export async function fetchPlayerDataExportEstimate(fetchImpl?: typeof fetch): Promise<PlayerDataExportEstimate> {
+  const headers = { Accept: 'application/json' }
+  const response = await (fetchImpl ?? activityFetch)(EXPORT_ESTIMATE_ENDPOINT, {
     cache: 'no-store',
-    headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
+    headers: fetchImpl ? buildActivitySessionHeaders(headers) : headers,
   })
   if (response.status === 401) throw new Error('Your session expired. Reopen the Activity and try the export again.')
   if (response.status === 403) throw new Error('Player data export is only available to server administrators.')
@@ -226,17 +226,21 @@ export async function createPlayerDataExport(options: ExportRequestOptions = {})
 
 export async function publishPlayerDataExport(
   file: PlayerDataExportFile,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl?: typeof fetch,
 ): Promise<PublishedPlayerDataExport> {
-  const response = await fetchImpl(`${EXPORT_UPLOAD_ENDPOINT}?filename=${encodeURIComponent(file.filename)}`, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: buildActivitySessionHeaders({
-      'Accept': 'application/json',
-      'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
-    }),
-    body: file.blob,
-  })
+  const headers = {
+    'Accept': 'application/json',
+    'Content-Type': PLAYER_DATA_EXPORT_CONTENT_TYPE,
+  }
+  const response = await (fetchImpl ?? activityFetch)(
+    `${EXPORT_UPLOAD_ENDPOINT}?filename=${encodeURIComponent(file.filename)}`,
+    {
+      method: 'POST',
+      cache: 'no-store',
+      headers: fetchImpl ? buildActivitySessionHeaders(headers) : headers,
+      body: file.blob,
+    },
+  )
   const payload: unknown = await response.json().catch(() => null)
   if (!response.ok)
     throw new Error(readPayloadError(payload) ?? `Export download preparation failed (${response.status}).`)
@@ -252,7 +256,7 @@ export async function publishPlayerDataExport(
 }
 
 export async function fetchPlayerDataExport(options: ExportRequestOptions = {}): Promise<PlayerDataExportSource> {
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = options.fetchImpl ?? activityFetch
   const source: PlayerDataExportSource = {
     generatedAt: 0,
     cutoffAt: 0,
@@ -272,9 +276,10 @@ export async function fetchPlayerDataExport(options: ExportRequestOptions = {}):
   do {
     if (pageCount >= MAX_EXPORT_PAGES) throw new Error('Player data export returned too many pages.')
     const url = cursor == null ? EXPORT_ENDPOINT : `${EXPORT_ENDPOINT}?cursor=${encodeURIComponent(cursor)}`
+    const headers = { Accept: 'application/json' }
     const response = await fetchImpl(url, {
       cache: 'no-store',
-      headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
+      headers: options.fetchImpl ? buildActivitySessionHeaders(headers) : headers,
     })
     if (response.status === 401) throw new Error('Your session expired. Reopen the Activity and try the export again.')
     if (response.status === 403) throw new Error('Player data export is only available to server administrators.')

@@ -1,3 +1,5 @@
+import { ApiError } from '@civup/utils'
+import { activityFetch } from './activity-request'
 import { buildActivitySessionHeaders } from './activity-session'
 
 export interface AutosaveMultipartPart {
@@ -43,7 +45,10 @@ export async function uploadAutosaveMultipart(options: {
   partSizeBytes: number
   fetch?: typeof globalThis.fetch
 }): Promise<void> {
-  const fetchImpl = options.fetch ?? globalThis.fetch
+  const injectedFetch = options.fetch
+  const fetchImpl: typeof activityFetch = injectedFetch
+    ? (url, init) => injectedFetch(url, { ...init, headers: buildActivitySessionHeaders(init?.headers) })
+    : activityFetch
   const uploadedParts: Array<{ partNumber: number; etag: string }> = []
 
   try {
@@ -52,7 +57,7 @@ export async function uploadAutosaveMultipart(options: {
         `/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/parts/${part.partNumber}`,
         {
           method: 'PUT',
-          headers: buildActivitySessionHeaders({ 'Content-Type': 'application/octet-stream' }),
+          headers: { 'Content-Type': 'application/octet-stream' },
           body: options.file.slice(part.start, part.end),
         },
       )
@@ -65,16 +70,17 @@ export async function uploadAutosaveMultipart(options: {
 
     await completeAutosaveMultipart(fetchImpl, options.uploadId, uploadedParts)
   } catch (error) {
-    await fetchImpl(`/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/abort`, {
-      method: 'POST',
-      headers: buildActivitySessionHeaders(),
-    }).catch(() => null)
+    if (!(error instanceof ApiError && error.status === 401)) {
+      await fetchImpl(`/api/uploads/autosaves/${encodeURIComponent(options.uploadId)}/abort`, {
+        method: 'POST',
+      }).catch(() => null)
+    }
     throw error
   }
 }
 
 async function completeAutosaveMultipart(
-  fetchImpl: typeof globalThis.fetch,
+  fetchImpl: typeof activityFetch,
   uploadId: string,
   parts: Array<{ partNumber: number; etag: string }>,
 ): Promise<void> {
@@ -84,10 +90,11 @@ async function completeAutosaveMultipart(
     try {
       response = await fetchImpl(`/api/uploads/autosaves/${encodeURIComponent(uploadId)}/complete`, {
         method: 'POST',
-        headers: buildActivitySessionHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parts }),
       })
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error
       lastError = error instanceof Error ? error : new Error('Upload completion failed')
       if (attempt + 1 < COMPLETE_ATTEMPTS) await delay(COMPLETE_RETRY_DELAY_MS)
       continue

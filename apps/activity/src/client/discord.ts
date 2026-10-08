@@ -66,7 +66,7 @@ function readCachedTokenFromStorage(storage: Storage | null): CachedToken | null
 
     return cached
   } catch {
-    storage.removeItem(AUTH_TOKEN_CACHE_KEY)
+    clearCachedTokenFromStorage(storage)
     return null
   }
 }
@@ -219,14 +219,15 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     expiresIn: payload.expires_in ?? null,
     hasActivitySession: true,
   })
+  const auth = await authenticateWithToken(payload.access_token)
   cacheToken(payload.access_token, payload.expires_in)
   cacheActivitySessionToken(payload.activity_session_token, payload.activity_session_expires_in)
 
-  return authenticateWithToken(payload.access_token)
+  return auth
 }
 
 export async function setupDiscordSdk(): Promise<Auth> {
-  if (authenticatedSession) return authenticatedSession
+  if (authenticatedSession && getActivitySessionToken()) return authenticatedSession
   if (setupInFlight) return setupInFlight
   setupInFlight = setupDiscordSdkInternal()
     .then(auth => {
@@ -234,6 +235,9 @@ export async function setupDiscordSdk(): Promise<Auth> {
       return auth
     })
     .catch(error => {
+      authenticatedSession = null
+      clearCachedToken()
+      clearActivitySessionToken()
       relayDevLog('error', 'Discord SDK setup failed', error)
       throw new Error(describeError(error))
     })
@@ -241,4 +245,14 @@ export async function setupDiscordSdk(): Promise<Auth> {
       setupInFlight = null
     })
   return setupInFlight
+}
+
+export async function refreshDiscordSession(): Promise<Auth> {
+  // A successful SDK authenticate does not validate our separately signed Activity token.
+  // Always exchange a new authorization code after the Activity server rejects it.
+  if (setupInFlight) await setupInFlight.catch(() => {})
+  authenticatedSession = null
+  clearCachedToken()
+  clearActivitySessionToken()
+  return setupDiscordSdk()
 }

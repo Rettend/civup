@@ -3,6 +3,8 @@ import { getAuthTransport } from '../platform/runtime'
 
 const ACTIVITY_SESSION_CACHE_KEY = 'civup.activity.session-token.v2'
 const DEFAULT_ACTIVITY_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1000
+const TOKEN_EXPIRY_SAFETY_MS = 30_000
+let memorySession: CachedActivitySession | null = null
 
 interface CachedActivitySession {
   token: string
@@ -27,19 +29,19 @@ function readCachedSessionFromStorage(storage: Storage | null): CachedActivitySe
     if (!raw) return null
 
     const cached = JSON.parse(raw) as CachedActivitySession
-    if (typeof cached.token !== 'string' || cached.token.length === 0 || typeof cached.expiresAt !== 'number') {
+    if (typeof cached.token !== 'string' || cached.token.length === 0 || !Number.isFinite(cached.expiresAt)) {
       storage.removeItem(ACTIVITY_SESSION_CACHE_KEY)
       return null
     }
 
-    if (Date.now() >= cached.expiresAt) {
+    if (Date.now() >= cached.expiresAt - TOKEN_EXPIRY_SAFETY_MS) {
       storage.removeItem(ACTIVITY_SESSION_CACHE_KEY)
       return null
     }
 
     return cached
   } catch {
-    storage.removeItem(ACTIVITY_SESSION_CACHE_KEY)
+    clearCachedSessionFromStorage(storage)
     return null
   }
 }
@@ -61,35 +63,44 @@ function clearCachedSessionFromStorage(storage: Storage | null) {
 }
 
 export function getActivitySessionToken(): string | null {
+  if (memorySession && Date.now() < memorySession.expiresAt - TOKEN_EXPIRY_SAFETY_MS) return memorySession.token
+  memorySession = null
   const sessionToken = readCachedSessionFromStorage(getStorage('session'))
-  if (sessionToken) return sessionToken.token
+  if (sessionToken) {
+    memorySession = sessionToken
+    return sessionToken.token
+  }
 
   const localToken = readCachedSessionFromStorage(getStorage('local'))
   if (!localToken) return null
 
   writeCachedSessionToStorage(getStorage('session'), localToken)
+  memorySession = localToken
   return localToken.token
 }
 
 export function cacheActivitySessionToken(token: string, expiresInSeconds?: number) {
   const expiresAt =
     Date.now() +
-    (typeof expiresInSeconds === 'number' && expiresInSeconds > 0
+    (typeof expiresInSeconds === 'number' && Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
       ? expiresInSeconds * 1000
       : DEFAULT_ACTIVITY_SESSION_LIFETIME_MS)
 
   const payload: CachedActivitySession = { token, expiresAt }
+  memorySession = payload
   writeCachedSessionToStorage(getStorage('session'), payload)
   writeCachedSessionToStorage(getStorage('local'), payload)
 }
 
 export function clearActivitySessionToken() {
+  memorySession = null
   clearCachedSessionFromStorage(getStorage('session'))
   clearCachedSessionFromStorage(getStorage('local'))
 }
 
 export function buildActivitySessionHeaders(headers?: HeadersInit): Headers {
   const nextHeaders = new Headers(headers)
+  nextHeaders.delete(CIVUP_ACTIVITY_SESSION_HEADER)
   const token = getAuthTransport() === 'token' ? getActivitySessionToken() : null
   if (token) {
     nextHeaders.set(CIVUP_ACTIVITY_SESSION_HEADER, token)
