@@ -481,7 +481,8 @@ async function requireActivitySession(request: Request, env: Env): Promise<Activ
   const token = explicitToken ?? cookieToken
   const session = await verifyActivitySession(env.CIVUP_SECRET, token)
   if (!session) {
-    const response = json({ error: 'Unauthorized activity session' }, 401)
+    const response = json({ error: 'Reopen the activity to sign in again.' }, 401)
+    response.headers.set('X-CivUp-Activity-Session-Rejected', '1')
     response.headers.set('Cache-Control', 'no-store')
     return response
   }

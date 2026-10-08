@@ -4,7 +4,8 @@ import { betaLeaderDataVersionLabel, getLeaders, liveLeaderDataVersionLabel } fr
 import { CIVUP_ACTIVITY_SESSION_QUERY_PARAM } from '@civup/utils'
 import { useActivityController } from '~/client/activity/activity-context'
 import { Dropdown } from '~/client/components/ui/Dropdown'
-import { buildActivitySessionHeaders, getActivitySessionToken } from '~/client/lib/activity-session'
+import { activityFetch } from '~/client/lib/activity-request'
+import { getActivitySessionToken } from '~/client/lib/activity-session'
 import { openExternalLink } from '~/client/platform/external-links'
 import { isMiniView } from '~/client/stores'
 
@@ -108,9 +109,7 @@ export default function AutosaveCatalogPage() {
     if (showLoading) setLoading(true)
     if (showError) setError(null)
     try {
-      const response = await fetch('/api/uploads/autosaves', {
-        headers: buildActivitySessionHeaders(),
-      })
+      const response = await activityFetch('/api/uploads/autosaves')
       const payload = (await response.json().catch(() => null)) as AutosaveUploadCatalogResponse | null
       if (!response.ok) throw new Error(payload?.error ?? 'Failed')
       if (disposed) return
@@ -222,11 +221,10 @@ export default function AutosaveCatalogPage() {
     setPendingAction({ id: row.id, action })
     setError(null)
     try {
-      const response = await fetch(
+      const response = await activityFetch(
         `/api/uploads/autosaves/${encodeURIComponent(row.id)}${action === 'reparse' ? '/reparse' : ''}`,
         {
           method: action === 'reparse' ? 'POST' : 'DELETE',
-          headers: buildActivitySessionHeaders(),
         },
       )
       const payload = (await response.json().catch(() => null)) as { error?: string } | null

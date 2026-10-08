@@ -11,6 +11,23 @@ afterEach(() => {
 })
 
 describe('activity party proxy', () => {
+  test('marks rejected sign-in before forwarding a result to the bot', async () => {
+    const forwardedRequests: Request[] = []
+    const response = await activityWorker.fetch(
+      new Request('https://activity.example.com/api/match/match-1/report', {
+        method: 'POST',
+        headers: { 'x-civup-activity-session': 'stale-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placements: ['player-1'] }),
+      }),
+      createEnv(forwardedRequests),
+    )
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get('X-CivUp-Activity-Session-Rejected')).toBe('1')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(forwardedRequests).toHaveLength(0)
+  })
+
   test('proxies launch lookups through the bot service binding', async () => {
     const forwardedRequests: Request[] = []
     const token = await createActivitySession(SECRET, {

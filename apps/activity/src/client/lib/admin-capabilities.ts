@@ -1,3 +1,4 @@
+import { activityFetch } from './activity-request'
 import { buildActivitySessionHeaders } from './activity-session'
 
 export interface ActivityAdminCapabilities {
@@ -10,13 +11,12 @@ export const NO_ACTIVITY_ADMIN_CAPABILITIES: ActivityAdminCapabilities = {
   playerDataExport: false,
 }
 
-export async function fetchActivityAdminCapabilities(
-  fetchImpl: typeof fetch = fetch,
-): Promise<ActivityAdminCapabilities> {
+export async function fetchActivityAdminCapabilities(fetchImpl?: typeof fetch): Promise<ActivityAdminCapabilities> {
   try {
-    const response = await fetchImpl('/api/activity/admin/capabilities', {
+    const headers = { Accept: 'application/json' }
+    const response = await (fetchImpl ?? activityFetch)('/api/activity/admin/capabilities', {
       cache: 'no-store',
-      headers: buildActivitySessionHeaders({ Accept: 'application/json' }),
+      headers: fetchImpl ? buildActivitySessionHeaders(headers) : headers,
     })
     if (!response.ok) return NO_ACTIVITY_ADMIN_CAPABILITIES
 
