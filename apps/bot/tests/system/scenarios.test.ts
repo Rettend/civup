@@ -130,7 +130,7 @@ describe('system scenarios', () => {
     const simultaneous = await runReportedLifecycle(simultaneousWorld, {
       mode: 'ffa',
       players: createPlayers(8, 'sim'),
-      config: { simultaneousPick: true },
+      config: { blindPicks: false, simultaneousPick: true },
       placements: participants => buildOrderedMentions([...participants].reverse()),
     })
     expect(findDraftRuntimeConfig(simultaneousWorld, simultaneous.matchId)?.formatId).toBe('default-ffa-simultaneous')
@@ -145,7 +145,7 @@ describe('system scenarios', () => {
     const redDeath = await runReportedLifecycle(redDeathWorld, {
       mode: '3v3',
       players: createPlayers(6, 'rd'),
-      config: { redDeath: true, dealOptionsSize: 3 },
+      config: { redDeath: true, dealOptionsSize: 3, blindPicks: false },
     })
     const redDeathConfig = findDraftRuntimeConfig(redDeathWorld, redDeath.matchId)
     expect(redDeathConfig?.dealOptionsSize).toBe(3)
@@ -217,6 +217,8 @@ describe('system scenarios', () => {
     expect(started.matchId).toBe(lobby.id)
     expect(world.party.rooms()).toHaveLength(1)
     expect(world.party.rooms()[0]?.config.matchId).toBe(started.matchId)
+    expect(world.party.rooms()[0]?.config.blindPicks).toBe(true)
+    expect(world.party.rooms()[0]?.config.formatId).toBe('default-1v1-blind-pick')
     expect(persistedMatches).toHaveLength(1)
     expect(persistedMatches[0]).toMatchObject({ id: started.matchId, status: 'drafting', gameMode: '1v1' })
     expect((await world.lobby.getById(lobby.id))?.matchId).toBe(started.matchId)
@@ -233,6 +235,7 @@ describe('system scenarios', () => {
       lobbyId: lobby.id,
       redDeath: true,
       dealOptionsSize: 2,
+      blindPicks: false,
     })
     expect(configured.status).toBe(200)
 
@@ -287,6 +290,7 @@ describe('system scenarios', () => {
       mode: 'ffa',
       players: createPlayers(8),
     })
+    expect((await world.lobby.config('ffa', { hostId: 'p1', lobbyId: lobby.id, blindPicks: false })).status).toBe(200)
 
     const started = await world.lobby.start('ffa', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
@@ -651,6 +655,7 @@ describe('system scenarios', () => {
       mode: '1v1',
       players: [{ id: 'p1' }, { id: 'p2' }],
     })
+    expect((await world.lobby.config('1v1', { hostId: 'p1', blindPicks: false })).status).toBe(200)
 
     const started = await world.lobby.start('1v1', { hostId: 'p1' })
     await world.flushBackgroundTasks()
@@ -970,6 +975,7 @@ describe('system scenarios', () => {
       players: [{ id: 'p1' }, { id: 'p2' }],
       channelId: 'channel-poisoned-current-match',
     })
+    expect((await world.lobby.config('1v1', { hostId: 'p1', lobbyId: lobby.id, blindPicks: false })).status).toBe(200)
 
     const oldMatch = await world.lobby.start('1v1', { hostId: 'p1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
@@ -1349,6 +1355,9 @@ describe('system scenarios', () => {
       players,
       channelId: 'channel-repeat-timeout',
     })
+    expect(
+      (await world.lobby.config('1v1', { hostId: players[0]!.id, lobbyId: lobby.id, blindPicks: false })).status,
+    ).toBe(200)
 
     const started = await world.lobby.start('1v1', { hostId: players[0]!.id, lobbyId: lobby.id })
     await world.flushBackgroundTasks()
@@ -3502,6 +3511,7 @@ describe('system scenarios', () => {
       mode: '1v1',
       players: [{ id: 'p1' }, { id: 'p2' }],
     })
+    expect((await world.lobby.config('1v1', { hostId: 'p1', blindPicks: false })).status).toBe(200)
 
     const started = await world.lobby.start('1v1', { hostId: 'p1' })
     await world.flushBackgroundTasks()
@@ -3549,12 +3559,13 @@ describe('system scenarios', () => {
     expect(world.discord.requests()).toHaveLength(requestsBeforeReplay)
   })
 
-  test('blind-ban 1v1 lifecycle keeps the default blind format through completion and report', async () => {
+  test('blind-ban 1v1 lifecycle keeps the draft-pick format through completion and report', async () => {
     const world = await createTrackedWorld()
     const lobby = await world.lobby.createOpen({
       mode: '1v1',
       players: createPlayers(2, 'blind'),
     })
+    expect((await world.lobby.config('1v1', { hostId: 'blind1', lobbyId: lobby.id, blindPicks: false })).status).toBe(200)
     const started = await world.lobby.start('1v1', { hostId: 'blind1', lobbyId: lobby.id })
     await world.flushBackgroundTasks()
 
@@ -3612,6 +3623,7 @@ describe('system scenarios', () => {
           hostId: 'visible1',
           lobbyId: lobby.id,
           blindBans: false,
+          blindPicks: false,
         })
       ).status,
     ).toBe(200)
@@ -3756,6 +3768,7 @@ async function runReportedLifecycle(
     mode: GameMode
     players: Array<{ id: string }>
     config?: {
+      blindPicks?: boolean
       simultaneousPick?: boolean
       redDeath?: boolean
       dealOptionsSize?: number

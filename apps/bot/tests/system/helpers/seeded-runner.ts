@@ -40,6 +40,10 @@ export async function runSeededSystemSequence(
       hostId,
       channelId,
     })
+    // These sequences exercise ordered-pick timeout cancellation, not blind-pick auto-picks.
+    expect(
+      (await world.lobby.config(modeCase.mode, { hostId, lobbyId: lobby.id, blindPicks: false })).status,
+    ).toBe(200)
     steps.push(`cycle ${cycle + 1}: create ${modeCase.mode}`)
     await assertSystemWorldInvariants(world)
 

@@ -30,7 +30,7 @@ export const DEFAULT_DRAFT_CONFIG: LobbyDraftConfig = {
   civBlitz: false,
   civBlitzOptionCount: CIV_BLITZ_DEFAULT_OPTION_COUNT,
   civBlitzExcludeBbgExpanded: true,
-  blindPicks: false,
+  blindPicks: true,
   randomDraft: false,
   hiddenDraft: false,
   duplicateFactions: false,
