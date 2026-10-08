@@ -1459,6 +1459,7 @@ describe('lobby routes', () => {
           lobbyId: lobby.id,
           mapVoteEnabled: true,
           simultaneousPick: true,
+          blindPicks: false,
         }),
       },
       buildEnv(kv),

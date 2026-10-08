@@ -144,6 +144,7 @@ export interface SystemWorld {
         leaderDataVersion?: 'live' | 'beta' | null
         mapVoteEnabled?: boolean
         blindBans?: boolean
+        blindPicks?: boolean
         simultaneousPick?: boolean
         permanentAlly?: boolean
         redDeath?: boolean
@@ -440,6 +441,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
               leaderDataVersion: input.leaderDataVersion,
               mapVoteEnabled: input.mapVoteEnabled,
               blindBans: input.blindBans,
+              blindPicks: input.blindPicks,
               simultaneousPick: input.simultaneousPick,
               permanentAlly: input.permanentAlly,
               redDeath: input.redDeath,
@@ -536,6 +538,7 @@ export async function createSystemWorld(): Promise<SystemWorld> {
             hostId: lobbyAfterStart.hostId,
             leaderDataVersion: lobbyAfterStart.draftConfig.leaderDataVersion,
             blindBans: lobbyAfterStart.draftConfig.blindBans,
+            blindPicks: lobbyAfterStart.draftConfig.blindPicks,
             simultaneousPick: lobbyAfterStart.draftConfig.simultaneousPick,
             permanentAlly: lobbyAfterStart.draftConfig.permanentAlly,
             redDeath: lobbyAfterStart.draftConfig.redDeath,
