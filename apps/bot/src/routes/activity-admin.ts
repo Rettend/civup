@@ -12,6 +12,7 @@ import {
 } from '@civup/db'
 import { changeRatingMaintenanceState } from '../services/season/maintenance.ts'
 import { hasAuthenticatedActivityAdminPermission, requireAuthenticatedActivity } from './auth.ts'
+import { registerSeasonCancellationRoutes } from './season-cancellation.ts'
 import { registerSeasonMaintenanceRoutes } from './season-maintenance.ts'
 
 const EXPORT_VERSION = 1
@@ -52,6 +53,7 @@ interface ExportRowUpperBounds {
 
 export function registerActivityAdminRoutes(app: Hono<Env>) {
   registerSeasonMaintenanceRoutes(app)
+  registerSeasonCancellationRoutes(app)
   app.get('/api/activity/admin/rating-maintenance', async c => {
     c.header('Cache-Control', 'no-store')
     const auth = requireAuthenticatedActivity(c)

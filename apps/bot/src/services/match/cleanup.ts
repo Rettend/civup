@@ -1,11 +1,12 @@
 import type { PruneMatchesOptions, PruneMatchesResult } from './types.ts'
 import type { Database } from '@civup/db'
-import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm'
 import {
   matchBans,
   matches,
   matchParticipants,
   playerRatingEvents,
+  seasonMatchReports,
   sessionDirectory,
   sessionDirectoryMembers,
 } from '@civup/db'
@@ -36,10 +37,13 @@ export async function pruneAbandonedMatches(
     .select({ id: matches.id })
     .from(matches)
     .where(
-      or(
-        and(eq(matches.status, 'drafting'), lt(matches.createdAt, now - staleDraftingMs)),
-        and(eq(matches.status, 'active'), lt(matches.createdAt, now - staleActiveMs)),
-        and(eq(matches.status, 'cancelled'), lt(matches.createdAt, now - staleCancelledMs)),
+      and(
+        or(
+          and(eq(matches.status, 'drafting'), lt(matches.createdAt, now - staleDraftingMs)),
+          and(eq(matches.status, 'active'), lt(matches.createdAt, now - staleActiveMs)),
+          and(eq(matches.status, 'cancelled'), lt(matches.createdAt, now - staleCancelledMs)),
+        ),
+        notExists(db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, matches.id))),
       ),
     )
 

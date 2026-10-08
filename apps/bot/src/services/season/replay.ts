@@ -95,6 +95,61 @@ export async function prepareSeasonReplay(
   change?: SeasonReplayChange,
   now = Date.now(),
 ): Promise<{ queries: DbBatchItem[]; matchIds: string[] }> {
+  return prepareSeasonReplayChanges(db, seasonId, change, now)
+}
+
+/** Like single-match replay, this prepares ratings and reports, not terminal match-state writes. */
+export async function prepareSeasonBulkCancellation(
+  db: Database,
+  seasonId: string,
+  matchIds: readonly string[],
+  now = Date.now(),
+): Promise<{ queries: DbBatchItem[]; matchIds: string[] }> {
+  if (!matchIds.length || matchIds.some(id => typeof id !== 'string' || !id.trim()))
+    throw new Error('Choose at least one match to cancel.')
+  if (new Set(matchIds).size !== matchIds.length) throw new Error('Choose each match only once.')
+  if (!Number.isSafeInteger(now) || now < 0) throw new Error('The cancellation time is invalid.')
+  return prepareSeasonReplayChanges(db, seasonId, undefined, now, [...matchIds])
+}
+
+async function prepareSeasonReplayChanges(
+  db: Database,
+  seasonId: string,
+  change: SeasonReplayChange | undefined,
+  now: number,
+  cancellationIds?: readonly string[],
+): Promise<{ queries: DbBatchItem[]; matchIds: string[] }> {
+  const [cancellationMatches, cancellationReports] = cancellationIds
+    ? await Promise.all([
+        db.select().from(matches).where(inArray(matches.id, cancellationIds)),
+        db.select().from(seasonMatchReports).where(inArray(seasonMatchReports.matchId, cancellationIds)),
+      ])
+    : [[], []]
+  if (cancellationIds) {
+    if (cancellationMatches.length !== cancellationIds.length)
+      throw new Error('One or more matches could not be found.')
+    if (
+      cancellationMatches.some(match => match.status === 'cancelled') ||
+      cancellationReports.some(report => report.cancelledAt != null)
+    )
+      throw new Error('One or more matches were already cancelled.')
+    if (cancellationMatches.some(match => match.seasonId !== seasonId))
+      throw new Error('Choose matches from this season.')
+    if (
+      cancellationMatches.some(
+        match =>
+          match.status !== 'completed' || !getStoredGameModeContext(match.gameMode, match.draftData)?.leaderboardMode,
+      )
+    )
+      throw new Error('Only completed rated matches can be cancelled together.')
+    if (
+      cancellationReports.length !== cancellationIds.length ||
+      cancellationReports.some(
+        report => report.seasonId !== seasonId || !Number.isSafeInteger(report.sequence) || report.sequence < 1,
+      )
+    )
+      throw new Error('One or more matches have no recorded result in this season.')
+  }
   const [season] = await db.select().from(seasons).where(eq(seasons.id, seasonId)).limit(1)
   if (
     !season?.active ||
@@ -110,6 +165,10 @@ export async function prepareSeasonReplay(
     const ageError = matchCorrectionAgeError(match, now)
     if (ageError) throw new Error(ageError)
   }
+  for (const match of cancellationMatches) {
+    const ageError = matchCorrectionAgeError(match, now)
+    if (ageError) throw new Error(ageError)
+  }
   const decayPolicy = await loadPublicRatingDecayPolicy(db)
   const [boundary] = change
     ? await db.select().from(seasonMatchReports).where(eq(seasonMatchReports.matchId, change.matchId)).limit(1)
@@ -118,11 +177,26 @@ export async function prepareSeasonReplay(
     throw new Error('The correction has no recorded report order in this season.')
   if (change?.restore && (change.cancel || !change.participants || boundary?.cancelledAt == null))
     throw new Error('Restoring a result requires a cancelled report and complete placements.')
-  const firstSequence = boundary?.sequence ?? 0
+  const firstSequence = cancellationIds
+    ? Math.min(...cancellationReports.map(report => report.sequence))
+    : (boundary?.sequence ?? 0)
   const reportScope = and(
     eq(seasonMatchReports.seasonId, seasonId),
-    change
+    cancellationIds
       ? sql`${seasonMatchReports.matchId} in (
+    with recursive affected(match_id, sequence) as (
+      select json_extract(value, '$[0]'), json_extract(value, '$[1]')
+        from json_each(${JSON.stringify(cancellationReports.map(report => [report.matchId, report.sequence]))})
+      union
+      select r.match_id, r.sequence from affected a
+        join match_participants p on p.match_id=a.match_id
+        join match_participants q on q.player_id=p.player_id
+        join season_match_reports r on r.match_id=q.match_id
+        where r.season_id=${seasonId} and r.sequence>a.sequence and r.cancelled_at is null
+    ) select match_id from affected
+  )`
+      : change
+        ? sql`${seasonMatchReports.matchId} in (
     with recursive affected(match_id, sequence) as (
       select ${change.matchId}, ${firstSequence}
       union
@@ -137,11 +211,13 @@ export async function prepareSeasonReplay(
         where r.season_id=${seasonId} and r.sequence>a.sequence and r.cancelled_at is null
     ) select match_id from affected
   )`
-      : gte(seasonMatchReports.sequence, firstSequence),
+        : gte(seasonMatchReports.sequence, firstSequence),
   )!
   const reports = await db.select().from(seasonMatchReports).where(reportScope).orderBy(seasonMatchReports.sequence)
   if (change && !reports.some(row => row.matchId === change.matchId))
     throw new Error('The correction has no recorded report order.')
+  if (cancellationIds?.some(id => !reports.some(report => report.matchId === id)))
+    throw new Error('One or more matches have no recorded result in this season.')
   if (reports.length === 0) return { queries: [], matchIds: [] }
   const ids = reports.map(row => row.matchId)
   const [storedMatches, participants, events] = await Promise.all([
@@ -256,7 +332,7 @@ export async function prepareSeasonReplay(
           .orderBy(playerRatingEvents.publicSequence)
       : []
 
-  function calculate(edit?: SeasonReplayChange) {
+  function calculate(edit?: SeasonReplayChange, cancelledIds?: ReadonlySet<string>) {
     const ratings = new Map<
       string,
       StoredRatingSummaryRow & {
@@ -317,7 +393,8 @@ export async function prepareSeasonReplay(
       const restoring = edit?.matchId === match.id && edit.restore
       if (
         (!restoring && (report.cancelledAt != null || match.status === 'cancelled')) ||
-        (edit?.matchId === match.id && edit.cancel)
+        (edit?.matchId === match.id && edit.cancel) ||
+        cancelledIds?.has(match.id)
       )
         continue
       const context = getStoredGameModeContext(match.gameMode, match.draftData)
@@ -514,7 +591,7 @@ export async function prepareSeasonReplay(
       }
     }
   }
-  const output = change ? calculate(change) : control
+  const output = cancellationIds ? calculate(undefined, new Set(cancellationIds)) : change ? calculate(change) : control
   const queries: DbBatchItem[] = [
     seasonSourceGuard(
       db,
@@ -710,10 +787,11 @@ export async function prepareSeasonReplay(
         .onConflictDoUpdate({ target: [playerRatings.playerId, playerRatings.mode], set: summary }),
     )
   }
-  if (change?.cancel) {
-    queries.push(
-      db.update(seasonMatchReports).set({ cancelledAt: now }).where(eq(seasonMatchReports.matchId, change.matchId)),
-    )
+  if (change?.cancel || cancellationIds) {
+    const cancelledScope = cancellationIds
+      ? inArray(seasonMatchReports.matchId, cancellationIds)
+      : eq(seasonMatchReports.matchId, change!.matchId)
+    queries.push(db.update(seasonMatchReports).set({ cancelledAt: now }).where(cancelledScope))
     queries.push(
       db
         .update(matchParticipants)
@@ -724,7 +802,11 @@ export async function prepareSeasonReplay(
           ratingAfterMu: null,
           ratingAfterSigma: null,
         })
-        .where(eq(matchParticipants.matchId, change.matchId)),
+        .where(
+          cancellationIds
+            ? inArray(matchParticipants.matchId, cancellationIds)
+            : eq(matchParticipants.matchId, change!.matchId),
+        ),
     )
   }
   if (change?.restore)

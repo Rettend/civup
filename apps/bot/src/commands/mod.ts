@@ -146,174 +146,208 @@ export const command_mod = factory.autocomplete<ModVar>(
         }
 
         return c.flags('EPHEMERAL').resDefer(async c => {
-          const db = createDb(c.env.DB)
-          const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
-          if (!actorId) {
-            await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
-            return
-          }
-
-          const directLobby = (await getLobbyById(kv, matchId)) ?? (await getSessionLobbyProjectionByMatch(db, matchId))
-          if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
-            const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
-            const cancelledLobby =
-              (await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
-                db,
-                sessionNamespace: c.env.SessionDO,
-                queueEntries: lobbyQueueEntries,
-              })) ?? directLobby
-
-            try {
-              await upsertLobbyMessage(
-                kv,
-                c.env.DISCORD_TOKEN,
-                cancelledLobby,
-                {
-                  embeds: [
-                    lobbyCancelledEmbed(
-                      directLobby.mode,
-                      buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries),
-                      'cancel',
-                      { actorId, reason },
-                      directLobby.draftConfig.leaderDataVersion,
-                      directLobby.draftConfig.redDeath,
-                      undefined,
-                      directLobby.draftConfig.civBlitz,
-                    ),
-                  ],
-                  components: [],
-                },
-                { db, sessionNamespace: c.env.SessionDO },
-              )
-            } catch (error) {
-              console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
+          let cancelledItem: string | null = null
+          try {
+            const db = createDb(c.env.DB)
+            const actorId = c.interaction.member?.user?.id ?? c.interaction.user?.id
+            if (!actorId) {
+              await sendTransientEphemeralResponse(c, 'Could not identify moderator user.', 'error')
+              return
             }
 
-            await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
-            return
-          }
+            const directLobby =
+              (await getLobbyById(kv, matchId)) ?? (await getSessionLobbyProjectionByMatch(db, matchId))
+            if (directLobby && directLobby.status === 'open' && !directLobby.matchId) {
+              const lobbyQueueEntries = filterQueueEntriesForLobby(directLobby, [])
+              const cancelledLobby =
+                (await setLobbyStatus(kv, directLobby.id, 'cancelled', directLobby, {
+                  db,
+                  sessionNamespace: c.env.SessionDO,
+                  queueEntries: lobbyQueueEntries,
+                })) ?? directLobby
 
-          const existingLobby = directLobby?.matchId ? directLobby : await getSessionLobbyProjectionByMatch(db, matchId)
-          const result = await cancelMatchByModerator(
-            db,
-            kv,
-            {
-              matchId,
-              cancelledAt: Date.now(),
-            },
-            {
-              sessionNamespace: c.env.SessionDO,
-              rankedRoleGuildId: existingLobby?.guildId ?? c.interaction.guild_id ?? null,
-            },
-          )
+              if (cancelledLobby.status === 'cancelled') cancelledItem = `Lobby **${directLobby.id}**`
+              await sendTransientEphemeralResponse(c, `Cancelled open lobby **${directLobby.id}**.`, 'success')
+              c.executionCtx.waitUntil(
+                (async () => {
+                  try {
+                    await upsertLobbyMessage(
+                      kv,
+                      c.env.DISCORD_TOKEN,
+                      cancelledLobby,
+                      {
+                        embeds: [
+                          lobbyCancelledEmbed(
+                            directLobby.mode,
+                            buildCancelledLobbyParticipants(directLobby, lobbyQueueEntries),
+                            'cancel',
+                            { actorId, reason },
+                            directLobby.draftConfig.leaderDataVersion,
+                            directLobby.draftConfig.redDeath,
+                            undefined,
+                            directLobby.draftConfig.civBlitz,
+                          ),
+                        ],
+                        components: [],
+                      },
+                      { db, sessionNamespace: c.env.SessionDO },
+                    )
+                  } catch (error) {
+                    console.error(`Failed to update cancelled embed for lobby ${directLobby.id}:`, error)
+                  }
+                })(),
+              )
+              return
+            }
 
-          if ('error' in result) {
-            await sendTransientEphemeralResponse(c, result.error, 'error')
-            return
-          }
+            const existingLobby = directLobby?.matchId
+              ? directLobby
+              : await getSessionLobbyProjectionByMatch(db, matchId)
+            const result = await cancelMatchByModerator(
+              db,
+              kv,
+              {
+                matchId,
+                cancelledAt: Date.now(),
+              },
+              {
+                sessionNamespace: c.env.SessionDO,
+                rankedRoleGuildId: existingLobby?.guildId ?? c.interaction.guild_id ?? null,
+              },
+            )
 
-          const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
-          if (!matchContext) {
+            if ('error' in result) {
+              await sendTransientEphemeralResponse(c, result.error, 'error')
+              return
+            }
+
+            if (result.match.status === 'cancelled') cancelledItem = `Match **${result.match.id}**`
+            const matchContext = getStoredGameModeContext(result.match.gameMode, result.match.draftData)
+            if (!matchContext) {
+              console.error('Cancelled match has an unsupported game mode', {
+                matchId: result.match.id,
+                gameMode: result.match.gameMode,
+              })
+              await sendTransientEphemeralResponse(
+                c,
+                `Match **${result.match.id}** was cancelled, but its Discord messages could not be updated.`,
+                'error',
+              )
+              return
+            }
+
+            const mode = matchContext.mode
+            const moderation = { actorId, reason }
+            const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
+            const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
+            const isRankedMatch = matchContext.ranked
+            try {
+              if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
+                await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
+                  civ: true,
+                  modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
+                })
+              }
+            } catch (error) {
+              console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
+            }
+
+            try {
+              if (!isTournamentMatch && isRankedMatch) await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+            } catch (error) {
+              console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
+            }
+
+            const recalculated = result.recalculatedMatchIds.length
             await sendTransientEphemeralResponse(
               c,
-              `Match **${result.match.id}** has unsupported game mode: ${result.match.gameMode}.`,
-              'error',
+              `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath, civBlitz: matchContext.civBlitz })} matches.`,
+              'success',
             )
-            return
-          }
 
-          const mode = matchContext.mode
-          const moderation = { actorId, reason }
-          const isTournamentMatch = await isMatchTournamentLinked(db, result.match.id)
-          const archiveChannelType = isTournamentMatch ? 'tournament-archive' : 'archive'
-          if (isTournamentMatch) {
-            await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch(error => {
-              console.error(
-                `Failed to refresh tournament leaderboard after cancelling match ${result.match.id}:`,
-                error,
-              )
-            })
-          }
+            c.executionCtx.waitUntil(
+              (async () => {
+                try {
+                  if (isTournamentMatch) {
+                    await refreshTournamentLeaderboard(db, kv, c.env.DISCORD_TOKEN).catch(error => {
+                      console.error(
+                        `Failed to refresh tournament leaderboard after cancelling match ${result.match.id}:`,
+                        error,
+                      )
+                    })
+                  }
 
-          if (existingLobby) {
-            try {
-              const updatedLobby = await upsertLobbyMessage(
-                kv,
-                c.env.DISCORD_TOKEN,
-                existingLobby,
-                {
-                  embeds: [
-                    lobbyCancelledEmbed(
-                      mode,
-                      result.participants,
-                      'cancel',
-                      moderation,
-                      existingLobby.draftConfig.leaderDataVersion,
-                      existingLobby.draftConfig.redDeath,
-                      undefined,
-                      existingLobby.draftConfig.civBlitz,
-                    ),
-                  ],
-                  components: [],
-                },
-                { db, sessionNamespace: c.env.SessionDO },
-              )
-              await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
-            } catch (error) {
-              console.error(`Failed to update cancelled embed for match ${result.match.id}:`, error)
-            }
-          }
+                  if (existingLobby) {
+                    try {
+                      const updatedLobby = await upsertLobbyMessage(
+                        kv,
+                        c.env.DISCORD_TOKEN,
+                        existingLobby,
+                        {
+                          embeds: [
+                            lobbyCancelledEmbed(
+                              mode,
+                              result.participants,
+                              'cancel',
+                              moderation,
+                              existingLobby.draftConfig.leaderDataVersion,
+                              existingLobby.draftConfig.redDeath,
+                              undefined,
+                              existingLobby.draftConfig.civBlitz,
+                            ),
+                          ],
+                          components: [],
+                        },
+                        { db, sessionNamespace: c.env.SessionDO },
+                      )
+                      await storeMatchMessageMapping(db, updatedLobby.messageId, result.match.id)
+                    } catch (error) {
+                      console.error(`Failed to update cancelled embed for match ${result.match.id}:`, error)
+                    }
+                  }
 
-          const shouldArchiveCancellation = result.previousStatus === 'completed'
-          const archiveChannelId = shouldArchiveCancellation ? await getSystemChannel(kv, archiveChannelType) : null
-          if (archiveChannelId && shouldArchiveCancellation) {
-            try {
-              const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
-                embeds: [
-                  lobbyCancelledEmbed(
-                    mode,
-                    result.participants,
-                    'cancel',
-                    moderation,
-                    existingLobby?.draftConfig.leaderDataVersion,
-                    matchContext.redDeath,
-                    undefined,
-                    matchContext.civBlitz,
-                  ),
-                ],
-              })
-              await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
-            } catch (error) {
-              console.error(`Failed to post archive cancellation note for match ${result.match.id}:`, error)
-            }
-          }
-
-          const isRankedMatch = matchContext.ranked
-          try {
-            if (!isTournamentMatch && !matchContext.redDeath && !matchContext.civBlitz) {
-              await markLeaderboardsDirty(db, `mod-cancel:${result.match.id}`, {
-                civ: true,
-                modes: matchContext.leaderboardMode ? [matchContext.leaderboardMode] : [],
-              })
-            }
+                  const archiveChannelId =
+                    result.previousStatus === 'completed' ? await getSystemChannel(kv, archiveChannelType) : null
+                  if (archiveChannelId) {
+                    try {
+                      const archiveMessage = await createChannelMessage(c.env.DISCORD_TOKEN, archiveChannelId, {
+                        embeds: [
+                          lobbyCancelledEmbed(
+                            mode,
+                            result.participants,
+                            'cancel',
+                            moderation,
+                            existingLobby?.draftConfig.leaderDataVersion,
+                            matchContext.redDeath,
+                            undefined,
+                            matchContext.civBlitz,
+                          ),
+                        ],
+                      })
+                      await storeMatchMessageMapping(db, archiveMessage.id, result.match.id)
+                    } catch (error) {
+                      console.error(`Failed to post archive cancellation note for match ${result.match.id}:`, error)
+                    }
+                  }
+                } catch (error) {
+                  console.error(`Failed to sync Discord messages after cancelling match ${result.match.id}:`, error)
+                }
+              })(),
+            )
           } catch (error) {
-            console.error(`Failed to mark leaderboards dirty after cancelling match ${result.match.id}:`, error)
-          }
-
-          try {
-            if (!isTournamentMatch && isRankedMatch) {
-              await markRankedRolesDirty(kv, `mod-cancel:${result.match.id}`)
+            console.error(`Failed to cancel match ${matchId} by moderator:`, error)
+            try {
+              await sendEphemeralResponse(
+                c,
+                cancelledItem
+                  ? `${cancelledItem} was cancelled, but its Discord messages could not be updated.`
+                  : 'Could not confirm the cancellation. Check the match before trying again.',
+                'error',
+              )
+            } catch (responseError) {
+              console.error(`Failed to send cancellation error response for match ${matchId}:`, responseError)
             }
-          } catch (error) {
-            console.error(`Failed to mark ranked roles dirty after cancelling match ${result.match.id}:`, error)
           }
-
-          const recalculated = result.recalculatedMatchIds.length
-          await sendTransientEphemeralResponse(
-            c,
-            `Cancelled match **${result.match.id}** (was ${result.previousStatus}). Recalculated ${recalculated} completed ${formatModeLabel(mode, mode, { redDeath: matchContext.redDeath, civBlitz: matchContext.civBlitz })} matches.`,
-            'success',
-          )
         })
       }
 

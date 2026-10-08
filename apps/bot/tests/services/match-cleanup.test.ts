@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import { matchBans, matches, matchParticipants, playerRatingEvents, players } from '@civup/db'
+import {
+  matchBans,
+  matches,
+  matchParticipants,
+  playerRatingEvents,
+  players,
+  seasonMatchReports,
+  seasons,
+} from '@civup/db'
 import { getChannelForMatch } from '../../src/services/activity/index.ts'
 import { pruneAbandonedMatches } from '../../src/services/match/cleanup.ts'
 import {
@@ -178,12 +186,62 @@ describe('match cleanup reconciliation', () => {
     }
   })
 
-  test('batches rating-event checks for many stale matches', async () => {
+  test.each(['drafting', 'active', 'cancelled'])(
+    'preserves a %s match with a season report but no rating events',
+    async status => {
+      const { db, sqlite } = await createTestDatabase()
+      const kv = createTestKv()
+
+      try {
+        const matchId = 'reported-match'
+        await db
+          .insert(seasons)
+          .values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: 0, ratingSystem: 'rp' })
+        await db.insert(players).values({ id: 'host', displayName: 'Host', createdAt: 0 })
+        await db.insert(matches).values({
+          id: matchId,
+          seasonId: 's9',
+          gameMode: '1v1',
+          status,
+          createdAt: 1,
+          completedAt: 2,
+        })
+        await db.insert(matchParticipants).values({ matchId, playerId: 'host', placement: null })
+        await db.insert(matchBans).values({ matchId, civId: 'rome', bannedBy: 'host', phase: 0 })
+        await db.insert(seasonMatchReports).values({ matchId, seasonId: 's9', acceptedAt: 2, cancelledAt: 3 })
+        const before = {
+          matches: await db.select().from(matches),
+          participants: await db.select().from(matchParticipants),
+          bans: await db.select().from(matchBans),
+          reports: await db.select().from(seasonMatchReports),
+        }
+        expect(await db.select().from(playerRatingEvents)).toEqual([])
+
+        const result = await pruneAbandonedMatches(db, kv, {
+          staleDraftingMs: 0,
+          staleActiveMs: 0,
+          staleCancelledMs: 0,
+          allowDirectTerminalWriteForTests: true,
+        })
+
+        expect(result.removedMatchIds).toEqual([])
+        expect(await db.select().from(matches)).toEqual(before.matches)
+        expect(await db.select().from(matchParticipants)).toEqual(before.participants)
+        expect(await db.select().from(matchBans)).toEqual(before.bans)
+        expect(await db.select().from(seasonMatchReports)).toEqual(before.reports)
+      } finally {
+        sqlite.close()
+      }
+    },
+  )
+
+  test('batches rating-event checks and preserves season reports among many stale matches', async () => {
     const { db, sqlite } = await createTestDatabase()
     const kv = createTestKv()
 
     try {
       const ratedMatchId = 'stale-match-085'
+      const reportedMatchId = 'stale-match-160'
       const staleMatchRows = Array.from({ length: 161 }, (_, index) => ({
         id: `stale-match-${String(index).padStart(3, '0')}`,
         gameMode: '1v1',
@@ -198,6 +256,13 @@ describe('match cleanup reconciliation', () => {
         .insert(players)
         .values({ id: 'rated-player', displayName: 'Rated Player', avatarUrl: null, createdAt: 1 })
       await db.insert(matches).values(staleMatchRows)
+      await db.insert(seasons).values({ id: 's9', seasonNumber: 9, name: 'Season 9', startsAt: 0 })
+      await db.insert(seasonMatchReports).values({
+        matchId: reportedMatchId,
+        seasonId: 's9',
+        acceptedAt: 2,
+        cancelledAt: 3,
+      })
       await db.insert(playerRatingEvents).values({
         matchId: ratedMatchId,
         playerId: 'rated-player',
@@ -225,10 +290,11 @@ describe('match cleanup reconciliation', () => {
         allowDirectTerminalWriteForTests: true,
       })
 
-      expect(result.removedMatchIds).toHaveLength(staleMatchRows.length - 1)
+      expect(result.removedMatchIds).toHaveLength(staleMatchRows.length - 2)
       expect(result.removedMatchIds).not.toContain(ratedMatchId)
+      expect(result.removedMatchIds).not.toContain(reportedMatchId)
       const remaining = await db.select({ id: matches.id }).from(matches)
-      expect(remaining).toEqual([{ id: ratedMatchId }])
+      expect(remaining).toEqual([{ id: ratedMatchId }, { id: reportedMatchId }])
     } finally {
       sqlite.close()
     }
