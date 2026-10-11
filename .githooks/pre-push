@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+
+  # New branches must not bring private files back through old commits.
+  if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    commits=$(git rev-list "$local_sha" "^$remote_sha")
+  else
+    commits=$(git rev-list "$local_sha")
+  fi
+
+  for commit in $commits; do
+    bun --no-env-file scripts/check-repository-privacy.ts --ref "$commit" || exit 1
+  done
+done
