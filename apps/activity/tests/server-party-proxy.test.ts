@@ -37,7 +37,7 @@ describe('activity party proxy', () => {
     })
 
     const response = await activityWorker.fetch(
-      new Request('https://activity-2.example.invalid/api/activity/launch/9129641997402354667/player-1', {
+      new Request('https://activity.example.com/api/activity/launch/333333333333333333/player-1', {
         headers: {
           'x-civup-activity-session': token,
         },
@@ -49,7 +49,7 @@ describe('activity party proxy', () => {
     expect(await response.text()).toBe('ok')
     expect(forwardedRequests).toHaveLength(1)
     const forwarded = requireForwardedRequest(forwardedRequests)
-    expect(new URL(forwarded.url).pathname).toBe('/api/activity/launch/9129641997402354667/player-1')
+    expect(new URL(forwarded.url).pathname).toBe('/api/activity/launch/333333333333333333/player-1')
     expect(forwarded.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe(SECRET)
     expect(forwarded.headers.get(CIVUP_ACTIVITY_USER_ID_HEADER)).toBe('player-1')
   })
@@ -64,7 +64,7 @@ describe('activity party proxy', () => {
 
     const response = await activityWorker.fetch(
       new Request(
-        `https://activity-2.example.invalid/api/parties/main/example-session?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
+        `https://activity.example.com/api/parties/main/session-fixture?_pk=socket-1&accessToken=draft-room.v1.test&activitySession=${encodeURIComponent(token)}`,
         {
           headers: {
             'connection': 'Upgrade',
@@ -81,7 +81,7 @@ describe('activity party proxy', () => {
     expect(forwardedRequests).toHaveLength(1)
     const forwarded = requireForwardedRequest(forwardedRequests)
     const forwardedUrl = new URL(forwarded.url)
-    expect(forwardedUrl.pathname).toBe('/parties/session/example-session')
+    expect(forwardedUrl.pathname).toBe('/parties/session/session-fixture')
     expect(forwardedUrl.searchParams.get('accessToken')).toBe('draft-room.v1.test')
     expect(forwardedUrl.searchParams.has('activitySession')).toBe(false)
     expect(forwarded.headers.get(CIVUP_INTERNAL_SECRET_HEADER)).toBe(SECRET)
@@ -94,7 +94,7 @@ describe('activity party proxy', () => {
 
     const response = await activityWorker.fetch(
       new Request(
-        `https://activity-2.example.invalid/api/parties/main/lobby-short-id?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
+        `https://activity.example.com/api/parties/main/lobby-short-id?_pk=socket-2&activitySession=${encodeURIComponent(token)}`,
       ),
       createEnv(forwardedRequests),
     )
@@ -110,7 +110,7 @@ describe('activity party proxy', () => {
 
     const response = await activityWorker.fetch(
       new Request(
-        `https://activity-2.example.invalid/api/parties/main/9129641997402354667?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
+        `https://activity.example.com/api/parties/main/333333333333333333?_pk=socket-3&activitySession=${encodeURIComponent(token)}`,
       ),
       createEnv(forwardedRequests),
     )
@@ -118,7 +118,7 @@ describe('activity party proxy', () => {
     expect(response.status).toBe(200)
     expect(forwardedRequests).toHaveLength(1)
     expect(new URL(requireForwardedRequest(forwardedRequests).url).pathname).toBe(
-      '/parties/activity/9129641997402354667',
+      '/parties/activity/333333333333333333',
     )
   })
 

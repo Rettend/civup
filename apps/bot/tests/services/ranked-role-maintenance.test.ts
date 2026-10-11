@@ -10,8 +10,8 @@ import { setRankedRoleCurrentRoles } from '../../src/services/ranked/roles.ts'
 import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
-const GUILD_ID = '9108888884804558460'
-const SECOND_GUILD_ID = '9222089226492061636'
+const GUILD_ID = '111111111111111111'
+const SECOND_GUILD_ID = '222222222222222222'
 const NOW = 1_700_000_000_000
 const ROLE_IDS = {
   tier5: '11111111111111111',

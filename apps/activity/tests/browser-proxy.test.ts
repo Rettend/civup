@@ -110,7 +110,7 @@ describe('browser cookie proxy', () => {
       userId: 'data-admin',
       displayName: null,
       avatarUrl: null,
-      guildId: '9108888884804558460',
+      guildId: '111111111111111111',
       guildPermissions: '32',
     })
     const body = new ReadableStream<Uint8Array>({
@@ -130,7 +130,7 @@ describe('browser cookie proxy', () => {
 
     expect(await response.text()).toBe('{"phase":"players"}')
     expect(new URL(forwarded[0]!.url).searchParams.get('cursor')).toBe('next')
-    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)).toBe('9108888884804558460')
+    expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_ID_HEADER)).toBe('111111111111111111')
     expect(forwarded[0]!.headers.get(CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER)).toBe('32')
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.headers.get('ETag')).toBe('page-etag')
@@ -245,7 +245,7 @@ describe('browser cookie proxy', () => {
 function createEnv(forwarded: Request[], upstream: Response): ActivityEnv {
   return {
     ACTIVITY_PUBLIC_ORIGIN: ORIGIN,
-    ALLOWED_DISCORD_GUILD_ID: '9108888884804558460',
+    ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
     CIVUP_SECRET: SECRET,
     DISCORD_CLIENT_ID: '222222222222222222',
     DISCORD_CLIENT_SECRET: 'client-secret',

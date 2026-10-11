@@ -17,7 +17,8 @@ import { repositoryRoot } from './local-storage.ts'
 export function maintenanceTargetName(
   options: { target?: string; config?: string; defaultTarget?: CloudflareTargetName; environmentTarget?: string } = {},
 ): CloudflareTargetName {
-  // Compatibility for ignored owner tools passing the former config flag.
+  // Ignored local callers still use the former config filenames. Keep these
+  // aliases until those callers explicitly select their target instead.
   // Never parse it or accept arbitrary files as a second identity source.
   const config = options.config
   const legacy =

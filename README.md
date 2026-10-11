@@ -39,6 +39,7 @@ Use the development app only with local tunnels. Use the production app only wit
    cp cloudflared.dev.example.yml cloudflared.dev.yml
    cp apps/bot/.dev.vars.example apps/bot/.dev.vars
    cp apps/activity/.dev.vars.example apps/activity/.dev.vars
+   cp config/cloudflare-targets.local.example.json config/cloudflare-targets.local.json
    ```
 
 2. Generate one shared secret and put it in both `.dev.vars` files as `CIVUP_SECRET`.
@@ -57,9 +58,21 @@ Use the development app only with local tunnels. Use the production app only wit
    cloudflared tunnel route dns civup-dev activity-dev.example.com
    ```
 
-   The bot hostname goes to port 8787 and the Activity hostname to 5173. Add your Activity hostname to `server.allowedHosts` in `apps/activity/vite.config.ts`.
+   The bot hostname goes to port 8787 and the Activity hostname to 5173. Vite allows the hostname from `ACTIVITY_PUBLIC_ORIGIN` in the Activity's local `.dev.vars` file.
 
-4. Create the local database schema.
+4. Fill the `standard` entry in `config/cloudflare-targets.local.json` before running storage commands. Use the development Discord app's ID and public key, your development guild ID, and the Activity tunnel origin.
+
+   Local storage does not require remote resources. Generate separate 32-character hex values for `accountId` and `kv.id`, and a UUID for `d1.id`:
+
+   ```bash
+   bun -e "console.log(crypto.randomUUID().replaceAll('-', ''))"
+   bun -e "console.log(crypto.randomUUID().replaceAll('-', ''))"
+   bun -e "console.log(crypto.randomUUID())"
+   ```
+
+   Set `r2.name` to a local bucket name or remove `r2`. Keep these local IDs stable to keep using the same local data. Replace them with actual account and resource IDs before any remote operation.
+
+   Create the local database schema:
 
    ```bash
    bun run bot:l:migrate
@@ -92,18 +105,18 @@ bun run dev:live --no-tunnel --print-commands
 
 ## Production setup
 
-### 1. Fill public config
+### 1. Fill local target settings
 
-Pick the Cloudflare account first, then fill its public settings in `config/cloudflare-targets.ts`. Both Workers read this data:
+Pick the Cloudflare account first, then fill the `standard` entry in ignored `config/cloudflare-targets.local.json`. Both Workers read these settings through `config/cloudflare-targets.ts`:
 
 - `apps/bot/cloudflare.config.ts`
 - `apps/activity/cloudflare.config.ts`
 
-Set the account ID, guild ID, Activity origin, and Discord application ID and public key. The configs derive both Workers' public variables and service binding from these values. Keep secrets in the secret files.
+Set the account ID, guild ID, Activity origin, and Discord application ID and public key. The configs derive both Workers' public variables and service binding from these values. Keep secrets in the secret files. Checked-in settings are examples; commands require your local target settings.
 
 Find or change the account's `workers.dev` subdomain on the Cloudflare **Workers & Pages** page under **Your subdomain**. With the checked-in Worker names, the Activity origin is `https://civup-activity.<account subdomain>.workers.dev`.
 
-`deploy:prod` selects the `standard` target. PPL uses `config/cloudflare-targets.local.json`, which is git-ignored; copy the adjacent example when setting up that target. Both targets use the same Worker names in different accounts. Selecting a target does not select remote storage: migration and maintenance commands choose local or remote separately.
+`deploy:prod` selects the `standard` target. Selecting a target does not select remote storage: migration and maintenance commands choose local or remote separately.
 
 Authenticate with `bunx cf auth login`. The retained Wrangler adapters also need authentication: use `bunx wrangler login`, or supply `CLOUDFLARE_API_TOKEN` for both tools. Commands select the account from the target settings.
 
@@ -195,13 +208,15 @@ bun run --filter civup-bot build
 bun run --filter civup-activity build:prod
 ```
 
-Build commands only create local files. Activity's plain `build` uses the development Discord app; `build:prod` uses standard settings and `build:ppl` uses local PPL settings.
+Build commands only create local files. Activity's plain `build` uses the development Discord app; `build:prod` uses standard settings.
 
 Activity tests run through Vite+ and Vitest with the Solid compiler. Bot and package tests use Bun. `bun run test:cov` writes separate reports under `coverage/`; `bun run test:ui` opens the Activity test UI. Use `lint:fix` and `format` to apply lint and formatting changes.
 
 `bun run test:cloudflare:local` checks migrations and D1/KV operations in temporary storage with fixture identities. It does not use the development database or remote resources.
 
 The `tsc` command uses native TypeScript 7. The `typescript` dependency supplies TypeScript 6's JavaScript API for lint plugins that still need it.
+
+Keep internal notes in ignored `docs/` and deployment-specific tools and data in ignored `ppl/`. Public documentation and tests must use example settings and synthetic identities. `bun run check:privacy` checks publishable files; CI also checks committed files, including files added with `--force`. The `.githooks/pre-push` hook checks every outgoing commit before upload; install it in your Git hooks directory, preserving any existing hook.
 
 Wrangler remains installed for bot bundling and operations the pinned `cf` cannot preserve: the bot's tagged Durable Object migrations and `keep_vars`, stdin secret uploads, and complete remote KV listing. Local D1 typed bindings and SQL scripts use Miniflare where `cf` would lose values or results; local KV listing also uses Miniflare. These adapters consume the shared target data. Generated configuration and build output live under ignored `.cloudflare` directories.
 

@@ -17,6 +17,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # dotenv environment variable files
 .env
+.env.*
 .*.env
 .env.development.local
 .env.test.local
@@ -28,7 +29,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .ppl.env
 .ppl.secrets
 .ppl.vars
+.*.vars
+.*.secrets
+!.env.example
+!.env.*.example
+!.*.vars.example
+!.*.secrets.example
 /config/cloudflare-targets.local.json
+**/wrangler.ppl.*
 
 # Cloudflare Workers local secrets
 .dev.vars
@@ -50,9 +58,14 @@ cloudflared.dev.yml
 # Finder (MacOS) folder config
 .DS_Store
 
-# Other
-/docs/*
-!/docs/SEASON-RESET.md
+# Internal documents and deployment-specific tools stay local.
+/docs/
+/ppl/
+/*.md
+!/AGENTS.md
+!/README.md
+!/GUIDE.md
+!/MANUAL.md
 
 # preset build artifacts
 mods/dist/

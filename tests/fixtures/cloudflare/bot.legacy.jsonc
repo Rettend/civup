@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "civup-bot",
-  "account_id": "44ca252afa99dc6d23fe013ebffefdee",
+  "account_id": "33333333333333333333333333333333",
   "main": "src/index.ts",
   "keep_vars": true,
   "compatibility_date": "2025-02-19",
@@ -15,10 +15,10 @@
   ],
 
   "vars": {
-    "ACTIVITY_PUBLIC_ORIGIN": "https://activity-1.example.invalid",
-    "ALLOWED_DISCORD_GUILD_ID": "9222089226492061636",
-    "DISCORD_APPLICATION_ID": "9606055819354065576",
-    "DISCORD_PUBLIC_KEY": "063414669898e09c38a618575daf8cdbe9bad8bca7e23803a99abb1997c5f5b9",
+    "ACTIVITY_PUBLIC_ORIGIN": "https://activity.example.invalid",
+    "ALLOWED_DISCORD_GUILD_ID": "4444444444444444444",
+    "DISCORD_APPLICATION_ID": "3333333333333333333",
+    "DISCORD_PUBLIC_KEY": "0000000000000000000000000000000000000000000000000000000000000000",
     "ENABLE_DEBUG_LOBBY_FILL": "1"
   },
 
@@ -58,7 +58,7 @@
     {
       "binding": "DB",
       "database_name": "civup",
-      "database_id": "13c1d9b7-3bd2-42d2-8c6a-a0402e58fcad",
+      "database_id": "33333333-3333-4333-8333-333333333333",
       "migrations_dir": "../../packages/db/migrations"
     }
   ],
@@ -66,14 +66,14 @@
   "kv_namespaces": [
     {
       "binding": "KV",
-      "id": "3fadbf4b3cd542f9d35ad6ca2a29e456"
+      "id": "55555555555555555555555555555555"
     }
   ],
 
   "r2_buckets": [
     {
       "binding": "AUTOSAVE_UPLOADS",
-      "bucket_name": "civup-autosave-uploads"
+      "bucket_name": "example-autosave-uploads"
     }
   ],
 

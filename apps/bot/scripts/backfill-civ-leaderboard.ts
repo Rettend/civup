@@ -24,7 +24,7 @@ export function parseCivBackfillOptions(
     else if (value === '--execute') execute = true
     else if (value === '--json') json = true
     else if (value === '--local') location = 'local'
-    else if (value === '--remote' || value === '--prod' || value === '--ppl') location = 'remote'
+    else if (value === '--remote' || value === '--prod') location = 'remote'
     else if (value === '--repair' || value === '--from-contributions') source = 'contributions'
     else if (value === '--target' || value === '--config' || value === '--database') {
       const next = values[++index]
@@ -34,8 +34,8 @@ export function parseCivBackfillOptions(
       else database = next
     } else throw new Error(`Unknown option: ${value}`)
   }
-  // The PPL entrypoint historically used standard dev data for --local.
-  const defaultTarget = defaults.target === 'ppl' && location === 'local' ? 'standard' : defaults.target
+  // Local commands default to shared development storage unless --target is set.
+  const defaultTarget = location === 'local' ? 'standard' : defaults.target
   return { command, source, location, target, config, database, execute, json, defaultTarget }
 }
 
@@ -74,7 +74,7 @@ export async function runCivBackfill(
     db: createDb(d1),
     kv,
     includeHistoricalPreview: false,
-    applyHint: `bun ${defaults.target === 'ppl' ? 'ppl' : 'apps/bot/scripts'}/backfill-civ-leaderboard.ts apply --target ${runtime.selection.target} --${options.location}${options.source === 'contributions' ? ' --repair' : ''} --execute`,
+    applyHint: `bun apps/bot/scripts/backfill-civ-leaderboard.ts apply --target ${runtime.selection.target} --${options.location}${options.source === 'contributions' ? ' --repair' : ''} --execute`,
     onProgress: options.json ? undefined : label => console.log(`[civ-leaderboard] ${label}`),
   })
 }

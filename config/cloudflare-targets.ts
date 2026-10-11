@@ -55,6 +55,7 @@ export interface CloudflareStorageSelection {
 }
 
 export interface CloudflareLocalTargets {
+  readonly standard?: CloudflareTarget
   readonly ppl?: CloudflareTarget
 }
 
@@ -64,12 +65,14 @@ export interface CloudflareTargetOptions {
 }
 
 export interface CloudflareProvisioningTargetOptions extends Pick<CloudflareTargetOptions, 'localTargetsFile'> {
-  readonly localTargets?: { readonly ppl?: CloudflareProvisioningTarget }
+  readonly localTargets?: Readonly<Partial<Record<CloudflareTargetName, CloudflareProvisioningTarget>>>
 }
 
 const defaultLocalTargetsFile = new URL('./cloudflare-targets.local.json', import.meta.url)
-const missingPplTargetMessage =
-  'PPL target settings are missing. Add a ppl entry to config/cloudflare-targets.local.json.'
+
+function missingTargetMessage(name: CloudflareTargetName): string {
+  return `${name} target settings are missing. Add a ${name} entry to config/cloudflare-targets.local.json.`
+}
 
 // Paths in shared target data are relative to the repository, not a caller's cwd.
 export const cloudflareLocalPersistenceDirectory = 'apps/bot/.wrangler/state'
@@ -95,21 +98,21 @@ export const botDurableObjectMigrations = [
 
 export const botCronSchedules = ['0 * * * *', '*/15 * * * *', '0 0,2,4,6,8,10,12,14,16,18,20 * * *'] as const
 
-// Tracked public identity only. Importing performs no I/O or env loading.
-// PPL account details deliberately remain in the git-ignored local JSON file.
+// Synthetic example only, never a deployment fallback. Importing performs no I/O
+// or env loading. Both deployment identities live in the ignored local JSON file.
 export const cloudflareTargets = {
   standard: {
-    accountId: '44ca252afa99dc6d23fe013ebffefdee',
+    accountId: '33333333333333333333333333333333',
     workers: { bot: 'civup-bot', activity: 'civup-activity' },
     discord: {
-      applicationId: '9606055819354065576',
-      publicKey: '063414669898e09c38a618575daf8cdbe9bad8bca7e23803a99abb1997c5f5b9',
-      guildId: '9222089226492061636',
+      applicationId: '3333333333333333333',
+      publicKey: '0000000000000000000000000000000000000000000000000000000000000000',
+      guildId: '4444444444444444444',
     },
-    activityOrigin: 'https://activity-1.example.invalid',
-    d1: { binding: 'DB', name: 'civup', id: '13c1d9b7-3bd2-42d2-8c6a-a0402e58fcad', ...migrations },
-    kv: { binding: 'KV', id: '3fadbf4b3cd542f9d35ad6ca2a29e456' },
-    r2: { binding: 'AUTOSAVE_UPLOADS', name: 'civup-autosave-uploads' },
+    activityOrigin: 'https://activity.example.invalid',
+    d1: { binding: 'DB', name: 'civup', id: '33333333-3333-4333-8333-333333333333', ...migrations },
+    kv: { binding: 'KV', id: '55555555555555555555555555555555' },
+    r2: { binding: 'AUTOSAVE_UPLOADS', name: 'example-autosave-uploads' },
     bot: {
       compatibilityDate: '2025-02-19',
       compatibilityFlags: ['nodejs_compat'],
@@ -123,27 +126,27 @@ export const cloudflareTargets = {
 
 function object(value: unknown, field: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`Local PPL target settings need an object for ${field}.`)
+    throw new Error(`Local target settings need an object for ${field}.`)
   }
   return value as Record<string, unknown>
 }
 
 function string(value: unknown, field: string, pattern?: RegExp): string {
   if (typeof value !== 'string' || !value.trim() || (pattern && !pattern.test(value))) {
-    throw new Error(`Local PPL target settings have an invalid ${field}.`)
+    throw new Error(`Local target settings have an invalid ${field}.`)
   }
   return value
 }
 
 function strings(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || !value.every(item => typeof item === 'string' && item.trim())) {
-    throw new Error(`Local PPL target settings need a list of strings for ${field}.`)
+    throw new Error(`Local target settings need a list of strings for ${field}.`)
   }
   return value
 }
 
 function identity<const T extends string>(value: unknown, expected: T, field: string): T {
-  if (value !== expected) throw new Error(`Local PPL target settings have an invalid ${field}.`)
+  if (value !== expected) throw new Error(`Local target settings have an invalid ${field}.`)
   return expected
 }
 
@@ -155,10 +158,8 @@ function compatibility(value: unknown, field: string): WorkerCompatibility {
   }
 }
 
-export function parseCloudflareLocalTargets(value: unknown): CloudflareLocalTargets {
-  const root = object(value, 'targets')
-  if (root.ppl === undefined) return {}
-  const target = object(root.ppl, 'ppl')
+function parseCloudflareTarget(settings: unknown, targetName: CloudflareTargetName): CloudflareTarget {
+  const target = object(settings, targetName)
   const workers = object(target.workers, 'workers')
   const discord = object(target.discord, 'discord')
   const d1 = object(target.d1, 'd1')
@@ -184,57 +185,63 @@ export function parseCloudflareLocalTargets(value: unknown): CloudflareLocalTarg
       return [key, string(value, `bot.variables.${key}`)]
     }),
   )
-  if (typeof bot.keepVars !== 'boolean') throw new Error('Local PPL target settings need a boolean for bot.keepVars.')
+  if (typeof bot.keepVars !== 'boolean') throw new Error('Local target settings need a boolean for bot.keepVars.')
   const activityOrigin = string(target.activityOrigin, 'activityOrigin')
   try {
     const origin = new URL(activityOrigin)
     if (origin.protocol !== 'https:' || origin.origin !== activityOrigin)
       throw new Error('Public HTTPS origin required')
   } catch {
-    throw new Error('Local PPL target settings need an HTTPS activityOrigin.')
+    throw new Error('Local target settings need an HTTPS activityOrigin.')
   }
   const r2 = target.r2 === undefined ? undefined : object(target.r2, 'r2')
   return {
-    ppl: {
-      accountId: string(target.accountId, 'accountId', /^[a-f0-9]{32}$/),
-      workers: {
-        bot: identity(workers.bot, 'civup-bot', 'workers.bot'),
-        activity: identity(workers.activity, 'civup-activity', 'workers.activity'),
-      },
-      discord: {
-        applicationId: string(discord.applicationId, 'discord.applicationId', /^\d{17,20}$/),
-        publicKey: string(discord.publicKey, 'discord.publicKey', /^[a-f0-9]{64}$/),
-        guildId: string(discord.guildId, 'discord.guildId', /^\d{17,20}$/),
-        ...(discord.guildIds === undefined
-          ? {}
-          : { guildIds: string(discord.guildIds, 'discord.guildIds', /^\d{17,20}(,\d{17,20})*$/) }),
-      },
-      activityOrigin,
-      d1: {
-        binding: identity(d1.binding, 'DB', 'd1.binding'),
-        name: string(d1.name, 'd1.name'),
-        id: string(d1.id, 'd1.id', /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
-        migrationsDirectory: string(d1.migrationsDirectory, 'd1.migrationsDirectory'),
-        migrationsTable: string(d1.migrationsTable, 'd1.migrationsTable'),
-        migrationsPattern: string(d1.migrationsPattern, 'd1.migrationsPattern'),
-      },
-      kv: { binding: identity(kv.binding, 'KV', 'kv.binding'), id: string(kv.id, 'kv.id', /^[a-f0-9]{32}$/) },
-      ...(r2 === undefined
-        ? {}
-        : {
-            r2: {
-              binding: identity(r2.binding, 'AUTOSAVE_UPLOADS', 'r2.binding'),
-              name: string(r2.name, 'r2.name'),
-            },
-          }),
-      bot: {
-        ...compatibility(bot, 'bot'),
-        keepVars: bot.keepVars,
-        variables,
-        fontGlobs: strings(bot.fontGlobs, 'bot.fontGlobs'),
-      },
-      activity: compatibility(target.activity, 'activity'),
+    accountId: string(target.accountId, 'accountId', /^[a-f0-9]{32}$/),
+    workers: {
+      bot: identity(workers.bot, 'civup-bot', 'workers.bot'),
+      activity: identity(workers.activity, 'civup-activity', 'workers.activity'),
     },
+    discord: {
+      applicationId: string(discord.applicationId, 'discord.applicationId', /^\d{17,20}$/),
+      publicKey: string(discord.publicKey, 'discord.publicKey', /^[a-f0-9]{64}$/),
+      guildId: string(discord.guildId, 'discord.guildId', /^\d{17,20}$/),
+      ...(discord.guildIds === undefined
+        ? {}
+        : { guildIds: string(discord.guildIds, 'discord.guildIds', /^\d{17,20}(,\d{17,20})*$/) }),
+    },
+    activityOrigin,
+    d1: {
+      binding: identity(d1.binding, 'DB', 'd1.binding'),
+      name: string(d1.name, 'd1.name'),
+      id: string(d1.id, 'd1.id', /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
+      migrationsDirectory: string(d1.migrationsDirectory, 'd1.migrationsDirectory'),
+      migrationsTable: string(d1.migrationsTable, 'd1.migrationsTable'),
+      migrationsPattern: string(d1.migrationsPattern, 'd1.migrationsPattern'),
+    },
+    kv: { binding: identity(kv.binding, 'KV', 'kv.binding'), id: string(kv.id, 'kv.id', /^[a-f0-9]{32}$/) },
+    ...(r2 === undefined
+      ? {}
+      : {
+          r2: {
+            binding: identity(r2.binding, 'AUTOSAVE_UPLOADS', 'r2.binding'),
+            name: string(r2.name, 'r2.name'),
+          },
+        }),
+    bot: {
+      ...compatibility(bot, 'bot'),
+      keepVars: bot.keepVars,
+      variables,
+      fontGlobs: strings(bot.fontGlobs, 'bot.fontGlobs'),
+    },
+    activity: compatibility(target.activity, 'activity'),
+  }
+}
+
+export function parseCloudflareLocalTargets(value: unknown): CloudflareLocalTargets {
+  const root = object(value, 'targets')
+  return {
+    ...(root.standard === undefined ? {} : { standard: parseCloudflareTarget(root.standard, 'standard') }),
+    ...(root.ppl === undefined ? {} : { ppl: parseCloudflareTarget(root.ppl, 'ppl') }),
   }
 }
 
@@ -247,16 +254,16 @@ function readCloudflareLocalTargets(file: string | URL = defaultLocalTargetsFile
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
       throw new Error(
-        `PPL target settings were not found at ${path}. Copy config/cloudflare-targets.local.example.json to config/cloudflare-targets.local.json and fill in your local settings.`,
+        `Local target settings were not found at ${path}. Copy config/cloudflare-targets.local.example.json to config/cloudflare-targets.local.json and fill in your local settings.`,
       )
     }
-    throw new Error(`Could not read PPL target settings at ${path}.`, { cause: error })
+    throw new Error(`Could not read local target settings at ${path}.`, { cause: error })
   }
   let parsed: unknown
   try {
     parsed = JSON.parse(content)
   } catch {
-    throw new Error(`PPL target settings are not valid JSON: ${path}.`)
+    throw new Error(`Local target settings are not valid JSON: ${path}.`)
   }
   return parsed
 }
@@ -275,14 +282,15 @@ export function resolveCloudflareTarget(
   options: CloudflareTargetOptions = {},
 ): CloudflareTarget {
   const name = resolveCloudflareTargetName(value)
-  if (name === 'standard') return cloudflareTargets.standard
-  const local = options.localTargets ?? loadCloudflareLocalTargets(options.localTargetsFile)
-  if (!local.ppl) throw new Error(missingPplTargetMessage)
-  return local.ppl
+  const local = options.localTargets ?? object(readCloudflareLocalTargets(options.localTargetsFile), 'targets')
+  const target = local[name]
+  if (target === undefined) throw new Error(missingTargetMessage(name))
+  // A copied example can still contain unfinished settings for the other target.
+  return options.localTargets ? options.localTargets[name]! : parseCloudflareTarget(target, name)
 }
 
-function provisioningTarget(value: unknown): CloudflareProvisioningTarget {
-  const target = object(value, 'ppl')
+function provisioningTarget(value: unknown, name: CloudflareTargetName): CloudflareProvisioningTarget {
+  const target = object(value, name)
   const d1 = object(target.d1, 'd1')
   const r2 = target.r2 === undefined ? undefined : object(target.r2, 'r2')
   return {
@@ -299,10 +307,9 @@ export function resolveCloudflareProvisioningTarget(
   options: CloudflareProvisioningTargetOptions = {},
 ): CloudflareProvisioningTarget {
   const name = resolveCloudflareTargetName(value)
-  if (name === 'standard') return provisioningTarget(cloudflareTargets.standard)
   const local = object(options.localTargets ?? readCloudflareLocalTargets(options.localTargetsFile), 'targets')
-  if (local.ppl === undefined) throw new Error(missingPplTargetMessage)
-  return provisioningTarget(local.ppl)
+  if (local[name] === undefined) throw new Error(missingTargetMessage(name))
+  return provisioningTarget(local[name], name)
 }
 
 function commonPublicVariables(target: CloudflareTarget) {
@@ -339,7 +346,7 @@ export function cloudflarePublicVariables(target: CloudflareTarget, worker: Clou
   return worker === 'bot' ? botPublicVariables(target) : activityPublicVariables(target)
 }
 
-// Transport is a separate, required choice. Selecting PPL never implies remote.
+// Transport is a separate, required choice. Selecting a target never implies remote.
 export function resolveCloudflareStorage(
   value: string | undefined,
   location: CloudflareStorageLocation,

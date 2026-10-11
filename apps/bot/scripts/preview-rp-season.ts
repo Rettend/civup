@@ -179,7 +179,7 @@ export function simulateCandidatePublicRatings(samples = 40) {
     synthetic: true,
     transitions,
     assumptions:
-      'Fixed synthetic opponents; FFA win means first place. Natural ranks exclude Discord evidence gates. This is not the required PPL trajectory or participation-cadence validation.',
+      'Fixed synthetic opponents; FFA win means first place. Natural ranks exclude Discord evidence gates. This does not validate player trajectories or participation cadence.',
     rows,
   }
 }

@@ -4,10 +4,16 @@ import { redDeathLeaderMap } from '@civup/game'
 import { resolveLocalD1SqlitePath } from './local-storage.ts'
 
 const SEED_PREFIX = 'dev-leaders'
-const RETTEND_ID = '992886382366492711'
-const RETTEND_NAME = 'Rettend'
+const featuredPlayer = resolveDevLeaderPlayer(process.env)
 const BOT_COUNT = 40
 const BASE_TIME = Date.now() - 14 * 86_400_000
+
+export function resolveDevLeaderPlayer(env: Record<string, string | undefined>) {
+  return {
+    id: env.CIVUP_DEV_PLAYER_ID?.trim() || `${SEED_PREFIX}-player`,
+    displayName: env.CIVUP_DEV_PLAYER_NAME?.trim() || 'Dev Player',
+  }
+}
 
 type GameMode = '1v1' | '2v2' | '3v3' | 'ffa'
 type RatingMode = 'duel' | 'duo' | 'squad' | 'ffa'
@@ -52,32 +58,34 @@ const botLeaders = [
   'egypt-cleopatra-egyptian',
 ] as const
 
-const db = new Database(resolveLocalD1SqlitePath({ override: process.env.DRIZZLE_DB_URL }), { create: false })
-db.run('PRAGMA foreign_keys = ON')
+if (import.meta.main) {
+  const db = new Database(resolveLocalD1SqlitePath({ override: process.env.DRIZZLE_DB_URL }), { create: false })
+  db.run('PRAGMA foreign_keys = ON')
 
-try {
-  const seasonId = selectDisplaySeasonId(db)
-  const matches = buildSeedMatches(seasonId)
+  try {
+    const seasonId = selectDisplaySeasonId(db)
+    const matches = buildSeedMatches(seasonId)
 
-  db.exec('begin transaction')
-  cleanPreviousSeed(db)
-  seedPlayers(db)
-  insertMatches(db, matches)
-  seedRettendRatings(db, summarizeRettendRatings(matches), Math.max(...matches.map(match => match.completedAt)))
-  rebuildPlayerCivStats(db, Date.now())
-  db.exec('commit')
+    db.exec('begin transaction')
+    cleanPreviousSeed(db)
+    seedPlayers(db)
+    insertMatches(db, matches)
+    seedFeaturedRatings(db, summarizeFeaturedRatings(matches), Math.max(...matches.map(match => match.completedAt)))
+    rebuildPlayerCivStats(db, Date.now())
+    db.exec('commit')
 
-  const summary = summarizeRettendRatings(matches)
-  console.log(`Seeded ${matches.length} dev leader matches with Rettend in every game.`)
-  console.log(`Season scope: ${seasonId ?? 'none'}`)
-  for (const [mode, stats] of Object.entries(summary)) {
-    console.log(`${mode}: ${stats.games}g, ${stats.wins} wins`)
+    const summary = summarizeFeaturedRatings(matches)
+    console.log(`Seeded ${matches.length} dev leader matches with ${featuredPlayer.displayName} in every game.`)
+    console.log(`Season scope: ${seasonId ?? 'none'}`)
+    for (const [mode, stats] of Object.entries(summary)) {
+      console.log(`${mode}: ${stats.games}g, ${stats.wins} wins`)
+    }
+  } catch (error) {
+    db.exec('rollback')
+    throw error
+  } finally {
+    db.close()
   }
-} catch (error) {
-  db.exec('rollback')
-  throw error
-} finally {
-  db.close()
 }
 
 function buildSeedMatches(seasonId: string | null): SeedMatch[] {
@@ -103,16 +111,16 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
     return 'rome-trajan'
   }
 
-  const nextDuelOpponentLeader = (rettendWon: boolean, rettendLeader: string) => {
-    if (rettendWon && yongleOpponentLosses > 0 && rettendLeader !== 'china-yongle') {
+  const nextDuelOpponentLeader = (featuredWon: boolean, featuredLeader: string) => {
+    if (featuredWon && yongleOpponentLosses > 0 && featuredLeader !== 'china-yongle') {
       yongleOpponentLosses -= 1
       return 'china-yongle'
     }
-    if (!rettendWon && trajanOpponentWins > 0 && rettendLeader !== 'rome-trajan') {
+    if (!featuredWon && trajanOpponentWins > 0 && featuredLeader !== 'rome-trajan') {
       trajanOpponentWins -= 1
       return 'rome-trajan'
     }
-    return nextBotLeader(rettendLeader)
+    return nextBotLeader(featuredLeader)
   }
 
   const createMatch = (gameMode: GameMode, participants: SeedParticipant[]) => {
@@ -132,7 +140,7 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
     for (let index = 0; index < games; index += 1) {
       const didWin = index < wins
       createMatch('1v1', [
-        rettendParticipant({ team: 0, placement: didWin ? 1 : 2, civId, matchIndex }),
+        featuredParticipant({ team: 0, placement: didWin ? 1 : 2, civId, matchIndex }),
         { playerId: nextBotId(), team: 1, placement: didWin ? 2 : 1, civId: nextDuelOpponentLeader(didWin, civId) },
       ])
     }
@@ -143,7 +151,7 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
     for (let index = 0; index < games; index += 1) {
       const didWin = index < wins
       const participants: SeedParticipant[] = [
-        rettendParticipant({ team: 0, placement: didWin ? 1 : 2, civId, matchIndex }),
+        featuredParticipant({ team: 0, placement: didWin ? 1 : 2, civId, matchIndex }),
       ]
 
       for (let teammate = 1; teammate < teamSize; teammate += 1) {
@@ -160,7 +168,7 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
     for (let index = 0; index < games; index += 1) {
       const didWin = index < firsts
       const participants: SeedParticipant[] = [
-        rettendParticipant({ team: null, placement: didWin ? 1 : 3, civId, matchIndex }),
+        featuredParticipant({ team: null, placement: didWin ? 1 : 3, civId, matchIndex }),
       ]
       for (let seat = 1; seat < 8; seat += 1) {
         participants.push({
@@ -197,7 +205,7 @@ function buildSeedMatches(seasonId: string | null): SeedMatch[] {
   return matches
 }
 
-function rettendParticipant(input: {
+function featuredParticipant(input: {
   team: number | null
   placement: number
   civId: string
@@ -206,7 +214,7 @@ function rettendParticipant(input: {
   const beforeMu = 25 + (input.matchIndex % 16) * 0.08
   const afterMu = beforeMu + (input.placement === 1 ? 0.35 : -0.22)
   return {
-    playerId: RETTEND_ID,
+    playerId: featuredPlayer.id,
     team: input.team,
     placement: input.placement,
     civId: input.civId,
@@ -218,13 +226,11 @@ function rettendParticipant(input: {
 }
 
 function seedPlayers(db: Database): void {
-  db.query(`insert into players (id, display_name, avatar_url, created_at)
-    values (?1, ?2, null, ?3)
-    on conflict(id) do update set display_name = excluded.display_name`).run(RETTEND_ID, RETTEND_NAME, Date.now())
-
   const insert = db.query(`insert into players (id, display_name, avatar_url, created_at)
     values (?1, ?2, null, ?3)
     on conflict(id) do update set display_name = excluded.display_name`)
+  insert.run(featuredPlayer.id, featuredPlayer.displayName, Date.now())
+
   for (let index = 0; index < BOT_COUNT; index += 1) {
     insert.run(botId(index), `Dev Leader Bot ${index + 1}`, Date.now())
   }
@@ -277,7 +283,7 @@ function cleanPreviousSeed(db: Database): void {
   db.query(`delete from players where id like '${SEED_PREFIX}-bot-%'`).run()
 }
 
-function seedRettendRatings(
+function seedFeaturedRatings(
   db: Database,
   summary: Partial<Record<RatingMode, { games: number; wins: number }>>,
   lastPlayedAt: number,
@@ -316,23 +322,23 @@ function seedRettendRatings(
 
   for (const [mode, stats] of Object.entries(summary) as Array<[RatingMode, { games: number; wins: number }]>) {
     const rating = ratingByMode[mode]
-    upsert.run(RETTEND_ID, mode, rating.mu, rating.sigma, stats.games, stats.wins, lastPlayedAt, Date.now())
+    upsert.run(featuredPlayer.id, mode, rating.mu, rating.sigma, stats.games, stats.wins, lastPlayedAt, Date.now())
   }
 
   const total = Object.values(summary).reduce(
     (acc, stats) => ({ games: acc.games + (stats?.games ?? 0), wins: acc.wins + (stats?.wins ?? 0) }),
     { games: 0, wins: 0 },
   )
-  upsert.run(RETTEND_ID, 'global', 31.2, 6.0, total.games, total.wins, lastPlayedAt, Date.now())
+  upsert.run(featuredPlayer.id, 'global', 31.2, 6.0, total.games, total.wins, lastPlayedAt, Date.now())
 }
 
-function summarizeRettendRatings(
+function summarizeFeaturedRatings(
   matches: readonly SeedMatch[],
 ): Partial<Record<RatingMode, { games: number; wins: number }>> {
   const summary: Partial<Record<RatingMode, { games: number; wins: number }>> = {}
   for (const match of matches) {
     const mode = toRatingMode(match.gameMode)
-    const participant = match.participants.find(row => row.playerId === RETTEND_ID)
+    const participant = match.participants.find(row => row.playerId === featuredPlayer.id)
     if (!participant) continue
     const current = summary[mode] ?? { games: 0, wins: 0 }
     current.games += 1

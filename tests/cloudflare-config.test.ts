@@ -63,7 +63,7 @@ interface LegacyConfig {
 
 function legacyConfig(worker: 'bot' | 'activity', target: CloudflareTargetName): LegacyConfig {
   if (target === 'ppl') {
-    // Synthetic PPL expectations, not the intentionally untracked local config.
+    // Synthetic expectations, independent of the ignored local config.
     const base = legacyConfig(worker, 'standard')
     const fixture = fixturePplTarget
     const vars = {
@@ -166,6 +166,30 @@ describe('Node-loaded Cloudflare config parity', () => {
           await assert.rejects(
             loadAndParseConfig(resolve('apps', worker, 'cloudflare.config.ts'), { mode: 'production', isPreview: false }),
             /Set CIVUP_TARGET to standard or ppl explicitly/
+          )
+        }
+      }
+    `
+    const result = spawnSync('node', ['--input-type=module', '--eval', source], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+    })
+    expect(result.status, result.stderr || String(result.error ?? '')).toBe(0)
+  })
+
+  test('neither Worker can use the example target without local deployment settings', () => {
+    const source = `
+      import assert from 'node:assert/strict'
+      import { resolve } from 'node:path'
+      import { loadAndParseConfig } from '@cloudflare/config'
+      process.env.CIVUP_LOCAL_TARGETS_FILE = resolve('tests/missing-targets.local.json')
+      for (const worker of ['bot', 'activity']) {
+        for (const target of ['standard', 'ppl']) {
+          process.env.CIVUP_TARGET = target
+          await assert.rejects(
+            loadAndParseConfig(resolve('apps', worker, 'cloudflare.config.ts'), { mode: target, isPreview: false }),
+            /Local target settings were not found.*cloudflare-targets.local.example.json/
           )
         }
       }
