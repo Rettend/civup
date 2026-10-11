@@ -1,4 +1,32 @@
 {
+  "standard": {
+    "accountId": "33333333333333333333333333333333",
+    "workers": { "bot": "civup-bot", "activity": "civup-activity" },
+    "discord": {
+      "applicationId": "3333333333333333333",
+      "publicKey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "guildId": "4444444444444444444"
+    },
+    "activityOrigin": "https://activity.example.invalid",
+    "d1": {
+      "binding": "DB",
+      "name": "civup",
+      "id": "33333333-3333-4333-8333-333333333333",
+      "migrationsDirectory": "packages/db/migrations",
+      "migrationsTable": "d1_migrations",
+      "migrationsPattern": "*.sql"
+    },
+    "kv": { "binding": "KV", "id": "55555555555555555555555555555555" },
+    "r2": { "binding": "AUTOSAVE_UPLOADS", "name": "example-autosave-uploads" },
+    "bot": {
+      "compatibilityDate": "2025-02-19",
+      "compatibilityFlags": ["nodejs_compat"],
+      "keepVars": true,
+      "variables": { "ENABLE_DEBUG_LOBBY_FILL": "1" },
+      "fontGlobs": ["**/*.woff2"]
+    },
+    "activity": { "compatibilityDate": "2025-01-01", "compatibilityFlags": [] }
+  },
   "alternate": {
     "accountId": "11111111111111111111111111111111",
     "workers": { "bot": "civup-bot", "activity": "civup-activity" },
@@ -8,7 +36,7 @@
       "guildId": "1111111111111111111",
       "guildIds": "1111111111111111111"
     },
-    "activityOrigin": "https://civup-activity.fixture.workers.dev",
+    "activityOrigin": "https://alternate-activity.example.invalid",
     "d1": {
       "binding": "DB",
       "name": "civup",

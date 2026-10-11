@@ -12,7 +12,7 @@ import {
 import { respondWithPreferredLaunch } from '../../src/services/activity/launch-response.ts'
 
 const ROLE_ID = '123456789012345678'
-const GUILD_ID = '9108888884804558460'
+const GUILD_ID = '111111111111111111'
 const USER_ID = '111111111111111111'
 const originalFetch = globalThis.fetch
 

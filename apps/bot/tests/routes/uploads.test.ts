@@ -19,7 +19,7 @@ import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const SECRET = 'upload-test-secret'
-const GUILD_ID = '9108888884804558460'
+const GUILD_ID = '111111111111111111'
 const MIB = 1024 * 1024
 const PART_SIZE = 80 * MIB
 const openDatabases: Array<Awaited<ReturnType<typeof createTestDatabase>>['sqlite']> = []

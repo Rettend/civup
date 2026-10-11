@@ -186,7 +186,7 @@ function main() {
     }
     if (action?.endsWith('-create'))
       console.log(
-        'Copy the returned resource identity into the selected target in config/cloudflare-targets.ts or config/cloudflare-targets.local.json.',
+        'Copy the returned resource identity into the selected target in config/cloudflare-targets.local.json.',
       )
   } finally {
     if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true })

@@ -1,15 +1,9 @@
-import type { CloudflareTarget, CloudflareTargetOptions } from '../../../config/cloudflare-targets.ts'
-import type {
-  CloudflareClientOptions,
-  CloudflareCommand,
-  CloudflareCommandResult,
-} from '../../../scripts/cloudflare-client.ts'
+import type { CloudflareTarget } from '../../../config/cloudflare-targets.ts'
+import type { CloudflareCommand, CloudflareCommandResult } from '../../../scripts/cloudflare-client.ts'
 import { describe, expect, test } from 'bun:test'
-import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { cloudflareTargets } from '../../../config/cloudflare-targets.ts'
 import { parseCivBackfillOptions } from '../scripts/backfill-civ-leaderboard.ts'
 import { localObjectId, localResourcePaths, resolveLocalD1SqlitePath } from '../scripts/local-storage.ts'
@@ -21,31 +15,13 @@ import {
   matchesMaintenanceProvenance,
 } from '../scripts/maintenance-cloudflare.ts'
 
-// ALTERNATE helpers are intentionally local and ignored. Clean checkouts still run
-// every tracked bridge test; local ALTERNATE integration fixtures are optional.
-const statsUrl = new URL('../../../alternate/civ-stats.shared.ts', import.meta.url).href
-const historyUrl = new URL('../../../alternate/season-history.ts', import.meta.url).href
-const statsModule = existsSync(fileURLToPath(statsUrl)) ? await import(statsUrl) : null
-const historyModule = existsSync(fileURLToPath(historyUrl)) ? await import(historyUrl) : null
-const { getKvJson, getKvText, loadCompletedMatchRows, statsStorage } = statsModule ?? {}
-const auditedQuery = historyModule?.query
-
-interface AlternateStatsSourceOptions {
-  target: string
-  database: string
-  guildId: string
-  cacheDir?: string
-  targetOptions: CloudflareTargetOptions
-  clientOptions: CloudflareClientOptions
-}
-
-const alternate: CloudflareTarget = {
+const custom: CloudflareTarget = {
   ...cloudflareTargets.standard,
-  accountId: '33333333333333333333333333333333',
+  accountId: '11111111111111111111111111111111',
   d1: { ...cloudflareTargets.standard.d1, id: '33333333-3333-4333-8333-333333333333' },
   kv: { binding: 'KV', id: '44444444444444444444444444444444' },
 }
-const targetOptions = { localTargets: { alternate } }
+const targetOptions = { localTargets: { standard: cloudflareTargets.standard, alternate: custom } }
 const response = (payload: unknown): CloudflareCommandResult => ({
   exitCode: 0,
   stdout: JSON.stringify(payload),
@@ -72,7 +48,7 @@ function fixture(location: 'local' | 'remote', responses: CloudflareCommandResul
 }
 
 describe('maintenance target defaults and identity', () => {
-  test('standard and ALTERNATE preserve separate location defaults', () => {
+  test('local commands default to standard storage unless a target is explicit', () => {
     expect(parseCivBackfillOptions([])).toMatchObject({ location: 'local', defaultTarget: 'standard', execute: false })
     expect(parseCivBackfillOptions([], { target: 'alternate', location: 'remote' })).toMatchObject({
       location: 'remote',
@@ -89,12 +65,18 @@ describe('maintenance target defaults and identity', () => {
       execute: true,
       location: 'local',
     })
+    expect(
+      parseCivBackfillOptions(['--target', 'alternate', '--local'], { target: 'standard', location: 'remote' }),
+    ).toMatchObject({
+      target: 'alternate',
+      location: 'local',
+    })
   })
 
   test('rejects ambiguous old config and independent database selection', () => {
-    expect(maintenanceTargetName({ config: 'wrangler.alternate.jsonc', environmentTarget: 'alternate' })).toBe('alternate')
+    expect(maintenanceTargetName({ config: 'wrangler.jsonc', environmentTarget: 'standard' })).toBe('standard')
     expect(() => maintenanceTargetName({ config: 'custom.jsonc', target: 'alternate' })).toThrow('arbitrary')
-    expect(() => maintenanceTargetName({ config: 'wrangler.alternate.jsonc', target: 'standard' })).toThrow('conflicts')
+    expect(() => maintenanceTargetName({ config: 'wrangler.jsonc', target: 'alternate' })).toThrow('conflicts')
     expect(() =>
       createMaintenanceClient({ target: 'alternate', database: 'another-database' }, 'remote', targetOptions),
     ).toThrow('does not match')
@@ -106,9 +88,9 @@ describe('maintenance target defaults and identity', () => {
       const runtime = fixture(location, [response([d1Result]), response({ values: { key: null } })])
       expect((await runtime.d1.prepare('SELECT value FROM fixture').all()).meta).toEqual(d1Result.meta)
       expect(await runtime.kv.get('key')).toBeNull()
-      expect(runtime.commands[0]!.args).toContain(alternate.d1.id)
-      expect(runtime.commands[1]!.args).toContain(alternate.kv.id)
-      expect(runtime.commands.every(command => command.env.CLOUDFLARE_ACCOUNT_ID === alternate.accountId)).toBe(true)
+      expect(runtime.commands[0]!.args).toContain(custom.d1.id)
+      expect(runtime.commands[1]!.args).toContain(custom.kv.id)
+      expect(runtime.commands.every(command => command.env.CLOUDFLARE_ACCOUNT_ID === custom.accountId)).toBe(true)
       expect(runtime.commands.every(command => !command.args.includes('--config'))).toBe(true)
       if (location === 'local') {
         expect(runtime.client.storage.location).toBe('local')
@@ -136,7 +118,7 @@ describe('maintenance Workers-compatible bridge', () => {
     expect(await statement.first<number>('value')).toBe(7)
     expect(runtime.commands[0]!.tool).toBe('local-d1')
     expect(runtime.commands[0]!.body).toMatchObject({
-      databaseId: alternate.d1.id,
+      databaseId: custom.d1.id,
       statements: [{ sql: 'SELECT ? AS a, ? AS b, ? AS c', params: [7, null, 'text'] }],
     })
   })
@@ -188,10 +170,10 @@ describe('maintenance Workers-compatible bridge', () => {
 
 describe('resource-specific local inspection', () => {
   test('uses the pinned Miniflare idFromName paths, not a filename heuristic', () => {
-    expect(localObjectId('miniflare-D1DatabaseObject', alternate.d1.id)).toBe(
+    expect(localObjectId('miniflare-D1DatabaseObject', custom.d1.id)).toBe(
       '9ec83b7cc49efb3e8df8c5ebd15c3ddcdbf52a2274ec1a2d1f16345944834470',
     )
-    expect(localObjectId('miniflare-KVNamespaceObject', alternate.kv.id)).toBe(
+    expect(localObjectId('miniflare-KVNamespaceObject', custom.kv.id)).toBe(
       'ec3c090bd533792dc0c4ceb11a65cfb989c9295eb44656621b4967268859374b',
     )
   })
@@ -203,128 +185,17 @@ describe('resource-specific local inspection', () => {
       const paths = localResourcePaths(selection)
       await mkdir(dirname(paths.d1Sqlite), { recursive: true })
       await writeFile(join(dirname(paths.d1Sqlite), 'zzz-unrelated.sqlite'), 'fixture')
-      expect(() => resolveLocalD1SqlitePath({ selection })).toThrow(alternate.d1.id)
+      expect(() => resolveLocalD1SqlitePath({ selection })).toThrow(custom.d1.id)
       await writeFile(paths.d1Sqlite, 'selected fixture')
       expect(resolveLocalD1SqlitePath({ selection })).toBe(paths.d1Sqlite)
-      expect(paths.kvBlobs).toBe(join(root, 'v3', 'kv', alternate.kv.id, 'blobs'))
-      expect(localObjectId('miniflare-KVNamespaceObject', alternate.kv.id)).not.toBe(
+      expect(paths.kvBlobs).toBe(join(root, 'v3', 'kv', custom.kv.id, 'blobs'))
+      expect(localObjectId('miniflare-KVNamespaceObject', custom.kv.id)).not.toBe(
         localObjectId('miniflare-KVNamespaceObject', cloudflareTargets.standard.kv.id),
       )
       expect(resolveLocalD1SqlitePath({ override: 'file:explicit.sqlite', target: 'invalid' })).toBe(
         'file:explicit.sqlite',
       )
     } finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-})
-
-describe.skipIf(!statsModule)('ALTERNATE stats adapter and cache-only reads', () => {
-  test('missing or mismatched caches never make a live request; matching fixture cache is reused', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'opencode', 'maintenance-cache-'))
-    let calls = 0
-    const options: AlternateStatsSourceOptions = {
-      target: 'alternate',
-      database: 'civup',
-      guildId: 'fixture-guild',
-      cacheDir: root,
-      targetOptions,
-      clientOptions: {
-        env: {},
-        runner() {
-          calls++
-          throw new Error('No live reads allowed')
-        },
-      },
-    }
-    try {
-      await expect(loadCompletedMatchRows(options)).rejects.toThrow('Missing cached')
-      const { provenance } = statsStorage(options)
-      const cache = join(root, `${maintenanceCacheKey(provenance)}-completed-matches.json`)
-      const row = {
-        id: 'fixture-match',
-        season_id: null,
-        game_mode: '1v1',
-        is_old: false,
-        created_at: 1,
-        completed_at: 2,
-        draft_data: null,
-      }
-      await writeFile(
-        cache,
-        JSON.stringify({ source: { ...provenance, guildId: options.guildId, accountId: 'wrong' }, rows: [row] }),
-      )
-      await expect(loadCompletedMatchRows(options)).rejects.toThrow('Missing cached')
-      await writeFile(cache, JSON.stringify({ source: { ...provenance, guildId: options.guildId }, rows: [row] }))
-      expect(await loadCompletedMatchRows(options)).toEqual([row])
-      expect(calls).toBe(0)
-    } finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-
-  test('shared ALTERNATE KV reader preserves empty text and rejects malformed JSON', async () => {
-    const options: AlternateStatsSourceOptions = {
-      target: 'alternate',
-      database: 'civup',
-      guildId: 'fixture-guild',
-      targetOptions,
-      clientOptions: { env: {}, runner: () => response({ values: { key: '' } }) },
-    }
-    expect(await getKvText('key', options)).toBe('')
-    await expect(getKvJson('key', options)).rejects.toThrow('parse JSON')
-  })
-})
-
-describe.skipIf(!historyModule)('audited ALTERNATE maintenance outcomes', () => {
-  test('records identity before submission and refuses to overwrite an existing request', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'opencode', 'maintenance-journal-'))
-    const audit = join(root, 'request.json')
-    const token = process.env.CLOUDFLARE_API_TOKEN
-    process.env.CLOUDFLARE_API_TOKEN = 'fixture-only'
-    let calls = 0
-    const runtime = createMaintenanceClient({ target: 'alternate' }, 'remote', targetOptions, {
-      env: {},
-      async runner() {
-        calls++
-        const journal = JSON.parse(await readFile(audit, 'utf8'))
-        expect(journal.identity).toEqual({ accountId: alternate.accountId, databaseId: alternate.d1.id })
-        expect(journal.outcome).toContain('unknown')
-        return response([d1Result])
-      },
-    })
-    try {
-      expect((await auditedQuery(['SELECT 7'], audit, runtime))[0]!.meta.rows_read).toBe(12)
-      const saved = JSON.parse(await readFile(`${audit}.result.json`, 'utf8'))
-      expect(saved.confirmed).toBe(true)
-      expect(saved.payload.result[0].meta).toEqual(d1Result.meta)
-      await expect(auditedQuery(['SELECT 7'], audit, runtime)).rejects.toThrow()
-      expect(calls).toBe(1)
-    } finally {
-      if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN
-      else process.env.CLOUDFLARE_API_TOKEN = token
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-
-  test('preserves an uncertain outcome and failed payload rather than treating it as absence or success', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'opencode', 'maintenance-uncertain-'))
-    const audit = join(root, 'request.json')
-    const token = process.env.CLOUDFLARE_API_TOKEN
-    process.env.CLOUDFLARE_API_TOKEN = 'fixture-only'
-    const payload = [{ success: false, error: 'fixture failure', results: [], meta: { rows_read: 2, rows_written: 0 } }]
-    const runtime = fixture('remote', [response(payload)])
-    try {
-      await expect(auditedQuery(['SELECT 7'], audit, runtime)).rejects.toThrow('do not retry')
-      const request = JSON.parse(await readFile(audit, 'utf8'))
-      const saved = JSON.parse(await readFile(`${audit}.result.json`, 'utf8'))
-      expect(request.outcome).toContain('unknown')
-      expect(saved.confirmed).toBe(false)
-      expect(saved.payload).toEqual(payload)
-      expect(runtime.commands).toHaveLength(1)
-    } finally {
-      if (token === undefined) delete process.env.CLOUDFLARE_API_TOKEN
-      else process.env.CLOUDFLARE_API_TOKEN = token
       await rm(root, { recursive: true, force: true })
     }
   })

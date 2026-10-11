@@ -32,7 +32,7 @@ import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const PATH = '/api/activity/admin/season-cancellation/finish'
 const RECOVER_PATH = '/api/activity/admin/season-cancellation/recover-finish'
-const GUILD_ID = '9108888884804558460'
+const GUILD_ID = '111111111111111111'
 const MATCH_ID = 'finish-cancellation'
 const CANCELLED_AT = 1_800_000_000_000
 const GENERATION = 7

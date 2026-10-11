@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { parseEnv } from 'node:util'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import solid from '@solidjs/vite-plugin'
 import { createGenerator } from 'unocss'
@@ -15,17 +16,9 @@ import unoConfig from './uno.config'
 
 type UnoGenerator = Awaited<ReturnType<typeof createGenerator>>
 
-function loadDevVars(): Record<string, string> {
+function loadDevVars(): Record<string, string | undefined> {
   try {
-    const content = readFileSync('.dev.vars', 'utf-8')
-    const vars: Record<string, string> = {}
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const eqIdx = trimmed.indexOf('=')
-      if (eqIdx > 0) vars[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1)
-    }
-    return vars
+    return parseEnv(readFileSync('.dev.vars', 'utf-8'))
   } catch {
     return {}
   }
@@ -146,9 +139,12 @@ export default defineConfig(({ mode }) => {
   const target = resolveCloudflareTarget(process.env.CIVUP_TARGET, {
     localTargetsFile: process.env.CIVUP_LOCAL_TARGETS_FILE,
   })
+  const devVars = mode === 'development' ? loadDevVars() : {}
+  const devOrigin =
+    mode === 'development' ? (process.env.ACTIVITY_PUBLIC_ORIGIN ?? devVars.ACTIVITY_PUBLIC_ORIGIN) : undefined
   const discordClientId =
     mode === 'development'
-      ? (process.env.DISCORD_CLIENT_ID ?? loadDevVars().DISCORD_CLIENT_ID ?? '').trim()
+      ? (process.env.DISCORD_CLIENT_ID ?? devVars.DISCORD_CLIENT_ID ?? '').trim()
       : target.discord.applicationId
   if (!discordClientId) throw new Error('DISCORD_CLIENT_ID is required to build the Activity')
 
@@ -164,7 +160,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
-      allowedHosts: ['activity-dev.example.com'],
+      allowedHosts: devOrigin ? [new URL(devOrigin).hostname] : [],
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
         'Pragma': 'no-cache',

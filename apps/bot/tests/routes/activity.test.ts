@@ -1675,7 +1675,7 @@ describe('browser context routes', () => {
     registerActivityRoutes(app as any)
     const lobby = await createLobby(kv, {
       mode: '2v2',
-      guildId: '9108888884804558460',
+      guildId: '111111111111111111',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -1709,7 +1709,7 @@ describe('browser context routes', () => {
     registerActivityRoutes(app as any)
     const allowed = await createLobby(kv, {
       mode: '1v1',
-      guildId: '9108888884804558460',
+      guildId: '111111111111111111',
       hostId: 'allowed-host',
       channelId: 'channel-shared',
       messageId: 'allowed-message',
@@ -1745,7 +1745,7 @@ describe('browser context routes', () => {
     registerActivityRoutes(app as any)
     const lobby = await createLobby(kv, {
       mode: '1v1',
-      guildId: '9108888884804558460',
+      guildId: '111111111111111111',
       hostId: 'host-1',
       channelId: 'channel-1',
       messageId: 'message-1',
@@ -1806,7 +1806,7 @@ function buildEnv(kv: KVNamespace) {
       DISCORD_TOKEN: 'token',
       CIVUP_SECRET: 'secret',
       ACTIVITY_PUBLIC_ORIGIN: 'https://activity.example.com',
-      ALLOWED_DISCORD_GUILD_ID: '9108888884804558460',
+      ALLOWED_DISCORD_GUILD_ID: '111111111111111111',
     }),
     KV: browserKv,
   } as any

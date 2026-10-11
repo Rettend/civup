@@ -382,7 +382,7 @@ Example with 5 configured roles:
 | `tier4` | next 50%     |
 | `tier5` | bottom 10%   |
 
-Before RP activation, overall qualification requires **8 effective games**. With RP active, players remain `Unranked` below **4 effective games**, can qualify for Pleb/Squire at **4**, and unlock Gladiator eligibility at **6**. Legion stays at **16**, and Elite at **18** plus its quality-win requirements. RP bands and the existing rank protections still apply; enough games alone do not guarantee promotion. Imported games count half. Mode ranks qualify separately.
+Before RP activation, overall qualification requires **8 effective games**. With RP active, players remain `Unranked` below **4 effective games**, can qualify for `tier5` or `tier4` at **4**, and unlock `tier3` eligibility at **6**. `tier2` requires **16**, and `tier1` requires **18** plus its quality-win requirements. RP bands and the existing rank protections still apply; enough games alone do not guarantee promotion. Imported games count half. Mode ranks qualify separately.
 
 ### How ratings work
 

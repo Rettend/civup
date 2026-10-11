@@ -4,7 +4,7 @@ import activityWorker from '../src/server'
 import { BROWSER_SESSION_COOKIE, OAUTH_TRANSACTION_COOKIE, validateBrowserReturnPath } from '../src/server/browser-auth'
 
 const ORIGIN = 'https://civup-activity.example.com'
-const GUILD_ID = '9108888884804558460'
+const GUILD_ID = '111111111111111111'
 const originalFetch = globalThis.fetch
 type ActivityEnv = Parameters<typeof activityWorker.fetch>[1]
 
@@ -101,7 +101,7 @@ describe('browser Discord OAuth', () => {
         return Response.json([{ id: GUILD_ID, permissions: '32' }])
       }
       return Response.json({
-        nick: 'ALTERNATE Player',
+        nick: 'Server Player',
         avatar: 'guild-avatar',
         user: { id: '111111111111111111', username: 'player', global_name: 'Global Player', avatar: 'user-avatar' },
       })
@@ -123,7 +123,7 @@ describe('browser Discord OAuth', () => {
     await expect(verifyActivitySession('browser-auth-secret', browserSession)).resolves.toEqual(
       expect.objectContaining({
         sub: '111111111111111111',
-        name: 'ALTERNATE Player',
+        name: 'Server Player',
         avatarUrl: `https://cdn.discordapp.com/guilds/${GUILD_ID}/users/111111111111111111/avatars/guild-avatar.png?size=128`,
         guildId: GUILD_ID,
         guildPermissions: '32',

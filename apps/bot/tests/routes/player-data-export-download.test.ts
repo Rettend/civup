@@ -13,7 +13,7 @@ import { createSqliteD1Database } from '../helpers/d1.ts'
 import { createTestDatabase, createTestKv } from '../helpers/test-env.ts'
 
 const SECRET = 'player-data-export-test-secret'
-const GUILD_ID = '9108888884804558460'
+const GUILD_ID = '111111111111111111'
 const CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const openDatabases: SqliteDatabase[] = []
 

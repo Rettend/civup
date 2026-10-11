@@ -1,4 +1,32 @@
 {
+  "standard": {
+    "accountId": "YOUR_ACCOUNT_ID",
+    "workers": { "bot": "civup-bot", "activity": "civup-activity" },
+    "discord": {
+      "applicationId": "YOUR_DISCORD_APPLICATION_ID",
+      "publicKey": "YOUR_DISCORD_PUBLIC_KEY",
+      "guildId": "YOUR_DISCORD_GUILD_ID"
+    },
+    "activityOrigin": "https://YOUR_ACTIVITY_HOST",
+    "d1": {
+      "binding": "DB",
+      "name": "civup",
+      "id": "YOUR_D1_DATABASE_ID",
+      "migrationsDirectory": "packages/db/migrations",
+      "migrationsTable": "d1_migrations",
+      "migrationsPattern": "*.sql"
+    },
+    "kv": { "binding": "KV", "id": "YOUR_KV_NAMESPACE_ID" },
+    "r2": { "binding": "AUTOSAVE_UPLOADS", "name": "YOUR_R2_BUCKET_NAME" },
+    "bot": {
+      "compatibilityDate": "2025-02-19",
+      "compatibilityFlags": ["nodejs_compat"],
+      "keepVars": true,
+      "variables": { "ENABLE_DEBUG_LOBBY_FILL": "1" },
+      "fontGlobs": ["**/*.woff2"]
+    },
+    "activity": { "compatibilityDate": "2025-01-01", "compatibilityFlags": [] }
+  },
   "alternate": {
     "accountId": "YOUR_ALTERNATE_ACCOUNT_ID",
     "workers": { "bot": "civup-bot", "activity": "civup-activity" },
