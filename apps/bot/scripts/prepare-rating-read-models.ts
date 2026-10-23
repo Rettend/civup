@@ -2,6 +2,7 @@ import type { CloudflareD1Parameter } from '../../../scripts/cloudflare-client.t
 import type { RatingCheckpoint } from '../src/services/season/checkpoints.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createDb } from '@civup/db'
+import { resolveCloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import { CloudflareClientError } from '../../../scripts/cloudflare-client.ts'
 import { advanceCivReleaseProjection } from '../src/services/leaderboard/civ-release.ts'
 import { normalizeCivLeaderboardDisplayConfig } from '../src/services/leaderboard/civ-snapshot.ts'
@@ -30,10 +31,12 @@ for (let index = 2; index < Bun.argv.length; index++) {
 const output = options.get('--output')
 if (!output)
   throw new Error(
-    'Provide --target standard|alternate --output fresh-audit-directory. Preparation requires --execute and paused reporting. Do not rerun completed preparation.',
+    'Provide --target <name> --output fresh-audit-directory. Preparation requires --execute and paused reporting. Do not rerun completed preparation.',
   )
+const targetName = options.get('--target')
+if (targetName === undefined) throw new Error('Choose --target <name> explicitly.')
 const { client, provenance } = createMaintenanceClient(
-  { target: options.get('--target'), config: options.get('--config') },
+  { target: resolveCloudflareTargetName(targetName), config: options.get('--config') },
   'remote',
 )
 const { accountId, databaseId } = provenance

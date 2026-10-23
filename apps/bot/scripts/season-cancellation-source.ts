@@ -1,3 +1,4 @@
+import type { CloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import type { CloudflareD1Statement } from '../../../scripts/cloudflare-client.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -10,7 +11,7 @@ export async function writeCancellationAudit(path: string, value: unknown) {
 }
 
 /** Reads use D1's raw response so duplicate SQL column names keep their positions. */
-export function createCancellationSource(target: 'standard' | 'alternate', directory: string) {
+export function createCancellationSource(target: CloudflareTargetName, directory: string) {
   const runtime = createMaintenanceClient({ target }, 'remote')
   const token = process.env.CLOUDFLARE_API_TOKEN
   if (!token) throw new Error('Load the selected account’s Cloudflare API token.')

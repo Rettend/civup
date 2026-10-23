@@ -18,6 +18,7 @@ describe('tournament emoji sources', () => {
     { target: 'standard', location: 'remote' },
     { target: 'alternate', location: 'local' },
     { target: 'alternate', location: 'remote' },
+    { target: 'team-archive', location: 'remote' },
   ])('database sources use the explicit target and storage: %j', ({ target, location }) => {
     expect(
       parseTournamentEmojiOptions(['--d1-tournament-id=fixture-tournament', '--target', target, `--${location}`]),
@@ -56,8 +57,8 @@ describe('tournament emoji sources', () => {
       ['--emoji', ' '],
       ['--target', 'standard', '--target', 'standard'],
       ['--d1-tournament-id', 'first', '--d1-tournament-id', 'second'],
-      ['--d1-tournament-id', 'fixture-tournament', '--target', 'custom', '--remote'],
-      ['--d1-tournament-id', 'fixture-tournament', '--target', 'unknown', '--remote'],
+      ['--d1-tournament-id', 'fixture-tournament', '--target', '../outside', '--remote'],
+      ['--d1-tournament-id', 'fixture-tournament', '--target', 'invalid name', '--remote'],
     ].map(args => ({ args })),
   )('rejects unsupported, missing, repeated, or invalid options: %j', ({ args }) => {
     expect(() => parseTournamentEmojiOptions(args)).toThrow()

@@ -41,6 +41,68 @@ function mockTokenExchange() {
 }
 
 describe('Discord session renewal', () => {
+  test('rejects a hung Discord ready wait and does not continue after it resolves late', async () => {
+    vi.useFakeTimers()
+    let finish!: () => void
+    ready.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finish = resolve
+        }),
+    )
+    const { setupDiscordSdk } = await import('../src/client/discord')
+    const pending = setupDiscordSdk()
+    const rejected = expect(pending).rejects.toThrow('Startup timeout: Discord ready')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await rejected
+    finish()
+    await Promise.resolve()
+    expect(authorize).not.toHaveBeenCalled()
+    expect(authenticate).not.toHaveBeenCalled()
+  })
+
+  test('falls back to fresh authorization when cached authentication hangs', async () => {
+    vi.useFakeTimers()
+    const session = await import('../src/client/lib/activity-session')
+    session.cacheActivitySessionToken('synthetic-cached-session')
+    window.sessionStorage.setItem(
+      'civup.discord.access-token',
+      JSON.stringify({ accessToken: 'synthetic-cached-access', expiresAt: Date.now() + 604800000 }),
+    )
+    authenticate.mockImplementationOnce(() => new Promise(() => {}))
+    const fetchMock = mockTokenExchange()
+    const { setupDiscordSdk } = await import('../src/client/discord')
+    const pending = setupDiscordSdk()
+    await vi.advanceTimersByTimeAsync(20_000)
+    await expect(pending).resolves.toMatchObject({ user: { id: 'player-1' } })
+    expect(authorize).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(session.getActivitySessionToken()).toBe('fresh-activity-token')
+  })
+
+  test('aborts a hung token exchange without caching tokens from a late response', async () => {
+    vi.useFakeTimers()
+    let finish!: (value: Response) => void
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>(resolve => {
+          finish = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const { setupDiscordSdk } = await import('../src/client/discord')
+    const pending = setupDiscordSdk()
+    const rejected = expect(pending).rejects.toThrow('Startup timeout: Token exchange')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await rejected
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    finish(Response.json({ access_token: 'synthetic-late-access', activity_session_token: 'synthetic-late-session' }))
+    await Promise.resolve()
+    const session = await import('../src/client/lib/activity-session')
+    expect(session.getActivitySessionToken()).toBeNull()
+    expect(authenticate).not.toHaveBeenCalled()
+  })
+
   test('forces a new exchange when Discord accepts a cached but server-rejected Activity session', async () => {
     const session = await import('../src/client/lib/activity-session')
     session.cacheActivitySessionToken('rejected-activity-token')

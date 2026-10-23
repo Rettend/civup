@@ -10,27 +10,22 @@ import type {
   CloudflareD1Statement,
 } from '../../../scripts/cloudflare-client.ts'
 import { basename, resolve } from 'node:path'
-import { resolveCloudflareStorage } from '../../../config/cloudflare-targets.ts'
+import { resolveCloudflareStorage, resolveCloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import { createCloudflareClient } from '../../../scripts/cloudflare-client.ts'
 import { repositoryRoot } from './local-storage.ts'
 
 export function maintenanceTargetName(
   options: { target?: string; config?: string; defaultTarget?: CloudflareTargetName; environmentTarget?: string } = {},
 ): CloudflareTargetName {
-  // Ignored local callers still use the former config filenames. Keep these
-  // aliases until those callers explicitly select their target instead.
-  // Never parse it or accept arbitrary files as a second identity source.
+  // Keep the standard config alias without reading files as another identity source.
   const config = options.config
   const legacy =
     config === undefined
       ? undefined
-      : config === 'alternate' || basename(config) === 'wrangler.alternate.jsonc'
-        ? 'alternate'
-        : config === 'standard' || basename(config) === 'wrangler.jsonc'
-          ? 'standard'
-          : undefined
-  if (config !== undefined && !legacy)
-    throw new Error('Use --target standard|alternate instead of an arbitrary --config file.')
+      : config === 'standard' || basename(config) === 'wrangler.jsonc'
+        ? 'standard'
+        : undefined
+  if (config !== undefined && !legacy) throw new Error('Use --target <name> instead of an arbitrary --config file.')
   const selected =
     options.target ??
     options.environmentTarget ??
@@ -38,10 +33,10 @@ export function maintenanceTargetName(
     legacy ??
     options.defaultTarget ??
     'standard'
-  if (selected !== 'standard' && selected !== 'alternate') throw new Error('Choose --target standard or alternate.')
-  if (legacy && config !== 'alternate' && config !== 'standard' && legacy !== selected)
+  const target = resolveCloudflareTargetName(selected)
+  if (legacy && legacy !== target)
     throw new Error('The old --config selection conflicts with the selected target. Use --target only.')
-  return selected
+  return target
 }
 
 export function createMaintenanceClient(

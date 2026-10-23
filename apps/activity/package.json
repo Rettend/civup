@@ -9,7 +9,6 @@
     "dev:live": "bun ../../scripts/cloudflare-worker.ts live activity --target standard",
     "build": "bun ../../scripts/cloudflare-worker.ts build activity --target standard --mode development",
     "build:prod": "bun ../../scripts/cloudflare-worker.ts build activity --target standard",
-    "build:alternate": "bun ../../scripts/cloudflare-worker.ts build activity --target alternate",
     "preview": "bun ../../scripts/cloudflare-worker.ts preview activity --target standard",
     "test": "vp test --config vitest.config.ts --run",
     "test:coverage": "vp test --config vitest.config.ts --run --coverage",
@@ -20,7 +19,6 @@
     "portraits:normalize-icons": "bun ./scripts/normalize-leader-grid-icons.ts",
     "deploy": "bun ../../scripts/cloudflare-worker.ts deploy activity --target standard",
     "deploy:prod": "bun run deploy",
-    "deploy:alternate": "bun ../../scripts/cloudflare-worker.ts deploy activity --target alternate",
     "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts activity .prod.secrets --target standard"
   },
   "dependencies": {
@@ -28,7 +26,7 @@
     "@civup/rating": "workspace:*",
     "@civup/session": "workspace:*",
     "@civup/utils": "workspace:*",
-    "@discord/embedded-app-sdk": "^2.4.0",
+    "@discord/embedded-app-sdk": "2.4.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@solid-primitives/scheduled": "2.0.0-next.2",
     "@solid-primitives/storage": "5.0.0-next.4",

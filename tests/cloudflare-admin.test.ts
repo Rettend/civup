@@ -3,14 +3,14 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { resolveCloudflareTarget } from '../config/cloudflare-targets'
 import { checkMigrationResult, cloudflareAdminCommand } from '../scripts/cloudflare-admin'
+import { fixtureAlternateTarget, fixtureLocalTargetsFile } from './cloudflare-fixtures'
 
 const target = {
-  ...resolveCloudflareTarget('standard'),
+  ...fixtureAlternateTarget,
   accountId: 'fixture-account',
   discord: { applicationId: 'fixture-application', publicKey: 'fixture-key', guildId: 'fixture-guild' },
-  d1: { ...resolveCloudflareTarget('standard').d1, id: 'fixture-database' },
+  d1: { ...fixtureAlternateTarget.d1, id: 'fixture-database' },
 }
 
 describe('Cloudflare admin commands', () => {
@@ -45,6 +45,42 @@ describe('Cloudflare admin commands', () => {
     expect(() => checkMigrationResult('[{"name":"0001.sql","status":"✅"}]')).not.toThrow()
     expect(() => checkMigrationResult('[{"name":"0001.sql","status":"❌"}]')).toThrow('did not complete')
     expect(() => checkMigrationResult('{}')).toThrow('did not complete')
+  })
+
+  test('registration uses arbitrary target secret files or an explicit file', () => {
+    expect(cloudflareAdminCommand('register', 'alternate', target).cmd).toContain('--env-file=.alternate.secrets')
+    expect(cloudflareAdminCommand('register', 'weekend-2', target).cmd).toContain('--env-file=.weekend-2.secrets')
+    expect(cloudflareAdminCommand('register', 'alternate', target, { envFile: 'custom.env' }).cmd).toContain(
+      '--env-file=custom.env',
+    )
+    expect(() => cloudflareAdminCommand('register', '../outside', target)).toThrow('Use a target name')
+  })
+
+  test('registration CLI preview accepts an explicit secret path without reading it', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--no-env-file',
+        'scripts/cloudflare-admin.ts',
+        'register',
+        '--target',
+        'alternate',
+        '--env-file',
+        'missing-fixture.secrets',
+        '--print-commands',
+      ],
+      {
+        cwd: resolve('.'),
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          SystemRoot: process.env.SystemRoot,
+          CIVUP_LOCAL_TARGETS_FILE: fixtureLocalTargetsFile,
+        },
+      },
+    )
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout).cmd).toContain(`--env-file=${resolve('missing-fixture.secrets')}`)
   })
 
   test('fresh resource setup can be previewed before database and namespace IDs exist', () => {

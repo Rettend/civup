@@ -1,5 +1,6 @@
 import { render } from '@solidjs/web'
 import { relayDevLog, shouldRelayDevLog } from './lib/dev-log'
+import { installStartupDiagnostics } from './lib/startup-diagnostics'
 import '@fontsource-variable/inter/index.css'
 import 'virtual:uno.css'
 
@@ -32,6 +33,7 @@ function setupGlobalDevErrorRelay() {
 }
 
 async function bootstrap() {
+  installStartupDiagnostics()
   setupGlobalDevErrorRelay()
 
   const { default: App } = await import('./App')

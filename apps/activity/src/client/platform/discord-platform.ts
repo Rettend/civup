@@ -1,6 +1,7 @@
 import type { ActivityIdentity } from '@civup/utils'
 import { buildDiscordAvatarUrl } from '@civup/utils'
 import { configureActivitySessionRenewal } from '../lib/activity-request'
+import { installStartupDiagnostics, startupStage } from '../lib/startup-diagnostics'
 import { configureClientPlatform } from './runtime'
 
 export async function bootstrapDiscordPlatform(): Promise<{
@@ -8,7 +9,11 @@ export async function bootstrapDiscordPlatform(): Promise<{
   channelId: string | null
 }> {
   configureClientPlatform('discord-embedded', 'token')
-  const { discordSdk, setupDiscordSdk, refreshDiscordSession } = await import('../discord')
+  installStartupDiagnostics()
+  const { discordSdk, setupDiscordSdk, refreshDiscordSession } = await startupStage(
+    'Discord SDK import',
+    () => import('../discord'),
+  )
   configureActivitySessionRenewal(refreshDiscordSession)
   const auth = await setupDiscordSdk()
   return {

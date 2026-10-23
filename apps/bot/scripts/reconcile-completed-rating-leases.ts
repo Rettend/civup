@@ -2,6 +2,7 @@
 import type { CloudflareD1Statement } from '../../../scripts/cloudflare-client.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { resolveCloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import { createMaintenanceClient } from './maintenance-cloudflare.ts'
 import { balancedSqlAnd } from './season-cancellation-predicates.ts'
 import { writeCancellationAudit } from './season-cancellation-source.ts'
@@ -126,13 +127,14 @@ export async function main(args = Bun.argv.slice(2)) {
       (key !== '--lease' && values.has(key))
     )
       throw new Error(
-        'Use preview --target standard|alternate --lease ID [--lease ID ...] --out DIRECTORY, or apply --plan FILE --execute.',
+        'Use preview --target <name> --lease ID [--lease ID ...] --out DIRECTORY, or apply --plan FILE --execute.',
       )
     values.set(key, [...(values.get(key) ?? []), rest[++i]!])
   }
   if (command === 'preview') {
-    const target = values.get('--target')?.[0]
-    if (target !== 'standard' && target !== 'alternate') throw new Error('Choose the target explicitly.')
+    const targetName = values.get('--target')?.[0]
+    if (targetName === undefined) throw new Error('Choose --target <name> explicitly.')
+    const target = resolveCloudflareTargetName(targetName)
     const leaseIds = values.get('--lease') ?? []
     const out = values.get('--out')?.[0]
     if (!out || !leaseIds.length) throw new Error('Provide the exact lease IDs and a fresh output directory.')
@@ -191,7 +193,7 @@ export async function main(args = Bun.argv.slice(2)) {
   const { digest, ...plan } = await Bun.file(path).json()
   if (createHash('sha256').update(JSON.stringify(plan)).digest('hex') !== digest || plan.version !== 1)
     throw new Error('The reviewed lease plan changed.')
-  const runtime = createMaintenanceClient({ target: plan.target }, 'remote')
+  const runtime = createMaintenanceClient({ target: resolveCloudflareTargetName(plan.target) }, 'remote')
   if (runtime.selection.accountId !== plan.accountId || runtime.selection.d1.id !== plan.databaseId)
     throw new Error('The selected resources changed.')
   validateCompletedLeaseSource(plan.data, plan.leaseIds, Date.now())

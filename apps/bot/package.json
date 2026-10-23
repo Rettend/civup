@@ -6,10 +6,8 @@
   "scripts": {
     "dev": "bun ../../scripts/cloudflare-worker.ts dev bot --target standard",
     "build": "bun ../../scripts/cloudflare-worker.ts build bot --target standard",
-    "build:alternate": "bun ../../scripts/cloudflare-worker.ts build bot --target alternate",
     "deploy": "bun ../../scripts/cloudflare-worker.ts deploy bot --target standard",
     "deploy:prod": "bun run deploy",
-    "deploy:alternate": "bun ../../scripts/cloudflare-worker.ts deploy bot --target alternate",
     "test": "bun test",
     "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=../../coverage/bot",
     "test:e2e": "bun test ./tests/system/**/*.test.ts",
@@ -19,7 +17,6 @@
     "register": "bun run register:dev",
     "register:dev": "CIVUP_TARGET= bun --env-file=.dev.vars src/register.ts",
     "register:prod": "bun ../../scripts/cloudflare-admin.ts register --target standard",
-    "register:alternate": "bun ../../scripts/cloudflare-admin.ts register --target alternate",
     "secret:bulk:prod": "bun ../../scripts/upload-worker-secrets.ts bot .prod.secrets --target standard",
     "kv:local": "bun scripts/kv-local.ts",
     "check": "tsc --noEmit",

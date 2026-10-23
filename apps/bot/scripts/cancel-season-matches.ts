@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
+import type { CloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import type { CloudflareD1Statement } from '../../../scripts/cloudflare-client.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { resolveCloudflareTarget } from '../../../config/cloudflare-targets.ts'
+import { resolveCloudflareTarget, resolveCloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import {
   CIVUP_ACTIVITY_GUILD_ID_HEADER,
   CIVUP_ACTIVITY_GUILD_PERMISSIONS_HEADER,
@@ -24,7 +25,7 @@ import { replayPostconditions } from './season-cancellation-verification.ts'
 interface CancellationPlan {
   version: 2
   operationId: string
-  target: 'standard' | 'alternate'
+  target: CloudflareTargetName
   accountId: string
   databaseId: string
   guildId: string
@@ -59,7 +60,7 @@ function options(args: string[]) {
       args[index + 1]!.startsWith('--')
     ) {
       throw new Error(
-        'Use preview --target standard|alternate --season ID --match ID [--match ID ...] --out DIRECTORY; apply|finish|verify --plan FILE; recover-finish --plan FILE --match ID --lease ID; pause|resume --target standard|alternate --out DIRECTORY. Changes require --execute.',
+        'Use preview --target <name> --season ID --match ID [--match ID ...] --out DIRECTORY; apply|finish|verify --plan FILE; recover-finish --plan FILE --match ID --lease ID; pause|resume --target <name> --out DIRECTORY. Changes require --execute.',
       )
     }
     if (key !== '--match' && values.has(key)) throw new Error(`Repeated option: ${key}`)
@@ -68,9 +69,9 @@ function options(args: string[]) {
   return { values, execute }
 }
 
-function selectedTarget(value: string | undefined): 'standard' | 'alternate' {
-  if (value !== 'standard' && value !== 'alternate') throw new Error('Choose --target standard or alternate explicitly.')
-  return value
+function selectedTarget(value: string | undefined): CloudflareTargetName {
+  if (value === undefined) throw new Error('Choose --target <name> explicitly.')
+  return resolveCloudflareTargetName(value)
 }
 
 async function readPlan(path: string): Promise<CancellationPlan> {
@@ -96,7 +97,7 @@ async function readPlan(path: string): Promise<CancellationPlan> {
   return plan
 }
 
-function adminClient(targetName: 'standard' | 'alternate') {
+function adminClient(targetName: CloudflareTargetName) {
   const target = resolveCloudflareTarget(targetName)
   const origin = new URL(target.activityOrigin)
   if (!origin.hostname.startsWith(`${target.workers.activity}.`) || !origin.hostname.endsWith('.workers.dev')) {
@@ -132,7 +133,7 @@ function adminClient(targetName: 'standard' | 'alternate') {
   }
 }
 
-async function maintenance(target: 'standard' | 'alternate') {
+async function maintenance(target: CloudflareTargetName) {
   const runtime = createMaintenanceClient({ target }, 'remote')
   const result = await runtime.client.d1Query<{ state: string; generation: number; writers: number }>(
     'SELECT state,generation,(SELECT count(*) FROM rating_mutation_leases) AS writers FROM rating_maintenance WHERE id=1',

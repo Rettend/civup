@@ -33,6 +33,7 @@ export function cloudflareCreateCommand(
   name: CloudflareTargetName,
   target: CloudflareProvisioningTarget,
 ) {
+  resolveCloudflareTargetName(name)
   const cli = resolveCloudflareExecutable('cf')
   const env: Record<string, string> = { CIVUP_TARGET: name, CLOUDFLARE_ACCOUNT_ID: target.accountId }
   let args: string[]
@@ -53,8 +54,10 @@ export function cloudflareAdminCommand(
     location?: CloudflareStorageLocation
     persistenceDirectory?: string
     localTargetsFile?: string
+    envFile?: string
   } = {},
 ) {
+  resolveCloudflareTargetName(name)
   if (isCreateAction(action)) return cloudflareCreateCommand(action, name, target)
   const env: Record<string, string> = {
     CIVUP_TARGET: name,
@@ -64,7 +67,11 @@ export function cloudflareAdminCommand(
   const botRoot = resolve(repositoryRoot, 'apps/bot')
   if (action === 'register') {
     return {
-      cmd: ['bun', `--env-file=${name === 'alternate' ? '.alternate.secrets' : '.prod.secrets'}`, 'src/register.ts'],
+      cmd: [
+        'bun',
+        `--env-file=${options.envFile ?? (name === 'standard' ? '.prod.secrets' : `.${name}.secrets`)}`,
+        'src/register.ts',
+      ],
       cwd: botRoot,
       env: {
         ...env,
@@ -121,12 +128,18 @@ function main() {
   let target = process.env.CIVUP_TARGET
   let location: CloudflareStorageLocation | undefined
   let persistenceDirectory: string | undefined
+  let envFile: string | undefined
   let printCommands = false
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--target':
         target = args[++i]
-        if (!target || target.startsWith('--')) throw new Error('--target requires standard or alternate.')
+        if (!target || target.startsWith('--')) throw new Error('--target requires a local target name.')
+        break
+      case '--env-file':
+        envFile = args[++i]
+        if (!envFile || envFile.startsWith('--')) throw new Error('--env-file requires a secret file path.')
+        envFile = resolve(envFile)
         break
       case '--persist-to':
         persistenceDirectory = args[++i]
@@ -148,6 +161,7 @@ function main() {
     }
   }
   if (persistenceDirectory && location !== 'local') throw new Error('--persist-to requires --local.')
+  if (envFile && action !== 'register') throw new Error('--env-file is only supported with register.')
   const localTargetsFile = process.env.CIVUP_LOCAL_TARGETS_FILE
     ? resolve(process.env.CIVUP_LOCAL_TARGETS_FILE)
     : undefined
@@ -158,7 +172,7 @@ function main() {
         action as CloudflareAdminAction,
         name,
         resolveCloudflareTarget(name, { localTargetsFile }),
-        { location, persistenceDirectory, localTargetsFile },
+        { location, persistenceDirectory, localTargetsFile, envFile },
       )
   if (printCommands) {
     console.log(JSON.stringify(plan, null, 2))

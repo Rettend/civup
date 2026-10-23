@@ -160,12 +160,12 @@ describe('Node-loaded Cloudflare config parity', () => {
       import { resolve } from 'node:path'
       import { loadAndParseConfig } from '@cloudflare/config'
       for (const worker of ['bot', 'activity']) {
-        for (const target of [undefined, '', 'production']) {
+        for (const target of [undefined, '']) {
           if (target === undefined) delete process.env.CIVUP_TARGET
           else process.env.CIVUP_TARGET = target
           await assert.rejects(
             loadAndParseConfig(resolve('apps', worker, 'cloudflare.config.ts'), { mode: 'production', isPreview: false }),
-            /Set CIVUP_TARGET to standard or alternate explicitly/
+            /Set CIVUP_TARGET explicitly to a local target name/
           )
         }
       }

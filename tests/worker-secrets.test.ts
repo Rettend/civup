@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { resolveCloudflareTarget } from '../config/cloudflare-targets'
 import { parseEnvFile, secretUploadCommand, selectWorkerSecrets } from '../scripts/upload-worker-secrets'
+import { fixtureTargetOptions } from './cloudflare-fixtures'
 
 describe('Worker secret uploads', () => {
   test('uploads only the chosen Worker secrets from a mixed environment file', () => {
@@ -28,7 +29,7 @@ describe('Worker secret uploads', () => {
   })
 
   test('selects the supplied Worker name without putting secrets in arguments', () => {
-    const target = resolveCloudflareTarget('standard')
+    const target = resolveCloudflareTarget('standard', fixtureTargetOptions)
     const command = secretUploadCommand('activity', target)
     expect(command.slice(2)).toEqual(['secret', 'bulk', '--name', target.workers.activity])
     expect(command).not.toContain('--config')

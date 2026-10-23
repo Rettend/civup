@@ -1,9 +1,11 @@
 # Repository privacy
 
 - Never publish deployment-specific data, maintenance records, player exports, or private plans. This applies to every branch, commit message, pull request, and attachment.
-- Internal documents belong in ignored `docs/`; deployment-specific scripts and data belong in ignored `alternate/`. Do not add ignore exceptions or force-add either directory.
+- Internal documents belong in ignored `docs/`; deployment-specific scripts, checks, and data belong in ignored `.local/`. Do not add ignore exceptions or force-add either directory.
 - Keep only reviewed public documentation tracked. Root Markdown is limited to `README.md`, `GUIDE.md`, `MANUAL.md`, and this file.
-- Use synthetic identities in fixtures. Keep actual account, server, player, and resource settings in ignored local configuration.
+- Use synthetic identities in fixtures. Keep actual deployment names, account, server, player, and resource settings in ignored local configuration. This includes test names, filenames, examples, package scripts, and checks intended to prevent disclosure.
+- Public tooling must accept deployment names and settings from local configuration rather than naming particular deployments. Never add private identifiers to a tracked denylist or regression test.
+- Run the configured local publication checks before committing or pushing, and review the selected content and outgoing history.
 
 # Player-facing wording
 

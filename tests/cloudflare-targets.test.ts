@@ -34,15 +34,68 @@ function withLocalTargetsFile(contents: string, run: (file: string) => void) {
 }
 
 describe('Cloudflare target selection', () => {
-  test.each([undefined, '', 'production', 'dev', 'ALTERNATE', ' alternate', 'alternate ', '__proto__'])(
-    'rejects an implicit or invalid target: %s',
-    value => {
-      expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET to standard or alternate explicitly.')
-      expect(() => resolveCloudflareProvisioningTarget(value)).toThrow(
-        'Set CIVUP_TARGET to standard or alternate explicitly.',
+  test.each([undefined, ''])('rejects an implicit or invalid target: %s', value => {
+    expect(() => resolveCloudflareTargetName(value)).toThrow('Set CIVUP_TARGET explicitly to a local target name.')
+    expect(() => resolveCloudflareProvisioningTarget(value)).toThrow(
+      'Set CIVUP_TARGET explicitly to a local target name.',
+    )
+  })
+
+  test.each([
+    'ALTERNATE',
+    ' alternate',
+    'alternate ',
+    '../outside',
+    'one/two',
+    'one\\two',
+    '.',
+    '..',
+    '--remote',
+    'one--two',
+    'one-',
+    '1name',
+    '__proto__',
+    'constructor',
+    'prototype',
+    'toString',
+    'hasOwnProperty',
+  ])('rejects an unsafe target name: %s', value => {
+    expect(() => resolveCloudflareTargetName(value)).toThrow('Use a target name')
+    expect(() => resolveCloudflareTarget(value, fixtureTargetOptions)).toThrow('Use a target name')
+    expect(() => resolveCloudflareProvisioningTarget(value, fixtureTargetOptions)).toThrow('Use a target name')
+    expect(() => parseCloudflareLocalTargets({ [value]: fixtureAlternateTarget })).toThrow('Use a target name')
+  })
+
+  test.each(['weekend-2', 'production', 'dev', 'a'])('loads an arbitrary locally configured target: %s', name => {
+    expect(resolveCloudflareTargetName(name)).toBe(name)
+    const settings = { [name]: fixtureAlternateTarget }
+    expect(parseCloudflareLocalTargets(settings)).toEqual(settings)
+    withLocalTargetsFile(JSON.stringify(settings), localTargetsFile => {
+      expect(resolveCloudflareTarget(name, { localTargetsFile })).toEqual(fixtureAlternateTarget)
+      expect(resolveCloudflareProvisioningTarget(name, { localTargetsFile }).accountId).toBe(
+        fixtureAlternateTarget.accountId,
       )
-    },
-  )
+    })
+    expect(() => resolveCloudflareTarget(name, fixtureTargetOptions)).toThrow(`${name} target settings are missing`)
+  })
+
+  test('unknown targets cannot inherit settings from the config prototype', () => {
+    const localTargets = Object.create({ inherited: fixtureAlternateTarget })
+    expect(() => resolveCloudflareTarget('inherited', { localTargets })).toThrow(
+      'inherited target settings are missing',
+    )
+    expect(() => resolveCloudflareProvisioningTarget('inherited', { localTargets })).toThrow(
+      'inherited target settings are missing',
+    )
+    expect(parseCloudflareLocalTargets(localTargets)).toEqual({})
+  })
+
+  test('parsing validates every record instead of silently dropping unknown names', () => {
+    expect(() => parseCloudflareLocalTargets({ standard: fixtureStandardTarget, unfinished: {} })).toThrow(
+      'need an object for workers',
+    )
+    expect(parseCloudflareLocalTargets({})).toEqual({})
+  })
 
   test('the same Worker and database names do not choose the same account or resources', () => {
     const standard = resolveCloudflareTarget('standard', fixtureTargetOptions)
@@ -89,7 +142,9 @@ describe('Cloudflare target selection', () => {
     expect(cloudflarePublicVariables(fixtureAlternateTarget, 'bot').ALLOWED_DISCORD_GUILD_IDS).toBe(
       fixtureAlternateTarget.discord.guildId,
     )
-    expect(cloudflarePublicVariables(fixtureAlternateTarget, 'activity')).not.toHaveProperty('ALLOWED_DISCORD_GUILD_IDS')
+    expect(cloudflarePublicVariables(fixtureAlternateTarget, 'activity')).not.toHaveProperty(
+      'ALLOWED_DISCORD_GUILD_IDS',
+    )
   })
 
   test('neither target falls back to the public example when local settings are missing', () => {
@@ -187,7 +242,9 @@ describe('Cloudflare target selection', () => {
     expect(result.status, result.stderr || String(result.error ?? '')).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({
       targets: [fixtureStandardTarget, fixtureAlternateTarget],
-      provisioning: ['standard', 'alternate'].map(name => resolveCloudflareProvisioningTarget(name, fixtureTargetOptions)),
+      provisioning: ['standard', 'alternate'].map(name =>
+        resolveCloudflareProvisioningTarget(name, fixtureTargetOptions),
+      ),
     })
   })
 })
@@ -210,7 +267,7 @@ describe('Cloudflare resource creation target selection', () => {
       const examples: Record<CloudflareTargetName, CloudflareTarget> = JSON.parse(
         readFileSync(new URL('../config/cloudflare-targets.local.example.json', import.meta.url), 'utf8'),
       )
-      const example = examples[name]
+      const example = examples[name]!
       const fixture = fixtureLocalTargets[name]!
       const localTargets = { [name]: { ...example, accountId: fixture.accountId, r2: fixture.r2 } }
       withLocalTargetsFile(JSON.stringify(localTargets), localTargetsFile => {
@@ -237,16 +294,19 @@ describe('Cloudflare resource creation target selection', () => {
     },
   )
 
-  test.each(['standard', 'alternate'] as const)('%s creation accepts injected minimal settings and omits absent R2', name => {
-    const fixture = fixtureLocalTargets[name]!
-    const target = { accountId: fixture.accountId, d1: { name: 'fixture-database' } }
-    expect(resolveCloudflareProvisioningTarget(name, { localTargets: { [name]: target } })).toEqual(target)
-    expect(resolveCloudflareProvisioningTarget(name, fixtureTargetOptions)).toEqual({
-      accountId: fixture.accountId,
-      d1: { name: fixture.d1.name },
-      r2: { name: fixture.r2!.name },
-    })
-  })
+  test.each(['standard', 'alternate'] as const)(
+    '%s creation accepts injected minimal settings and omits absent R2',
+    name => {
+      const fixture = fixtureLocalTargets[name]!
+      const target = { accountId: fixture.accountId, d1: { name: 'fixture-database' } }
+      expect(resolveCloudflareProvisioningTarget(name, { localTargets: { [name]: target } })).toEqual(target)
+      expect(resolveCloudflareProvisioningTarget(name, fixtureTargetOptions)).toEqual({
+        accountId: fixture.accountId,
+        d1: { name: fixture.d1.name },
+        r2: { name: fixture.r2!.name },
+      })
+    },
+  )
 
   test.each(['', ' ', 'YOUR_ALTERNATE_ACCOUNT_ID', '1'.repeat(31), 'g'.repeat(32)])(
     'rejects an invalid creation account: %s',

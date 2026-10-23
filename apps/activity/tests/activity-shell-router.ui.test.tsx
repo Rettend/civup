@@ -372,6 +372,45 @@ afterEach(() => {
 afterAll(() => mocks.dispose())
 
 describe('the rendered Activity router and shell', () => {
+  test('surfaces a rejected startup snapshot instead of staying on the connecting screen', async () => {
+    mocks.launch.mockRejectedValueOnce(new Error('Synthetic request rejected'))
+    render(() => <App />)
+    await screen.findByText('Could not load your lobby. Try again.', {}, { timeout: 10_000 })
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy diagnostics' })).toBeTruthy()
+    expect(screen.queryByText('Connecting to CivUp...')).toBeNull()
+    expect(screen.queryByText('Synthetic request rejected')).toBeNull()
+  }, 15_000)
+
+  test('times out a hung startup snapshot and ignores its late response after retry', async () => {
+    const pending = deferred<ActivityLaunchSnapshot>()
+    const schedule = globalThis.setTimeout
+    let expire!: () => void
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      const timer = schedule(callback, delay, ...args)
+      if (delay === 20_000) {
+        expire = () => {
+          clearTimeout(timer)
+          if (typeof callback === 'function') callback(...args)
+        }
+      }
+      return timer
+    })
+    mocks.launch.mockReturnValueOnce(pending.promise)
+    render(() => <App />)
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1))
+    expire()
+    await screen.findByText('Could not load your lobby. Try again.')
+    mocks.launch.mockResolvedValue(snapshot(matchSelection('new-match')))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await heading('Draft new-match')
+    pending.resolve(snapshot(matchSelection('late-match')))
+    await pending.promise
+    flush()
+    expect(screen.queryByRole('heading', { name: 'Draft late-match' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Draft new-match' })).toBeTruthy()
+  })
+
   test.each(['/', '/lobby/lobby-1', '/draft/match-1'])(
     'offers a retry when the initial lobby request fails at %s and opens the lobby after retrying',
     async path => {
@@ -648,6 +687,8 @@ describe('the rendered Activity router and shell', () => {
     mocks.overviewOptions = []
     render(() => <App />)
     await heading('Overview')
+    // Finish the initial refresh before requesting an independent background refresh.
+    await new Promise(resolve => setTimeout(resolve, 0))
     mocks.launch.mockImplementation(() => pending.promise)
     fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2))

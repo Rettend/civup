@@ -114,6 +114,8 @@ Pick the Cloudflare account first, then fill the `standard` entry in ignored `co
 
 Set the account ID, guild ID, Activity origin, and Discord application ID and public key. The configs derive both Workers' public variables and service binding from these values. Keep secrets in the secret files. Checked-in settings are examples; commands require your local target settings.
 
+For additional deployments, add entries with your own lowercase target names to the same local file. Pass `--target <name>` to the Worker and administration scripts. Registration uses `apps/bot/.<name>.secrets` for custom targets; `--env-file <path>` selects another secret file.
+
 Find or change the account's `workers.dev` subdomain on the Cloudflare **Workers & Pages** page under **Your subdomain**. With the checked-in Worker names, the Activity origin is `https://civup-activity.<account subdomain>.workers.dev`.
 
 `deploy:prod` selects the `standard` target. Selecting a target does not select remote storage: migration and maintenance commands choose local or remote separately.
@@ -216,6 +218,7 @@ Activity tests run through Vite+ and Vitest with the Solid compiler. Bot and pac
 
 The `tsc` command uses native TypeScript 7. The `typescript` dependency supplies TypeScript 6's JavaScript API for lint plugins that still need it.
 
+Keep internal notes in ignored `docs/` and deployment-specific tools and data in ignored `.local/`. Public documentation and tests must use example settings and synthetic identities. Deployment names and checks for private identities belong in local configuration too.
 
 Wrangler remains installed for bot bundling and operations the pinned `cf` cannot preserve: the bot's tagged Durable Object migrations and `keep_vars`, stdin secret uploads, and complete remote KV listing. Local D1 typed bindings and SQL scripts use Miniflare where `cf` would lose values or results; local KV listing also uses Miniflare. These adapters consume the shared target data. Generated configuration and build output live under ignored `.cloudflare` directories.
 

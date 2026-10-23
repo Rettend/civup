@@ -1040,9 +1040,10 @@ export async function fetchMatchForUser(userId: string): Promise<string | null> 
 export async function fetchActivityLaunchSnapshot(
   channelId: string,
   userId: string,
+  signal?: AbortSignal,
 ): Promise<ActivityLaunchSnapshot | null> {
   try {
-    return await activityApiGet<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`)
+    return await activityApiGet<ActivityLaunchSnapshot>(`/api/activity/launch/${channelId}/${userId}`, { signal })
   } catch (err) {
     console.error('Failed to fetch activity launch snapshot:', err)
     return null

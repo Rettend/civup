@@ -34,6 +34,7 @@ import {
 import { fetchActivityAdminCapabilities, NO_ACTIVITY_ADMIN_CAPABILITIES } from '../lib/admin-capabilities'
 import { getAutosaveUploadErrorMessage, uploadAutosaveMultipart } from '../lib/autosave-upload'
 import { relayDevLog } from '../lib/dev-log'
+import { recordStartupDiagnostic, startupStage } from '../lib/startup-diagnostics'
 import {
   bootstrapBrowserChannel,
   bootstrapBrowserSession,
@@ -746,6 +747,8 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     const requestVersion = ++launchSnapshotRequestVersion
     const routeRequestVersion = browserRouteRequestVersion
     const liveStateRevisionAtStart = liveStateRevision
+    const initialLoad = state().status === 'loading'
+    const refreshRequestAtStart = refreshInFlight
     if (surface === 'web' && route?.kind === 'channel') {
       const bootstrap = await bootstrapBrowserChannel(route.channelId)
       if (
@@ -760,7 +763,19 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       hydrateActivityLaunchSnapshot(bootstrap.context.snapshot)
       return
     }
-    const snapshot = await fetchActivityLaunchSnapshot(channelId, userId)
+    let snapshot: ActivityLaunchSnapshot | null
+    try {
+      snapshot = initialLoad
+        ? await startupStage('First lobby snapshot', async signal => {
+            const initial = await fetchActivityLaunchSnapshot(channelId, userId, signal)
+            if (!initial) throw new Error('Initial lobby request failed')
+            return initial
+          })
+        : await fetchActivityLaunchSnapshot(channelId, userId)
+    } catch (error) {
+      recordStartupDiagnostic('First lobby snapshot', 'request failed', error)
+      snapshot = null
+    }
 
     if (
       disposed ||
@@ -778,6 +793,10 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
     ) {
       return
     }
+
+    // The first usable screen can accept clicks before the caller's finally runs.
+    // Release only this completed startup request, never a newer refresh.
+    if (initialLoad && refreshInFlight === refreshRequestAtStart) refreshInFlight = null
 
     if (!snapshot) {
       if (state().status === 'loading') {
@@ -1596,10 +1615,12 @@ export default function ActivityShell(props: { surface: 'web' | 'discord-embedde
       } catch (err) {
         if (disposed) return
         console.error('Discord SDK setup failed:', err)
+        recordStartupDiagnostic('Discord startup', 'failed', err)
         relayDevLog('error', 'Activity app setup failed', err)
         setState({
           status: 'error',
           message: 'Could not open the activity.',
+          onRetry: () => window.location.reload(),
         })
       }
     })()

@@ -34,7 +34,7 @@ function temporaryDirectory(): string {
 
 function identity(
   worker: 'bot' | 'activity' = 'activity',
-  targetName: 'standard' | 'alternate' = 'standard',
+  targetName: string = 'standard',
   mode: 'development' | 'production' = 'production',
   target: CloudflareTarget = targetName === 'standard' ? cloudflareTargets.standard : fixtureAlternateTarget,
 ): BuildIdentity {
@@ -166,9 +166,19 @@ describe('Worker lifecycle command selection', () => {
     expect(parseWorkerRequest(['live', 'activity', '--target', 'standard', '--', '--force']).mode).toBe('development')
   })
 
+  test('accepts arbitrary target names and rejects missing or unsafe target options', () => {
+    expect(parseWorkerRequest(['build', 'bot', '--target', 'weekend-2']).targetName).toBe('weekend-2')
+    expect(() => parseWorkerRequest(['build', 'bot', '--target'])).toThrow('CIVUP_TARGET')
+    for (const name of ['../outside', 'constructor', 'two/parts'])
+      expect(() => parseWorkerRequest(['build', 'bot', '--target', name])).toThrow('Use a target name')
+  })
+
   test('uses the explicit Node Wrangler and Vite+ builders with the selected account and mode', () => {
     for (const worker of ['bot', 'activity'] as const) {
-      const plan = createWorkerPlan(parseWorkerRequest(['build', worker, '--target', 'alternate']), fixtureAlternateTarget)
+      const plan = createWorkerPlan(
+        parseWorkerRequest(['build', worker, '--target', 'alternate']),
+        fixtureAlternateTarget,
+      )
       const command = plan.steps.find(step => step.kind === 'command')!
       expect(command.kind).toBe('command')
       if (command.kind !== 'command') throw new Error('Missing build command')

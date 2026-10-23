@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
-export type CloudflareTargetName = 'standard' | 'alternate'
+export type CloudflareTargetName = string
 export type CloudflareWorker = 'bot' | 'activity'
 export type CloudflareStorageLocation = 'local' | 'remote'
 
@@ -54,10 +54,7 @@ export interface CloudflareStorageSelection {
   readonly persistenceDirectory: string | undefined
 }
 
-export interface CloudflareLocalTargets {
-  readonly standard?: CloudflareTarget
-  readonly alternate?: CloudflareTarget
-}
+export type CloudflareLocalTargets = Readonly<Partial<Record<CloudflareTargetName, CloudflareTarget>>>
 
 export interface CloudflareTargetOptions {
   readonly localTargets?: CloudflareLocalTargets
@@ -99,7 +96,7 @@ export const botDurableObjectMigrations = [
 export const botCronSchedules = ['0 * * * *', '*/15 * * * *', '0 0,2,4,6,8,10,12,14,16,18,20 * * *'] as const
 
 // Synthetic example only, never a deployment fallback. Importing performs no I/O
-// or env loading. Both deployment identities live in the ignored local JSON file.
+// or env loading. Deployment identities live in the ignored local JSON file.
 export const cloudflareTargets = {
   standard: {
     accountId: '33333333333333333333333333333333',
@@ -239,10 +236,12 @@ function parseCloudflareTarget(settings: unknown, targetName: CloudflareTargetNa
 
 export function parseCloudflareLocalTargets(value: unknown): CloudflareLocalTargets {
   const root = object(value, 'targets')
-  return {
-    ...(root.standard === undefined ? {} : { standard: parseCloudflareTarget(root.standard, 'standard') }),
-    ...(root.alternate === undefined ? {} : { alternate: parseCloudflareTarget(root.alternate, 'alternate') }),
-  }
+  return Object.fromEntries(
+    Object.entries(root).map(([name, settings]) => [
+      resolveCloudflareTargetName(name),
+      parseCloudflareTarget(settings, name),
+    ]),
+  )
 }
 
 function readCloudflareLocalTargets(file: string | URL = defaultLocalTargetsFile): unknown {
@@ -273,8 +272,17 @@ export function loadCloudflareLocalTargets(file: string | URL = defaultLocalTarg
 }
 
 export function resolveCloudflareTargetName(value: string | undefined): CloudflareTargetName {
-  if (value === 'standard' || value === 'alternate') return value
-  throw new Error('Set CIVUP_TARGET to standard or alternate explicitly.')
+  if (value === undefined || value === '') throw new Error('Set CIVUP_TARGET explicitly to a local target name.')
+  if (
+    !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) ||
+    value === 'prototype' ||
+    Object.hasOwn(Object.prototype, value)
+  ) {
+    throw new Error(
+      'Use a target name with lowercase letters, numbers, and single hyphens, starting with a letter. Reserved object names are not allowed.',
+    )
+  }
+  return value
 }
 
 export function resolveCloudflareTarget(
@@ -283,10 +291,10 @@ export function resolveCloudflareTarget(
 ): CloudflareTarget {
   const name = resolveCloudflareTargetName(value)
   const local = options.localTargets ?? object(readCloudflareLocalTargets(options.localTargetsFile), 'targets')
-  const target = local[name]
+  const target = Object.hasOwn(local, name) ? local[name] : undefined
   if (target === undefined) throw new Error(missingTargetMessage(name))
-  // A copied example can still contain unfinished settings for the other target.
-  return options.localTargets ? options.localTargets[name]! : parseCloudflareTarget(target, name)
+  // A copied example can still contain unfinished settings for other targets.
+  return parseCloudflareTarget(target, name)
 }
 
 function provisioningTarget(value: unknown, name: CloudflareTargetName): CloudflareProvisioningTarget {
@@ -308,7 +316,7 @@ export function resolveCloudflareProvisioningTarget(
 ): CloudflareProvisioningTarget {
   const name = resolveCloudflareTargetName(value)
   const local = object(options.localTargets ?? readCloudflareLocalTargets(options.localTargetsFile), 'targets')
-  if (local[name] === undefined) throw new Error(missingTargetMessage(name))
+  if (!Object.hasOwn(local, name) || local[name] === undefined) throw new Error(missingTargetMessage(name))
   return provisioningTarget(local[name], name)
 }
 

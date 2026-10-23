@@ -46,7 +46,7 @@ export async function runCivBackfill(
   const options = parseCivBackfillOptions(values, defaults)
   if (options.command === 'help') {
     console.log(
-      'Usage: backfill-civ-leaderboard.ts estimate|preview|apply [--target standard|alternate] [--local|--remote] [--repair] [--execute] [--json]',
+      'Usage: backfill-civ-leaderboard.ts estimate|preview|apply [--target <name>] [--local|--remote] [--repair] [--execute] [--json]',
     )
     console.log(`Default: ${defaults.target} ${defaults.location}. Apply requires --execute.`)
     return

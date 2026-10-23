@@ -26,9 +26,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .dev.vars
 .prod.vars
 .prod.secrets
-.alternate.env
-.alternate.secrets
-.alternate.vars
 .*.vars
 .*.secrets
 !.env.example
@@ -36,7 +33,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 !.*.vars.example
 !.*.secrets.example
 /config/cloudflare-targets.local.json
-**/wrangler.alternate.*
 
 # Cloudflare Workers local secrets
 .dev.vars
@@ -60,7 +56,7 @@ cloudflared.dev.yml
 
 # Internal documents and deployment-specific tools stay local.
 /docs/
-/alternate/
+/.local/
 /*.md
 !/AGENTS.md
 !/README.md

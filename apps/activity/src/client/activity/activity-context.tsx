@@ -8,6 +8,7 @@ import type {
 import type { JSX } from '@solidjs/web'
 import type { Accessor } from 'solid-js'
 import { createContext, Show, useContext } from 'solid-js'
+import { CopyDiagnostics } from '../components/CopyDiagnostics'
 import { Button } from '../components/ui/Button'
 
 export type ActivityState =
@@ -71,6 +72,7 @@ export function ActivityLoadingPage(): JSX.Element {
       <div class="text-center">
         <div class="text-2xl text-accent font-bold mb-2">CivUp</div>
         <div class="text-sm text-fg-muted">Connecting to CivUp...</div>
+        <CopyDiagnostics />
       </div>
     </main>
   )
@@ -87,6 +89,7 @@ export function ActivityErrorPage(props: { message: string; onRetry?: () => void
             Retry
           </Button>
         </Show>
+        <CopyDiagnostics />
       </div>
     </main>
   )

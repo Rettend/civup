@@ -10,7 +10,7 @@ interface Options {
   action: Action
   config?: string
   target?: string
-  database: string
+  database?: string
   remote: boolean
   yes: boolean
   batchSize: number
@@ -36,7 +36,7 @@ const usage = [
   'Flags:',
   '  --local             Use local D1 storage (default)',
   '  --remote            Use remote D1 storage',
-  '  --target <name>     Select standard or alternate (default: CIVUP_TARGET or standard)',
+  '  --target <name>     Select a configured target (default: CIVUP_TARGET or standard)',
   '  --database <id>     Assert the selected database name or ID; cannot retarget it',
   '  --batch-size <n>    Matches per apply batch (default: 500)',
   '  --verify            Run a full estimate after apply',
@@ -387,7 +387,6 @@ function parseOptions(args: string[]): Options {
 
   const options: Options = {
     action,
-    database: 'civup',
     remote: false,
     yes: false,
     batchSize: 500,

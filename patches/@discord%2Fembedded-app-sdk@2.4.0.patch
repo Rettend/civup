@@ -1,0 +1,147 @@
+diff --git a/output/schema/events.cjs b/output/schema/events.cjs
+index 906238b2f983a20b1beecb2842e870749e3b3561..b30191c8d4d467c01f952855e860db5cefe1c994 100644
+--- a/output/schema/events.cjs
++++ b/output/schema/events.cjs
+@@ -87,7 +87,7 @@ const EventSchema = {
+                     id: index.string(),
+                     username: index.string(),
+                     discriminator: index.string(),
+-                    avatar: index.string().optional(),
++                    avatar: index.string().optional().nullable(),
+                 })
+                     .optional(),
+             }),
+diff --git a/output/schema/events.d.ts b/output/schema/events.d.ts
+index fb5524834cb89c6040658015baafed09e57e4116..951c6634c1db32a60e1408d418a5d7f1c8363b7d 100644
+--- a/output/schema/events.d.ts
++++ b/output/schema/events.d.ts
+@@ -344,17 +344,17 @@ export declare const EventSchema: {
+                     id: zod.ZodString;
+                     username: zod.ZodString;
+                     discriminator: zod.ZodString;
+-                    avatar: zod.ZodOptional<zod.ZodString>;
++                    avatar: zod.ZodNullable<zod.ZodOptional<zod.ZodString>>;
+                 }, "strip", zod.ZodTypeAny, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }>>;
+             }, "strip", zod.ZodTypeAny, {
+                 v: number;
+@@ -367,7 +367,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }, {
+                 v: number;
+@@ -380,7 +380,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }>;
+         }>, "passthrough", zod.ZodTypeAny, zod.objectOutputType<zod.objectUtil.extendShape<zod.objectUtil.extendShape<{
+@@ -414,17 +414,17 @@ export declare const EventSchema: {
+                     id: zod.ZodString;
+                     username: zod.ZodString;
+                     discriminator: zod.ZodString;
+-                    avatar: zod.ZodOptional<zod.ZodString>;
++                    avatar: zod.ZodNullable<zod.ZodOptional<zod.ZodString>>;
+                 }, "strip", zod.ZodTypeAny, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }>>;
+             }, "strip", zod.ZodTypeAny, {
+                 v: number;
+@@ -437,7 +437,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }, {
+                 v: number;
+@@ -450,7 +450,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }>;
+         }>, zod.ZodTypeAny, "passthrough">, zod.objectInputType<zod.objectUtil.extendShape<zod.objectUtil.extendShape<{
+@@ -484,17 +484,17 @@ export declare const EventSchema: {
+                     id: zod.ZodString;
+                     username: zod.ZodString;
+                     discriminator: zod.ZodString;
+-                    avatar: zod.ZodOptional<zod.ZodString>;
++                    avatar: zod.ZodNullable<zod.ZodOptional<zod.ZodString>>;
+                 }, "strip", zod.ZodTypeAny, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }, {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 }>>;
+             }, "strip", zod.ZodTypeAny, {
+                 v: number;
+@@ -507,7 +507,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }, {
+                 v: number;
+@@ -520,7 +520,7 @@ export declare const EventSchema: {
+                     username: string;
+                     discriminator: string;
+                     id: string;
+-                    avatar?: string | undefined;
++                    avatar?: string | null | undefined;
+                 } | undefined;
+             }>;
+         }>, zod.ZodTypeAny, "passthrough">>;
+diff --git a/output/schema/events.mjs b/output/schema/events.mjs
+index ac99c365587ed13a95a8f6dea56e483181b49a76..51790e5ec0d9f8709a8a56d7608e18cf8804e4c0 100644
+--- a/output/schema/events.mjs
++++ b/output/schema/events.mjs
+@@ -85,7 +85,7 @@ const EventSchema = {
+                     id: stringType(),
+                     username: stringType(),
+                     discriminator: stringType(),
+-                    avatar: stringType().optional(),
++                    avatar: stringType().optional().nullable(),
+                 })
+                     .optional(),
+             }),

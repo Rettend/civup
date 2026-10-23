@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
+import type { CloudflareTargetName } from '../../../config/cloudflare-targets.ts'
 import { fileURLToPath } from 'node:url'
 import { repositoryRoot } from './local-storage.ts'
 import { createMaintenanceClient } from './maintenance-cloudflare.ts'
 
-type ReadRequest = { target?: string; defaultTarget: 'alternate' | 'standard'; location: 'local' | 'remote' } & (
+type ReadRequest = { target?: string; defaultTarget: CloudflareTargetName; location: 'local' | 'remote' } & (
   | { operation: 'd1Query'; sql: string }
   | { operation: 'kvGet'; key: string }
 )

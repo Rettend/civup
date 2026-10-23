@@ -57,7 +57,7 @@ export function parseWorkerRequest(args: string[]): WorkerRequest {
     (worker !== 'bot' && worker !== 'activity')
   )
     throw new Error(
-      'Usage: cloudflare-worker.ts <build|deploy|dev|preview|live> <bot|activity> --target <standard|alternate> [--mode development|production] [--prebuilt] [--print-commands]',
+      'Usage: cloudflare-worker.ts <build|deploy|dev|preview|live> <bot|activity> --target <name> [--mode development|production] [--prebuilt] [--print-commands]',
     )
   let target: string | undefined
   let mode: string | undefined

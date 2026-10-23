@@ -50,7 +50,7 @@ function main(): number {
   const [worker, sourceFile, ...args] = process.argv.slice(2)
   if ((worker !== 'bot' && worker !== 'activity') || !sourceFile) {
     throw new Error(
-      'Usage: bun scripts/upload-worker-secrets.ts <bot|activity> <env-file> --target <standard|alternate> [--dry-run|--print-commands]',
+      'Usage: bun scripts/upload-worker-secrets.ts <bot|activity> <env-file> --target <name> [--dry-run|--print-commands]',
     )
   }
 
@@ -61,7 +61,7 @@ function main(): number {
     const argument = args[i]
     if (argument === '--target') {
       targetName = args[++i]
-      if (!targetName || targetName.startsWith('--')) throw new Error('--target requires standard or alternate.')
+      if (!targetName || targetName.startsWith('--')) throw new Error('--target requires a local target name.')
     } else if (argument === '--dry-run') dryRun = true
     else if (argument === '--print-commands') printCommands = true
     else throw new Error(`Unknown secret upload option: ${argument}`)

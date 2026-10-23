@@ -97,5 +97,8 @@
     "vitest": "5.0.1",
     "@vitest/coverage-v8": "5.0.1",
     "@vitest/ui": "5.0.1"
+  },
+  "patchedDependencies": {
+    "@discord/embedded-app-sdk@2.4.0": "patches/@discord%2Fembedded-app-sdk@2.4.0.patch"
   }
 }

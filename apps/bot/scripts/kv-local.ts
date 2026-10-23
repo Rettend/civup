@@ -18,7 +18,7 @@ const usage = [
   '',
   'Flags:',
   '  --all           Include expired keys',
-  '  --target <name> Select standard or alternate local namespace (default: CIVUP_TARGET or standard)',
+  '  --target <name> Select a configured local namespace (default: CIVUP_TARGET or standard)',
   '',
   'Commands:',
   '  list [prefix]   List keys and expiration timestamps',

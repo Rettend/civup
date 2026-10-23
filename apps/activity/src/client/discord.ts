@@ -3,6 +3,7 @@ import { DiscordSDK } from '@discord/embedded-app-sdk'
 import { api, ApiError } from '@civup/utils'
 import { cacheActivitySessionToken, clearActivitySessionToken, getActivitySessionToken } from './lib/activity-session'
 import { relayDevLog } from './lib/dev-log'
+import { startupStage } from './lib/startup-diagnostics'
 
 export type Auth = CommandResponse<'authenticate'>
 
@@ -130,7 +131,7 @@ function getRedirectUri(): string {
 
 async function setupDiscordSdkInternal(): Promise<Auth> {
   relayDevLog('info', 'Waiting for Discord SDK ready')
-  await discordSdk.ready()
+  await startupStage('Discord ready', () => discordSdk.ready())
   relayDevLog('info', 'Discord SDK ready', {
     channelId: discordSdk.channelId,
     guildId: discordSdk.guildId,
@@ -142,7 +143,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   if (cachedToken && cachedActivitySession) {
     try {
       relayDevLog('info', 'Using cached Discord access token')
-      return await authenticateWithToken(cachedToken)
+      return await startupStage('Cached authentication', () => authenticateWithToken(cachedToken))
     } catch (error) {
       relayDevLog('warn', 'Cached Discord access token failed, clearing it', error)
       clearCachedToken()
@@ -158,13 +159,18 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   const redirectUri = getRedirectUri()
   let code: string
   try {
-    const response = await discordSdk.commands.authorize({
-      client_id: CLIENT_ID,
-      response_type: 'code',
-      state: '',
-      prompt: 'none',
-      scope: ['identify', 'guilds', 'guilds.members.read'],
-    })
+    const response = await startupStage(
+      'Discord authorization',
+      () =>
+        discordSdk.commands.authorize({
+          client_id: CLIENT_ID,
+          response_type: 'code',
+          state: '',
+          prompt: 'none',
+          scope: ['identify', 'guilds', 'guilds.members.read'],
+        }),
+      90_000,
+    )
     code = response.code
   } catch (error) {
     const payload = error as AuthorizeErrorPayload
@@ -180,10 +186,16 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
   let payload: TokenExchangeResponse
   try {
     relayDevLog('info', 'Exchanging Discord authorization code for access token')
-    payload = await api.post<TokenExchangeResponse>('/api/token', {
-      code,
-      redirectUri,
-    })
+    payload = await startupStage('Token exchange', signal =>
+      api.post<TokenExchangeResponse>(
+        '/api/token',
+        {
+          code,
+          redirectUri,
+        },
+        { signal },
+      ),
+    )
   } catch (err: unknown) {
     if (!(err instanceof ApiError)) throw err
 
@@ -219,7 +231,7 @@ async function setupDiscordSdkInternal(): Promise<Auth> {
     expiresIn: payload.expires_in ?? null,
     hasActivitySession: true,
   })
-  const auth = await authenticateWithToken(payload.access_token)
+  const auth = await startupStage('Fresh authentication', () => authenticateWithToken(payload.access_token!))
   cacheToken(payload.access_token, payload.expires_in)
   cacheActivitySessionToken(payload.activity_session_token, payload.activity_session_expires_in)
 

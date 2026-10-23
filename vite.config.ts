@@ -131,7 +131,7 @@ export default defineConfig({
       {
         files: [
           'scripts/**',
-          'alternate/**',
+          '.local/**',
           '**/scripts/**',
           'apps/bot/tests/**',
           'packages/**/tests/**',
@@ -189,9 +189,7 @@ export default defineConfig({
       'bun.lock',
       'apps/activity/public/**',
       'packages/game/data/**',
-      'alternate/data/**',
-      'alternate/reports/**',
-      'alternate/snapshots/**',
+      '.local/**',
     ],
   },
 })

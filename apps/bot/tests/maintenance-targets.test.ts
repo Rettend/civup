@@ -77,10 +77,34 @@ describe('maintenance target defaults and identity', () => {
     expect(maintenanceTargetName({ config: 'wrangler.jsonc', environmentTarget: 'standard' })).toBe('standard')
     expect(() => maintenanceTargetName({ config: 'custom.jsonc', target: 'alternate' })).toThrow('arbitrary')
     expect(() => maintenanceTargetName({ config: 'wrangler.jsonc', target: 'alternate' })).toThrow('conflicts')
+    expect(() => maintenanceTargetName({ config: 'standard', target: 'alternate' })).toThrow('conflicts')
+    expect(() => maintenanceTargetName({ config: 'wrangler.alternate.jsonc', target: 'alternate' })).toThrow('--target')
     expect(() =>
       createMaintenanceClient({ target: 'alternate', database: 'another-database' }, 'remote', targetOptions),
     ).toThrow('does not match')
   })
+
+  test('accepts arbitrary configured names without changing the storage location', () => {
+    const target = 'team-archive'
+    const settings = { ...custom, d1: { ...custom.d1, name: 'archive-matches' } }
+    const options = { localTargets: { [target]: settings } }
+    for (const location of ['local', 'remote'] as const) {
+      const runtime = createMaintenanceClient({ target }, location, options)
+      expect(runtime.selection).toMatchObject({ target, location, accountId: settings.accountId, d1: settings.d1 })
+      expect(createMaintenanceClient({ target, database: settings.d1.name }, location, options).selection.d1).toEqual(
+        settings.d1,
+      )
+    }
+    expect(maintenanceTargetName({ environmentTarget: target })).toBe(target)
+    expect(() => createMaintenanceClient({ target: 'unconfigured' }, 'local', options)).toThrow('missing')
+  })
+
+  test.each(['../outside', 'invalid name', '__proto__', 'constructor'])(
+    'validates target names centrally: %s',
+    target => {
+      expect(() => maintenanceTargetName({ target })).toThrow()
+    },
+  )
 
   test.each(['local', 'remote'] as const)(
     'binds the same-name database and KV to the selected account for %s',
