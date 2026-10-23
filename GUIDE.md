@@ -19,12 +19,10 @@ This will create a Lobby and join you as the host. The `Join` button will open t
 > [!NOTE]
 > The **Steam link** parameter is optional, it can be set inside the Activity too, even while the draft is ongoing, or after it's done. See [Steam lobby link](#steam-lobby-link) below.
 
-
 > [!IMPORTANT]
 > The Lobby is this embed and it's separate from the Activity, you can open and close the Activity and it won't affect the Lobby. Think of the Activity as another view into the same underlying lobby.
 
 2. ### Wait for players to join
-
 
 Once the Activity is open, you can see the players and the lobby settings. Drag players to move them around, and click on the `X` button next to a player to remove them. The host can move everyone, while players can only move themselves.
 
@@ -37,8 +35,7 @@ Once the Activity is open, you can see the players and the lobby settings. Drag 
 > ![steam button](images/steam-button.webp) ![steam button active](images/steam-button-active.webp)
 
 > [!TIP]
-> To keep the Activity open and still be able to use Discord, just minimize it and it turns into a small widget:
->
+> To keep the Activity open and still be able to use Discord, minimize it into a small widget.
 
 When the lobby is full, use the `Start Draft` button.
 
@@ -50,12 +47,9 @@ There are 3 ways to join a lobby:
 
 - **Clicking the `Join` button on the lobby embed**: this opens the Activity and adds you to the lobby.
 
-
 - **Opening the Activity directly**: when someone is in the Activity, it's possible to open it directly from the text channel
 
-
 This opens the **Lobby Overview** page where you can see every lobby.
-
 
 > [!NOTE]
 > This can also be accessed using the **Lobby Overview button** (top right)
@@ -63,7 +57,6 @@ This opens the **Lobby Overview** page where you can see every lobby.
 > ![lobby overview button](images/lobby-overview-button.webp)
 
 You can freely switch between lobbies by clicking on them, however, note that you will view them as a Spectator.
-
 
 To actually join a lobby you need to click on a seat.
 
@@ -84,19 +77,14 @@ The leader pool consists of a random subset of leaders, and it's shared between 
 >
 > ![leader grid button](images/leader-grid-toggle.webp)
 
-
 By default, bans are simultaneous and blind: everyone bans at the same time and the banned leaders are only revealed after everyone has finished banning. In team modes, only captains ban (the first seat in each team). If `Blind Bans` is OFF, `1v1` uses `121212`, team modes use `122112` for the ban phase.
 
-
 Click on leaders to select them, then use the `Confirm` button at the bottom to lock them in. Clicking on leaders also opens up a side pane with leader details, to open it without selecting the leader, use right click.
-
 
 2. ### Pick phase
 
 During the pick phase, clicking a leader displays it as 'hovered' to your teammates.
 
-
 3. ### Report the result
 
 After the draft is complete, the Activity can be closed. When the game is done, any player from the match can select the winner by clicking on the player's leader and then `Confirm`.
-
